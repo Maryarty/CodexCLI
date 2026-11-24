@@ -458,7 +458,6 @@ chat_status_1::computer_activity_keeps_reasoning_in_order_live_and_replayed	ui-p
 chat_status_1::computer_activity_out_of_order_completion_and_interruption	ui-pane	no 'Using computer' active row or interrupted tool-activity cell on the chat screen
 chat_status_1::computer_activity_preserves_boundaries_and_expanded_output	ui-pane	no 'Used computer' tool-activity cell or expanded transcript of tool output on the chat screen
 chat_status_1::daybreak_refusal_offers_enable_for_the_next_turn	ui-pane	no Daybreak notices or safety-recourse picker on the chat screen
-chat_status_1::final_answer_completion_restores_status_indicator_for_pending_steer	ui-pane	no pending-steer queue or status-indicator restore on the chat screen
 chat_status_1::esc_interrupt_pauses_active_goal_turn	ui-pane	no goal turn state or goal-paused footer on the chat screen
 chat_status_1::finalized_voice_transcript_renders_beside_the_streamed_cell	ui-pane	no realtime voice transcript row beside the streamed cell on the chat screen
 chat_status_1::missing_rate_limit_reached_type_does_not_prompt_or_refresh	ui-pane	no workspace-owner prompt on the chat screen
@@ -476,7 +475,6 @@ chat_status_1::rolling_credits_preserve_depleted_workspace_error_routing	ui-pane
 chat_status_1::sparse_rate_limit_snapshot_preserves_member_limit_type_for_error_prompt	ui-pane	no request-limit-increase prompt on the chat screen
 chat_status_1::status_widget_active_snapshot	ui-pane	the Working row is on the chat screen (`• Working (0s • esc to interrupt)`), the rest of the oracle's snapshot is not: the header `Analyzing` comes from the bol
 chat_status_1::status_widget_and_approval_modal_snapshot	ui-pane	no status widget with an exec approval modal on the chat screen
-chat_status_1::streaming_final_answer_keeps_task_running_state	ui-pane	no final-answer status hiding: the chat screen shows Working while a turn runs and has no Tab-queue row
 chat_status_1::terminal_dynamic_activity_retains_calls_across_both_fallbacks	ui-pane	no dynamic tool-call cells (Calling / Called test.lookup) on the chat screen
 chat_status_1::turn_finalization_drains_lifecycle_queue_before_interrupting_remaining_calls	ui-pane	no interrupt queue (a pending user-input question and unfinished tool calls) on the chat screen
 chat_status_1::usage_limit_error_remaps_stale_member_credits_state_to_usage_limit_prompt	ui-pane	no request-limit-increase prompt on the chat screen
@@ -751,7 +749,6 @@ pager::opening_find_retains_the_selected_mutable_revision	chat-live	the selectio
 pager::select_enter_closes_and_remapped_action_marks_in_the_inline_overlay	chat-live	select and copy modes (transcript chunk steps 6-7) over `ItemTexts` per item (chunk-cells), and a remapped `find_transcript` (the sheet's keys are the defaults 
 pager::scrolling_prepend_and_resize_preserve_reading_content	chat-live	a history page prepended to the open sheet: a seeded sheet entry plays its notifications before the first draw and no route feeds it a `thread/turns/list` page 
 pager::transcript_overlay_snapshots_paginated_history_states	chat-live	the four history states (partial, loading, failed, complete) of the status row: the thread model keeps only whether older history can be loaded (`can_load_histo
-pane_footer_1::cancelling_history_search_preserves_a_typed_command_despite_attachment_previews	ui-pane	the history entry that carries a local and a remote image (`HistoryEntry::local_image_paths`, `remote_image_urls`, the attachment previews of a searched entry):
 pane_footer_1::copying_from_find_preserves_the_query_above_selection_feedback	ui-pane	the transcript Find footer (`Find: needle` above the composer, its cursor, the copy flash) is not built: the chat footer draws only the history-search row, and 
 pane_footer_1::effort_transition_keeps_the_full_footer_row	ui-pane	no footer flash (`show_flash`, `saved` for a second over the footer row) and no Plan-mode indicator (MODE_REASON): the effort animation lives in the status row 
 pane_footer_1::effort_transition_never_replaces_a_footer_flash	ui-pane	no footer flash (`show_flash`, `saved` for a second over the footer row) and no Plan-mode indicator (MODE_REASON): the effort animation lives in the status row 
@@ -793,10 +790,7 @@ pane_footer_2::delayed_approval_shortcut_works_after_idle_deadline	ui-pane	no de
 pane_footer_2::effort_ignition_animation_gallery_snapshot	ui-pane	no effort ignition gallery: no entry chat/effort_ignition_gallery (44x3: three styles, MAX and ULTRA, seven times each); the oracle snapshot is a sequence of 42
 pane_footer_2::esc_dismisses_slash_command_popup_without_interrupting_task	ui-pane	no running task with the slash command popup: no entry chat/running_slash_popup (`/rev` typed, 60 columns, 6 rows)
 pane_footer_2::esc_release_after_dismissing_agent_picker_does_not_interrupt_task	ui-pane	no running task with the agent picker open: no entry chat/running_agent_picker (picker titled `Agents`, a `Main` row); the kit cannot send a key release (gap)
-pane_footer_2::esc_with_agent_command_without_popup_does_not_interrupt_task	ui-pane	no running task with `/subagents ` typed: no entry chat/running_subagents_command
-pane_footer_2::esc_with_skill_popup_does_not_interrupt_task	ui-pane	no running task with a skill popup open: no entry chat/running_skill_popup (the `$` prompt typed while a task runs)
 pane_footer_2::escape_closes_shortcut_help_before_inline_banner	ui-pane	no entry chat/inline_banner_short (an inline banner `Continue working`, 80 columns; chat-live registers entries): the keys are page-tested on the backend banner
-pane_footer_2::flush_buffered_typing_in_background_and_covering_editors	ui-pane	no covering request-user-input overlay in the live chat (question `Which way?`, typed `modal`): the composer's buffered `main draft` must survive its paste-burs
 pane_footer_2::footer_snapshots	ui-pane	no footer states: no entries chat/<name> for the 23 footer snapshots (one per FooterProps the oracle builds; 1 row, 80 columns unless noted)
 pane_footer_2::hidden_banner_preserves_input_before_render_and_after_resize	ui-pane	no inline banner over the composer: no entry chat/inline_banner_usage_limit (70 columns, `Usage limit reached`, action `View usage`); the composer-gap variant (
 pane_footer_2::information_banner_preserves_input_and_honors_dismissal	ui-pane	no information banner: no entries chat/information_banner_persistent and chat/information_banner_dismissible (70 columns, `Usage limit reached`, `You can change
@@ -821,7 +815,6 @@ pane_footer_2::status_line_theme_colors_at_limited_color_depths	ui-pane	screen f
 pane_footer_2::status_only_snapshot	ui-pane	rows above the footer equal; the footer hint row differs: the oracle's chat widget has agents navigation off (the app calls `enable_agents_navigation`), ours al
 pane_footer_2::status_with_details_and_queued_messages_snapshot	ui-pane	rows above the footer equal; the footer hint row differs: the oracle's chat widget has agents navigation off (the app calls `enable_agents_navigation`), ours al
 pane_footer_2::transition_frames_snapshot	ui-pane	no effort status-line frames: no entry chat/effort_status_line_frames (32 columns, `gpt-5.4 high · main` to MAX and ULTRA at twelve times each); the oracle snap
-pane_footer_2::typed_approval_shortcuts_during_delay_stay_in_composer	ui-pane	no delayed exec approval in the live chat: typed `y` and `a` during the typing-idle delay stay in the composer as `ya kept`
 pane_footer_2::voice_controls_follow_configured_mute_binding_and_unbinding	ui-pane	no voice strip with a configurable mute key: entry chat/voice_strip_active with its mute key (f8, ctrl+x m, unbound: the seed sets chat.toggle_voice_mute); the 
 pane_footer_2::voice_footer_rendering_preserves_text_and_styles	ui-pane	no footer voice item: no entry chat/footer_voice_listen (40x1: `voice ● listen` and `ctrl+m mute`, with the cell styles)
 picker::choice_labels_and_descriptions_keep_complete_url_destinations	ui-pane	no entry with the wrapped URL rows (a 日本語 label with a long URL, a long URL description) in the eight prefix, wrap and single-line combinations: the select scre

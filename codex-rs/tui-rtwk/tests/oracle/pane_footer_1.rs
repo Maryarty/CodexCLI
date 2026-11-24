@@ -530,7 +530,6 @@ fn history_search_preserves_a_held_sparkle_command_without_reclassifying_it() {
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:762 cancelling_history_search_preserves_a_typed_command_despite_attachment_previews kind=ui owner=ui-pane
 #[test]
 fn cancelling_history_search_preserves_a_typed_command_despite_attachment_previews() {
-    kit::pending(Owner::UiPane, HISTORY_IMAGES_REASON);
     // `/status` is typed; the search previews an entry that has a local and a remote image
     // (their previews show over the composer); Esc restores `/status` and drops the previews, and
     // Enter runs the command: the sparkle then comes with Astra

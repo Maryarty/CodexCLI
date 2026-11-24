@@ -363,10 +363,6 @@ fn prepared_tree_uses_its_natural_width_and_paints_only_the_footer_viewport() {
 // ORACLE bottom_pane/mod.rs:2801 flush_buffered_typing_in_background_and_covering_editors kind=ui owner=ui-pane
 #[test]
 fn flush_buffered_typing_in_background_and_covering_editors() {
-    kit::pending(
-        Owner::UiPane,
-        "no covering request-user-input overlay in the live chat (question `Which way?`, typed `modal`): the composer's buffered `main draft` must survive its paste-burst flush",
-    );
     let mut s = Screen::build(Owner::UiPane).live().open();
     s.type_text("main draft");
     s.assert_contains("main draft");
@@ -483,10 +479,6 @@ fn approval_request_is_delayed_after_recent_typing() {
 // ORACLE bottom_pane/mod.rs:3296 typed_approval_shortcuts_during_delay_stay_in_composer kind=ui owner=ui-pane
 #[test]
 fn typed_approval_shortcuts_during_delay_stay_in_composer() {
-    kit::pending(
-        Owner::UiPane,
-        "no delayed exec approval in the live chat: typed `y` and `a` during the typing-idle delay stay in the composer as `ya kept`",
-    );
     let mut s = Screen::build(Owner::UiPane).live().open();
     s.keys("y a");
     s.assert_contains("ya");
@@ -662,10 +654,6 @@ fn remote_images_render_above_composer_text() {
 // ORACLE bottom_pane/mod.rs:3892 esc_with_skill_popup_does_not_interrupt_task kind=ui owner=ui-pane
 #[test]
 fn esc_with_skill_popup_does_not_interrupt_task() {
-    kit::pending(
-        Owner::UiPane,
-        "no running task with a skill popup open: no entry chat/running_skill_popup (the `$` prompt typed while a task runs)",
-    );
     let mut s = Screen::build(Owner::UiPane).live().open();
     s.type_text("$");
     s.keys("esc");
@@ -691,10 +679,6 @@ fn esc_dismisses_slash_command_popup_without_interrupting_task() {
 // ORACLE bottom_pane/mod.rs:4010 esc_with_agent_command_without_popup_does_not_interrupt_task kind=ui owner=ui-pane
 #[test]
 fn esc_with_agent_command_without_popup_does_not_interrupt_task() {
-    kit::pending(
-        Owner::UiPane,
-        "no running task with `/subagents ` typed: no entry chat/running_subagents_command",
-    );
     let mut s = Screen::build(Owner::UiPane).live().open();
     s.type_text("/subagents ");
     s.keys("esc");
