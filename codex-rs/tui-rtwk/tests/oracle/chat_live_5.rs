@@ -646,15 +646,11 @@ fn suppressed_interrupted_turn_notice_skips_history_warning() {
 // ORACLE chatwidget/tests/side.rs:71 slash_commands_without_side_flag_are_rejected_for_side_threads kind=ui owner=chat-live
 #[test]
 fn slash_commands_without_side_flag_are_rejected_for_side_threads() {
-    kit::pending(
-        Owner::ChatLive,
-        "the gate runs (the notice reaches the screen) but ours is a bare line above the composer that wraps at 80, where the oracle adds an error history cell '■ ...' (add_error_message): the command notices becoming transcript error rows is chat-commands' (core/src/commands, notice.rs)",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(r#"{"step":"screen","dir":"chat","ev":{"flags":{"side_conversation_active":true}}}"#);
     s.type_text("/review");
     s.keys("enter");
-    s.assert_contains(
+    s.assert_reads(
         "'/review' is unavailable in side conversations. Press Ctrl+C to return to the main thread first.",
     );
     // oracle: a composer draft "/fork" survives Esc and Enter (the remote image URL of the oracle is not a kit step).
@@ -666,15 +662,11 @@ fn slash_commands_without_side_flag_are_rejected_for_side_threads() {
 // ORACLE chatwidget/tests/side.rs:106 slash_side_is_rejected_for_side_threads kind=ui owner=chat-live
 #[test]
 fn slash_side_is_rejected_for_side_threads() {
-    kit::pending(
-        Owner::ChatLive,
-        "the gate runs but ours is a bare line above the composer that wraps at 80, where the oracle adds an error history cell '■ ...' (add_error_message): chat-commands' (command notices as transcript error rows)",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(r#"{"step":"screen","dir":"chat","ev":{"flags":{"side_conversation_active":true}}}"#);
     s.type_text("/side");
     s.keys("enter");
-    s.assert_contains(
+    s.assert_reads(
         "'/side' is unavailable in side conversations. Press Ctrl+C to return to the main thread first.",
     );
 }
@@ -737,33 +729,58 @@ fn side_aliases_request_forked_questions_while_task_running() {
 // ORACLE chatwidget/tests/side.rs:295 side_context_label_preserves_status_line_snapshot kind=snap owner=chat-live snap=side_context_label_preserves_status_line
 #[test]
 fn side_context_label_preserves_status_line_snapshot() {
+    let mut s = Screen::build(Owner::ChatLive).size(80, 6).live().open();
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"flags":{"side_conversation_active":true}}}"#);
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}"#);
+    s.feed(
+        r#"{"step":"screen","dir":"chat","ev":{"facts":{"side_label":"Side from main thread \u00b7 ctrl+/ to switch \u00b7 ctrl+c to close"}}}"#,
+    );
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"GPT-5.6-Sol","items":["model-name"]}}}"#);
+    // The composer's placeholder in a side conversation (`Ask a follow-up question`, row 2) is
+    // `bottom.rs`'s (status': a flag-keyed placeholder): the other rows are the oracle's.
+    let want = kit::snap_rows("side_context_label_preserves_status_line", "");
+    let ours = s.rows();
+    for at in (0..6).filter(|at| *at != 2) {
+        assert_eq!(ours[at].trim_end(), want[at].trim_end(), "row {at}:\n{}", s.text());
+    }
     kit::pending(
         Owner::ChatLive,
-        "no side-conversation context label on the chat screen (set_side_conversation_context_label 'Side from main thread · ctrl+/ to switch · ctrl+c to close' and status line 'model-name' are not seeds)",
+        "the composer's placeholder in a side conversation is `Ask a follow-up question` (flags.side_conversation_active): bottom.rs (status') sets the chat's placeholder only",
     );
-    let s = Screen::build(Owner::ChatLive).size(80, 6).live().open();
     s.assert_snap("side_context_label_preserves_status_line");
 }
 
 // ORACLE chatwidget/tests/side.rs:318 side_context_label_shows_parent_status_snapshot kind=snap owner=chat-live snap=side_context_label_shows_parent_status
 #[test]
 fn side_context_label_shows_parent_status_snapshot() {
+    let mut s = Screen::build(Owner::ChatLive).size(80, 6).live().open();
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"flags":{"side_conversation_active":true}}}"#);
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}"#);
+    s.feed(
+        r#"{"step":"screen","dir":"chat","ev":{"facts":{"side_label":"Side from main thread \u00b7 main needs input \u00b7 ctrl+/ to switch \u00b7 ctrl+c to close"}}}"#,
+    );
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"GPT-5.6-Sol","cwd":"/tmp/project","items":["model-with-reasoning","current-dir"]}}}"#);
+    // The composer's placeholder in a side conversation (`Ask a follow-up question`, row 2) is
+    // `bottom.rs`'s (status': a flag-keyed placeholder): the other rows are the oracle's.
+    let want = kit::snap_rows("side_context_label_shows_parent_status", "");
+    let ours = s.rows();
+    for at in (0..6).filter(|at| *at != 2) {
+        assert_eq!(ours[at].trim_end(), want[at].trim_end(), "row {at}:\n{}", s.text());
+    }
     kit::pending(
         Owner::ChatLive,
-        "no side-conversation context label on the chat screen (label 'Side from main thread · main needs input · ctrl+/ to switch · ctrl+c to close' is not a seed)",
+        "the composer's placeholder in a side conversation is `Ask a follow-up question` (flags.side_conversation_active): bottom.rs (status') sets the chat's placeholder only",
     );
-    let s = Screen::build(Owner::ChatLive).size(80, 6).live().open();
     s.assert_snap("side_context_label_shows_parent_status");
 }
 
 // ORACLE chatwidget/tests/side.rs:339 side_context_label_shows_hidden_side_snapshot kind=snap owner=chat-live snap=side_context_label_shows_hidden_side
 #[test]
 fn side_context_label_shows_hidden_side_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no hidden-side footer label on the chat screen ('ctrl+/ for side' context label is not a seed)",
-    );
-    let s = Screen::build(Owner::ChatLive).size(80, 6).live().open();
+    let mut s = Screen::build(Owner::ChatLive).size(80, 6).live().open();
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}"#);
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"facts":{"side_label":"ctrl+/ for side"}}}"#);
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"GPT-5.6-Sol","items":["model-name"]}}}"#);
     s.assert_snap("side_context_label_shows_hidden_side");
     // oracle: the 'ctrl+/' hint is the key style (bold), and 'for side' is the secondary style (not bold, not dim).
     s.assert_text_style("ctrl+/", "fg=Reset bold !dim");

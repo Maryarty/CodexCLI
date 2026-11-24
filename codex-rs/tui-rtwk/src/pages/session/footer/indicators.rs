@@ -9,7 +9,7 @@
 //! indicator says is read from the facts (`chat::facts::Footer`, the thread's
 //! goal); the words are `strings.rs`.
 
-use rtwk::style::{Attrs, Span};
+use rtwk::style::{Attrs, Span, Style};
 use rtwk::widgets::Text;
 
 use codex_tui_core::kit::vim::VimMode;
@@ -79,7 +79,8 @@ pub(super) fn agent_name(spec: &Spec, width: &dyn Fn(&str) -> usize) -> Option<V
 
 /// The side conversation's label (`side_conversation_context_line`): the
 /// opening word bold in the accent, the parts that end in a key hint with the
-/// key bold and the action secondary, the rest in the accent.
+/// key bold and the action secondary (`secondary_text_style`: the text's own
+/// colour, not dim), the rest in the accent.
 pub(super) fn side(spec: &Spec, label: &str, width: &dyn Fn(&str) -> usize) -> Vec<Form> {
     let own = spec.own;
     let tokens = &spec.tokens;
@@ -98,7 +99,7 @@ pub(super) fn side(spec: &Spec, label: &str, width: &dyn Fn(&str) -> usize) -> V
     };
     for (index, part) in rest.split(own.side_join).enumerate() {
         if index > 0 {
-            spans.push(Span::styled(own.side_join, tokens.dim()));
+            spans.push(Span::styled(own.side_join, Style::default()));
         }
         let hint = own
             .side_actions
@@ -107,7 +108,7 @@ pub(super) fn side(spec: &Spec, label: &str, width: &dyn Fn(&str) -> usize) -> V
         match hint {
             Some((keys, action)) => {
                 spans.push(Span::styled(keys.to_owned(), tokens.bold()));
-                spans.push(Span::styled(action, tokens.dim()));
+                spans.push(Span::styled(action, Style::default()));
             }
             None => spans.push(Span::styled(part.to_owned(), tokens.accent())),
         }
