@@ -392,6 +392,9 @@ async fn run(
         epoch,
         AppEv::Feature(settings_fact(&config).into()),
     );
+    for fact in small_facts(&config) {
+        emit(&ingress, epoch, AppEv::Feature(fact.into()));
+    }
     if !warnings.is_empty() {
         emit(
             &ingress,
@@ -508,16 +511,6 @@ async fn run(
                             handle.clone(),
                             (ingress.clone(), epoch),
                         )
-                    } else if let Command::Effect { request, ask, .. } = &command
-                        && let Some(job) = small_job(
-                            *request,
-                            ask,
-                            startup.clone(),
-                            ids.clone(),
-                            handle.clone(),
-                        )
-                    {
-                        job
                     } else {
                         match effects.run(&command, exec) {
                             Some(job) => job,
@@ -642,6 +635,9 @@ fn config_write_job(
                 epoch,
                 AppEv::Feature(settings_fact(config).into()),
             );
+            for fact in small_facts(config) {
+                emit(&ingress, epoch, AppEv::Feature(fact.into()));
+            }
         }
         Some(AppEv::Effect {
             request,
@@ -650,33 +646,21 @@ fn config_write_job(
     })
 }
 
-/// The small commands' asks (`/logout`, `/daybreak`, `/ide`, `/debug-config`): the app server's
-/// or the config's, answered by `small`; none for any other ask.
-fn small_job(
-    request: u64,
-    ask: &Ask,
-    startup: crate::startup::Startup,
-    ids: Ids,
-    handle: AppServerRequestHandle,
-) -> Option<Boxed<Option<AppEv>>> {
-    let ask = ask.clone();
-    if !matches!(
-        ask,
-        Ask::Logout | Ask::IdeContext { .. } | Ask::DaybreakSave { .. } | Ask::DebugConfig
-    ) {
-        return None;
-    }
-    Some(Box::pin(async move {
-        let done = match ask {
-            Ask::Logout => crate::small::logout(&ids, sender(handle)).await,
-            Ask::DaybreakSave { thread, enabled } => {
-                crate::small::daybreak(thread.as_str(), enabled, &ids, sender(handle)).await
-            }
-            Ask::IdeContext { .. } => crate::small::ide(),
-            _ => crate::small::debug_config(&startup).await,
-        };
-        Some(AppEv::Effect { request, done })
-    }))
+/// What `/debug-config` and `/ide` read of the host: the config's layers and requirements as
+/// rows, and whether an IDE answers (its ipc is not carried: none does).
+fn small_facts(config: &Config) -> [codex_tui_core::features::small_cmds::Fact; 2] {
+    use codex_tui_core::features::small_cmds::Fact;
+    [
+        Fact::debug_config(
+            crate::debug_config::rows(config)
+                .into_iter()
+                .map(|row| (row.text, row.style)),
+        ),
+        Fact::ide_unavailable(
+            crate::small::OPEN_IDE_HINT.to_owned(),
+            crate::small::OPEN_IDE_HINT.to_owned(),
+        ),
+    ]
 }
 
 /// What `/plugins` reads of the config: the features it depends on, the home directory the

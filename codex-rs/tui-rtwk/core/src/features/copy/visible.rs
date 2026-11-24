@@ -80,7 +80,9 @@ fn rewrite_code_comment_line(line: &str, cwd: &Path) -> Option<String> {
     };
 
     let suffix = strip_line_directives(suffix);
-    Some(format!("{indent}- {title} — {location}\n{indent}  {body}{suffix}"))
+    Some(format!(
+        "{indent}- {title} — {location}\n{indent}  {body}{suffix}"
+    ))
 }
 
 /// `line` without its `::git-…{…}` directives (the Codex App's, never drawn).

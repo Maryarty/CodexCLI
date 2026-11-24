@@ -9,13 +9,13 @@ pub mod strings;
 use rtwk::Cx;
 
 use codex_tui_core::features::Never;
-use codex_tui_core::features::copy::{Copy, Note};
+use codex_tui_core::features::copy::{Copier, Note};
 use codex_tui_core::ids::{Cwd, ThreadId};
 
 use super::FeatureView;
 use crate::pages::session::strings::Strings as SessionStrings;
 
-impl FeatureView for Copy {
+impl FeatureView for Copier {
     /// A verb and a wish, not a sheet a command opens.
     type Args = Never<Self>;
 

@@ -124,19 +124,6 @@ pub enum Ask {
     /// The managed worktrees of the repository `cwd` is in, each with its owner thread
     /// (oracle `worktree_browser::fetch`). Answered by `Done::Worktrees`.
     Worktrees { cwd: String },
-    /// The account is logged out (`account/logout`): answered by `Done::LoggedOut`. Oracle
-    /// `AppServerSession::logout_account`.
-    Logout,
-    /// The IDE's context for the workspace `cwd` (oracle `fetch_ide_context`): answered by
-    /// `Done::Ide`.
-    IdeContext { cwd: String },
-    /// Saves the Daybreak choice of `thread` (`thread/metadata/update`, then the default
-    /// preference in the config file; oracle `persist_daybreak_selection`): answered by
-    /// `Done::Daybreak`.
-    DaybreakSave { thread: ThreadId, enabled: bool },
-    /// The config as the host holds it (oracle `new_debug_config_output`): answered by
-    /// `Done::DebugConfig`.
-    DebugConfig,
     /// Removes the worktree at `root` (oracle `worktree_browser::remove`, `cwd` is the session's).
     WorktreeRemove { cwd: String, root: String },
 }
@@ -180,19 +167,6 @@ pub enum Done {
     Worktrees(Result<Vec<WorktreeEntry>, String>),
     /// Nothing, or why the worktree could not be removed.
     WorktreeRemoved(Result<(), String>),
-    /// Nothing, or `account/logout`'s failure text.
-    LoggedOut(Result<(), String>),
-    /// What the IDE said of its context, or why it could not be read.
-    Ide(Result<crate::features::small_cmds::IdeReading, crate::features::small_cmds::IdeFailure>),
-    /// The thread's Daybreak choice was saved, or why it was not.
-    Daybreak(
-        Result<
-            crate::features::small_cmds::DaybreakSaved,
-            crate::features::small_cmds::DaybreakFailure,
-        >,
-    ),
-    /// The rows of `/debug-config`.
-    DebugConfig(Vec<crate::features::small_cmds::Row>),
 }
 
 impl Done {

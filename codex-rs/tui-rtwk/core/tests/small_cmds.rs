@@ -4,16 +4,16 @@
 //! `chatwidget/ide_context.rs`, `app/daybreak.rs`, `debug_config.rs`): the verbs ask the host for
 //! what is IO, and its answers are the notes of the thread in use. The words are the view's.
 
-use codex_tui_core::app::effects::{Ask, Done};
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::commands::{SessionIntent, SlashCommand};
 use codex_tui_core::features::small_cmds::{
-    DaybreakFailure, DaybreakSaved, DefaultFailure, IdeFailure, IdeReading, Intent as SmallIntent,
-    Note as SmallNote, Row, Style, Wish,
+    Command as Wanted, DaybreakFailure, DefaultFailure, Fact, Intent as SmallIntent,
+    Note as SmallNote, Wish,
 };
-use codex_tui_core::features::{FeatureIntent, FeatureNote, FeatureWish};
+use codex_tui_core::features::{self, FeatureCommand, FeatureIntent, FeatureNote, FeatureWish};
 use codex_tui_core::fixtures::script::build;
-use codex_tui_core::ids::ThreadId;
+use codex_tui_core::ids::{ThreadId, Ticket};
+use codex_tui_core::rpc::Reply;
 use codex_tui_core::screens::{ScreenIntent, chat};
 use codex_tui_core::threads::daybreak::{Access, ModelAccess, Programs};
 use codex_tui_core::threads::{Item as Entry, Note, NoteKey};
@@ -52,14 +52,41 @@ fn verb(app: &mut CodexApp, intent: SmallIntent) -> AppFx {
     )
 }
 
-fn asks(fx: &AppFx) -> Vec<(u64, Ask)> {
+fn fact(app: &mut CodexApp, fact: Fact) {
+    run(app, AppEv::Feature(fact.into()));
+}
+
+/// The requests of the feature a step left, with their tickets.
+fn sent(fx: &AppFx) -> Vec<(Ticket, Wanted)> {
     fx.commands()
         .iter()
         .filter_map(|c| match c {
-            Command::Effect { request, ask, .. } => Some((*request, ask.clone())),
+            Command::Feature {
+                ticket,
+                command: FeatureCommand::SmallCmds(wanted),
+                ..
+            } => Some((*ticket, wanted.clone())),
             _ => None,
         })
         .collect()
+}
+
+fn one(fx: &AppFx) -> (Ticket, Wanted) {
+    let all = sent(fx);
+    let [only] = all.as_slice() else {
+        panic!("expected one request, got {all:?}");
+    };
+    only.clone()
+}
+
+fn answer(app: &mut CodexApp, request: &(Ticket, Wanted), result: serde_json::Value) -> AppFx {
+    let command = FeatureCommand::SmallCmds(request.1.clone());
+    let reply = features::decode(&command, result).expect("decodes");
+    run(app, AppEv::Reply(request.0, Reply::feature(reply)))
+}
+
+fn fail(app: &mut CodexApp, request: &(Ticket, Wanted), text: &str) -> AppFx {
+    run(app, AppEv::Reply(request.0, Reply::failed(text)))
 }
 
 fn notes(app: &CodexApp) -> Vec<SmallNote> {
@@ -76,17 +103,13 @@ fn notes(app: &CodexApp) -> Vec<SmallNote> {
         .collect()
 }
 
-fn answer(app: &mut CodexApp, fx: &AppFx, done: Done) {
-    let request = asks(fx)[0].0;
-    run(app, AppEv::Effect { request, done });
-}
-
 #[test]
 fn logout_asks_the_account_and_a_success_wishes_the_shutdown() {
     let mut app = app();
     let fx = command(&mut app, SlashCommand::Logout, SessionIntent::Logout);
-    assert_eq!(asks(&fx)[0].1, Ask::Logout);
-    answer(&mut app, &fx, Done::LoggedOut(Ok(())));
+    let request = one(&fx);
+    assert_eq!(request.1, Wanted::Logout);
+    answer(&mut app, &request, serde_json::json!({}));
     let wishes: Vec<_> = app.wishes().pending().map(|w| w.wish.clone()).collect();
     assert_eq!(wishes, vec![FeatureWish::from(Wish::Shutdown)]);
 }
@@ -95,12 +118,15 @@ fn logout_asks_the_account_and_a_success_wishes_the_shutdown() {
 fn a_failed_logout_says_why() {
     let mut app = app();
     let fx = verb(&mut app, SmallIntent::Logout);
-    answer(&mut app, &fx, Done::LoggedOut(Err("offline".to_owned())));
-    assert_eq!(notes(&app), vec![SmallNote::LogoutFailed("offline".to_owned())]);
+    fail(&mut app, &one(&fx), "offline");
+    assert_eq!(
+        notes(&app),
+        vec![SmallNote::LogoutFailed("offline".to_owned())]
+    );
 }
 
 #[test]
-fn ide_toggles_and_reads_the_context_while_on() {
+fn ide_toggles_and_says_what_the_host_found() {
     let mut app = app();
     let ide = |app: &mut CodexApp, args: Option<&str>| {
         command(
@@ -111,13 +137,12 @@ fn ide_toggles_and_reads_the_context_while_on() {
             },
         )
     };
-    let fx = ide(&mut app, None);
-    assert!(matches!(asks(&fx)[0].1, Ask::IdeContext { .. }), "on: the context is read");
-    answer(&mut app, &fx, Done::Ide(Ok(IdeReading { has_context: true })));
+    fact(&mut app, Fact::ide_context(true));
+    ide(&mut app, None);
     assert!(app.features().small_cmds.ide.enabled);
-    assert!(asks(&ide(&mut app, None)).is_empty(), "a bare /ide while on turns it off");
+    ide(&mut app, None);
     assert!(!app.features().small_cmds.ide.enabled);
-    assert!(asks(&ide(&mut app, Some("bogus"))).is_empty());
+    ide(&mut app, Some("bogus"));
     assert_eq!(
         notes(&app),
         vec![
@@ -129,27 +154,23 @@ fn ide_toggles_and_reads_the_context_while_on() {
 }
 
 #[test]
-fn an_ide_that_cannot_be_read_turns_the_context_off() {
+fn an_ide_that_is_not_there_turns_the_context_off_with_the_hosts_hint() {
     let mut app = app();
-    let fx = verb(
+    fact(
+        &mut app,
+        Fact::ide_unavailable("Open it".to_owned(), "open it".to_owned()),
+    );
+    verb(
         &mut app,
         SmallIntent::Ide {
             args: Some("on".to_owned()),
         },
     );
-    answer(
-        &mut app,
-        &fx,
-        Done::Ide(Err(IdeFailure {
-            hint: "Open this project in VS Code".to_owned(),
-            skip_hint: String::new(),
-        })),
-    );
     assert!(!app.features().small_cmds.ide.enabled);
     assert_eq!(
         notes(&app),
         vec![SmallNote::IdeCouldNotEnable {
-            hint: "Open this project in VS Code".to_owned()
+            hint: "Open it".to_owned()
         }]
     );
 }
@@ -168,45 +189,35 @@ fn access(eligible: bool, daybreak: bool) -> Access {
 }
 
 fn daybreak(app: &mut CodexApp) -> AppFx {
-    command(app, SlashCommand::Daybreak, SessionIntent::Daybreak)
+    verb(
+        app,
+        SmallIntent::Daybreak {
+            source: Some(ThreadId::new(T)),
+        },
+    )
 }
 
 #[test]
-fn daybreak_is_refused_without_an_eligible_account_or_a_catalog_that_has_it() {
+fn daybreak_on_without_an_eligible_account_asks_nothing() {
     let mut app = app();
-    // the command is listed only when the feature is on
-    assert!(asks(&daybreak(&mut app)).is_empty());
-    assert!(notes(&app).is_empty() || !notes(&app).is_empty());
     run(&mut app, AppEv::Daybreak(access(false, false)));
-    daybreak(&mut app);
-    run(&mut app, AppEv::Daybreak(access(true, false)));
-    daybreak(&mut app);
-    let got = notes(&app);
-    assert!(
-        got.iter().all(|note| !matches!(note, SmallNote::DaybreakSet(_))),
-        "{got:?}"
-    );
+    assert!(sent(&daybreak(&mut app)).is_empty());
 }
 
 #[test]
-fn a_saved_choice_is_said_with_the_default_preference_that_failed() {
+fn daybreak_saves_the_threads_metadata_then_the_default() {
     let mut app = app();
     run(&mut app, AppEv::Daybreak(access(true, true)));
-    let fx = verb(&mut app, SmallIntent::Daybreak {
-        source: Some(ThreadId::new(T)),
-    });
-    let Some((_, Ask::DaybreakSave { thread, enabled })) = asks(&fx).into_iter().next() else {
-        // the feature flag of the command is off in the fixture: nothing is asked
+    let fx = daybreak(&mut app);
+    // the command is listed only when the feature is on: a fixture without it asks nothing
+    let Some(save) = sent(&fx).into_iter().next() else {
         return;
     };
-    assert_eq!((thread, enabled), (ThreadId::new(T), true));
-    answer(
-        &mut app,
-        &fx,
-        Done::Daybreak(Ok(DaybreakSaved {
-            defaults: vec![DefaultFailure::Save("read-only".to_owned())],
-        })),
-    );
+    assert_eq!(save.1, Wanted::SetDaybreak(true));
+    let fx = answer(&mut app, &save, serde_json::json!({}));
+    let default = one(&fx);
+    assert_eq!(default.1, Wanted::SaveDefault(true));
+    fail(&mut app, &default, "read-only");
     assert_eq!(
         notes(&app),
         vec![
@@ -214,21 +225,52 @@ fn a_saved_choice_is_said_with_the_default_preference_that_failed() {
             SmallNote::DaybreakSet(true)
         ]
     );
-    let _ = DaybreakFailure::Save(String::new());
+    assert_eq!(
+        app.features().small_cmds.saved_daybreak(&ThreadId::new(T)),
+        Some(true)
+    );
 }
 
 #[test]
-fn debug_config_says_the_hosts_rows() {
+fn a_thread_that_cannot_save_says_so_and_keeps_its_choice() {
     let mut app = app();
-    let fx = command(&mut app, SlashCommand::DebugConfig, SessionIntent::DebugConfig);
-    assert_eq!(asks(&fx)[0].1, Ask::DebugConfig);
-    let rows = vec![
-        Row {
-            text: "/debug-config".to_owned(),
-            style: Style::Magenta,
-        },
-        Row::from(""),
-    ];
-    answer(&mut app, &fx, Done::DebugConfig(rows.clone()));
-    assert_eq!(notes(&app), vec![SmallNote::DebugConfig(rows)]);
+    run(&mut app, AppEv::Daybreak(access(true, true)));
+    let Some(save) = sent(&daybreak(&mut app)).into_iter().next() else {
+        return;
+    };
+    fail(&mut app, &save, "gone");
+    assert_eq!(
+        notes(&app),
+        vec![SmallNote::DaybreakFailed(DaybreakFailure::Save(
+            "gone".to_owned()
+        ))]
+    );
+    assert_eq!(
+        app.features().small_cmds.saved_daybreak(&ThreadId::new(T)),
+        None
+    );
+}
+
+#[test]
+fn debug_config_says_the_rows_the_host_gave() {
+    let mut app = app();
+    fact(
+        &mut app,
+        Fact::debug_config([
+            ("/debug-config".to_owned(), "magenta"),
+            (String::new(), "plain"),
+        ]),
+    );
+    let fx = command(
+        &mut app,
+        SlashCommand::DebugConfig,
+        SessionIntent::DebugConfig,
+    );
+    assert!(sent(&fx).is_empty());
+    let got = notes(&app);
+    let [SmallNote::DebugConfig(rows)] = got.as_slice() else {
+        panic!("one note");
+    };
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].text, "/debug-config");
 }

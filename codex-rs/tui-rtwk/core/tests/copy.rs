@@ -24,15 +24,22 @@ fn line(value: serde_json::Value) -> String {
 }
 
 fn said(id: &str, text: &str) -> String {
-    line(json!({"method": "item/completed", "params": {"threadId": T, "turnId": "turn-1",
+    line(
+        json!({"method": "item/completed", "params": {"threadId": T, "turnId": "turn-1",
         "completedAtMs": 0, "startedAtMs": 0,
-        "item": {"type": "agentMessage", "id": id, "text": text, "phase": null}}}))
+        "item": {"type": "agentMessage", "id": id, "text": text, "phase": null}}}),
+    )
 }
 
 /// An app whose thread has said `messages`.
 fn app(messages: &[&str]) -> CodexApp {
     let mut script = vec![r#"{"step":"seed","seed":"session","thread":"thread-1"}"#.to_owned()];
-    script.extend(messages.iter().enumerate().map(|(i, m)| said(&format!("a{i}"), m)));
+    script.extend(
+        messages
+            .iter()
+            .enumerate()
+            .map(|(i, m)| said(&format!("a{i}"), m)),
+    );
     build(&script.join("\n")).expect("plays").app
 }
 
@@ -46,7 +53,7 @@ fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
 fn verb(app: &mut CodexApp, intent: CopyIntent) -> AppFx {
     run(
         app,
-        AppEv::Intent(Intent::Feature(FeatureIntent::Copy(intent))),
+        AppEv::Intent(Intent::Feature(FeatureIntent::Copier(intent))),
     )
 }
 
@@ -77,7 +84,7 @@ fn notes(app: &CodexApp) -> Vec<CopyNote> {
         .iter()
         .filter_map(|(_, item)| match item {
             Entry::Note(Note {
-                key: NoteKey::Feature(FeatureNote::Copy(note)),
+                key: NoteKey::Feature(FeatureNote::Copier(note)),
                 ..
             }) => Some(note.clone()),
             _ => None,
@@ -94,7 +101,10 @@ fn ctrl_o_copies_the_last_response_as_markdown() {
     let mut app = app(&["first", "# Title\n\nbody"]);
     let fx = verb(&mut app, CopyIntent::Last);
     assert_eq!(
-        asks(&fx).into_iter().map(|(_, ask)| ask).collect::<Vec<_>>(),
+        asks(&fx)
+            .into_iter()
+            .map(|(_, ask)| ask)
+            .collect::<Vec<_>>(),
         vec![Ask::Copy {
             text: "# Title\n\nbody".to_owned(),
             format: CopyFormat::Markdown,
@@ -109,7 +119,10 @@ fn without_a_response_both_verbs_say_so() {
     assert!(asks(&verb(&mut app, CopyIntent::Last)).is_empty());
     assert!(asks(&command(&mut app)).is_empty());
     assert!(wishes(&app).is_empty());
-    assert_eq!(notes(&app), vec![CopyNote::NoResponse, CopyNote::NoResponse]);
+    assert_eq!(
+        notes(&app),
+        vec![CopyNote::NoResponse, CopyNote::NoResponse]
+    );
 }
 
 #[test]
@@ -120,12 +133,16 @@ fn a_response_with_nothing_visible_is_no_response() {
     let [(_, Ask::Copy { text, .. })] = binding.as_slice() else {
         panic!("one copy: {fx:?}");
     };
-    assert_eq!(text, "real", "a message of directives only is skipped, as the oracle's record");
+    assert_eq!(
+        text, "real",
+        "a message of directives only is skipped, as the oracle's record"
+    );
 }
 
 #[test]
 fn a_copy_holds_the_visible_markdown_and_the_picker_the_source_too() {
-    let source = "Done\n\n::git-stage{cwd=\"/repo\"}\n\nNext :codex-followup[go on]{prompt=\"more\"}";
+    let source =
+        "Done\n\n::git-stage{cwd=\"/repo\"}\n\nNext :codex-followup[go on]{prompt=\"more\"}";
     let mut app = app(&[source]);
     command(&mut app);
     assert_eq!(

@@ -270,7 +270,7 @@ macro_rules! feature_list {
             export => Export;
             plugins => Plugins;
             settings => Settings;
-            copy => Copy;
+            copy => Copier;
             small_cmds => SmallCmds;
         }
     };

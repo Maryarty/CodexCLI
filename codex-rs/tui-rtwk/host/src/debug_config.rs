@@ -20,16 +20,21 @@ use codex_core::config::Config;
 use codex_core::config::Permissions;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::permissions::NetworkSandboxPolicy;
-use codex_tui_core::features::small_cmds::{Row, Style};
 
-/// One row, as the oracle's `Stylize` chain builds it.
+/// One row, as the oracle's `Stylize` chain builds it; `style` is the name the slice's
+/// `Fact::debug_config` reads (`plain`, `bold`, `dim`, `magenta`).
+pub(crate) struct Row {
+    pub(crate) text: String,
+    pub(crate) style: &'static str,
+}
+
 pub(crate) struct Line(Row);
 
 impl From<&str> for Line {
     fn from(text: &str) -> Self {
         Self(Row {
             text: text.to_owned(),
-            style: Style::Plain,
+            style: "plain",
         })
     }
 }
@@ -38,24 +43,24 @@ impl From<String> for Line {
     fn from(text: String) -> Self {
         Self(Row {
             text,
-            style: Style::Plain,
+            style: "plain",
         })
     }
 }
 
 trait Stylize: Sized + Into<Line> {
-    fn styled(self, style: Style) -> Line {
+    fn styled(self, style: &'static str) -> Line {
         let Line(row) = self.into();
         Line(Row { style, ..row })
     }
     fn bold(self) -> Line {
-        self.styled(Style::Bold)
+        self.styled("bold")
     }
     fn dim(self) -> Line {
-        self.styled(Style::Dim)
+        self.styled("dim")
     }
     fn magenta(self) -> Line {
-        self.styled(Style::Magenta)
+        self.styled("magenta")
     }
 }
 
@@ -505,11 +510,7 @@ fn format_toml_value(value: &TomlValue) -> String {
     value.to_string()
 }
 
-fn requirement_line(
-    name: &str,
-    value: String,
-    source: Option<&RequirementSource>,
-) -> Line {
+fn requirement_line(name: &str, value: String, source: Option<&RequirementSource>) -> Line {
     let source = source
         .map(ToString::to_string)
         .unwrap_or_else(|| "<unspecified>".to_string());
@@ -662,4 +663,3 @@ fn format_network_unix_socket_permission(
         NetworkUnixSocketPermissionToml::Deny => "deny",
     }
 }
-

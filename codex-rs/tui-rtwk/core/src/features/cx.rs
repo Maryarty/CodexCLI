@@ -175,6 +175,11 @@ impl<'a> ThreadView<'a> {
         self.slots.chat.daybreak
     }
 
+    /// The thread is not kept (`config.ephemeral`): it has no metadata to save a choice in.
+    pub fn ephemeral(&self) -> bool {
+        self.slots.chat.ephemeral
+    }
+
     /// The thread's name, when it has one (`/rename`).
     pub fn name(&self) -> Option<&'a str> {
         self.slots.chat.name.as_deref()

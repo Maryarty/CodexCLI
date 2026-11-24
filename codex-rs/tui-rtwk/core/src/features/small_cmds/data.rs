@@ -1,5 +1,5 @@
-//! What the host answers the small commands' asks with (`Done::LoggedOut`, `Done::Ide`,
-//! `Done::Daybreak`, `Done::DebugConfig`): plain data, worded by `src/features/small_cmds/`.
+//! What the small commands carry as data (the host's facts, the failures their notes word): plain
+//! data, worded by `src/features/small_cmds/`.
 
 /// What the IDE said of its context (oracle `has_prompt_context` of the fetched context).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,12 +34,6 @@ pub enum DefaultFailure {
     Save(String),
     /// The effective config could not be read back.
     Read(String),
-}
-
-/// A thread's Daybreak choice was saved (or the thread is ephemeral: nothing to save).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct DaybreakSaved {
-    pub defaults: Vec<DefaultFailure>,
 }
 
 /// How a row of `/debug-config` is drawn (oracle: the `Stylize` of the line).

@@ -24,7 +24,7 @@ use crate::threads::Tone;
 pub use visible::{copy_markdown, strip_line_directives, visible_markdown};
 
 /// The marker type of the feature.
-pub struct Copy;
+pub struct Copier;
 
 /// The last response of a thread, as a copy holds it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -108,7 +108,7 @@ fn copy(cx: &mut AppCx<'_>, text: String, label: String, format: CopyFormat) {
     cx.effect(ask, Ctx { label });
 }
 
-impl Feature for Copy {
+impl Feature for Copier {
     const NAME: &'static str = "copy";
 
     type State = ();
@@ -141,9 +141,12 @@ impl Feature for Copy {
                     .as_ref()
                     .and_then(|thread| last_response(&cx.view(), thread));
                 match response {
-                    Some(response) => {
-                        copy(cx, response.markdown, LAST_MESSAGE.to_owned(), CopyFormat::Markdown)
-                    }
+                    Some(response) => copy(
+                        cx,
+                        response.markdown,
+                        LAST_MESSAGE.to_owned(),
+                        CopyFormat::Markdown,
+                    ),
                     None => cx.note(thread, Note::NoResponse),
                 }
             }

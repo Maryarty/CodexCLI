@@ -16,20 +16,19 @@
 //! available in TUI yet.`, `Stub::MemoryMaintenance`) and stay so.
 
 mod data;
+mod wire;
 
 use std::collections::BTreeMap;
 
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
 use super::{AppCx, Feature, Never};
-use crate::app::effects::{Ask, Done};
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::threads::Tone;
 
-pub use data::{
-    DaybreakFailure, DaybreakSaved, DefaultFailure, IdeFailure, IdeReading, Row, Style,
-};
+pub use data::{DaybreakFailure, DefaultFailure, IdeFailure, IdeReading, Row, Style};
+pub use wire::{Command, Reply};
 
 /// The marker type of the feature.
 pub struct SmallCmds;
@@ -60,6 +59,10 @@ pub struct Ide {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct State {
     pub ide: Ide,
+    /// What the host last said of the IDE's connection (`Fact::Ide`): none until it said.
+    ide_fact: Option<Result<IdeReading, IdeFailure>>,
+    /// The rows of `/debug-config` as the host last built them (`Fact::DebugConfig`).
+    debug_config: Vec<Row>,
     /// The Daybreak choice saved for a thread by `/daybreak`: a request record by thread,
     /// read before the thread's metadata (`State::saved_daybreak`).
     daybreak: BTreeMap<ThreadId, bool>,
@@ -72,15 +75,58 @@ impl State {
     }
 }
 
-/// What an ask of the host was for.
+/// What an ask of the server was for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ctx {
     Logout,
-    /// The IDE context read for `/ide`'s status line.
-    Ide,
-    /// Daybreak set to `enabled` for `thread`.
-    Daybreak { thread: ThreadId, enabled: bool },
-    DebugConfig,
+    /// The thread's metadata was asked to hold the choice.
+    DaybreakSave {
+        thread: ThreadId,
+        enabled: bool,
+    },
+    /// The default preference was asked to be written.
+    DaybreakDefault {
+        enabled: bool,
+    },
+}
+
+/// What the host tells the feature of what only it can read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Fact {
+    /// Whether an IDE answers (oracle `fetch_ide_context`): its context, or why it cannot be read.
+    Ide(Result<IdeReading, IdeFailure>),
+    /// The rows of `/debug-config` for the config in force.
+    DebugConfig(Vec<Row>),
+}
+
+impl Fact {
+    /// No IDE answers: the two hints of the oracle's `IdeContextError`.
+    pub fn ide_unavailable(hint: String, skip_hint: String) -> Fact {
+        Fact::Ide(Err(IdeFailure { hint, skip_hint }))
+    }
+
+    /// An IDE answers, with or without context to send.
+    pub fn ide_context(has_context: bool) -> Fact {
+        Fact::Ide(Ok(IdeReading { has_context }))
+    }
+
+    /// The rows of `/debug-config`, each with the style name (`plain`, `bold`, `dim`,
+    /// `magenta`) of its line.
+    pub fn debug_config<'a>(rows: impl IntoIterator<Item = (String, &'a str)>) -> Fact {
+        Fact::DebugConfig(
+            rows.into_iter()
+                .map(|(text, style)| Row {
+                    text,
+                    style: match style {
+                        "bold" => Style::Bold,
+                        "dim" => Style::Dim,
+                        "magenta" => Style::Magenta,
+                        _ => Style::Plain,
+                    },
+                })
+                .collect(),
+        )
+    }
 }
 
 /// What the surface is asked to show once: a logout succeeded, the app shuts down.
@@ -128,8 +174,25 @@ fn ide_status(state: &mut State, cx: &mut AppCx<'_>) {
     if !state.ide.enabled {
         return cx.note(None, Note::IdeOff);
     }
-    let cwd = cx.view().working_directory(cx.view().active());
-    cx.effect(Ask::IdeContext { cwd }, Ctx::Ide);
+    match state.ide_fact.clone() {
+        Some(Ok(reading)) => {
+            state.ide.warned = false;
+            cx.note(
+                None,
+                Note::IdeOn {
+                    has_context: reading.has_context,
+                },
+            );
+        }
+        failure => {
+            state.ide = Ide::default();
+            let hint = failure
+                .and_then(Result::err)
+                .map(|f| f.hint)
+                .unwrap_or_default();
+            cx.note(None, Note::IdeCouldNotEnable { hint });
+        }
+    }
 }
 
 fn ide_off(state: &mut State, cx: &mut AppCx<'_>) {
@@ -147,7 +210,12 @@ fn ide_on(state: &mut State, cx: &mut AppCx<'_>) {
 
 /// `handle_ide_command_args`.
 fn ide(state: &mut State, args: Option<String>, cx: &mut AppCx<'_>) {
-    match args.unwrap_or_default().trim().to_ascii_lowercase().as_str() {
+    match args
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "" if state.ide.enabled => ide_off(state, cx),
         "" | "on" => ide_on(state, cx),
         "off" => ide_off(state, cx),
@@ -159,7 +227,7 @@ fn ide(state: &mut State, args: Option<String>, cx: &mut AppCx<'_>) {
 /// `SlashCommand::Daybreak`: the checks of the chat widget, then the choice saved for the
 /// thread (`persist_daybreak_selection`). Turned on needs an eligible account and a catalog
 /// that advertises Daybreak; turned off needs nothing.
-fn daybreak(state: &State, source: Option<ThreadId>, cx: &mut AppCx<'_>) {
+fn daybreak(state: &mut State, source: Option<ThreadId>, cx: &mut AppCx<'_>) {
     let view = cx.view();
     // The command is listed only when the feature is on (`CliDaybreak`).
     if view
@@ -199,15 +267,29 @@ fn daybreak(state: &State, source: Option<ThreadId>, cx: &mut AppCx<'_>) {
     let Some(thread) = thread else {
         return cx.note(None, Note::DaybreakNoThread);
     };
-    cx.effect(
-        Ask::DaybreakSave {
-            thread: thread.clone(),
-            enabled: !enabled,
-        },
-        Ctx::Daybreak {
+    // an ephemeral thread has no metadata to save the choice in (`thread.ephemeral`)
+    if view.thread(&thread).is_some_and(|t| t.ephemeral()) {
+        return daybreak_saved(state, thread, !enabled, cx);
+    }
+    let at = thread.clone();
+    cx.ask(
+        Some(&at),
+        Command::SetDaybreak(!enabled),
+        Ctx::DaybreakSave {
             thread,
             enabled: !enabled,
         },
+    );
+}
+
+/// The choice is saved in the thread (or the thread has no metadata to save it in): the thread
+/// shows it, the default preference follows (`persist_daybreak_selection`).
+fn daybreak_saved(state: &mut State, thread: ThreadId, enabled: bool, cx: &mut AppCx<'_>) {
+    state.daybreak.insert(thread, enabled);
+    cx.ask(
+        None,
+        Command::SaveDefault(enabled),
+        Ctx::DaybreakDefault { enabled },
     );
 }
 
@@ -219,59 +301,60 @@ impl Feature for SmallCmds {
     type Target = Never<Self>;
     type Intent = Intent;
     type ThreadIntent = Never<Self>;
-    type Command = Never<Self>;
-    type Reply = Never<Self>;
+    type Command = Command;
+    type Reply = Reply;
     type Ctx = Ctx;
     type Note = Note;
-    type Fact = Never<Self>;
+    type Fact = Fact;
     type Wish = Wish;
     type Interest = Never<Self>;
 
     fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
         match intent {
-            Intent::Logout => cx.effect(Ask::Logout, Ctx::Logout),
+            Intent::Logout => cx.ask(None, Command::Logout, Ctx::Logout),
             Intent::Daybreak { source } => daybreak(state, source, cx),
             Intent::Ide { args } => ide(state, args, cx),
-            Intent::DebugConfig => cx.effect(Ask::DebugConfig, Ctx::DebugConfig),
+            Intent::DebugConfig => {
+                let rows = state.debug_config.clone();
+                cx.note(None, Note::DebugConfig(rows));
+            }
         }
     }
 
-    fn effect_done(state: &mut State, ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {
-        match (ctx, done) {
-            (Ctx::Logout, Done::LoggedOut(Ok(()))) => {
+    fn on_fact(state: &mut State, fact: Fact, _cx: &mut AppCx<'_>) {
+        match fact {
+            Fact::Ide(reading) => state.ide_fact = Some(reading),
+            Fact::DebugConfig(rows) => state.debug_config = rows,
+        }
+    }
+
+    fn answered(state: &mut State, ctx: Ctx, result: Result<Reply, RpcError>, cx: &mut AppCx<'_>) {
+        let failure = |error: RpcError| match error {
+            RpcError::Remote(text) | RpcError::Malformed(text) | RpcError::Prepare(text) => text,
+            RpcError::Mismatch | RpcError::Provider(_) => String::new(),
+        };
+        match (ctx, result) {
+            (Ctx::Logout, Ok(_)) => {
                 let scope = cx.view().active().cloned().unwrap_or_default();
                 cx.wish(scope, Wish::Shutdown);
             }
-            (Ctx::Logout, Done::LoggedOut(Err(error))) => {
-                cx.note(None, Note::LogoutFailed(error))
+            (Ctx::Logout, Err(error)) => cx.note(None, Note::LogoutFailed(failure(error))),
+            (Ctx::DaybreakSave { thread, enabled }, Ok(_)) => {
+                daybreak_saved(state, thread, enabled, cx)
             }
-            (Ctx::Ide, Done::Ide(Ok(reading))) => {
-                state.ide.warned = false;
-                cx.note(
-                    None,
-                    Note::IdeOn {
-                        has_context: reading.has_context,
-                    },
-                );
-            }
-            (Ctx::Ide, Done::Ide(Err(failure))) => {
-                state.ide = Ide::default();
-                cx.note(None, Note::IdeCouldNotEnable { hint: failure.hint });
-            }
-            (Ctx::Daybreak { thread, enabled }, Done::Daybreak(Ok(saved))) => {
-                state.daybreak.insert(thread, enabled);
-                for failure in saved.defaults {
-                    cx.note(None, Note::DaybreakDefault(failure));
+            (Ctx::DaybreakSave { .. }, Err(error)) => cx.note(
+                None,
+                Note::DaybreakFailed(DaybreakFailure::Save(failure(error))),
+            ),
+            (Ctx::DaybreakDefault { enabled }, result) => {
+                if let Err(error) = result {
+                    cx.note(
+                        None,
+                        Note::DaybreakDefault(DefaultFailure::Save(failure(error))),
+                    );
                 }
                 cx.note(None, Note::DaybreakSet(enabled));
             }
-            (Ctx::Daybreak { .. }, Done::Daybreak(Err(failure))) => {
-                cx.note(None, Note::DaybreakFailed(failure))
-            }
-            (Ctx::DebugConfig, Done::DebugConfig(rows)) => {
-                cx.note(None, Note::DebugConfig(rows))
-            }
-            _ => {}
         }
     }
 
@@ -293,11 +376,11 @@ impl Feature for SmallCmds {
         }
     }
 
-    fn wire(command: &Never<Self>, _thread: &ThreadId, _id: RequestId) -> ClientRequest {
-        command.absurd()
+    fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
+        wire::request(command, thread, id)
     }
 
-    fn decode(command: &Never<Self>, _result: serde_json::Value) -> Result<Never<Self>, RpcError> {
-        command.absurd()
+    fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
+        wire::reply(command, result)
     }
 }
