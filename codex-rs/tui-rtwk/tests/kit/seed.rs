@@ -361,6 +361,10 @@ fn feed(h: &mut Harness, text: &str) {
                 Ok(ev) => h.fake.inject(epoch, AppEv::Screen(ev)),
                 Err(err) => panic!("script line {line}: screen `{dir}`: {err:?}"),
             },
+            step @ Step::Clock { .. } => {
+                let now = step.now().expect("`parse` checked the step");
+                h.fake.inject(epoch, AppEv::Clock(now));
+            }
             Step::Fact { feature, fact } => {
                 match codex_tui_core::features::seed_fact(&feature, fact) {
                     Ok(fact) => h.fake.inject(epoch, AppEv::Feature(fact)),

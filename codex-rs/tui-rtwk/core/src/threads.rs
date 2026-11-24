@@ -84,6 +84,7 @@ use codex_app_server_protocol::TurnStatus;
 use crate::app::AppFx;
 use crate::app::Command;
 use crate::features::{self, FeatureCtx, FeatureThreadIntent, ThreadCx, ThreadView};
+use crate::app::Now;
 use crate::ids::ItemId;
 use crate::ids::ThreadId;
 use crate::ids::Ticket;
@@ -1330,6 +1331,16 @@ impl ThreadModel {
         (features, ThreadView::new(core, slots))
     }
 
+    /// The nearest moment a feature asks this thread to be woken at (`Feature::thread_wake_at`).
+    pub(crate) fn next_wake(&self) -> Option<Now> {
+        features::next_thread_wake(&self.features)
+    }
+
+    /// The thread intents the features asked to be woken with, reached by `now`.
+    pub(crate) fn wakes_due(&self, now: Now) -> Vec<FeatureThreadIntent> {
+        features::thread_wakes_due(&self.features, now)
+    }
+
     pub(crate) fn history_cursor(&self) -> Option<&str> {
         self.history_next.as_deref()
     }
@@ -1864,9 +1875,11 @@ pub struct ThreadFx<'a> {
     /// The server's collaboration-mode presets at this moment (the app's fact, stamped per
     /// event by `apply_thread`): what a switch of the mode chooses from.
     modes: &'a [screens::select::collaboration::Mask],
-    /// The app's clock, epoch seconds (0 until the host has said): what a live completion falls
-    /// back to when the server's turn carries no duration or completion time.
-    now: i64,
+    /// The app's facts at this moment (the clock the host told, the account, the `[tui]`
+    /// settings): what a live completion falls back to when the server's turn carries no duration
+    /// or completion time, and what a feature's thread step reads through `ThreadCx::facts`.
+    /// None where the caller stamped none (a thread's own test): the defaults.
+    facts: Option<features::AppFacts<'a>>,
 }
 
 impl<'a> ThreadFx<'a> {
@@ -1878,18 +1891,24 @@ impl<'a> ThreadFx<'a> {
             registered: Vec::new(),
             daybreak: Daybreak::Apply,
             modes: &[],
-            now: 0,
+            facts: None,
         }
     }
 
-    /// The same, at the app's clock `now` (epoch seconds).
-    pub(crate) fn at(mut self, now: i64) -> Self {
-        self.now = now;
+    /// The same, with the app's facts of the moment.
+    pub(crate) fn with_facts(mut self, facts: features::AppFacts<'a>) -> Self {
+        self.facts = Some(facts);
         self
     }
 
+    /// The app's facts at this step (the defaults where none were stamped).
+    pub(crate) fn facts(&self) -> features::AppFacts<'a> {
+        self.facts.unwrap_or_else(|| features::AppFacts::unknown())
+    }
+
+    /// The app's clock, epoch seconds (0 until the host has said).
     fn now(&self) -> i64 {
-        self.now
+        self.facts.map_or(0, |facts| facts.now().secs())
     }
 
     /// The same, with the wording of a cyber refusal at this moment.

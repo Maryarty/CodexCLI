@@ -60,7 +60,7 @@ pub fn events(config: &Config) -> [AppEv; 4] {
     };
     [
         AppEv::Screen(ScreenEv::Cells(Ev::LinkDisplay(display))),
-        AppEv::Screen(ScreenEv::Cells(Ev::Clock(clock))),
+        AppEv::Screen(ScreenEv::Cells(Ev::Viewer(clock))),
         AppEv::Screen(ScreenEv::Cells(Ev::RawReasoning(
             config.show_raw_agent_reasoning,
         ))),

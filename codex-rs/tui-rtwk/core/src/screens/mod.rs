@@ -318,3 +318,25 @@ macro_rules! core_dirs {
 pub mod tips;
 
 screen_list!(core_dirs);
+
+impl ScreenStates {
+    /// The clock the app was told (`AppEv::Clock`), for the screens whose views word a time (the
+    /// command center's and the resume picker's ages, a `/status` card's limits, the headline's
+    /// refresh): none of them has an event for it, the app is the one place the time is kept
+    /// (`CodexApp::now`). A model is written only when its reading changes, so a screen that
+    /// is shared by a view is not copied for a clock that did not move it.
+    pub(crate) fn set_now(&mut self, now: crate::app::Now) {
+        let secs = now.secs();
+        if self.agents.now != secs {
+            self.agents.now = secs;
+        }
+        if self.resume.clock != secs {
+            self.resume.clock = secs;
+        }
+        if self.status.now != secs || self.status.utc_offset_secs != now.utc_offset_secs() {
+            self.status.now = secs;
+            self.status.utc_offset_secs = now.utc_offset_secs();
+        }
+        self.chat.facts.set_now(u64::try_from(secs).unwrap_or(0));
+    }
+}

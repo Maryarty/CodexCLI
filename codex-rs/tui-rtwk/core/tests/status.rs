@@ -675,11 +675,13 @@ mod cell {
 // backend, a read replaces only the buckets it names, a rolling update never
 // writes them, an account change forgets them.
 mod rates {
-    use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app};
+    use codex_tui_core::app::{
+        AppEv, AppFx, BackendEv, CodexApp, Command, Intent, Now, apply_app,
+    };
     use codex_tui_core::ids::{BackendId, ThreadId};
     use codex_tui_core::protocol;
     use codex_tui_core::rpc::Reply;
-    use codex_tui_core::screens::status::{self, Credits, ResetCredits, Window};
+    use codex_tui_core::screens::status::{Credits, ResetCredits, Window};
     use codex_tui_core::screens::{ScreenEv, ScreenIntent, chat, usage};
     use pretty_assertions::assert_eq;
     use serde_json::json;
@@ -708,15 +710,9 @@ mod rates {
         app
     }
 
-    /// The clock the shell moves on (`status::Ev::Clock`).
+    /// The clock the shell moves on (`AppEv::Clock`), an hour east of UTC.
     pub(super) fn clock(app: &mut CodexApp, now: i64) {
-        run(
-            app,
-            AppEv::Screen(ScreenEv::Status(status::Ev::Clock {
-                now,
-                utc_offset_secs: 3600,
-            })),
-        );
+        run(app, AppEv::Clock(Now::at_secs(now).in_zone(3600)));
     }
 
     /// The reads of the account's limits in `fx`.

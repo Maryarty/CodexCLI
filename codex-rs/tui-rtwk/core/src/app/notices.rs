@@ -145,7 +145,7 @@ pub(super) fn daybreak_of(app: &CodexApp, thread: &ThreadId) -> Daybreak {
     let enabled = app
         .threads
         .get(thread)
-        .and_then(|model| model.view().daybreak())
+        .and_then(|model| crate::features::small_cmds::daybreak_of(model.view()))
         .unwrap_or(false);
     app.daybreak.notice(model, enabled)
 }

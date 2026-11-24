@@ -8,7 +8,7 @@
 //! What is kept here is what IO needs: whether `/ide` is on (a message that goes out asks the
 //! host for the IDE's context while it is) and, in each thread's part, the Daybreak choice saved
 //! for it, which the thread's metadata does not know until it is read again
-//! (`ThreadView::daybreak`). The
+//! (`daybreak_of`). The
 //! indicator of the IDE context, the status line's Daybreak and the notes' words are the UI
 //! half's (`src/features/small_cmds/`); a logout that succeeded is a `Wish::Shutdown` the
 //! surface carries out (the oracle shows its shutdown feedback and exits).
@@ -21,7 +21,7 @@ mod wire;
 
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
-use super::{AppCx, Feature, Never, Slash, ThreadCx};
+use super::{AppCx, Feature, Never, Slash, ThreadCx, ThreadView};
 use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
@@ -32,6 +32,20 @@ pub use wire::{Command, Reply};
 
 /// The marker type of the feature.
 pub struct SmallCmds;
+
+/// The Daybreak choice of the thread: what `/daybreak` saved for it, else what its metadata
+/// holds (`Metadata::daybreak`).
+pub fn daybreak_of(thread: ThreadView<'_>) -> Option<bool> {
+    thread
+        .parts()
+        .and_then(|parts| parts.small_cmds.saved())
+        .or(thread.slots().chat.daybreak)
+}
+
+/// The thread is not kept (`config.ephemeral`): it has no metadata to save a choice in.
+pub fn ephemeral(thread: ThreadView<'_>) -> bool {
+    thread.slots().chat.ephemeral
+}
 
 /// What the user asks of the small commands.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,7 +68,7 @@ pub enum ThreadIntent {
 }
 
 /// What the feature keeps per thread: the Daybreak choice `/daybreak` saved, which the thread's
-/// metadata does not know until it is read again (`ThreadView::daybreak` reads it first).
+/// metadata does not know until it is read again (`daybreak_of` reads it first).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ThreadPart {
     daybreak: Option<bool>,
@@ -253,10 +267,10 @@ fn daybreak(source: Option<ThreadId>, cx: &mut AppCx<'_>) {
     let thread = source.filter(|id| view.thread(id).is_some());
     let enabled = thread
         .as_ref()
-        .and_then(|id| view.thread(id).and_then(|thread| thread.daybreak()))
+        .and_then(|id| view.thread(id).and_then(daybreak_of))
         .unwrap_or(false);
     if !enabled {
-        let access = view.daybreak();
+        let access = view.facts().access();
         if !access.eligible {
             return cx.note(None, Note::DaybreakNeedsProvider);
         }
@@ -275,7 +289,7 @@ fn daybreak(source: Option<ThreadId>, cx: &mut AppCx<'_>) {
         return cx.note(None, Note::DaybreakNoThread);
     };
     // an ephemeral thread has no metadata to save the choice in (`thread.ephemeral`)
-    if view.thread(&thread).is_some_and(|t| t.ephemeral()) {
+    if view.thread(&thread).is_some_and(ephemeral) {
         return daybreak_saved(thread, !enabled, cx);
     }
     let at = thread.clone();

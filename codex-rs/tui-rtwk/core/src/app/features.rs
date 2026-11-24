@@ -6,7 +6,7 @@
 use std::rc::Rc;
 
 use super::effects::{self, Done};
-use super::{AppCtx, AppFx, CodexApp, Command, apply_thread, session_note};
+use super::{AppCtx, AppFx, CodexApp, Command, Now, Wake, apply_thread, session_note};
 use crate::features::{
     self, AppCx, AppView, FeatureCtx, FeatureFact, FeatureIntent, FeatureThreadIntent, InterestStep,
 };
@@ -26,7 +26,8 @@ pub(super) fn view(app: &CodexApp) -> AppView<'_> {
         &app.modes,
         app.transcript_text.as_ref(),
     )
-    .with_daybreak(&app.daybreak)
+    .with_access(&app.daybreak)
+    .at(app.now)
 }
 
 /// Runs one step of the features with the app as a view, then carries out what it said.
@@ -44,7 +45,8 @@ pub(super) fn run(
             &app.modes,
             app.transcript_text.as_ref(),
         )
-        .with_daybreak(&app.daybreak);
+        .with_access(&app.daybreak)
+        .at(app.now);
         let mut cx = AppCx::new(view);
         step(Rc::make_mut(&mut app.features), &mut cx);
         cx.into_out()
@@ -52,6 +54,45 @@ pub(super) fn run(
     for out in out {
         carry(app, out, fx);
     }
+}
+
+/// The shell told the time (`AppEv::Clock`): the app keeps it, the screens that word a time
+/// read it, and what asked to be woken at a moment the clock has now reached is woken, with its
+/// own intent through the door every other intent takes. A wake is delivered once per clock
+/// event: an intent that leaves its `wake_at` standing is asked for again a second later
+/// (`Wake::MIN_WAIT_MILLIS`), never in a loop.
+pub(super) fn clock(app: &mut CodexApp, now: Now, fx: &mut AppFx) {
+    app.now = now;
+    Rc::make_mut(&mut app.screens).set_now(now);
+    for due in features::wakes_due(&app.features, now) {
+        intent(app, due, fx);
+    }
+    let woken: Vec<_> = app
+        .threads
+        .iter()
+        .map(|(id, model)| (id.clone(), model.wakes_due(now)))
+        .filter(|(_, due)| !due.is_empty())
+        .collect();
+    for (thread, due) in woken {
+        for due in due {
+            apply_thread(app, &thread, ThreadEv::FeatureIntent(due), fx);
+        }
+    }
+}
+
+/// The nearest moment anything of the app wants the clock told: a feature's `wake_at`, a thread's
+/// features' `thread_wake_at`, a screen that words ages (`agents::wake_at`).
+pub(super) fn wake(app: &CodexApp) -> Option<Wake> {
+    let nearest = |next: Option<Now>, at: Option<Now>| match (next, at) {
+        (Some(next), Some(at)) => Some(next.min(at)),
+        (next, at) => next.or(at),
+    };
+    let mut next = features::next_wake(&app.features);
+    for (_, model) in app.threads.iter() {
+        next = nearest(next, model.next_wake());
+    }
+    next = nearest(next, crate::screens::agents::wake_at(&app.screens.agents, app.now));
+    next.map(|at| Wake::new(app.now, at))
 }
 
 /// One thing a feature asked for.

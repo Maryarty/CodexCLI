@@ -40,7 +40,7 @@ fn cwd(path: &str) -> String {
 }
 
 fn clock(now: u64) -> String {
-    screen(json!({"facts": {"clock": now}}))
+    format!(r#"{{"step":"clock","secs":{now}}}"#)
 }
 
 mod git_summary {

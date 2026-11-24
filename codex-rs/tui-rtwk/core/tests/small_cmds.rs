@@ -52,10 +52,10 @@ fn verb(app: &mut CodexApp, intent: SmallIntent) -> AppFx {
     )
 }
 
-/// The Daybreak choice the thread shows (`ThreadView::daybreak`).
+/// The Daybreak choice the thread shows (`small_cmds::daybreak_of`).
 fn saved(app: &CodexApp) -> Option<bool> {
     app.thread(&ThreadId::new(T))
-        .and_then(|thread| thread.view().daybreak())
+        .and_then(|thread| features::small_cmds::daybreak_of(thread.view()))
 }
 
 fn fact(app: &mut CodexApp, fact: Fact) {

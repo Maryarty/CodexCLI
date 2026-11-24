@@ -28,6 +28,7 @@
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 
+use crate::app::Now;
 use crate::app::effects::Done;
 use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
@@ -39,7 +40,7 @@ mod cx;
 mod remote;
 mod surface;
 
-pub use cx::{AppCx, AppView, Out, ThreadCx, ThreadView};
+pub use cx::{AppCx, AppFacts, AppView, Out, ThreadCx, ThreadView};
 pub use remote::Remote;
 pub use surface::{InterestStep, Interests, Scope, SurfaceWish, Wishes};
 
@@ -294,6 +295,24 @@ pub trait Feature: 'static {
         cx: &mut AppCx<'_>,
     ) {
         let _ = (state, interest, open, cx);
+    }
+
+    /// When the feature wants to be woken, and with which of its own intents (ADR-012, "time as
+    /// a declared wake"): the app reads this after every step, hands the nearest moment of all
+    /// features to the shell (`AppFx::wake`), and when the clock (`AppEv::Clock`) has reached
+    /// it delivers the intent through `intent`, as any other. The intent must change the state
+    /// so that this answer is a later moment or `None`; a feature never reads a clock or starts a
+    /// timer of its own. None: nothing to wait for.
+    fn wake_at(state: &Self::State) -> Option<(Now, Self::Intent)> {
+        let _ = state;
+        None
+    }
+
+    /// The same for one thread's part: the intent is delivered to that thread under
+    /// `thread_intent`, whether or not this process still writes the thread.
+    fn thread_wake_at(part: &Self::ThreadPart) -> Option<(Now, Self::ThreadIntent)> {
+        let _ = part;
+        None
     }
 
     /// The wire request of one of the feature's RPCs.
@@ -589,6 +608,56 @@ macro_rules! feature_dirs {
         #[allow(unused_variables)]
         pub fn on_resumed(states: &mut FeatureStates, thread: &ThreadId, cx: &mut AppCx<'_>) {
             $(<$name::$variant as Feature>::on_resumed(&mut states.$name, thread, cx);)*
+        }
+
+        /// The nearest moment any feature's `wake_at` asks for.
+        pub fn next_wake(states: &FeatureStates) -> Option<$crate::app::Now> {
+            let mut next: Option<$crate::app::Now> = None;
+            $(
+                if let Some((at, _)) = <$name::$variant as Feature>::wake_at(&states.$name) {
+                    next = Some(next.map_or(at, |nearest| nearest.min(at)));
+                }
+            )*
+            next
+        }
+
+        /// The intents the features asked to be woken with, whose moment `now` has reached, in
+        /// list order.
+        pub fn wakes_due(states: &FeatureStates, now: $crate::app::Now) -> Vec<FeatureIntent> {
+            let mut due = Vec::new();
+            $(
+                if let Some((at, intent)) = <$name::$variant as Feature>::wake_at(&states.$name)
+                    && now.reached(at)
+                {
+                    due.push(FeatureIntent::$variant(intent));
+                }
+            )*
+            due
+        }
+
+        /// The nearest moment any feature's `thread_wake_at` asks for, in one thread's parts.
+        pub fn next_thread_wake(parts: &FeatureThreadParts) -> Option<$crate::app::Now> {
+            let mut next: Option<$crate::app::Now> = None;
+            $(
+                if let Some((at, _)) = <$name::$variant as Feature>::thread_wake_at(&parts.$name) {
+                    next = Some(next.map_or(at, |nearest| nearest.min(at)));
+                }
+            )*
+            next
+        }
+
+        /// The thread intents the features of one thread asked to be woken with, reached by
+        /// `now`, in list order.
+        pub fn thread_wakes_due(parts: &FeatureThreadParts, now: $crate::app::Now) -> Vec<FeatureThreadIntent> {
+            let mut due = Vec::new();
+            $(
+                if let Some((at, intent)) = <$name::$variant as Feature>::thread_wake_at(&parts.$name)
+                    && now.reached(at)
+                {
+                    due.push(FeatureThreadIntent::$variant(intent));
+                }
+            )*
+            due
         }
 
         /// An intent for a thread's part of its feature.

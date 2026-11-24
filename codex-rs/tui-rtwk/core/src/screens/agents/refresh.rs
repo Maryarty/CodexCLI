@@ -167,7 +167,6 @@ pub(super) fn apply_ev(model: &mut Model, ev: Ev) {
     match ev {
         Ev::Listed(page) => merge_page(model, model.displayed, page),
         Ev::ListedBy(owner, page) => merge_page(model, owner, page),
-        Ev::Clock(now) => model.now = now,
         Ev::Home(home) => model.home = home,
         Ev::Displayed(backend) => model.display(backend),
         Ev::CloudBackend(backend) => {

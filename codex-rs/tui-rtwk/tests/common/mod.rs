@@ -10,10 +10,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use codex_tui_core::app::AppEv;
+use codex_tui_core::app::Now;
 use codex_tui_core::fixtures::script::Input;
 use codex_tui_core::keymap::{Keymap, KeymapSpec};
-use codex_tui_core::screens::ScreenEv;
-use codex_tui_core::screens::agents::Ev as AgentsEv;
 use codex_tui_rtwk::app::UiApp;
 use codex_tui_rtwk::app::debug;
 use codex_tui_rtwk::app::run::{app_view, localized, root};
@@ -355,15 +354,13 @@ impl Harness {
         }
         // The shell's own first clock event comes from its thread too: let it
         // land, or it could overwrite the mark after it was seen.
-        let clock = |h: &mut Harness| h.t.read_app(|app: &UiApp| app.core.screens().agents.now);
+        let clock = |h: &mut Harness| h.t.read_app(|app: &UiApp| app.core.now().millis());
         wait::wait_until(self, "the shell's clock", |h| clock(h) != 0);
         let mark = clock(self) + 1;
-        self.fake.inject(
-            epoch,
-            AppEv::Screen(ScreenEv::Agents(AgentsEv::Clock(mark))),
-        );
+        self.fake
+            .inject(epoch, AppEv::Clock(Now::at_millis(mark)));
         wait::wait_until(self, "the injected events applied", |h| {
-            h.t.read_app(|app: &UiApp| app.core.screens().agents.now) == mark
+            h.t.read_app(|app: &UiApp| app.core.now().millis()) >= mark
         });
     }
 
@@ -404,20 +401,17 @@ impl Harness {
         let Some(epoch) = self.fake.epoch() else {
             return;
         };
-        let clock = |h: &Harness| h.t.read_app(|app: &UiApp| app.core.screens().agents.now);
+        let clock = |h: &Harness| h.t.read_app(|app: &UiApp| app.core.now().millis());
         // the shell's own first clock event comes from its thread too
         wait::wait_until(self, "the shell's clock", |h| ended(h) || clock(h) != 0);
         if ended(self) {
             return;
         }
         let mark = clock(self) + 1;
-        self.fake.inject(
-            epoch,
-            AppEv::Screen(ScreenEv::Agents(AgentsEv::Clock(mark))),
-        );
+        self.fake.inject(epoch, AppEv::Clock(Now::at_millis(mark)));
         // a quit the handler asked for ends the app before the mark lands
         wait::wait_until(self, "the handler's items applied", |h| {
-            ended(h) || clock(h) == mark
+            ended(h) || clock(h) >= mark
         });
     }
 }

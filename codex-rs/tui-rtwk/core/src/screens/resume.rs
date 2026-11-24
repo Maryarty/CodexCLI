@@ -263,8 +263,6 @@ pub enum Ev {
     /// The listing, as one finished page (a script's seed; the live picker
     /// reads pages through `Command::List`).
     Listed(Vec<Row>),
-    /// The reference time of the ages.
-    Clock(i64),
     /// The clock the details write times with: `true` for the 24-hour one.
     Clock24(bool),
     /// The conversation preview of a row (a script's seed of an answered
@@ -648,7 +646,6 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             model.rows = rows;
             model.load = Load::Idle;
         }
-        Ev::Clock(secs) => model.clock = secs,
         Ev::Clock24(on) => model.clock_24h = on,
         Ev::Previewed { key, lines } => {
             model.previews.insert(key, Preview::Loaded(lines));
@@ -1090,8 +1087,6 @@ enum SeedEv {
     /// The backend listed the saved threads: the fields of the app-server
     /// tests' `create_fake_rollout`, and the picker's own.
     Listed { rows: Vec<RolloutSeed> },
-    /// The reference time, epoch seconds.
-    Clock(i64),
     /// The clock the details write times with.
     Clock24(bool),
     /// The conversation preview of a listed row: `{"id": .., "backend": ..,
@@ -1188,7 +1183,6 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
         .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
     Ok(match seed {
         SeedEv::Listed { rows } => Ev::Listed(rows.into_iter().map(RolloutSeed::row).collect()),
-        SeedEv::Clock(secs) => Ev::Clock(secs),
         SeedEv::Clock24(on) => Ev::Clock24(on),
         SeedEv::Preview { id, backend, lines } => Ev::Previewed {
             key: (BackendId(backend), ThreadId::new(id)),

@@ -84,7 +84,6 @@ fn status_command(app: &mut CodexApp, source: Option<ThreadId>, fx: &mut AppFx) 
 /// The limits a card shows for `backend`: what the app has read of its
 /// account, at the clock the shell last moved.
 pub(super) fn card_limits(app: &CodexApp, backend: BackendId, refreshing: bool) -> status::Limits {
-    let screen = &app.screens.status;
     status::Limits {
         snapshots: app
             .session
@@ -92,8 +91,8 @@ pub(super) fn card_limits(app: &CodexApp, backend: BackendId, refreshing: bool) 
             .get(&backend)
             .map(|store| store.snapshots().cloned().collect())
             .unwrap_or_default(),
-        now: screen.now,
-        utc_offset_secs: screen.utc_offset_secs,
+        now: app.now.secs(),
+        utc_offset_secs: app.now.utc_offset_secs(),
         refreshing,
     }
 }

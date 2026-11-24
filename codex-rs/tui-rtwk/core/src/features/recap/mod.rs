@@ -22,12 +22,12 @@ mod prompt;
 use codex_app_server_protocol::{ClientRequest, RequestId};
 use serde_json::{Value, json};
 
-use super::{AppCx, Feature, Never, Slash};
+use super::{AppCx, Feature, Never, Slash, ThreadView};
 use crate::app::effects::{Ask, Done};
 use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
-use crate::threads::Tone;
+use crate::threads::{Item, Tone};
 
 pub use history::{Message, recap_history};
 
@@ -138,12 +138,27 @@ fn parse_recap(response: &str) -> Option<(String, Option<String>)> {
     Some((summary, next_action))
 }
 
+/// The messages of the conversation a reader sees, oldest first: what the user typed and what
+/// the assistant said (no tools, reasoning or plans), as history draws their text.
+pub fn conversation(thread: ThreadView<'_>) -> Vec<Message> {
+    thread
+        .core()
+        .transcript()
+        .iter()
+        .filter_map(|(_, item)| match item {
+            Item::User(prompt) => Some(Message::User(prompt.shown().text.into_owned())),
+            Item::Agent { text, .. } => Some(Message::Assistant(text.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
 /// The messages the recap reads (`UserHistoryCell`, `AgentMarkdownCell`, `AgentMessageCell`).
 fn excerpt(cx: &AppCx<'_>, thread: &ThreadId) -> String {
     let messages = cx
         .view()
         .thread(thread)
-        .map(|thread| thread.conversation())
+        .map(conversation)
         .unwrap_or_default();
     recap_history(&messages)
 }

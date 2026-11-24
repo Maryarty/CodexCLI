@@ -3,10 +3,9 @@
 //! it has the keys from the first frame after `SessionSelection::Resume`).
 
 use crate::common::{self, Harness};
-use codex_tui_core::app::AppEv;
+use codex_tui_core::app::{AppEv, Now};
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::onboarding::{Ev as StartupEv, Facts};
-use codex_tui_core::screens::resume::Ev as ResumeEv;
 
 const ID: &str = "00000000-0000-0000-0000-000000000001";
 
@@ -67,9 +66,7 @@ fn picker() -> Harness {
         request: 3,
         prompts: Vec::new(),
     }))]);
-    h.inject([AppEv::Screen(ScreenEv::Resume(ResumeEv::Clock(
-        i64::try_from(now).unwrap_or(0),
-    )))]);
+    h.inject([AppEv::Clock(Now::at_secs(i64::try_from(now).unwrap_or(0)))]);
     // The first listing went out before the fake could answer: a sort change lists again.
     h.press("tab");
     h.press("tab");

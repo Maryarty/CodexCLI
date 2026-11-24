@@ -15,12 +15,12 @@ mod visible;
 
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
-use super::{AppCx, AppView, Feature, Never, Slash};
+use super::{AppCx, AppView, Feature, Never, Slash, ThreadView};
 use crate::app::effects::{Ask, CopyDestination, CopyFormat, CopyStatus, Done};
 use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
-use crate::threads::Tone;
+use crate::threads::{Item, Tone};
 
 pub use visible::{copy_markdown, strip_line_directives, visible_markdown};
 
@@ -82,6 +82,21 @@ pub enum Note {
     },
 }
 
+/// The messages a copy can take, oldest first: an assistant message or a plan, as the server
+/// sent it (oracle `record_agent_markdown`'s callers).
+pub fn response_sources<'a>(thread: ThreadView<'a>) -> std::vec::IntoIter<&'a str> {
+    thread
+        .core()
+        .transcript()
+        .iter()
+        .filter_map(|(_, item)| match item {
+            Item::Agent { text, .. } | Item::Plan { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+}
+
 /// The label Ctrl+O copies under.
 pub const LAST_MESSAGE: &str = "last message";
 
@@ -89,8 +104,7 @@ pub const LAST_MESSAGE: &str = "last message";
 /// plan) with something visible in it (`record_agent_markdown`).
 pub fn last_response(view: &AppView<'_>, thread: &ThreadId) -> Option<Response> {
     let cwd = view.working_directory(Some(thread));
-    view.thread(thread)?
-        .response_sources()
+    response_sources(view.thread(thread)?)
         .rev()
         .find_map(|source| {
             copy_markdown(source, &cwd).map(|markdown| Response {

@@ -132,8 +132,6 @@ pub enum Ev {
     /// The directory the workspace is probed in: the host's at open, the shown thread's after
     /// (`status_line_cwd`). A different one drops the git summary and reads it again.
     Cwd(String),
-    /// The time now, in epoch seconds: the headline's due time is measured on it.
-    Clock(u64),
     /// The answer of `Probe::GitSummary { request, .. }`.
     GitSummary { request: u64, summary: GitSummary },
     /// The answer of `Probe::Headline { request }`.
@@ -212,6 +210,12 @@ fn uses(status: &StatusFacts, ids: &[&str]) -> bool {
 }
 
 impl Facts {
+    /// The time now, in epoch seconds (`AppEv::Clock`, told through `ScreenStates::set_now`): the
+    /// headline's due time is measured on it.
+    pub(crate) fn set_now(&mut self, now: u64) {
+        self.now = now;
+    }
+
     pub(super) fn apply(&mut self, ev: Ev) {
         match ev {
             Ev::Cwd(cwd) => {
@@ -221,7 +225,6 @@ impl Facts {
                     self.git = Lookup::Idle;
                 }
             }
-            Ev::Clock(now) => self.now = now,
             Ev::GitSummary { request, summary } => {
                 // an answer of an earlier request (an earlier cwd) is stale
                 if self.git == (Lookup::Pending { request }) {
