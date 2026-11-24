@@ -197,10 +197,6 @@ fn proposed_plan_cell_renders_markdown_table() {
 // ORACLE history_cell/tests.rs:424 empty_mcp_output_preserves_docs_hyperlink kind=snap owner=chat-live
 #[test]
 fn empty_mcp_output_preserves_docs_hyperlink() {
-    kit::pending(
-        Owner::ChatLive,
-        "no /mcp output cell on S11: the slash command draws no MCP tools cell yet, and the docs hyperlink is not carried",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 8).live().open();
     s.type_text("/mcp");
     s.keys("enter");
@@ -415,10 +411,6 @@ fn final_message_separator_includes_worked_label_after_one_minute() {
 // ORACLE history_cell/tests.rs:751 ps_output_empty_snapshot kind=snap owner=chat-live snap=ps_output_empty_snapshot
 #[test]
 fn ps_output_empty_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no /ps background-terminal list cell on S11: the slash command draws no process list yet",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(60, 8).live().open();
     s.type_text("/ps");
     s.keys("enter");

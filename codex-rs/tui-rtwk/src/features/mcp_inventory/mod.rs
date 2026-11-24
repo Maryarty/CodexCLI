@@ -2,9 +2,10 @@
 //! `codex_tui_core::features::mcp_inventory` (the ask, the pages, the loading row in
 //! `State::loading`); `/mcp` is routed by `Feature::OPENS`, its `open` draws nothing and says the verb.
 
+pub mod cell;
 pub mod strings;
 
-use rtwk::Cx;
+use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::features::mcp_inventory::{Intent, McpInventory, Note, Sheet};
 use codex_tui_core::ids::{Cwd, ThreadId};
@@ -15,6 +16,17 @@ use crate::pages::session::strings::Strings as SessionStrings;
 impl FeatureView for McpInventory {
     fn note_words(note: &Note, _words: &SessionStrings) -> String {
         strings::note(note)
+    }
+
+    /// The inventory as the oracle draws it: coloured states, a link in the empty list. A failure
+    /// is a row of text.
+    fn cell(note: &Note) -> Option<AnyWidget> {
+        match note {
+            Note::Failed(_) => None,
+            Note::Inventory(_) | Note::Empty => {
+                Some(cell::InventoryCell { note: note.clone() }.into())
+            }
+        }
     }
 }
 

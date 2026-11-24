@@ -673,13 +673,11 @@ fn approval_modal_patch_snapshot() {
 // ORACLE chatwidget/tests/exec_flow.rs:1573 interrupt_preserves_unified_exec_processes kind=ui owner=dialogs-pane
 #[test]
 fn interrupt_preserves_unified_exec_processes() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-chat-commands, not approvals): no /ps background-terminal list on the chat screen after an interrupt (sleep 5 and sleep 6 keep running)",
-    );
     // oracle: after the turn is interrupted, /ps still lists both running processes.
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: begin unified exec `sleep 5` (call-1, process-1), `sleep 6` (call-2, process-2), turn interrupted, then /ps
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!("fixtures/chat_approvals_1/interrupt_preserves_unified_exec_processes.jsonl"))
+        .open();
     s.type_text("/ps");
     s.keys("enter");
     s.assert_contains("Background terminals");
@@ -703,13 +701,11 @@ fn interrupt_preserves_unified_exec_wait_streak_snapshot() {
 // ORACLE chatwidget/tests/exec_flow.rs:1626 turn_complete_keeps_unified_exec_processes kind=ui owner=dialogs-pane
 #[test]
 fn turn_complete_keeps_unified_exec_processes() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-chat-commands, not approvals): no /ps background-terminal list on the chat screen after the turn completes (sleep 5 and sleep 6 keep running)",
-    );
     // oracle: after the turn completes, /ps still lists both running processes.
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: begin unified exec `sleep 5` (call-1, process-1), `sleep 6` (call-2, process-2), turn completed, then /ps
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!("fixtures/chat_approvals_1/turn_complete_keeps_unified_exec_processes.jsonl"))
+        .open();
     s.type_text("/ps");
     s.keys("enter");
     s.assert_contains("Background terminals");
