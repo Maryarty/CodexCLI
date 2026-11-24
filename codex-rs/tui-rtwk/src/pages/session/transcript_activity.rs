@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use rtwk::gestures::ExcludeSelection;
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row};
 use rtwk::style::Attrs;
 use rtwk::widgets::Text;
@@ -100,7 +101,7 @@ impl State for ToolRowState {
                 let cell: AnyWidget = Row::new()
                     .spacing(1)
                     .cross_axis_alignment(CrossAxisAlignment::Start)
-                    .child(Text::line("•").style(rows.mark))
+                    .child(ExcludeSelection::new(Text::line("•").style(rows.mark)))
                     .child(Expanded::new(1, content))
                     .into();
                 match rows.disclosure.filter(|_| !widget.detailed) {

@@ -3077,7 +3077,8 @@ mod text_contract {
     use codex_tui_rtwk::pages::session::cells::strings::EN as CELLS;
     use codex_tui_rtwk::pages::session::cells::text::{Env, Gap, Texts, texts};
     use codex_tui_rtwk::pages::session::cells::{
-        agent, deprecation, error, generated_image, hook, notice, user, viewed_image, warning, web,
+        agent, deprecation, error, generated_image, hook, note, notice, user, viewed_image,
+        warning, web,
     };
     use codex_tui_rtwk::pages::session::strings::EN as CHAT;
     use rtwk::AnyWidget;
@@ -3150,6 +3151,7 @@ mod text_contract {
             .into(),
             Item::Notice(n) => notice::NoticeCell { notice: n.clone() }.into(),
             Item::Hook(run) => hook::HookCell { run: run.clone() }.into(),
+            Item::Note(note) => note::NoteCell { note: note.clone() }.into(),
             Item::Generated(image) => generated_image::GeneratedImageCell {
                 image: image.clone(),
             }
@@ -3232,6 +3234,19 @@ mod text_contract {
             elements: vec![],
             images: vec![1, 2],
         }));
+    }
+
+    #[test]
+    fn a_note_is_one_text_with_its_mark_in_front() {
+        use codex_tui_core::threads::{Note, NoteKey, Tone};
+        for (tone, key) in [
+            (Tone::Info, NoteKey::WorkingDirectory("/work".into())),
+            (Tone::Info, NoteKey::DesktopOpened),
+            (Tone::Done, NoteKey::ServerDone("Recovered".into())),
+            (Tone::Error, NoteKey::Rollout(None)),
+        ] {
+            agrees(Item::Note(Note { tone, key }));
+        }
     }
 
     #[test]
