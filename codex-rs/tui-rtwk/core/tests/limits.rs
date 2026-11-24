@@ -10,7 +10,7 @@ use codex_protocol::account::PlanType;
 use codex_tui_core::screens::status::{
     Sample, Source, Used, Warning, WarningLimits as Notices, WindowName, warning_threshold,
 };
-use codex_tui_core::screens::usage::thread::{Ctx, Outcome, Selected, State};
+use codex_tui_core::features::thread_usage::model::{Ctx, Outcome, Selected, State};
 
 const FIVE_HOURS: i64 = 300;
 const WEEK: i64 = 7 * 24 * 60;

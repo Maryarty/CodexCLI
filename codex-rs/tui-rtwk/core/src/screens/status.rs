@@ -40,6 +40,19 @@ pub use rates::{
     ResetKind,
 };
 
+/// What a surface can be interested in of the thread's estimated cost (ADR-013 И): the widget
+/// that shows the figure raises it while it is drawn, the thread-usage feature asks the server
+/// for the figure on the first and stops polling when the last lets go.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UsageInterest {
+    /// The credits (`thread-credits` of the status line or the title).
+    Credits,
+    /// The dollars (`estimated-thread-cost` of the status line or the title).
+    EstimatedCost,
+    /// A `/status` card with a thread-usage row.
+    Card,
+}
+
 pub const NAME: &str = "status";
 pub const ID: &str = "S19";
 pub const KIND: Kind = Kind::Sheet;
