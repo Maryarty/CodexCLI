@@ -3936,6 +3936,7 @@ dependencies = [
  "codex-protocol",
  "codex-shell-command",
  "codex-tui-core",
+ "codex-tui-rtwk-test-mods",
  "codex-utils-elapsed",
  "codex-utils-path",
  "dunce",
@@ -3964,6 +3965,10 @@ dependencies = [
  "tracing",
  "url",
 ]
+
+[[package]]
+name = "codex-tui-rtwk-test-mods"
+version = "0.0.0"
 
 [[package]]
 name = "codex-uds"
