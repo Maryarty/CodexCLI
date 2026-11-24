@@ -171,6 +171,13 @@ impl CopyLog {
     }
 }
 
+/// The copy of a block as a mode of the transcript (`mode_list!`): no fixture states of its own.
+pub struct Mode;
+
+impl TranscriptMode for Mode {
+    const NAME: &'static str = "copy";
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -268,11 +275,4 @@ mod tests {
         answer(&mut log, 7, Done::Copy(Ok(CopyStatus::Confirmed)));
         assert_eq!(feedback(&log), None);
     }
-}
-
-/// The copy of a block as a mode of the transcript (`mode_list!`): no fixture states of its own.
-pub struct Mode;
-
-impl TranscriptMode for Mode {
-    const NAME: &'static str = "copy";
 }
