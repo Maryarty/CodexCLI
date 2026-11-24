@@ -485,7 +485,10 @@ fn service_tier_command_uses_catalog_name_and_description() {
         vec![tier.clone()],
     );
     popup.on_composer_text_change("/fa".to_string());
-    assert_eq!(first_available(&popup), Some(CommandItem::ServiceTier(tier)));
+    assert_eq!(
+        first_available(&popup),
+        Some(CommandItem::ServiceTier(tier))
+    );
     assert_eq!(
         popup
             .rows()
@@ -1136,7 +1139,11 @@ fn every_screen_opening_command_names_its_target() {
         ("/subagents", Target::AgentPicker),
         ("/usage", Target::Usage),
         ("/warnings", Target::Dialogs),
-        ("/feedback", Target::Dialogs),
+        // the feature's own sheet (`features::feedback`), not the small dialogs
+        (
+            "/feedback",
+            Target::Feature(codex_tui_core::features::target_of(SlashCommand::Feedback).unwrap()),
+        ),
         ("/test-approval", Target::Approvals),
     ];
     for (line, target) in table {
