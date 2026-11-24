@@ -34,6 +34,7 @@ use crate::threads::ThreadAsk;
 use std::collections::{BTreeMap, VecDeque};
 use std::rc::Rc;
 
+use codex_app_server_protocol::ErrorNotification;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequest;
 
@@ -180,10 +181,15 @@ pub enum BackendEv {
     Notification(Box<ServerNotification>),
     Request(Box<ServerRequest>),
     Lagged(usize),
-    /// The event stream of `thread` was lost while the connection stands: what the user sends
-    /// there waits in the queue (oracle `thread_stream_disconnected`).
-    StreamLost(ThreadId),
-    /// The event stream of `thread` is back.
+    /// The event stream of `thread` was lost while the connection stands (a Cloud backend's
+    /// `ThreadStreamDisconnected`, `error` its words): what the user sends there waits in the
+    /// queue (oracle `thread_stream_disconnected`), an idle displayed thread asks the host to
+    /// attach again (`Command::ReconnectIdleThread`), and the error shows as a line otherwise.
+    StreamLost {
+        thread: ThreadId,
+        error: Box<ErrorNotification>,
+    },
+    /// The event stream of `thread` is back (`ThreadStreamReconnected`).
     StreamRestored(ThreadId),
 }
 
@@ -351,7 +357,7 @@ impl Ingress {
 
 /// An RPC or reply the shell performs. Thread RPCs are built through
 /// `ThreadFx`, which stamps the thread id (R3).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     /// `model`: the model an accepted migration prompt chose, for the thread
     /// to start on (oracle: `config.model` set before `start_thread`); none
@@ -393,6 +399,14 @@ pub enum Command {
         ticket: Ticket,
         thread: ThreadId,
         turn: TurnId,
+    },
+    /// The stream of the idle, displayed `thread` was lost: the backend attaches it again
+    /// quietly (oracle `reconnect_idle_thread`; its `ThreadStreamReconnected` answers). When it
+    /// does not accept, the host sends `error` back as the notification the line is made of.
+    #[non_exhaustive]
+    ReconnectIdleThread {
+        thread: ThreadId,
+        error: Box<ErrorNotification>,
     },
     /// Creates a checkout in the source repository.
     #[non_exhaustive]
@@ -476,7 +490,7 @@ pub enum Command {
 }
 
 /// Effects of one `apply_app` call, as values.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct AppFx {
     pub(crate) commands: Vec<Command>,
     /// The app cannot go on: the connection did not start (the oracle ends
@@ -896,9 +910,9 @@ impl CodexApp {
                 command: ScreenCommand::Resume(command),
                 ..
             } => command.backend(),
-            Command::StartTurn { thread, .. } | Command::InterruptTurn { thread, .. } => {
-                agents.owner_of(thread.as_str())
-            }
+            Command::StartTurn { thread, .. }
+            | Command::InterruptTurn { thread, .. }
+            | Command::ReconnectIdleThread { thread, .. } => agents.owner_of(thread.as_str()),
             Command::RejectRequest { key }
             | Command::ResolveRequest { key, .. }
             | Command::VerifyUser { key, .. } => key.backend,
@@ -1502,11 +1516,24 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         }
         // The stream of a thread this backend owns: what is sent there waits in the queue until it
         // is back.
-        AppEv::Backend(BackendEv::StreamLost(thread)) => {
-            stream_changed(app, origin, &thread, ThreadEv::StreamLost, fx);
+        AppEv::Backend(BackendEv::StreamLost { thread, error }) => {
+            stream_lost(app, origin, thread, error, fx);
         }
         AppEv::Backend(BackendEv::StreamRestored(thread)) => {
-            stream_changed(app, origin, &thread, ThreadEv::StreamRestored, fx);
+            // Only a thread the app marked lost has anything restored (oracle: the flag).
+            if app
+                .threads
+                .get(&thread)
+                .is_some_and(|model| model.stream_lost())
+            {
+                stream_changed(
+                    app,
+                    origin,
+                    &thread,
+                    ThreadEv::StreamRestored { read: false },
+                    fx,
+                );
+            }
         }
         AppEv::Reply(ticket, reply) => apply_reply(app, ticket, reply, fx),
         AppEv::ServerAnswerFailed { key, message } => {
@@ -2618,10 +2645,11 @@ fn open_verified(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) -> bool {
     if model.held() || model.failure.is_some() {
         return false;
     }
-    let held = app
-        .threads
-        .get(id)
-        .is_some_and(|thread| thread.has_writer());
+    // A thread whose stream was lost, or came back with its gap unread, is read from the server
+    // again (oracle `ignore_same_thread_resume`: "Already viewing" only when nothing is stale).
+    let held = app.threads.get(id).is_some_and(|thread| {
+        thread.has_writer() && !thread.stream_lost() && !thread.history_may_be_incomplete()
+    });
     if let Some(previous) = model.opening.clone().filter(|previous| previous != id) {
         set_open_cancelled(app, &previous, true);
     }
@@ -2750,9 +2778,23 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
     {
         let id = ThreadId::new(&thread.id);
         let backend = app.screens.agents.owner_of(id.as_str());
+        // The thread is held and its stream was lost or has a gap (oracle `was_reconnecting`,
+        // `refreshing_history`): the server's turns replace what is held, and what waited in the
+        // queue goes on.
+        let stale = matches!(ctx, agents::Ctx::Resume { .. })
+            && app
+                .threads
+                .get(&id)
+                .is_some_and(|held| held.stream_lost() || held.history_may_be_incomplete());
+        if stale {
+            apply_thread(app, &id, threads::history_reset(), fx);
+        }
         attach_thread_with_metadata(app, &id, backend, Origin::Resumed, Some(thread), fx);
         show_held_thread(app, id.clone(), fx);
         apply_thread(app, &id, threads::history_page(&thread.turns, None), fx);
+        if stale {
+            apply_thread(app, &id, ThreadEv::StreamRestored { read: true }, fx);
+        }
         // `maybe_prompt_resume_paused_goal_after_resume`: a resumed thread's stopped goal asks.
         if matches!(ctx, agents::Ctx::Resume { .. }) {
             features::resumed(app, &id, fx);
@@ -2936,6 +2978,50 @@ fn stream_changed(
     if app.screens.agents.owner_of(thread.as_str()) == origin {
         apply_thread(app, thread, ev, fx);
     }
+}
+
+/// The stream of `thread` was lost (oracle `ThreadStreamDisconnected`): the displayed thread of
+/// the backend that owns it is marked, and when no user turn is pending or running the backend is
+/// asked to attach it again, which ends there; every other case shows the error as the line the
+/// server's `Error` notification makes.
+fn stream_lost(
+    app: &mut CodexApp,
+    origin: BackendId,
+    thread: ThreadId,
+    mut error: Box<ErrorNotification>,
+    fx: &mut AppFx,
+) {
+    let owned = app.screens.agents.owner_of(thread.as_str()) == origin;
+    if owned
+        && app.session.active.as_ref() == Some(&thread)
+        && let Some(model) = app.threads.get(&thread)
+    {
+        let idle = !model.user_turn_in_flight();
+        apply_thread(app, &thread, ThreadEv::StreamLost, fx);
+        if idle {
+            fx.commands
+                .push(Command::ReconnectIdleThread { thread, error });
+            return;
+        }
+    }
+    // The server's words name no turn; the error ends the one that runs (oracle `on_error`
+    // finalizes the running turn).
+    if error.turn_id.is_empty()
+        && let Some(running) = app
+            .threads
+            .get(&thread)
+            .and_then(|model| model.running_turn())
+    {
+        error.turn_id = running.to_string();
+    }
+    apply_event(
+        app,
+        origin,
+        AppEv::Backend(BackendEv::Notification(Box::new(
+            ServerNotification::Error(*error),
+        ))),
+        fx,
+    );
 }
 
 /// Clear the writer and its pending RPCs after the connection is lost.

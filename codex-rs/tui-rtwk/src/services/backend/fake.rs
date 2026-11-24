@@ -509,6 +509,7 @@ async fn run_as(
             Command::RejectRequest { .. }
             | Command::ResolveRequest { .. }
             | Command::InterruptTurn { .. }
+            | Command::ReconnectIdleThread { .. }
             | Command::OpenUrl { .. }
             // Host-run asks (the clipboard, the diff, the history file, the analytics, the
             // device): recorded; a test answers with `inject` of the matching `AppEv`.

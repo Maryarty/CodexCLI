@@ -13,8 +13,10 @@ use crate::target::Mode;
 use crate::workspace::Local;
 use codex_app_server_client::AppServerClient;
 use codex_app_server_client::AppServerEvent;
+use codex_app_server_client::AppServerRequestHandle;
 use codex_app_server_client::EmbeddedNetworkPolicy;
 use codex_app_server_client::cloud_backend;
+use codex_app_server_protocol::ServerNotification;
 use codex_config::LoaderOverrides;
 use codex_core::config::Config;
 use codex_core::config::ConfigBuilder;
@@ -25,6 +27,7 @@ use codex_tui_core::app::BackendEv;
 use codex_tui_core::app::Command;
 use codex_tui_core::ids::BackendId;
 use codex_tui_core::ids::ConnEpoch;
+use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::Ev as AgentsEv;
 use codex_tui_core::screens::dialogs::Ev as DialogsEv;
@@ -128,10 +131,15 @@ async fn run(
                 Some(AppServerEvent::ServerRequest(request)) => {
                     emit_from(&ingress, spec.id, epoch, AppEv::Backend(BackendEv::Request(request)));
                 }
-                Some(
-                    AppServerEvent::ThreadStreamDisconnected(_)
-                    | AppServerEvent::ThreadStreamReconnected(_),
-                ) => {}
+                // The stream of one thread ended, or is back (oracle `app_server_events.rs`): the
+                // app decides what the user sees and sends; the owner check is its.
+                Some(AppServerEvent::ThreadStreamDisconnected(error)) => {
+                    let thread = ThreadId::new(&error.thread_id);
+                    emit_from(&ingress, spec.id, epoch, AppEv::Backend(BackendEv::StreamLost { thread, error }));
+                }
+                Some(AppServerEvent::ThreadStreamReconnected(thread)) => {
+                    emit_from(&ingress, spec.id, epoch, AppEv::Backend(BackendEv::StreamRestored(ThreadId::new(&thread))));
+                }
             },
             command = commands.recv() => match command {
                 None => break,
@@ -143,6 +151,25 @@ async fn run(
                 Some(Command::ResolveRequest { key, result, .. }) => {
                     if key.epoch == epoch && let Some(ev) = resolve(&client, key, result).await {
                         emit_from(&ingress, spec.id, epoch, ev);
+                    }
+                }
+                // The idle displayed thread lost its stream: the backend attaches it again quietly
+                // (`reconnect_idle_thread`); when it does not take it, the error is the thread's
+                // line, as the oracle's handler falls through to it.
+                Some(Command::ReconnectIdleThread { thread, error, .. }) => {
+                    let accepted = matches!(
+                        &handle,
+                        AppServerRequestHandle::Cloud(cloud) if cloud.reconnect_idle_thread(thread.as_str())
+                    );
+                    if !accepted {
+                        emit_from(
+                            &ingress,
+                            spec.id,
+                            epoch,
+                            AppEv::Backend(BackendEv::Notification(Box::new(
+                                ServerNotification::Error(*error),
+                            ))),
+                        );
                     }
                 }
                 Some(command) => {
