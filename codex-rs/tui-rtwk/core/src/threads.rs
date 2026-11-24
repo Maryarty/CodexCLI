@@ -1477,6 +1477,9 @@ pub enum ThreadAsk {
     ForkAt {
         thread: String,
         cwd: Option<String>,
+        /// A side conversation (`/side`): the fork is ephemeral and starts with the side policy as
+        /// its developer instructions (`features::side`).
+        side: bool,
     },
     /// `thread/start` in `cwd` (a new task).
     Start {
@@ -1617,11 +1620,15 @@ impl ThreadAsk {
                     ..ThreadResumeParams::default()
                 },
             },
-            ThreadAsk::ForkAt { thread, cwd } => ClientRequest::ThreadFork {
+            ThreadAsk::ForkAt { thread, cwd, side } => ClientRequest::ThreadFork {
                 request_id,
                 params: ThreadForkParams {
                     thread_id: thread.clone(),
                     cwd: cwd.clone(),
+                    ephemeral: *side,
+                    exclude_turns: *side,
+                    developer_instructions: side
+                        .then(crate::features::side::developer_instructions),
                     ..ThreadForkParams::default()
                 },
             },

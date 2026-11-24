@@ -2098,7 +2098,8 @@ mod directory {
             asks(&fx),
             [ThreadAsk::ForkAt {
                 thread: T.to_string(),
-                cwd: Some("/tmp".to_string())
+                cwd: Some("/tmp".to_string()),
+                side: false,
             }]
         );
         assert_eq!(notes_of(&app.active_thread()), []);
