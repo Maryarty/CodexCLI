@@ -968,7 +968,7 @@ fn status_command_drops_stale_usd_when_updated_usage_has_only_credits() {
 fn inline_status_surface_commands_are_session_only_and_atomic() {
     kit::pending(
         Owner::UiPane,
-        "the `/status` card is not built in the chat (the status screen exists only as a debug entry, and `/status` is not dispatched); the status line (`local_settings.tui.status_line` items) is not built in the chat, and the kit has no config seed for it",
+        "the inline `/title` and `/statusline` args (core/src/features/settings/args.rs, outside w2-status) resolve exact item ids only: the `model-name` alias and the rate-limit names of the oracle's `parse_item` (`monthly-limit` to `five-hour-limit` or `weekly-limit` by the window the snapshot has, `Ambiguous status-line item 'monthly-limit'. Use 'five-hour-limit' or 'weekly-limit'.` when both match) need the account's rate-limit snapshot in the parse; the probe says `Unknown status-line item 'monthly-limit'`",
     );
     let mut s = Screen::build(Owner::UiPane).live().open();
     // seed: /title and /statusline run inline in the chat (session-only, atomic)
