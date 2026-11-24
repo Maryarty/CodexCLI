@@ -6,6 +6,7 @@ use crate::common::{self, Harness};
 use codex_tui_core::app::{AppEv, Now};
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::onboarding::{Ev as StartupEv, Facts};
+use codex_tui_rtwk::services::shell::FixedClock;
 
 const ID: &str = "00000000-0000-0000-0000-000000000001";
 
@@ -29,7 +30,13 @@ fn thread_json(id: &str, preview: &str, now: u64) -> serde_json::Value {
 fn picker() -> Harness {
     let now: u64 = 1_777_399_200;
     // as the binary starts it: the home waits for the host's facts
-    let mut h = common::start_app(|app| app.with_start_resume(true).with_awaited_facts(true));
+    // the shell tells the app this time at its start: a clock the test injects could lose to it
+    let fixed = FixedClock::at(Now::at_secs(i64::try_from(now).unwrap_or(0)));
+    let mut h = common::start_app(|app| {
+        app.with_start_resume(true)
+            .with_awaited_facts(true)
+            .with_clock(fixed)
+    });
     h.fake
         .respond(move |request| match request["method"].as_str()? {
             "thread/list" => Some(Ok(serde_json::json!({
@@ -66,7 +73,6 @@ fn picker() -> Harness {
         request: 3,
         prompts: Vec::new(),
     }))]);
-    h.inject([AppEv::Clock(Now::at_secs(i64::try_from(now).unwrap_or(0)))]);
     // The first listing went out before the fake could answer: a sort change lists again.
     h.press("tab");
     h.press("tab");

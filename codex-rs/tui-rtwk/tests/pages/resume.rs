@@ -8,7 +8,8 @@
 #[path = "../oracle_snap/mod.rs"]
 mod oracle_snap;
 
-use codex_tui_core::app::{AppEv, Now};
+use codex_tui_core::app::Now;
+use codex_tui_rtwk::services::shell::FixedClock;
 
 use crate::common::{Harness, start_sized};
 
@@ -283,7 +284,10 @@ fn the_meta_line_leads_with_the_created_time_once_the_sort_is_created() {
     // The clock is a model input (R11): a fixed time, not the machine's.
     let now: u64 = 1_777_399_200;
     let (created, updated) = (now - 5 * 3600, now - 3 * 3600);
-    let mut h = crate::common::start_app(|app| app.with_start_resume(true));
+    // The shell tells the app this time at its start (and the link has no other: the one timer
+    // asks a minute ahead), so no injected event can lose to the shell's own first clock.
+    let fixed = FixedClock::at(Now::at_secs(i64::try_from(now).unwrap_or(0)));
+    let mut h = crate::common::start_app(|app| app.with_start_resume(true).with_clock(fixed));
     h.fake.respond(move |request| {
         (request["method"] == "thread/list").then(|| {
             Ok(serde_json::json!({
@@ -297,9 +301,6 @@ fn the_meta_line_leads_with_the_created_time_once_the_sort_is_created() {
             }))
         })
     });
-    // The shell's ambient clock feeds the command center's model only: the test plays the
-    // shell for the picker's.
-    h.inject([AppEv::Clock(Now::at_secs(i64::try_from(now).unwrap_or(0)))]);
     // The first listing went out before the fake could answer: a sort change lists again.
     h.press("tab");
     h.press("tab");
