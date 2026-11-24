@@ -9,17 +9,13 @@
 
 mod model;
 
-use codex_app_server_protocol::{ClientRequest, RequestId};
-
 pub use self::model::{
     Cli, Connection, Facts, Guidance, Menu, Page, Reason, Row, RowState, Source, State, Status,
     Step, Target, Verb,
 };
-use super::{AppCx, Feature, Never, Scope};
+use super::{AppCx, Scope};
 use crate::app::effects::{Ask, DaemonAsk, DaemonDone, Done};
 use crate::commands::SlashCommand;
-use crate::ids::ThreadId;
-use crate::rpc::RpcError;
 use crate::threads::Tone;
 
 /// The marker type of the feature.
@@ -51,69 +47,57 @@ pub enum Note {
     RestartFailed(String),
 }
 
-impl Feature for Daemon {
-    const NAME: &'static str = "daemon";
-    const OPENS: Option<(SlashCommand, Sheet)> = Some((SlashCommand::Daemon, Sheet));
-
-    type State = State;
-    type ThreadPart = ();
-    type Target = Sheet;
-    type Intent = Verb;
-    type ThreadIntent = Never<Self>;
-    type Command = Never<Self>;
-    type Reply = Never<Self>;
-    type Ctx = Ctx;
-    type Note = Note;
-    type Fact = Facts;
-    type Wish = Wish;
-    type Interest = Never<Self>;
-    type Event = Never<Self>;
-
-    fn intent(state: &mut State, verb: Verb, cx: &mut AppCx<'_>) {
-        match state.verb(verb) {
-            Some(Step::Show(menu)) => show(cx, menu),
-            Some(Step::Ask(DaemonAsk::Verify)) => {
-                cx.effect(Ask::BackgroundServer(DaemonAsk::Verify), Ctx::Verify)
-            }
-            Some(Step::Ask(DaemonAsk::Restart)) => {
-                cx.effect(Ask::BackgroundServer(DaemonAsk::Restart), Ctx::Restart)
-            }
-            None => {}
-        }
-    }
-
-    fn on_fact(state: &mut State, facts: Facts, _cx: &mut AppCx<'_>) {
-        state.told(facts);
-    }
-
-    fn effect_done(state: &mut State, ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {
-        match (ctx, done) {
-            (Ctx::Verify, Done::BackgroundServer(DaemonDone::Managed(managed))) => {
-                if let Some(menu) = state.verified(managed) {
-                    show(cx, menu);
+feature! {
+    impl Feature for Daemon {
+        const NAME: &'static str = "daemon";
+        const OPENS: Option<(SlashCommand, Sheet)> = Some((SlashCommand::Daemon, Sheet));
+        type State = State;
+        type Target = Sheet;
+        type Intent = Verb;
+        type Ctx = Ctx;
+        type Note = Note;
+        type Fact = Facts;
+        type Wish = Wish;
+        {
+            fn intent(state: &mut State, verb: Verb, cx: &mut AppCx<'_>) {
+                match state.verb(verb) {
+                    Some(Step::Show(menu)) => show(cx, menu),
+                    Some(Step::Ask(DaemonAsk::Verify)) => {
+                        cx.effect(Ask::BackgroundServer(DaemonAsk::Verify), Ctx::Verify)
+                    }
+                    Some(Step::Ask(DaemonAsk::Restart)) => {
+                        cx.effect(Ask::BackgroundServer(DaemonAsk::Restart), Ctx::Restart)
+                    }
+                    None => {}
                 }
             }
-            (Ctx::Restart, Done::BackgroundServer(DaemonDone::Restarted(result))) => {
-                if let Some(error) = state.restarted(result) {
-                    cx.note(None, Note::RestartFailed(error));
+
+            fn on_fact(state: &mut State, facts: Facts, _cx: &mut AppCx<'_>) {
+                state.told(facts);
+            }
+
+            fn effect_done(state: &mut State, ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {
+                match (ctx, done) {
+                    (Ctx::Verify, Done::BackgroundServer(DaemonDone::Managed(managed))) => {
+                        if let Some(menu) = state.verified(managed) {
+                            show(cx, menu);
+                        }
+                    }
+                    (Ctx::Restart, Done::BackgroundServer(DaemonDone::Restarted(result))) => {
+                        if let Some(error) = state.restarted(result) {
+                            cx.note(None, Note::RestartFailed(error));
+                        }
+                    }
+                    _ => {}
                 }
             }
-            _ => {}
+
+            fn note_tone(note: &Note) -> Tone {
+                match note {
+                    Note::RestartFailed(_) => Tone::Error,
+                }
+            }
         }
-    }
-
-    fn note_tone(note: &Note) -> Tone {
-        match note {
-            Note::RestartFailed(_) => Tone::Error,
-        }
-    }
-
-    fn wire(command: &Never<Self>, _thread: &ThreadId, _id: RequestId) -> ClientRequest {
-        command.absurd()
-    }
-
-    fn decode(command: &Never<Self>, _result: serde_json::Value) -> Result<Never<Self>, RpcError> {
-        command.absurd()
     }
 }
 

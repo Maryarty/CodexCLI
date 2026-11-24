@@ -12,13 +12,9 @@
 //! (`Ask::Copy`, `Ask::Export`) and the host's answer is worded as a note of the conversation in
 //! use: a copy answers twice (pending, then how it ended) and says both.
 
-use codex_app_server_protocol::{ClientRequest, RequestId};
-
-use super::{AppCx, Feature, Never, Slash};
+use super::{AppCx, Slash};
 use crate::app::effects::{Ask, CopyDestination, CopyFormat, CopyStatus, Done};
 use crate::commands::SlashCommand;
-use crate::ids::ThreadId;
-use crate::rpc::RpcError;
 use crate::threads::Tone;
 
 /// The marker type of the feature.
@@ -101,68 +97,53 @@ fn run(cx: &mut AppCx<'_>, destination: Destination) {
     cx.effect(ask, Ctx::Conversation);
 }
 
-impl Feature for Export {
-    const NAME: &'static str = "export";
-    const OPENS: Option<(SlashCommand, Sheet)> = Some((SlashCommand::Export, Sheet));
-    const RUNS: &'static [SlashCommand] = &[SlashCommand::Export];
+feature! {
+    impl Feature for Export {
+        const NAME: &'static str = "export";
+        const OPENS: Option<(SlashCommand, Sheet)> = Some((SlashCommand::Export, Sheet));
+        const RUNS: &'static [SlashCommand] = &[SlashCommand::Export];
+        type Target = Sheet;
+        type Intent = Intent;
+        type Ctx = Ctx;
+        type Note = Note;
+        {
+            /// `/export <path>`: the conversation in use is written to the path as typed. A bare `/export`
+            /// is the feature's sheet (`OPENS`) and never gets here.
+            fn slash(state: &mut (), slash: Slash, cx: &mut AppCx<'_>) {
+                if let Some(path) = slash.into_args() {
+                    Self::intent(state, Intent::Command { path }, cx);
+                }
+            }
 
-    type State = ();
-    type ThreadPart = ();
-    type Target = Sheet;
-    type Intent = Intent;
-    type ThreadIntent = Never<Self>;
-    type Command = Never<Self>;
-    type Reply = Never<Self>;
-    type Ctx = Ctx;
-    type Note = Note;
-    type Fact = Never<Self>;
-    type Wish = Never<Self>;
-    type Interest = Never<Self>;
-    type Event = Never<Self>;
+            fn intent(_state: &mut (), intent: Intent, cx: &mut AppCx<'_>) {
+                let destination = match intent {
+                    Intent::Command { path } => Destination::File(path),
+                    Intent::Export { destination } => destination,
+                };
+                run(cx, destination);
+            }
 
-    /// `/export <path>`: the conversation in use is written to the path as typed. A bare `/export`
-    /// is the feature's sheet (`OPENS`) and never gets here.
-    fn slash(state: &mut (), slash: Slash, cx: &mut AppCx<'_>) {
-        if let Some(path) = slash.into_args() {
-            Self::intent(state, Intent::Command { path }, cx);
-        }
-    }
+            /// The host's answer to the export's ask, said in the conversation in use: the copy's status
+            /// (a pending copy says so first, and again when it is settled), the path written, or the
+            /// failure.
+            fn effect_done(_state: &mut (), _ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {
+                let note = match done {
+                    Done::Copy(result) => Note::Copy(result),
+                    Done::Export(Ok(path)) => Note::Saved(path),
+                    Done::Export(Err(error)) => Note::Failed(error),
+                    _ => return,
+                };
+                cx.note(None, note);
+            }
 
-    fn intent(_state: &mut (), intent: Intent, cx: &mut AppCx<'_>) {
-        let destination = match intent {
-            Intent::Command { path } => Destination::File(path),
-            Intent::Export { destination } => destination,
-        };
-        run(cx, destination);
-    }
-
-    /// The host's answer to the export's ask, said in the conversation in use: the copy's status
-    /// (a pending copy says so first, and again when it is settled), the path written, or the
-    /// failure.
-    fn effect_done(_state: &mut (), _ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {
-        let note = match done {
-            Done::Copy(result) => Note::Copy(result),
-            Done::Export(Ok(path)) => Note::Saved(path),
-            Done::Export(Err(error)) => Note::Failed(error),
-            _ => return,
-        };
-        cx.note(None, note);
-    }
-
-    fn note_tone(note: &Note) -> Tone {
-        match note {
-            Note::Saved(_) | Note::Copy(Ok(_)) => Tone::Info,
-            Note::Failed(_) | Note::NoConversation | Note::NoContent | Note::Copy(Err(_)) => {
-                Tone::Error
+            fn note_tone(note: &Note) -> Tone {
+                match note {
+                    Note::Saved(_) | Note::Copy(Ok(_)) => Tone::Info,
+                    Note::Failed(_) | Note::NoConversation | Note::NoContent | Note::Copy(Err(_)) => {
+                        Tone::Error
+                    }
+                }
             }
         }
-    }
-
-    fn wire(command: &Never<Self>, _thread: &ThreadId, _id: RequestId) -> ClientRequest {
-        command.absurd()
-    }
-
-    fn decode(command: &Never<Self>, _result: serde_json::Value) -> Result<Never<Self>, RpcError> {
-        command.absurd()
     }
 }

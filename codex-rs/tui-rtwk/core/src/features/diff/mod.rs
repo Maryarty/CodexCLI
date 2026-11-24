@@ -9,13 +9,9 @@
 //! an answer for a directory the session has left is dropped (oracle `AppEvent::DiffResult(cwd,
 //! text)`: a reply for another directory is dropped).
 
-use codex_app_server_protocol::{ClientRequest, RequestId};
-
-use super::{AppCx, Feature, Never, Scope};
+use super::{AppCx, Never, Scope};
 use crate::app::effects::{Ask, Done};
 use crate::commands::SlashCommand;
-use crate::ids::ThreadId;
-use crate::rpc::RpcError;
 use crate::screens::transcript::diff::{Failure, Report};
 use crate::threads::Tone;
 
@@ -81,58 +77,44 @@ pub fn document(result: Result<Report, Failure>) -> (String, Option<PagerNote>) 
     }
 }
 
-impl Feature for Diff {
-    const NAME: &'static str = "diff";
-    const OPENS: Option<(SlashCommand, Sheet)> = Some((SlashCommand::Diff, Sheet));
+feature! {
+    impl Feature for Diff {
+        const NAME: &'static str = "diff";
+        const OPENS: Option<(SlashCommand, Sheet)> = Some((SlashCommand::Diff, Sheet));
+        type State = State;
+        type Target = Sheet;
+        type Intent = Intent;
+        type Ctx = Ctx;
+        type Wish = Wish;
+        {
+            fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
+                let Intent::Run = intent;
+                state.stamp += 1;
+                let view = cx.view();
+                let cwd = view.working_directory(view.active());
+                let ctx = Ctx {
+                    cwd: cwd.clone(),
+                    stamp: state.stamp,
+                };
+                cx.effect(Ask::GitDiff { cwd: Some(cwd) }, ctx);
+            }
 
-    type State = State;
-    type ThreadPart = ();
-    type Target = Sheet;
-    type Intent = Intent;
-    type ThreadIntent = Never<Self>;
-    type Command = Never<Self>;
-    type Reply = Never<Self>;
-    type Ctx = Ctx;
-    type Note = Never<Self>;
-    type Fact = Never<Self>;
-    type Wish = Wish;
-    type Interest = Never<Self>;
-    type Event = Never<Self>;
+            fn effect_done(state: &mut State, ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {
+                let Done::GitDiff(result) = done else {
+                    return;
+                };
+                let view = cx.view();
+                if ctx.stamp != state.stamp || ctx.cwd != view.working_directory(view.active()) {
+                    return;
+                }
+                let (text, note) = document(result);
+                let thread = view.active().cloned().unwrap_or_default();
+                cx.wish(Scope::Thread(thread), Wish::Pager { text, note });
+            }
 
-    fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
-        let Intent::Run = intent;
-        state.stamp += 1;
-        let view = cx.view();
-        let cwd = view.working_directory(view.active());
-        let ctx = Ctx {
-            cwd: cwd.clone(),
-            stamp: state.stamp,
-        };
-        cx.effect(Ask::GitDiff { cwd: Some(cwd) }, ctx);
-    }
-
-    fn effect_done(state: &mut State, ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {
-        let Done::GitDiff(result) = done else {
-            return;
-        };
-        let view = cx.view();
-        if ctx.stamp != state.stamp || ctx.cwd != view.working_directory(view.active()) {
-            return;
+            fn note_tone(note: &Never<Self>) -> Tone {
+                note.absurd()
+            }
         }
-        let (text, note) = document(result);
-        let thread = view.active().cloned().unwrap_or_default();
-        cx.wish(Scope::Thread(thread), Wish::Pager { text, note });
-    }
-
-    fn note_tone(note: &Never<Self>) -> Tone {
-        note.absurd()
-    }
-
-    fn wire(command: &Never<Self>, _thread: &ThreadId, _id: RequestId) -> ClientRequest {
-        command.absurd()
-    }
-
-    fn decode(command: &Never<Self>, _result: serde_json::Value) -> Result<Never<Self>, RpcError> {
-        command.absurd()
     }
 }

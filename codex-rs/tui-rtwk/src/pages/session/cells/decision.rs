@@ -1,3 +1,4 @@
+// cell: Item::Decision(_) | Item::Review(_)
 //! What an answer to an approval request or the auto-reviewer's verdict left (oracle
 //! `new_approval_decision_cell`, the plain permissions line), and a line `/auto-review` or the
 //! reviewer's paths added. The cells are the approvals sheet's (`sheets::approvals`); this file

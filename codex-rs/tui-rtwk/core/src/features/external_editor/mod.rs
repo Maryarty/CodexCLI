@@ -13,12 +13,9 @@
 //! no sheet); an editor that could not run is a line of the transcript. Words:
 //! `src/features/external_editor/strings.rs`.
 
-use codex_app_server_protocol::{ClientRequest, RequestId};
-
-use super::{AppCx, Feature, Never};
+use super::AppCx;
 use crate::app::effects::{Ask, Done, EditorFailure};
 use crate::ids::ThreadId;
-use crate::rpc::RpcError;
 use crate::threads::Tone;
 
 /// The marker type of the feature.
@@ -72,81 +69,66 @@ pub enum Note {
     Failed(String),
 }
 
-impl Feature for ExternalEditor {
-    const NAME: &'static str = "external_editor";
-
-    type State = State;
-    type ThreadPart = ();
-    type Target = Never<Self>;
-    type Intent = Intent;
-    type ThreadIntent = Never<Self>;
-    type Command = Never<Self>;
-    type Reply = Never<Self>;
-    type Ctx = Ctx;
-    type Note = Note;
-    type Fact = Never<Self>;
-    type Wish = Never<Self>;
-    type Interest = Never<Self>;
-    type Event = Never<Self>;
-
-    fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
-        let (thread, draft) = match intent {
-            Intent::Open { thread, draft } => (thread, draft),
-            Intent::Applied { seq } => {
-                if state
-                    .edited
-                    .as_ref()
-                    .is_some_and(|edited| edited.seq == seq)
-                {
-                    state.edited = None;
-                }
-                return;
-            }
-        };
-        let view = cx.view();
-        // `can_launch_external_editor`: a thread another process writes is only watched.
-        if state.running
-            || !view
-                .thread(&thread)
-                .is_some_and(|thread| thread.has_writer())
+feature! {
+    impl Feature for ExternalEditor {
+        const NAME: &'static str = "external_editor";
+        type State = State;
+        type Intent = Intent;
+        type Ctx = Ctx;
+        type Note = Note;
         {
-            return;
-        }
-        state.running = true;
-        let cwd = view.working_directory(Some(&thread));
-        cx.effect(Ask::Editor { draft, cwd }, Ctx::Draft(thread));
-    }
-
-    /// The editor ended: its text goes back to the composer, or the failure is said.
-    fn effect_done(state: &mut State, ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {
-        let Done::Editor(result) = done else {
-            return;
-        };
-        state.running = false;
-        let Ctx::Draft(thread) = ctx;
-        match result {
-            Ok(text) => {
-                state.seq += 1;
-                state.edited = Some(Edited {
-                    seq: state.seq,
-                    thread,
-                    text: text.trim_end().to_owned(),
-                });
+            fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
+                let (thread, draft) = match intent {
+                    Intent::Open { thread, draft } => (thread, draft),
+                    Intent::Applied { seq } => {
+                        if state
+                            .edited
+                            .as_ref()
+                            .is_some_and(|edited| edited.seq == seq)
+                        {
+                            state.edited = None;
+                        }
+                        return;
+                    }
+                };
+                let view = cx.view();
+                // `can_launch_external_editor`: a thread another process writes is only watched.
+                if state.running
+                    || !view
+                        .thread(&thread)
+                        .is_some_and(|thread| thread.has_writer())
+                {
+                    return;
+                }
+                state.running = true;
+                let cwd = view.working_directory(Some(&thread));
+                cx.effect(Ask::Editor { draft, cwd }, Ctx::Draft(thread));
             }
-            Err(EditorFailure::Missing) => cx.note(Some(thread), Note::Missing),
-            Err(EditorFailure::Failed(error)) => cx.note(Some(thread), Note::Failed(error)),
+
+            /// The editor ended: its text goes back to the composer, or the failure is said.
+            fn effect_done(state: &mut State, ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {
+                let Done::Editor(result) = done else {
+                    return;
+                };
+                state.running = false;
+                let Ctx::Draft(thread) = ctx;
+                match result {
+                    Ok(text) => {
+                        state.seq += 1;
+                        state.edited = Some(Edited {
+                            seq: state.seq,
+                            thread,
+                            text: text.trim_end().to_owned(),
+                        });
+                    }
+                    Err(EditorFailure::Missing) => cx.note(Some(thread), Note::Missing),
+                    Err(EditorFailure::Failed(error)) => cx.note(Some(thread), Note::Failed(error)),
+                }
+            }
+
+            fn note_tone(_note: &Note) -> Tone {
+                Tone::Error
+            }
         }
-    }
-
-    fn note_tone(_note: &Note) -> Tone {
-        Tone::Error
-    }
-
-    fn wire(command: &Never<Self>, _thread: &ThreadId, _id: RequestId) -> ClientRequest {
-        command.absurd()
-    }
-
-    fn decode(command: &Never<Self>, _result: serde_json::Value) -> Result<Never<Self>, RpcError> {
-        command.absurd()
     }
 }

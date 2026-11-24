@@ -1,3 +1,4 @@
+// cell: Item::PlanUpdate(_)
 //! A plan update (oracle history_cell/plans.rs `PlanUpdateCell`). Compact it
 //! is the header with the steps done, then the first three steps (the running
 //! one first, the done ones last), each one row clipped with an ellipsis; the

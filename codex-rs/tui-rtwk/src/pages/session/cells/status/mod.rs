@@ -1,3 +1,4 @@
+// cell: Item::Status { .. }
 //! `status`: the view half of S19 (the `/status` card): the session's
 //! configuration and usage as labelled rows over the card the model holds.
 //! Oracle: `codex-rs/tui/src/status/`.

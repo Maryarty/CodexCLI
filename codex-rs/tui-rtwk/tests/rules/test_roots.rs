@@ -2,14 +2,14 @@
 //! `oracle`, `shell`) hold no `mod` line of a test file. `build.rs` of `test-mods` writes their
 //! module lists from the files of `tests/{app,pages,sheets,oracle,services}` (`scan.rs`, the one
 //! source of both), so a new test file never edits a root and two branches that each add a file do
-//! not conflict on one. `tests/rules/main.rs` and `core/tests/all.rs` stay hand lists
-//! (`registration.rs` checks them): the rules root must not depend on the crate that rebuilds when
-//! a test file changes, and core's lists are fw-hubs-c's.
+//! not conflict on one. `core/tests/all.rs` lists its modules the same way (`core_all!`, `registration.rs`
+//! checks it); `tests/rules/main.rs` stays a hand list (`registration.rs` checks it): the rules root
+//! must not depend on the crate that rebuilds when a test file changes.
 
 #![allow(clippy::expect_used, clippy::disallowed_methods)]
 
 #[path = "../../test-mods/scan.rs"]
-mod scan;
+pub(crate) mod scan;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -103,7 +103,7 @@ fn the_test_scan_bites() {
     assert_eq!(modules(&found, "screens"), ["part", "plain", "sheet"]);
     assert_eq!(modules(&found, "oracle"), ["shard_1"]);
     assert_eq!(modules(&found, "shell"), ["svc"]);
-    let text = scan::macros(&found);
+    let text = scan::macros(&found, &[]);
     assert!(text.contains("macro_rules! pages"), "{text}");
     assert!(text.contains("mod marked;"), "{text}");
     assert!(!text.contains("mod plain_child;"), "{text}");

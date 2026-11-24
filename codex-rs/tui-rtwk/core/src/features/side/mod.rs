@@ -28,7 +28,7 @@ use codex_app_server_protocol::{
     TurnStatus,
 };
 
-use super::{AppCx, AppView, ChatFacts, Feature, Never, Refusal, Slash, ThreadSpawn};
+use super::{AppCx, AppView, ChatFacts, Refusal, Slash, ThreadSpawn};
 use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::keymap::actions::GLOBAL_TOGGLE_SIDE_CONVERSATION;
@@ -338,179 +338,174 @@ fn chat_facts(state: &State, view: AppView<'_>) -> ChatFacts {
     }
 }
 
-impl Feature for Side {
-    const NAME: &'static str = "side";
-
-    type State = State;
-    type ThreadPart = ();
-    type Target = Never<Self>;
-    type Intent = Intent;
-    type ThreadIntent = Never<Self>;
-    type Command = Command;
-    type Reply = Reply;
-    type Ctx = Ctx;
-    type Note = Note;
-    type Fact = Never<Self>;
-    type Wish = Never<Self>;
-    type Interest = Never<Self>;
-    type Event = Event;
-
-    const RUNS: &'static [SlashCommand] = &[SlashCommand::Side, SlashCommand::Btw];
-
-    /// `/side` and `/btw`, each with an optional prompt.
-    fn slash(state: &mut State, slash: Slash, cx: &mut AppCx<'_>) {
-        let source = slash.source.clone();
-        let prompt = slash.into_args();
-        Self::intent(state, Intent::Start { source, prompt }, cx);
-    }
-
-    fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
-        match intent {
-            Intent::Start { source, prompt } => start(state, source, prompt, cx),
-            Intent::Discard { child } => {
-                // Done once the parent is the thread shown, never while the side conversation
-                // still is.
-                if cx.view().active() == Some(&child) || !state.is_side(&child) {
-                    return;
-                }
-                state.links.remove(&child);
-                state.preparing.remove(&child);
-                cx.discard(&child);
-                cx.chat_facts(chat_facts(state, cx.view()));
-            }
-        }
-    }
-
-    /// `SideParentStatusChange::for_notification` of the stream.
-    fn project(notification: &ServerNotification) -> Option<Event> {
-        Some(Event::Parent {
-            parent: ThreadId::new(targets::notification_thread(notification)?),
-            change: StatusChange::for_notification(notification)?,
-        })
-    }
-
-    /// `SideParentStatus::for_request`: a request of the parent that waits for the user.
-    fn project_request(request: &ServerRequest) -> Option<Event> {
-        let status = status_for_request(request)?;
-        let (_, thread) = targets::request_target(request);
-        Some(Event::Parent {
-            parent: ThreadId::new(thread),
-            change: StatusChange::Set(status),
-        })
-    }
-
-    /// What the parent did (`apply_side_parent_status_change`): each side conversation of it
-    /// shows it, and the footer follows.
-    fn on_event(state: &mut State, event: Event, cx: &mut AppCx<'_>) {
-        let Event::Parent { parent, change } = event;
-        if state.side_of(&parent).is_none() {
-            return;
-        }
-        for link in state
-            .links
-            .values_mut()
-            .filter(|link| link.parent == parent)
+feature! {
+    impl Feature for Side {
+        const NAME: &'static str = "side";
+        const RUNS: &'static [SlashCommand] = &[SlashCommand::Side, SlashCommand::Btw];
+        type State = State;
+        type Intent = Intent;
+        type Command = Command;
+        type Reply = Reply;
+        type Ctx = Ctx;
+        type Note = Note;
+        type Event = Event;
         {
-            match change {
-                StatusChange::Set(status) => link.status = Some(status),
-                StatusChange::Clear => link.status = None,
-                StatusChange::ClearActionable => {
-                    if link.status.is_some_and(ParentStatus::is_actionable) {
-                        link.status = None;
+            /// `/side` and `/btw`, each with an optional prompt.
+            fn slash(state: &mut State, slash: Slash, cx: &mut AppCx<'_>) {
+                let source = slash.source.clone();
+                let prompt = slash.into_args();
+                Self::intent(state, Intent::Start { source, prompt }, cx);
+            }
+
+            fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
+                match intent {
+                    Intent::Start { source, prompt } => start(state, source, prompt, cx),
+                    Intent::Discard { child } => {
+                        // Done once the parent is the thread shown, never while the side conversation
+                        // still is.
+                        if cx.view().active() == Some(&child) || !state.is_side(&child) {
+                            return;
+                        }
+                        state.links.remove(&child);
+                        state.preparing.remove(&child);
+                        cx.discard(&child);
+                        cx.chat_facts(chat_facts(state, cx.view()));
                     }
                 }
             }
-        }
-        cx.chat_facts(chat_facts(state, cx.view()));
-    }
 
-    /// The fork is open here (`apply_side_creation`): it is a side conversation of its parent
-    /// from now on and its boundary goes in (before it is shown, so the footer has it). The
-    /// side conversation of a parent that was shown again gets the `/btw` prompt.
-    fn thread_opened(
-        state: &mut State,
-        ctx: Ctx,
-        result: Result<ThreadId, Refusal>,
-        cx: &mut AppCx<'_>,
-    ) {
-        match (ctx, result) {
-            (Ctx::Fork { parent, prompt }, Ok(child)) => {
-                // `child.parent_status`: the side conversation the parent already had.
-                let status = state
-                    .side_of(&parent)
-                    .and_then(|other| state.links.get(other))
-                    .and_then(|link| link.status);
-                state.links.insert(child.clone(), Link { parent, status });
-                state.preparing.insert(child.clone(), prompt);
-                cx.ask(
-                    Some(&child),
-                    Command::Boundary,
-                    Ctx::Boundary(child.clone()),
-                );
+            /// `SideParentStatusChange::for_notification` of the stream.
+            fn project(notification: &ServerNotification) -> Option<Event> {
+                Some(Event::Parent {
+                    parent: ThreadId::new(targets::notification_thread(notification)?),
+                    change: StatusChange::for_notification(notification)?,
+                })
             }
-            // `side_start_error_message`: what a fork that failed says.
-            (Ctx::Fork { parent, .. }, Err(Refusal::Failed(error))) => {
-                cx.note(Some(parent), start_failure(&failure(&error)));
+
+            /// `SideParentStatus::for_request`: a request of the parent that waits for the user.
+            fn project_request(request: &ServerRequest) -> Option<Event> {
+                let status = status_for_request(request)?;
+                let (_, thread) = targets::request_target(request);
+                Some(Event::Parent {
+                    parent: ThreadId::new(thread),
+                    change: StatusChange::Set(status),
+                })
             }
-            (Ctx::Fork { parent, prompt }, Err(Refusal::Busy)) => restore(cx, &parent, prompt),
-            (Ctx::Reuse { prompt, .. }, Ok(child)) => {
-                if let Some(prompt) = prompt {
-                    cx.submit(&child, UserMessage::text(prompt));
+
+            /// What the parent did (`apply_side_parent_status_change`): each side conversation of it
+            /// shows it, and the footer follows.
+            fn on_event(state: &mut State, event: Event, cx: &mut AppCx<'_>) {
+                let Event::Parent { parent, change } = event;
+                if state.side_of(&parent).is_none() {
+                    return;
+                }
+                for link in state
+                    .links
+                    .values_mut()
+                    .filter(|link| link.parent == parent)
+                {
+                    match change {
+                        StatusChange::Set(status) => link.status = Some(status),
+                        StatusChange::Clear => link.status = None,
+                        StatusChange::ClearActionable => {
+                            if link.status.is_some_and(ParentStatus::is_actionable) {
+                                link.status = None;
+                            }
+                        }
+                    }
+                }
+                cx.chat_facts(chat_facts(state, cx.view()));
+            }
+
+            /// The fork is open here (`apply_side_creation`): it is a side conversation of its parent
+            /// from now on and its boundary goes in (before it is shown, so the footer has it). The
+            /// side conversation of a parent that was shown again gets the `/btw` prompt.
+            fn thread_opened(
+                state: &mut State,
+                ctx: Ctx,
+                result: Result<ThreadId, Refusal>,
+                cx: &mut AppCx<'_>,
+            ) {
+                match (ctx, result) {
+                    (Ctx::Fork { parent, prompt }, Ok(child)) => {
+                        // `child.parent_status`: the side conversation the parent already had.
+                        let status = state
+                            .side_of(&parent)
+                            .and_then(|other| state.links.get(other))
+                            .and_then(|link| link.status);
+                        state.links.insert(child.clone(), Link { parent, status });
+                        state.preparing.insert(child.clone(), prompt);
+                        cx.ask(
+                            Some(&child),
+                            Command::Boundary,
+                            Ctx::Boundary(child.clone()),
+                        );
+                    }
+                    // `side_start_error_message`: what a fork that failed says.
+                    (Ctx::Fork { parent, .. }, Err(Refusal::Failed(error))) => {
+                        cx.note(Some(parent), start_failure(&failure(&error)));
+                    }
+                    (Ctx::Fork { parent, prompt }, Err(Refusal::Busy)) => restore(cx, &parent, prompt),
+                    (Ctx::Reuse { prompt, .. }, Ok(child)) => {
+                        if let Some(prompt) = prompt {
+                            cx.submit(&child, UserMessage::text(prompt));
+                        }
+                    }
+                    (Ctx::Reuse { parent, prompt }, Err(_)) => restore(cx, &parent, prompt),
+                    (Ctx::Boundary(_), _) => {}
                 }
             }
-            (Ctx::Reuse { parent, prompt }, Err(_)) => restore(cx, &parent, prompt),
-            (Ctx::Boundary(_), _) => {}
-        }
-    }
 
-    /// What the chat reads of the thread shown (`sync_side_thread_ui`).
-    fn on_shown(state: &mut State, _thread: &ThreadId, cx: &mut AppCx<'_>) {
-        cx.chat_facts(chat_facts(state, cx.view()));
-    }
+            /// What the chat reads of the thread shown (`sync_side_thread_ui`).
+            fn on_shown(state: &mut State, _thread: &ThreadId, cx: &mut AppCx<'_>) {
+                cx.chat_facts(chat_facts(state, cx.view()));
+            }
 
-    /// The boundary is in: the prompt that waited for it goes. It is not: the side conversation
-    /// stays as it is, with the line saying so (it can be closed), and the prompt is not sent.
-    fn answered(state: &mut State, ctx: Ctx, result: Result<Reply, RpcError>, cx: &mut AppCx<'_>) {
-        let Ctx::Boundary(child) = ctx else {
-            return;
-        };
-        let Some(prompt) = state.preparing.remove(&child) else {
-            return;
-        };
-        match result {
-            Ok(Reply) => {
-                if let Some(prompt) = prompt {
-                    cx.submit(&child, UserMessage::text(prompt));
+            /// The boundary is in: the prompt that waited for it goes. It is not: the side conversation
+            /// stays as it is, with the line saying so (it can be closed), and the prompt is not sent.
+            fn answered(state: &mut State, ctx: Ctx, result: Result<Reply, RpcError>, cx: &mut AppCx<'_>) {
+                let Ctx::Boundary(child) = ctx else {
+                    return;
+                };
+                let Some(prompt) = state.preparing.remove(&child) else {
+                    return;
+                };
+                match result {
+                    Ok(Reply) => {
+                        if let Some(prompt) = prompt {
+                            cx.submit(&child, UserMessage::text(prompt));
+                        }
+                    }
+                    Err(error) => cx.note(
+                        Some(child.clone()),
+                        Note::PrepareFailed {
+                            thread: child,
+                            error: failure(&error),
+                        },
+                    ),
                 }
             }
-            Err(error) => cx.note(
-                Some(child.clone()),
-                Note::PrepareFailed {
-                    thread: child,
-                    error: failure(&error),
-                },
-            ),
+
+            fn note_tone(_note: &Note) -> Tone {
+                Tone::Error
+            }
+
+            fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
+                match command {
+                    Command::Boundary => ClientRequest::ThreadInjectItems {
+                        request_id: id,
+                        params: ThreadInjectItemsParams {
+                            thread_id: thread.to_string(),
+                            items: policy::fork_items(),
+                        },
+                    },
+                }
+            }
+
+            fn decode(_command: &Command, _result: serde_json::Value) -> Result<Reply, RpcError> {
+                Ok(Reply)
+            }
         }
-    }
-
-    fn note_tone(_note: &Note) -> Tone {
-        Tone::Error
-    }
-
-    fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
-        match command {
-            Command::Boundary => ClientRequest::ThreadInjectItems {
-                request_id: id,
-                params: ThreadInjectItemsParams {
-                    thread_id: thread.to_string(),
-                    items: policy::fork_items(),
-                },
-            },
-        }
-    }
-
-    fn decode(_command: &Command, _result: serde_json::Value) -> Result<Reply, RpcError> {
-        Ok(Reply)
     }
 }
 

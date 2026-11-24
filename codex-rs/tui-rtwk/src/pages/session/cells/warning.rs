@@ -1,3 +1,4 @@
+// cell: Item::Warning { .. } | Item::LocalWarning(_) | Item::StartupWarning(_)
 //! A warning of the server in the detailed transcript (oracle
 //! history_cell/notices.rs `new_warning_event`: a `PrefixedWrappedHistoryCell`
 //! of `⚠ ` over the message, the rest of its rows indented two columns, the

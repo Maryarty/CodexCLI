@@ -1,3 +1,4 @@
+// cell: Item::Web(_)
 //! The web activity cell (oracle history_cell/search.rs `WebSearchCell`): one clipped row in
 //! the chat (`display_lines`), the wrapped rows under a `• ` gutter in the detailed transcript
 //! (`transcript_lines`, a `PrefixedWrappedHistoryCell`).

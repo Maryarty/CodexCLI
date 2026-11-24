@@ -1,3 +1,4 @@
+// cell: Item::Patch(_)
 //! The patch cell (oracle `diff_render.rs` `render_changes_block`, history_cell
 //! `PatchHistoryCell` and `PatchApplyFailureCell`): a summary header, one block
 //! per file and its numbered lines. Flutter: a `Column` of `Row`s, each diff

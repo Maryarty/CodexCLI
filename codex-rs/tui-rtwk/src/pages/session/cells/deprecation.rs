@@ -1,3 +1,4 @@
+// cell: Item::Deprecation { .. }
 //! A deprecation notice in the detailed transcript (oracle history_cell/
 //! notices.rs `DeprecationNoticeCell`: no display lines, so the chat shows
 //! nothing; `transcript_lines` is a red `⚠ ` (bold) and the summary, then the

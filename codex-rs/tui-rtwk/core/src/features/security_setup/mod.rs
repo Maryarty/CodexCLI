@@ -10,12 +10,8 @@
 //! account does (`State::occurrence`). The banner's action is the verb `Intent::Open`.
 //! Words and the banner: `src/features/security_setup/`.
 
-use codex_app_server_protocol::{ClientRequest, RequestId};
-
-use super::{AppCx, Feature, Never};
+use super::AppCx;
 use crate::app::effects::{Ask, Done};
-use crate::ids::ThreadId;
-use crate::rpc::RpcError;
 use crate::threads::Tone;
 
 /// The marker of the feature (`feature_list!`).
@@ -145,54 +141,40 @@ impl State {
     }
 }
 
-impl Feature for SecuritySetup {
-    const NAME: &'static str = "security_setup";
+feature! {
+    impl Feature for SecuritySetup {
+        const NAME: &'static str = "security_setup";
+        type State = State;
+        type Intent = Intent;
+        type Ctx = Ctx;
+        type Note = Note;
+        type Fact = Fact;
+        {
+            fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
+                let Intent::Open = intent;
+                if let Some(notice) = &state.notice {
+                    let url = notice.action.url.clone();
+                    cx.effect(Ask::OpenUrl { url: url.clone() }, Ctx::Page { url });
+                }
+            }
 
-    type State = State;
-    type ThreadPart = ();
-    type Target = Never<Self>;
-    type Intent = Intent;
-    type ThreadIntent = Never<Self>;
-    type Command = Never<Self>;
-    type Reply = Never<Self>;
-    type Ctx = Ctx;
-    type Note = Note;
-    type Fact = Fact;
-    type Wish = Never<Self>;
-    type Interest = Never<Self>;
-    type Event = Never<Self>;
+            fn effect_done(_state: &mut State, ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {
+                let (Ctx::Page { url }, Done::Opened(Err(error))) = (ctx, done) else {
+                    return;
+                };
+                cx.note(None, Note::PageFailed { url, error });
+            }
 
-    fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
-        let Intent::Open = intent;
-        if let Some(notice) = &state.notice {
-            let url = notice.action.url.clone();
-            cx.effect(Ask::OpenUrl { url: url.clone() }, Ctx::Page { url });
+            fn on_fact(state: &mut State, fact: Fact, _cx: &mut AppCx<'_>) {
+                match fact {
+                    Fact::Loaded { identity, notice } => state.loaded(identity, notice),
+                    Fact::Invalidated => state.notice = None,
+                }
+            }
+
+            fn note_tone(_note: &Note) -> Tone {
+                Tone::Error
+            }
         }
-    }
-
-    fn effect_done(_state: &mut State, ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {
-        let (Ctx::Page { url }, Done::Opened(Err(error))) = (ctx, done) else {
-            return;
-        };
-        cx.note(None, Note::PageFailed { url, error });
-    }
-
-    fn on_fact(state: &mut State, fact: Fact, _cx: &mut AppCx<'_>) {
-        match fact {
-            Fact::Loaded { identity, notice } => state.loaded(identity, notice),
-            Fact::Invalidated => state.notice = None,
-        }
-    }
-
-    fn note_tone(_note: &Note) -> Tone {
-        Tone::Error
-    }
-
-    fn wire(command: &Never<Self>, _thread: &ThreadId, _id: RequestId) -> ClientRequest {
-        command.absurd()
-    }
-
-    fn decode(command: &Never<Self>, _result: serde_json::Value) -> Result<Never<Self>, RpcError> {
-        command.absurd()
     }
 }

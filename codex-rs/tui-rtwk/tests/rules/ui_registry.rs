@@ -14,12 +14,28 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
+// the lists that `build.rs` writes from the files: the rules read the same text (fw-hubs-c5)
+use crate::layers::registry;
+
 fn crate_dir() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
 
 fn read(rel: &str) -> String {
     std::fs::read_to_string(crate_dir().join(rel)).unwrap_or_else(|e| panic!("read {rel}: {e}"))
+}
+
+/// A hub's `mod.rs` as the compiler sees it: the file, then the lists `build.rs` writes from the
+/// files of its directory (`pub mod` lines and the list macro).
+fn hub_text(dir: &str) -> String {
+    let generated = match dir {
+        KEY_ACTIONS => registry::actions_text(&crate_dir().join(dir)),
+        TRANSCRIPT => registry::modes_text(&crate_dir().join(dir)),
+        CELLS => registry::cells_text(&crate_dir().join(dir)),
+        _ => panic!("{dir} has no generated list"),
+    }
+    .unwrap_or_else(|e| panic!("{dir}: {e}"));
+    registry::with_generated(&read(&format!("{dir}/mod.rs")), &generated)
 }
 
 fn exists(rel: &str) -> bool {
@@ -146,7 +162,7 @@ const KEY_ACTIONS: &str = "src/pages/session/key_actions";
 
 /// `(file, Marker)` of every entry of `action_list!`.
 fn key_action_entries() -> Vec<(String, String)> {
-    entries(&read(&format!("{KEY_ACTIONS}/mod.rs")), "action_list")
+    entries(&hub_text(KEY_ACTIONS), "action_list")
         .iter()
         .map(|entry| {
             let (file, marker) = entry
@@ -161,7 +177,7 @@ fn key_action_entries() -> Vec<(String, String)> {
 fn action_list_names_a_file_and_a_key_action_each() {
     let list = key_action_entries();
     assert!(!list.is_empty(), "action_list! has no entry");
-    let module = read(&format!("{KEY_ACTIONS}/mod.rs"));
+    let module = hub_text(KEY_ACTIONS);
     let mut fails = Vec::new();
     let mut ids = BTreeSet::new();
     for (file, marker) in &list {
@@ -358,7 +374,7 @@ const CELLS: &str = "src/pages/session/cells";
 
 /// `(patterns, file)` of every entry of `cell_list!`.
 fn cell_entries() -> Vec<(String, String)> {
-    entries(&read(&format!("{CELLS}/mod.rs")), "cell_list")
+    entries(&hub_text(CELLS), "cell_list")
         .iter()
         .map(|entry| {
             let (pattern, file) = entry
@@ -387,7 +403,7 @@ fn cell_list_covers_every_item_with_a_view_file() {
             fails.push(format!("Item::{item} is no pattern of cell_list!"));
         }
     }
-    let module = read(&format!("{CELLS}/mod.rs"));
+    let module = hub_text(CELLS);
     let mut seen = BTreeSet::new();
     for (pattern, file) in &list {
         if pattern
@@ -460,7 +476,7 @@ const TRANSCRIPT: &str = "src/pages/session/transcript";
 
 #[test]
 fn mode_list_names_a_mode_file_each() {
-    let text = read(&format!("{TRANSCRIPT}/mod.rs"));
+    let text = hub_text(TRANSCRIPT);
     let list = entries(&text, "mode_list");
     assert!(!list.is_empty(), "mode_list! has no entry");
     let mut fails = Vec::new();
@@ -502,7 +518,7 @@ fn mode_list_names_a_mode_file_each() {
 /// fixture of a mode.
 #[test]
 fn transcript_mod_keeps_no_mode() {
-    let text = read(&format!("{TRANSCRIPT}/mod.rs"));
+    let text = hub_text(TRANSCRIPT);
     let mut fails = Vec::new();
     for banned in ["DebugEntry::new", "fixture", "fn pager_", "fn sheet_"] {
         if code(&text).iter().any(|line| line.contains(banned)) {
@@ -548,6 +564,98 @@ fn feature_view_has_the_cell_slot_and_actions_doors() {
         );
     }
     assert_clean("the feature view's doors", fails);
+}
+
+// ---------------------------------------------------------------------------------------------
+// The lists are the files' (fw-hubs-c5): no hand line of a list, no cell file without its head
+
+/// The four hubs take their list from `build.rs` (`include!`), so a slice, action, mode or cell
+/// is a file and two branches that each add one do not meet on a line.
+#[test]
+fn the_lists_are_generated_from_the_files() {
+    let mut fails = Vec::new();
+    for (hub, include, list) in [
+        (KEY_ACTIONS, "/key_actions.rs", "action_list"),
+        (TRANSCRIPT, "/transcript.rs", "mode_list"),
+        (CELLS, "/cells.rs", "cell_list"),
+    ] {
+        let text = read(&format!("{hub}/mod.rs"));
+        if !text.contains(&format!(
+            "include!(concat!(env!(\"OUT_DIR\"), \"{include}\"));"
+        )) {
+            fails.push(format!(
+                "{hub}/mod.rs does not include `{include}` of build.rs"
+            ));
+        }
+        if text.contains(&format!("macro_rules! {list}")) {
+            fails.push(format!("{hub}/mod.rs writes `{list}!` by hand"));
+        }
+    }
+    let text = read("src/features/mod.rs");
+    if !text.contains("include!(concat!(env!(\"OUT_DIR\"), \"/features.rs\"));") {
+        fails.push("src/features/mod.rs does not include `/features.rs` of build.rs".to_owned());
+    }
+    if text.contains("macro_rules! sheet_list") {
+        fails.push("src/features/mod.rs writes `sheet_list!` by hand".to_owned());
+    }
+    assert_clean("a registration list written by hand", fails);
+}
+
+/// A file of cells/ that has the cell entry (`pub fn view(item: &Item, ..`) has its `// cell:` head
+/// line, or `build.rs` never lists it and the match over `Item` does not compile.
+#[test]
+fn every_cell_view_has_its_head_line() {
+    let mut fails = Vec::new();
+    let dir = crate_dir().join(CELLS);
+    let mut files: Vec<_> = std::fs::read_dir(&dir)
+        .expect("cells/")
+        .flatten()
+        .map(|entry| entry.path())
+        .collect();
+    files.sort();
+    for path in files {
+        let file = if path.is_dir() {
+            path.join("mod.rs")
+        } else {
+            path.clone()
+        };
+        if !file.is_file() || file.extension().is_none_or(|ext| ext != "rs") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&file).expect("a cell file");
+        let has_view = text.contains("pub fn view(item: &Item, ");
+        let head = registry::cell_pattern(&text);
+        if has_view
+            && head.is_none()
+            && file
+                .file_name()
+                .is_some_and(|n| n != "mod.rs" || path.is_dir())
+        {
+            fails.push(format!(
+                "{}: `pub fn view(item: &Item, ..)` without a `{}<Item pattern>` line in its first lines",
+                file.display(),
+                registry::CELL_MARKER
+            ));
+        }
+        if let Some(pattern) = head {
+            if !has_view {
+                fails.push(format!(
+                    "{}: `// cell: {pattern}` but no `pub fn view(item: &Item, ..)`",
+                    file.display()
+                ));
+            }
+            if pattern
+                .split('|')
+                .any(|alt| !alt.trim().starts_with("Item::"))
+            {
+                fails.push(format!(
+                    "{}: `{pattern}` is not an `Item::` pattern",
+                    file.display()
+                ));
+            }
+        }
+    }
+    assert_clean("the cells' head lines", fails);
 }
 
 // ---------------------------------------------------------------------------------------------

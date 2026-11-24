@@ -1,3 +1,4 @@
+// cell: Item::Error { .. } | Item::HighLoad
 //! Why a turn went wrong (oracle history_cell/notices.rs `new_error_event`):
 //! one red row, `■ ` and the message, wrapped by the transcript.
 //!

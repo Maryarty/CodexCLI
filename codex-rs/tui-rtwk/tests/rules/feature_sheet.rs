@@ -9,12 +9,25 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
 
+// the lists that `build.rs` writes from the files: the rules read the same text (fw-hubs-c5)
+use crate::layers::registry;
+
 fn crate_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
 fn read(rel: &str) -> String {
     fs::read_to_string(crate_dir().join(rel)).unwrap_or_else(|e| panic!("{rel}: {e}"))
+}
+
+/// `src/features/mod.rs` as the compiler sees it: the hub, then the `pub mod` lines and
+/// `sheet_list!` that `build.rs` writes from core's slices.
+fn features_mod() -> String {
+    let slices = registry::core_features(&crate_dir().join("core/src/features"))
+        .unwrap_or_else(|e| panic!("core features: {e}"));
+    let generated = registry::ui_features_text(&crate_dir().join("src/features"), &slices)
+        .unwrap_or_else(|e| panic!("ui features: {e}"));
+    registry::with_generated(&read("src/features/mod.rs"), &generated)
 }
 
 fn dirs_of(rel: &str) -> Vec<String> {
@@ -102,7 +115,7 @@ fn differences(
 
 #[test]
 fn feature_sheet_only_with_opens() {
-    let text = read("src/features/mod.rs");
+    let text = features_mod();
     let mut fails = differences(&core_opens(), &sheet_list(&text), &sheet_impls());
     // the stubs are gone, and the view trait has no sheet items of its own
     let view = text
@@ -159,6 +172,6 @@ fn the_feature_sheet_check_bites() {
         differences(&set(&["diff"]), &set(&["diff", "goal"]), &set(&["diff"])).len(),
         1
     );
-    let real = sheet_list(&read("src/features/mod.rs"));
+    let real = sheet_list(&features_mod());
     assert!(real.contains("export"), "{real:?}");
 }

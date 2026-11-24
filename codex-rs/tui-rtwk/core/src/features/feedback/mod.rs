@@ -27,7 +27,7 @@ use codex_app_server_protocol::{
 };
 use serde::Deserialize;
 
-use super::{AppCx, Feature, Never};
+use super::AppCx;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::screens::SeedError;
@@ -344,154 +344,150 @@ fn join(directory: &str, name: &str) -> String {
         .into_owned()
 }
 
-impl Feature for Feedback {
-    const NAME: &'static str = "feedback";
-    const SEED: Option<fn(serde_json::Value) -> Result<Fact, SeedError>> = Some(seed);
-
-    type State = State;
-    type ThreadPart = ();
-    type Target = Never<Self>;
-    type Intent = Intent;
-    type ThreadIntent = Never<Self>;
-    type Command = Command;
-    type Reply = Reply;
-    type Ctx = Ctx;
-    type Note = Note;
-    type Fact = Fact;
-    type Wish = Never<Self>;
-    type Interest = Never<Self>;
-    type Event = Never<Self>;
-
-    fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
-        match intent {
-            Intent::Open { source } => {
-                if state.unavailable().is_some() {
-                    cx.note(source, Note::Unavailable);
+feature! {
+    impl Feature for Feedback {
+        const NAME: &'static str = "feedback";
+        const SEED: Option<fn(serde_json::Value) -> Result<Fact, SeedError>> = Some(seed);
+        type State = State;
+        type Intent = Intent;
+        type Command = Command;
+        type Reply = Reply;
+        type Ctx = Ctx;
+        type Note = Note;
+        type Fact = Fact;
+        {
+            fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
+                match intent {
+                    Intent::Open { source } => {
+                        if state.unavailable().is_some() {
+                            cx.note(source, Note::Unavailable);
+                        }
+                    }
+                    Intent::Submit {
+                        category,
+                        note,
+                        turn_id,
+                        rollout,
+                        include_logs,
+                        destination,
+                        file_name,
+                    } => submit(
+                        state,
+                        cx,
+                        Upload {
+                            category,
+                            reason: reason_of(&note),
+                            thread: None,
+                            turn_id,
+                            include_logs,
+                            rollout,
+                            destination,
+                        },
+                        &file_name,
+                    ),
                 }
             }
-            Intent::Submit {
-                category,
-                note,
-                turn_id,
-                rollout,
-                include_logs,
-                destination,
-                file_name,
-            } => submit(
-                state,
-                cx,
-                Upload {
+
+            fn on_fact(state: &mut State, fact: Fact, _cx: &mut AppCx<'_>) {
+                let environment = &mut state.environment;
+                environment.audience = fact.audience.unwrap_or(environment.audience);
+                environment.uploads = fact.uploads.unwrap_or(environment.uploads);
+                environment.remote = fact.remote.unwrap_or(environment.remote);
+                if fact.uploads.is_some() {
+                    // The config part says the home too: none is none.
+                    environment.home = fact.home;
+                }
+            }
+
+            /// How the delivery went, said in the thread the report was composed in; a ZIP's folder
+            /// made, the save follows.
+            fn answered(state: &mut State, ctx: Ctx, result: Result<Reply, RpcError>, cx: &mut AppCx<'_>) {
+                let Ctx {
+                    origin,
                     category,
-                    reason: reason_of(&note),
-                    thread: None,
-                    turn_id,
                     include_logs,
-                    rollout,
-                    destination,
-                },
-                &file_name,
-            ),
-        }
-    }
-
-    fn on_fact(state: &mut State, fact: Fact, _cx: &mut AppCx<'_>) {
-        let environment = &mut state.environment;
-        environment.audience = fact.audience.unwrap_or(environment.audience);
-        environment.uploads = fact.uploads.unwrap_or(environment.uploads);
-        environment.remote = fact.remote.unwrap_or(environment.remote);
-        if fact.uploads.is_some() {
-            // The config part says the home too: none is none.
-            environment.home = fact.home;
-        }
-    }
-
-    /// How the delivery went, said in the thread the report was composed in; a ZIP's folder
-    /// made, the save follows.
-    fn answered(state: &mut State, ctx: Ctx, result: Result<Reply, RpcError>, cx: &mut AppCx<'_>) {
-        let Ctx {
-            origin,
-            category,
-            include_logs,
-            step,
-        } = ctx;
-        let note = match (step, result) {
-            (Step::Upload, Ok(Reply::Uploaded { report })) => Note::Uploaded {
-                category,
-                include_logs,
-                report,
-                audience: state.environment.audience,
-            },
-            (Step::Upload, Err(error)) => Note::Failed(format!("{UPLOAD_FAILED}{}", cause(&error))),
-            (
-                Step::Directory {
-                    upload,
-                    directory,
-                    path,
-                },
-                result,
-            ) => match result {
-                Ok(_) => {
-                    let ctx = Ctx {
-                        origin: origin.clone(),
+                    step,
+                } = ctx;
+                let note = match (step, result) {
+                    (Step::Upload, Ok(Reply::Uploaded { report })) => Note::Uploaded {
                         category,
                         include_logs,
-                        step: Step::Save,
-                    };
-                    return cx.ask(origin.as_ref(), Command::Save { upload, path }, ctx);
-                }
-                Err(error) => Note::Failed(format!(
-                    "{SAVE_FAILED}Could not create the feedback directory at {directory}: {}",
-                    cause(&error)
-                )),
-            },
-            (Step::Save, Ok(Reply::Saved { path })) => Note::Saved(path),
-            (Step::Save, Err(error)) => Note::Failed(format!("{SAVE_FAILED}{}", cause(&error))),
-            // An answer of another shape than its ask: nothing to say.
-            (_, Ok(_)) => return,
-        };
-        cx.note(origin, note);
-    }
+                        report,
+                        audience: state.environment.audience,
+                    },
+                    (Step::Upload, Err(error)) => Note::Failed(format!("{UPLOAD_FAILED}{}", cause(&error))),
+                    (
+                        Step::Directory {
+                            upload,
+                            directory,
+                            path,
+                        },
+                        result,
+                    ) => match result {
+                        Ok(_) => {
+                            let ctx = Ctx {
+                                origin: origin.clone(),
+                                category,
+                                include_logs,
+                                step: Step::Save,
+                            };
+                            return cx.ask(origin.as_ref(), Command::Save { upload, path }, ctx);
+                        }
+                        Err(error) => Note::Failed(format!(
+                            "{SAVE_FAILED}Could not create the feedback directory at {directory}: {}",
+                            cause(&error)
+                        )),
+                    },
+                    (Step::Save, Ok(Reply::Saved { path })) => Note::Saved(path),
+                    (Step::Save, Err(error)) => Note::Failed(format!("{SAVE_FAILED}{}", cause(&error))),
+                    // An answer of another shape than its ask: nothing to say.
+                    (_, Ok(_)) => return,
+                };
+                cx.note(origin, note);
+            }
 
-    fn note_tone(note: &Note) -> Tone {
-        match note {
-            Note::Failed(_) => Tone::Error,
-            _ => Tone::Info,
-        }
-    }
-
-    fn wire(command: &Command, _thread: &ThreadId, request_id: RequestId) -> ClientRequest {
-        match command {
-            Command::Upload(upload) => ClientRequest::FeedbackUpload {
-                request_id,
-                params: params_of(upload),
-            },
-            Command::Save { upload, path } => save_request(request_id, params_of(upload), path),
-            Command::MakeDirectory { path } => {
-                let params = serde_json::from_value::<FsCreateDirectoryParams>(
-                    serde_json::json!({ "path": path, "recursive": true }),
-                );
-                match params {
-                    Ok(params) => ClientRequest::FsCreateDirectory { request_id, params },
-                    Err(_) => refused(request_id),
+            fn note_tone(note: &Note) -> Tone {
+                match note {
+                    Note::Failed(_) => Tone::Error,
+                    _ => Tone::Info,
                 }
             }
-        }
-    }
 
-    fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-        let malformed = |error: serde_json::Error| RpcError::Malformed(error.to_string());
-        match command {
-            Command::Upload(_) => serde_json::from_value::<FeedbackUploadResponse>(result)
-                .map(|response| Reply::Uploaded {
-                    report: response.thread_id,
-                })
-                .map_err(malformed),
-            Command::MakeDirectory { .. } => Ok(Reply::Directory),
-            Command::Save { .. } => serde_json::from_value::<FeedbackSaveResponse>(result)
-                .map(|response| Reply::Saved {
-                    path: response.saved_path.to_string(),
-                })
-                .map_err(malformed),
+            fn wire(command: &Command, _thread: &ThreadId, request_id: RequestId) -> ClientRequest {
+                match command {
+                    Command::Upload(upload) => ClientRequest::FeedbackUpload {
+                        request_id,
+                        params: params_of(upload),
+                    },
+                    Command::Save { upload, path } => save_request(request_id, params_of(upload), path),
+                    Command::MakeDirectory { path } => {
+                        let params = serde_json::from_value::<FsCreateDirectoryParams>(
+                            serde_json::json!({ "path": path, "recursive": true }),
+                        );
+                        match params {
+                            Ok(params) => ClientRequest::FsCreateDirectory { request_id, params },
+                            Err(_) => refused(request_id),
+                        }
+                    }
+                }
+            }
+
+            fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
+                let malformed = |error: serde_json::Error| RpcError::Malformed(error.to_string());
+                match command {
+                    Command::Upload(_) => serde_json::from_value::<FeedbackUploadResponse>(result)
+                        .map(|response| Reply::Uploaded {
+                            report: response.thread_id,
+                        })
+                        .map_err(malformed),
+                    Command::MakeDirectory { .. } => Ok(Reply::Directory),
+                    Command::Save { .. } => serde_json::from_value::<FeedbackSaveResponse>(result)
+                        .map(|response| Reply::Saved {
+                            path: response.saved_path.to_string(),
+                        })
+                        .map_err(malformed),
+                }
+            }
         }
     }
 }

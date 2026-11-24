@@ -13,6 +13,7 @@ use std::path::PathBuf;
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=scan.rs");
+    println!("cargo:rerun-if-changed=../core/tests");
     for dir in scan::dirs() {
         println!("cargo:rerun-if-changed=../tests/{dir}");
     }
@@ -22,6 +23,14 @@ fn main() {
         .expect("test-mods sits in the package directory")
         .join("tests");
     let found = scan::scan(&tests).unwrap_or_else(|e| panic!("test roots: {e}"));
+    let core = scan::scan_core(
+        &manifest
+            .parent()
+            .expect("the package directory")
+            .join("core")
+            .join("tests"),
+    )
+    .unwrap_or_else(|e| panic!("core test modules: {e}"));
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("cargo sets OUT_DIR"));
-    std::fs::write(out.join("macros.rs"), scan::macros(&found)).expect("write macros.rs");
+    std::fs::write(out.join("macros.rs"), scan::macros(&found, &core)).expect("write macros.rs");
 }

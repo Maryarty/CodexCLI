@@ -1,3 +1,4 @@
+// cell: Item::Notice(_)
 //! Session notices (oracle thread_transcript/other_items.rs `new_info_event`
 //! and `new_review_status_line`).
 

@@ -12,19 +12,16 @@ use codex_tui_core::screens::transcript::{ID, NAME};
 use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
 
-pub mod copy;
 mod copy_feedback;
 pub mod follow;
 pub mod history;
-pub mod pager;
-pub mod selection;
-pub mod sheet;
 pub mod strings;
 pub mod turn_details;
 
-/// A mode of the transcript: the marker type `Mode` of a file of this directory, one line in
-/// `mode_list!`. The state a mode keeps is its own (its page or sheet, `thread_ui::Input` says
-/// which one the reader holds); the list is what the directory assembles from the files.
+/// A mode of the transcript: the marker type `Mode` of a file of this directory; `build.rs` lists
+/// it in `mode_list!` and declares its module from the file. The state a mode keeps is its own (its
+/// page or sheet, `thread_ui::Input` says which one the reader holds); the list is what the
+/// directory assembles from the files.
 pub trait TranscriptMode {
     /// The mode's name: `pager`, `sheet`, `select`, `copy`.
     const NAME: &'static str;
@@ -35,19 +32,7 @@ pub trait TranscriptMode {
     }
 }
 
-/// The list of the transcript's modes, handed to `callback` as `file;` entries: `file` is the
-/// module `transcript/<file>.rs` with a `Mode` marker that implements [`TranscriptMode`]. A mode
-/// is one line here (and its file).
-macro_rules! mode_list {
-    ($callback:ident) => {
-        $callback! {
-            pager;
-            sheet;
-            selection;
-            copy;
-        }
-    };
-}
+include!(concat!(env!("OUT_DIR"), "/transcript.rs"));
 
 macro_rules! mode_dirs {
     ($($file:ident;)*) => {

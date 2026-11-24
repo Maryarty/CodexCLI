@@ -795,10 +795,9 @@ subscriptions` with default no-ops.
   `NoteKey::Feature`, `AppEv::Feature` (a fact the host sends unasked). The UI routes `FeatureNote` to `src/features/<f>/strings.rs` and
   `FeatureMenu` to the feature's `FeatureView::menu_list`: the opener owns the continuation,
   as Flutter's `showDialog<T>` does.
-- **Hook order is the order of `feature_list!`.** Every hook that runs over all features
-  (`on_resumed`, `on_turn_end`, `on_interrupted`) runs them in list order, so a line's
-  position is a decision (a feature whose `on_turn_end` starts a turn goes before one that
-  reads whether the thread is idle). What a hook sees is the thread as the step left it:
+- **Hook order is the order of `feature_list!`, which is by directory name.** Every hook that runs
+  over all features (`on_resumed`, `on_turn_end`, `on_interrupted`) runs them in that order; a
+  feature must not depend on it (a feature that needs another to go on says the event, `cx.settled`). What a hook sees is the thread as the step left it:
   the turn start the thread's own `send_next` said before the hooks counts
   (`ThreadView::busy`), the ticket being the model's only after the whole `apply`.
   `core/src/features/framework.rs` tests it with two probe features registered in a list of
@@ -1047,6 +1046,28 @@ less). Two types of one name in two modules are therefore no longer one node, an
 renamed (`SafetyEv`, `CompactionEv`) to keep the scan apart. Test:
 `the_reachability_resolves_a_name_by_its_path`.
 
+**Registration by file (fw-hubs-c5).** No list is a hand-written line: `build.rs` (core's, and the UI
+crate's) writes every registration list from the files, with one scanner, `test-mods/registry.rs`
+(std only; the rules call the same functions, so a rule reads what the compiler got). A slice is a
+directory `core/src/features/<f>/` with a `mod.rs` that holds `impl Feature for <Marker>`: the `pub mod`
+line, `feature_list!` (by name: no hook of the slices depends on the order, the two that look at it,
+`on_resumed` and `on_shown`, are one slice each), the UI's `src/features/<f>` module line and
+`sheet_list!` (the slices whose `const OPENS` is `Some`) follow. A key action is a file of
+`key_actions/` (`impl KeyAction for <Marker>`); a transcript mode is a file of `transcript/` with
+`impl TranscriptMode for Mode`; a cell is a file (or directory) of `cells/` whose head holds the
+line `// cell: <Item pattern>`, e.g. `// cell: Item::Error { .. } | Item::HighLoad`: that line is
+the `cell_list!` entry, the file name its module. `core/tests/all.rs` is `core_all!` (every file and
+`mod.rs` directory of `core/tests`, as the UI roots are). Two parallel packages that each add a slice,
+action, mode, cell or test file touch no common line. rustfmt does not follow modules a macro
+declares: `tools/rtwk-port/registry/fmt.sh` formats them. A slice is written with `feature!`
+(`core/src/features/mod.rs`): `impl Feature for <F> { const NAME..; type X = ..; { fn .. } }` with
+only what the slice has; an absent associated type is `Never<Self>` (`()` for the two states),
+`wire`/`decode` of a slice without `type Command` are `command.absurd()`, every other method the
+trait's default. Constants come first (`NAME`, `SEED`, `OPENS`, `RUNS`), then the types in the
+order of the trait, then the methods in one braces group; rustfmt leaves the inside of the call as
+written. Test: `the_lists_are_generated_from_the_files`, `the_feature_scan_bites`,
+`every_cell_view_has_its_head_line`, `core_tests_are_listed_by_their_files`.
+
 ### Recipe: a feature as a slice
 
 For a flow that is not a screen: a slash command that opens a menu or a prompt, asks the
@@ -1054,7 +1075,7 @@ server and says what happened in the transcript (`/goal`, `/export`, `/rename`).
 lifecycle state (the queue, the steers, the turn starts) is not one (see "What is not a slice").
 A screen is still a `screen_list!` directory.
 
-**Files.** You edit only these, plus one line in `feature_list!`:
+**Files.** You edit only these (no list line: the directory registers the slice):
 
 ```
 core/src/features/<f>/mod.rs     the marker type and `impl Feature for <F>`; model.rs, menu.rs, wire.rs, note.rs as it grows
@@ -1063,8 +1084,8 @@ src/features/<f>/strings.rs      the words of its notes and menu rows (a typed c
 core/tests/<f>.rs                tests through `CodexApp`, as the oracle's tests are
 ```
 
-**The one list line** (`core/src/features/mod.rs`, `macro_rules! feature_list`):
-`goal => Goal;` (the directory => the marker type in it). It generates `FeatureStates`,
+**The list** (`feature_list!`, written by `core/build.rs` from the directories as `goal => Goal;`:
+the directory => the marker type of its `impl Feature`). It generates `FeatureStates`,
 `FeatureThreadParts`, the root enums `FeatureIntent`, `FeatureThreadIntent`, `FeatureCommand`,
 `FeatureReply`, `FeatureCtx`, `FeatureMenu`, `FeaturePick`, `FeaturePrompt`, `FeatureNote`,
 their `From` impls and the dispatch, in core and in the UI. No other hub file changes for the
@@ -1108,9 +1129,7 @@ it), `on_resumed(state, thread, cx)` (a resumed thread is applied and in use),
 it), `on_interrupted(part, cx)` (right after the `on_turn_end` of an interrupt),
 `on_settled(part, cx)` (what held the thread's input back is over: another feature said
 `cx.settled(&thread)`, the goal was set; the queue, the thread's own, resumes beside them). They run over
-all features in the order of `feature_list!`: put the line where its hooks belong (a feature
-that sends the next message at the end of a turn goes before one that reads whether the
-thread is idle) and say so in a comment on the line when the order matters. A feature that
+all features in the order of `feature_list!` (by directory name; a feature does not depend on it). A feature that
 needs another to go on never names it: it says the event (`cx.settled`), the hooks of every
 feature answer in their own words (`on_settled` was the one hook the `/goal` move added,
 because the goal-to-queue nudge was a `QueueResume` that named both). A new hook is for a

@@ -1,91 +1,10 @@
-//! The core's integration tests, one binary: every `tests/<name>.rs` is a module here.
+//! The core's integration tests, one binary: every `tests/<name>.rs` (and every `tests/<dir>/mod.rs`)
+//! is a module here, listed by `core_all!` from the files (`test-mods/build.rs`, `scan.rs`): a new
+//! test file needs no line in this one.
 //!
 //! One binary instead of one per file: each test binary is a rustc run and a link of the
 //! whole dependency set, and every edit of the core relinked all 25 of them (the
-//! build-speed task, docs/rtwk-port/build-speed.md). A new test file is a new line in
-//! this list (the rules test `every_test_file_is_registered` fails without it).
+//! build-speed task, docs/rtwk-port/build-speed.md). rustfmt does not follow the generated
+//! modules: `tools/rtwk-port/registry/fmt.sh` formats them.
 
-mod adr003;
-mod agents;
-mod agents_backends;
-mod agents_details;
-mod agents_followups;
-mod agents_live;
-mod agents_reconnect;
-mod agents_shared;
-mod app;
-mod app_wiring;
-mod approvals;
-mod apps_directory;
-mod backend_switch;
-mod backtrack;
-mod banners;
-mod cells;
-mod citations;
-mod clock;
-mod cmd_args;
-mod commands;
-mod compaction;
-mod composer_history;
-mod composer_shell;
-mod composer_states;
-mod composer_vim;
-mod copy;
-mod decisions;
-mod dialogs;
-mod diff;
-mod directives;
-mod exploration;
-mod export;
-mod external_editor;
-mod feedback;
-mod goal;
-mod guardian;
-mod import;
-mod issue_proofs;
-mod keymap;
-mod limits;
-mod mcp_inventory;
-mod model;
-mod models;
-mod onboarding;
-mod openers;
-mod permission_args;
-mod permissions;
-mod pets;
-mod plan_mode;
-mod plugins;
-mod popovers;
-mod processes;
-mod provider_error;
-mod queue;
-mod quick_dials;
-mod recap;
-mod rename_prompt;
-mod resume;
-mod review_popup;
-mod safety;
-mod script;
-mod security_setup;
-mod select;
-mod select_live;
-mod selection;
-mod settings;
-mod settings_feeds;
-mod side;
-mod slash_door;
-mod small_cmds;
-mod sparkle;
-mod status;
-mod status_data;
-mod status_facts;
-mod structured_turn;
-mod submission;
-mod tips;
-mod transcript_diff;
-mod unit;
-mod usage;
-mod usage_reset;
-mod windows_sandbox;
-mod worked_for;
-mod worktree_popups;
+tui_test_mods::core_all!();

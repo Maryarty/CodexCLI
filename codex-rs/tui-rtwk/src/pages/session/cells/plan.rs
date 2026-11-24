@@ -1,3 +1,4 @@
+// cell: Item::Plan { .. }
 //! The proposed plan (oracle history_cell/plans.rs `ProposedPlanCell`).
 //! Flutter: a `Column` of a header `Text.rich` and a `Container(color)` around
 //! the `MarkdownView`.

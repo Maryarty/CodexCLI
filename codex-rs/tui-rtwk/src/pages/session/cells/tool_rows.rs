@@ -1,3 +1,4 @@
+// cell: Item::Tool(_)
 //! What the tool cells share: the parts a call contributes to its row (the
 //! bullet, the shared disclosure and the expanded flag belong to
 //! `transcript_activity.rs`'s `ToolRow`, Flutter's `ExpansionTile` state) and

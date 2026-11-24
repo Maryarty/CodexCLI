@@ -1,3 +1,4 @@
+// cell: Item::Generated(_)
 //! A finished image generation call (oracle history_cell/patches.rs
 //! `ImageGenerationHistoryCell`): a bold heading after a dim bullet (a red
 //! cross for a failed one), the revised prompt dim under a dim branch and,
