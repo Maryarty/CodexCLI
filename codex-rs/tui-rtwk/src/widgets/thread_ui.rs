@@ -16,6 +16,7 @@ use codex_tui_core::ids::ThreadId;
 use codex_tui_core::kit::backtrack::{Backtrack, Chosen as Selection, EscStep, Targets};
 
 use crate::widgets::composer_draft::ComposerDraft;
+use crate::widgets::finder::Finder;
 use crate::widgets::composer_sparkle::SparkleController;
 
 /// The controllers of one thread.
@@ -35,6 +36,21 @@ pub struct ThreadUi {
     /// the transcript's selection area is served by it, and the page's keys (copy, Esc) and a
     /// right click read it from outside the area.
     pub selection: TextSelection,
+    /// Find over the transcript (F3): its query, its match and the position it came from. Its
+    /// mode is the truth of `Input::Find`.
+    pub find: Finder,
+}
+
+impl ThreadUi {
+    /// How the transcript takes keys now: Find while it is open (editing the query or reading a
+    /// match), else the mode the reader holds (`Modes::input`).
+    pub fn input(&self) -> Input {
+        if self.find.active() {
+            Input::Find
+        } else {
+            self.modes.input()
+        }
+    }
 }
 
 /// The controller of the transcript's selection, shared by the area it serves, the keys of the
@@ -105,15 +121,17 @@ pub struct Modes {
 }
 
 /// How the transcript takes keys over the chat's: the plain chat, the cursor that selects text
-/// (oracle `select_mode`), the picker that copies a block (`copy_mode`). The state each mode
-/// keeps is its own (its page or sheet); this is only which one is held, so that the keys, the
-/// footer and the area that selects read the same answer.
+/// (oracle `select_mode`), the picker that copies a block (`copy_mode`), Find (F3: the query's
+/// field, then the match being read; `ThreadUi::input` says it while the finder is open). The
+/// state each mode keeps is its own (its page or sheet, the finder); this is only which one is
+/// held, so that the keys, the footer and the area that selects read the same answer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Input {
     #[default]
     Plain,
     Select,
     Copy,
+    Find,
 }
 
 impl Default for Modes {

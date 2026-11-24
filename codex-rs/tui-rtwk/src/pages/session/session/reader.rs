@@ -64,11 +64,12 @@ pub(super) fn pane(state: &ChatState, w: &Chat, frame: &Frame) -> Stack {
     // modes tick when either moves (Flutter's `ListenableBuilder`).
     let reader = {
         let (follow, modes) = (w.ui.follow.clone(), w.ui.modes.clone());
-        let selection = w.ui.selection.clone();
+        let (selection, find) = (w.ui.selection.clone(), w.ui.find.clone());
         ListenableBuilder::new(w.ui.modes.listenable(), move |_, _| {
             Pane {
                 follow: follow.clone(),
                 selection: selection.clone(),
+                find: find.clone(),
                 detailed: modes.detailed(),
                 mark: modes.selected(),
             }

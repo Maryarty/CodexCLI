@@ -45,6 +45,7 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
     let draft = state.draft.clone();
     let modes = state.modes.clone();
     let selection = state.selection.clone();
+    let finder = state.find.clone();
     let (leader, control) = (state.leader.clone(), state.control.clone());
     let (banner, blocked) = (state.banner.clone(), state.banner_blocked.clone());
     let keymap = state.keymap.clone();
@@ -64,7 +65,8 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
         }
         // a match being read (Find accepted): `Ctrl+P`, `Ctrl+N`, Enter (swallowed), Esc and
         // `Ctrl+C` are Find's (`handle_search_key`), whatever the composer holds
-        if let Some(finder) = find::reading(&selection.borrow())
+        let finder = finder.borrow().clone();
+        if finder.reading()
             && let Some(taken) = find::key(finder.mode(), &key)
             && finder.take(taken)
         {

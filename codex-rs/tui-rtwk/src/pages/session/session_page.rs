@@ -48,6 +48,7 @@ use crate::pages::session::key_actions::Keyed;
 use crate::pages::session::open::open;
 use crate::widgets::composer_draft::ComposerDraft;
 use crate::widgets::directives::{Edge, Listener};
+use crate::widgets::finder::Finder;
 use crate::widgets::thread_ui::{Modes, TextSelection, ThreadUi};
 
 use super::actions::reasoning_shortcut;
@@ -149,6 +150,8 @@ pub struct ChatState {
     /// What the reader selected in its transcript: the copy keys and Esc are its while
     /// something is selected.
     selection: Rc<RefCell<TextSelection>>,
+    /// Its Find: the keys of a match being read are Find's.
+    find: Rc<RefCell<Finder>>,
 }
 
 /// What keeps the banner's keys from the banner (`handle_inline_banner_key`).
@@ -183,6 +186,7 @@ impl StatefulWidget for Chat {
             draft: Rc::new(RefCell::new(self.ui.draft.clone())),
             modes: Rc::new(RefCell::new(self.ui.modes.clone())),
             selection: Rc::new(RefCell::new(self.ui.selection.clone())),
+            find: Rc::new(RefCell::new(self.ui.find.clone())),
         }
     }
 }
@@ -245,6 +249,7 @@ impl State for ChatState {
             *self.draft.borrow_mut() = w.ui.draft.clone();
             *self.modes.borrow_mut() = w.ui.modes.clone();
             *self.selection.borrow_mut() = w.ui.selection.clone();
+            *self.find.borrow_mut() = w.ui.find.clone();
             self.sync_draft(w);
             // the thread under the page changed: what it had open closes, and the fork it waited
             // on is another thread's

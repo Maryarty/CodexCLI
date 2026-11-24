@@ -3,11 +3,9 @@
 //! (`transcript::find_footer::slot`).
 
 use rtwk::Cx;
-use rtwk::provider::read;
 
 use codex_tui_core::keymap::ActionId;
 use codex_tui_core::keymap::actions::GLOBAL_FIND_TRANSCRIPT;
-use codex_tui_core::threads::ThreadModel;
 
 use super::{KeyAction, Keyed};
 use crate::pages::session::session_page::ChatState;
@@ -18,8 +16,7 @@ pub struct Find;
 impl KeyAction for Find {
     const ID: ActionId = GLOBAL_FIND_TRANSCRIPT;
 
-    fn run(cx: &mut Cx<'_, ChatState>, keyed: &Keyed<'_>) {
-        let thread = read::<ThreadModel, _>(cx).id().clone();
-        find::finder(&thread).begin(&keyed.ui.follow, &keyed.ui.selection);
+    fn run(_: &mut Cx<'_, ChatState>, keyed: &Keyed<'_>) {
+        find::finder(keyed.ui).begin(&keyed.ui.follow, &keyed.ui.selection);
     }
 }

@@ -6,7 +6,6 @@
 //!
 //! The footer's place is the page's footer slot, which calls `find_footer::slot` once.
 
-use codex_tui_core::ids::ThreadId;
 use codex_tui_rtwk::pages::session::transcript::find;
 
 use crate::kit::{Owner, Screen};
@@ -142,7 +141,7 @@ fn a_paste_past_the_limit_is_cut_whole_and_says_so() {
 fn the_pane_shows_the_match_its_finder_found_and_closing_takes_it_away() {
     let mut s = chat();
     s.keys("f3");
-    let finder = find::finder(&ThreadId::new("thread-1"));
+    let finder = find::finder(&s.thread_ui());
     finder.query().set_text("needle two");
     finder.changed();
     s.wait(50);

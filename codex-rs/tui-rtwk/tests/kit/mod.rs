@@ -20,6 +20,7 @@ mod compare;
 mod env;
 mod expect;
 mod grid;
+mod handles;
 mod input;
 mod labels;
 mod markdown_gutter;

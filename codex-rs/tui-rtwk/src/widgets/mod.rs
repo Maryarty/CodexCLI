@@ -5,6 +5,7 @@ pub mod composer_draft;
 pub mod composer_sparkle;
 pub mod directives;
 pub mod dots;
+pub mod finder;
 pub mod interest;
 pub mod key_guard;
 pub mod markdown;

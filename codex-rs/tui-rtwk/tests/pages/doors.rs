@@ -225,3 +225,56 @@ mod kit_seeds {
         assert!(s.side_closed());
     }
 }
+
+mod find_in_thread_ui {
+    use codex_tui_rtwk::pages::session::transcript::find::{self, Mode};
+    use codex_tui_rtwk::widgets::thread_ui::{Input, ThreadUi};
+
+    use crate::kit::{Owner, Screen};
+
+    const NEEDLES: &str = include_str!("../oracle/fixtures/transcript_view_4/find_jump.jsonl");
+
+    /// Find is the thread's own (`ThreadUi::find`, no registry keyed by thread), it is
+    /// `Input::Find` while it is open, and its bar stands in the bottom pane below the composer.
+    #[test]
+    fn find_is_held_by_the_thread_ui_and_says_its_input() {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(80, 24)
+            .script(NEEDLES)
+            .open();
+        let ui = s.thread_ui();
+        assert_eq!(ui.input(), Input::Plain);
+        assert_eq!(find::finder(&ui).mode(), Mode::Closed);
+        s.keys("f3");
+        assert_eq!(ui.input(), Input::Find);
+        assert_eq!(find::finder(&ui).mode(), Mode::Editing);
+        s.type_text("needle two");
+        s.keys("enter");
+        assert_eq!(find::finder(&ui).mode(), Mode::Reading);
+        assert!(find::reading(&ui).is_some());
+        assert_eq!(ui.input(), Input::Find);
+        s.keys("esc");
+        assert_eq!(ui.input(), Input::Plain);
+        assert!(find::reading(&ui).is_none());
+        // another thread's controllers have a finder of their own
+        let other = ThreadUi::default();
+        assert!(find::finder(&other) != find::finder(&ui));
+        assert_eq!(other.input(), Input::Plain);
+    }
+
+    /// The bar is the last thing of the bottom pane: Find's rows are below the composer's prompt.
+    #[test]
+    fn the_find_bar_stands_below_the_composer() {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(80, 24)
+            .script(NEEDLES)
+            .open();
+        s.keys("f3");
+        s.type_text("needle two");
+        let rows = s.rows();
+        let at = |needle: &str| rows.iter().position(|row| row.contains(needle));
+        let prompt = at("Ask Codex to do anything").expect("the composer");
+        let bar = at("Find: ").expect("the bar");
+        assert!(bar > prompt, "{}", s.text());
+    }
+}

@@ -20,58 +20,10 @@ use rtwk::style::{Span, Style};
 use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::ids::ThreadId;
-
 use super::find::{self, Finder, Mode};
+pub use crate::widgets::finder::{Progress, Status};
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
-
-/// Where the search stands (oracle `search.rs` `Progress`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Progress {
-    /// Nothing asked since the query last changed, or the answer is shown.
-    Idle,
-    /// The query changed: the scan starts again.
-    Restart,
-    /// Entries are being read.
-    Scanning,
-    /// The match lies in history that has not been loaded.
-    AwaitingHistory,
-    /// A match is shown.
-    Found,
-    /// No entry is left to read in the direction.
-    Exhausted,
-}
-
-/// What the status row is read from.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Status {
-    pub progress: Progress,
-    /// The reader has accepted the match and reads it (the footer says `Find · …`).
-    pub reading: bool,
-    /// A match is the current one.
-    pub has_match: bool,
-    /// The query editor is empty.
-    pub query_empty: bool,
-    /// The query was cut to 4 KiB.
-    pub truncated: bool,
-    /// Loading older history failed.
-    pub history_failed: bool,
-}
-
-impl Status {
-    /// A finder that has not been asked anything.
-    pub fn idle() -> Status {
-        Status {
-            progress: Progress::Idle,
-            reading: false,
-            has_match: false,
-            query_empty: true,
-            truncated: false,
-            history_failed: false,
-        }
-    }
-}
 
 /// The spellings of the status row, the widest first (`status_line`).
 pub fn candidates(table: &Strings, status: &Status) -> Vec<String> {
@@ -204,11 +156,11 @@ pub fn query_row(table: &'static Strings, label: Style, editor: AnyWidget) -> An
 /// The footer under the composer: while Find is open its query row (editing only) and its status
 /// row, two cells in, in the place of `normal`, the footer the page would draw (Flutter: a
 /// `ListenableBuilder` on the finder). One call from the page's footer slot.
-pub fn slot<S>(cx: &mut Cx<'_, S>, thread: &ThreadId, normal: AnyWidget) -> AnyWidget {
+pub fn slot<S>(cx: &mut Cx<'_, S>, finder: &Finder, normal: AnyWidget) -> AnyWidget {
     let table = strings::of(cx);
     let tokens = Tokens::of(cx);
     let (dim, bold) = (tokens.dim(), tokens.bold());
-    let finder = find::finder(thread);
+    let finder = finder.clone();
     ListenableBuilder::new(finder.listenable(), move |_, _| {
         let mode = finder.mode();
         if mode == Mode::Closed {

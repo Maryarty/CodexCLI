@@ -30,7 +30,7 @@ use super::cells::strings as cells_strings;
 use super::cells::text::Env;
 use super::cells::{CellEnv, Place, cell};
 use super::strings as chat_strings;
-use super::transcript::find::{self, Finder, RowTexts};
+use super::transcript::find::{Finder, RowTexts};
 use super::transcript::item_text::mounted_text;
 use super::transcript::selection::SelectionHost;
 use super::transcript::strings as transcript_strings;
@@ -46,6 +46,8 @@ pub(super) struct Pane {
     pub follow: Follow,
     /// What the reader has selected in the list: the one controller of the thread's `ThreadUi`.
     pub selection: TextSelection,
+    /// Find over it: the one finder of the thread's `ThreadUi`.
+    pub find: Finder,
     pub detailed: bool,
     pub mark: Option<usize>,
 }
@@ -515,7 +517,7 @@ impl State for ViewportState {
         );
         let cells = cells_strings::of(cx);
         let folds = transcript_strings::of(cx);
-        let search = find::finder(&thread_id);
+        let search = widget.find.clone();
         self.listen(&search, cx.local_sender());
         // while Find is open the list reads its rows as text: the scan runs over them, and the
         // match it found is scrolled to and selected, which is how the oracle draws it (REVERSED)

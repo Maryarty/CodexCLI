@@ -143,7 +143,6 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
     } else {
         footer
     };
-    let footer = transcript::find_footer::slot(cx, thread.id(), footer);
     Slot {
         composer,
         footer,
