@@ -52,18 +52,19 @@ Every range you will need again goes into your checkpoint's `read:` lines.
 ## Checks (cargo is most of porter time; the batch runs the tests)
 Write the whole task first, with no cargo while writing (one `check` is fine
 when stuck on a type). Then, from `codex-rs/tui-rtwk`:
-- `~/.cache/rtwk/acargo check --workspace --tests --quiet` until clean;
+- `~/.cache/rtwk/acargo clippy --workspace --all-targets --quiet -- -D warnings`
+  until clean (same cost as `check`; wave 1 landed 25 lint reds that `check` passed);
 - one `~/.cache/rtwk/acargo nextest run -p codex-tui-rtwk --test rules --cargo-quiet
   --status-level fail --final-status-level fail --hide-progress-bar`;
 - `~/.cache/rtwk/acargo fmt`.
-Nothing else: no other nextest root, no oracle shard, no clippy, no pty run, no
+Nothing else: no other nextest root, no oracle shard, no pty run, no
 land-check. The orchestrator merges the hand-ins and a waiter runs the tests on
 the batch; a red comes back to you by message. A hook refuses other test runs.
 Only when you cannot judge behaviour without a run: prefix that one call with
 `PORTER_RUN_OK=1` and say why in the deliverable.
 
 ## Before task_done
-Merge `claude/tui-rtwk` into your branch, re-run `check` + the rules call,
+Merge `claude/tui-rtwk` into your branch, re-run `clippy` + the rules call,
 commit. In the deliverable name your key tests and pty scenario for the batch:
 `key: <root>::<test>, ...; pty: <scenario>`. Which root holds a test file:
 `rg -l 'pages/<x>.rs' codex-rs/tui-rtwk/tests/*.rs` (`tests/pages/*.rs` are
