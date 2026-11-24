@@ -335,15 +335,6 @@ async fn the_asks_of_the_app_server_are_not_answered_here() {
 }
 
 #[tokio::test]
-async fn a_title_is_not_generated_yet_and_the_answer_says_so() {
-    let rig = rig(false, false);
-    let ask = Ask::SuggestTitle {
-        thread: ThreadId::new("thread-1"),
-    };
-    assert!(matches!(done(&rig, ask).await, Done::Title(None)));
-}
-
-#[tokio::test]
 async fn the_history_file_answers_lookups_and_takes_appends_of_the_conversation() {
     let rig = rig(false, false);
     assert!(matches!(

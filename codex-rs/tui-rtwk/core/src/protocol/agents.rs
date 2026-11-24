@@ -14,6 +14,7 @@ use crate::screens::agents::carried::preview_markdown;
 use crate::threads::ThreadAsk;
 use codex_app_server_protocol::Account;
 use codex_app_server_protocol::ClientRequest;
+use codex_app_server_protocol::ConfigReadResponse;
 use codex_app_server_protocol::GetAccountParams;
 use codex_app_server_protocol::GetAccountResponse;
 use codex_app_server_protocol::GetAccountTokenUsageParams;
@@ -33,8 +34,10 @@ use codex_app_server_protocol::ThreadResumeResponse;
 use codex_app_server_protocol::ThreadSectionMoveParams;
 use codex_app_server_protocol::ThreadSortKey;
 use codex_app_server_protocol::ThreadSourceKind;
+use codex_app_server_protocol::ThreadStartResponse;
 use codex_app_server_protocol::ThreadTurnsListResponse;
 use codex_app_server_protocol::Turn;
+use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::TurnStatus;
 
 use codex_app_server_protocol::UserInput;
@@ -222,6 +225,30 @@ pub(crate) fn decode_reply(
             Ok(Reply::History {
                 turns: response.data,
                 next: response.next_cursor,
+            })
+        }
+        Command::Thread(ThreadAsk::McpServers { .. }) => {
+            let mut response: ConfigReadResponse =
+                serde_json::from_value(result).map_err(malformed)?;
+            Ok(Reply::McpServers(
+                match response.config.additional.remove("mcp_servers") {
+                    Some(serde_json::Value::Object(servers)) => servers,
+                    _ => serde_json::Map::new(),
+                },
+            ))
+        }
+        Command::Thread(ThreadAsk::StartTemporary(temporary)) => {
+            let response: ThreadStartResponse =
+                serde_json::from_value(result).map_err(malformed)?;
+            Ok(Reply::Temporary {
+                as_asked: temporary.started_as_asked(&response),
+                thread: response.thread.id,
+            })
+        }
+        Command::Thread(ThreadAsk::StructuredTurn { .. }) => {
+            let response: TurnStartResponse = serde_json::from_value(result).map_err(malformed)?;
+            Ok(Reply::StructuredTurn {
+                turn: response.turn.id,
             })
         }
         Command::Loaded => {

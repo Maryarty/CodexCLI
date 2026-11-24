@@ -5,12 +5,14 @@
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
-use codex_tui_core::app::Command;
+use codex_app_server_protocol::ServerNotification;
 use codex_tui_core::app::effects::{Ask as Effect, Done};
+use codex_tui_core::app::{AppEv, BackendEv, Command};
 use codex_tui_core::data::mention::ToolMention;
 use codex_tui_core::screens::select::review::Commit;
 use codex_tui_core::screens::{ScreenCommand, agents, chat, select};
-use codex_tui_core::threads::ReviewTarget;
+use codex_tui_core::threads::{ReviewTarget, ThreadAsk};
+use serde_json::json;
 
 use super::Screen;
 
@@ -511,15 +513,22 @@ impl Screen {
         })
     }
 
-    /// The title suggestion `/rename` asked of the host.
+    /// The title suggestion `/rename` asked of the structured-turn door: the run's first request
+    /// (the MCP servers of the config), none when the conversation had nothing to name the
+    /// thread by.
     pub fn asked_title(&self) -> Option<Ask> {
+        self.thread_request(|ask| matches!(ask, ThreadAsk::McpServers { .. }))
+    }
+
+    /// The first request of the thread asks `which` picks.
+    fn thread_request(&self, which: impl Fn(&ThreadAsk) -> bool) -> Option<Ask> {
         self.asked_of(|c| {
             matches!(
                 c,
-                Command::Effect {
-                    ask: Effect::SuggestTitle { .. },
+                Command::Screen {
+                    command: ScreenCommand::Agents(agents::Command::Thread(ask)),
                     ..
-                }
+                } if which(ask)
             )
         })
         .into_iter()
@@ -530,12 +539,70 @@ impl Screen {
         self.commands().into_iter().filter(|c| which(c)).collect()
     }
 
-    /// The host answers the title suggestion `/rename` asked for (`generate_thread_title`).
+    /// The server walks the title suggestion `/rename` asked for to its end (the oracle's
+    /// `generate_thread_title`): the config is read, the temporary thread starts read-only, its
+    /// turn starts, and the model says `title` (none: an answer that is no title). A thread with
+    /// no conversation asked for nothing, and `None` is the only answer it takes.
     pub fn answer_title(&mut self, title: Option<&str>) {
-        let Some(ask) = self.asked_title() else {
-            panic!("the rename prompt asked for a title");
+        let Some(config) = self.asked_title() else {
+            assert!(title.is_none(), "the rename prompt asked for a title");
+            return;
         };
-        self.answer_effect(&ask, Done::Title(title.map(str::to_owned)));
+        self.answer_request(&config, json!({"config": {}, "origins": {}}));
+        let start = self
+            .thread_request(|ask| matches!(ask, ThreadAsk::StartTemporary(_)))
+            .expect("the temporary thread starts once the config is read");
+        let thread = json!({
+            "id": "title-1", "environments": null, "extra": null, "sessionId": "title-1",
+            "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
+            "preview": "", "ephemeral": true, "section": null, "sectionEnteredAt": null,
+            "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
+            "model": null, "reasoningEffort": null, "createdAt": 0, "updatedAt": 0,
+            "recencyAt": 0, "status": {"type": "idle"}, "path": null, "cwd": "/tmp/project",
+            "cliVersion": "0.0.0", "originator": null, "source": "cli",
+            "canAcceptDirectInput": true, "threadSource": null, "agentNickname": null,
+            "agentRole": null, "gitInfo": null, "name": null, "daybreakEnabled": null,
+            "turns": []
+        });
+        self.answer_request(
+            &start,
+            json!({"thread": thread, "model": "gpt-5", "modelProvider": "openai",
+                "serviceTier": null, "cwd": "/tmp/project", "instructionSources": [],
+                "approvalPolicy": "never", "approvalsReviewer": "user",
+                "sandbox": {"type": "readOnly", "networkAccess": false},
+                "reasoningEffort": null}),
+        );
+        let turn = self
+            .thread_request(|ask| matches!(ask, ThreadAsk::StructuredTurn { .. }))
+            .expect("the turn starts on the temporary thread");
+        self.answer_request(
+            &turn,
+            json!({"turn": {"id": "title-turn", "items": [], "itemsView": "summary",
+                "status": "inProgress", "error": null}}),
+        );
+        let said = title.map_or_else(
+            || "no title".to_owned(),
+            |t| json!({"title": t}).to_string(),
+        );
+        self.notify(json!({"method": "item/completed", "params": {
+            "threadId": "title-1", "turnId": "title-turn", "completedAtMs": 0,
+            "startedAtMs": 0,
+            "item": {"type": "agentMessage", "id": "m1", "text": said, "phase": null}}}));
+        self.notify(json!({"method": "turn/completed", "params": {
+            "threadId": "title-1", "turn": {"id": "title-turn", "items": [],
+            "itemsView": "summary", "status": "completed", "error": null}}}));
+    }
+
+    /// The server's stream says `message` (a notification's JSON).
+    fn notify(&mut self, message: serde_json::Value) {
+        let notification: ServerNotification =
+            serde_json::from_value(message).expect("a notification");
+        let epoch = self.h.fake.epoch().expect("attached");
+        self.h.fake.inject(
+            epoch,
+            AppEv::Backend(BackendEv::Notification(Box::new(notification))),
+        );
+        self.h.advance(100);
     }
 
     /// The host answers the git log `ask` with the commits `(sha, subject)`.

@@ -4,8 +4,11 @@
 //! `/rename` checks that the thread can be renamed and asks the surface for the name prompt
 //! (`Wish::Name`, prefilled with the thread's name); the prompt is the UI half's
 //! (`src/features/rename/`) and says it wants the thread's suggestion (`Interest::Title`), which
-//! this feature asks the host for while a prompt is open (`on_interest`, `AppCx::effect`) and keeps
-//! by thread (`State::titles`): the prompt puts it in the field only while the user has not typed.
+//! this feature asks the model for while a prompt is open (`on_interest`, `AppCx::structured_turn`:
+//! the recent messages of the conversation, the title schema) and keeps by thread
+//! (`State::titles`): the prompt puts it in the field only while the user has not typed. A cloud
+//! conversation owns its settings, so it is suggested no title, and neither is one that has no
+//! message to name it by (oracle `generate_thread_title`, `suggest_thread_name`).
 //! A submit, or `/rename <name>`, or `/new <name>`, renames the thread through the feature's own
 //! RPC (`thread/name/set`, `Command::SetName`). Words: `src/features/rename/strings.rs`.
 //!
@@ -17,18 +20,23 @@
 //! failed on a thread, `threads::feature_reply`); `ThreadAsk::Rename` stays in `threads` for
 //! the agents' rename of another thread.
 
+pub mod title;
 mod wire;
 
 use std::collections::BTreeMap;
 
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
-use super::{AppCx, Feature, Never, Remote, Slash, ThreadCx, ThreadView};
-use crate::app::effects::{Ask, Done};
+use super::{
+    AppCx, Feature, Never, Remote, Slash, StructuredFailure, StructuredKind, StructuredTurn,
+    ThreadCx, ThreadView,
+};
 use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
-use crate::threads::Tone;
+use crate::threads::{Item, MessagePhase, Tone};
+use codex_protocol::openai_models::ReasoningEffort;
+use title::Said;
 
 pub use wire::{Command, Reply};
 
@@ -65,7 +73,7 @@ pub enum ThreadIntent {
 pub enum Ctx {
     /// `thread/name/set`.
     SetName,
-    /// The title the host was asked to suggest for this thread's prompt, by the request's
+    /// The title the model was asked to suggest for this thread's prompt, by the request's
     /// generation: the answer of a prompt that was closed and opened again belongs to the
     /// earlier request and is dropped (`State::titles`).
     Title(ThreadId, Gen),
@@ -158,6 +166,61 @@ fn set(cx: &mut AppCx<'_>, thread: ThreadId, text: &str) {
     }
 }
 
+/// `generate_thread_title` for a rename suggestion: the structured turn that names `thread` from
+/// its recent messages. None where the oracle suggests nothing: a conversation of a cloud
+/// backend (the server owns its settings), or one with no message to name it by. The title
+/// model is asked for (with a low effort) when the account is a ChatGPT one on the OpenAI
+/// provider and the catalog has it; else the thread's own model answers.
+fn suggestion(cx: &AppCx<'_>, thread: &ThreadId) -> Option<StructuredTurn> {
+    let view = cx.view();
+    let agents = &view.screens().agents;
+    if agents.is_cloud(agents.owner_of(thread.as_str())) {
+        return None;
+    }
+    let held = view.thread(thread)?;
+    let entries: Vec<(String, Option<bool>)> = held
+        .core()
+        .transcript()
+        .iter()
+        .filter_map(|(_, item)| match item {
+            Item::User(prompt) => Some((prompt.shown().text.into_owned(), None)),
+            Item::Agent { text, phase } => {
+                Some((text.clone(), Some(*phase == Some(MessagePhase::Commentary))))
+            }
+            _ => None,
+        })
+        .collect();
+    let conversation =
+        title::recent_conversation(entries.iter().map(|(text, commentary)| match commentary {
+            None => Said::User(text),
+            Some(commentary) => Said::Assistant {
+                text,
+                commentary: *commentary,
+            },
+        }))?;
+    let provider = held.slots().chat.provider.as_deref().or(view
+        .screens()
+        .chat
+        .status
+        .provider
+        .as_deref());
+    let account = view.facts().status();
+    let luna = provider == Some("openai")
+        && account.has_chatgpt_account()
+        && account
+            .catalog
+            .iter()
+            .any(|model| model.model == title::MODEL);
+    Some(StructuredTurn {
+        kind: StructuredKind::Title,
+        source: thread.clone(),
+        model: luna.then(|| title::MODEL.to_owned()),
+        effort: luna.then_some(ReasoningEffort::Low),
+        prompt: title::suggestion_prompt(&conversation),
+        schema: title::output_schema(),
+    })
+}
+
 impl Feature for Rename {
     const NAME: &'static str = "rename";
     const RUNS: &'static [SlashCommand] = &[SlashCommand::Rename];
@@ -199,31 +262,41 @@ impl Feature for Rename {
         }
     }
 
-    /// The generator's answer to the prompt's ask: kept for the prompt that waits for it.
-    fn effect_done(state: &mut State, ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {
-        let _ = cx;
-        if let (Ctx::Title(thread, at), Done::Title(title)) = (ctx, done)
+    /// The model's answer to the prompt's ask: the title it generated, none when the answer is
+    /// not one; kept for the prompt that waits for it.
+    fn structured_done(
+        state: &mut State,
+        ctx: Ctx,
+        result: Result<String, StructuredFailure>,
+        _cx: &mut AppCx<'_>,
+    ) {
+        if let Ctx::Title(thread, at) = ctx
             && let Some((current, slot)) = state.titles.get_mut(&thread)
             && *current == at
         {
-            *slot = Remote::Ready(title);
+            *slot = Remote::Ready(result.ok().as_deref().and_then(title::parse));
         }
     }
 
-    /// A name prompt is open (`open`): the host is asked for a title from the thread's
+    /// A name prompt is open (`open`): the model is asked for a title from the thread's
     /// conversation, once; the last prompt closed forgets it.
     fn on_interest(state: &mut State, interest: &Interest, open: bool, cx: &mut AppCx<'_>) {
         let Interest::Title { thread } = interest;
         if open {
             state.asked += 1;
             let at = state.asked;
-            state.titles.insert(thread.clone(), (at, Remote::loading()));
-            cx.effect(
-                Ask::SuggestTitle {
-                    thread: thread.clone(),
-                },
-                Ctx::Title(thread.clone(), at),
-            );
+            match suggestion(cx, thread) {
+                Some(turn) => {
+                    state.titles.insert(thread.clone(), (at, Remote::loading()));
+                    cx.structured_turn(turn, Ctx::Title(thread.clone(), at));
+                }
+                // nothing to ask: the suggestion is none (`apply_thread_name_suggestion`)
+                None => {
+                    state
+                        .titles
+                        .insert(thread.clone(), (at, Remote::Ready(None)));
+                }
+            }
         } else {
             state.titles.remove(thread);
         }

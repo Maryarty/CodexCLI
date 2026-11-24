@@ -962,11 +962,31 @@ writes to the chat (`Out::Chat`); the key label the footer names is read through
 `FeatureCtx` rides in it). Inside a thread step a feature has `ThreadCx::start_turn(message)`
 (one start per step; the thread must be idle, `ThreadView::busy`) and `ThreadCx::interrupt()`.
 `/resume <id>` is `open_thread` (the settings slice no longer reads the thread itself, which
-turned `thread_rpcs_only_in_threads` green). Not built: `AppCx::structured_turn(request, ctx)`, the
-oracle's `temporary_structured_request` as a lifecycle door (an ephemeral thread whose one turn
-follows a schema, with a timeout through the clock and a watch on its notifications); `/recap`
-keeps the host effect `Ask::StructuredTurn` until a second user, and the door is added then, as
-one `Lifecycle` variant answered to `effect_done` as `Done::Structured`.
+turned `thread_rpcs_only_in_threads` green).
+
+**Structured turn (fix-recap-title; ADR-003 stays).** An isolated request to the model, the
+oracle's `temporary_structured_request`, is a lifecycle door: `AppCx::structured_turn(StructuredTurn
+{ kind, source, model, effort, prompt, schema }, ctx)`. The app runs it (`app/structured.rs`), as an
+ephemeral thread that never becomes a `ThreadModel`, in the thread RPCs of `threads::ThreadAsk`
+(`McpServers`: `config/read` for the servers to disable, `StartTemporary`: `thread/start`,
+`StructuredTurn`: `turn/start` with the output schema, then `Unsubscribe`; the wire requests are made
+in `threads.rs`, from the data of `threads/structured.rs`). The thread starts read-only with no tools,
+no environments and every MCP server of the config disabled (a title by the built-in read-only
+profile, `never` approval; a recap by the active profile when it is a named one), and one that did
+not start as asked is let go before any turn runs. The last assistant message of the turn comes from
+the server's stream (`structured::observe`, which keeps what the stream said before `turn/start`
+answered), and is told to the asking slice as `Feature::structured_done(state, ctx, Result<String,
+StructuredFailure>, cx)` under the feature's own `FeatureCtx`, whatever happened (`Refused`,
+`NotReadOnly`, `Ended`, `Empty`, `TooLong`, `TimedOut`, `Lost`); the temporary thread is
+unsubscribed after every end (and the turn interrupted when it was the clock that ended it). A run
+is a record of the app (`app.structured`) with its own number: the ticket of its RPC in flight says
+which run it answers (`AppCtx::Structured`), the feature's `FeatureCtx` rides in the run, and a
+phase that takes longer than 30 seconds ends it by the clock (`wake_at`, `expire`; core reads no
+clock). A lost connection ends a run that waits for its stream. `/recap` and the name prompt's title suggestion are the first users
+(the title asks `gpt-5.6-luna` with a low effort on a ChatGPT account whose catalog has it; no
+suggestion for a cloud conversation or one with no message to name it by); `Ask::StructuredTurn`,
+`Ask::SuggestTitle` and their `Done`s are gone. Not built: the automatic title of the first message
+(`ThreadTitleDestination::Automatic`) and the cloud refusal of `/recap`.
 
 **Connection and stream loss (fw-hubs-b, P8).** `Feature::on_connection(state, Connection, cx)`
 tells every feature that a connection came up (`Up`: the first or a reconnect), was lost (`Lost`:

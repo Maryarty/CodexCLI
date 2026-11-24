@@ -22,6 +22,7 @@ use crate::screens::chat::facts::SideFooter;
 use crate::screens::select::collaboration::Mask;
 use crate::screens::status;
 use crate::threads::daybreak::Access;
+use crate::threads::structured::StructuredTurn;
 use crate::threads::{ThreadCore, ThreadFx, ThreadSet, UserMessage};
 
 /// The facts of the app that both kinds of step read (ADR-012, "selectors"): the moment, the
@@ -438,6 +439,18 @@ impl<'a> AppCx<'a> {
     pub fn spawn_thread(&mut self, spawn: ThreadSpawn, ctx: impl Into<FeatureCtx>) {
         self.out.push(Out::Lifecycle(Lifecycle::Spawn {
             spawn,
+            ctx: ctx.into(),
+        }));
+    }
+
+    /// An isolated request to the model (oracle `temporary_structured_request`): an ephemeral
+    /// read-only thread with no tools starts in the directory of `turn.source`, runs one turn
+    /// of `turn.prompt` that follows `turn.schema`, and is let go. `Feature::structured_done`
+    /// is told with `ctx` the last message, or why there is none (a server refusal, a turn that
+    /// did not complete, 30 seconds of silence). Nothing of the thread reaches the screen.
+    pub fn structured_turn(&mut self, turn: StructuredTurn, ctx: impl Into<FeatureCtx>) {
+        self.out.push(Out::Lifecycle(Lifecycle::Structured {
+            turn: Box::new(turn),
             ctx: ctx.into(),
         }));
     }

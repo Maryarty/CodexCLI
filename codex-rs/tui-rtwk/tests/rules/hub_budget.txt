@@ -59,7 +59,10 @@ enum core/src/screens/select.rs Intent 29
 # fw-hubs-b (P8, `thread_stream_disconnected`): `StreamLost` and `StreamRestored` are thread facts of
 # the event stream (the queue interlock reads `ThreadCore::stream_lost`), not a feature's: 30 -> 32.
 enum core/src/threads.rs ThreadEv 32
-enum core/src/threads.rs ThreadAsk 21
+# fix-recap-title (ADR-012 "structured turn"): the three RPCs of the temporary thread a feature asks
+# for through `AppCx::structured_turn` (`McpServers`: `config/read`, `StartTemporary`: `thread/start`,
+# `StructuredTurn`: `turn/start`; the unsubscribe and interrupt are the lifecycle's own): 21 -> 24.
+enum core/src/threads.rs ThreadAsk 24
 enum core/src/threads.rs ThreadCtx 4
 enum core/src/app.rs Intent 17
 # fw-hubs-a (P2): `AppEv::Clock(Now)`, the one event that tells the time (the shell's timer, a
@@ -76,7 +79,9 @@ enum core/src/app.rs Command 21
 # fw-hubs-b (P5): `AppCtx::Opening`, the read of a thread a feature asked to open (`AppCx::open_thread`,
 # the feature's own `FeatureCtx` rides in it): 13 -> 14. `NewConversation.side` (a slice's type) is
 # `spawned` (the generic `FeatureCtx`), rule `app_ctx_names_no_feature`.
-enum core/src/app.rs AppCtx 14
+# fix-recap-title: `AppCtx::Structured`, the RPC in flight of a structured turn's run (the feature's
+# own `FeatureCtx` rides in the run, not in the ticket): 14 -> 15.
+enum core/src/app.rs AppCtx 15
 enum core/src/threads/note.rs NoteKey 16
 enum core/src/screens/chat.rs ThreadIntent 16
 enum core/src/rpc.rs Answer 11
@@ -86,13 +91,12 @@ enum core/src/rpc.rs Answer 11
 # fw1-c1 (`/daemon`): `Ask::BackgroundServer(DaemonAsk)` / `Done::BackgroundServer(DaemonDone)` are a new HOST capability
 # (the local background server's lifecycle through `codex_app_server_daemon`: the managed-daemon probe
 # and the restart), asked through `AppCx::effect` by the daemon slice; one variant of each for both.
-# `/recap` (fw1-c4): `Ask::StructuredTurn` / `Done::Structured`, the host's ephemeral thread with one
-# structured turn (the oracle's `temporary_structured_request`); `SuggestTitle` can become its
-# second user and leave.
-# Merged wave 1 (fw1-c1 + fw1-c4): Ask 13 -> 14, Done 12 -> 13 (c1's BackgroundServer and c4's
-# StructuredTurn/Structured; c2's Editor: +1 each, Ask 15 / Done 14 with wave 1 complete).
-enum core/src/app/effects.rs Ask 15
-enum core/src/app/effects.rs Done 14
+# `/recap` (fw1-c4) and the title suggestion asked the host for an ephemeral thread with one
+# structured turn (`Ask::StructuredTurn`, `Ask::SuggestTitle`; `Done::Structured`, `Done::Title`).
+# fix-recap-title: both are the app's `AppCx::structured_turn` now (thread RPCs, ADR-003), so the four
+# variants are gone: Ask 15 -> 13, Done 14 -> 12.
+enum core/src/app/effects.rs Ask 13
+enum core/src/app/effects.rs Done 12
 # The framework's own hub: what a feature can say (`Out`) and the generated root's variants that
 # are no feature's. A new one is a decision with an ADR-012 paragraph (a hook is added only for
 # a thread or app lifecycle fact, never for one producer and one consumer), and raises its line.
@@ -126,7 +130,9 @@ enum src/features/mod.rs OpenArgs 0
 # (the answer of a thread a feature asked for: 21), `on_shown` (the thread in use changed: 22) and
 # `on_connection` (the connection came up, was lost, is closing: 23). Each is a lifecycle or stream
 # fact with many consumers, not one producer and one consumer.
-methods core/src/features/mod.rs Feature 23
+# fix-recap-title: `structured_done` (the answer of a structured turn a feature asked for, the
+# counterpart of `thread_opened`: 24).
+methods core/src/features/mod.rs Feature 24
 # fw-hubs-a (P3): the two views a slice reads the app through. `AppView` has 9 `pub fn`s and
 # `ThreadView` 7 (the handles `core`, `slots`, `parts`, `facts` and what depends on the step:
 # `busy`, `has_writer`); a fact one slice wants is that slice's selector over them

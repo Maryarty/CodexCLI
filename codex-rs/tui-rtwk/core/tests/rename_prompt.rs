@@ -8,8 +8,9 @@
 //! (`Rename thread`, `Name thread`, the labels) are the view's: these tests read the data.
 
 use codex_app_server_protocol::{ServerNotification, ThreadNameUpdatedNotification};
-use codex_tui_core::app::effects::{Ask, Done};
-use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app};
+use codex_tui_core::app::{
+    AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app, apply_app_from,
+};
 use codex_tui_core::commands::{CommandFlags, SessionIntent, SlashCommand};
 use codex_tui_core::features::rename::{self, Interest, Note as RenameNote};
 use codex_tui_core::features::{
@@ -19,8 +20,14 @@ use codex_tui_core::features::{
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::screens::{ScreenEv, ScreenIntent, chat};
-use codex_tui_core::threads::{Failure, Item, Note, NoteKey};
+use codex_tui_core::threads::structured::Kind;
+use codex_tui_core::threads::{Failure, Item, Note, NoteKey, ThreadAsk};
 use pretty_assertions::assert_eq;
+use serde_json::json;
+
+use crate::structured_turn::{
+    TEMP, ends, ends_in, says, says_in, stream, the_ask, thread_asks, unsubscribes, walk, walk_in,
+};
 
 const T: &str = "thread-1";
 
@@ -112,24 +119,44 @@ fn title(app: &CodexApp) -> Option<Remote<Option<String>>> {
     app.features().rename.title(&ThreadId::new(T)).cloned()
 }
 
-/// The request of the suggestion the open asked for.
-fn asked(fx: &AppFx) -> u64 {
-    fx.commands()
-        .iter()
-        .find_map(|c| match c {
-            Command::Effect {
-                request,
-                ask: Ask::SuggestTitle { thread },
-                ..
-            } if thread.as_str() == T => Some(*request),
-            _ => None,
-        })
-        .expect("a SuggestTitle ask")
+/// A conversation to name the thread by: one exchange.
+fn talked(app: &mut CodexApp) {
+    stream(
+        app,
+        json!({"method": "item/completed", "params": {"threadId": T, "turnId": "turn-1",
+        "completedAtMs": 0, "startedAtMs": 0,
+        "item": {"type": "userMessage", "id": "u1", "clientId": null,
+            "content": [{"type": "text", "text": "fix the login timeout", "text_elements": []}]}}}),
+    );
+    says_in(app, T, "turn-1", "I raised the timeout.");
 }
 
-fn answer(app: &mut CodexApp, request: u64, title: Option<&str>) {
-    let done = Done::Title(title.map(str::to_owned));
-    run(app, AppEv::Effect { request, done });
+/// An app whose thread has been talked in.
+pub fn talked_app() -> CodexApp {
+    let mut app = ready();
+    talked(&mut app);
+    app
+}
+
+/// The name prompt of the thread comes up: the run of the suggestion begins, and its first
+/// step is what comes back.
+pub fn open_title(app: &mut CodexApp) -> AppFx {
+    rename(app, None);
+    open_prompt(app)
+}
+
+/// A thread that has been talked in, its name prompt up: the run of the suggestion has begun.
+fn prompted() -> (CodexApp, AppFx) {
+    let mut app = talked_app();
+    let fx = open_title(&mut app);
+    (app, fx)
+}
+
+/// The run of the suggestion goes through to the end with the model's `answer`.
+fn suggested(app: &mut CodexApp, first: &AppFx, answer: &str) -> AppFx {
+    walk(app, first, json!({}));
+    says(app, answer);
+    ends(app, "completed")
 }
 
 fn renamed_to(fx: &AppFx) -> Option<String> {
@@ -169,10 +196,9 @@ fn a_bare_rename_wishes_the_prompt_with_the_name() {
             existing: "Old name".to_owned(),
         }]
     );
-    assert!(
-        fx.commands()
-            .iter()
-            .all(|c| !matches!(c, Command::Effect { .. })),
+    assert_eq!(
+        thread_asks(&fx),
+        vec![],
         "the suggestion is asked for when the prompt is up, not before"
     );
 }
@@ -191,80 +217,263 @@ fn a_thread_without_a_name_wishes_an_empty_field() {
 }
 
 #[test]
-fn the_prompt_being_up_asks_for_a_suggestion() {
+fn the_prompt_being_up_asks_the_door_for_a_suggestion() {
+    let (app, fx) = prompted();
+    assert!(
+        matches!(the_ask(&fx).1, ThreadAsk::McpServers { .. }),
+        "{:?}",
+        fx.commands()
+    );
+    assert_eq!(title(&app), Some(Remote::loading()));
+}
+
+#[test]
+fn the_suggestion_asks_the_threads_own_model_read_only_with_the_recent_conversation() {
+    let (mut app, fx) = prompted();
+    let asked = walk(&mut app, &fx, json!({"docs": {"command": "x"}}));
+    let [
+        _,
+        ThreadAsk::StartTemporary(temporary),
+        ThreadAsk::StructuredTurn {
+            thread,
+            kind,
+            prompt,
+            schema,
+            effort,
+        },
+    ] = asked.as_slice()
+    else {
+        panic!("the requests of a run: {asked:?}");
+    };
+    // no catalog and no ChatGPT account: the thread's own model, the turn's own effort
+    assert_eq!(
+        (temporary.kind, temporary.model.as_deref()),
+        (Kind::Title, None)
+    );
+    assert_eq!(temporary.mcp_servers.keys().collect::<Vec<_>>(), ["docs"]);
+    assert_eq!((thread.as_str(), *kind, effort), (TEMP, Kind::Title, &None));
+    assert!(
+        prompt.ends_with(
+            "<conversation>\n<message role=\"user\">fix the login timeout</message>\n\
+<message role=\"assistant\">I raised the timeout.</message>\n</conversation>"
+        ),
+        "{prompt}"
+    );
+    assert_eq!(schema["properties"]["title"]["maxLength"], json!(36));
+}
+
+/// The title model is asked for, with a low effort, on a ChatGPT account of the OpenAI provider
+/// whose catalog has it.
+#[test]
+fn a_chatgpt_account_with_the_title_model_asks_for_it() {
+    use codex_tui_core::screens::status::{self, Account, CatalogModel};
     let mut app = ready();
+    talked(&mut app);
+    let facts = chat::StatusFacts {
+        model: Some("gpt-5.5".into()),
+        provider: Some("openai".into()),
+        ..chat::StatusFacts::default()
+    };
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Chat(chat::Ev::Status(Box::new(facts)))),
+    );
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Status(status::Ev::Account(Some(
+            Account::ChatGpt {
+                email: None,
+                plan: None,
+                workspace: None,
+            },
+        )))),
+    );
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Status(status::Ev::Catalog(vec![CatalogModel {
+            model: "gpt-5.6-luna".into(),
+            display_name: "Luna".into(),
+            default_effort: None,
+        }]))),
+    );
     rename(&mut app, None);
     let fx = open_prompt(&mut app);
-    asked(&fx);
-    assert_eq!(title(&app), Some(Remote::loading()));
+    let asked = walk(&mut app, &fx, json!({}));
+    let [
+        _,
+        ThreadAsk::StartTemporary(temporary),
+        ThreadAsk::StructuredTurn { effort, .. },
+    ] = asked.as_slice()
+    else {
+        panic!("the requests of a run: {asked:?}");
+    };
+    assert_eq!(temporary.model.as_deref(), Some("gpt-5.6-luna"));
+    assert_eq!(
+        effort,
+        &Some(codex_protocol::openai_models::ReasoningEffort::Low)
+    );
 }
 
 #[test]
 fn the_suggestion_is_kept_for_the_prompt_and_answered_once() {
-    let mut app = ready();
-    rename(&mut app, None);
-    let request = asked(&open_prompt(&mut app));
-    answer(&mut app, request, Some("Fix the build"));
+    let (mut app, fx) = prompted();
+    let fx = suggested(&mut app, &fx, r#"{"title": "Fix the build."}"#);
+    assert_eq!(unsubscribes(&fx), [TEMP], "the temporary thread is let go");
     assert_eq!(
         title(&app),
         Some(Remote::Ready(Some("Fix the build".to_owned())))
     );
-    // answered once: a second answer finds nothing waiting
-    answer(&mut app, request, Some("Another"));
+    // answered once: a second message of the thread finds nothing waiting
+    says(&mut app, r#"{"title": "Another"}"#);
+    ends(&mut app, "completed");
     assert_eq!(
         title(&app),
         Some(Remote::Ready(Some("Fix the build".to_owned())))
     );
 }
 
+/// A title the schema does not allow, a run that fails, and a server that refuses are all an
+/// answer without a title: the prompt keeps the name it has.
 #[test]
 fn a_generator_with_nothing_to_say_is_an_answer_without_a_title() {
-    let mut app = ready();
-    rename(&mut app, None);
-    let request = asked(&open_prompt(&mut app));
-    answer(&mut app, request, None);
+    for answer in [
+        "not json",
+        r#"{"title": "  "}"#,
+        r#"{"title": "a", "extra": 1}"#,
+    ] {
+        let (mut app, fx) = prompted();
+        suggested(&mut app, &fx, answer);
+        assert_eq!(title(&app), Some(Remote::Ready(None)), "{answer}");
+    }
+    let (mut app, fx) = prompted();
+    walk(&mut app, &fx, json!({}));
+    let fx = ends(&mut app, "failed");
+    assert_eq!(unsubscribes(&fx), [TEMP]);
+    assert_eq!(title(&app), Some(Remote::Ready(None)));
+    let (mut app, fx) = prompted();
+    let (ticket, _) = the_ask(&fx);
+    crate::structured_turn::refuse(&mut app, ticket, "no server");
     assert_eq!(title(&app), Some(Remote::Ready(None)));
 }
 
+/// `suggest_thread_name`: a conversation with nothing to name it by has no suggestion, and the
+/// door is not asked.
 #[test]
-fn an_answer_to_another_request_is_not_the_prompts() {
+fn a_conversation_with_nothing_to_name_it_by_has_no_suggestion() {
     let mut app = ready();
     rename(&mut app, None);
-    let request = asked(&open_prompt(&mut app));
-    answer(&mut app, request + 1, Some("Other"));
-    assert_eq!(title(&app), Some(Remote::loading()));
+    let fx = open_prompt(&mut app);
+    assert_eq!(thread_asks(&fx), vec![]);
+    assert_eq!(title(&app), Some(Remote::Ready(None)));
+    // commentary is not a substantive message
+    stream(
+        &mut app,
+        json!({"method": "item/completed", "params": {"threadId": T, "turnId": "turn-1",
+        "completedAtMs": 0, "startedAtMs": 0,
+        "item": {"type": "agentMessage", "id": "c1", "text": "thinking", "phase": "commentary"}}}),
+    );
+    run(
+        &mut app,
+        AppEv::Intent(Intent::Interest(InterestStep::Close(interested()))),
+    );
+    let fx = open_prompt(&mut app);
+    assert_eq!(thread_asks(&fx), vec![]);
+    assert_eq!(title(&app), Some(Remote::Ready(None)));
+}
+
+/// `cloud_conversations_skip_tui_generated_titles`: the cloud owns the name of its conversations.
+#[test]
+fn a_cloud_conversation_has_no_suggestion() {
+    use codex_tui_core::ids::BackendId;
+    use codex_tui_core::screens::agents::Ev;
+    const CLOUD: BackendId = BackendId(1);
+    let mut app = ready();
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Agents(Ev::CloudBackend(CLOUD))),
+    );
+    let fx = run(&mut app, AppEv::Intent(Intent::CycleBackend));
+    let ticket = fx
+        .commands()
+        .iter()
+        .find_map(|c| match c {
+            Command::StartThread { ticket, .. } => Some(*ticket),
+            _ => None,
+        })
+        .expect("a StartThread");
+    run(
+        &mut app,
+        AppEv::Reply(ticket, Reply::thread_started(ThreadId::new("cloud-1"))),
+    );
+    let mut fx = AppFx::default();
+    let note: ServerNotification = serde_json::from_value(json!({"method": "item/completed",
+        "params": {"threadId": "cloud-1", "turnId": "turn-1", "completedAtMs": 0,
+        "startedAtMs": 0, "item": {"type": "userMessage", "id": "u1", "clientId": null,
+        "content": [{"type": "text", "text": "fix it", "text_elements": []}]}}}))
+    .unwrap();
+    apply_app_from(
+        &mut app,
+        CLOUD,
+        AppEv::Backend(BackendEv::Notification(Box::new(note))),
+        &mut fx,
+    );
+    let cloud = FeatureInterest::Rename(Interest::Title {
+        thread: ThreadId::new("cloud-1"),
+    });
+    let fx = run(
+        &mut app,
+        AppEv::Intent(Intent::Interest(InterestStep::Open(cloud))),
+    );
+    assert_eq!(
+        thread_asks(&fx),
+        vec![],
+        "the cloud names its own conversations"
+    );
+    assert_eq!(
+        app.features()
+            .rename
+            .title(&ThreadId::new("cloud-1"))
+            .cloned(),
+        Some(Remote::Ready(None))
+    );
 }
 
 #[test]
 fn a_late_answer_after_the_prompt_closed_goes_nowhere() {
-    let mut app = ready();
-    rename(&mut app, None);
-    let request = asked(&open_prompt(&mut app));
+    let (mut app, fx) = prompted();
+    walk(&mut app, &fx, json!({}));
     run(
         &mut app,
         AppEv::Intent(Intent::Interest(InterestStep::Close(interested()))),
     );
     assert_eq!(title(&app), None);
-    answer(&mut app, request, Some("Late"));
+    says(&mut app, r#"{"title": "Late"}"#);
+    let fx = ends(&mut app, "completed");
     assert_eq!(title(&app), None);
+    assert_eq!(
+        unsubscribes(&fx),
+        [TEMP],
+        "the temporary thread is let go all the same"
+    );
 }
 
 /// O4: the answer of the first request is told from the second's by its gen: a prompt closed and
 /// opened again before the first answer does not take the stale one.
 #[test]
 fn a_prompt_opened_again_does_not_take_the_earlier_answer() {
-    let mut app = ready();
-    rename(&mut app, None);
-    let first = asked(&open_prompt(&mut app));
+    let (mut app, first) = prompted();
+    walk_in(&mut app, &first, json!({}), "temp-a", "turn-a");
     run(
         &mut app,
         AppEv::Intent(Intent::Interest(InterestStep::Close(interested()))),
     );
-    let second = asked(&open_prompt(&mut app));
-    assert!(first != second);
-    answer(&mut app, first, Some("Stale"));
+    let second = open_prompt(&mut app);
+    walk_in(&mut app, &second, json!({}), "temp-b", "turn-b");
+    says_in(&mut app, "temp-a", "turn-a", r#"{"title": "Stale"}"#);
+    ends_in(&mut app, "temp-a", "turn-a", "completed");
     assert_eq!(title(&app), Some(Remote::loading()));
-    answer(&mut app, second, Some("Fresh"));
+    says_in(&mut app, "temp-b", "turn-b", r#"{"title": "Fresh"}"#);
+    ends_in(&mut app, "temp-b", "turn-b", "completed");
     assert_eq!(title(&app), Some(Remote::Ready(Some("Fresh".to_owned()))));
 }
 
@@ -298,11 +507,7 @@ fn a_side_conversation_cannot_be_renamed() {
     );
     let fx = rename(&mut app, None);
     assert_eq!(wishes(&app), []);
-    assert!(
-        fx.commands()
-            .iter()
-            .all(|c| !matches!(c, Command::Effect { .. }))
-    );
+    assert_eq!(thread_asks(&fx), vec![]);
     let fx = rename(&mut app, Some("Name"));
     assert_eq!(renamed_to(&fx), None);
     assert_eq!(

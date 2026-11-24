@@ -1,6 +1,6 @@
 //! `/recap` as a feature slice (ADR-012; oracle `app/recap.rs`, `chatwidget/recap.rs`): a short
-//! catch-up of the conversation in use, made by a temporary structured turn of the host (an
-//! ephemeral thread that sees only the excerpt of the visible exchanges), then said in the
+//! catch-up of the conversation in use, made by a temporary structured turn (`AppCx::structured_turn`:
+//! an ephemeral thread that sees only the excerpt of the visible exchanges), then said in the
 //! conversation as a note.
 //!
 //! Only the manual `/recap` is here. What the oracle schedules after the user has been away
@@ -22,8 +22,9 @@ mod prompt;
 use codex_app_server_protocol::{ClientRequest, RequestId};
 use serde_json::{Value, json};
 
-use super::{AppCx, Feature, Never, Slash, ThreadView};
-use crate::app::effects::{Ask, Done};
+use super::{
+    AppCx, Feature, Never, Slash, StructuredFailure, StructuredKind, StructuredTurn, ThreadView,
+};
 use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
@@ -177,9 +178,12 @@ fn request(state: &mut State, source: Option<ThreadId>, cx: &mut AppCx<'_>) {
     }
     state.asked += 1;
     let at = state.asked;
-    cx.effect(
-        Ask::StructuredTurn {
-            thread: thread.clone(),
+    cx.structured_turn(
+        StructuredTurn {
+            kind: StructuredKind::Recap,
+            source: thread.clone(),
+            model: None,
+            effort: None,
             prompt: prompt::prompt(&history),
             schema: output_schema(),
         },
@@ -228,10 +232,12 @@ impl Feature for Recap {
 
     /// `handle_recap_started` and `handle_generated_recap`: the request ended; its answer is
     /// dropped when it is stale, a recap when it parses, else the failure line.
-    fn effect_done(state: &mut State, ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {
-        let Done::Structured(result) = done else {
-            return;
-        };
+    fn structured_done(
+        state: &mut State,
+        ctx: Ctx,
+        result: Result<String, StructuredFailure>,
+        cx: &mut AppCx<'_>,
+    ) {
         let Some(request) = state.in_flight.take_if(|request| request.at == ctx.0) else {
             return;
         };

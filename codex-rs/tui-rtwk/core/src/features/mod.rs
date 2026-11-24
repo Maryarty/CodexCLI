@@ -43,6 +43,9 @@ mod lifecycle;
 mod remote;
 mod surface;
 
+pub use crate::threads::structured::{
+    Kind as StructuredKind, StructuredTurn, Why as StructuredFailure,
+};
 pub use cx::{AppCx, AppFacts, AppView, ChatFacts, Out, ThreadCx, ThreadView};
 pub use lifecycle::{Connection, Lifecycle, Refusal, ThreadSpawn};
 pub use remote::Remote;
@@ -308,6 +311,18 @@ pub trait Feature: 'static {
         state: &mut Self::State,
         ctx: Self::Ctx,
         result: Result<ThreadId, Refusal>,
+        cx: &mut AppCx<'_>,
+    ) {
+        let _ = (state, ctx, result, cx);
+    }
+
+    /// The answer of a structured turn the feature asked for (`AppCx::structured_turn`): the
+    /// last message of the ephemeral thread's one turn, which follows the schema the feature
+    /// gave (the feature parses it), or why there is none.
+    fn structured_done(
+        state: &mut Self::State,
+        ctx: Self::Ctx,
+        result: Result<String, StructuredFailure>,
         cx: &mut AppCx<'_>,
     ) {
         let _ = (state, ctx, result, cx);
@@ -704,6 +719,21 @@ macro_rules! feature_dirs {
             match ctx {
                 $(FeatureCtx::$variant(ctx) => {
                     <$name::$variant as Feature>::thread_opened(&mut states.$name, ctx, result, cx)
+                })*
+            }
+        }
+
+        /// The answer of a structured turn, to the feature that asked.
+        #[allow(unused_variables)]
+        pub fn structured_done(
+            states: &mut FeatureStates,
+            ctx: FeatureCtx,
+            result: Result<String, $crate::features::StructuredFailure>,
+            cx: &mut AppCx<'_>,
+        ) {
+            match ctx {
+                $(FeatureCtx::$variant(ctx) => {
+                    <$name::$variant as Feature>::structured_done(&mut states.$name, ctx, result, cx)
                 })*
             }
         }
