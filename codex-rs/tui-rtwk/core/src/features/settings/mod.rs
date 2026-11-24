@@ -70,8 +70,25 @@ pub enum Intent {
     /// What a dialog asks of the app (`AppEvent`s of the oracle): recorded, and written to the
     /// config file when it is a write.
     Request(Edit),
-    /// The arguments of a command were refused: the note says why.
-    Refused(args::Refusal),
+    /// `/hooks`, `/title`, `/statusline` or `/model` with what followed the name: the
+    /// arguments are checked here; what they ask is a wish for the page's presenter (the chat's
+    /// status override, a model pick for this session), what they cannot be is a note.
+    Slash {
+        command: crate::commands::SlashCommand,
+        args: String,
+        thread: Option<ThreadId>,
+    },
+}
+
+/// What a command with arguments asks of the page (ADR-013: a one-shot signal the surface's
+/// presenter shows once).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Wish {
+    /// `/title` or `/statusline` items: this session only, nothing is written to the config.
+    Status(crate::screens::chat::StatusOverride),
+    /// `/model <name>`: the model and effort picked for this session. A `--speed` is checked
+    /// by the arguments and not carried (the pick has no tier).
+    Model(crate::screens::select::models::Selection),
 }
 
 /// What the host tells the feature unasked, and what a script seeds.
@@ -337,7 +354,7 @@ impl State {
                     if cursors.contains(&cursor)
                         || cursors.len() >= usize::from(wire::MAX_PAGES) =>
                 {
-                    Err(format!("repeated cursor {cursor}"))
+                    Err(cursor)
                 }
                 Some(cursor) => Ok(Some(cursor)),
             }
@@ -470,6 +487,38 @@ impl State {
         cx.ask(None, Command::HooksWrite { value }, Ctx::HookTrust { many });
     }
 
+    /// A slash command with arguments.
+    fn slash(
+        &mut self,
+        command: crate::commands::SlashCommand,
+        args: &str,
+        thread: Option<ThreadId>,
+        cx: &mut AppCx<'_>,
+    ) {
+        use crate::commands::SlashCommand;
+        let scope = thread.clone().unwrap_or_default();
+        let wish = match command {
+            SlashCommand::Hooks => return self.open(Which::Hooks, cx),
+            SlashCommand::Title => args::title(args).map(Wish::Status),
+            SlashCommand::Statusline => args::status_line(args).map(Wish::Status),
+            SlashCommand::Model => {
+                let screens = cx.view().screens();
+                args::model(
+                    args,
+                    thread.is_some(),
+                    &crate::screens::select::models::Current::from_facts(&screens.chat.status),
+                    &screens.select.catalog.presets,
+                )
+                .map(|pick| Wish::Model(pick.selection))
+            }
+            _ => return,
+        };
+        match wish {
+            Ok(wish) => cx.wish(scope, wish),
+            Err(refusal) => cx.note(None, Note::Refused(refusal)),
+        }
+    }
+
     /// A request of a dialog: the state it changes at once, then the write it stands for.
     fn request(&mut self, edit: Edit, cx: &mut AppCx<'_>) {
         match &edit {
@@ -485,7 +534,7 @@ impl State {
                 let edits = updates
                     .iter()
                     .map(|(key, enabled)| crate::app::effects::ConfigEdit {
-                        key_path: format!("features.{key}"),
+                        key_path: ["features.", key.as_str()].concat(),
                         value: serde_json::json!(enabled),
                     })
                     .collect();
@@ -614,7 +663,7 @@ impl super::Feature for Settings {
     type Ctx = Ctx;
     type Note = Note;
     type Fact = Fact;
-    type Wish = super::Never<Self>;
+    type Wish = Wish;
     type Interest = super::Never<Self>;
 
     fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
@@ -624,7 +673,11 @@ impl super::Feature for Settings {
                 state.syntax_theme = theme.or_else(|| state.facts.syntax_theme.clone());
             }
             Intent::Request(edit) => state.request(edit, cx),
-            Intent::Refused(refusal) => cx.note(None, Note::Refused(refusal)),
+            Intent::Slash {
+                command,
+                args,
+                thread,
+            } => state.slash(command, &args, thread, cx),
         }
     }
 

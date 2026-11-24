@@ -113,7 +113,7 @@ pub fn write_of(edit: &Edit) -> Option<Write> {
         } => Write {
             subject: Subject::Keymap,
             edits: vec![replace(
-                &format!("tui.keymap.{context}.{action}"),
+                &["tui.keymap.", context.as_str(), ".", action.as_str()].concat(),
                 serde_json::json!(keys),
             )],
         },

@@ -4,7 +4,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread};
-use crate::features::settings as settings_intent;
 use crate::ids::{BackendId, ThreadId};
 use crate::rpc::Answer;
 use crate::screens::select::{Confirm, Picked};
@@ -343,55 +342,14 @@ pub(super) fn session_intent(
             let current = Current::from_facts(&app.screens.chat.status);
             super::select::intent(app, Intent::PermissionsArgs { args, current }, fx);
         }
-        // `/hooks`: the browser's catalogue is read from the server (`features/settings`).
-        S::Hooks => settings(
-            app,
-            settings_intent::Intent::Open(settings_intent::Which::Hooks),
-            fx,
-        ),
-        // `/tui`: the mode picker is the page's (`Edit::TuiMode` writes its answer).
-        S::Tui => {}
-        // `/title <items>` and `/statusline <items>`: this session only (`StatusOverride`); a
-        // bare command is the setup dialog (`Target::Settings`).
-        S::Title { args } | S::Statusline { args } => {
-            let title = matches!(command, crate::commands::SlashCommand::Title);
-            let args = args.unwrap_or_default();
-            let set = if title {
-                settings_intent::args::title(&args)
-            } else {
-                settings_intent::args::status_line(&args)
-            };
-            match set {
-                Ok(set) => chat::apply_intent(
-                    &mut Rc::make_mut(&mut app.screens).chat,
-                    chat::Intent::StatusOverride(set),
-                    fx,
-                ),
-                Err(refusal) => settings(app, settings_intent::Intent::Refused(refusal), fx),
-            }
-        }
-        // `/model <name> ..`: the pick is validated against the catalog and applied to this
-        // session (`select::Intent::Settle`).
-        S::Model { args } => {
-            use crate::screens::select::{Intent, models::Current};
-            let current = Current::from_facts(&app.screens.chat.status);
-            let started = source.is_some();
-            let picked = settings_intent::args::model(
-                &args.unwrap_or_default(),
-                started,
-                &current,
-                &app.screens.select.catalog.presets,
-            );
-            match picked {
-                Ok(pick) => {
-                    // The pick carries no service tier yet: a `--speed` is checked, not applied.
-                    super::select::intent(app, Intent::Settle(pick.selection), fx);
-                }
-                Err(refusal) => settings(app, settings_intent::Intent::Refused(refusal), fx),
-            }
+        // `/hooks`, `/title <items>`, `/statusline <items>`, `/model <name> ..`: the settings
+        // feature checks the arguments and answers.
+        S::Hooks => slash(app, source, command, String::new(), fx),
+        S::Title { args } | S::Statusline { args } | S::Model { args } => {
+            slash(app, source, command, args.unwrap_or_default(), fx);
         }
         // `/vim`: modal editing of the draft is UI state (the page toggles it and says so).
-        S::Vim => {}
+        S::Vim | S::Tui => {}
         // `/worktree`: the sheet of the worktree pickers (`show_managed_worktree_picker`), over
         // the thread's working directory. A local Git repository is what the host knows (the
         // flag that lists the command stands for it until the host says).
@@ -430,8 +388,19 @@ pub(super) fn session_intent(
     }
 }
 
-/// An intent of the settings feature (`features/settings`).
-fn settings(app: &mut CodexApp, intent: settings_intent::Intent, fx: &mut AppFx) {
+/// A slash command of the settings feature, with its arguments.
+fn slash(
+    app: &mut CodexApp,
+    thread: Option<ThreadId>,
+    command: crate::commands::SlashCommand,
+    args: String,
+    fx: &mut AppFx,
+) {
+    let intent = crate::features::settings::Intent::Slash {
+        command,
+        args,
+        thread,
+    };
     super::features::intent(app, intent.into(), fx);
 }
 
