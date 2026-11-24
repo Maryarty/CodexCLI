@@ -200,6 +200,16 @@ pub fn verb_by<S: 'static>(cx: &mut Cx<'_, S>, hs: &Hs, intent: impl Into<Featur
     cx.emit(&hs.intent, Intent::Feature(intent.into()));
 }
 
+/// The action of the security-setup reminder over the composer (its one row opens the page): the
+/// session page that draws the banner names no feature.
+pub fn open_security_page<S: 'static>(cx: &mut Cx<'_, S>, hs: &Hs) {
+    verb_by(
+        cx,
+        hs,
+        codex_tui_core::features::security_setup::Intent::Open,
+    );
+}
+
 macro_rules! view_dispatch {
     ($($name:ident => $variant:ident;)*) => {
         /// The words of a feature's note.

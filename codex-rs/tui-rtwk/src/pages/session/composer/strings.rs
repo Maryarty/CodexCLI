@@ -38,6 +38,9 @@ pub struct Strings {
     pub input_disabled: &'static str,
     /// The placeholder while the Windows sandbox setup runs (`set_composer_input_enabled`).
     pub setup_running: &'static str,
+    /// The status row's header and details while it runs (`show_windows_sandbox_setup_status`).
+    pub setup_header: &'static str,
+    pub setup_details: &'static str,
     /// The footer while reverse history search is open
     /// (`history_search.rs`, `history_search_footer_line`): the label, the
     /// state after the query, and the two actions of a match, each key and
@@ -94,6 +97,8 @@ pub const EN: Strings = Strings {
     shutting_down: "Shutting down...",
     input_disabled: "Input disabled.",
     setup_running: "Input disabled until setup completes.",
+    setup_header: "Setting up sandbox...",
+    setup_details: "Hang tight, this may take a few minutes",
     search_label: "reverse-i-search: ",
     search_gap: "  ",
     search_no_match: "  no match",

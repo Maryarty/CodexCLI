@@ -102,11 +102,7 @@ impl BannerId {
     pub(crate) fn pick<S: 'static>(self, row: usize, hs: &Hs, cx: &mut Cx<'_, S>) {
         match self {
             BannerId::Backend(backend, ticket) => cx.emit(&hs.pick_banner, (backend, ticket, row)),
-            BannerId::Security(_) => crate::features::verb_by(
-                cx,
-                hs,
-                codex_tui_core::features::security_setup::Intent::Open,
-            ),
+            BannerId::Security(_) => crate::features::open_security_page(cx, hs),
         }
     }
 

@@ -129,17 +129,3 @@ pub fn menu(page: &Page) -> List {
         ..List::default()
     }
 }
-
-/// The status row while the setup runs (`show_windows_sandbox_setup_status`).
-pub const SETUP_HEADER: &str = "Setting up sandbox...";
-pub const SETUP_DETAILS: &str = "Hang tight, this may take a few minutes";
-
-/// The `Ask for approval` row while the non-admin sandbox is on (`windows_degraded_sandbox_enabled`).
-pub fn degraded_label(base: &str) -> String {
-    format!("{base} (non-admin sandbox)")
-}
-
-/// The note under the `/permissions` rows that points at the admin setup (`show_elevate_sandbox_hint`).
-pub fn elevate_hint() -> String {
-    "The non-admin sandbox protects your files and prevents network access under most circumstances. However, it carries greater risk if prompt injected. To upgrade to the default sandbox, run /setup-default-sandbox.".to_owned()
-}

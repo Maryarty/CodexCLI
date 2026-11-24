@@ -79,6 +79,10 @@ pub struct Strings {
     pub failure_timeout: &'static str,
     pub mode_ask: &'static str,
     pub mode_ask_description: &'static str,
+    /// `Ask for approval` while the non-admin Windows sandbox is on, and the note that points at
+    /// the admin setup (`windows_degraded_sandbox_enabled`, `show_elevate_sandbox_hint`).
+    pub mode_ask_non_admin: &'static str,
+    pub elevate_hint: &'static str,
     pub mode_approve: &'static str,
     pub mode_approve_description: &'static str,
     pub mode_full: &'static str,
@@ -353,6 +357,8 @@ pub const EN: Strings = Strings {
     failure_timeout: "Permission discovery timed out. Try /permissions again.",
     mode_ask: "Ask for approval",
     mode_ask_description: "Read and edit workspace files and run commands, with approval required for internet access or edits outside the workspace",
+    mode_ask_non_admin: "Ask for approval (non-admin sandbox)",
+    elevate_hint: "The non-admin sandbox protects your files and prevents network access under most circumstances. However, it carries greater risk if prompt injected. To upgrade to the default sandbox, run /setup-default-sandbox.",
     mode_approve: "Approve for me",
     mode_approve_description: "Only ask for actions detected as potentially unsafe",
     mode_full: "Full Access",

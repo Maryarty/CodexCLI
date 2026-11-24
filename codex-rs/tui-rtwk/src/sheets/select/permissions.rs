@@ -35,7 +35,6 @@ use codex_tui_core::screens::{ScreenIntent, ScreenStates};
 use super::strings::{self, Strings};
 use crate::app::debug::seeded::Seeded;
 use crate::app::view::Hs;
-use crate::features::windows_sandbox;
 use crate::widgets::picker::list::{Item, List, Role, Span};
 use crate::widgets::picker::{Event, Picker};
 use crate::widgets::sheet::bottom;
@@ -278,7 +277,7 @@ fn list(page: &Page, sandbox: Sandbox, s: &Strings) -> List {
         standard_hint: true,
         items: page.rows.iter().map(|row| item(row, sandbox, s)).collect(),
         footer_note: (sandbox.elevate_hint && page.rows.iter().any(is_mode_row))
-            .then(windows_sandbox::strings::elevate_hint),
+            .then(|| s.elevate_hint.to_owned()),
         ..List::default()
     }
 }
@@ -329,7 +328,7 @@ fn item(row: &permissions::Row, sandbox: Sandbox, s: &Strings) -> Item {
                 words(s.mode_approve, s.mode_approve_description)
             }
             (Preset::Auto, _) if sandbox.degraded => (
-                windows_sandbox::strings::degraded_label(s.mode_ask),
+                s.mode_ask_non_admin.to_owned(),
                 Some(s.mode_ask_description.to_string()),
             ),
             (Preset::Auto, _) => words(s.mode_ask, s.mode_ask_description),

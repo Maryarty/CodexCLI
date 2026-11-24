@@ -24,7 +24,6 @@ use codex_tui_core::threads::compaction::Running as ActiveCompaction;
 use codex_tui_core::threads::{Failure, ThreadModel, TurnState};
 
 use crate::app::theme;
-use crate::features::windows_sandbox;
 use crate::l10n::strings as l10n;
 use crate::sheets::approvals;
 
@@ -134,6 +133,7 @@ impl StatelessWidget for StatusSlot {
         let strings = l10n::of(cx);
         let session_strings = super::strings::of(cx);
         let status_strings = status::strings::of(cx);
+        let composer_strings = super::composer::strings::of(cx);
         let session = watch::<SessionSlice, _>(cx);
         let run = select::<ThreadModel, Run, _>(cx, Run::of);
         let setting_up =
@@ -187,9 +187,9 @@ impl StatelessWidget for StatusSlot {
                     interrupt: None,
                     spinner: effects(facts).0,
                     shimmer: effects(facts).1,
-                    header: windows_sandbox::strings::SETUP_HEADER.to_string(),
+                    header: composer_strings.setup_header.to_string(),
                     details: Some(chat::StatusDetails::new(
-                        windows_sandbox::strings::SETUP_DETAILS.to_string(),
+                        composer_strings.setup_details.to_string(),
                         chat::STATUS_DETAILS_MAX_LINES,
                     )),
                     inline: None,
