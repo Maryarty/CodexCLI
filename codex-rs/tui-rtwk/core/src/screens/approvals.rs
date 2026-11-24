@@ -806,7 +806,7 @@ fn question_of(value: &serde_json::Value) -> Question {
 
 /// `strip_bash_lc_and_escape` of the oracle (`tui/src/exec_command.rs:17`),
 /// over a command string: `bash -lc '<script>'` is its script.
-fn strip_shell_wrapper(command: &str) -> String {
+pub(crate) fn strip_shell_wrapper(command: &str) -> String {
     let words = split_words(command);
     if let [shell, flag, script] = words.as_slice()
         && matches!(flag.as_str(), "-lc" | "-c")

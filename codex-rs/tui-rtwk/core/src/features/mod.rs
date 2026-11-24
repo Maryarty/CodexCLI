@@ -48,7 +48,9 @@ pub use surface::{InterestStep, Interests, Scope, SurfaceWish, Wishes};
 // compile: `feature_dirs!` names `$name::$variant`.
 pub mod export;
 pub mod goal;
+pub mod mcp_inventory;
 pub mod plugins;
+pub mod processes;
 pub mod rename;
 pub mod settings;
 
@@ -268,6 +270,8 @@ macro_rules! feature_list {
             export => Export;
             plugins => Plugins;
             settings => Settings;
+            processes => Processes;
+            mcp_inventory => McpInventory;
         }
     };
 }
