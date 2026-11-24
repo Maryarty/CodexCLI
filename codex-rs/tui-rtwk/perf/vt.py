@@ -3,7 +3,10 @@
 It tracks what the perf harness needs: the cell grid as text, the cursor, scroll
 regions, the alternate screen, DEC 2026 synchronized updates, and it answers the
 queries a terminal answers (DA1, DA2, CPR, DSR, kitty keyboard flags, DECRQM,
-OSC 10/11, XTWINOPS size). It is a model, not a GPU terminal: it says nothing about
+OSC 10/11, XTWINOPS size). DECRQM is answered honestly: set/reset for the modes
+the model implements (IMPLEMENTED_MODES), 0 (not recognised) for the rest. Mode 2048
+(in-band resize) is implemented as a terminal does: a report `CSI 48;rows;cols;h;w t`
+when the app sets it and on every resize() while it is set. It is a model, not a GPU terminal: it says nothing about
 how long a real terminal takes to paint; byte volume is the proxy for that.
 Colours and attributes are not tracked (the side-by-side replay is text only).
 """
@@ -21,6 +24,10 @@ TOKEN = re.compile(
     r"|\x1b[ -/]*[0-9:;<=>?@A-OQ-WYZ\\`a-z{|}~]"  # ESC sequences (not the openers [ ] P X ^ _)
     r"|[\x00-\x1a\x1c-\x1f\x7f])"  # C0 (not ESC) and DEL
 )
+# DEC private modes the model implements, with their power-on state (True = set).
+IMPLEMENTED_MODES = {2026: False, 2048: False, 1049: False, 1047: False, 47: False, 25: True, 7: True}
+CELL_H, CELL_W = 16, 8  # pixel size reported for a cell (XTWINOPS 14/16 and the 2048 report)
+
 CSI_RE = re.compile(r"\x1b\[([<=>?]?)([0-9;:]*)([ -/]*)([@-~])")
 
 
@@ -49,6 +56,7 @@ class Term:
         self.sync_seen = False
         self.cursor_visible = True
         self.autowrap = True
+        self.modes = dict(IMPLEMENTED_MODES)
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self.pending = ""
         self.out = bytearray()  # answers to queries, drained by the caller
@@ -220,7 +228,8 @@ class Term:
                 self.out += b"\x1b[?0u"
             elif final == "p" and inter == "$":
                 v = a[0] if a else 0
-                self.out += f"\x1b[?{v};{1 if v == 2026 and self.sync else 2}$y".encode()
+                state = 0 if v not in self.modes else (1 if self.modes[v] else 2)
+                self.out += f"\x1b[?{v};{state}$y".encode()
             return
         if priv in (">", "=", "<"):
             if priv == ">" and final == "c":
@@ -340,16 +349,23 @@ class Term:
             if v == 18:
                 self.out += f"\x1b[8;{self.rows};{self.cols}t".encode()
             elif v == 14:
-                self.out += f"\x1b[4;{self.rows * 16};{self.cols * 8}t".encode()
+                self.out += f"\x1b[4;{self.rows * CELL_H};{self.cols * CELL_W}t".encode()
             elif v == 16:
-                self.out += b"\x1b[6;16;8t"
+                self.out += f"\x1b[6;{CELL_H};{CELL_W}t".encode()
 
     def _clear_row_from(self, r: int, c: int) -> None:
         row = self.g[r]
         for j in range(c, self.cols):
             row[j] = " "
 
+    def inband_report(self) -> bytes:
+        return f"\x1b[48;{self.rows};{self.cols};{self.rows * CELL_H};{self.cols * CELL_W}t".encode()
+
     def _dec_mode(self, v: int, on: bool) -> None:
+        if v in self.modes:
+            self.modes[v] = on
+        if v == 2048 and on:
+            self.out += self.inband_report()  # a terminal reports the size when the mode is set
         if v == 2026:
             if on:
                 self.sync = True
@@ -390,3 +406,33 @@ class Term:
         self.top, self.bot = 0, rows - 1
         self.r = min(self.r, rows - 1)
         self.c = min(self.c, cols - 1)
+        if self.modes[2048]:
+            self.out += self.inband_report()
+
+
+def _selftest() -> None:
+    t = Term(40, 120)
+
+    def ask(data: bytes) -> bytes:
+        t.feed(data, 0.0)
+        out = bytes(t.out)
+        t.out.clear()
+        return out
+
+    assert ask(b"\x1b[?9999$p") == b"\x1b[?9999;0$y"  # unknown mode: not recognised
+    assert ask(b"\x1b[?2004$p") == b"\x1b[?2004;0$y"
+    assert ask(b"\x1b[?25$p") == b"\x1b[?25;1$y"
+    assert ask(b"\x1b[?2048$p") == b"\x1b[?2048;2$y"  # known, reset
+    assert ask(b"\x1b[?2048h") == b"\x1b[48;40;120;640;960t"  # report when set
+    assert ask(b"\x1b[?2048$p") == b"\x1b[?2048;1$y"
+    t.resize(30, 100)
+    assert bytes(t.out) == b"\x1b[48;30;100;480;800t"  # report on every resize
+    t.out.clear()
+    ask(b"\x1b[?2048l")
+    t.resize(20, 50)
+    assert not t.out
+    print("vt.py selftest ok")
+
+
+if __name__ == "__main__":
+    _selftest()
