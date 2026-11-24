@@ -118,10 +118,18 @@ pub struct Strings {
     pub user_ran_command: &'static str,
     pub explored: &'static str,
     pub exploring: &'static str,
-    pub explored_read: &'static str,
-    pub explored_list: &'static str,
-    pub explored_search: &'static str,
-    pub explored_search_in: &'static str,
+    /// The titles of the exploration lines, and the words between their pieces.
+    pub explore_read: &'static str,
+    pub explore_list: &'static str,
+    pub explore_search: &'static str,
+    pub explore_in: &'static str,
+    pub explore_names_separator: &'static str,
+    /// What a failed call adds to its last line.
+    pub explore_exit: &'static str,
+    pub explore_command_exit: &'static str,
+    /// What the header adds when calls failed.
+    pub nonzero_exit: &'static str,
+    pub nonzero_exits: &'static str,
     pub tool_no_output: &'static str,
     pub hidden_output_lines: &'static str,
     pub hidden_output_line: &'static str,
@@ -198,6 +206,8 @@ pub struct Strings {
     pub collab_request_effort: &'static str,
     // thread_transcript/other_items.rs
     pub context_compacted: &'static str,
+    /// `Context compacted · {elapsed}`: a compaction that ran live here.
+    pub context_compacted_in: &'static str,
     // chatwidget/input_restore.rs `on_interrupted_turn`, history_cell/notices.rs `new_interruption_notice`
     pub interrupted: &'static str,
     pub interrupted_for_steer: &'static str,
@@ -289,6 +299,8 @@ pub struct Strings {
 pub const INVOCATION_DOT: &str = ".";
 pub const INVOCATION_OPEN: &str = "(";
 pub const INVOCATION_CLOSE: &str = ")";
+/// The blank between a title and its text.
+pub const BLANK: &str = " ";
 
 pub const EN: Strings = Strings {
     title: "streaming and history cells",
@@ -378,10 +390,15 @@ pub const EN: Strings = Strings {
     user_ran_command: "You ran",
     explored: "Explored",
     exploring: "Exploring",
-    explored_read: "Read {}",
-    explored_list: "List {}",
-    explored_search: "Search {}",
-    explored_search_in: "Search {0} in {1}",
+    explore_read: "Read",
+    explore_list: "List",
+    explore_search: "Search",
+    explore_in: " in ",
+    explore_names_separator: ", ",
+    explore_exit: " (exit {})",
+    explore_command_exit: " (command exit {})",
+    nonzero_exit: " \u{b7} {} nonzero exit",
+    nonzero_exits: " \u{b7} {} nonzero exits",
     tool_no_output: "(no output)",
     hidden_output_lines: "+ {} lines (⌃t to expand)",
     hidden_output_line: "+ 1 line (⌃t to expand)",
@@ -451,6 +468,7 @@ pub const EN: Strings = Strings {
     collab_request: "({model} {effort})",
     collab_request_effort: "({})",
     context_compacted: "Context compacted",
+    context_compacted_in: "Context compacted · {}",
     interrupted: "■ Conversation interrupted - use /feedback if something went wrong",
     interrupted_for_steer: "Model interrupted to submit steer instructions.",
     goal_budget_reached: "Goal budget reached - the turn was stopped.",

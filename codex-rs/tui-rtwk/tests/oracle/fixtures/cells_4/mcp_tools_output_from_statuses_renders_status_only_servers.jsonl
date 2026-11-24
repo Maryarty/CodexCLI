@@ -1,0 +1,1 @@
+{"step":"respond","method":"mcpServerStatus/list","result":{"data":[{"name":"plugin_docs","tools":{"lookup":{"name":"lookup","inputSchema":{"type":"object","properties":{}}}},"resources":[],"resourceTemplates":[],"authStatus":"unknown","runtimeStatus":null}],"nextCursor":null}}

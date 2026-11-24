@@ -13,10 +13,12 @@ use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
 
 pub mod citation;
+pub mod compaction;
 pub mod computer_activity;
 pub mod disclosure;
 pub mod dispatch;
 pub mod exec;
+pub mod exploration;
 pub mod interaction;
 pub mod markdown;
 pub mod one_row;

@@ -1,0 +1,4 @@
+# oracle history_cell/tests.rs ps_output_long_command_snapshot: the processes of `new_unified_exec_processes_output`
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "notify", "message": {"method": "item/started", "params": {"item": {"type": "commandExecution", "id": "call-1", "pluginId": null, "scriptPath": null, "command": "rg \"foo\" src --glob '**/*.rs' --max-count 1000 --no-ignore --hidden --follow --glob '!target/**'", "cwd": "/tmp/project", "processId": "process-1", "source": "unifiedExecStartup", "status": "inProgress", "commandActions": [], "aggregatedOutput": null, "exitCode": null, "durationMs": null, "startedAtMs": 0, "completedAtMs": null}, "threadId": "thread-1", "turnId": "turn-1", "startedAtMs": 0}}}
+{"step": "notify", "message": {"method": "item/commandExecution/outputDelta", "params": {"threadId": "thread-1", "turnId": "turn-1", "itemId": "call-1", "delta": "searching...\n"}}}

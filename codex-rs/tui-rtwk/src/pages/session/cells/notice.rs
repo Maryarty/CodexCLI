@@ -28,7 +28,7 @@ const MARK_COLUMNS: i32 = 2;
 pub fn texts(notice: &Notice, strings: &Strings) -> Vec<Part> {
     let row = |text: String| vec![Part::text(text)];
     match notice {
-        Notice::ContextCompacted => row([strings.bullet, strings.context_compacted].concat()),
+        Notice::ContextCompacted { took } => row([strings.bullet, &super::compaction::line(*took, strings)].concat()),
         Notice::Interrupted => row(strings.interrupted.to_owned()),
         Notice::InterruptedForSteer => {
             row([strings.bullet, strings.interrupted_for_steer].concat())
@@ -158,9 +158,9 @@ impl StatelessWidget for NoticeCell {
             .into()
         };
         match &self.notice {
-            Notice::ContextCompacted => Text::rich(vec![
+            Notice::ContextCompacted { took } => Text::rich(vec![
                 Span::styled(strings.bullet, tokens.dim()),
-                Span::styled(strings.context_compacted, Style::new()),
+                Span::styled(super::compaction::line(*took, strings), Style::new()),
             ])
             .into(),
             // `new_interruption_notice`: one line in the plain secondary style

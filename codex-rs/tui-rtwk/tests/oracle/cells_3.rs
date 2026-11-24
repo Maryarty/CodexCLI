@@ -197,11 +197,12 @@ fn proposed_plan_cell_renders_markdown_table() {
 // ORACLE history_cell/tests.rs:424 empty_mcp_output_preserves_docs_hyperlink kind=snap owner=chat-live
 #[test]
 fn empty_mcp_output_preserves_docs_hyperlink() {
-    kit::pending(
-        Owner::ChatLive,
-        "no /mcp output cell on S11: the slash command draws no MCP tools cell yet, and the docs hyperlink is not carried",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 8).live().open();
+    // the server lists no servers: `mcpServerStatus/list` answers an empty page
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 16)
+        .live()
+        .script(r#"{"step":"respond","method":"mcpServerStatus/list","result":{"data":[],"nextCursor":null}}"#)
+        .open();
     s.type_text("/mcp");
     s.keys("enter");
     s.assert_in_order(&[
@@ -412,17 +413,22 @@ fn final_message_separator_includes_worked_label_after_one_minute() {
     s.assert_has_row("  Worked for 1m 1s");
 }
 
+/// The screen row of the `/ps` cell's first line: the processes the fixtures start leave their own
+/// cells above it (the oracle builds the cell alone), so the snapshot is compared from there.
+fn ps_row(s: &Screen) -> usize {
+    s.rows()
+        .iter()
+        .rposition(|row| row.trim_end() == "/ps")
+        .unwrap_or_else(|| panic!("the /ps cell is not on the screen:\n{}", s.text()))
+}
+
 // ORACLE history_cell/tests.rs:751 ps_output_empty_snapshot kind=snap owner=chat-live snap=ps_output_empty_snapshot
 #[test]
 fn ps_output_empty_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no /ps background-terminal list cell on S11: the slash command draws no process list yet",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(60, 8).live().open();
+    let mut s = Screen::build(Owner::ChatLive).size(60, 12).live().open();
     s.type_text("/ps");
     s.keys("enter");
-    s.assert_snap_region("ps_output_empty_snapshot", 0, 0);
+    s.assert_snap_region("ps_output_empty_snapshot", ps_row(&s), 0);
 }
 
 // ORACLE history_cell/tests.rs:758 session_info_uses_availability_nux_tooltip_override kind=ui owner=chat-live
@@ -523,27 +529,29 @@ fn session_info_hides_tooltips_when_disabled() {
 // ORACLE history_cell/tests.rs:894 ps_output_multiline_snapshot kind=snap owner=chat-live snap=ps_output_multiline_snapshot
 #[test]
 fn ps_output_multiline_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no /ps background-terminal list cell on S11: the multi-line commands and their recent chunks are not seedable and the cells screen draws no process list yet",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(40, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(40, 24)
+        .script(include_str!(
+            "fixtures/cells_3/ps_output_multiline_snapshot.jsonl"
+        ))
+        .open();
     s.type_text("/ps");
     s.keys("enter");
-    s.assert_snap_region("ps_output_multiline_snapshot", 0, 0);
+    s.assert_snap_region("ps_output_multiline_snapshot", ps_row(&s), 0);
 }
 
 // ORACLE history_cell/tests.rs:918 ps_output_multiline_long_command_snapshot kind=snap owner=chat-live snap=ps_output_multiline_long_command_snapshot
 #[test]
 fn ps_output_multiline_long_command_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no /ps background-terminal list cell on S11: a long multi-line command is not seedable and the cells screen draws no process list yet",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(100, 12).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .script(include_str!(
+            "fixtures/cells_3/ps_output_multiline_long_command_snapshot.jsonl"
+        ))
+        .open();
     s.type_text("/ps");
     s.keys("enter");
-    s.assert_snap_region("ps_output_multiline_long_command_snapshot", 0, 0);
+    s.assert_snap_region("ps_output_multiline_long_command_snapshot", ps_row(&s), 0);
 }
 
 // ORACLE history_cell/tests.rs:928 cyber_policy_error_event_snapshot kind=snap owner=chat-live snap=cyber_policy_error_event_snapshot
@@ -614,53 +622,58 @@ fn cyber_policy_error_event_narrow_snapshot() {
 // ORACLE history_cell/tests.rs:973 ps_output_long_command_snapshot kind=snap owner=chat-live snap=ps_output_long_command_snapshot
 #[test]
 fn ps_output_long_command_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no /ps background-terminal list cell on S11: a long rg command with a recent chunk is not seedable and the cells screen draws no process list yet",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(36, 12).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(36, 24)
+        .script(include_str!(
+            "fixtures/cells_3/ps_output_long_command_snapshot.jsonl"
+        ))
+        .open();
     s.type_text("/ps");
     s.keys("enter");
-    s.assert_snap_region("ps_output_long_command_snapshot", 0, 0);
+    s.assert_snap_region("ps_output_long_command_snapshot", ps_row(&s), 0);
 }
 
 // ORACLE history_cell/tests.rs:985 ps_output_halfwidth_sound_marks_snapshot kind=snap owner=chat-live snap=ps_output_halfwidth_sound_marks_snapshot
 #[test]
 fn ps_output_halfwidth_sound_marks_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no /ps background-terminal list cell on S11: half-width katakana commands are not seedable and the cells screen draws no process list yet",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(24, 12).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(24, 24)
+        .script(include_str!(
+            "fixtures/cells_3/ps_output_halfwidth_sound_marks_snapshot.jsonl"
+        ))
+        .legacy_text()
+        .open();
     s.type_text("/ps");
     s.keys("enter");
-    s.assert_snap_region("ps_output_halfwidth_sound_marks_snapshot", 0, 0);
+    s.assert_snap_region("ps_output_halfwidth_sound_marks_snapshot", ps_row(&s), 0);
 }
 
 // ORACLE history_cell/tests.rs:995 ps_output_many_sessions_snapshot kind=snap owner=chat-live snap=ps_output_many_sessions_snapshot
 #[test]
 fn ps_output_many_sessions_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no /ps background-terminal list cell on S11: twenty sessions are not seedable and the cells screen draws no process list yet",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(32, 30).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 30)
+        .script(include_str!(
+            "fixtures/cells_3/ps_output_many_sessions_snapshot.jsonl"
+        ))
+        .open();
     s.type_text("/ps");
     s.keys("enter");
-    s.assert_snap_region("ps_output_many_sessions_snapshot", 0, 0);
+    s.assert_snap_region("ps_output_many_sessions_snapshot", ps_row(&s), 0);
 }
 
 // ORACLE history_cell/tests.rs:1009 ps_output_chunk_leading_whitespace_snapshot kind=snap owner=chat-live snap=ps_output_chunk_leading_whitespace_snapshot
 #[test]
 fn ps_output_chunk_leading_whitespace_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no /ps background-terminal list cell on S11: recent chunks with leading whitespace are not seedable and the cells screen draws no process list yet",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(60, 12).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(60, 24)
+        .script(include_str!(
+            "fixtures/cells_3/ps_output_chunk_leading_whitespace_snapshot.jsonl"
+        ))
+        .open();
     s.type_text("/ps");
     s.keys("enter");
-    s.assert_snap_region("ps_output_chunk_leading_whitespace_snapshot", 0, 0);
+    s.assert_snap_region("ps_output_chunk_leading_whitespace_snapshot", ps_row(&s), 0);
 }
 
 // ORACLE history_cell/tests.rs:1022 error_event_oversized_input_snapshot kind=snap owner=chat-live snap=error_event_oversized_input_snapshot

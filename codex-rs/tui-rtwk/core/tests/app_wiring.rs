@@ -1131,6 +1131,7 @@ mod calls {
         Item::Tool(Arc::new(ToolActivity {
             kind: ToolKind::Shell {
                 command: "ls".into(),
+                compound: actions.len() > 1,
                 actions,
                 exit_code,
                 duration_ms: None,

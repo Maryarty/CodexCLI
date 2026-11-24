@@ -1,0 +1,4 @@
+# oracle chatwidget/tests/guardian.rs:328 guardian_approved_exec_is_hidden_from_history (hand-written: guardian_fixtures.py)
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step":"notify","message":{"method":"guardianWarning","params":{"threadId":"thread-1","message":"Automatic approval review approved (risk: low, authorization: high): Narrowly scoped to the requested file."}}}
+{"step":"notify","message":{"method":"item/autoApprovalReview/completed","params":{"threadId":"thread-1","turnId":"turn-1","startedAtMs":0,"reviewId":"guardian-approved","targetItemId":"guardian-approved-target","review":{"status":"approved","riskLevel":"low","userAuthorization":"high","rationale":"Narrowly scoped to the requested file."},"action":{"type":"command","source":"shell","command":"rm -f /tmp/guardian-approved.sqlite","cwd":"/tmp"},"completedAtMs":1,"decisionSource":"agent"}}}

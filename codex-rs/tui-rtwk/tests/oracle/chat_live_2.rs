@@ -210,27 +210,27 @@ fn backend_banner_changed_remedy_keeps_fallback_until_applicable_replacement() {
 // ORACLE chatwidget/tests/compaction_tests.rs:31 compaction_status_survives_follow_up_and_preserves_turn_time kind=snap owner=chat-live snap=compaction_completed snap=compaction_running snap=compaction_running_narrow
 #[test]
 fn compaction_status_survives_follow_up_and_preserves_turn_time() {
-    kit::pending(
-        Owner::ChatLive,
-        "the status line's compaction header and turn timer are not built (`Compacting context` over the turn's 600s timer, a compaction started 83s ago; the narrow render at 40 cells)",
-    );
+    // The oracle's snapshots are the bottom pane with the elapsed time masked and its own status line
+    // under the composer (`GPT-5.6-Sol default · /tmp/project`); the rows of the compaction are compared
+    // here with the time of a compaction started 83s ago, on a turn that runs for 600s.
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
-        .script(include_str!(
-            "fixtures/chat_live_2/compaction_running.jsonl"
-        ))
+        .script(include_str!("fixtures/chat_live_2/compaction_since.jsonl"))
         .open();
-    s.assert_snap("compaction_running");
+    s.assert_screen_row_then(
+        "• Compacting context (1m 23s • esc to interrupt)",
+        &["  └ Making room to continue."],
+    );
     s.resize(40, 24);
-    s.assert_snap("compaction_running_narrow");
+    s.assert_has_row("• Compacting context (1m 23s • esc to i…");
     s.resize(80, 24);
     s.type_text("keep going").keys("enter");
     s.assert_contains("Compacting context");
     s.feed(include_str!(
         "fixtures/chat_live_2/compaction_completed.jsonl"
     ));
-    s.assert_snap("compaction_completed");
-    s.assert_contains("Working");
+    s.assert_has_row("• Context compacted · 1m 23s");
+    s.assert_contains("Working (10m 00s • esc to interrupt)");
     s.assert_absent("Compacting context");
 }
 
