@@ -88,10 +88,14 @@ fn agent_message(id: &str, text: &str) -> String {
 
 /// A streamed answer delta (the oracle's `on_agent_message_delta`).
 fn agent_delta(delta: &str) -> String {
+    agent_delta_in("turn-1", delta)
+}
+
+fn agent_delta_in(turn: &str, delta: &str) -> String {
     notify(
         "item/agentMessage/delta",
         &format!(
-            r#"{{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-1","delta":"{delta}"}}"#
+            r#"{{"threadId":"thread-1","turnId":"{turn}","itemId":"msg-1","delta":"{delta}"}}"#
         ),
     )
 }
@@ -326,13 +330,10 @@ fn manual_interrupt_restores_pending_steers_to_composer() {
 // ORACLE chatwidget/tests/review_mode.rs:871 esc_interrupt_sends_all_pending_steers_immediately_and_keeps_existing_draft kind=ui owner=chat-live
 #[test]
 fn esc_interrupt_sends_all_pending_steers_immediately_and_keeps_existing_draft() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Esc interrupt that submits pending steers on the chat screen: the merged steers are not drawn and the queued draft and composer draft are not kept",
-    );
+    // the scripted turn is `turn-0`: the fake backend numbers the turns it starts from `turn-1`
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.feed(&turn_started("turn-1"));
-    s.feed(&agent_delta("Final answer line\\n"));
+    s.feed(&turn_started("turn-0"));
+    s.feed(&agent_delta_in("turn-0", "Final answer line\\n"));
     s.type_text("first pending steer");
     s.keys("enter");
     s.type_text("second pending steer");
@@ -342,7 +343,7 @@ fn esc_interrupt_sends_all_pending_steers_immediately_and_keeps_existing_draft()
     s.keys("tab");
     s.type_text("still editing");
     s.keys("esc");
-    s.feed(&turn_ended("turn-1", "interrupted"));
+    s.feed(&turn_ended("turn-0", "interrupted"));
     // oracle: the composer draft stays, the queued draft stays queued, both steers are inserted into history.
     s.assert_contains("still editing");
     s.assert_contains("queued draft");
@@ -353,18 +354,16 @@ fn esc_interrupt_sends_all_pending_steers_immediately_and_keeps_existing_draft()
 // ORACLE chatwidget/tests/review_mode.rs:951 esc_with_pending_steers_overrides_agent_command_interrupt_behavior kind=ui owner=chat-live
 #[test]
 fn esc_with_pending_steers_overrides_agent_command_interrupt_behavior() {
-    kit::pending(
-        Owner::ChatLive,
-        "no pending steer on the chat screen: Esc with a pending steer does not keep the '/subagents ' composer text",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.type_text("pending steer");
     s.keys("enter");
     s.type_text("/subagents ");
     s.keys("esc");
-    // oracle: the interrupt is sent, and the composer still reads "/subagents ".
-    s.assert_contains("/subagents ");
+    // oracle: the interrupt is sent, and the composer still reads "/subagents " (the grid has no
+    // trailing blank, so the row is compared up to the command)
+    s.assert_interrupts(1);
+    s.assert_has_row("› /subagents");
 }
 
 // ORACLE chatwidget/tests/review_mode.rs:973 manual_interrupt_restores_pending_steer_mention_bindings_to_composer kind=ui owner=chat-live
