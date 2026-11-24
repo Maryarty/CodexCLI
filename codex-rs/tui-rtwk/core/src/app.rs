@@ -8,6 +8,7 @@
 
 mod banners;
 mod clock;
+mod connection;
 pub mod effects;
 pub mod facts;
 pub(crate) mod features;
@@ -1033,7 +1034,7 @@ impl CodexApp {
             .filter(|ticket| {
                 self.outgoing
                     .get(*ticket)
-                    .is_some_and(|ctx| sent_to(self, ctx) == backend)
+                    .is_some_and(|ctx| ctx.on_lost(self, backend) == connection::OnLost::Fail)
             })
             .collect();
         let before: Vec<Ticket> = self.outgoing.tickets().collect();
@@ -1195,31 +1196,18 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 }
             }
             // a reconnect: what the surfaces still want is asked again
-            features::reconnected(app, fx);
-            features::connection(app, crate::features::Connection::Up, fx);
+            connection::up(app, fx);
         }
         AppEv::StartFailed(message) => {
             fx.ends = true;
             set_status(app, Session::Failed(Failure::Message(message)));
         }
         AppEv::Disconnected => {
-            // The startup page's asks go to the first backend.
-            if origin == BackendId::default() {
-                crate::screens::onboarding::disconnected(
-                    &mut Rc::make_mut(&mut app.screens).onboarding,
-                );
-            }
-            app.reset_requests(origin);
-            Rc::make_mut(&mut app.session)
-                .backend_banners
-                .remove(&origin);
-            Rc::make_mut(&mut app.session).reserve.remove(&origin);
-            detach_threads(app, origin, fx);
-            structured::lost(app, origin, fx);
+            connection::lost(app, origin, fx);
+            // after the failures of the asks in flight: the session says the connection stopped
             if active_backend(app) == origin {
                 set_status(app, Session::Failed(Failure::Stopped));
             }
-            features::connection(app, crate::features::Connection::Lost, fx);
         }
         AppEv::ShuttingDown => {
             features::connection(app, crate::features::Connection::ShuttingDown, fx);
@@ -1651,47 +1639,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 ScreenEv::Agents(agents::Ev::Reconnecting | agents::Ev::Lagged) => {
                     app.threads.previews_mut().clear();
                     if matches!(ev, ScreenEv::Agents(agents::Ev::Reconnecting)) {
-                        // The startup asks went to the lost connection.
-                        if origin == BackendId::default() {
-                            crate::screens::onboarding::disconnected(
-                                &mut Rc::make_mut(&mut app.screens).onboarding,
-                            );
-                        }
-                        app.reset_requests(origin);
-                        Rc::make_mut(&mut app.session)
-                            .backend_banners
-                            .remove(&origin);
-                        Rc::make_mut(&mut app.session).reserve.remove(&origin);
-                        detach_threads(app, origin, fx);
-                        app.attaching_events
-                            .retain(|(backend, ..)| *backend != origin);
-                        let owners = &app.screens.agents;
-                        let lost = std::cell::RefCell::new(Vec::new());
-                        app.outgoing.retain(|ctx| match ctx {
-                            AppCtx::Worktree { backend, .. }
-                            | AppCtx::OpenThread { backend, .. }
-                            | AppCtx::NewConversation { backend, .. }
-                            | AppCtx::Nudge { backend, .. }
-                            | AppCtx::RateLimits { backend, .. } => *backend != origin,
-                            AppCtx::SessionRead => origin != BackendId::default(),
-                            AppCtx::Resume(ctx) if ctx.backend() == origin => {
-                                lost.borrow_mut().push(ctx.clone());
-                                false
-                            }
-                            AppCtx::Agents(agents::Ctx::History { thread }) => {
-                                owners.owner_of(thread) != origin
-                            }
-                            AppCtx::Removal { thread, .. } => {
-                                owners.owner_of(thread.as_str()) != origin
-                            }
-                            _ => true,
-                        });
-                        // The picker's pages the lost connection owed fail.
-                        for ctx in lost.into_inner() {
-                            let error = RpcError::Remote("connection lost".to_owned());
-                            let model = &mut Rc::make_mut(&mut app.screens).resume;
-                            resume::apply_answer(model, ctx, Err(error));
-                        }
+                        connection::lost(app, origin, fx);
                         // An older page that will never come is a failed one: asking again
                         // retries it.
                         let unanswered: Vec<_> = app
@@ -1738,6 +1686,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             }
             release_held_start(app, fx);
             if reconnected {
+                connection::up(app, fx);
                 if app.screens.chat.status.account_usage {
                     refresh_rates(app, origin, status::RateLimitOrigin::Startup, fx);
                 }
@@ -3055,28 +3004,6 @@ fn detach_threads(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx) {
 /// What a request that lost its connection fails with: the client's own words for a closed
 /// channel (the ticket's answer is a failure like any the server gives).
 const CONNECTION_LOST: &str = "the connection to the app server was closed";
-
-/// The backend an in-flight request was sent to: the one its context names, else the displayed
-/// one (what a command without a backend goes to).
-fn sent_to(app: &CodexApp, ctx: &AppCtx) -> BackendId {
-    match ctx {
-        AppCtx::StartThread { switch } => switch.unwrap_or_default(),
-        AppCtx::RateLimits { backend, .. }
-        | AppCtx::Nudge { backend, .. }
-        | AppCtx::NewConversation { backend, .. }
-        | AppCtx::OpenThread { backend, .. }
-        | AppCtx::Structured { backend, .. }
-        | AppCtx::Worktree { backend, .. }
-        | AppCtx::Select(
-            crate::screens::select::Ctx::Fallback { backend }
-            | crate::screens::select::Ctx::Switch { backend, .. },
-        ) => *backend,
-        AppCtx::Removal { thread, .. }
-        | AppCtx::OpenSession { thread, .. }
-        | AppCtx::Opening { thread, .. } => app.screens.agents.owner_of(thread.as_str()),
-        _ => active_backend(app),
-    }
-}
 
 fn is_attach(ctx: &AppCtx) -> bool {
     matches!(
