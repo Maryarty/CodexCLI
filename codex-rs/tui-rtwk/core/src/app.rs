@@ -1150,6 +1150,16 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                             if *backend == origin && read.folds_into_a_read_in_flight())
                     });
                     install_rates(app, origin, note.rate_limits.clone().into());
+                    // a rolling update warns like a read does, but never writes the buckets
+                    let sample = crate::threads::limits::Sample::of(&note.rate_limits);
+                    let warnings = Rc::make_mut(&mut app.session)
+                        .rate_snapshots
+                        .entry(origin)
+                        .or_default()
+                        .rolling(&sample);
+                    if active_backend(app) == origin {
+                        reset::warn(app, warnings, fx);
+                    }
                     // never reuse the permission from before a new hard stop
                     // (`invalidate_ordinary_usage_recovery`)
                     if (note.rate_limits.rate_limit_reached_type.is_some()
@@ -1803,13 +1813,20 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                         .insert(backend, reserve);
                     install_rates(app, backend, limits);
                     let now = app.screens.status.now;
-                    Rc::make_mut(&mut app.session)
+                    let warnings = Rc::make_mut(&mut app.session)
                         .rate_snapshots
                         .entry(backend)
                         .or_default()
                         .install(*read, now);
+                    if active_backend(app) == backend {
+                        reset::warn(app, warnings, fx);
+                    }
                     install_banner(app, backend, banner.map(|banner| *banner));
                     banners::fallback(app, backend, fx);
+                } else if let Some(store) =
+                    Rc::make_mut(&mut app.session).rate_snapshots.get_mut(&backend)
+                {
+                    store.limits_mut().read_failed();
                 }
                 // The card that asked ends with what the app holds now: the new
                 // read, or the cache when the read failed.

@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use codex_app_server_protocol as protocol;
 
 use super::limits::{Credits, Snapshot, SpendLimit, Window};
+use crate::threads::limits::{self, Sample, Source, Warning};
 
 /// Why a read was asked; the app keeps it with the read's ticket and the
 /// answer goes where the origin says.
@@ -99,6 +100,9 @@ pub struct Bucket {
 pub struct RateRead {
     pub buckets: Vec<Bucket>,
     pub reset_credits: Option<ResetCredits>,
+    /// What the plan's own bucket (`codex`) says that the warnings depend on; none when the read
+    /// named no such bucket.
+    pub codex: Option<Sample>,
 }
 
 /// The id the oracle gives a bucket whose snapshot names none.
@@ -124,9 +128,14 @@ impl RateRead {
             others.sort_by(|a, b| a.0.cmp(b.0));
             buckets.extend(others.into_iter().map(|(_, snapshot)| bucket(snapshot)));
         }
+        let codex = std::iter::once(&response.rate_limits)
+            .chain(response.rate_limits_by_limit_id.iter().flat_map(|by_id| by_id.values()))
+            .map(Sample::of)
+            .find(|sample| sample.codex);
         Self {
             buckets,
             reset_credits: response.rate_limit_reset_credits.as_ref().map(reset_credits),
+            codex,
         }
     }
 }
@@ -200,16 +209,41 @@ fn reset_credits(summary: &protocol::RateLimitResetCreditsSummary) -> ResetCredi
 pub struct RateLimitStore {
     snapshots: BTreeMap<String, Snapshot>,
     reset_credits: Option<ResetCredits>,
+    limits: limits::Limits,
 }
 
 impl RateLimitStore {
-    /// A read arrived at `now` (unix seconds): its buckets are captured then.
-    pub fn install(&mut self, read: RateRead, now: i64) {
+    /// A read arrived at `now` (unix seconds): its buckets are captured then. The warnings that
+    /// became due with it are returned, once each.
+    pub fn install(&mut self, read: RateRead, now: i64) -> Vec<Warning> {
         for Bucket { id, mut snapshot } in read.buckets {
             snapshot.captured_at = now;
             self.snapshots.insert(id, snapshot);
         }
         self.reset_credits = read.reset_credits;
+        match &read.codex {
+            Some(sample) => self.limits.take(sample, Source::Read),
+            None => {
+                self.limits.read_failed();
+                Vec::new()
+            }
+        }
+    }
+
+    /// A rolling update of the codex bucket arrived: the warnings that became due with it. It
+    /// never writes the buckets.
+    pub fn rolling(&mut self, sample: &Sample) -> Vec<Warning> {
+        self.limits.take(sample, Source::Rolling)
+    }
+
+    /// The facts of the warnings and the composer's notice.
+    pub fn limits(&self) -> &limits::Limits {
+        &self.limits
+    }
+
+    /// A read is sent, or failed.
+    pub fn limits_mut(&mut self) -> &mut limits::Limits {
+        &mut self.limits
     }
 
     /// The account changed: what was read for the old one is not the new one's.

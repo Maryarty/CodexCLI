@@ -228,6 +228,12 @@ pub enum Notice {
     /// The startup check found usage-limit resets to use (oracle
     /// `set_rate_limit_reset_available_hint`): how many.
     ResetAvailable { count: i64 },
+    /// A limit of the account is close (oracle `new_visible_warning_event` of
+    /// `RateLimitWarningState`): the share that is left and the window's name.
+    RateLimitWarning {
+        remaining_percent: i32,
+        window: crate::screens::status::WindowName,
+    },
     /// A request refused for biology safety (oracle `new_safety_access_block_event`).
     SafetyAccessBlock,
     /// A refused cybersecurity request, worded by the Daybreak setting at the

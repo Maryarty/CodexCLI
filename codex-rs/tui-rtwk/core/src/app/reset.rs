@@ -81,3 +81,17 @@ pub(super) fn redeemed(
 pub(super) fn clear(app: &mut CodexApp) {
     state(app).clear();
 }
+
+/// The warnings a sample of the limits made due (oracle `on_rate_limit_snapshot_from`): one
+/// visible notice each, in the thread that is open. With none open there is nowhere to tell them,
+/// and the sample is not taken, so they come with the next one a thread can show.
+pub(super) fn warn(app: &mut CodexApp, warnings: Vec<crate::threads::limits::Warning>, fx: &mut AppFx) {
+    let Some(thread) = app.session.active.clone() else { return };
+    for warning in warnings {
+        let item = Item::Notice(Notice::RateLimitWarning {
+            remaining_percent: warning.remaining_percent,
+            window: warning.window,
+        });
+        apply_thread(app, &thread, ThreadEv::Appended { turn: None, item }, fx);
+    }
+}
