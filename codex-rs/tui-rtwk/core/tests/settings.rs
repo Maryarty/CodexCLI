@@ -223,11 +223,10 @@ fn bad_seeds_are_refused() {
     );
 }
 
-/// What a dialog asks of the app is a record, in order; the model changes nothing else for the
-/// plain ones, and none of these is a write of the config file (a preference that is one,
-/// `Toggled`, writes its key).
+/// The plain requests of a dialog change nothing in the model and none of these is a write of the
+/// config file (a preference that is one, `Toggled`, writes its key).
 #[test]
-fn requests_are_recorded_in_order_and_the_plain_ones_write_nothing() {
+fn the_plain_requests_write_nothing() {
     let mut rig = Rig::play(CONFIG).expect("plays");
     let requests = vec![
         Edit::Editor(SettingId::Effects),
@@ -238,7 +237,6 @@ fn requests_are_recorded_in_order_and_the_plain_ones_write_nothing() {
         let commands = send(&mut rig, SettingsIntent::Request(edit.clone()));
         assert_eq!(config_write(&commands), None, "{edit:?}");
     }
-    assert_eq!(model(&rig).edits, requests);
     assert_eq!(
         panel(&rig)
             .row(SettingId::Tips)
@@ -311,12 +309,15 @@ fn the_picker_opens_on_the_theme_in_force_and_the_preview_and_the_pick_change_it
         assert_eq!(model(&rig).syntax_theme.as_deref(), Some(other));
         send(&mut rig, SettingsIntent::SyntaxTheme(Some(name.into())));
         assert_eq!(model(&rig).syntax_theme.as_deref(), Some(name));
-        // Enter selects it.
-        send(
+        // Enter selects it, and the pick is written (`[tui].theme`).
+        let commands = send(
             &mut rig,
             SettingsIntent::Request(Edit::ThemeSelected(name.into())),
         );
-        assert_eq!(model(&rig).edits, vec![Edit::ThemeSelected(name.into())]);
+        assert_eq!(
+            config_write(&commands).map(|(_, edits)| edits),
+            Some(vec![("tui.theme".to_owned(), serde_json::json!(name))])
+        );
         assert_eq!(model(&rig).syntax_theme.as_deref(), Some(name));
     }
 }
@@ -331,7 +332,6 @@ fn cancelling_the_theme_picker_puts_the_theme_in_force_back() {
     assert_eq!(model(&rig).syntax_theme.as_deref(), Some("curie"));
     send(&mut rig, SettingsIntent::SyntaxTheme(original));
     assert_eq!(model(&rig).syntax_theme.as_deref(), Some("ada"));
-    assert!(model(&rig).edits.is_empty());
 
     answer(
         &mut rig,
@@ -712,17 +712,10 @@ fn a_captured_free_key_replaces_the_binding_and_writes_the_config() {
             },
         ),
     );
-    assert_eq!(
-        model(&rig).edits,
-        vec![Edit::KeymapBound {
-            context: "global".to_owned(),
-            action: "open_transcript".to_owned(),
-            keys: vec!["f12".to_owned()],
-        }]
-    );
     let (_, edits) = config_write(&commands).expect("the config is written");
     assert_eq!(edits.len(), 1, "{edits:?}");
     assert_eq!(edits[0].0, "tui.keymap.global.open_transcript");
+    assert_eq!(edits[0].1, serde_json::json!(["f12"]));
 }
 
 /// A key another action of the context holds is refused, nothing is written.
@@ -735,7 +728,6 @@ fn a_captured_taken_key_is_a_conflict_and_writes_nothing() {
         captured("global", "open_transcript", "ctrl-l", How::ReplaceAll),
     );
     assert!(config_write(&commands).is_none());
-    assert_eq!(model(&rig).edits, vec![]);
 }
 
 /// Removing a custom binding writes a null (the default comes back).
@@ -837,7 +829,6 @@ fn a_write_request_marks_the_dialog_saving_and_the_confirmation_settles_it() {
         dialog.unconfirmed,
         ["network_proxy", "future_feature", "prevent_idle_sleep"]
     );
-    assert_eq!(model(&rig).edits, vec![Edit::FeaturesSave(updates.clone())]);
 
     answer(
         &mut rig,

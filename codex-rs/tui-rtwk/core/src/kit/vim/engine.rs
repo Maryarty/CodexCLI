@@ -154,11 +154,6 @@ impl Vim {
         !self.enabled || matches!(self.mode, VimMode::Insert | VimMode::Replace)
     }
 
-    /// Whether the caret is the block-less insert one (Insert mode).
-    pub fn uses_insert_cursor(&self) -> bool {
-        self.enabled && self.mode == VimMode::Insert
-    }
-
     /// `.` repeats nothing until the next change: an edit outside the
     /// keys (an image from the clipboard) is not one to repeat
     /// (`begin_direct_vim_edit` clears `last_change`).
@@ -1079,14 +1074,6 @@ impl Vim {
         true
     }
 
-    /// The ranges the draft highlights for the query being typed or the last one.
-    pub fn search_highlights(&self, t: &dyn VimText, typing: Option<&str>) -> Vec<Range<usize>> {
-        let query = typing.unwrap_or(&self.last_search.text);
-        matching_ranges(t, query)
-            .into_iter()
-            .filter(|r| is_command_target(t, r.start))
-            .collect()
-    }
 }
 
 /// `dj` / `dk` and the like: whole lines.

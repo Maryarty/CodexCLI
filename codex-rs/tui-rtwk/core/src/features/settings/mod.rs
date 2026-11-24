@@ -290,8 +290,6 @@ pub struct State {
     /// The syntax theme in force (the oracle: `highlight::current_syntax_theme`): the picker
     /// previews by changing it.
     pub syntax_theme: Option<String>,
-    /// The requests the dialogs left, in order.
-    pub edits: Vec<Edit>,
     /// The last open of the experimental dialog: what an answer is checked against.
     pub generation: u64,
     /// The hook switches on their way, by key: what was asked for while one was in flight
@@ -790,8 +788,7 @@ impl State {
                         Ctx::KeymapWrite { saved: said(done) },
                     );
                 }
-                self.edits.push(edit);
-            }
+                    }
             Err(capture::Failure::UnknownAction) => {
                 cx.note(None, Note::KeymapUnknown { context, action });
             }
@@ -837,7 +834,6 @@ impl State {
                 },
             );
         }
-        self.edits.push(edit);
     }
 
     /// A request of a dialog: the state it changes at once, then the write it stands for.
@@ -921,7 +917,6 @@ impl State {
                 Ctx::Write(write.subject),
             );
         }
-        self.edits.push(edit);
     }
 
     /// The config file has what a dialog saved.

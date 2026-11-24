@@ -1577,7 +1577,8 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             features::effect_done(app, request, done, fx);
         }
         AppEv::Effect { request, done } if screens::pets::owns(request) => {
-            if let Some(message) = screens::pets::written(&mut app.screens.pets, request, &done) {
+            let model = &mut Rc::make_mut(&mut app.screens).pets;
+            if let Some(message) = screens::pets::written(model, request, &done) {
                 notices::error_line(app, message, fx);
             }
         }

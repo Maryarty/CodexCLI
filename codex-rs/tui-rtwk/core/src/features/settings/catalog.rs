@@ -401,10 +401,6 @@ pub struct ActionItem {
 }
 
 impl ActionItem {
-    /// No shortcut is bound to the action.
-    pub fn is_unbound(&self) -> bool {
-        self.binding == "unbound"
-    }
 }
 
 /// A tab of the keymap picker.

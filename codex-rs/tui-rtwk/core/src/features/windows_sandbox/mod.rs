@@ -405,17 +405,6 @@ impl State {
         }
     }
 
-    /// Where the permissions page sends `Ask for approval`: the prompt that comes first, if the
-    /// sandbox is not set up (`permission_mode_actions`): another host cannot set it up here
-    /// (`Remote` owns its own choice: none), and a mixed or unknown one gets the prompt.
-    pub fn prompt_for_auto(&self) -> Option<Prompt> {
-        match self.host {
-            Host::Mixed | Host::Unknown => Some(Prompt::Enable),
-            Host::Remote => None,
-            Host::Local => (!self.config().is_enabled()).then_some(Prompt::Enable),
-        }
-    }
-
     fn environment(&mut self, config: Config, host: Host, local_server: bool, ready: bool) {
         self.config = Some(config);
         self.host = host;

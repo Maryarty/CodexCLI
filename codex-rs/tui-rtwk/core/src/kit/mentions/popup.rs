@@ -51,11 +51,6 @@ impl Popup {
         self.file_search.empty()
     }
 
-    pub fn set_candidates(&mut self, candidates: Vec<Candidate>) {
-        self.candidates = candidates;
-        self.refresh_rows();
-    }
-
     pub fn set_query(&mut self, query: &str) {
         if self.query == query {
             return;

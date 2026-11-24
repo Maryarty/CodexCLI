@@ -169,6 +169,7 @@ impl Rig {
                 Command::Effect {
                     request,
                     ask: Ask::ConfigWrite { edits },
+                    ..
                 } => Some((
                     *request,
                     edits
