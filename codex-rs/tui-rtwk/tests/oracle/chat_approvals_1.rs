@@ -52,10 +52,6 @@ fn app_server_write_stdin_approval_renders_terminal_input() {
 // ORACLE chatwidget/tests/approval_requests.rs:204 network_exec_approval_history_describes_session_host_allowance kind=snap owner=dialogs-pane
 #[test]
 fn network_exec_approval_history_describes_session_host_allowance() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no network-access approval on the chat screen and the history holds no decision cell yet (model `approvals::decided::Decided` and widget `DecisionCell` are done; NEED threads.rs `Item::Decision`, app.rs recording on resolve, transcript_pane.rs arm) (feed: fixtures/chat_approvals_1/network_session.jsonl)",
-    );
     // oracle: `a` (accept for the session) answers the network request; the decision cell names the host and the session.
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
@@ -73,10 +69,6 @@ fn network_exec_approval_history_describes_session_host_allowance() {
 // ORACLE chatwidget/tests/approval_requests.rs:251 network_exec_approval_history_describes_one_time_host_allowance kind=snap owner=dialogs-pane
 #[test]
 fn network_exec_approval_history_describes_one_time_host_allowance() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no network-access approval on the chat screen and the history holds no decision cell yet (model `approvals::decided::Decided` and widget `DecisionCell` are done; NEED threads.rs `Item::Decision`, app.rs recording on resolve, transcript_pane.rs arm) (feed: fixtures/chat_approvals_1/network_once.jsonl)",
-    );
     // oracle: `y` (accept once) answers the HTTP network request; the decision cell names the host.
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
@@ -594,10 +586,6 @@ fn bang_shell_enter_while_task_running_submits_run_user_shell_command() {
 // ORACLE chatwidget/tests/exec_flow.rs:1316 user_message_during_user_shell_command_is_queued_not_steered kind=ui owner=dialogs-pane
 #[test]
 fn user_message_during_user_shell_command_is_queued_not_steered() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-live, not approvals): no queued-message row above the composer on the chat screen while a user shell command runs",
-    );
     // oracle: a message sent while `sleep 10` (user shell) runs is queued, not steered; it is sent after the turn completes.
     // The visible half: the queued text shows as a row; the sent op and the queue field are not drawn and not asserted here.
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
