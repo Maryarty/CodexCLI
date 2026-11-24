@@ -15,8 +15,11 @@ in every call: the shell starts elsewhere), and report the outcome.
   then `~/.cache/rtwk/bgrun.sh wait <name>` until it prints `exit N`.
 - Cargo through `~/.cache/rtwk/acargo`; nextest with `--status-level fail
   --final-status-level fail --hide-progress-bar`.
-- A landing candidate's check (`docs/rtwk-port/process.md` §A6) is several
-  commands: run them all, even after one fails, and report each.
+- Several steps (a landing candidate's check, `docs/rtwk-port/process.md`
+  §A6): ONE call per step — its own `run_in_background` call or its own
+  `bgrun.sh start`/`wait` — never one script chaining the steps (a chained
+  script hung an hour, tm refl 01a20b24). Stop at the first failing step and
+  report it, unless the prompt says to run them all. Logs only in `/tmp`.
 - A test that fails is rerun once the same way: FLAKY if it then passes,
   FAIL if it fails again.
 - A perf run: report `uptime`'s load first; if the prompt gives a load limit
