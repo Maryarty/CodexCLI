@@ -133,9 +133,10 @@ pub fn raw_code(key: &KeyPress) -> Raw {
     })
 }
 
-/// The modifiers of `key` as the inspector's raw event names them, in its order.
-pub fn raw_mods(key: &KeyPress) -> Vec<&'static str> {
-    [
+/// The modifiers of `key` as the inspector's raw event names them (`ctrl|alt`), in its order;
+/// None for a press without any.
+pub fn raw_mods(key: &KeyPress) -> Option<String> {
+    let names: Vec<&str> = [
         (Mods::CTRL, "ctrl"),
         (Mods::ALT, "alt"),
         (Mods::SHIFT, "shift"),
@@ -144,5 +145,6 @@ pub fn raw_mods(key: &KeyPress) -> Vec<&'static str> {
     .into_iter()
     .filter(|(flag, _)| key.mods.contains(*flag))
     .map(|(_, name)| name)
-    .collect()
+    .collect();
+    (!names.is_empty()).then(|| names.join("|"))
 }

@@ -727,14 +727,16 @@ fn input_disabled_ignores_keypresses_and_hides_cursor() {
 // ORACLE bottom_pane/chat_composer.rs:12785 shutdown_in_progress_disables_input_and_uses_hint_without_footer kind=snap owner=chat-live snap=shutdown_in_progress
 #[test]
 fn shutdown_in_progress_disables_input_and_uses_hint_without_footer() {
-    kit::pending(
-        Owner::ChatLive,
-        "no shutdown-in-progress state on the chat composer: the composer shows '› Shutting down...' with no footer and ignores input (the snapshot shutdown_in_progress at 40x5)",
-    );
     // oracle snapshot shutdown_in_progress at 40x5: the draft 'hello', then show_shutdown_in_progress
     let mut s = Screen::build(Owner::ChatLive).size(40, 5).live().open();
     s.type_text("hello");
-    s.assert_snap("shutdown_in_progress");
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"facts":{"shutting_down":true}}}"#);
+    // the oracle draws the composer alone (the snapshot's rows 1..): the page keeps it at the
+    // bottom of the screen, with no footer under it
+    s.assert_row(prompt(&s), "› Shutting down...");
+    s.assert_absent("hello");
+    s.assert_absent("? for shortcuts");
+    s.assert_cursor_hidden();
 }
 
 // ---- oracle: bottom_pane/chat_composer/agents_navigation_tests.rs (6 screen-level tests here; 0 state tests left to chat-live)

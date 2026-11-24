@@ -112,6 +112,15 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
                 return KeyEventResult::Handled;
             }
         }
+        // Ctrl+D on an empty composer quits (`on_ctrl_d`); the field would take it for
+        // delete-forward, which is nothing here
+        if composer.borrow().text().is_empty()
+            && !draft.borrow().in_burst()
+            && pressed_fixed(fixed::QUIT_ON_EMPTY, &key)
+        {
+            send(ChatMsg::CtrlD);
+            return KeyEventResult::Handled;
+        }
         // keys held as a paste are the paste's, not the shortcuts'
         // (`is_in_paste_burst`)
         if !composer.borrow().text().is_empty()

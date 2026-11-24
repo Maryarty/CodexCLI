@@ -80,12 +80,7 @@ fn raw_of(key: &KeyPress, s: &Strings) -> String {
         press::Raw::Char(ch) => s.raw_char(ch),
         press::Raw::Named(name) => name,
     };
-    let mods = press::raw_mods(key);
-    let mods = if mods.is_empty() {
-        s.modifiers_none.to_owned()
-    } else {
-        mods.join("|")
-    };
+    let mods = press::raw_mods(key).unwrap_or_else(|| s.modifiers_none.to_owned());
     s.raw_event(&code, &mods)
 }
 

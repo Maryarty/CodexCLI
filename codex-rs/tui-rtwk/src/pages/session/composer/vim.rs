@@ -609,6 +609,17 @@ pub fn paste_into_query(draft: &ComposerDraft, text: &str) -> bool {
     true
 }
 
+/// Puts a paste (or a flushed burst) into the text: Replace mode overwrites what it covers, the
+/// other modes insert it at the selection.
+pub fn insert_pasted(draft: &ComposerDraft, c: &TextEditingController, text: &str) {
+    if draft.vim_enabled() && mode(draft).replace {
+        let mut host = VimHost::new(c, draft);
+        draft.with_vim(|v| v.insert_pasted(&mut host, text));
+    } else {
+        c.insert(text);
+    }
+}
+
 /// A paste went into the draft: Insert mode records it for `.`, Normal mode's
 /// edit is done.
 pub fn pasted(draft: &ComposerDraft, c: &TextEditingController, text: &str) {

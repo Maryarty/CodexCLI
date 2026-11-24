@@ -10,7 +10,7 @@
 use codex_tui_core::commands::Target;
 use codex_tui_rtwk::pages::session::open;
 
-use crate::common::{Harness, ms, start_debug, start_quittable};
+use crate::common::{Harness, ms, start_debug, start_driven, start_quittable};
 
 fn open_chat() -> Harness {
     open::reset_last_opened();
@@ -573,19 +573,57 @@ fn a_click_in_the_preview_does_not_lose_the_draft() {
 
 // ------------------------------------------------- chat-nav-fix (G10): Ctrl+/ aliases
 
+/// The server's answer to the fork `/side` asks for: the side conversation `SIDE`.
+fn forked() -> serde_json::Value {
+    serde_json::json!({
+        "thread": {
+            "id": SIDE, "environments": null, "extra": null, "sessionId": SIDE,
+            "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
+            "preview": SIDE, "ephemeral": true, "section": null, "sectionEnteredAt": null,
+            "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
+            "model": null, "reasoningEffort": null, "createdAt": 1_700_000_000,
+            "updatedAt": 1_700_000_000, "recencyAt": 1_700_000_000,
+            "status": {"type": "idle"}, "path": null, "cwd": "/work", "cliVersion": "0.0.0",
+            "originator": null, "source": "cli", "canAcceptDirectInput": true,
+            "threadSource": null, "agentNickname": null, "agentRole": null, "gitInfo": null,
+            "name": SIDE, "daybreakEnabled": null, "turns": []
+        },
+        "model": "gpt-5", "modelProvider": "openai", "serviceTier": null, "cwd": "/work",
+        "instructionSources": [], "approvalPolicy": "on-request", "approvalsReviewer": "user",
+        "sandbox": {"type": "dangerFullAccess"}, "reasoningEffort": null
+    })
+}
+
+const SIDE: &str = "side-1";
+
 /// `keymap.rs:730-735`: Ctrl+/ is also Ctrl+7 and, on a terminal that cannot
-/// tell them apart, the raw 0x1f byte (Ctrl+_).
+/// tell them apart, the raw 0x1f byte (Ctrl+_). Each of them switches from a side
+/// conversation to its parent and back (`toggle_side_conversation`); the footer names the key
+/// over both (`ctrl + / to switch`, `ctrl + / for side`).
 #[test]
 fn ctrl_slash_and_its_aliases_toggle_side_conversation() {
-    let side = "'/side' is not available yet.";
     for (name, bytes) in [
         ("ctrl+/ (kitty)", b"\x1b[47;5u".to_vec()),
         ("ctrl+7 (kitty)", b"\x1b[55;5u".to_vec()),
         ("ctrl+_ (raw 0x1f)", vec![0x1f]),
     ] {
-        let mut h = open_chat();
+        let mut h = start_driven(false, 100, 12);
+        h.connect();
+        h.quiesce();
+        h.fake.respond(|request| match request["method"].as_str()? {
+            "thread/fork" => Some(Ok(forked())),
+            "thread/inject_items" => Some(Ok(serde_json::json!({}))),
+            _ => None,
+        });
+        h.t.type_text("/side");
+        h.press("enter");
+        h.advance(300);
+        h.wait_for(name, |s| s.contains("to switch"));
         h.t.input(&bytes);
-        h.t.pump_for(ms(400));
-        h.wait_for(name, |s| s.contains(side));
+        h.advance(300);
+        h.wait_for(name, |s| s.contains("for side"));
+        h.t.input(&bytes);
+        h.advance(300);
+        h.wait_for(name, |s| s.contains("to switch"));
     }
 }

@@ -20,7 +20,7 @@ use rtwk::{AnyWidget, Cx, Handler, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::app::SessionSlice;
 use codex_tui_core::ids::ThreadId;
-use codex_tui_core::threads::{Restore, ThreadModel, UserMessage};
+use codex_tui_core::threads::{DueCommand, Restore, ThreadModel, UserMessage};
 
 /// What changed in the model that the page acts on once.
 #[derive(Clone, Debug, PartialEq)]
@@ -37,6 +37,12 @@ pub enum Edge {
     Draft(UserMessage),
     /// The turn ended with a proposed plan: "Implement this plan?".
     Plan,
+    /// The queue handed the page a command it waits for (`ThreadModel::due_command`): the page
+    /// runs the line as if typed now and tells the thread what it opened.
+    Due(DueCommand),
+    /// The page is the route in front again after it was not (a sheet over it closed): what the
+    /// queue waited for may be over.
+    Front,
     /// A thread was archived or deleted and the page is in front.
     Removed,
     /// The server refused a fork (the copy never opens): the page stops waiting on it.
@@ -52,6 +58,7 @@ struct Counters {
     restore: Option<u64>,
     draft: Option<u64>,
     plan: Option<u64>,
+    due: Option<u64>,
 }
 
 /// Everything the listener selects.
@@ -76,6 +83,7 @@ fn deps<S: 'static>(cx: &mut Cx<'_, S>) -> Deps {
             restore: thread.restore().map(Restore::seq),
             draft: slots.backtrack.restore.as_ref().map(|restore| restore.seq),
             plan: slots.chat.plan.prompt().map(|prompt| prompt.seq),
+            due: thread.due_command().map(DueCommand::seq),
         }
     });
     let removed = select::<SessionSlice, u32, _>(cx, |session| session.removed);
@@ -104,6 +112,8 @@ pub struct ListenerState {
     seen: Option<Counters>,
     fork_failed: Option<u32>,
     removed: Option<u32>,
+    /// Whether the page was in front at the last look.
+    front: bool,
 }
 
 impl StatefulWidget for Listener {
@@ -166,6 +176,20 @@ impl State for ListenerState {
         if Self::moved(before.as_ref(), &now, |c| c.plan) {
             cx.emit(&w.on_edge, Edge::Plan);
         }
+        // a queued command waits for the page, a first look at the thread included: it is run
+        // once, when the page is in front to show what it opens
+        let due = |c: &Counters| (c.thread.clone(), c.due);
+        if current
+            && now.due.is_some()
+            && before.as_ref().map(due) != Some(due(&now))
+            && let Some(command) = read::<ThreadModel, _>(cx).due_command().cloned()
+        {
+            cx.emit(&w.on_edge, Edge::Due(command));
+        }
+        if current && !self.front {
+            cx.emit(&w.on_edge, Edge::Front);
+        }
+        self.front = current;
         // a removal under a sheet waits until the page is in front
         match self.removed {
             None => self.removed = Some(removed),

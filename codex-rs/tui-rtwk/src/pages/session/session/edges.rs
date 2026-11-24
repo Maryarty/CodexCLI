@@ -5,10 +5,12 @@ use rtwk::provider::read;
 use rtwk::{Cx, Rebuild};
 
 use codex_tui_core::commands::Target;
-use codex_tui_core::screens::ScreenStates;
-use codex_tui_core::threads::ThreadModel;
+use codex_tui_core::screens::{ScreenStates, ScreenThreadIntent, chat};
+use codex_tui_core::threads::{Ran, ThreadModel};
 
+use crate::app::view::Hs;
 use crate::pages::session::composer::clear_sent;
+use crate::pages::session::composer::queue::run_due;
 use crate::pages::session::live::{plan_mode, put_back, seed_history};
 use crate::pages::session::open::open;
 use crate::widgets::directives::Edge;
@@ -16,6 +18,15 @@ use crate::widgets::directives::Edge;
 use super::{Chat, ChatState};
 
 impl ChatState {
+    /// What the page keeps of the draft (the footer and the Tab binding read it): empty (shell
+    /// mode's `!` is content), in shell mode, in history search.
+    pub(super) fn sync_draft(&mut self, w: &Chat) {
+        self.search_rev = w.ui.draft.search_rev();
+        self.draft_shell = w.ui.draft.shell();
+        self.draft_vim = w.ui.draft.vim_label();
+        self.draft_empty = w.ui.composer.text().is_empty() && !self.draft_shell;
+    }
+
     pub(super) fn edge(&mut self, edge: Edge, w: &Chat, cx: &mut Cx<'_, ChatState>) -> Rebuild {
         match edge {
             // The composer clears when the model accepted (or queued) the message, not when it
@@ -52,6 +63,27 @@ impl ChatState {
                 put_back(&w.ui, &message, |n| table.image(n));
                 self.sync_draft(w);
                 Rebuild::Yes
+            }
+            // A command the queue waited for: it runs through the dispatch a typed line does and
+            // the thread hears what it opened (`submit_queued_slash_prompt`). A sheet it opened
+            // keeps the queue until the page is in front again.
+            Edge::Due(due) => {
+                let hs = read::<Hs, _>(cx);
+                let ran = run_due(&due, w, cx, &hs);
+                self.resume |= matches!(&ran, Ran::Dispatched(d) if d.modal);
+                let thread = read::<ThreadModel, _>(cx).id().clone();
+                let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::QueueRan(ran));
+                cx.emit(&hs.thread_screen, (thread, intent));
+                Rebuild::Yes
+            }
+            Edge::Front => {
+                if std::mem::take(&mut self.resume) {
+                    let hs = read::<Hs, _>(cx);
+                    let thread = read::<ThreadModel, _>(cx).id().clone();
+                    let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::QueueResume);
+                    cx.emit(&hs.thread_screen, (thread, intent));
+                }
+                Rebuild::No
             }
             Edge::Plan => {
                 plan_mode::ask(cx);
