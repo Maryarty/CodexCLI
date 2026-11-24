@@ -338,8 +338,15 @@ pub(super) fn session_intent(
             let current = Current::from_facts(&app.screens.chat.status);
             super::select::intent(app, Intent::PermissionsArgs { args, current }, fx);
         }
+        // `/hooks`, `/title <items>`, `/statusline <items>`, `/model <name> ..`, `/resume <name>`: the settings
+        // feature checks the arguments and answers.
+        S::Hooks => slash(app, source, command, String::new(), fx),
+        S::Title { args } | S::Statusline { args } | S::Model { args } => {
+            slash(app, source, command, args.unwrap_or_default(), fx);
+        }
+        S::ResumeNamed { name } => slash(app, source, command, name, fx),
         // `/vim`: modal editing of the draft is UI state (the page toggles it and says so).
-        S::Vim => {}
+        S::Vim | S::Tui => {}
         // `/worktree`: the sheet of the worktree pickers (`show_managed_worktree_picker`), over
         // the thread's working directory. A local Git repository is what the host knows (the
         // flag that lists the command stands for it until the host says).
@@ -357,23 +364,33 @@ pub(super) fn session_intent(
         // that says so. Every variant is named, so a new one cannot slip by.
         S::Recap
         | S::Side { .. }
-        | S::Tui
         | S::Mcp { .. }
         | S::Apps
-        | S::Hooks
         | S::Review { args: None }
-        | S::Model { .. }
         | S::Permissions { args: None }
-        | S::Title { .. }
-        | S::Statusline { .. }
-        | S::VoiceControl(_)
-        | S::ResumeNamed { .. } => session_note(
+        | S::VoiceControl(_) => session_note(
             app,
             source,
             Note::from(crate::commands::Notice::NotAvailable(command)),
             fx,
         ),
     }
+}
+
+/// A slash command of the settings feature, with its arguments.
+fn slash(
+    app: &mut CodexApp,
+    thread: Option<ThreadId>,
+    command: crate::commands::SlashCommand,
+    args: String,
+    fx: &mut AppFx,
+) {
+    let intent = crate::features::settings::Intent::Slash {
+        command,
+        args,
+        thread,
+    };
+    super::features::intent(app, intent.into(), fx);
 }
 
 /// `/plan` (`apply_plan_slash_command`): the thread goes on in the Plan preset of the server's

@@ -631,13 +631,7 @@ async fn run(
 /// themes, the memory tool's switches (`settings::read`).
 fn settings_fact(config: &Config) -> codex_tui_core::features::settings::Fact {
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
-    let read = crate::settings::read(config, home.as_deref());
-    codex_tui_core::features::settings::Fact::facts(
-        read.syntax_theme,
-        read.custom_themes,
-        read.themes_dir,
-        read.memories,
-    )
+    crate::settings::fact(config, home.as_deref())
 }
 
 /// What `/feedback` reads of the config and the connection: whether uploads are on, whether the
