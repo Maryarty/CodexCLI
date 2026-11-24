@@ -246,6 +246,8 @@ pub struct Strings {
     pub interaction_rest: &'static str,
     // history_cell/notices.rs ThreadRecapLoadingCell
     pub recap_loading: (&'static str, &'static str),
+    /// `emit_forked_thread_event`: `• Thread forked from {name} ({id})`.
+    pub forked_from: &'static str,
     // history_cell/request_user_input.rs
     pub questions_title: &'static str,
     pub questions_count: &'static str,
@@ -477,6 +479,7 @@ pub const EN: Strings = Strings {
     interaction_first: "  └ ",
     interaction_rest: "    ",
     recap_loading: ("Generating conversation recap", "…"),
+    forked_from: "Thread forked from ",
     questions_title: "Questions",
     questions_count: " {0}/{1} answered",
     questions_interrupted: " (interrupted)",
