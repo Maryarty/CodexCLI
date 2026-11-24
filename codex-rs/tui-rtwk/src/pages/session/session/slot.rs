@@ -14,6 +14,7 @@ use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::backtrack::Targets;
 use codex_tui_core::threads::composer::{ComposerState, composer_state};
 
+use crate::pages::session::composer::strings as composer_strings;
 use crate::pages::session::composer::{Composer, Placeholder};
 use crate::pages::session::external_writer;
 use crate::pages::session::footer::{Footer, Line};
@@ -31,12 +32,15 @@ pub(super) struct Slot {
     pub composer: AnyWidget,
     pub footer: AnyWidget,
     pub hints: Option<Footer>,
+    /// What the empty draft says (the sparkle keeps its dots off the words).
+    pub placeholder: &'static str,
 }
 
 pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, frame: &Frame) -> Slot {
     let (tokens, thread, chat_strings) = (&frame.tokens, &frame.thread, frame.chat_strings);
     let searching = &frame.searching;
     let mut hints: Option<Footer> = None;
+    let mut placeholder = frame.strings.chat.placeholder;
     let (composer, footer): (AnyWidget, AnyWidget) = if frame.forking {
         // `bottom_pane_renderable` while `fork_in_progress`
         (
@@ -69,6 +73,11 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
             ComposerState::ShuttingDown => composer = composer.disabled(Placeholder::ShuttingDown),
             ComposerState::Open if frame.setting_up => {
                 composer = composer.disabled(Placeholder::SetupRunning);
+            }
+            // a side conversation asks for a follow-up (`set_side_conversation_active`)
+            ComposerState::Open if frame.drawn.flags.side_conversation_active => {
+                composer = composer.worded(Placeholder::Side);
+                placeholder = Placeholder::Side.text(composer_strings::of(cx));
             }
             ComposerState::ReadOnly | ComposerState::Disabled | ComposerState::Open => {}
         }
@@ -147,5 +156,6 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
         composer,
         footer,
         hints,
+        placeholder,
     }
 }

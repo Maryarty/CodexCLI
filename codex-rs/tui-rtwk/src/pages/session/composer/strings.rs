@@ -32,6 +32,8 @@ pub struct Strings {
     pub shell_mode: &'static str,
     /// The placeholder of a thread its parent controls (`set_parent_owned_thread`).
     pub parent_placeholder: &'static str,
+    /// The placeholder of a side conversation (`side_placeholder_text`).
+    pub side_placeholder: &'static str,
     /// The placeholder while the app closes (`show_shutdown_in_progress`).
     pub shutting_down: &'static str,
     /// The placeholder of a disabled composer with no word of its own.
@@ -94,6 +96,7 @@ pub const EN: Strings = Strings {
     message_too_long: msg!("Message too long; limit {0} characters"),
     shell_mode: "Shell mode",
     parent_placeholder: "Viewing sub-agent \u{2014} direct input is disabled",
+    side_placeholder: "Ask a follow-up question",
     shutting_down: "Shutting down...",
     input_disabled: "Input disabled.",
     setup_running: "Input disabled until setup completes.",

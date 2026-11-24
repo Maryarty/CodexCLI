@@ -37,8 +37,7 @@ pub(super) fn body(
     frame: &Frame,
     slot: Slot,
 ) -> Column {
-    let (tokens, thread, session, strings) =
-        (&frame.tokens, &frame.thread, &frame.session, frame.strings);
+    let (tokens, thread, session) = (&frame.tokens, &frame.thread, &frame.session);
     let (run, facts, searching) = (&frame.run, &frame.drawn.status, &frame.searching);
     let running = run.running();
     let (panel, _) = shortcut_panel(cx, running);
@@ -47,6 +46,7 @@ pub(super) fn body(
         composer,
         footer,
         hints,
+        placeholder,
     } = slot;
     // Whether `StatusSlot` shows a row: the reader's gap then sets itself
     // apart from it with a blank row.
@@ -150,7 +150,7 @@ pub(super) fn body(
                 // the footer's overlay and search row, and a turn that runs,
                 // take the stage (`render_sparkle_at`)
                 hidden: state.shortcuts || running || searching.is_some(),
-                placeholder: strings.chat.placeholder,
+                placeholder,
                 child: BoxWidget::new()
                     .style(tokens.prompt_surface(cx, false))
                     .padding(EdgeInsets::only(0, 1, 1, 1))

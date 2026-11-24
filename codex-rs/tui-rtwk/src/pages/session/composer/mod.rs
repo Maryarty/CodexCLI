@@ -223,6 +223,8 @@ pub struct Composer {
 pub enum Placeholder {
     /// `Viewing sub-agent — direct input is disabled`.
     ParentOwned,
+    /// `Ask a follow-up question`: the thread is a side conversation (`set_side_conversation_active`).
+    Side,
     /// `Shutting down...`.
     ShuttingDown,
     /// `Input disabled.`
@@ -232,9 +234,11 @@ pub enum Placeholder {
 }
 
 impl Placeholder {
-    fn text(self, strings: &strings::Strings) -> &'static str {
+    /// The words of the placeholder.
+    pub fn text(self, strings: &strings::Strings) -> &'static str {
         match self {
             Placeholder::ParentOwned => strings.parent_placeholder,
+            Placeholder::Side => strings.side_placeholder,
             Placeholder::ShuttingDown => strings.shutting_down,
             Placeholder::Disabled => strings.input_disabled,
             Placeholder::SetupRunning => strings.setup_running,
