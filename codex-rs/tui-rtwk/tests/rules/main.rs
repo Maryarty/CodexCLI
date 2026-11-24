@@ -8,6 +8,7 @@ mod carried;
 mod connection;
 mod feature_sheet;
 mod fixtures;
+mod holes;
 mod layers;
 mod pin;
 mod registration;

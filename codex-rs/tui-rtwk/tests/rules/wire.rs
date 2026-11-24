@@ -86,15 +86,54 @@ fn hand_made(text: &str) -> Vec<usize> {
     lines
 }
 
-/// The slices that still write their requests by hand (a ratchet: the line only shrinks; a slice
-/// that moved to `rpc_list!` is struck out, and a stale entry fails). `framework.rs` is the
-/// framework's own test probe, which is no slice.
-const HAND_WRITTEN: &[&str] = &[
-    "core/src/features/feedback/mod.rs",
-    "core/src/features/framework.rs",
-    "core/src/features/side/mod.rs",
-    "core/src/features/windows_sandbox/mod.rs",
-];
+/// The hand-written requests, counted per file in `tests/rules/wire_budget.txt` (`hand <file> <n>`,
+/// the way `hub_budget.txt` counts): a slice that still writes `ClientRequest`s by hand has a
+/// line, a count that rises is a new hand-made request, one that falls is written down, and a
+/// slice that moved to `rpc_list!` is struck out. `framework.rs` is the framework's own test
+/// probe, which is no slice.
+fn hand_budget() -> std::collections::BTreeMap<String, usize> {
+    let text = std::fs::read_to_string(crate_dir().join("tests/rules/wire_budget.txt"))
+        .expect("read wire_budget.txt");
+    text.lines()
+        .filter_map(|line| {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            match words.as_slice() {
+                ["hand", file, count] => Some((
+                    (*file).to_owned(),
+                    count.parse().expect("a count in wire_budget.txt"),
+                )),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+/// What `counts` (file, hand-made requests in it) say against the budget: more is refused, fewer
+/// is written down, and a file with none and a line is stale.
+fn hand_report(
+    counts: &[(String, usize)],
+    budget: &std::collections::BTreeMap<String, usize>,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    for (name, current) in counts {
+        let allowed = budget.get(name).copied().unwrap_or(0);
+        match current.cmp(&allowed) {
+            std::cmp::Ordering::Greater => out.push(format!(
+                "{name}: {current} requests made by hand, {allowed} allowed; write the RPC as a line of `rpc_list!`"
+            )),
+            std::cmp::Ordering::Less => out.push(format!(
+                "{name}: {current} requests made by hand, {allowed} allowed; lower its line in tests/rules/wire_budget.txt to {current} (delete it at 0)"
+            )),
+            std::cmp::Ordering::Equal => {}
+        }
+    }
+    for name in budget.keys() {
+        if !counts.iter().any(|(file, _)| file == name) {
+            out.push(format!("{name}: in wire_budget.txt but no such file"));
+        }
+    }
+    out
+}
 
 /// The slices whose RPCs are generated.
 const GENERATED: &[&str] = &[
@@ -104,6 +143,7 @@ const GENERATED: &[&str] = &[
     "rename",
     "settings",
     "small_cmds",
+    "thread_usage",
 ];
 
 #[test]
@@ -118,18 +158,12 @@ fn wire_is_generated() {
         walls.is_empty(),
         "a slice's RPCs are one `rpc_list!`, not a `wire.rs`: {walls:?}"
     );
-    for (name, text) in &files {
-        let lines = hand_made(text);
-        let allowed = HAND_WRITTEN.contains(&name.as_str());
-        assert!(
-            lines.is_empty() || allowed,
-            "{name}:{lines:?}: a `ClientRequest` is made by hand; write the RPC as a line of `rpc_list!`"
-        );
-        assert!(
-            !lines.is_empty() || !allowed,
-            "{name} no longer makes a request by hand: strike it out of HAND_WRITTEN"
-        );
-    }
+    let counts: Vec<(String, usize)> = files
+        .iter()
+        .map(|(name, text)| (name.clone(), hand_made(text).len()))
+        .collect();
+    let report = hand_report(&counts, &hand_budget());
+    assert!(report.is_empty(), "{report:#?}");
     for slice in GENERATED {
         assert!(
             files.iter().any(|(name, text)| name
@@ -145,4 +179,20 @@ fn the_list_finder_reads_braces_of_the_blocks_only() {
     let text = "a\nrpc_list! {\n  X => ClientRequest::A { v: json!({ \"k\": 1 }) }\n}\nClientRequest::B {}\n";
     assert_eq!(hand_made(text), vec![5]);
     assert_eq!(lists(text).len(), 1);
+}
+
+#[test]
+fn the_hand_written_budget_bites() {
+    let budget = std::collections::BTreeMap::from([("a.rs".to_owned(), 2usize)]);
+    let counts = |a: usize, b: usize| [("a.rs".to_owned(), a), ("b.rs".to_owned(), b)];
+    assert!(hand_report(&counts(2, 0), &budget).is_empty());
+    // one more in a budgeted file, and a first one in a file with none
+    assert_eq!(hand_report(&counts(3, 0), &budget).len(), 1);
+    assert_eq!(hand_report(&counts(2, 1), &budget).len(), 1);
+    // one fewer must be written down
+    let fell = hand_report(&counts(1, 0), &budget);
+    assert_eq!(fell.len(), 1);
+    assert!(fell[0].contains("lower its line"), "{fell:?}");
+    // a line for a file that is gone
+    assert_eq!(hand_report(&[("b.rs".to_owned(), 0)], &budget).len(), 1);
 }
