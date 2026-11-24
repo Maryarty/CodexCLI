@@ -632,11 +632,11 @@ fn default_unified_mention_popup_snapshot() {
 fn unavailable_side_conversation_command_is_shown_only_when_searched() {
     kit::pending(
         Owner::ChatNavPane,
-        "the side-conversation flag has no seed in the port",
+        "feature disabled commands in the side-conversation popup (w2-commands): the port's popup leaves a command a side conversation cannot run out of the list, the oracle lists it as `/archive (disabled)` once searched, with `(disabled: not available in a side conversation)` as its description (the seed is fixtures/chat_commands_3/side.jsonl)",
     );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(76, 24)
-        .entry("popovers", "composer_popups")
+        .script(include_str!("fixtures/chat_commands_3/side.jsonl"))
         .open();
     s.type_text("/");
     s.assert_absent("/archive");

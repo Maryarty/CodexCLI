@@ -22,7 +22,7 @@ fn navigation_keeps_its_row_when_sections_change() {
 fn current_palette_uses_effective_terminal_color_level() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's activity data (the chart is drawn from the test's own history)",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's activity data (the chart is drawn from the test's own history)",
     );
 }
 
@@ -32,7 +32,7 @@ fn current_palette_uses_effective_terminal_color_level() {
 fn daily_graph_snapshot_uses_distinct_empty_and_active_cells() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's activity data (the chart is drawn from the test's own history)",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's activity data (the chart is drawn from the test's own history)",
     );
 }
 
@@ -41,7 +41,7 @@ fn daily_graph_snapshot_uses_distinct_empty_and_active_cells() {
 fn daily_graph_snapshot_stays_left_aligned_in_wide_terminal() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's activity data (the chart is drawn from the test's own history)",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's activity data (the chart is drawn from the test's own history)",
     );
 }
 
@@ -50,7 +50,7 @@ fn daily_graph_snapshot_stays_left_aligned_in_wide_terminal() {
 fn weekly_graph_snapshot_renders_bar_chart_and_caption() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's activity data (the chart is drawn from the test's own history)",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's activity data (the chart is drawn from the test's own history)",
     );
 }
 
@@ -59,7 +59,7 @@ fn weekly_graph_snapshot_renders_bar_chart_and_caption() {
 fn cumulative_graph_snapshot_renders_running_total_bar_chart_and_caption() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's activity data (the chart is drawn from the test's own history)",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's activity data (the chart is drawn from the test's own history)",
     );
 }
 
@@ -98,7 +98,7 @@ fn live_account_identity_is_visible_and_closing_aborts_pending_loads() {
 fn report_headlines_and_axes_compact_large_values() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's large values",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's large values",
     );
 }
 
@@ -118,7 +118,7 @@ fn account_lookup_failure_recovers_on_refresh_with_the_server_plan() {
 fn consumer_chats_keep_missing_rows_and_only_offer_known_metrics() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the consumer chats listing of the test",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the consumer chats listing of the test",
     );
 }
 
@@ -212,7 +212,7 @@ fn plan_clocks_follow_preference_and_keep_utc() {
 fn missing_zero_and_narrow_charts_keep_the_selection_visible() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's series; the snapshot is the plot alone",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's series; the snapshot is the plot alone",
     );
 }
 
@@ -221,7 +221,7 @@ fn missing_zero_and_narrow_charts_keep_the_selection_visible() {
 fn zero_credit_history_uses_a_readable_scale() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's series; the snapshot is the plot alone",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's series; the snapshot is the plot alone",
     );
 }
 
@@ -230,7 +230,7 @@ fn zero_credit_history_uses_a_readable_scale() {
 fn partial_cells_use_the_midpoint_and_descend_from_the_baseline() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's series; the snapshot is the plot alone",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's series; the snapshot is the plot alone",
     );
 }
 
@@ -239,7 +239,7 @@ fn partial_cells_use_the_midpoint_and_descend_from_the_baseline() {
 fn oversized_axes_are_hidden_instead_of_truncated() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's series; the snapshot is the plot alone",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's series; the snapshot is the plot alone",
     );
 }
 
@@ -248,7 +248,7 @@ fn oversized_axes_are_hidden_instead_of_truncated() {
 fn selected_callout_keeps_the_authoritative_daily_total() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's series; the snapshot is the plot alone",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's series; the snapshot is the plot alone",
     );
 }
 
@@ -257,7 +257,7 @@ fn selected_callout_keeps_the_authoritative_daily_total() {
 fn narrow_long_range_charts_never_truncate_dates() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's series; the snapshot is the plot alone",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's series; the snapshot is the plot alone",
     );
 }
 
@@ -266,7 +266,7 @@ fn narrow_long_range_charts_never_truncate_dates() {
 fn tiny_segments_keep_their_series_color_beside_a_large_day() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's series; the snapshot is the plot alone",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's series; the snapshot is the plot alone",
     );
 }
 
@@ -275,7 +275,7 @@ fn tiny_segments_keep_their_series_color_beside_a_large_day() {
 fn duplicate_message_dates_render_the_full_other_remainder() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's series; the snapshot is the plot alone",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's series; the snapshot is the plot alone",
     );
 }
 
@@ -284,7 +284,7 @@ fn duplicate_message_dates_render_the_full_other_remainder() {
 fn seven_day_totals_render_without_selecting_each_bar() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's series; the snapshot is the plot alone",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's series; the snapshot is the plot alone",
     );
 }
 
@@ -293,7 +293,7 @@ fn seven_day_totals_render_without_selecting_each_bar() {
 fn narrow_equal_height_totals_remain_separate_numbers() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's series; the snapshot is the plot alone",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's series; the snapshot is the plot alone",
     );
 }
 
@@ -303,7 +303,7 @@ fn narrow_equal_height_totals_remain_separate_numbers() {
 fn twelve_hour_metadata_keeps_utc_across_renderers() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's report data and clock preference",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's report data and clock preference",
     );
 }
 
@@ -312,7 +312,7 @@ fn twelve_hour_metadata_keeps_utc_across_renderers() {
 fn tall_reports_use_available_height_and_wide_reports_put_details_beside_plot() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's report data and clock preference",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's report data and clock preference",
     );
 }
 
@@ -322,7 +322,7 @@ fn tall_reports_use_available_height_and_wide_reports_put_details_beside_plot() 
 fn reports_keep_tabs_fixed_and_expose_data_on_small_screens() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's report; the help snapshot is not an entry",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's report; the help snapshot is not an entry",
     );
 }
 
@@ -331,7 +331,7 @@ fn reports_keep_tabs_fixed_and_expose_data_on_small_screens() {
 fn keyboard_tabs_and_help_preserve_report_reading_position() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's report; the help snapshot is not an entry",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's report; the help snapshot is not an entry",
     );
 }
 
@@ -374,7 +374,7 @@ fn summary_modes_reflow_and_keep_selection_across_tabs() {
 fn partial_summary_keeps_missing_values_and_zero() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the partial profile of the test",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the partial profile of the test",
     );
 }
 
@@ -384,7 +384,7 @@ fn partial_summary_keeps_missing_values_and_zero() {
 fn analytics_narrow_charts_and_small_terminals_keep_valid_cursors() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's data",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's data",
     );
 }
 
@@ -403,7 +403,7 @@ fn analytics_loading_errors_and_empty_reports_stay_independent() {
 fn analytics_preserves_full_denominators_and_signed_small_credits() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's data",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's data",
     );
 }
 
@@ -412,7 +412,7 @@ fn analytics_preserves_full_denominators_and_signed_small_credits() {
 fn analytics_dates_distinguish_zero_missing_and_exact_details() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's data",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's data",
     );
 }
 
@@ -431,7 +431,7 @@ fn analytics_maximized_refunds_leave_room_for_both_bands() {
 fn analytics_day_navigation_keeps_geometry_and_legend() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's data",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's data",
     );
 }
 
@@ -440,6 +440,6 @@ fn analytics_day_navigation_keeps_geometry_and_legend() {
 fn analytics_series_rank_by_range_and_keep_calendar_ticks_stable() {
     kit::pending(
         Owner::RoutesLists,
-        "no debug entry with the oracle test's data",
+        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's data",
     );
 }

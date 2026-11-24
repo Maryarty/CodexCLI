@@ -1,0 +1,2 @@
+# The account's rate limits at 92% used (the oracle's `snapshot(92.0)`: one 60-minute window, no id, no credits).
+{"step":"notify","message":{"method":"account/rateLimits/updated","params":{"rateLimits":{"limitId":null,"limitName":null,"normalModelSlug":null,"primary":{"usedPercent":92,"windowDurationMins":60,"resetsAt":null},"secondary":null,"credits":null,"individualLimit":null,"spendControlReached":null,"planType":null,"rateLimitReachedType":null}}}}

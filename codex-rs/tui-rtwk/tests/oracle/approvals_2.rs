@@ -418,10 +418,6 @@ fn freeform_shift_enter_inserts_newline_without_advancing() {
 // ORACLE bottom_pane/request_user_input/mod.rs:3011 freeform_uses_configured_composer_submit_binding kind=ui owner=dialogs-pane
 #[test]
 fn freeform_uses_configured_composer_submit_binding() {
-    kit::pending(
-        Owner::DialogsPane,
-        "the seed sends `ctrl+j` as the byte 0x0a, which a terminal without the kitty protocol delivers as Enter (rtwk KeyCombo: `ctrl+j` arrives as `enter`), and a remapped composer.submit leaves Enter a newline: the remapped key cannot be sent as itself (the footer shows `⌃j to submit answer`, the sheet submits on the key it is told)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/two_freeform.jsonl"))

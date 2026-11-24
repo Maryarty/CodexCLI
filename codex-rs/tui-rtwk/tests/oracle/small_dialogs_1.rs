@@ -12,7 +12,7 @@ use crate::kit::{self, Owner, Screen};
 fn horizontal_list_keys_move_action_selection() {
     kit::pending(
         Owner::DialogsPane,
-        "no app-link dialog in the dialogs screen (AppLinkView, Notion installed and enabled): no entry `app_link_manage`",
+        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built in the dialogs screen (AppLinkView, Notion installed and enabled): entry `app_link_manage` missing",
     );
     // The oracle moves the action selection right and back (ctrl+l, ctrl+h); the
     // selection is drawn, so the screen is the first one again when it is back.
@@ -31,7 +31,7 @@ fn horizontal_list_keys_move_action_selection() {
 fn remapped_horizontal_list_keys_control_action_selection() {
     kit::pending(
         Owner::DialogsPane,
-        "no app-link dialog: no entry `app_link_manage` with the list keys remapped (list.move_left x, list.move_right z)",
+        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built: entry `app_link_manage` missing with the list keys remapped (list.move_left x, list.move_right z)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .keymap(&[("list.move_left", "x"), ("list.move_right", "z")])
@@ -54,7 +54,7 @@ fn remapped_horizontal_list_keys_control_action_selection() {
 fn toggle_action_sends_set_app_enabled_and_updates_label() {
     kit::pending(
         Owner::DialogsPane,
-        "no app-link dialog: no entry `app_link_manage` (Notion installed and enabled); the SetAppEnabled event is not drawn, the label change is",
+        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built: entry `app_link_manage` missing (Notion installed and enabled); the SetAppEnabled event is not drawn, the label change is",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .entry("dialogs", "app_link_manage")
@@ -68,7 +68,7 @@ fn toggle_action_sends_set_app_enabled_and_updates_label() {
 fn generic_url_elicitation_resolves_without_connector_refresh() {
     kit::pending(
         Owner::DialogsPane,
-        "no app-link dialog for a generic URL elicitation: no entry `app_link_url` (payments URL, codex_apps not used)",
+        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built for a generic URL elicitation: entry `app_link_url` missing (payments URL, codex_apps not used)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(72, 13)
@@ -85,7 +85,7 @@ fn generic_url_elicitation_resolves_without_connector_refresh() {
 fn install_confirmation_does_not_split_long_url_like_token_without_scheme() {
     kit::pending(
         Owner::DialogsPane,
-        "no app-link dialog on its install confirmation for a long URL-like token without a scheme: no entry `app_link_long_url_confirm` (40 columns)",
+        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built on its install confirmation for a long URL-like token without a scheme: entry `app_link_long_url_confirm` missing (40 columns)",
     );
     let s = Screen::build(Owner::DialogsPane)
         .size(40, 16)
@@ -101,7 +101,7 @@ fn install_confirmation_does_not_split_long_url_like_token_without_scheme() {
 fn install_confirmation_render_keeps_url_tail_visible_when_narrow() {
     kit::pending(
         Owner::DialogsPane,
-        "no app-link dialog on its install confirmation for a long https URL at 36 columns: no entry `app_link_long_url_tail_confirm`",
+        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built on its install confirmation for a long https URL at 36 columns: entry `app_link_long_url_tail_confirm` missing",
     );
     let s = Screen::build(Owner::DialogsPane)
         .size(36, 24)
@@ -115,7 +115,7 @@ fn install_confirmation_render_keeps_url_tail_visible_when_narrow() {
 fn install_tool_suggestion_resolves_elicitation_after_confirmation() {
     kit::pending(
         Owner::DialogsPane,
-        "no app-link dialog for a Google Calendar install suggestion: no entry `app_link_install`",
+        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built for a Google Calendar install suggestion: entry `app_link_install` missing",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .entry("dialogs", "app_link_install")
@@ -130,7 +130,7 @@ fn install_tool_suggestion_resolves_elicitation_after_confirmation() {
 fn declined_tool_suggestion_resolves_elicitation_decline() {
     kit::pending(
         Owner::DialogsPane,
-        "no app-link dialog for a Google Calendar install suggestion: no entry `app_link_install`",
+        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built for a Google Calendar install suggestion: entry `app_link_install` missing",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .entry("dialogs", "app_link_install")
@@ -144,7 +144,7 @@ fn declined_tool_suggestion_resolves_elicitation_decline() {
 fn enable_tool_suggestion_resolves_elicitation_after_enable() {
     kit::pending(
         Owner::DialogsPane,
-        "no app-link dialog for a Google Calendar enable suggestion: no entry `app_link_enable`",
+        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built for a Google Calendar enable suggestion: entry `app_link_enable` missing",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .entry("dialogs", "app_link_enable")
@@ -158,7 +158,7 @@ fn enable_tool_suggestion_resolves_elicitation_after_enable() {
 fn install_suggestion_with_reason_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no app-link dialog: no entry `app_link_install` (Google Calendar install suggestion with its reason, 72 columns)",
+        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built: entry `app_link_install` missing (Google Calendar install suggestion with its reason, 72 columns)",
     );
     let s = Screen::build(Owner::DialogsPane)
         .size(72, 14)
@@ -172,7 +172,7 @@ fn install_suggestion_with_reason_snapshot() {
 fn enable_suggestion_with_reason_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no app-link dialog: no entry `app_link_enable` (Google Calendar enable suggestion with its reason, 72 columns)",
+        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built: entry `app_link_enable` missing (Google Calendar enable suggestion with its reason, 72 columns)",
     );
     let s = Screen::build(Owner::DialogsPane)
         .size(72, 16)
@@ -186,7 +186,7 @@ fn enable_suggestion_with_reason_snapshot() {
 fn auth_suggestion_with_reason_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no app-link dialog: no entry `app_link_auth` (Google Calendar sign-in suggestion with its reason, 72 columns)",
+        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built: entry `app_link_auth` missing (Google Calendar sign-in suggestion with its reason, 72 columns)",
     );
     let s = Screen::build(Owner::DialogsPane)
         .size(72, 14)
@@ -200,7 +200,7 @@ fn auth_suggestion_with_reason_snapshot() {
 fn generic_url_elicitation_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no app-link dialog for a generic URL elicitation: no entry `app_link_url` (72 columns)",
+        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built for a generic URL elicitation: entry `app_link_url` missing (72 columns)",
     );
     let s = Screen::build(Owner::DialogsPane)
         .size(72, 15)
@@ -214,7 +214,7 @@ fn generic_url_elicitation_snapshot() {
 fn generic_url_elicitation_confirmation_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no app-link dialog for a generic URL elicitation: no entry `app_link_url`; the confirmation is reached by Enter (72 columns)",
+        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built for a generic URL elicitation: entry `app_link_url` missing; the confirmation is reached by Enter (72 columns)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(72, 13)
@@ -230,7 +230,7 @@ fn generic_url_elicitation_confirmation_snapshot() {
 fn picker_prompt_keeps_multiline_cursor_and_escape_hint_visible_after_resize() {
     kit::pending(
         Owner::DialogsPane,
-        "no custom prompt (CustomPromptView, title Edit goal) with vim insert mode on: no entry `custom_prompt_vim`",
+        "feature custom prompt view (w2-approvals, dialogs screen): the view is not built (CustomPromptView, title Edit goal) with vim insert mode on: entry `custom_prompt_vim` missing",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 16)
@@ -255,7 +255,7 @@ fn picker_prompt_keeps_multiline_cursor_and_escape_hint_visible_after_resize() {
 fn paste_burst_newline_does_not_submit_short_first_line() {
     kit::pending(
         Owner::DialogsPane,
-        "no custom prompt (CustomPromptView, title Edit goal): no entry `custom_prompt`",
+        "feature custom prompt view (w2-approvals, dialogs screen): the view is not built (CustomPromptView, title Edit goal): entry `custom_prompt` missing",
     );
     for (first, second) in [("x", "rest"), ("id", "body"), ("foo", "bar")] {
         let mut s = Screen::build(Owner::DialogsPane)
@@ -276,7 +276,7 @@ fn paste_burst_newline_does_not_submit_short_first_line() {
 fn paste_burst_newline_after_tab_does_not_submit() {
     kit::pending(
         Owner::DialogsPane,
-        "no custom prompt (CustomPromptView, title Edit goal): no entry `custom_prompt`",
+        "feature custom prompt view (w2-approvals, dialogs screen): the view is not built (CustomPromptView, title Edit goal): entry `custom_prompt` missing",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .entry("dialogs", "custom_prompt")
@@ -295,7 +295,7 @@ fn paste_burst_newline_after_tab_does_not_submit() {
 fn delayed_enter_after_typing_submits() {
     kit::pending(
         Owner::DialogsPane,
-        "no custom prompt (CustomPromptView, title Edit goal): no entry `custom_prompt`",
+        "feature custom prompt view (w2-approvals, dialogs screen): the view is not built (CustomPromptView, title Edit goal): entry `custom_prompt` missing",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .entry("dialogs", "custom_prompt")
@@ -310,7 +310,7 @@ fn delayed_enter_after_typing_submits() {
 fn vim_insert_escape_clears_paste_burst_before_enter() {
     kit::pending(
         Owner::DialogsPane,
-        "no custom prompt with vim insert mode on (title Edit goal): no entry `custom_prompt_vim`",
+        "feature custom prompt view (w2-approvals, dialogs screen): the view is not built with vim insert mode on (title Edit goal): entry `custom_prompt_vim` missing",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .entry("dialogs", "custom_prompt_vim")
@@ -406,7 +406,7 @@ fn vim_insert_cursor_tracks_mode_and_normal_mode_commands() {
 fn escape_without_vim_cancels_prompt() {
     kit::pending(
         Owner::DialogsPane,
-        "no custom prompt (CustomPromptView, title Edit goal): no entry `custom_prompt`",
+        "feature custom prompt view (w2-approvals, dialogs screen): the view is not built (CustomPromptView, title Edit goal): entry `custom_prompt` missing",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .entry("dialogs", "custom_prompt")
@@ -420,7 +420,7 @@ fn escape_without_vim_cancels_prompt() {
 fn background_prefill_requires_a_matching_unedited_prompt() {
     kit::pending(
         Owner::DialogsPane,
-        "no custom prompt with a background text suggestion (loading Loading, context Ready) applied: no entry `custom_prompt_prefill`",
+        "feature custom prompt view (w2-approvals, dialogs screen): the view is not built with a background text suggestion (loading Loading, context Ready) applied: entry `custom_prompt_prefill` missing",
     );
     // The stale request is ignored (nothing drawn); the matching one fills the
     // text and sets the context label, and Enter submits it.
@@ -438,7 +438,7 @@ fn background_prefill_requires_a_matching_unedited_prompt() {
 fn background_prefill_preserves_typing_even_after_the_text_is_deleted() {
     kit::pending(
         Owner::DialogsPane,
-        "no custom prompt where a character was typed and deleted before the suggestion (Generated) is applied: no entry `custom_prompt_prefill_typed`",
+        "feature custom prompt view (w2-approvals, dialogs screen): the view is not built where a character was typed and deleted before the suggestion (Generated) is applied: entry `custom_prompt_prefill_typed` missing",
     );
     let s = Screen::build(Owner::DialogsPane)
         .entry("dialogs", "custom_prompt_prefill_typed")
@@ -453,7 +453,7 @@ fn background_prefill_preserves_typing_even_after_the_text_is_deleted() {
 fn background_prefill_preserves_pasted_text() {
     kit::pending(
         Owner::DialogsPane,
-        "no custom prompt where text was pasted before the suggestion (Generated) is applied: no entry `custom_prompt_prefill_pasted`",
+        "feature custom prompt view (w2-approvals, dialogs screen): the view is not built where text was pasted before the suggestion (Generated) is applied: entry `custom_prompt_prefill_pasted` missing",
     );
     let s = Screen::build(Owner::DialogsPane)
         .entry("dialogs", "custom_prompt_prefill_pasted")
@@ -468,7 +468,7 @@ fn background_prefill_preserves_pasted_text() {
 fn background_prefill_survives_cursor_movement() {
     kit::pending(
         Owner::DialogsPane,
-        "no custom prompt with the text Existing, cursor moved left, then the suggestion Generated applied: no entry `custom_prompt_prefill_cursor`",
+        "feature custom prompt view (w2-approvals, dialogs screen): the view is not built with the text Existing, cursor moved left, then the suggestion Generated applied: entry `custom_prompt_prefill_cursor` missing",
     );
     let s = Screen::build(Owner::DialogsPane)
         .entry("dialogs", "custom_prompt_prefill_cursor")
@@ -483,7 +483,7 @@ fn background_prefill_survives_cursor_movement() {
 fn background_prefill_preserves_replace_backspace_recovery() {
     kit::pending(
         Owner::DialogsPane,
-        "no custom prompt in vim replace mode with the suggestion abc applied (then Left, X, Backspace): no entry `custom_prompt_prefill_replace`",
+        "feature custom prompt view (w2-approvals, dialogs screen): the view is not built in vim replace mode with the suggestion abc applied (then Left, X, Backspace): entry `custom_prompt_prefill_replace` missing",
     );
     let s = Screen::build(Owner::DialogsPane)
         .entry("dialogs", "custom_prompt_prefill_replace")

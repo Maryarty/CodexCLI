@@ -424,6 +424,7 @@ impl Screen {
             screen: self,
             name,
             frame: "",
+            labels: &[],
             at: None,
             dialog: false,
         }
@@ -636,6 +637,7 @@ pub struct Snap<'a> {
     screen: &'a Screen,
     name: &'a str,
     frame: &'a str,
+    labels: &'a [&'a str],
     at: Option<(usize, usize)>,
     dialog: bool,
 }
@@ -644,6 +646,16 @@ impl<'a> Snap<'a> {
     /// The snapshot is one frame of several (`assert_snap_section`'s header).
     pub fn frame(mut self, frame: &'a str) -> Snap<'a> {
         self.frame = frame;
+        self
+    }
+
+    /// The snapshot is one the test glued of several renders under labels of its own
+    /// (`Compact` / `Full`, `Full height:` / `Clipped:`, `Resume 118x30`, `empty (48 columns):`):
+    /// `labels` are the lines the oracle test put between them, the text of its own
+    /// `format!`/`join`; `frame(..)` then names one by its label (a colon aside). Nothing else in
+    /// the snapshot is a header.
+    pub fn labelled(mut self, labels: &'a [&'a str]) -> Snap<'a> {
+        self.labels = labels;
         self
     }
 
@@ -670,7 +682,9 @@ impl<'a> Snap<'a> {
             frame: self.frame,
             at: self.at,
         };
-        if self.dialog {
+        if !self.labels.is_empty() {
+            compare::assert_labelled(&grid, &want, self.labels, self.dialog);
+        } else if self.dialog {
             compare::assert_dialog(&grid, &want);
         } else {
             compare::assert_snap(&grid, &want);

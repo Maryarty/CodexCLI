@@ -1,0 +1,4 @@
+# An MCP server asks for more information (the oracle's make_elicitation_request: server test-server, message `Need more information`).
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "request", "message": {"method": "mcpServer/elicitation/request", "id": "request-1", "params": {"threadId": "thread-1", "turnId": null, "serverName": "test-server", "mode": "form", "message": "Need more information", "requestedSchema": {"type": "object", "properties": {}}}}}
+{"step": "screen", "dir": "approvals", "ev": {"kind": "request", "request": {"method": "mcpServer/elicitation/request", "id": "request-1", "params": {"threadId": "thread-1", "turnId": null, "serverName": "test-server", "mode": "form", "message": "Need more information", "requestedSchema": {"type": "object", "properties": {}}}}}}
