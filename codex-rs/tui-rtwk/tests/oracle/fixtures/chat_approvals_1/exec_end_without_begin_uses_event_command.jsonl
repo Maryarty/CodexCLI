@@ -1,0 +1,3 @@
+# oracle chatwidget/tests/exec_flow.rs:571 exec_end_without_begin_uses_event_command
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "notify", "message": {"method": "item/completed", "params": {"item": {"type": "commandExecution", "id": "call-orphan", "pluginId": null, "scriptPath": null, "command": "bash -lc 'echo orphaned'", "cwd": "/tmp/project", "processId": null, "source": "agent", "status": "completed", "commandActions": [{"type": "unknown", "command": "echo orphaned"}], "aggregatedOutput": "done", "exitCode": 0, "durationMs": 5, "startedAtMs": null, "completedAtMs": null}, "threadId":"thread-1", "turnId": "turn-1", "contentTokenCount": null, "completedAtMs": 0}}}

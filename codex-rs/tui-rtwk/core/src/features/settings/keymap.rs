@@ -124,26 +124,60 @@ pub fn binding_spec(binding: &Binding) -> String {
     }
 }
 
+/// The action of the catalogue named `context.name`.
+pub fn action(context: &str, name: &str) -> Option<&'static Action> {
+    ACTIONS
+        .iter()
+        .find(|action| action.context == context && action.name == name)
+}
+
+/// The id the keymap knows an action of the catalogue by.
+fn id_of(keymap: &Keymap, context: &str, name: &str) -> Option<crate::keymap::ActionId> {
+    keymap
+        .actions()
+        .map(|(id, _)| id)
+        .find(|id| id.context.config_name() == context && id.name == name)
+}
+
+/// The bindings the action has now as the config writes them, each once; none for an action
+/// the keymap does not hold (`active_binding_specs`).
+pub fn active_specs(keymap: &Keymap, context: &str, name: &str) -> Option<Vec<String>> {
+    if (context, name) == ("global", "leader") {
+        let mut seen = BTreeSet::new();
+        return Some(
+            keymap
+                .leaders()
+                .iter()
+                .map(crate::keymap::Stroke::spec)
+                .filter(|spec| seen.insert(spec.clone()))
+                .collect(),
+        );
+    }
+    id_of(keymap, context, name).map(|id| keymap.specs(id))
+}
+
 /// The active bindings of an action as the config writes them, each once, `unbound` when it
-/// has none (`format_action_binding_summary`).
-fn summary(keymap: &Keymap, context: &str, name: &str) -> String {
-    let specs: Vec<String> = if (context, name) == ("global", "leader") {
-        keymap
-            .leaders()
-            .iter()
-            .map(crate::keymap::Stroke::spec)
-            .collect()
-    } else {
-        keymap
-            .actions()
-            .find(|(id, _)| id.context.config_name() == context && id.name == name)
-            .map(|(_, bindings)| bindings.iter().map(binding_spec).collect())
-            .unwrap_or_default()
-    };
-    let mut seen = BTreeSet::new();
-    let specs: Vec<String> = specs
+/// has none; a `leader x` binding names the chords the leader keys make of it
+/// (`format_action_binding_summary`).
+pub fn summary(keymap: &Keymap, context: &str, name: &str) -> String {
+    let specs: Vec<String> = active_specs(keymap, context, name)
+        .unwrap_or_default()
         .into_iter()
-        .filter(|spec| seen.insert(spec.clone()))
+        .map(|spec| {
+            let Some(completion) = spec.strip_prefix("leader ") else {
+                return spec;
+            };
+            let resolved: Vec<String> = keymap
+                .leaders()
+                .iter()
+                .map(|leader| format!("{} {completion}", leader.spec()))
+                .collect();
+            if resolved.is_empty() {
+                [spec.as_str(), " (inactive)"].concat()
+            } else {
+                format!("{spec} ({})", resolved.join(", "))
+            }
+        })
         .collect();
     if specs.is_empty() {
         "unbound".to_owned()
@@ -157,11 +191,7 @@ fn custom(keymap: &Keymap, context: &str, name: &str) -> bool {
     if (context, name) == ("global", "leader") {
         return false;
     }
-    keymap
-        .actions()
-        .map(|(id, _)| id)
-        .find(|id| id.context.config_name() == context && id.name == name)
-        .is_some_and(|id| keymap.is_configured(id))
+    id_of(keymap, context, name).is_some_and(|id| keymap.is_configured(id))
 }
 
 struct Row {
@@ -183,8 +213,12 @@ impl Row {
             action: action.name,
             unbound: binding == "unbound",
             item: ActionItem {
+                context: action.context.to_owned(),
+                context_label: action.context_label.to_owned(),
+                action: action.name.to_owned(),
                 name: label,
                 binding,
+                custom,
                 search,
             },
             custom,
@@ -261,4 +295,60 @@ pub fn picker(keymap: &Keymap, filter: Filter) -> KeymapPicker {
         items: Vec::new(),
     });
     KeymapPicker { tabs }
+}
+
+/// Where an action's binding on a key comes from (`KeymapDebugBindingSource`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Source {
+    /// The user's `tui.keymap.<context>.<action>`.
+    Custom,
+    /// The user's `tui.keymap.global.<action>` the composer's action falls back to.
+    CustomGlobal,
+    Default,
+}
+
+/// An action that has a key as one of its single keys (`KeymapDebugActionMatch`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyMatch {
+    pub context: &'static str,
+    pub action: &'static str,
+    pub label: String,
+    pub description: &'static str,
+    pub source: Source,
+}
+
+/// The actions of the catalogue (every one, whatever feature gates it) that have `stroke` as a
+/// single key under `keymap`, each with where its binding comes from in `spec`, the config the
+/// user wrote (`matching_actions_for_key_event`, `debug_binding_source`).
+pub fn matching(keymap: &Keymap, spec: &crate::keymap::KeymapSpec, stroke: &crate::keymap::Stroke) -> Vec<KeyMatch> {
+    ACTIONS
+        .iter()
+        .filter(|action| {
+            id_of(keymap, action.context, action.name).is_some_and(|id| {
+                keymap
+                    .singles(id)
+                    .iter()
+                    .any(|single| single.same_key(stroke))
+            })
+        })
+        .map(|action| {
+            let source = if spec.get(action.context, action.name).is_some() {
+                Source::Custom
+            } else if action.context == "composer"
+                && matches!(action.name, "submit" | "queue" | "toggle_shortcuts")
+                && spec.get("global", action.name).is_some()
+            {
+                Source::CustomGlobal
+            } else {
+                Source::Default
+            };
+            KeyMatch {
+                context: action.context,
+                action: action.name,
+                label: action_label(action.name),
+                description: action.description,
+                source,
+            }
+        })
+        .collect()
 }

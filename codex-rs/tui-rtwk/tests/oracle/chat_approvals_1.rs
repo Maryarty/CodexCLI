@@ -12,12 +12,13 @@ use crate::kit::{self, Owner, Screen};
 fn exec_approval_emits_proposed_command_and_decision_history() {
     kit::pending(
         Owner::DialogsPane,
-        "the approval's decision cell is not drawn in the chat history after y: model `approvals::decided::Decided` and widget `DecisionCell` are done; NEED threads.rs `Item::Decision`, app.rs recording on resolve, transcript_pane.rs arm",
+        "the modal's `$ echo hello world` is drawn in the theme's own colours (echo Rgb(137, 180, 250), the rest Rgb(205, 214, 244)): the app's `SyntaxPalette` has the scopes, the dialog's `Highlighter` gives rtwk `TokenKind`s with an unset plain style (`SyntaxTheme::of` is the widget default, not the settings pick); rows and the decision cell equal the oracle",
     );
     // oracle: the proposed exec request (echo hello world, reason) renders as the modal, no history cell;
     // `y` answers it and the history gets the decision cell.
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 16)
+        .syntax_theme("catppuccin-mocha")
         .script(include_str!("fixtures/chat_approvals_1/exec_short.jsonl"))
         .open();
     s.assert_snap("exec_approval_modal_exec");
@@ -39,7 +40,7 @@ fn app_server_exec_approval_request_splits_shell_wrapped_command() {
 fn app_server_write_stdin_approval_renders_terminal_input() {
     kit::pending(
         Owner::DialogsPane,
-        "no approval entry for a writeStdin request (send terminal input): the feed is fixtures/chat_approvals_1/write_stdin.jsonl, the slice registers it",
+        "the title (`send input to terminal 42`) and the `Input:` row are the oracle's; the harness's snapshot reader (tests/oracle_snap/mod.rs `parse_row`) turns the buffer's literal `\\n` in `Input: \"confirm\\n\"` into a line break (TestBackend rows are not escaped, as its own comment says): a Need on tests/oracle_snap",
     );
     // oracle: the write_stdin request shows the modal at 80x11; the desktop notification text is not drawn and is not asserted.
     let s = Screen::build(Owner::DialogsPane)
@@ -83,7 +84,7 @@ fn network_exec_approval_history_describes_one_time_host_allowance() {
 fn network_exec_approval_history_describes_canceled_host_request() {
     kit::pending(
         Owner::DialogsPane,
-        "no network-access approval on the chat screen and the history holds no decision cell yet (model `approvals::decided::Decided` and widget `DecisionCell` are done; NEED threads.rs `Item::Decision`, app.rs recording on resolve, transcript_pane.rs arm) (feed: fixtures/chat_approvals_1/network_cancel.jsonl)",
+        "G72: `n` cancels and the decision cell is drawn, but `TextWrap::Word` breaks the target `socks5-tcp://example.com:1080` after the hyphen (`socks5-` / `tcp://example.com:1080`), the oracle's URL-aware wrap keeps it whole on the next row",
     );
     // oracle: `n` cancels the SOCKS5 network request; the decision cell names the request and the URL.
     let mut s = Screen::build(Owner::DialogsPane)
@@ -111,10 +112,6 @@ fn exec_approval_uses_approval_id_when_present() {
 // ORACLE chatwidget/tests/approval_requests.rs:433 exec_approval_decision_truncates_multiline_and_long_commands kind=snap owner=dialogs-pane
 #[test]
 fn exec_approval_decision_truncates_multiline_and_long_commands() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no approval entry for a multi-line command with a reason, and the history holds no decision cell yet (NEED threads.rs `Item::Decision`, app.rs recording on resolve, transcript_pane.rs arm; feeds: exec_multiline_lines.jsonl, exec_long.jsonl)",
-    );
     // oracle: the multi-line request's first line shows in the modal; `n` aborts it into the history cell;
     // then the 200-character request (no reason) is aborted the same way and its cell is truncated.
     let mut s = Screen::build(Owner::DialogsPane)
@@ -126,7 +123,12 @@ fn exec_approval_decision_truncates_multiline_and_long_commands() {
     s.assert_contains("echo line1");
     s.keys("n");
     s.assert_in_order(&["✗ You canceled the request to run echo line1 ..."]);
-    // needs feed: fixtures/chat_approvals_1/exec_long.jsonl (s.feed), then `n` again
+    // The oracle feeds the second request into the same widget; a screen on a script takes its feed
+    // from the file, so the long request is its own screen (the cell does not depend on the first).
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!("fixtures/chat_approvals_1/exec_long.jsonl"))
+        .open();
     s.keys("n");
     s.assert_in_order(&[
         "✗ You canceled the request to run echo",
@@ -180,43 +182,64 @@ fn replayed_command_completion_preserves_tracking_without_duplicate_starts() {
 // ORACLE chatwidget/tests/exec_flow.rs:168 failed_exploration_keeps_overlapping_commands_active_until_all_finish kind=snap owner=dialogs-pane
 #[test]
 fn failed_exploration_keeps_overlapping_commands_active_until_all_finish() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no active exploring cell for overlapping exec commands on the chat screen (the failed ls and the running cat stay grouped)",
-    );
     // oracle: a failed `ls missing` and a running `cat foo.txt` stay one active Explored cell until all finish.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: begin ls missing, begin cat foo.txt, end ls missing (exit 1), begin cat bar.txt, output for the running one
-    s.assert_contains("missing");
-    s.assert_contains("streamed output");
-    // needs feed: end cat foo.txt, end cat bar.txt
-    s.assert_in_order(&[
-        "• Explored",
-        "└ List missing (exit 1)",
-        "Read foo.txt, bar.txt",
-    ]);
-    // needs feed: begin and end cat later.txt
-    s.assert_in_order(&[
-        "• Explored",
-        "└ List missing (exit 1)",
-        "Read foo.txt, bar.txt, later.txt",
-    ]);
+    // (The `streamed output` the oracle reads from the detailed transcript lines is the Ctrl+T pager's, not the
+    // compact cell's; the compact one counts the exits behind its header.)
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .live()
+        .script(include_str!("fixtures/chat_approvals_1/failed_exploration_keeps_overlapping_commands_active_until_all_finish_1.jsonl"))
+        .open();
+    s.assert_screen_row_then(
+        "• Exploring · 1 nonzero exit",
+        &[
+            "  └ List missing (exit 1)",
+            "    Read foo.txt, bar.txt",
+            "    + Show details",
+        ],
+    );
+    s.feed(include_str!("fixtures/chat_approvals_1/failed_exploration_keeps_overlapping_commands_active_until_all_finish_2.jsonl"));
+    s.assert_screen_row_then(
+        "• Explored · 1 nonzero exit",
+        &[
+            "  └ List missing (exit 1)",
+            "    Read foo.txt, bar.txt",
+            "    + Show details",
+        ],
+    );
+    s.feed(include_str!("fixtures/chat_approvals_1/failed_exploration_keeps_overlapping_commands_active_until_all_finish_3.jsonl"));
+    s.assert_screen_row_then(
+        "• Explored · 1 nonzero exit",
+        &[
+            "  └ List missing (exit 1)",
+            "    Read foo.txt, bar.txt, later.txt",
+            "    + Show details",
+        ],
+    );
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:207 exploration_nonzero_exits_remain_visible_beside_successful_reads kind=snap owner=dialogs-pane
 #[test]
 fn exploration_nonzero_exits_remain_visible_beside_successful_reads() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no exploring cell with failed and successful reads on the chat screen (exit statuses, their colours)",
-    );
     // oracle: six exploration commands, the non-zero exits stay visible beside the successful reads.
-    // The compact rendering at width 24 (`compact_exploration_with_failures`) is a second screen, same feed.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: begin+end of cat first.txt (0), cat missing.txt (1), cat later.txt (0), rg absent . (1), rg text missing.txt (2), cat existing.txt && rg absent . (1)
-    s.assert_snap("exploration_nonzero_exits_remain_visible_beside_successful_reads");
-    // the first status is the red " (exit 1)" of cat missing.txt; the others are checked where they draw
-    s.assert_text_style(" (exit 1)", "fg=Red");
+    // The owned transcript draws the compact form (`compact_exploration_with_failures`: the header
+    // says how many exits were not 0, three rows keep the first lines); the inline `active_blob`
+    // (all seven lines) is the scrollback form (S27) and is not drawn here.
+    let s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .live()
+        .script(include_str!(
+            "fixtures/chat_approvals_1/exploration_nonzero_exits_remain_visible_beside_successful_reads.jsonl"
+        ))
+        .open();
+    s.assert_in_order(&[
+        "• Explored · 4 nonzero exits",
+        "└ Read first.txt",
+        "Read missing.txt (exit 1)",
+        "Read later.txt",
+    ]);
+    // the red exit of cat missing.txt (the blank before it keeps no colour of its own)
+    s.assert_text_style("(exit 1)", "fg=Red");
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:258 exploration_reasoning_during_followup_command_stays_ordered kind=snap owner=dialogs-pane
@@ -224,11 +247,11 @@ fn exploration_nonzero_exits_remain_visible_beside_successful_reads() {
 fn exploration_reasoning_during_followup_command_stays_ordered() {
     kit::pending(
         Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no reasoning rows interleaved with an exploring cell on the chat screen (reasoning between two exec commands)",
+        "S27 INLINE FORM (display_lines of the scrollback): the oracle snapshot is the inline stream (`$ ls`, output, `✓ • 5ms`, reasoning `• ...` rows), not the compact cell the chat screen owns (`• Explored / └ List ls / Read file.txt`); needs the inline history writer (S27)",
     );
     // oracle: `ls` then reasoning "Read the file next.", `cat file.txt` with reasoning "Waiting for the file.";
     // the active transcript keeps that order.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().script(include_str!("fixtures/chat_approvals_1/exploration_reasoning_during_followup_command_stays_ordered.jsonl")).open();
     // needs feed: begin+end ls (file.txt), reasoning delta+final, begin cat file.txt, reasoning delta+final, end cat file.txt
     s.assert_snap("exploration_reasoning_during_followup_command_stays_ordered");
 }
@@ -238,10 +261,10 @@ fn exploration_reasoning_during_followup_command_stays_ordered() {
 fn adjacent_exploration_groups_across_reasoning_live_and_replayed() {
     kit::pending(
         Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no exploring cell grouping across reasoning, live and replayed, on the chat screen (five exec commands, Compact/Expanded/Raw)",
+        "S27 INLINE FORM: the live and replayed screens are compared in the Compact, Expanded and Raw inline forms of the scrollback (display_lines/transcript/raw_lines); the owned compact exploration cell matches its oracle rows, the other forms need the inline history writer (S27)",
     );
     // oracle: the live and the replayed screens render the same Compact, Expanded and Raw text.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().script(include_str!("fixtures/chat_approvals_1/adjacent_exploration_groups_across_reasoning_live_and_replayed.jsonl")).open();
     // needs feed: the five commands (ls missing 1, cat index.html, echo boundary, cat later.txt, cat final.txt) with reasoning between them, live and replayed
     s.assert_snap("adjacent_exploration_groups_across_reasoning_live_and_replayed");
 }
@@ -288,12 +311,14 @@ fn unified_exec_begin_restores_working_status_snapshot() {
 // ORACLE chatwidget/tests/exec_flow.rs:517 exec_history_cell_shows_working_then_completed kind=ui owner=dialogs-pane
 #[test]
 fn exec_history_cell_shows_working_then_completed() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no finalized exec history cell drawn on the chat screen after the end of `echo done`",
-    );
     // oracle: nothing is flushed on begin; the end flushes one cell with "• Ran" and the command text.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    let s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .live()
+        .script(include_str!(
+            "fixtures/chat_approvals_1/exec_history_cell_shows_working_then_completed.jsonl"
+        ))
+        .open();
     // needs feed: begin `echo done` (call-1), then end it with exit 0
     s.assert_contains("• Ran");
     s.assert_contains("echo done");
@@ -302,26 +327,30 @@ fn exec_history_cell_shows_working_then_completed() {
 // ORACLE chatwidget/tests/exec_flow.rs:547 exec_history_cell_shows_working_then_failed kind=ui owner=dialogs-pane
 #[test]
 fn exec_history_cell_shows_working_then_failed() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no finalized failed exec history cell drawn on the chat screen (`false` with exit 2 and error text)",
-    );
-    // oracle: the failed end flushes one cell with "• Ran false" and its error text.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: begin `false` (call-2), end it with stderr "Bloop" and exit 2
-    s.assert_contains("• Ran false");
-    s.assert_contains("Bloop");
+    // oracle: the failed end flushes one cell with the command and its error text. The owned transcript draws the
+    // compact form (`compact_command_lines`: `Exited (status 2)` for a command that did not exit 0); the
+    // `• Ran false` is the scrollback form (S27).
+    let s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .live()
+        .script(include_str!(
+            "fixtures/chat_approvals_1/exec_history_cell_shows_working_then_failed.jsonl"
+        ))
+        .open();
+    s.assert_screen_row_then("• Exited (status 2) false", &["  └ Bloop"]);
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:571 exec_end_without_begin_uses_event_command kind=ui owner=dialogs-pane
 #[test]
 fn exec_end_without_begin_uses_event_command() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no history cell for an exec end without its begin on the chat screen (`• Ran echo orphaned`)",
-    );
     // oracle: an end with no begin renders from the event's command; the call id is not shown.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    let s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .live()
+        .script(include_str!(
+            "fixtures/chat_approvals_1/exec_end_without_begin_uses_event_command.jsonl"
+        ))
+        .open();
     // needs feed: exec end of call-orphan with command `echo orphaned`, exit 0, no begin
     s.assert_contains("• Ran echo orphaned");
     s.assert_absent("call-orphan");
@@ -330,12 +359,8 @@ fn exec_end_without_begin_uses_event_command() {
 // ORACLE chatwidget/tests/exec_flow.rs:617 exec_end_without_begin_does_not_flush_unrelated_running_exploring_cell kind=ui owner=dialogs-pane
 #[test]
 fn exec_end_without_begin_does_not_flush_unrelated_running_exploring_cell() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no active exploring cell kept beside an orphan exec end on the chat screen (`• Ran echo repro-marker` above `• Exploring`)",
-    );
     // oracle: the orphan end renders its own entry; the running `cat /dev/null` stays the active exploring cell.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().script(include_str!("fixtures/chat_approvals_1/exec_end_without_begin_does_not_flush_unrelated_running_exploring_cell.jsonl")).open();
     // needs feed: task started, begin cat /dev/null (call-exploring), begin unified exec echo repro-marker (call-orphan), end it
     s.assert_contains("• Ran echo repro-marker");
     s.assert_contains("• Exploring");
@@ -346,12 +371,8 @@ fn exec_end_without_begin_does_not_flush_unrelated_running_exploring_cell() {
 // ORACLE chatwidget/tests/exec_flow.rs:660 exec_end_without_begin_flushes_completed_unrelated_exploring_cell kind=ui owner=dialogs-pane
 #[test]
 fn exec_end_without_begin_flushes_completed_unrelated_exploring_cell() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no flush of the completed exploring cell before the orphan entry on the chat screen",
-    );
     // oracle: the completed `ls -la` flushes as Explored, then the orphan `echo after` entry follows it.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().script(include_str!("fixtures/chat_approvals_1/exec_end_without_begin_flushes_completed_unrelated_exploring_cell.jsonl")).open();
     // needs feed: begin+end ls -la (call-ls, exit 0), begin unified exec `echo after` (call-after), end it
     s.assert_in_order(&["• Explored", "List ls -la", "• Ran echo after"]);
 }
@@ -359,28 +380,35 @@ fn exec_end_without_begin_flushes_completed_unrelated_exploring_cell() {
 // ORACLE chatwidget/tests/exec_flow.rs:699 overlapping_exploring_exec_end_is_not_misclassified_as_orphan kind=ui owner=dialogs-pane
 #[test]
 fn overlapping_exploring_exec_end_is_not_misclassified_as_orphan() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no grouped exploring cell with two running reads on the chat screen (List ls -la and Read foo.txt under one header)",
-    );
     // oracle: the end of `ls -la` inside the grouped cell draws no history cell; both reads stay in the active cell.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: begin ls -la (call-ls), begin cat foo.txt (call-cat), end ls -la (exit 0)
-    s.assert_contains("List ls -la");
-    s.assert_contains("Read foo.txt");
-    s.assert_contains("• Exploring");
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .live()
+        .script(include_str!("fixtures/chat_approvals_1/overlapping_exploring_exec_end_is_not_misclassified_as_orphan_1.jsonl"))
+        .open();
+    s.assert_screen_row_then(
+        "• Exploring",
+        &["  └ List ls -la", "    Read foo.txt", "    + Show details"],
+    );
     s.assert_absent("• Ran");
+    s.feed(include_str!("fixtures/chat_approvals_1/overlapping_exploring_exec_end_is_not_misclassified_as_orphan_2.jsonl"));
+    s.assert_screen_row_then(
+        "• Explored",
+        &["  └ List ls -la", "    Read foo.txt", "    + Show details"],
+    );
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:731 exec_history_shows_unified_exec_startup_commands kind=ui owner=dialogs-pane
 #[test]
 fn exec_history_shows_unified_exec_startup_commands() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no history cell for a unified exec startup command on the chat screen (`• Ran echo unified exec startup`)",
-    );
     // oracle: the begin draws nothing; the end flushes one cell with the startup command.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    let s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .live()
+        .script(include_str!(
+            "fixtures/chat_approvals_1/exec_history_shows_unified_exec_startup_commands.jsonl"
+        ))
+        .open();
     // needs feed: task started, begin unified exec startup `echo unified exec startup` (call-startup), end it with exit 0
     s.assert_contains("• Ran echo unified exec startup");
 }
@@ -540,38 +568,68 @@ fn image_generation_call_adds_history_cell() {
 // ORACLE chatwidget/tests/exec_flow.rs:1189 exec_history_extends_previous_when_consecutive kind=snap owner=dialogs-pane snap=exploring_step1_start_ls snap=exploring_step2_finish_ls snap=exploring_step3_start_cat_foo snap=exploring_step4_finish_cat_foo snap=exploring_step6_finish_cat_bar
 #[test]
 fn exec_history_extends_previous_when_consecutive() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no exploring cell that extends across consecutive exec commands on the chat screen (six steps)",
-    );
     // oracle: each step's active cell is one snapshot; step 5 (sed -n on foo.txt) leaves step 4's cell unchanged.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: begin ls -la (call-ls)
-    s.assert_snap("exploring_step1_start_ls");
-    // needs feed: end ls -la (exit 0)
-    s.assert_snap("exploring_step2_finish_ls");
-    // needs feed: begin cat foo.txt (call-cat-foo)
-    s.assert_snap("exploring_step3_start_cat_foo");
-    // needs feed: end cat foo.txt with output hello from foo
-    s.assert_snap("exploring_step4_finish_cat_foo");
-    let explored_foo = s.shot();
-    // needs feed: begin and end sed -n 100,200p foo.txt (call-sed-range)
-    s.assert_same_rows(&explored_foo);
-    // needs feed: begin and end cat bar.txt (call-cat-bar)
-    s.assert_snap("exploring_step6_finish_cat_bar");
+    let part = |n: usize| match n {
+        1 => include_str!(
+            "fixtures/chat_approvals_1/exec_history_extends_previous_when_consecutive_1.jsonl"
+        ),
+        2 => include_str!(
+            "fixtures/chat_approvals_1/exec_history_extends_previous_when_consecutive_2.jsonl"
+        ),
+        3 => include_str!(
+            "fixtures/chat_approvals_1/exec_history_extends_previous_when_consecutive_3.jsonl"
+        ),
+        4 => include_str!(
+            "fixtures/chat_approvals_1/exec_history_extends_previous_when_consecutive_4.jsonl"
+        ),
+        5 => include_str!(
+            "fixtures/chat_approvals_1/exec_history_extends_previous_when_consecutive_5.jsonl"
+        ),
+        _ => include_str!(
+            "fixtures/chat_approvals_1/exec_history_extends_previous_when_consecutive_6.jsonl"
+        ),
+    };
+    let cell = |s: &Screen| {
+        s.rows()
+            .iter()
+            .rposition(|row| row.starts_with("• Explor"))
+            .unwrap_or_else(|| panic!("no exploring cell on the screen:\n{}", s.text()))
+    };
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .live()
+        .script(part(1))
+        .open();
+    s.assert_snap_rows_at("exploring_step1_start_ls", cell(&s));
+    s.feed(part(2));
+    s.assert_snap_rows_at("exploring_step2_finish_ls", cell(&s));
+    s.feed(part(3));
+    s.assert_snap_rows_at("exploring_step3_start_cat_foo", cell(&s));
+    s.feed(part(4));
+    s.assert_snap_rows_at("exploring_step4_finish_cat_foo", cell(&s));
+    s.feed(part(5));
+    s.assert_snap_rows_at("exploring_step4_finish_cat_foo", cell(&s));
+    s.feed(part(6));
+    s.assert_snap_rows_at("exploring_step6_finish_cat_bar", cell(&s));
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:1239 user_shell_command_renders_output_not_exploring kind=snap owner=dialogs-pane snap=user_shell_ls_output
 #[test]
 fn user_shell_command_renders_output_not_exploring() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no user-shell command cell on the chat screen: `ls` run by the user draws its output, not an exploring row",
-    );
     // oracle: one history cell for the user's `ls` with file1 and file2 as its output.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: begin and end `ls` with source UserShell (user-shell-ls), output file1 and file2, exit 0
-    s.assert_snap("user_shell_ls_output");
+    let s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .live()
+        .script(include_str!(
+            "fixtures/chat_approvals_1/user_shell_command_renders_output_not_exploring.jsonl"
+        ))
+        .open();
+    let row = s
+        .rows()
+        .iter()
+        .rposition(|row| row.starts_with("• You ran"))
+        .unwrap_or_else(|| panic!("no user-shell cell on the screen:\n{}", s.text()));
+    s.assert_snap_rows_at("user_shell_ls_output", row);
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:1267 bang_shell_enter_while_task_running_submits_run_user_shell_command kind=ui owner=dialogs-pane
@@ -639,10 +697,6 @@ fn approval_modal_exec_without_reason_snapshot() {
 // ORACLE chatwidget/tests/exec_flow.rs:1487 approval_modal_exec_multiline_prefix_hides_execpolicy_option_snapshot kind=snap owner=dialogs-pane snap=approval_modal_exec_multiline_prefix_no_execpolicy
 #[test]
 fn approval_modal_exec_multiline_prefix_hides_execpolicy_option_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no approvals entry for a multi-line proposed prefix (fixtures/chat_approvals_1/exec_multiline_prefix.jsonl, the slice registers it)",
-    );
     // oracle: a multi-line prefix offers no "don't ask again" option; the modal is the snapshot, width 100.
     let s = Screen::build(Owner::DialogsPane)
         .size(100, 13)
@@ -673,13 +727,13 @@ fn approval_modal_patch_snapshot() {
 // ORACLE chatwidget/tests/exec_flow.rs:1573 interrupt_preserves_unified_exec_processes kind=ui owner=dialogs-pane
 #[test]
 fn interrupt_preserves_unified_exec_processes() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-chat-commands, not approvals): no /ps background-terminal list on the chat screen after an interrupt (sleep 5 and sleep 6 keep running)",
-    );
     // oracle: after the turn is interrupted, /ps still lists both running processes.
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: begin unified exec `sleep 5` (call-1, process-1), `sleep 6` (call-2, process-2), turn interrupted, then /ps
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/chat_approvals_1/interrupt_preserves_unified_exec_processes.jsonl"
+        ))
+        .open();
     s.type_text("/ps");
     s.keys("enter");
     s.assert_contains("Background terminals");
@@ -703,13 +757,13 @@ fn interrupt_preserves_unified_exec_wait_streak_snapshot() {
 // ORACLE chatwidget/tests/exec_flow.rs:1626 turn_complete_keeps_unified_exec_processes kind=ui owner=dialogs-pane
 #[test]
 fn turn_complete_keeps_unified_exec_processes() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-chat-commands, not approvals): no /ps background-terminal list on the chat screen after the turn completes (sleep 5 and sleep 6 keep running)",
-    );
     // oracle: after the turn completes, /ps still lists both running processes.
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: begin unified exec `sleep 5` (call-1, process-1), `sleep 6` (call-2, process-2), turn completed, then /ps
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/chat_approvals_1/turn_complete_keeps_unified_exec_processes.jsonl"
+        ))
+        .open();
     s.type_text("/ps");
     s.keys("enter");
     s.assert_contains("Background terminals");

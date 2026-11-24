@@ -170,6 +170,12 @@ impl Options {
         self.selection.cursor().unwrap_or(0)
     }
 
+    /// No row has the cursor (the oracle's `selected_idx: None`): no row is marked until a key
+    /// or a tap sets one. `cursor()` still answers row 0, where a step starts.
+    pub fn clear(&self) {
+        self.selection.set_cursor(None);
+    }
+
     /// The cursor goes to `row` and the rows scroll to show it. The window
     /// moves by whole rows, as the oracle's list does: the first row shown
     /// goes on one by one until the cursor row fits whole, so a short last

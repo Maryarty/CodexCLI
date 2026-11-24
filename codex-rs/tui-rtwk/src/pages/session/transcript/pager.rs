@@ -18,7 +18,8 @@ use rtwk::layout::{
     BorderType, Column, CrossAxisAlignment, Divider, EdgeInsets, Expanded, MainAxisSize, Padding,
     Row, SizedBox, Stack,
 };
-use rtwk::navigation::Navigator;
+use rtwk::navigation::{Navigator, PageRoute};
+use rtwk::overlay::close_dialog;
 use rtwk::provider::{read, select};
 use rtwk::scroll::{ScrollController, SingleChildScrollView};
 use rtwk::style::{Attrs, Span, Style};
@@ -38,9 +39,25 @@ use super::strings::{self, Strings};
 use crate::app::debug::{DebugEntry, EntryOpen};
 use crate::app::view::Hs;
 
-/// The static pager over the document of the model.
+/// The static pager: over the document of the model (`ScreenStates.transcript.pager`: the debug
+/// entries, a full-screen read the model opened), or over a document it is handed (`/diff`: the
+/// wish carries the text, the pager is shown over the chat as a dialog the size of the screen).
 #[derive(Clone, Debug, PartialEq)]
-pub struct StaticPager;
+pub struct StaticPager {
+    doc: Option<PagerDoc>,
+}
+
+impl StaticPager {
+    /// The pager over the model's document.
+    pub fn model() -> StaticPager {
+        StaticPager { doc: None }
+    }
+
+    /// The pager over `doc`, in a dialog: it covers the chat, `q` closes it.
+    pub fn over(doc: PagerDoc) -> StaticPager {
+        StaticPager { doc: Some(doc) }
+    }
+}
 
 /// Widget state: the text's scroll controller only (R14).
 pub struct PagerState {
@@ -89,7 +106,7 @@ impl State for PagerState {
     type Widget = StaticPager;
     type Msg = Msg;
 
-    fn update(&mut self, msg: Msg, _: &StaticPager, cx: &mut Cx<'_, Self>) -> Rebuild {
+    fn update(&mut self, msg: Msg, w: &StaticPager, cx: &mut Cx<'_, Self>) -> Rebuild {
         match msg {
             Msg::Rows(rows) => self.scroll_by(rows),
             Msg::Pages(pages) => self.scroll_by(pages.saturating_mul(self.page())),
@@ -100,6 +117,7 @@ impl State for PagerState {
             Msg::Bottom => self.scroll.jump_to(i64::MAX),
             // the action's effect is the opener's, a later intent of its
             // screen; closing is the pager's
+            Msg::Close | Msg::Action if w.doc.is_some() => close_dialog::<_, ()>(cx, None),
             Msg::Close | Msg::Action => {
                 let handlers = read::<Hs, _>(cx);
                 cx.emit(&handlers.screen, Intent::ClosePager.into());
@@ -109,10 +127,11 @@ impl State for PagerState {
         Rebuild::No
     }
 
-    fn build(&self, _: &StaticPager, cx: &mut Cx<'_, Self>) -> AnyWidget {
+    fn build(&self, w: &StaticPager, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let table = strings::of(cx);
         let dim = crate::app::theme::Tokens::of(cx).dim();
-        let doc = select::<ScreenStates, _, _>(cx, |states| states.transcript.pager.clone());
+        let model = select::<ScreenStates, _, _>(cx, |states| states.transcript.pager.clone());
+        let doc = w.doc.clone().or(model);
         let doc = doc.unwrap_or_else(|| PagerDoc {
             title: String::new(),
             text: String::new(),
@@ -343,15 +362,16 @@ impl TranscriptMode for Mode {
             name,
             description,
             script,
-            open: EntryOpen::Route(|_| StaticPager.into()),
+            open: EntryOpen::Route(|_| StaticPager::model().into()),
         })
         .collect()
     }
 }
 
-/// The pager over the chat (`Target::Pager`): the expanded mode of the session page's transcript
-/// (chat-live); until that lands the popup says so.
+/// `Target::Pager`: the static pager over the document the model holds (`Ev::Pager`), a page
+/// pushed over the chat; `q` pops it and tells the model the document is done. The transcript's
+/// own pager (Ctrl+T) is the session page's expanded mode (`Modes`), which the key toggles; `/diff`
+/// shows its document through its slice's presenter (`StaticPager::over`).
 pub fn open<S>(cx: &mut Cx<'_, S>) {
-    let action = crate::l10n::strings::of(cx).pages.action_transcript;
-    drop(crate::widgets::page_keys::not_yet(cx, action));
+    drop(Navigator::of(cx).push::<()>(PageRoute::<()>::new(|_| StaticPager::model().into())));
 }

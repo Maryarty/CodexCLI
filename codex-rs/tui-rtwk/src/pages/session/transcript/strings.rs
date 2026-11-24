@@ -149,6 +149,30 @@ pub struct Strings {
     pub viewed_image: &'static str,
     pub image_failed: &'static str,
     pub image_generated: &'static str,
+    /// Find (`transcript_view/search_footer.rs`): the label before the query, the two
+    /// keys that walk the matches (older, newer) and what each does, and the states' words.
+    pub find_prefix: &'static str,
+    pub find_label: &'static str,
+    pub find_key_older: &'static str,
+    pub find_key_newer: &'static str,
+    /// The same two keys as the reading status spells them (the oracle writes those literally).
+    pub find_plain_older: &'static str,
+    pub find_plain_newer: &'static str,
+    pub find_older: &'static str,
+    pub find_newer: &'static str,
+    pub find_accept: &'static str,
+    pub find_type: &'static str,
+    pub find_searching: &'static str,
+    pub find_loading: &'static str,
+    pub find_searching_history: &'static str,
+    pub find_history_unavailable: &'static str,
+    pub find_retry: &'static str,
+    pub find_no_matches: &'static str,
+    pub find_no_more: &'static str,
+    pub find_full_transcript: &'static str,
+    pub find_cancel: &'static str,
+    pub find_latest: &'static str,
+    pub find_limited: &'static str,
 }
 
 /// English: the oracle's text (the slice names the oracle file per group).
@@ -276,6 +300,27 @@ pub const EN: Strings = Strings {
     viewed_image: "Viewed image {}",
     image_failed: "Image generation failed",
     image_generated: "Generated image",
+    find_prefix: "Find: ",
+    find_label: "Find",
+    find_key_older: "⌃p",
+    find_key_newer: "⌃n",
+    find_plain_older: "ctrl+p",
+    find_plain_newer: "ctrl+n",
+    find_older: "older",
+    find_newer: "newer",
+    find_accept: "enter accept",
+    find_type: "Type to find",
+    find_searching: "Searching…",
+    find_loading: "Loading…",
+    find_searching_history: "Searching earlier history…",
+    find_history_unavailable: "History unavailable",
+    find_retry: "retry",
+    find_no_matches: "No matches",
+    find_no_more: "No more matches",
+    find_full_transcript: "full transcript",
+    find_cancel: "esc cancel",
+    find_latest: "esc latest",
+    find_limited: "query limited to 4 KiB",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);

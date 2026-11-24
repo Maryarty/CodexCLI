@@ -28,8 +28,50 @@ pub fn auth(auth: Auth) -> &'static str {
     }
 }
 
-/// The loading row's text (oracle `McpInventoryLoadingCell`).
+/// The loading row (oracle `McpInventoryLoadingCell`): its text as the raw mode says it, and the
+/// parts the cell styles.
 pub const LOADING: &str = "Loading MCP inventory…";
+pub const LOADING_WORDS: &str = "Loading MCP inventory";
+pub const LOADING_DOTS: &str = "…";
+pub const LOADING_MARK: &str = "•";
+
+/// The typed command the cell echoes first (the oracle's magenta `/mcp`).
+pub const COMMAND: &str = "/mcp";
+/// The title: the plug, its blank and the bold words.
+pub const TITLE_MARK: &str = "🔌  ";
+pub const TITLE: &str = "MCP Tools";
+pub const NO_TOOLS: &str = "  • No MCP tools available.";
+pub const NO_SERVERS: &str = "  • No MCP servers configured.";
+/// The docs line of an empty list: the words around the link, the link and where it goes.
+pub const DOCS_BEFORE: &str = "    See the ";
+pub const DOCS_LINK: &str = "MCP docs";
+pub const DOCS_AFTER: &str = " to configure them.";
+pub const DOCS_URL: &str = "https://developers.openai.com/codex/mcp";
+pub const VERBOSE_HINT: &str = "  Use /mcp verbose for tools and resources.";
+pub const SERVER_MARK: &str = "  • ";
+pub const DETAIL_MARK: &str = "    • ";
+pub const AUTH_LABEL: &str = "Auth: ";
+pub const TOOLS_LABEL: &str = "Tools: ";
+pub const RESOURCES_LABEL: &str = "Resources: ";
+pub const TEMPLATES_LABEL: &str = "Resource templates: ";
+pub const NONE: &str = "(none)";
+/// Between the loading mark and its words, and between a resource and its uri.
+pub const GAP: &str = " ";
+/// Between a server's name and its state.
+pub const STATE_SEP: &str = ": ";
+/// Between the entries of a resource list.
+pub const ENTRY_SEP: &str = ", ";
+
+/// `(N tools)` after a server's state.
+pub fn tool_count(count: usize) -> String {
+    let unit = if count == 1 { "tool" } else { "tools" };
+    format!(" ({count} {unit})")
+}
+
+/// `(uri)` after a resource's label.
+pub fn uri(uri: &str) -> String {
+    format!("({uri})")
+}
 
 fn entries(label: &str, entries: &[Entry]) -> String {
     if entries.is_empty() {

@@ -6,9 +6,10 @@ use std::fmt::Write as _;
 use std::hash::{DefaultHasher, Hasher};
 use std::rc::Rc;
 
+use rtwk::foundation::{Listenable, VoidCallback};
 use rtwk::layout::{Column, CrossAxisAlignment, MainAxisSize};
 use rtwk::provider::{read, select, watch};
-use rtwk::scroll::{ListView, ScrollNotification};
+use rtwk::scroll::{ListView, ScrollController, ScrollNotification};
 use rtwk::style::Attrs;
 use rtwk::{AnyWidget, Cx, Key, NotificationListener, Rebuild, State, StatefulWidget, impl_widget};
 
@@ -21,6 +22,7 @@ use codex_tui_core::threads::{Item, ItemKey, ThreadModel};
 use crate::app::theme;
 use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
+use crate::widgets::thread_scope::thread_scope;
 use crate::widgets::thread_ui::{Follow, TextSelection};
 
 use super::cells::strings as cells_strings;
@@ -57,6 +59,50 @@ pub(super) struct ViewportState {
     /// the thread model is the one place the row lives), to see it change: a row after it, or
     /// the row itself grown; rows above it (an older page) are none of the reader's news.
     tail: Option<(ThreadId, ItemKey, u64)>,
+    /// Where each reader that was left scrolled up stood (Flutter's `PageStorage` bucket of a
+    /// `PageStorageKey` per list): a thread's reader is its own, so it is as it was when the
+    /// reader comes back (#57499).
+    left: Vec<(Follow, i64)>,
+    /// The restore a thread's list waits to make once it knows its extents.
+    restoring: Option<Restore>,
+}
+
+/// A one-shot listener on a controller: the move to where its reader was, made when its list
+/// has told its extents (`ScrollPosition::apply_extents`).
+struct Restore {
+    controller: ScrollController,
+    listener: VoidCallback,
+}
+
+impl Restore {
+    fn arm(controller: ScrollController, pixels: i64) -> Restore {
+        let slot: Rc<RefCell<Option<VoidCallback>>> = Rc::default();
+        let listener: VoidCallback = {
+            let (controller, slot) = (controller.clone(), slot.clone());
+            Rc::new(move || {
+                let Ok(position) = controller.try_position() else {
+                    return;
+                };
+                if !position.has_extents() {
+                    return;
+                }
+                controller.jump_to(pixels);
+                if let Some(this) = slot.borrow_mut().take() {
+                    controller.remove_listener(&this);
+                }
+            })
+        };
+        *slot.borrow_mut() = Some(listener.clone());
+        controller.add_listener(listener.clone());
+        Restore {
+            controller,
+            listener,
+        }
+    }
+
+    fn disarm(self) {
+        self.controller.remove_listener(&self.listener);
+    }
 }
 
 struct RowLayout {
@@ -270,6 +316,8 @@ impl StatefulWidget for Pane {
             shown: RefCell::default(),
             first: RefCell::default(),
             tail: None,
+            left: Vec::new(),
+            restoring: None,
         }
     }
 }
@@ -277,6 +325,40 @@ impl StatefulWidget for Pane {
 impl State for ViewportState {
     type Widget = Pane;
     type Msg = Msg;
+
+    fn did_update_widget(&mut self, old: &Pane, widget: &Pane, _cx: &mut Cx<'_, Self>) {
+        if old.follow == widget.follow {
+            return;
+        }
+        // another thread's reader: the one left keeps its place if it was away from the last
+        // row, the one come to is put back where it was
+        if let Some(restore) = self.restoring.take() {
+            restore.disarm();
+        }
+        self.left.retain(|(follow, _)| *follow != old.follow);
+        if old.follow.away()
+            && let Ok(position) = old.follow.scroll().as_scroll_controller().try_position()
+        {
+            self.left.push((old.follow.clone(), position.pixels()));
+        }
+        if let Some(at) = self
+            .left
+            .iter()
+            .position(|(follow, _)| *follow == widget.follow)
+        {
+            let (_, pixels) = self.left.remove(at);
+            self.restoring = Some(Restore::arm(
+                widget.follow.scroll().as_scroll_controller().clone(),
+                pixels,
+            ));
+        }
+    }
+
+    fn dispose(&mut self) {
+        if let Some(restore) = self.restoring.take() {
+            restore.disarm();
+        }
+    }
 
     fn did_change_dependencies(&mut self, widget: &Pane, cx: &mut Cx<'_, Self>) {
         // The end of the transcript changed while the reader is away (a new
@@ -513,6 +595,10 @@ impl State for ViewportState {
         .reverse(reverse);
         let send = cx.local_sender();
         let follow = widget.follow.clone();
+        // every thread owns its reader (#57499; Flutter's `PageStorageKey` per list): the list of
+        // another thread is another element, so the offset the render list held is never taken
+        // for the controller of the thread now shown
+        let loading = thread_id.clone();
         let list: AnyWidget = NotificationListener::<ScrollNotification>::new(list)
             .on_notification(move |scroll| {
                 let metrics = scroll.metrics;
@@ -522,7 +608,7 @@ impl State for ViewportState {
                     metrics.pixels
                 };
                 if can_load && scroll.depth() == 0 && distance <= 3 {
-                    send(Msg::Load(thread_id.clone()));
+                    send(Msg::Load(loading.clone()));
                 }
                 // back at the last row: the news is seen
                 if follow.at_tail() {
@@ -531,6 +617,7 @@ impl State for ViewportState {
                 false
             })
             .into();
+        let list = thread_scope(&thread_id, list);
         SelectionHost {
             child: list,
             selection: widget.selection.clone(),

@@ -894,7 +894,7 @@ fn auto_model_advertising_advanced_effort_opens_reasoning_picker() {
 fn feedback_selection_popup_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "the first frame (the /feedback suggestion) is the composer slash popup, not the dialogs screen; the category list itself is the feedback_categories entry (oracle data)",
+        "G68: the first frame (the /feedback suggestion) is the composer slash popup, which floats under a blank row with a `▎` bar and a right-aligned detail, not the oracle's `› /feedback  send logs..` row above the composer with the status footer; the second frame is the feedback sheet as a titled raised `Dialog` (rows indented 6, wrapped narrower, a `▎` mark, 3 rows over the 11 of the oracle's pane) where the oracle's is the bare pane with a `›` mark and two spaces of indent",
     );
     let mut s = Screen::build(Owner::DialogsPane).size(80, 5).live().open();
     s.type_text("/feedback");

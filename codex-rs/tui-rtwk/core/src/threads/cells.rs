@@ -207,7 +207,12 @@ impl HookRun {
 /// A notice the session leaves in the transcript.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Notice {
-    ContextCompacted,
+    /// A context compaction finished. `took` is the seconds a compaction that ran live here took
+    /// (`Compaction::took`); one that came with history has none (oracle
+    /// `on_context_compaction_completed`).
+    ContextCompacted {
+        took: Option<u64>,
+    },
     /// The thread is a fork (oracle `emit_forked_thread_event`, `ForkedThreadHistoryCell`):
     /// the thread it was forked from, and that thread's name when it has one.
     ForkedThread {
@@ -419,9 +424,10 @@ pub(super) fn entry(payload: &ThreadItemPayload, completed: bool) -> Option<(Ite
                 },
             )
         }
-        ThreadItemPayload::ContextCompaction { id } => {
-            (ItemId::new(id), Item::Notice(Notice::ContextCompacted))
-        }
+        ThreadItemPayload::ContextCompaction { id } => (
+            ItemId::new(id),
+            Item::Notice(Notice::ContextCompacted { took: None }),
+        ),
         ThreadItemPayload::EnteredReviewMode { id, review } => (
             ItemId::new(id),
             Item::Notice(Notice::EnteredReview(review.clone())),

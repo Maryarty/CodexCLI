@@ -16,4 +16,5 @@ pub mod session_list;
 pub mod sheet;
 pub mod status_line;
 pub mod tab_strip;
+pub mod thread_scope;
 pub mod thread_ui;

@@ -2,9 +2,10 @@
 //! `codex_tui_core::features::processes`; its cell is a snapshot of the thread's background
 //! terminals. `/ps` is routed by `Feature::OPENS`; its `open` draws nothing and says the verb.
 
+pub mod cell;
 pub mod strings;
 
-use rtwk::Cx;
+use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::features::processes::{Intent, Note, Processes, Sheet};
 use codex_tui_core::ids::{Cwd, ThreadId};
@@ -15,6 +16,16 @@ use crate::pages::session::strings::Strings as SessionStrings;
 impl FeatureView for Processes {
     fn note_words(note: &Note, _words: &SessionStrings) -> String {
         strings::note(note)
+    }
+
+    /// The list of the terminals as the oracle draws it, a row cut to the width.
+    fn cell(note: &Note) -> Option<AnyWidget> {
+        Some(
+            cell::ProcessesCell {
+                note: note.clone(),
+            }
+            .into(),
+        )
     }
 }
 

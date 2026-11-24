@@ -131,7 +131,7 @@ fn a_live_completion_keeps_its_duration_and_adds_the_cell() {
     ]);
     assert_eq!(active(&sandbox), None);
     assert_eq!(took(&sandbox, "c1"), Some(160));
-    assert_eq!(rows(&sandbox), vec![Item::Notice(Notice::ContextCompacted)]);
+    assert_eq!(rows(&sandbox), vec![Item::Notice(Notice::ContextCompacted { took: Some(160) })]);
 }
 
 /// A completion that comes with history (no start seen here) has a cell and no duration, and does
@@ -146,7 +146,7 @@ fn a_completion_that_came_with_history_has_no_duration() {
     ]);
     assert_eq!(took(&sandbox, "c1"), None);
     assert_eq!(active(&sandbox), Some(("c2".to_owned(), 1_990)));
-    assert_eq!(rows(&sandbox), vec![Item::Notice(Notice::ContextCompacted)]);
+    assert_eq!(rows(&sandbox), vec![Item::Notice(Notice::ContextCompacted { took: None })]);
 }
 
 /// The end of the turn clears a compaction whose completion never came.

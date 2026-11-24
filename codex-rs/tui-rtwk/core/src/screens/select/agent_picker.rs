@@ -43,6 +43,44 @@ impl Name {
     }
 }
 
+/// What the rows are derived from, as the agents screen holds it (the protocol's threads stay
+/// here; the view keeps this value to compare and calls `Facts::rows`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Facts {
+    threads: Vec<Thread>,
+    hidden: BTreeSet<String>,
+    removed: BTreeSet<String>,
+}
+
+impl Facts {
+    /// The facts of the agents screen.
+    pub fn of(screens: &crate::screens::ScreenStates) -> Facts {
+        let agents = &screens.agents;
+        Facts {
+            threads: agents.threads.clone(),
+            hidden: agents.hidden.clone(),
+            removed: agents.removed.clone(),
+        }
+    }
+
+    /// `rows` over these facts.
+    pub fn rows(
+        &self,
+        active: Option<&ThreadId>,
+        waiting: &[ThreadId],
+        live: impl Fn(&ThreadId) -> bool,
+    ) -> Vec<Row> {
+        rows(
+            &self.threads,
+            &self.hidden,
+            &self.removed,
+            active,
+            waiting,
+            live,
+        )
+    }
+}
+
 /// One row of the picker.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Row {

@@ -338,6 +338,12 @@ impl Vim {
         self.record_text(text);
     }
 
+    /// A paste goes in as typing does in Replace mode (it overwrites what it covers); `.` hears
+    /// of it from `record_text`, which the caller calls (`insert_str` of the oracle's textarea).
+    pub fn insert_pasted(&mut self, t: &mut dyn VimText, text: &str) {
+        self.insert_str(t, text);
+    }
+
     fn insert_str(&mut self, t: &mut dyn VimText, text: &str) {
         if self.is_replace() {
             self.replace_text(t, text);

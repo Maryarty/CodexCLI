@@ -1,0 +1,3 @@
+# oracle chatwidget/tests/exec_flow.rs:1189 exec_history_extends_previous_when_consecutive
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "notify", "message": {"method": "item/started", "params": {"item": {"type": "commandExecution", "id": "call-ls", "pluginId": null, "scriptPath": null, "command": "bash -lc 'ls -la'", "cwd": "/tmp/project", "processId": null, "source": "agent", "status": "inProgress", "commandActions": [{"type": "listFiles", "command": "ls -la", "path": null}], "aggregatedOutput": null, "exitCode": null, "durationMs": null, "startedAtMs": 0, "completedAtMs": null}, "threadId":"thread-1", "turnId": "turn-1", "startedAtMs": 0}}}

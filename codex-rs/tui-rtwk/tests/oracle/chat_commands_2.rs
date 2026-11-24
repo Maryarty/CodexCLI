@@ -147,10 +147,6 @@ fn queued_bare_rename_drains_next_input_after_name_update() {
 // ORACLE chatwidget/tests/slash_commands.rs:673 queued_unknown_slash_reports_error_when_dequeued kind=ui owner=chat-nav-pane
 #[test]
 fn queued_unknown_slash_reports_error_when_dequeued() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "Tab does not queue an unknown slash command while a turn runs in the port: the text stays in the composer and no error shows on the turn end",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
     s.type_text("/does-not-exist").keys("tab");
     s.assert_absent("Unrecognized command '/does-not-exist'");
@@ -441,10 +437,6 @@ fn slash_copy_picker_uses_completed_commentary_during_active_turn() {
 // ORACLE chatwidget/tests/slash_commands.rs:1664 slash_copy_state_tracks_plan_item_completion kind=ui owner=chat-nav-pane
 #[test]
 fn slash_copy_state_tracks_plan_item_completion() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no /copy picker: the port answers /copy with 'not available yet', so the picker rows are not drawn",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).script(PLAN).open();
     s.type_text("/copy").keys("enter");
     s.assert_contains("Whole response");
@@ -456,10 +448,6 @@ fn slash_copy_state_tracks_plan_item_completion() {
 // ORACLE chatwidget/tests/slash_commands.rs:1723 slash_copy_picker_preserves_completed_source_whitespace_and_hides_directives kind=ui owner=chat-nav-pane
 #[test]
 fn slash_copy_picker_preserves_completed_source_whitespace_and_hides_directives() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no /copy picker: the port answers /copy with 'not available yet', so the picker rows are not drawn",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(100, 24)
         .script(DIRECTIVES)
@@ -495,10 +483,6 @@ fn slash_copy_picker_defers_queued_input_until_selection_or_cancellation_settles
 // ORACLE chatwidget/tests/slash_commands.rs:1834 slash_copy_picker_previews_whole_response_code_blocks_and_blockquotes kind=ui owner=chat-nav-pane
 #[test]
 fn slash_copy_picker_previews_whole_response_code_blocks_and_blockquotes() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no /copy picker: the port answers /copy with 'not available yet', so the picker rows are not drawn",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(100, 24)
         .script(PREVIEW)
@@ -603,10 +587,6 @@ fn slash_copy_status_yields_to_later_turns_and_commands_even_after_refresh() {
 // ORACLE chatwidget/tests/slash_commands.rs:2002 slash_copy_status_yields_to_queued_commands_after_queued_status kind=ui owner=chat-nav-pane
 #[test]
 fn slash_copy_status_yields_to_queued_commands_after_queued_status() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "Tab does not queue /status or a command while a turn runs in the port, so no queued status line appears; no /copy picker: the port answers /copy with 'not available yet', so the picker rows are not drawn",
-    );
     for command in ["/rename Queued rename", "!echo hello"] {
         let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
         s.type_text("/status").keys("tab");
@@ -622,10 +602,6 @@ fn slash_copy_status_yields_to_queued_commands_after_queued_status() {
 // ORACLE chatwidget/tests/slash_commands.rs:2029 slash_copy_picker_waits_for_submission_after_typing_or_autocomplete kind=ui owner=chat-nav-pane
 #[test]
 fn slash_copy_picker_waits_for_submission_after_typing_or_autocomplete() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no /copy picker: the port answers /copy with 'not available yet', so the picker rows are not drawn",
-    );
     for select_from_autocomplete in [false, true] {
         let mut s = Screen::build(Owner::ChatNavPane).script(READY).open();
         s.type_text("/cop");
@@ -638,6 +614,9 @@ fn slash_copy_picker_waits_for_submission_after_typing_or_autocomplete() {
         s.assert_absent("Whole response");
         s.keys("enter");
         s.assert_contains("Whole response");
+        // the picker takes the composer's rows (`render_bottom_popup`); the oracle's
+        // `composer_text().is_empty()` is read once it is dismissed
+        s.keys("esc");
         s.assert_has_row("› Ask Codex to do anything");
     }
 }
@@ -645,16 +624,15 @@ fn slash_copy_picker_waits_for_submission_after_typing_or_autocomplete() {
 // ORACLE chatwidget/tests/slash_commands.rs:2066 slash_copy_picker_waits_for_submission_after_paste kind=ui owner=chat-nav-pane
 #[test]
 fn slash_copy_picker_waits_for_submission_after_paste() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no /copy picker: the port answers /copy with 'not available yet', so the picker rows are not drawn",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).script(READY).open();
     s.paste("/copy");
     s.assert_has_row("› /copy");
     s.assert_absent("Whole response");
     s.keys("enter");
     s.assert_contains("Whole response");
+    // the picker takes the composer's rows (`render_bottom_popup`); the oracle's
+    // `composer_text().is_empty()` is read once it is dismissed
+    s.keys("esc");
     s.assert_has_row("› Ask Codex to do anything");
 }
 
@@ -700,10 +678,6 @@ fn slash_copy_picker_supports_arrow_navigation_enter_and_scrolling() {
 // ORACLE chatwidget/tests/slash_commands.rs:2195 slash_copy_picker_escape_dismisses_without_copying kind=ui owner=chat-nav-pane
 #[test]
 fn slash_copy_picker_escape_dismisses_without_copying() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no /copy picker: the port answers /copy with 'not available yet', so the picker rows are not drawn",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).script(READY).open();
     s.type_text("/copy").keys("enter");
     s.assert_contains("Whole response");

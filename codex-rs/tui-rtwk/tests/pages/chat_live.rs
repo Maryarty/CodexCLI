@@ -691,13 +691,17 @@ fn a_plan_that_ends_with_no_sheet_open_asks() {
     h.wait_for("the plan question", |s| s.contains(PLAN_TITLE));
 }
 
-/// `/presets` and `/daemon` say their menus are not built instead of opening an empty dialog (the
-/// presets overlay stays with chunk-popups-picker-rest).
+/// `/presets` says its menu is not built instead of opening an empty dialog (the presets HUD stays
+/// with w2-commands item 4); `/daemon` opens its menu (oracle `open_daemon_menu`: not connected to
+/// the local background server in the fake backend) and Esc closes it.
 #[test]
-fn presets_and_daemon_say_they_are_not_built() {
+fn presets_say_they_are_not_built_and_daemon_opens_its_menu() {
     let mut h = start();
     h.wait_idle();
-    for (command, words) in [("/presets", "presets menu"), ("/daemon", "daemon menu")] {
+    for (command, words) in [
+        ("/presets", "presets menu"),
+        ("/daemon", "Not connected to the local background server."),
+    ] {
         h.t.type_text(command);
         h.press("enter");
         h.wait_for("the popup", |s| s.contains(words));
@@ -706,4 +710,33 @@ fn presets_and_daemon_say_they_are_not_built() {
         h.settle();
         assert!(!h.t.screen().contains(words), "{}", h.t.screen());
     }
+}
+
+/// `/daemon` without a CLI to manage the daemon: the title, the status, the guidance and the
+/// three rows (oracle `open_daemon_menu`), the updates disabled; Enter on a disabled row opens no
+/// confirmation.
+#[test]
+fn daemon_menu_lists_its_rows_and_guidance() {
+    let mut h = start();
+    h.wait_idle();
+    h.t.type_text("/daemon");
+    h.press("enter");
+    h.wait_for("the menu", |s| s.contains("Not connected to the local"));
+    let screen = h.t.screen();
+    for words in [
+        "Daemon",
+        "Run the Codex CLI to manage the daemon from this menu.",
+        "Install latest public stable",
+        "Use this CLI build",
+        "Restart background server",
+    ] {
+        assert!(screen.contains(words), "{words}\n{screen}");
+    }
+    h.press("enter");
+    h.settle();
+    assert!(
+        !h.t.screen().contains("Update daemon and exit Codex?"),
+        "{}",
+        h.t.screen()
+    );
 }

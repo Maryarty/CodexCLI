@@ -6,6 +6,15 @@
 
 use crate::kit::{self, Owner, Screen};
 
+/// The screen row of the `/mcp` cell's first line: the oracle's snapshot is the bare cell, the chat
+/// draws the transcript around it.
+fn mcp_row(s: &Screen) -> usize {
+    s.rows()
+        .iter()
+        .rposition(|row| row.trim_end() == "/mcp")
+        .unwrap_or_else(|| panic!("the /mcp cell is not on the screen:\n{}", s.text()))
+}
+
 const URL_LIKE: &str =
     "example.test/api/v1/projects/alpha-team/releases/2026-02-17/builds/1234567890";
 
@@ -19,13 +28,19 @@ const NO_SEED_LOCAL: &str = "no seed: this cell comes from a local flow (an appr
 // ORACLE history_cell/tests.rs:1162 mcp_tools_output_from_statuses_renders_status_only_servers kind=snap owner=chat-live snap=mcp_tools_output_from_statuses_renders_status_only_servers
 #[test]
 fn mcp_tools_output_from_statuses_renders_status_only_servers() {
-    kit::pending(Owner::ChatLive, NO_SEED_MCP_RPC);
-    let mut s = Screen::build(Owner::ChatLive).size(120, 24).live().open();
+    // oracle: one server with a tool and no runtime status (an older app server): its auth status words it.
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(120, 24)
+        .live()
+        .script(include_str!(
+            "fixtures/cells_4/mcp_tools_output_from_statuses_renders_status_only_servers.jsonl"
+        ))
+        .open();
     s.type_text("/mcp");
     s.keys("enter");
     s.assert_snap_region(
         "mcp_tools_output_from_statuses_renders_status_only_servers",
-        0,
+        mcp_row(&s),
         0,
     );
 }
@@ -33,13 +48,19 @@ fn mcp_tools_output_from_statuses_renders_status_only_servers() {
 // ORACLE history_cell/tests.rs:1198 mcp_tools_output_from_statuses_renders_verbose_inventory kind=snap owner=chat-live snap=mcp_tools_output_from_statuses_renders_verbose_inventory
 #[test]
 fn mcp_tools_output_from_statuses_renders_verbose_inventory() {
-    kit::pending(Owner::ChatLive, NO_SEED_MCP_RPC);
-    let mut s = Screen::build(Owner::ChatLive).size(120, 24).live().open();
+    // oracle: the full inventory of one server: its auth, tool, resource and resource template.
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(120, 24)
+        .live()
+        .script(include_str!(
+            "fixtures/cells_4/mcp_tools_output_from_statuses_renders_verbose_inventory.jsonl"
+        ))
+        .open();
     s.type_text("/mcp verbose");
     s.keys("enter");
     s.assert_snap_region(
         "mcp_tools_output_from_statuses_renders_verbose_inventory",
-        0,
+        mcp_row(&s),
         0,
     );
 }

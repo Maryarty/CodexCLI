@@ -228,7 +228,7 @@ fn a_backtrack_target_needs_a_visible_user_prompt() {
                 phase: None,
             },
         ),
-        (key("t", "n"), Item::Notice(Notice::ContextCompacted)),
+        (key("t", "n"), Item::Notice(Notice::ContextCompacted { took: None })),
     ];
     assert!(!has_backtrack_target(&transcript(items.clone())));
     items.push((key("t", "u"), Item::User(text_prompt("hello"))));

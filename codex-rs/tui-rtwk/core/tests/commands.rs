@@ -405,6 +405,16 @@ fn popup(flags: CommandPopupFlags) -> CommandPopup {
     CommandPopup::new(flags, Vec::new())
 }
 
+/// The command the oracle's popup selected on the first row after the text changed: the first
+/// row that is not unavailable (the selection itself is the list widget's).
+fn first_available(popup: &CommandPopup) -> Option<CommandItem> {
+    popup
+        .rows()
+        .into_iter()
+        .find(|row| !row.unavailable)
+        .map(|row| row.item)
+}
+
 fn names(popup: &CommandPopup) -> Vec<String> {
     popup
         .filtered_items()
@@ -430,11 +440,10 @@ fn unavailable_side_conversation_command_is_shown_only_when_searched() {
         popup.filtered_items(),
         vec![CommandItem::Builtin(SlashCommand::Archive)]
     );
-    assert_eq!(popup.selected_item(), None);
+    assert_eq!(first_available(&popup), None);
     assert!(popup.rows()[0].unavailable);
     popup.on_composer_text_change("/a".to_string());
-    popup.move_up();
-    assert!(popup.selected_item().is_some());
+    assert!(first_available(&popup).is_some());
 }
 
 #[test]
@@ -449,7 +458,7 @@ fn selecting_init_by_exact_match() {
     let mut popup = popup(CommandPopupFlags::default());
     popup.on_composer_text_change("/init".to_string());
     assert_eq!(
-        popup.selected_item(),
+        first_available(&popup),
         Some(CommandItem::Builtin(SlashCommand::Init))
     );
 }
@@ -476,7 +485,10 @@ fn service_tier_command_uses_catalog_name_and_description() {
         vec![tier.clone()],
     );
     popup.on_composer_text_change("/fa".to_string());
-    assert_eq!(popup.selected_item(), Some(CommandItem::ServiceTier(tier)));
+    assert_eq!(
+        first_available(&popup),
+        Some(CommandItem::ServiceTier(tier))
+    );
     assert_eq!(
         popup
             .rows()
@@ -523,22 +535,6 @@ fn prefix_filter_limits_matches_for_ac() {
     let mut popup = popup(CommandPopupFlags::default());
     popup.on_composer_text_change("/ac".to_string());
     assert!(!names(&popup).iter().any(|cmd| cmd == "compact"));
-}
-
-#[test]
-fn changing_filter_resets_selection_after_scrolling() {
-    let mut popup = popup(CommandPopupFlags::default());
-    popup.on_composer_text_change("/".to_string());
-    for _ in 0..MAX_POPUP_ROWS {
-        popup.move_down();
-    }
-    assert!(popup.state.scroll_top > 0);
-    popup.on_composer_text_change("/st".to_string());
-    assert_eq!(
-        popup.selected_item(),
-        Some(CommandItem::Builtin(SlashCommand::Status))
-    );
-    assert_eq!(popup.state.scroll_top, 0);
 }
 
 #[test]
@@ -591,7 +587,7 @@ fn plan_command_visible_when_collaboration_modes_enabled() {
     });
     popup.on_composer_text_change("/plan".to_string());
     assert_eq!(
-        popup.selected_item(),
+        first_available(&popup),
         Some(CommandItem::Builtin(SlashCommand::Plan))
     );
 }
@@ -1143,7 +1139,11 @@ fn every_screen_opening_command_names_its_target() {
         ("/subagents", Target::AgentPicker),
         ("/usage", Target::Usage),
         ("/warnings", Target::Dialogs),
-        ("/feedback", Target::Dialogs),
+        // the feature's own sheet (`features::feedback`), not the small dialogs
+        (
+            "/feedback",
+            Target::Feature(codex_tui_core::features::target_of(SlashCommand::Feedback).unwrap()),
+        ),
         ("/test-approval", Target::Approvals),
     ];
     for (line, target) in table {

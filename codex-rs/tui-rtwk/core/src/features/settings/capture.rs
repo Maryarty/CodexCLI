@@ -72,19 +72,7 @@ fn active(spec: &KeymapSpec, keymap: &Keymap, context: &str, action: &str) -> Op
     if let Some(keys) = spec.get(context, action) {
         return Some(dedup(keys.to_vec()));
     }
-    if (context, action) == ("global", "leader") {
-        return Some(dedup(
-            keymap
-                .leaders()
-                .iter()
-                .map(crate::keymap::Stroke::spec)
-                .collect(),
-        ));
-    }
-    keymap
-        .actions()
-        .find(|(id, _)| id.context.config_name() == context && id.name == action)
-        .map(|(_, bindings)| dedup(bindings.iter().map(keymap::binding_spec).collect()))
+    keymap::active_specs(keymap, context, action)
 }
 
 /// Applies the key captured for `context.action` to the config `spec`.
@@ -131,7 +119,7 @@ pub fn captured(
     }
     let refs: Vec<&str> = next.iter().map(String::as_str).collect();
     let edited = spec.clone().with(context, action, &refs);
-    Keymap::resolve(&edited).map_err(|error| Failure::Conflict(error.message().to_owned()))?;
+    Keymap::resolve(&edited).map_err(|error| Failure::Conflict(error.message()))?;
     Ok(Outcome::Updated {
         spec: edited,
         keys: next,

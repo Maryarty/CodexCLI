@@ -6,12 +6,15 @@
 use rtwk::AnyWidget;
 use rtwk::Cx;
 use rtwk::layout::{EdgeInsets, Padding, SizedBox};
+use rtwk::provider::select;
 use rtwk::style::Theme;
 use rtwk::widgets::Text;
 
+use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::backtrack::Targets;
+use codex_tui_core::threads::composer::{ComposerState, composer_state};
 
-use crate::pages::session::composer::Composer;
+use crate::pages::session::composer::{Composer, Placeholder};
 use crate::pages::session::external_writer;
 use crate::pages::session::footer::{Footer, Line};
 use crate::pages::session::keys::Action;
@@ -55,11 +58,21 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
             external_writer::footer(cx, chat_strings, tokens),
         )
     } else {
-        let composer = Composer::new(w.ui.clone(), state.node.clone())
+        let mut composer = Composer::new(w.ui.clone(), state.node.clone())
             .on_changed(cx.map(ChatMsg::Changed))
             .on_submitted(cx.map(ChatMsg::Submit))
             .on_picked(cx.map(ChatMsg::Picked));
-        let footer = if let Some((query, status)) = searching.clone() {
+        let closing = select::<ScreenStates, bool, _>(cx, |states| states.chat.facts.shutting_down);
+        let held = composer_state(thread, closing);
+        match held {
+            ComposerState::ParentOwned => composer = composer.worded(Placeholder::ParentOwned),
+            ComposerState::ShuttingDown => composer = composer.disabled(Placeholder::ShuttingDown),
+            ComposerState::ReadOnly | ComposerState::Disabled | ComposerState::Open => {}
+        }
+        let footer = if held == ComposerState::ShuttingDown {
+            // `show_shutdown_in_progress`: the empty hint override takes the footer away
+            SizedBox::shrink().into()
+        } else if let Some((query, status)) = searching.clone() {
             // Reverse history search: its row is the footer
             // (`history_search_footer_line`).
             crate::pages::session::composer::search::footer(cx, query, status)

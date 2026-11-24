@@ -1,0 +1,2 @@
+# oracle chatwidget/tests/guardian.rs:802 guardian_cleanup_drops_stale_reviews_and_restores_mcp_status_3 (hand-written: guardian_fixtures.py)
+{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-2","rootTurnId":null,"items":[],"itemsView":"full","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}

@@ -17,11 +17,14 @@ use rtwk::{
 use codex_tui_core::app::{ConnectionState, Session, SessionSlice};
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::keymap::actions::CHAT_INTERRUPT_TURN;
+use codex_tui_core::screens::approvals::guardian::Reviewing;
 use codex_tui_core::screens::{ScreenStates, chat};
+use codex_tui_core::threads::compaction::Running as ActiveCompaction;
 use codex_tui_core::threads::{Failure, ThreadModel, TurnState};
 
 use crate::app::theme;
 use crate::l10n::strings as l10n;
+use crate::sheets::approvals;
 
 use super::actions::failure_text;
 use super::status::{self, Pending, PendingInput, TerminalsLine};
@@ -39,6 +42,11 @@ pub(super) struct Run {
     /// The thread's last failure, or the one the chat screen keeps.
     failure: Option<Failure>,
     chat: chat::ThreadPart,
+    /// The context compaction under way (`ThreadModel::compaction`): the status row's header,
+    /// and the timer counts from its start.
+    compaction: Option<ActiveCompaction>,
+    /// The auto-reviews under way: while one runs they own the row's header and details.
+    reviews: Vec<Reviewing>,
     /// Background terminals still running (`ThreadModel::terminals`).
     terminals: usize,
     /// What the running hooks say (`ThreadModel::hook_status`).
@@ -58,6 +66,8 @@ impl Run {
             transcript_empty: thread.transcript().is_empty(),
             failure: thread.last_error().cloned().or(screen_error),
             chat: thread.screen_slots().chat.clone(),
+            compaction: thread.compaction().running().cloned(),
+            reviews: thread.screen_slots().approvals.reviews.clone(),
             terminals: thread.terminals().len(),
             hook: thread.hook_status(),
             pending: !Pending::of(thread).is_empty(),
@@ -75,7 +85,7 @@ impl Run {
     }
 
     pub(super) fn compacting(&self) -> bool {
-        self.chat.is_compacting()
+        self.compaction.is_some() || self.chat.is_compacting()
     }
 
     /// The session's failure first, then the thread's last one.
@@ -148,6 +158,7 @@ impl StatelessWidget for StatusSlot {
             TurnState::Idle => None,
         };
         let compacting = run.compacting();
+        let review = approvals::review_status(approvals::strings::of(cx), &run.reviews);
         let mut working = false;
         let status: Option<AnyWidget> = if reconnecting {
             Some(
@@ -163,10 +174,14 @@ impl StatelessWidget for StatusSlot {
             )
         } else if session.status == Session::Starting {
             Some(Text::new(strings.chat.starting).style(tokens.dim()).into())
-        } else if running.is_some() || compacting {
+        } else if running.is_some() || compacting || review.is_some() {
             working = true;
-            let offset_seconds = running
-                .and_then(|running| running.started_at)
+            // the compaction has its own clock; the turn's comes back when it is over
+            let offset_seconds = run
+                .compaction
+                .as_ref()
+                .map(|compaction| compaction.started_at)
+                .or_else(|| running.and_then(|running| running.started_at))
                 .filter(|started| *started > 0)
                 .map(|started| u64::try_from(now.saturating_sub(started)).unwrap_or(0))
                 .unwrap_or(0);
@@ -175,10 +190,14 @@ impl StatelessWidget for StatusSlot {
                     interrupt,
                     spinner: effects(facts).0,
                     shimmer: effects(facts).1,
-                    header: run
-                        .chat
-                        .header()
-                        .map(|header| session_strings.status_header(&header))
+                    header: review
+                        .as_ref()
+                        .map(|review| review.header.clone())
+                        .or_else(|| {
+                            run.chat
+                                .header()
+                                .map(|header| session_strings.status_header(&header))
+                        })
                         .unwrap_or_else(|| {
                             if compacting {
                                 strings.chat.compacting
@@ -189,14 +208,20 @@ impl StatelessWidget for StatusSlot {
                             }
                             .to_string()
                         }),
-                    details: run.chat.details().cloned().or_else(|| {
-                        compacting.then(|| {
-                            chat::StatusDetails::new(
-                                status_strings.compaction_details.to_string(),
-                                chat::STATUS_DETAILS_MAX_LINES,
-                            )
+                    details: review
+                        .as_ref()
+                        .map(|review| {
+                            chat::StatusDetails::preserved(&review.details, review.max_lines)
                         })
-                    }),
+                        .or_else(|| run.chat.details().cloned())
+                        .or_else(|| {
+                            compacting.then(|| {
+                                chat::StatusDetails::new(
+                                    status_strings.compaction_details.to_string(),
+                                    chat::STATUS_DETAILS_MAX_LINES,
+                                )
+                            })
+                        }),
                     // the summary rides after the elapsed label while the row is there
                     inline: (run.terminals > 0).then(|| status_strings.terminals(run.terminals)),
                     hook: run.hook.clone(),
@@ -205,6 +230,9 @@ impl StatelessWidget for StatusSlot {
                 .with_key(Key::value((
                     run.id.clone(),
                     running.map(|running| running.turn.clone()),
+                    run.compaction
+                        .as_ref()
+                        .map(|compaction| compaction.id.clone()),
                 ))),
             )
         } else {

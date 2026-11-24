@@ -105,6 +105,14 @@ fn open(width: u16, height: u16, entry: &str) -> Harness {
     h
 }
 
+/// The `/feedback` flow's entries (the feature's slot of the debug menu).
+fn open_feedback(width: u16, height: u16, entry: &str) -> Harness {
+    let mut h = start_sized(true, width, height);
+    h.open_debug_row("feedback", Some(entry));
+    h.t.pump_for(ms(800));
+    h
+}
+
 fn closed(h: &mut Harness, title: &str) {
     h.t.pump_for(ms(800));
     assert!(!h.t.screen().contains(title), "{}", h.t.screen());
@@ -322,7 +330,7 @@ fn warnings_close_on_escape_and_on_f2() {
 #[test]
 #[ignore = "open: the oracle draws this in its bottom pane; the dialogs-pane slice builds that look (parity pack, Open)"]
 fn feedback_selection_popup_snapshot() {
-    let h = open(100, 24, "feedback_categories");
+    let h = open_feedback(100, 24, "feedback_categories");
     assert_rows(
         &h.t.screen(),
         "chatwidget/snapshots/codex_tui__chatwidget__tests__feedback_selection_popup.snap",
@@ -331,7 +339,7 @@ fn feedback_selection_popup_snapshot() {
 
 #[test]
 fn a_feedback_category_leads_to_the_consent_step() {
-    let mut h = open(100, 24, "feedback_categories");
+    let mut h = open_feedback(100, 24, "feedback_categories");
     h.press("down");
     h.press("enter");
     h.t.pump_for(ms(800));
@@ -348,7 +356,7 @@ fn a_feedback_category_leads_to_the_consent_step() {
 // options of feedback_consent_params.
 #[test]
 fn feedback_upload_consent_lists_doctor_report() {
-    let h = open(100, 30, "feedback_consent");
+    let h = open_feedback(100, 30, "feedback_consent");
     assert_rows(
         &h.t.screen(),
         "bottom_pane/snapshots/codex_tui__bottom_pane__feedback_view__tests__feedback_upload_consent_lists_doctor_report.snap",
@@ -365,7 +373,7 @@ fn feedback_upload_consent_lists_doctor_report() {
 
 #[test]
 fn feedback_upload_consent_lists_windows_sandbox_log_when_included() {
-    let h = open(100, 30, "feedback_consent_windows");
+    let h = open_feedback(100, 30, "feedback_consent_windows");
     assert_rows(
         &h.t.screen(),
         "bottom_pane/snapshots/codex_tui__bottom_pane__feedback_view__tests__feedback_upload_consent_lists_windows_sandbox_log_when_included.snap",
@@ -374,10 +382,10 @@ fn feedback_upload_consent_lists_windows_sandbox_log_when_included() {
 
 #[test]
 fn the_consent_answer_closes_the_flow_and_escape_goes_back() {
-    let mut h = open(100, 30, "feedback_consent");
+    let mut h = open_feedback(100, 30, "feedback_consent");
     h.press("2");
     closed(&mut h, "Include logs and session history?");
-    let mut h = open(100, 30, "feedback_consent");
+    let mut h = open_feedback(100, 30, "feedback_consent");
     h.press("escape");
     closed(&mut h, "Include logs and session history?");
 }
@@ -386,7 +394,7 @@ fn the_consent_answer_closes_the_flow_and_escape_goes_back() {
 /// a tap; Enter submits), so Enter answers for the row tapped.
 #[test]
 fn a_tap_on_a_feedback_row_moves_the_cursor_to_it() {
-    let mut h = open(100, 24, "feedback_categories");
+    let mut h = open_feedback(100, 24, "feedback_categories");
     let screen = h.t.screen();
     let (y, line) = screen
         .lines()

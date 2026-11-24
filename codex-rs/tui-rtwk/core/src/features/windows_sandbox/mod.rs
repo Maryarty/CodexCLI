@@ -15,7 +15,7 @@ use codex_app_server_protocol::{
 };
 use codex_protocol::config_types::WindowsSandboxLevel;
 
-use super::AppCx;
+use super::{AppCx, Scope};
 use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
@@ -245,6 +245,12 @@ impl Fact {
     }
 }
 
+/// The prompt that is due, asked of the surface once (`Scope::Thread` of the thread in use).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Wish {
+    Prompt(Prompt),
+}
+
 /// What a surface or a command says.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
@@ -306,6 +312,8 @@ pub struct State {
     started: bool,
     trusted_prompt: bool,
     due: Option<Prompt>,
+    /// The prompt the surface was asked to show for the due one (asked once).
+    wished: Option<Prompt>,
     /// The last setup ended with this mode.
     last: Option<(Mode, bool)>,
 }
@@ -446,6 +454,7 @@ impl State {
         });
         self.started = true;
         self.due = None;
+        self.wished = None;
         cx.ask(None, Wanted::Start { mode, cwd }, Ctx::Start(mode));
     }
 
@@ -493,6 +502,7 @@ feature! {
         type Ctx = Ctx;
         type Note = Note;
         type Fact = Fact;
+        type Wish = Wish;
         {
             fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
                 match intent {
@@ -507,6 +517,7 @@ feature! {
                     Intent::Shown(prompt) => {
                         if state.due == Some(prompt) {
                             state.due = None;
+                            state.wished = None;
                         }
                     }
                 }
@@ -556,6 +567,14 @@ feature! {
                             state.maybe_prompt();
                         }
                     }
+                }
+                // The prompt that fell due is the surface's to show, once.
+                if let Some(prompt) = state.due
+                    && state.wished != Some(prompt)
+                {
+                    let thread = cx.view().active().cloned().unwrap_or_default();
+                    cx.wish(Scope::Thread(thread), Wish::Prompt(prompt));
+                    state.wished = Some(prompt);
                 }
             }
 

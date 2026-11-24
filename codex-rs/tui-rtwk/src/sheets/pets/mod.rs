@@ -14,11 +14,12 @@ use rtwk::focus::Focus;
 use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier};
 use rtwk::gestures::{GestureDetector, PointerEvent};
 use rtwk::layout::{
-    Align, Alignment, Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox,
+    Align, Alignment, BoxWidget, Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox,
 };
 use rtwk::overlay::{Dialog, DialogOptions, DialogResult, close_dialog, show_dialog};
 use rtwk::provider::{read, select};
 use rtwk::scroll::{ListController, ListView, ScrollNotification};
+use rtwk::style::Style;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
 
@@ -389,7 +390,11 @@ impl State for ScreenState {
             .child(body)
             .child(more)
             .child(Text::line(format!("{}{}", s.indent, s.hint)).style(tokens.dim()));
-        let focus = Focus::new(Dialog::bare(column)).can_request_focus(false);
+        // the cells the rows leave blank (the preview's) are the pane's own, not the page's under it
+        let focus = Focus::new(Dialog::bare(
+            BoxWidget::new().style(Style::new()).child(column),
+        ))
+        .can_request_focus(false);
         let focus = bind_fixed(focus, fixed::DISMISS, cx.send(Msg::Close));
         let focus = bind_fixed(focus, fixed::CONFIRM_PREVIOUS, cx.send(Msg::Move(-1)));
         bind_fixed(focus, fixed::CONFIRM_NEXT, cx.send(Msg::Move(1))).into()

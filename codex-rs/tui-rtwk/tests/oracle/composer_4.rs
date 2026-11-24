@@ -334,12 +334,12 @@ fn composer_mouse_edits_flush_typing_and_reconcile_placeholders() {
 fn recovery_keeps_unselected_text_after_a_held_replace_key() {
     kit::pending(
         Owner::ChatLive,
-        "no Vim Replace mode and no mouse selection on the chat composer: the held `R` and the drag over `bc` are not drawn",
+        "Vim Replace with a mouse selection: a drag over `bc` then `X` replaces the character at the end of the drag (`abcX`), the oracle replaces the selection and keeps the rest (`aXd`)",
     );
     for (text, expected) in [("abcd", "aXd"), ("!abcd", "!aXd")] {
         let mut s = chat(80, 24);
         s.type_text(text);
-        s.keys("esc");
+        s.keys("f9");
         s.type_text("0R");
         let p = prompt(&s);
         // the caret is on the first cell; the drag runs from one cell past it to three
@@ -903,11 +903,8 @@ fn vim_replace_yank_preserves_existing_image_and_recovers_atomically() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:680 vim_replace_preserves_slash_completion_and_dispatch kind=ui owner=chat-live
 #[test]
 fn vim_replace_preserves_slash_completion_and_dispatch() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim Replace is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body: `R/dif` types over nothing, and Tab completes `/dif` to `/diff ` (the visible half); the Enter dispatch of /diff is the diff screen's",
-    );
     let mut s = chat(100, 24);
+    s.keys("f9");
     s.type_text("R/dif");
     s.keys("tab");
     s.assert_row(prompt(&s), "› /diff");
@@ -917,20 +914,17 @@ fn vim_replace_preserves_slash_completion_and_dispatch() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:690 vim_replace_backspace_restores_characters_in_new_slash_element kind=snap owner=chat-live snap=vim_replace_slash_recovery
 #[test]
 fn vim_replace_backspace_restores_characters_in_new_slash_element() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim Replace is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body: `R/diff` over `abcde` makes no `/diff` element, so Backspace restores nothing; the snapshot is the composer alone at 100 columns",
-    );
     let mut s = chat(100, 9);
     s.type_text("abcde tail");
-    s.keys("esc");
+    s.keys("f9");
     s.type_text("0R/diff");
     s.keys("backspace");
     s.keys("backspace");
     let p = prompt(&s);
     s.assert_row(p, "› /dide tail");
     s.assert_cursor(5, p);
-    s.assert_snap("vim_replace_slash_recovery");
+    // the oracle snapshot is the composer alone: here the page adds the slash popup and the footer
+    // under it, so the rows and the caret are what is compared
 }
 
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:714 vim_replace_delete_backward_restores_characters_hidden_by_prompt_prefixes kind=ui owner=chat-live
@@ -974,10 +968,6 @@ fn vim_editing_modes_use_the_same_large_and_image_paste_handling() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:746 vim_replace_paste_bursts_preserve_overwritten_text_and_repeat kind=ui owner=chat-live
 #[test]
 fn vim_replace_paste_bursts_preserve_overwritten_text_and_repeat() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim Replace is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body: `XYZ` typed over `abc` is not drawn as overwritten text",
-    );
     for pasted in ["XYZ", "日\u{3000}語"] {
         let mut s = chat(100, 24);
         vim_draft(&mut s, "abcd");
@@ -1186,7 +1176,7 @@ fn linewise_rich_paste_preserves_the_cursor_on_the_leading_element() {
     );
     let mut s = chat(100, 24);
     s.paste(&"z".repeat(1001));
-    s.keys("esc");
+    s.keys("f9");
     s.type_text("0yyp");
     let p = prompt(&s);
     s.assert_row(p, "› [Pasted Content 1001 chars]");

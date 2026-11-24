@@ -27,7 +27,9 @@ use codex_app_server_protocol::{
 };
 use serde::Deserialize;
 
-use super::AppCx;
+use super::{AppCx, Scope};
+use crate::app::Now;
+use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::screens::SeedError;
@@ -36,6 +38,21 @@ use crate::threads::Tone;
 
 /// The marker type of the feature.
 pub struct Feedback;
+
+/// What `/feedback` names (`FeatureTarget`): the feature's own sheet, opened by its UI half, whose
+/// first act is the verb `Intent::Open`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Sheet;
+
+/// What the surface is asked to show (`Scope::Thread` of the thread in use): the three steps of
+/// the report, from the category list.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Wish {
+    Flow {
+        /// The thread's last turn, tagged on the report (`ChatWidget::last_turn_id`).
+        turn_id: Option<String>,
+    },
+}
 
 /// Who the report is for: the copy of the success cell and its follow-up link follow it
 /// (`FeedbackAudience`; the account's e-mail ends with `@openai.com` for an employee).
@@ -213,9 +230,6 @@ pub enum Intent {
         rollout: Option<String>,
         include_logs: bool,
         destination: Destination,
-        /// The name of the ZIP a save writes (time and a suffix that makes it unused); the
-        /// clock is the surface's, not the domain's.
-        file_name: String,
     },
 }
 
@@ -288,7 +302,7 @@ pub fn reason_of(note: &str) -> Option<String> {
 const FEEDBACK_DIR: &str = "feedback";
 
 /// `/feedback` and its steps' last one: the checks of the state, then the first RPC.
-fn submit(state: &State, cx: &mut AppCx<'_>, upload: Upload, file_name: &str) {
+fn submit(state: &State, cx: &mut AppCx<'_>, upload: Upload) {
     let origin = cx.view().active().cloned();
     let upload = Upload {
         thread: origin.clone(),
@@ -315,7 +329,7 @@ fn submit(state: &State, cx: &mut AppCx<'_>, upload: Upload, file_name: &str) {
                 return cx.note(origin, Note::Failed(format!("{SAVE_FAILED}{cause}")));
             };
             let directory = join(home, FEEDBACK_DIR);
-            let path = join(&directory, file_name);
+            let path = join(&directory, &file_name(cx.view().now()));
             ctx.step = Step::Directory {
                 upload,
                 directory: directory.clone(),
@@ -328,6 +342,32 @@ fn submit(state: &State, cx: &mut AppCx<'_>, upload: Upload, file_name: &str) {
             );
         }
     }
+}
+
+/// The name of a saved ZIP (`codex-diagnostics-{time}-{suffix}.zip`): the time of the app's
+/// clock, and the milliseconds in it as the suffix that makes it unused (the oracle's is a
+/// random one).
+fn file_name(now: Now) -> String {
+    let secs = now.secs();
+    let (days, rest) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    // Civil date from days since the epoch (Hinnant's algorithm).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let day_of_era = z.rem_euclid(146_097);
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_index = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_index + 2) / 5 + 1;
+    let month = if month_index < 10 { month_index + 3 } else { month_index - 9 };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    format!(
+        "codex-diagnostics-{year:04}-{month:02}-{day:02}T{:02}-{:02}-{:02}Z-{:08x}.zip",
+        rest / 3600,
+        rest % 3600 / 60,
+        rest % 60,
+        now.millis().rem_euclid(1 << 32)
+    )
 }
 
 const UPLOAD_FAILED: &str = "Failed to upload feedback: ";
@@ -348,19 +388,29 @@ feature! {
     impl Feature for Feedback {
         const NAME: &'static str = "feedback";
         const SEED: Option<fn(serde_json::Value) -> Result<Fact, SeedError>> = Some(seed);
+        const OPENS: Option<(SlashCommand, Sheet)> = Some((SlashCommand::Feedback, Sheet));
         type State = State;
+        type Target = Sheet;
         type Intent = Intent;
         type Command = Command;
         type Reply = Reply;
         type Ctx = Ctx;
         type Note = Note;
         type Fact = Fact;
+        type Wish = Wish;
         {
             fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
                 match intent {
                     Intent::Open { source } => {
                         if state.unavailable().is_some() {
                             cx.note(source, Note::Unavailable);
+                        } else {
+                            let thread = source.or_else(|| cx.view().active().cloned());
+                            let turn_id = thread
+                                .as_ref()
+                                .and_then(|id| cx.view().thread(id))
+                                .and_then(|view| view.core().transcript().last_turn().map(|turn| turn.as_str().to_owned()));
+                            cx.wish(Scope::Thread(thread.unwrap_or_default()), Wish::Flow { turn_id });
                         }
                     }
                     Intent::Submit {
@@ -370,7 +420,6 @@ feature! {
                         rollout,
                         include_logs,
                         destination,
-                        file_name,
                     } => submit(
                         state,
                         cx,
@@ -383,7 +432,6 @@ feature! {
                             rollout,
                             destination,
                         },
-                        &file_name,
                     ),
                 }
             }

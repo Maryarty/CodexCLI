@@ -26,7 +26,7 @@ fn resolve(spec: KeymapSpec) -> Keymap {
 fn error_of(spec: KeymapSpec) -> String {
     match Keymap::resolve(&spec) {
         Ok(_) => panic!("the spec should conflict: {spec:?}"),
-        Err(error) => error.message().to_owned(),
+        Err(error) => error.message(),
     }
 }
 
@@ -455,4 +455,37 @@ fn the_unchecked_resolve_keeps_what_validation_would_refuse() {
     );
     let keymap = Keymap::resolve_unchecked(&spec);
     assert_eq!(keymap.singles(COMPOSER_SUBMIT), [stroke("ctrl-t")]);
+}
+
+// The causes of a refusal are typed: a caller tells them apart without reading the text.
+
+#[test]
+fn a_refusal_names_its_cause() {
+    use codex_tui_core::keymap::{ActionId, KeymapError, Shape};
+    let error = |spec: KeymapSpec| Keymap::resolve(&spec).expect_err("the spec is refused");
+    let accept = ActionId::new(Context::List, "accept");
+    assert_eq!(
+        error(KeymapSpec::default().with("list", "accept", &["bogus"])),
+        KeymapError::Invalid {
+            id: accept,
+            raw: "bogus".to_owned(),
+            shape: Shape::Single,
+        }
+    );
+    assert_eq!(
+        error(KeymapSpec::default().with("list", "accept", &["a b c"])),
+        KeymapError::Invalid {
+            id: accept,
+            raw: "a b c".to_owned(),
+            shape: Shape::Chord,
+        }
+    );
+    assert!(matches!(
+        error(KeymapSpec::default().with("list", "move_up", &["down"])),
+        KeymapError::Ambiguous { scope: "list", shadows: false, .. }
+    ));
+    assert!(matches!(
+        error(KeymapSpec::default().with("global", "leader", &["a b"])),
+        KeymapError::LeaderNotSingle
+    ));
 }

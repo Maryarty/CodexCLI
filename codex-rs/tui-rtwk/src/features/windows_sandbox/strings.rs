@@ -13,3 +13,94 @@ pub fn note(note: &Note) -> String {
         Note::Mixed => "Windows sandbox setup is unavailable when local and remote executors are configured together.".into(),
     }
 }
+
+use crate::widgets::picker::list::{Columns, Item, List, Role, Span};
+use codex_tui_core::features::windows_sandbox::{Choice, Page, Prompt};
+
+const ELEVATED: &str = "windows-sandbox.elevated";
+const LEGACY: &str = "windows-sandbox.legacy";
+const QUIT: &str = "windows-sandbox.quit";
+const LEARN_MORE: &str = "Learn more <https://developers.openai.com/codex/windows>";
+
+/// The id of a row.
+pub fn id_of(choice: Choice) -> &'static str {
+    match choice {
+        Choice::Elevated => ELEVATED,
+        Choice::Legacy => LEGACY,
+        Choice::Quit => QUIT,
+    }
+}
+
+/// The choice a row's id names.
+pub fn choice_of(id: &str) -> Option<Choice> {
+    [Choice::Elevated, Choice::Legacy, Choice::Quit]
+        .into_iter()
+        .find(|choice| id_of(*choice) == id)
+}
+
+fn name(prompt: Prompt, choice: Choice) -> &'static str {
+    match (prompt, choice) {
+        (Prompt::Enable, Choice::Elevated) => {
+            "Set up default sandbox (requires Administrator permissions)"
+        }
+        (Prompt::Enable, Choice::Legacy) => "Use non-admin sandbox (higher risk if prompt injected)",
+        (Prompt::Fallback, Choice::Elevated) => "Try setting up admin sandbox again",
+        (Prompt::Fallback, Choice::Legacy) => "Use Codex with non-admin sandbox",
+        (_, Choice::Quit) => "Quit",
+    }
+}
+
+fn paragraph(text: &str, role: Role) -> Vec<Span> {
+    vec![Span {
+        text: text.to_owned(),
+        role,
+    }]
+}
+
+/// The header paragraphs of a prompt.
+fn header(page: &Page) -> Vec<Vec<Span>> {
+    let plain = |text: &str| paragraph(text, Role::Plain);
+    match (page.prompt, page.required_by_organization) {
+        (Prompt::Enable, false) => vec![plain(&format!(
+            "Set up the Codex agent sandbox to protect your files and control network access. {LEARN_MORE}"
+        ))],
+        (Prompt::Enable, true) => vec![
+            plain("Your organization requires the default Codex agent sandbox to continue. Set it up to protect your files and control network access."),
+            plain(LEARN_MORE),
+        ],
+        (Prompt::Fallback, required) => vec![
+            paragraph(
+                "Couldn't set up your sandbox with Administrator permissions",
+                Role::Strong,
+            ),
+            plain(""),
+            plain(if required {
+                "Your organization requires the default sandbox before Codex can continue."
+            } else {
+                "You can still use Codex in a non-admin sandbox. It carries greater risk if prompt injected."
+            }),
+            plain(LEARN_MORE),
+        ],
+    }
+}
+
+/// The list of a prompt (`SelectionViewParams::picker()` with the standard hint).
+pub fn menu(page: &Page) -> List {
+    List {
+        header: header(page),
+        standard_hint: true,
+        items: page
+            .choices
+            .iter()
+            .map(|choice| Item {
+                id: id_of(*choice).to_owned(),
+                name: name(page.prompt, *choice).to_owned(),
+                ..Item::default()
+            })
+            .collect(),
+        columns: Columns::AutoAllRows,
+        hide_description_below: Some(24),
+        panel: true,
+        ..List::default()
+    }
+}

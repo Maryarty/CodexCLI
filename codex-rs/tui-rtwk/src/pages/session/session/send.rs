@@ -10,7 +10,8 @@ use codex_tui_core::screens::{ScreenThreadIntent, chat};
 use codex_tui_core::threads::ThreadModel;
 
 use crate::app::view::Hs;
-use crate::pages::session::actions::{Delivery, run_line};
+use crate::pages::session::actions::run_line;
+use crate::pages::session::composer::queue::Delivery;
 use crate::pages::session::composer::submission;
 
 use super::{Chat, ChatState};

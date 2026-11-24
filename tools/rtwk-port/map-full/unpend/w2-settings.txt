@@ -1,4 +1,3 @@
-chat_commands_3::keymap_capture_can_capture_current_copy_shortcut
 chat_commands_3::slash_keymap_debug_can_inspect_app_shortcuts
 chat_commands_3::slash_keymap_debug_opens_keypress_inspector
 chat_popups_4::experimental_features_popup_snapshot

@@ -59,6 +59,11 @@ pub fn types_text(key: &KeyPress) -> bool {
     key.text().is_some()
 }
 
+/// Whether the key is Esc.
+pub fn is_escape(key: &KeyPress) -> bool {
+    is("escape", key)
+}
+
 /// Whether the key is Backspace (not Delete).
 pub fn is_backspace(key: &KeyPress) -> bool {
     is("backspace", key)

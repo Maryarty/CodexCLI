@@ -11,13 +11,14 @@ use rtwk::focus::Focus;
 use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding};
 use rtwk::overlay::{Dialog, close_dialog};
 use rtwk::provider::{read, select};
-use rtwk::style::{Attrs, Span, Style};
+use rtwk::style::{Attrs, Span, Style, TerminalBrightness};
 use rtwk::text::{Text, TextWrap};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 use rtwk_rich::highlight::{Highlighter, SyntaxTheme, language_named};
 
 use codex_tui_core::app::RequestQueue;
 use codex_tui_core::ids::RequestKey;
+use codex_tui_core::keymap::actions::LIST_CANCEL;
 use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::approvals::{Decision, Intent, Prompt};
@@ -238,21 +239,27 @@ impl State for RequestDialogState {
             for block in header {
                 pane = pane.child(block.widget);
             }
-            let mut focus = bind_fixed(
-                Focus::new(Dialog::bare(
-                    BoxWidget::new().style(Style::new()).child(pane),
-                ))
-                .can_request_focus(false),
-                fixed::DISMISS,
-                cx.send(Msg::Cancel),
-            );
+            let mut focus = Focus::new(Dialog::bare(
+                BoxWidget::new().style(Style::new()).child(pane),
+            ))
+            .can_request_focus(false);
+            for press in crate::keymap::presses(&crate::keymap::keymap(cx), LIST_CANCEL) {
+                focus = focus.bind(press, cx.send(Msg::Cancel));
+            }
             for option in body.options.iter().filter_map(|option| option.key) {
                 focus = focus.bind(option, cx.send(Msg::Cancel));
             }
             return focus.into();
         }
+        // `selection_style`: where the terminal told nothing of its background the cursor row is
+        // the terminal's own bold reverse, else the accent.
+        let known = TerminalBrightness::background_of(cx).is_some();
         let styles = OptionStyles {
-            cursor: tokens.accent().attrs(Attrs::BOLD),
+            cursor: if known {
+                tokens.accent().attrs(Attrs::BOLD)
+            } else {
+                Style::new().attrs(Attrs::BOLD | Attrs::REVERSE)
+            },
             label: Style::new(),
             description: Style::new(),
         };
@@ -290,8 +297,11 @@ impl State for RequestDialogState {
             BoxWidget::new().style(Style::new()).child(pane.view()),
         ))
         .can_request_focus(false);
+        // The list's cancel key (Esc by default: the user's, when the keymap sets one).
+        for press in crate::keymap::presses(&crate::keymap::keymap(cx), LIST_CANCEL) {
+            focus = focus.bind(press, cx.send(Msg::Cancel));
+        }
         for (id, msg) in [
-            (fixed::DISMISS, Msg::Cancel),
             (fixed::CONFIRM_PREVIOUS, Msg::Move(-1)),
             (fixed::CONFIRM_NEXT, Msg::Move(1)),
             (fixed::ENTER, Msg::Enter),
