@@ -41,7 +41,7 @@ impl StatelessWidget for QuestionSummary {
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Start)
             .child(Text::rich_line(title));
-        if let Some(key) = crate::keymap::label(&keymap, CHAT_EDIT_QUEUED_MESSAGE) {
+        if let Some(key) = crate::keymap::primary_label(&keymap, CHAT_EDIT_QUEUED_MESSAGE) {
             column = column.child(Text::rich_line(vec![
                 Span::styled(strings.item_hang, rtwk::style::Style::new()),
                 Span::styled(key, super::bold()),

@@ -437,7 +437,9 @@ fn arrival_preserves_vim_undo_and_navigation_flushes_buffered_input() {
     // flushes it into the draft; "skipped" is held, ctrl+] skips: the second question is open with an empty answer.
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
-        .script(include_str!("fixtures/chat_approvals_2/q_first_second.jsonl"))
+        .script(include_str!(
+            "fixtures/chat_approvals_2/q_first_second.jsonl"
+        ))
         .open();
     s.type_text("/vim");
     s.keys("enter");

@@ -138,12 +138,15 @@ impl State {
                 .cloned()
                 .collect();
             self.expires.insert(id.clone(), self.now + WAIT_MILLIS);
-            self.pending.entry(thread.clone()).or_default().push(Question {
-                id,
-                message: message.to_owned(),
-                title: question.title.clone(),
-                options,
-            });
+            self.pending
+                .entry(thread.clone())
+                .or_default()
+                .push(Question {
+                    id,
+                    message: message.to_owned(),
+                    title: question.title.clone(),
+                    options,
+                });
         }
     }
 
@@ -194,7 +197,7 @@ feature! {
                 state.now = cx.view().facts().now().millis();
                 match intent {
                     Intent::Resolve { thread, id } => state.resolve(&thread, &[id]),
-                    Intent::Clear { thread } => {
+                    Intent::Superseded { thread } => {
                         let ids: Vec<String> =
                             state.of(&thread).iter().map(|q| q.id.clone()).collect();
                         state.resolve(&thread, &ids);

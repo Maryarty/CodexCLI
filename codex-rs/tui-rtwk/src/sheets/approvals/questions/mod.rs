@@ -43,14 +43,14 @@ pub use entries::debug_entries;
 
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
-use crate::keymap::{label, only_shift, pressed, unmodified};
+use crate::keymap::{only_shift, pressed, primary_label as label, unmodified};
 use crate::pages::session::composer::{
     Composer, burst, plain, search, strings as composer_strings,
 };
 use crate::pages::session::footer::strings as footer_strings;
-use crate::widgets::thread_ui::ThreadUi;
 use crate::widgets::markdown;
 use crate::widgets::measure::Measure;
+use crate::widgets::thread_ui::ThreadUi;
 
 /// The longest a choice may be (bytes): what the oracle bounds the model's suggestions to.
 pub const MAX_OPTION_BYTES: usize = 512;
@@ -222,13 +222,11 @@ fn field(text: &str) -> Rc<ThreadUi> {
     ui
 }
 
-fn qstate(
-    question: &AQuestion,
-    selected: Option<Option<usize>>,
-    ui: Rc<ThreadUi>,
-    learned: Rc<Cell<usize>>,
-    host: Option<&Host>,
-) -> QState {
+/// What a question's state takes over: its choice, its field and what the field has learned.
+type Parts = (Option<Option<usize>>, Rc<ThreadUi>, Rc<Cell<usize>>);
+
+fn qstate(question: &AQuestion, parts: Parts, host: Option<&Host>) -> QState {
+    let (selected, ui, learned) = parts;
     let q = QState {
         id: question.id.clone(),
         selected: selected.unwrap_or_else(|| (!question.options.is_empty()).then_some(0)),
@@ -271,20 +269,19 @@ impl StatefulWidget for AsyncQuestions {
             .enumerate()
             .map(
                 |(at, question)| match saved.as_ref().and_then(|s| s.kept.get(&question.id)) {
-                    Some(slot) => qstate(
-                        question,
-                        Some(slot.selected),
-                        slot.ui.clone(),
-                        slot.learned.clone(),
-                        self.host.as_ref(),
-                    ),
-                    None => qstate(
-                        question,
-                        self.seed.selected.get(at).copied(),
-                        field(self.seed.drafts.get(at).map_or("", String::as_str)),
-                        Rc::default(),
-                        self.host.as_ref(),
-                    ),
+                    Some(slot) => {
+                        let parts = (Some(slot.selected), slot.ui.clone(), slot.learned.clone());
+                        qstate(question, parts, self.host.as_ref())
+                    }
+                    None => {
+                        let text = self.seed.drafts.get(at).map_or("", String::as_str);
+                        let parts = (
+                            self.seed.selected.get(at).copied(),
+                            field(text),
+                            Rc::default(),
+                        );
+                        qstate(question, parts, self.host.as_ref())
+                    }
                 },
             )
             .collect();
@@ -620,16 +617,23 @@ impl State for AsyncState {
         }
     }
 
-    fn did_update_widget(&mut self, _old: &AsyncQuestions, w: &AsyncQuestions, cx: &mut Cx<'_, Self>) {
+    fn did_update_widget(
+        &mut self,
+        _old: &AsyncQuestions,
+        w: &AsyncQuestions,
+        cx: &mut Cx<'_, Self>,
+    ) {
         // The parent drops a question that was answered or skipped: the state follows by id.
         let mut next = Vec::new();
         let mut arrived = false;
+        let before = self.questions.get(self.current).map(|q| q.id.clone());
         for question in w.questions.iter() {
             match self.questions.iter().position(|q| q.id == question.id) {
                 Some(at) => next.push(self.questions.remove(at)),
                 None => {
                     arrived = true;
-                    next.push(qstate(question, None, field(""), Rc::default(), w.host.as_ref()));
+                    let parts = (None, field(""), Rc::default());
+                    next.push(qstate(question, parts, w.host.as_ref()));
                 }
             }
         }
@@ -641,9 +645,14 @@ impl State for AsyncState {
         // a question that came in while the editor is open is seen at once
         if arrived {
             self.unseen = true;
-            if let Some(binding) = AppBinding::maybe_of(cx) {
-                binding.add_post_frame_callback(cx.map(|_: Duration| Msg::FocusInput));
-            }
+        }
+        // the answer on show was answered or skipped: the field that takes its place is a new
+        // one and takes the focus once the frame has put it in the tree
+        let now = self.questions.get(self.current).map(|q| q.id.clone());
+        if (arrived || before != now)
+            && let Some(binding) = AppBinding::maybe_of(cx)
+        {
+            binding.add_post_frame_callback(cx.map(|_: Duration| Msg::FocusInput));
         }
     }
 
@@ -685,8 +694,7 @@ impl State for AsyncState {
             Msg::Edited => {
                 // the chat's idle clock hears of what is typed here, as the oracle's pane notes
                 // the activity of the composer it hands the keys to
-                if let (Some(Host(chat)), Some(state)) =
-                    (&w.host, self.questions.get(self.current))
+                if let (Some(Host(chat)), Some(state)) = (&w.host, self.questions.get(self.current))
                     && let Some(at) = state.ui.draft.last_keyed()
                 {
                     chat.draft.keyed(at);
@@ -1139,13 +1147,12 @@ impl View {
         }
         // the Vim mode stands right-aligned in the last spacer row above the footer, while the
         // input holds the focus and there is a row between them (`vim_mode_indicator_span`)
-        let mode = self
-            .focus_is_input()
-            .then(|| self.mode_label(cx))
-            .flatten();
+        let mode = self.focus_is_input().then(|| self.mode_label(cx)).flatten();
         let mode_in_options = sections.spacer_after_input == 0;
         if sections.spacer_after_options > 0 {
-            let mode = mode.clone().filter(|_| mode_in_options && self.other_selected());
+            let mode = mode
+                .clone()
+                .filter(|_| mode_in_options && self.other_selected());
             column = column.child(self.spacer(sections.spacer_after_options, mode));
         }
         if sections.notes > 0 {
@@ -1211,7 +1218,9 @@ impl View {
         if below == 0 || rows <= below {
             return self.input_widget_rows(rows, placeholder);
         }
-        let row = |child: AnyWidget| -> AnyWidget { SizedBox::new(None, Some(px(1)), Some(child)).into() };
+        let row = |child: AnyWidget| -> AnyWidget {
+            SizedBox::new(None, Some(px(1)), Some(child)).into()
+        };
         let mut column = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)

@@ -139,7 +139,9 @@ pub(super) fn body(
         edit: !editing
             && !menu
             && !state.shortcuts
-            && (run.asking > 0 || !thread.queue().is_empty() || !thread.rejected_steers().is_empty()),
+            && (run.asking > 0
+                || !thread.queue().is_empty()
+                || !thread.rejected_steers().is_empty()),
     });
     // the threads that wait for an approval, right above the composer (`bottom_pane`)
     let body = body.child(PendingThreadsBanner);
@@ -213,7 +215,11 @@ pub(super) fn body(
     // a status line that names the credits or the cost wants them, whether or not it shows them
     // yet (`thread_usage_selected`): without a figure the line is empty
     let wanted = line_interests(facts);
-    let rows = (!line.is_empty() && !startup && !thread.read_only() && frame.provider.is_none() && !editing)
+    let rows = (!line.is_empty()
+        && !startup
+        && !thread.read_only()
+        && frame.provider.is_none()
+        && !editing)
         .then(|| {
             AnyWidget::from(StatusRows {
                 spans: line,

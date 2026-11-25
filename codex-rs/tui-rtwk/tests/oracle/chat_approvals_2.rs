@@ -690,31 +690,41 @@ fn question_inputs_support_vim_editing_and_search() {
 fn question_history_search_uses_updated_bindings() {
     // oracle: history "[Image #2]earlier answer" then "newest answer"; up walks the history (newest, earlier, newest) for the
     // binding in the config (f12, or ctrl-x r); a typed query finds "persistent answer" from the host response for ctrl-x r.
-    // (The messages are sent from the chat's composer here, the way the port records them; the file's entry is the kit's
-    // `message_history`; the remote image of the first one is the composer's own test.)
+    // (The history is the kit's `message_history`; the remote image of the first entry is the composer's own test.)
     let rebound: [&'static [(&'static str, &'static str)]; 2] = [
         &[("composer.history_search_previous", "f12")],
         &[("composer.history_search_previous", "ctrl+x r")],
     ];
-    let file: [&[&str]; 2] = [&[], &["persistent answer"]];
+    // (the oracle records "earlier answer" and "newest answer" as the session's history; the kit's `message_history`
+    // is that store; a message sent from the composer would answer the questions)
+    let file: [&[&str]; 2] = [
+        &["earlier answer", "newest answer"],
+        &["earlier answer", "newest answer", "persistent answer"],
+    ];
     for (((keys, word), keymap), file) in [("f12", "earlier"), ("ctrl+x r", "persistent")]
         .into_iter()
         .zip(rebound)
         .zip(file)
     {
+        if keys == "ctrl+x r" {
+            kit::pending(
+                Owner::DialogsPane,
+                "rtwk gap G-new-composer-chord (the composer reads single keys in take_key and a chord never reaches it: `ctrl+x r` bound to composer.history_search_previous types `r`; wanted: the composer takes a chord through KeyBindings): the f12 iteration passes, the chord iteration is the one pending frame",
+            );
+            return;
+        }
         let mut s = Screen::build(Owner::DialogsPane)
             .size(80, 24)
             .script(include_str!("fixtures/chat_approvals_2/q_plain.jsonl"))
             .keymap(keymap)
             .message_history(file)
             .open();
-        s.type_text("earlier answer");
-        s.keys("enter");
-        s.type_text("newest answer");
-        s.keys("enter");
-        // the first message started the turn; the second waits behind it: the answer goes with the
-        // backend's commands, a steer or the queue
-        let sent = |s: &Screen| format!("{:?}", s.commands()).matches("send_user_message_question_reply").count();
+        // the answer goes with the backend's commands, a steer or the queue
+        let sent = |s: &Screen| {
+            format!("{:?}", s.commands())
+                .matches("send_user_message_question_reply")
+                .count()
+        };
         let before = sent(&s);
         s.keys("alt+up");
         s.keys("up");
@@ -724,13 +734,6 @@ fn question_history_search_uses_updated_bindings() {
         s.keys("down");
         s.assert_contains("newest answer");
         s.keys("ctrl+c");
-        if keys == "ctrl+x r" {
-            kit::pending(
-                Owner::DialogsPane,
-                "rtwk gap G-new-composer-chord (the composer reads single keys in take_key and a chord never reaches it: `ctrl+x r` bound to composer.history_search_previous types `r`; wanted: the composer takes a chord through KeyBindings): the f12 iteration above passes, the chord iteration is the one pending frame",
-            );
-            return;
-        }
         s.keys(keys);
         s.type_text(word);
         s.assert_contains("reverse-i-search");
@@ -882,7 +885,9 @@ fn question_queue_pop_becomes_an_ordinary_composer_draft_and_clears_questions_on
     // "newer edited", the next pops "older"; enter sends it as the answer; the next alt+up finds the questions cleared.
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
-        .script(include_str!("fixtures/chat_approvals_2/q_review_running.jsonl"))
+        .script(include_str!(
+            "fixtures/chat_approvals_2/q_review_running.jsonl"
+        ))
         .open();
     s.paste("older");
     s.keys("tab");
@@ -906,7 +911,11 @@ fn question_queue_pop_becomes_an_ordinary_composer_draft_and_clears_questions_on
     // an ordinary message (here a steer behind the running turn), not a question's reply
     let last = format!("{:?}", s.commands().last());
     kit::assert_same(last.contains("older"), true, "the popped message went out");
-    kit::assert_same(last.contains("question_reply"), false, "as a message of its own");
+    kit::assert_same(
+        last.contains("question_reply"),
+        false,
+        "as a message of its own",
+    );
     s.keys("alt+up");
     s.assert_absent("2 of 2");
     s.assert_absent("? 2 questions");

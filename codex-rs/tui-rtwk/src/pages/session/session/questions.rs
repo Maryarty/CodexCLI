@@ -21,8 +21,8 @@ use codex_tui_core::screens::{ScreenThreadIntent, chat};
 use codex_tui_core::threads::{Queued, ThreadModel, UserMessage};
 
 use crate::app::view::Hs;
-use crate::widgets::thread_ui::ThreadUi;
 use crate::sheets::approvals::questions::{AQuestion, AsyncQuestions, Host, Kept, Outcome, Seed};
+use crate::widgets::thread_ui::ThreadUi;
 
 use super::{ChatMsg, ChatState, send};
 

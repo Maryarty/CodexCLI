@@ -501,6 +501,12 @@ pub fn label(keymap: &Keymap, id: ActionId) -> Option<String> {
     keymap.bindings(id).first().map(binding_label)
 }
 
+/// `label` as the oracle's `primary_hint` words it: the first spec the user wrote, a chord or not
+/// (`label` is the first single key, as the footer's own keys are listed).
+pub fn primary_label(keymap: &Keymap, id: ActionId) -> Option<String> {
+    keymap.primary(id).as_ref().map(binding_label)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -528,12 +534,11 @@ mod tests {
         let keymap = with("global", "open_transcript", &["ctrl-x ctrl-t", "f6"]);
         assert_eq!(
             names(&keymap, GLOBAL_OPEN_TRANSCRIPT),
-            ["ctrl+x ctrl+t", "f6"]
+            ["f6", "ctrl+x ctrl+t"]
         );
-        // the first spec the user wrote is the hint (`primary_hint`)
         assert_eq!(
             label(&keymap, GLOBAL_OPEN_TRANSCRIPT).as_deref(),
-            Some("\u{2303}x \u{2303}t")
+            Some("f6")
         );
     }
 
