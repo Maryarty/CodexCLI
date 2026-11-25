@@ -16,6 +16,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use crate::daemon::Mismatch;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::EnvironmentInfoParams;
 use codex_config::ConfigLayerSource;
@@ -46,6 +47,7 @@ use codex_tui_core::screens::chat::Ev as ChatEv;
 use codex_tui_core::screens::onboarding::auth::{AuthResult, Offer, Providers};
 use codex_tui_core::screens::onboarding::gateway::Logins;
 use codex_tui_core::screens::onboarding::{Ask, Ev, Facts, TrustAsk, TrustCancel, Welcome};
+use codex_tui_core::screens::startup::{DaemonChoice, Prompt};
 use codex_tui_rtwk::services::backend::rpc::Ids;
 pub use codex_tui_rtwk::services::startup::Browser;
 use codex_tui_rtwk::services::startup::UpdateAction;
@@ -69,6 +71,10 @@ pub type UpdateSlot = Arc<Mutex<Option<UpdateAction>>>;
 /// the terminal is restored (as `update`: set before the event that ends the
 /// app is sent, so it is there when the app is gone).
 pub type FailureSlot = Arc<Mutex<Option<String>>>;
+
+/// The compatibility failure the launch's recovery menu was opened for, kept for the answer
+/// (`Ask::DaemonChoice`) to act on: the menu carries what is drawn, the host what is done.
+pub type DaemonSlot = Arc<Mutex<Option<Mismatch>>>;
 
 /// What the startup asks need of the host.
 #[derive(Clone)]
@@ -115,6 +121,11 @@ pub struct Startup {
     pub restart: tokio::sync::mpsc::UnboundedSender<Restart>,
     /// The usage page's open session (S20).
     pub analytics: crate::analytics::Store,
+    /// The feature settings the command line asks of the shared server (`daemon::requested_features`);
+    /// empty for a launch that does not use it (the compatibility check has nothing to ask).
+    pub daemon_features: std::collections::BTreeMap<String, bool>,
+    /// The failed compatibility check the recovery menu answers.
+    pub daemon: DaemonSlot,
 }
 
 /// A restart of the embedded server with a config. `done` answers once the
@@ -123,6 +134,20 @@ pub struct Startup {
 pub struct Restart {
     pub config: Arc<Config>,
     pub done: Option<tokio::sync::oneshot::Sender<()>>,
+    /// The server the app moves to instead of staying on the one it has (the recovery menu's
+    /// answers); a restart that failed has ended the app and drops `done`.
+    pub switch: Option<Switch>,
+}
+
+/// Where a `Restart` moves the app (`daemon_recovery.rs`).
+pub enum Switch {
+    /// Run without the shared server this time: the embedded one, with `warning` as a startup
+    /// warning.
+    Embedded { warning: String },
+    /// The managed daemon restarts with `features`, then the app connects to it again.
+    Daemon {
+        features: std::collections::BTreeMap<String, bool>,
+    },
 }
 
 /// Loads the config as the launch did; the text of the error when it fails.
@@ -295,6 +320,7 @@ where
                         let _ = startup.restart.send(Restart {
                             config: config.clone(),
                             done: None,
+                            switch: None,
                         });
                     }
                     let status = crate::facts::status(&config).await;
@@ -323,8 +349,12 @@ where
                 .as_ref()
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|| config.cwd.display().to_string());
-            let prompts =
+            // The oracle checks the shared server before anything is drawn; here the recovery
+            // menu is the first prompt after the steps (the page is up already).
+            let daemon = daemon_prompt(&startup, &cwd, &ids, &send).await;
+            let mut prompts =
                 crate::launch::prompts(&config, startup.target, cwd, false, &ids, &send).await;
+            prompts.splice(0..0, daemon);
             Ev::Launched { request, prompts }
         }
         Ask::SaveResumeCwd { request, mode } => {
@@ -353,6 +383,7 @@ where
             crate::launch::save_migration(&config, &from, &to, accepted, effort).await;
             return None;
         }
+        Ask::DaemonChoice { choice } => return daemon_choice(&startup, choice).await,
         Ask::AcknowledgeGovCloud => {
             let config = startup.current.read().await.clone();
             crate::providers::acknowledge_gov_cloud(&config).await;
@@ -391,6 +422,7 @@ where
             let restart = Restart {
                 config,
                 done: Some(done),
+                switch: None,
             };
             // A server that did not start has already ended the app
             // (`StartFailed`): nothing to answer.
@@ -494,6 +526,71 @@ where
 
 /// The launch ends with `message`, as the oracle's does: the slot first, so
 /// `main` finds it once the app has ended.
+/// The recovery menu of a launch whose shared server lacks the settings the command line
+/// asked for (`daemon_recovery.rs::check`), kept in the slot for its answer.
+async fn daemon_prompt<F, Fut>(startup: &Startup, cwd: &str, ids: &Ids, send: &F) -> Option<Prompt>
+where
+    F: Fn(ClientRequest) -> Fut,
+    Fut: Future<Output = Result<serde_json::Value, ServerError>>,
+{
+    if startup.target != Target::LocalDaemon {
+        return None;
+    }
+    let mismatch = crate::daemon::compatibility(startup.daemon_features.clone(), cwd, ids, send)
+        .await
+        .err()?;
+    let prompt = mismatch.prompt(crate::daemon::managed(&mismatch).await);
+    if let Ok(mut slot) = startup.daemon.lock() {
+        *slot = Some(mismatch);
+    }
+    Some(Prompt::Daemon(prompt))
+}
+
+/// The answer of the recovery menu (`daemon_recovery.rs::check`): Cancel ends the launch with
+/// the compatibility error; Run without moves the app to the embedded server with the warning;
+/// Restart restarts the managed daemon and checks once more, never in a loop.
+async fn daemon_choice(startup: &Startup, choice: DaemonChoice) -> Option<AppEv> {
+    let mismatch = startup.daemon.lock().ok()?.take()?;
+    let config = startup.current.read().await.clone();
+    let (switch, check) = match choice {
+        DaemonChoice::Cancel => return Some(fail_launch(startup, mismatch.error_text())),
+        DaemonChoice::RunWithout => (
+            Switch::Embedded {
+                warning: mismatch.fallback_warning(),
+            },
+            false,
+        ),
+        DaemonChoice::Restart => {
+            let Some(features) = mismatch.restart_features.clone() else {
+                return Some(fail_launch(startup, mismatch.error_text()));
+            };
+            (Switch::Daemon { features }, true)
+        }
+    };
+    let (done, moved) = tokio::sync::oneshot::channel();
+    let restart = Restart {
+        config: config.clone(),
+        done: Some(done),
+        switch: Some(switch),
+    };
+    // A server that did not start has already ended the app (`StartFailed`): nothing to answer.
+    if startup.restart.send(restart).is_err() || moved.await.is_err() {
+        return None;
+    }
+    if !check {
+        return None;
+    }
+    // One check after the restart; a daemon that still differs ends the launch.
+    let recheck = crate::daemon::recheck(
+        startup.daemon_features.clone(),
+        &config.cwd.display().to_string(),
+    )
+    .await;
+    recheck
+        .err()
+        .map(|mismatch| fail_launch(startup, mismatch.error_text()))
+}
+
 fn fail_launch(startup: &Startup, message: String) -> AppEv {
     if let Ok(mut slot) = startup.failure.lock() {
         *slot = Some(message.clone());
@@ -998,6 +1095,8 @@ mod tests {
             target,
             browser,
             analytics: Default::default(),
+            daemon_features: Default::default(),
+            daemon: Default::default(),
         };
         (startup, dir)
     }
@@ -1104,6 +1203,144 @@ mod tests {
         assert!(
             seen.load(Ordering::SeqCst),
             "another task ran while the browser opened"
+        );
+    }
+
+    fn mismatch() -> Mismatch {
+        Mismatch {
+            reason: "This session requires a to be enabled".to_owned(),
+            restart_features: Some(std::collections::BTreeMap::from([("a".to_owned(), true)])),
+        }
+    }
+
+    // `daemon_recovery.rs`: Cancel (and Ctrl-C) ends the launch with the compatibility error,
+    // in the slot `main` reads.
+    #[tokio::test]
+    async fn cancelling_the_daemon_menu_ends_the_launch_with_the_compatibility_error() {
+        let (startup, _dir) = startup_with(Target::LocalDaemon, system_browser()).await;
+        *startup.daemon.lock().unwrap() = Some(mismatch());
+        let ev = run(
+            startup.clone(),
+            Ask::DaemonChoice {
+                choice: DaemonChoice::Cancel,
+            },
+            Ids::default(),
+            nothing,
+        )
+        .await;
+        let text = format!(
+            "Cannot use the shared background server: This session requires a to be enabled.\n{}",
+            crate::daemon::FAILURE_HINT
+        );
+        assert!(matches!(&ev, Some(AppEv::StartFailed(message)) if *message == text));
+        assert_eq!(
+            startup.failure.lock().unwrap().as_deref(),
+            Some(text.as_str())
+        );
+    }
+
+    // Run without: the app moves to the embedded server with the warning, and the answer waits
+    // for the move.
+    #[tokio::test]
+    async fn running_without_the_daemon_moves_the_app_to_the_embedded_server() {
+        let (mut startup, _dir) = startup_with(Target::LocalDaemon, system_browser()).await;
+        *startup.daemon.lock().unwrap() = Some(mismatch());
+        let (restart, mut receiver) = restarting();
+        startup.restart = restart;
+        let (ev, seen) = tokio::join!(
+            run(
+                startup,
+                Ask::DaemonChoice {
+                    choice: DaemonChoice::RunWithout,
+                },
+                Ids::default(),
+                nothing,
+            ),
+            async {
+                let restart = receiver.recv().await.expect("a restart");
+                let warning = match &restart.switch {
+                    Some(Switch::Embedded { warning }) => warning.clone(),
+                    _ => panic!("the embedded server"),
+                };
+                if let Some(done) = restart.done {
+                    let _ = done.send(());
+                }
+                warning
+            }
+        );
+        assert!(ev.is_none());
+        assert_eq!(
+            seen,
+            "Running without the shared background server: This session requires a to be enabled."
+        );
+    }
+
+    // Restart asks the managed daemon to restart with the settings the menu showed; a server
+    // that did not come up has ended the app (nothing to answer, no second check).
+    #[tokio::test]
+    async fn restarting_the_daemon_hands_the_settings_to_the_pump() {
+        let (mut startup, _dir) = startup_with(Target::LocalDaemon, system_browser()).await;
+        *startup.daemon.lock().unwrap() = Some(mismatch());
+        let (restart, mut receiver) = restarting();
+        startup.restart = restart;
+        let (ev, features) = tokio::join!(
+            run(
+                startup,
+                Ask::DaemonChoice {
+                    choice: DaemonChoice::Restart,
+                },
+                Ids::default(),
+                nothing,
+            ),
+            async {
+                let restart = receiver.recv().await.expect("a restart");
+                match restart.switch {
+                    Some(Switch::Daemon { features }) => features,
+                    _ => panic!("the daemon"),
+                }
+                // `done` drops here: the restart failed.
+            }
+        );
+        assert!(ev.is_none());
+        assert_eq!(
+            features,
+            std::collections::BTreeMap::from([("a".to_owned(), true)])
+        );
+    }
+
+    // The menu opens first among the launch's prompts, only for a daemon whose settings differ;
+    // a server that cannot answer is not restartable (no managed-daemon probe is made).
+    #[tokio::test]
+    async fn a_daemon_that_cannot_answer_opens_the_menu_without_a_restart() {
+        let (mut startup, _dir) = startup_with(Target::LocalDaemon, system_browser()).await;
+        startup.daemon_features = std::collections::BTreeMap::from([("a".to_owned(), true)]);
+        let send = |request: ClientRequest| {
+            std::future::ready(match request {
+                ClientRequest::ConfigRead { .. } => Ok(serde_json::json!({"config": {}})),
+                ClientRequest::ConfigRequirementsRead { .. } => {
+                    Ok(serde_json::json!({"requirements": null}))
+                }
+                ClientRequest::ExperimentalFeatureList { .. } => Err(ServerError {
+                    code: Some(-32601),
+                    message: "method not found".into(),
+                    data: None,
+                }),
+                other => panic!("unexpected request {other:?}"),
+            })
+        };
+        let prompt = daemon_prompt(&startup, "/work", &Ids::default(), &send).await;
+        let Some(Prompt::Daemon(prompt)) = prompt else {
+            panic!("the menu opens: {prompt:?}");
+        };
+        assert_eq!(prompt.reason, "Experimental feature request failed");
+        assert!(!prompt.can_restart());
+        assert!(startup.daemon.lock().unwrap().is_some());
+        // A launch that asked nothing of the server is not checked.
+        startup.daemon_features.clear();
+        assert!(
+            daemon_prompt(&startup, "/work", &Ids::default(), &send)
+                .await
+                .is_none()
         );
     }
 
