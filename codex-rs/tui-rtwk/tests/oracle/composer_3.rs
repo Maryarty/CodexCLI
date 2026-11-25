@@ -712,15 +712,15 @@ fn delete_selected_remote_image_relabels_local_placeholders() {
 // ORACLE bottom_pane/chat_composer.rs:12747 input_disabled_ignores_keypresses_and_hides_cursor kind=ui owner=chat-live
 #[test]
 fn input_disabled_ignores_keypresses_and_hides_cursor() {
-    kit::pending(
-        Owner::ChatLive,
-        "no input-disabled state on the chat composer: while input is off, a key is ignored, the draft stays, and the cursor is hidden",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: the draft 'hello', input disabled ('Input disabled for test.'), 'x' pressed
     s.type_text("hello");
+    s.input_disabled();
     s.keys("x");
-    s.assert_row(prompt(&s), "› hello");
+    // the key is ignored (the oracle's `current_text` stays `hello`, not readable while the
+    // composer is off); the drawn composer shows the placeholder instead of the draft
+    s.assert_row(prompt(&s), "› Input disabled until setup completes.");
+    s.assert_absent("› x");
     s.assert_cursor_hidden();
 }
 
@@ -795,19 +795,24 @@ fn left_respects_attachments_pastes_and_other_input_surfaces() {
 // ORACLE bottom_pane/chat_composer/agents_navigation_tests.rs:106 agents_navigation_hint_snapshots kind=snap owner=chat-live snap=agents_navigation_enabled snap=agents_navigation_help snap=agents_navigation_status
 #[test]
 fn agents_navigation_hint_snapshots() {
-    kit::pending(
-        Owner::ChatLive,
-        "no agents-navigation hint on the chat composer: the enabled hint (80x9), the '?' help (80x28) and the status line 'model · project' (80x9) are not drawn",
-    );
     // oracle snapshot agents_navigation_enabled (80 wide)
-    let s = Screen::build(Owner::ChatLive).size(80, 9).live().open();
+    let s = Screen::build(Owner::ChatLive)
+        .size(80, 9)
+        .entry("composer", "alone_agents")
+        .open();
     s.assert_snap("agents_navigation_enabled");
     // oracle snapshot agents_navigation_help: '?' pressed
-    let mut s = Screen::build(Owner::ChatLive).size(80, 28).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 28)
+        .entry("composer", "alone_agents")
+        .open();
     s.keys("?");
     s.assert_snap("agents_navigation_help");
     // oracle snapshot agents_navigation_status: the status line 'model · project'
-    let s = Screen::build(Owner::ChatLive).size(80, 9).live().open();
+    let s = Screen::build(Owner::ChatLive)
+        .size(80, 9)
+        .entry("composer", "alone_agents_status")
+        .open();
     s.assert_snap("agents_navigation_status");
 }
 

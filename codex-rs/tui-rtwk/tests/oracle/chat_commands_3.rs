@@ -303,13 +303,11 @@ fn slash_clear_with_name_requests_named_session() {
 // ORACLE chatwidget/tests/slash_commands.rs:2894 slash_clear_after_ctrl_c_keeps_stashed_draft_recallable kind=ui owner=chat-nav-pane
 #[test]
 fn slash_clear_after_ctrl_c_keeps_stashed_draft_recallable() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no Ctrl+C draft stash and no prompt history on the chat composer: Ctrl+C leaves the draft in the composer (oracle: composer empty, draft recorded), Up recalls nothing",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("ok");
     s.keys("enter");
+    // the oracle's thread is idle: the first turn ends before the draft is typed
+    s.feed(&completed(1));
     s.type_text("explain why history recall lost this draft");
     s.keys("ctrl+c");
     s.assert_composer("");

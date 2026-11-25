@@ -30,16 +30,19 @@ fn hidden_shell_payload() -> String {
 // ORACLE chatwidget/tests/composer_submission.rs:17 reconnect_queues_enter_and_resumes_ordinary_next_turn_submission kind=snap owner=chat-nav-pane
 #[test]
 fn reconnect_queues_enter_and_resumes_ordinary_next_turn_submission() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no seed for a disconnected thread stream (the connection drops, then Enter queues a prompt); the kit cannot set the disconnect",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.stream_lost("Cloud stream ended. Reopen the conversation to reconnect.");
     s.type_text("queued prompt");
     s.keys("enter");
     s.type_text("still editing");
     // The oracle's inline snapshot: its visible lines, trimmed, queued first.
     s.assert_in_order(&["↳ queued prompt", "› still editing"]);
+    // nothing was sent while the stream was down
+    s.assert_no_turn();
+    // the stream is back: the queued prompt goes out as the next turn, the draft stays
+    s.stream_restored();
+    s.assert_turn_texts(&["queued prompt"]);
+    s.assert_composer("still editing");
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:76 composer_submission_sends_once_and_requests_latest kind=ui owner=chat-nav-pane

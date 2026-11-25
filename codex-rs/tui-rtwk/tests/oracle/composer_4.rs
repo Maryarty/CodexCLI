@@ -611,10 +611,6 @@ fn reconnect_edit_removes_deleted_attachment_and_paste_metadata() {
 // ORACLE bottom_pane/chat_composer/reconnect_tests.rs:297 unavailable_thread_expands_pasted_commands_without_dispatching kind=ui owner=chat-live
 #[test]
 fn unavailable_thread_expands_pasted_commands_without_dispatching() {
-    kit::pending(
-        Owner::ChatLive,
-        "no unavailable-thread composer on the chat screen (no seed): a `/clear` with a large paste is drawn as a placeholder, and Enter does not run it",
-    );
     let mut s = chat(100, 24);
     s.paste(&format!("/clear {}", "x".repeat(1001)));
     s.keys("enter");

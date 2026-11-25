@@ -21,6 +21,7 @@ use super::strings::{Keys, Strings};
 use crate::app::theme::Tokens;
 use crate::keymap::{bind_fixed, label, stroke_for, stroke_label};
 use codex_tui_core::keymap::fixed;
+use codex_tui_core::keymap::actions::GLOBAL_OPEN_AGENTS;
 use codex_tui_core::keymap::{Keymap, Stroke};
 
 /// The two pages of the shortcut overlay (`bottom_pane/shortcut_overlay.rs`: `ShortcutView`):
@@ -76,7 +77,12 @@ pub(super) fn build(view: ShortcutView, s: &Strings, cx: &mut Cx<'_, SmallDialog
 /// `/keymap customize` and says `… resize to see all` over it: Flutter's
 /// `Column(min)[Flexible(SingleChildScrollView(body)), note, customize]`, the
 /// body's rows what its own arrangement holds (`groups`).
-pub(super) fn panel(s: &'static Strings, tokens: &Tokens, sections: Vec<Resolved>) -> AnyWidget {
+pub(super) fn panel(
+    s: &'static Strings,
+    tokens: &Tokens,
+    sections: Vec<Resolved>,
+    flexible: bool,
+) -> AnyWidget {
     let tokens = tokens.clone();
     let inner = LayoutBuilder::new(move |cx, constraints| {
         let seg = segmenter_of(cx);
@@ -124,13 +130,14 @@ pub(super) fn panel(s: &'static Strings, tokens: &Tokens, sections: Vec<Resolved
         }
         clipped.child(customize).into()
     });
-    Flexible::new(
-        OUTWEIGHS_THE_GAP,
-        Row::new()
-            .child(SizedBox::new(Some(2), None, None))
-            .child(Expanded::new(1, inner)),
-    )
-    .into()
+    let row = Row::new()
+        .child(SizedBox::new(Some(2), None, None))
+        .child(Expanded::new(1, inner));
+    if flexible {
+        Flexible::new(OUTWEIGHS_THE_GAP, row).into()
+    } else {
+        row.into()
+    }
 }
 
 /// The panel's flex against the reader's gap (flex 1) in the bottom pane's
@@ -148,7 +155,12 @@ pub(super) struct Resolved {
 /// The columns of `bindings` (`shortcut_overlay.rs`): a row whose action is
 /// unbound is left out, `Send message` and `Quit` turn into `Queue message`
 /// and `Interrupt` while a turn runs.
-pub(super) fn resolve(s: &Strings, keymap: &Keymap, running: bool) -> Vec<Resolved> {
+pub(super) fn resolve(
+    s: &Strings,
+    keymap: &Keymap,
+    running: bool,
+    agents: bool,
+) -> Vec<Resolved> {
     let spell = |stroke: &Stroke| stroke_label(stroke);
     s.shortcut_sections
         .iter()
@@ -166,6 +178,10 @@ pub(super) fn resolve(s: &Strings, keymap: &Keymap, running: bool) -> Vec<Resolv
                             s.shortcut_either,
                             spell(&stroke_for(b)?)
                         ),
+                        // the empty prompt's `←` stands for the agents page when it is reachable
+                        Keys::Bound(id) if agents && id == GLOBAL_OPEN_AGENTS => {
+                            stroke_label(&stroke_for(fixed::OPEN_AGENTS_FROM_LEFT)?)
+                        }
                         Keys::Bound(id) => label(keymap, id)?,
                     };
                     let action = match (running, entry.running) {
