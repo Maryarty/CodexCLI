@@ -91,7 +91,8 @@ command_opens! {
 fn host_offers_then_opens(offer: serde_json::Value, line: &str) {
     let mut h = chat();
     h.connect();
-    let fact = codex_tui_core::features::seed_fact("settings", offer).expect("the offer");
+    let fact = codex_tui_core::features::seed_fact("settings", offer)
+        .unwrap_or_else(|err| panic!("the offer: {err:?}"));
     h.inject([codex_tui_core::app::AppEv::Feature(fact)]);
     let before = h.t.screen();
     run_command(&mut h, line);
