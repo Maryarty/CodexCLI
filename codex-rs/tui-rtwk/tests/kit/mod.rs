@@ -26,6 +26,7 @@ mod hold;
 mod input;
 mod labels;
 mod markdown_gutter;
+mod palette;
 mod probe;
 mod replies;
 mod seed;
@@ -33,13 +34,16 @@ mod settings;
 mod side;
 mod sparkle;
 mod states;
+mod usage;
 mod verdict;
 mod worktrees;
 
 #[allow(unused_imports)]
 pub use asserts::{assert_same, native_status};
 #[allow(unused_imports)]
-pub use compare::{Want, assert_snap as assert_snap_on, snap_frames, snap_rows, snap_size};
+pub use compare::{
+    Want, assert_snap as assert_snap_on, snap_cuts, snap_frames, snap_rows, snap_size, snap_states,
+};
 #[allow(unused_imports)]
 pub use env::{ColorDepth, Install, REPLAYED, replay_turn};
 #[allow(unused_imports)]
@@ -48,6 +52,8 @@ pub use expect::{Ask, Turn, assert_rows_are};
 pub use grid::{Grid, check_style, color_name, modifier_name};
 #[allow(unused_imports)]
 pub use input::event_bytes_of;
+#[allow(unused_imports)]
+pub use palette::{DARK, LIGHT, contrast, luminance};
 #[allow(unused_imports)]
 pub use settings::Renderers;
 #[allow(unused_imports)]
@@ -460,6 +466,8 @@ impl Screen {
             frame: "",
             labels: &[],
             state: None,
+            cut: None,
+            states: None,
             at: None,
             dialog: false,
         }
@@ -785,6 +793,8 @@ pub struct Snap<'a> {
     at: Option<(usize, usize)>,
     dialog: bool,
     state: Option<(usize, usize)>,
+    states: Option<(&'a [usize], usize)>,
+    cut: Option<usize>,
 }
 
 impl<'a> Snap<'a> {
@@ -812,6 +822,22 @@ impl<'a> Snap<'a> {
         self
     }
 
+    /// The snapshot is one the test glued of bodies of different heights with a blank row and no
+    /// header (`panel(..)` bodies joined by `"\n\n"`): `heights` are the bodies' rows in the order
+    /// the test wrote them (a body's own blank rows included); this compares state `index`.
+    pub fn states(mut self, heights: &'a [usize], index: usize) -> Snap<'a> {
+        self.states = Some((heights, index));
+        self
+    }
+
+    /// The snapshot is one the test glued of renders with `join("\n---\n")` and no header
+    /// (`rate_limit_reset_popup_states`): this compares state `index` (from 0, in the order the
+    /// test wrote them), the lines between the bare `---` rules; `dialog()` reads it as a dialog.
+    pub fn cut(mut self, index: usize) -> Snap<'a> {
+        self.cut = Some(index);
+        self
+    }
+
     /// The snapshot is a region of the oracle's screen that starts at screen
     /// row `row` and column `col` of ours.
     pub fn at(mut self, row: usize, col: usize) -> Snap<'a> {
@@ -835,7 +861,11 @@ impl<'a> Snap<'a> {
             frame: self.frame,
             at: self.at,
         };
-        if let Some((height, index)) = self.state {
+        if let Some(index) = self.cut {
+            compare::assert_cut(&grid, &want, index, self.dialog);
+        } else if let Some((heights, index)) = self.states {
+            compare::assert_states(&grid, &want, heights, index);
+        } else if let Some((height, index)) = self.state {
             compare::assert_state(&grid, &want, height, index);
         } else if !self.labels.is_empty() {
             compare::assert_labelled(&grid, &want, self.labels, self.dialog);

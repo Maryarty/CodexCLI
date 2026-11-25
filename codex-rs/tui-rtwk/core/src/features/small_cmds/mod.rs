@@ -18,6 +18,7 @@
 
 mod data;
 mod rpcs;
+mod seed;
 
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
@@ -122,6 +123,9 @@ pub enum Fact {
     Ide(Result<IdeReading, IdeFailure>),
     /// The rows of `/debug-config` for the config in force.
     DebugConfig(Vec<Row>),
+    /// `/ide` is on and an IDE answers: the state a script starts a thread in, the indicator
+    /// shown and no note said (what `/ide on` leaves, bar the line in the transcript).
+    IdeOn(IdeReading),
 }
 
 impl Fact {
@@ -316,6 +320,7 @@ fn daybreak_saved(thread: ThreadId, enabled: bool, cx: &mut AppCx<'_>) {
 
 impl Feature for SmallCmds {
     const NAME: &'static str = "small_cmds";
+    const SEED: Option<crate::features::SeedFn<Fact>> = Some(seed::seed);
     const RUNS: &'static [SlashCommand] = &[
         SlashCommand::Logout,
         SlashCommand::Ide,
@@ -369,6 +374,13 @@ impl Feature for SmallCmds {
         match fact {
             Fact::Ide(reading) => state.ide_fact = Some(reading),
             Fact::DebugConfig(rows) => state.debug_config = rows,
+            Fact::IdeOn(reading) => {
+                state.ide = Ide {
+                    enabled: true,
+                    warned: false,
+                };
+                state.ide_fact = Some(Ok(reading));
+            }
         }
     }
 

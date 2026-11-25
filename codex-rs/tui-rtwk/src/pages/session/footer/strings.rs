@@ -71,6 +71,9 @@ pub struct Strings {
     pub goal_achieved_usage: Msg<1>,
     /// The unit after the figure of a closed goal's token count.
     pub goal_tokens: &'static str,
+    /// `footer.rs` `passive_hints`: the IDE context indicator (`/ide` on), then its short form.
+    pub ide_context: &'static str,
+    pub ide_short: &'static str,
     /// `textarea.rs` `vim_mode_indicator_span`.
     pub vim_normal: &'static str,
     pub vim_insert: &'static str,
@@ -175,6 +178,8 @@ pub const EN: Strings = Strings {
     goal_achieved: "Goal achieved",
     goal_achieved_usage: msg!("Goal achieved ({0})"),
     goal_tokens: " tokens",
+    ide_context: "IDE context",
+    ide_short: "IDE",
     vim_normal: "Vim: Normal",
     vim_insert: "Vim: Insert",
     vim_replace: "Vim: Replace",

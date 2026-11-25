@@ -711,14 +711,11 @@ fn approval_modal_exec_multiline_prefix_hides_execpolicy_option_snapshot() {
 // ORACLE chatwidget/tests/exec_flow.rs:1533 approval_modal_patch_snapshot kind=snap owner=dialogs-pane snap=approval_modal_patch
 #[test]
 fn approval_modal_patch_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no approvals entry for the README.md file-change request with its reason and grant root (the request carries no changes)",
-    );
-    // oracle: the patch modal (README.md added, reason, grant root /tmp/project) at width 80; no "$ apply_patch" line.
+    // oracle: the patch modal (README.md added, reason, destination /tmp/project/README.md) at the
+    // chat's desired height (13 rows) at width 80; no "$ apply_patch" line.
     let s = Screen::build(Owner::DialogsPane)
         .size(80, 13)
-        .entry("approvals", "patch_edits")
+        .script(include_str!("fixtures/chat_approvals_1/patch_reason.jsonl"))
         .open();
     s.assert_absent("$ apply_patch");
     s.assert_snap("approval_modal_patch");
@@ -832,13 +829,13 @@ fn apply_patch_full_flow_integration_like() {
 // ORACLE chatwidget/tests/exec_flow.rs:1937 apply_patch_untrusted_shows_approval_modal kind=ui owner=dialogs-pane
 #[test]
 fn apply_patch_untrusted_shows_approval_modal() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no file-change approval modal on the chat screen for an untrusted patch (a.rs, no reason)",
-    );
     // oracle: the modal shows its title "Would you like to make the following edits?" at width 80, height 12.
-    let s = Screen::build(Owner::DialogsPane).size(80, 12).live().open();
-    // needs feed: apply_patch approval call-1 (a.rs add, empty content) under OnRequest
+    let s = Screen::build(Owner::DialogsPane)
+        .size(80, 12)
+        .script(include_str!(
+            "fixtures/chat_approvals_1/patch_omits_diff.jsonl"
+        ))
+        .open();
     s.assert_contains("Would you like to make the following edits?");
 }
 

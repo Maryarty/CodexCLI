@@ -142,20 +142,41 @@ fn key_names(display: &str) -> Vec<String> {
         })
         .map(|part| {
             let part = part.trim().replace(" + ", "+");
-            // `⌃c`: the control sign and the character.
-            if let Some(rest) = part.strip_prefix('\u{2303}') {
-                return ["ctrl+", rest].concat();
+            // `⌃c`, `⇧?`, `⌥x`, `⌘k`: the modifier signs (what a configured binding is shown
+            // with on macOS, `stroke_label`) and the key after them.
+            let mut mods = String::new();
+            let mut rest = part.as_str();
+            while let Some(sign) = rest.chars().next() {
+                let name = match sign {
+                    '\u{2303}' => "ctrl+",
+                    '\u{21e7}' => "shift+",
+                    '\u{2325}' => "alt+",
+                    '\u{2318}' => "super+",
+                    _ => break,
+                };
+                mods.push_str(name);
+                rest = &rest[sign.len_utf8()..];
             }
-            match part.as_str() {
-                "\u{2191}" => "up".to_owned(),
-                "\u{2193}" => "down".to_owned(),
-                "\u{2190}" => "left".to_owned(),
-                "\u{2192}" => "right".to_owned(),
-                "esc" => "escape".to_owned(),
-                "pgup" => "pageup".to_owned(),
-                "pgdn" => "pagedown".to_owned(),
-                _ => part,
+            // Shift on a key whose character is not a letter types another character (`⇧?` is
+            // the `?` of the `/` key, `⇧1` the `!`): rtwk names that key by the character.
+            let mut chars = rest.chars();
+            if let (Some(only), None) = (chars.next(), chars.next())
+                && !only.is_alphabetic()
+                && let Some(without) = mods.strip_suffix("shift+")
+            {
+                mods = without.to_owned();
             }
+            let key = match rest {
+                "\u{2191}" => "up",
+                "\u{2193}" => "down",
+                "\u{2190}" => "left",
+                "\u{2192}" => "right",
+                "esc" => "escape",
+                "pgup" => "pageup",
+                "pgdn" => "pagedown",
+                _ => rest,
+            };
+            [mods.as_str(), key].concat()
         })
         .collect()
 }

@@ -484,13 +484,14 @@ fn custom_prompt_enter_empty_does_not_send() {
 fn interrupt_exec_marks_failed_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "no exec cell on the chat screen: a running command is not drawn, and an interrupted turn does not finalize it as failed (Ran sleep 1)",
+        "the oracle snapshots the cell as it is inserted into the scrollback (`display_lines`: `Ran`); the chat draws the compact cell, which titles a command that exited non-zero `Exited (status 1)` (exec_cell/compact.rs); the cell is finalized as failed and kept",
     );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.feed(&exec_begin("call-int", "sleep 1"));
     s.feed(&turn_ended("turn-1", "interrupted"));
-    s.assert_snap("interrupt_exec_marks_failed");
+    // The oracle snapshots the finalized exec cell it inserted into the history.
+    s.assert_snap_region("interrupt_exec_marks_failed", row_of(&s, "sleep 1"), 0);
 }
 
 // ORACLE chatwidget/tests/review_mode.rs:1270 interrupted_turn_error_message_snapshot kind=snap owner=chat-live snap=interrupted_turn_error_message
@@ -642,6 +643,8 @@ fn suppressed_interrupted_turn_notice_skips_history_warning() {
     // the steps reach the side conversation, so the absence below is not a miss
     s.assert_contains("partial output");
     s.feed(&of_side(turn_ended("turn-1", "interrupted")));
+    // the streamed text stays: a `turn/completed` that lists no item does not take the turn's items
+    s.assert_contains("partial output");
     // oracle: no 'Conversation interrupted' and no steer-interrupt notice in the history of a side conversation.
     s.assert_absent("Conversation interrupted");
     s.assert_absent("Model interrupted to submit steer instructions.");

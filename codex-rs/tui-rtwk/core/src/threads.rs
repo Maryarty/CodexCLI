@@ -2704,12 +2704,26 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         }
         ThreadEv::Reverted => {
             // the edit of a past prompt waits for this (`ThreadReverted`)
+            let edited = model.slots.backtrack.editing();
             screens::apply_thread_ev(
                 &mut model.slots,
                 ScreenThreadEv::Backtrack(screens::backtrack::ThreadEv::Reverted),
                 fx,
             );
             reset_history(model);
+            // Our own edit says so after the history it kept (`FinishPromptRevert`: the retained
+            // turns are read next and go before the line); a revert another client made says
+            // nothing.
+            if edited {
+                apply_ev(
+                    model,
+                    ThreadEv::Appended {
+                        turn: None,
+                        item: Item::Notice(Notice::PromptReverted),
+                    },
+                    fx,
+                );
+            }
         }
         ThreadEv::Failure(error) => model.last_error = Some(error),
         ThreadEv::Goal(goal, budget_turn) => {
@@ -3227,7 +3241,11 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         } => {
             processes::turn_ended(model, &turn, end);
             match snapshot {
-                Some(TurnSnapshot::Full(items)) => {
+                // A list with no item says nothing of a turn whose items came as they ran: the
+                // oracle's live chat keeps what the notifications drew (an interrupted turn's
+                // running command stays, finished as failed); only a list that names items is
+                // the turn's own.
+                Some(TurnSnapshot::Full(items)) if !items.is_empty() => {
                     Rc::make_mut(&mut model.authoritative_turns).insert(turn.clone());
                     for (id, item) in &items {
                         let key = ItemKey {

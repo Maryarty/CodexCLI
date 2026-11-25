@@ -368,7 +368,7 @@ fn reset_confirmation_keeps_both_choices_at_wrap_boundary() {
 fn shortcut_overlay_uses_runtime_bindings_and_wsl_paste() {
     kit::pending(
         Owner::DialogsPane,
-        "the shortcut overlay seed carries no runtime keymap (ctrl+x chords, reasoning_down and history_search unbound) and no WSL flag: the shortcuts seed is {\"kind\":\"shortcuts\"} only; no entry dialogs/shortcut_overlay_custom_wsl",
+        "the overlay reads the keymap (`.keymap(..)` seeds the ctrl+x chords and the unbound rows), but its Paste image key is the fixed `⌃v`: the oracle's `is_wsl` makes it `⌃⌥v` and no fact of the sheet says WSL (services/clipboard/machine.rs probes the process); `esc_backtrack_hint` (`esc` for Edit last message) is no seed either; no entry dialogs/shortcut_overlay_custom_wsl",
     );
     let s = Screen::build(Owner::DialogsPane)
         .size(80, 21)
@@ -523,14 +523,13 @@ fn renders_title_setup_popup() {
 // ORACLE bottom_pane/warnings_view_tests.rs:53 warning_pages_copy_only_the_current_diagnostic kind=ui owner=dialogs-pane
 #[test]
 fn warning_pages_copy_only_the_current_diagnostic() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no keymap seed: the oracle sets list.move_right to x (no entry dialogs/warnings_move_right_x); the copy event (CopyWarning) is not visible, the copied text is not asserted here",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 12)
-        .entry("dialogs", "warnings_move_right_x")
+        .script(include_str!("fixtures/small_dialogs_2/warnings_two.jsonl"))
+        .keymap(&[("list.move_right", "x")])
         .open();
+    // The oracle pushes the viewer itself; the port opens it from the footer's `f2`.
+    s.keys("f2");
     s.keys("x");
     s.assert_contains("2 of 2");
     s.assert_contains("Unknown setting `old_option`");
@@ -571,7 +570,7 @@ fn warning_pages_wrap_and_scroll_long_diagnostics() {
 fn scroll_hint_tracks_wheel_and_keys_across_wrapped_rows() {
     kit::pending(
         Owner::DialogsPane,
-        "no keymap seed (list.move_down = z) in the port: the keymap seed is pending in the kit until the port reads a keymap",
+        "the warnings viewer has no scroll hint: its footer holds keep, dismiss, copy and pages only (the oracle adds ` · ↑/z scroll` for the directions with rows left, by the configured list.move_up / list.move_down), its body scrolls by the toolkit's own keys and not by the list keymap, and the wheel is not limited to the body rows (needs the viewer's own offset and max offset: a ScrollController read by the footer)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(84, 10)
@@ -597,31 +596,30 @@ fn scroll_hint_tracks_wheel_and_keys_across_wrapped_rows() {
 // ORACLE bottom_pane/warnings_view_tests.rs:133 warnings_dismiss_only_drawn_pages_after_navigation_skips_a_frame kind=ui owner=dialogs-pane
 #[test]
 fn warnings_dismiss_only_drawn_pages_after_navigation_skips_a_frame() {
-    kit::pending(
-        Owner::DialogsPane,
-        "the dismissed set (the UpdateWarnings event) is not visible and the kit cannot read it: its visible part (the page counter) is ported below, the event part is not asserted",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 12)
         .script(include_str!(
             "fixtures/small_dialogs_2/warnings_three.jsonl"
         ))
         .open();
+    // The oracle pushes the viewer itself; the port opens it from the footer's `f2`.
+    s.keys("f2");
     s.assert_contains("1 of 3");
     s.keys("right right");
     s.assert_contains("3 of 3");
     s.keys("left");
-    // F2 closes the viewer: the UpdateWarnings event (dismissed set) is not visible
+    // F2 closes the viewer: the UpdateWarnings event (dismissed set) is not visible, its
+    // outcome is: the pages that were drawn left the retained list, every one here (the kit
+    // draws between its keys; the oracle's skipped frame keeps the middle page).
     s.keys("f2");
+    s.assert_absent("of 3");
+    s.keys("f2");
+    s.assert_absent("MCP example could not connect");
 }
 
 // ORACLE bottom_pane/warnings_view_tests.rs:171 warnings_keep_current_and_next_without_dismissing_unvisited_pages kind=ui owner=dialogs-pane
 #[test]
 fn warnings_keep_current_and_next_without_dismissing_unvisited_pages() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no keymap seed (list.move_up = up, list.cancel = k) in the port: the keymap seed is pending in the kit; the dismissed and kept sets are events, not visible",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 12)
         .script(include_str!(
@@ -629,6 +627,7 @@ fn warnings_keep_current_and_next_without_dismissing_unvisited_pages() {
         ))
         .keymap(&[("list.move_up", "up"), ("list.cancel", "k")])
         .open();
+    s.keys("f2");
     // Keep owns k in this viewer even when a list action is remapped to it
     s.keys("k");
     s.assert_contains("2 of 3");
@@ -638,7 +637,13 @@ fn warnings_keep_current_and_next_without_dismissing_unvisited_pages() {
     s.assert_contains("2 of 3");
     s.keys("left");
     s.keys("f2");
-    // the UpdateWarnings event (dismissed and kept sets) is not visible: not asserted
+    // The UpdateWarnings event (dismissed and kept sets) is not visible, its outcome is: the
+    // dismissed page left the retained list, the kept one and the page never shown stayed.
+    s.keys("f2");
+    s.assert_contains("1 of 2");
+    s.assert_contains("MCP example could not connect");
+    s.keys("right");
+    s.assert_contains("Not yet viewed");
 }
 
 // ORACLE bottom_pane/warnings_view_tests.rs:207 warning_links_preserve_destinations_when_wrapped_and_scrolled kind=snap owner=dialogs-pane snap=warnings_wrapped_url

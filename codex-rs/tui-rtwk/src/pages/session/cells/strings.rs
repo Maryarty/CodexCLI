@@ -223,6 +223,8 @@ pub struct Strings {
     pub warning_windows: [&'static str; 7],
     /// `NO_PREVIOUS_MESSAGE_TO_EDIT` (`app_backtrack.rs`).
     pub no_previous_message: &'static str,
+    /// `emit_prompt_edit_thread_event` (`app/event_dispatch.rs`).
+    pub prompt_reverted: &'static str,
     pub review_started: (&'static str, &'static str),
     pub review_finished: (&'static str, &'static str),
     // chatwidget/rate_limits.rs: `finish_add_credits_nudge_email_request`; per kind of nudge
@@ -493,6 +495,7 @@ pub const EN: Strings = Strings {
         " available. Run /usage to use one.",
     ),
     no_previous_message: "No previous message to edit.",
+    prompt_reverted: "Conversation reverted to this point. File changes are unchanged.",
     review_started: (">> Code review started: ", " <<"),
     review_finished: ("<< Code review finished: ", " >>"),
     safety_mark: "ⓘ ",

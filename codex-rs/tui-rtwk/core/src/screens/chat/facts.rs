@@ -107,6 +107,39 @@ impl HeadlineAnswer {
     }
 }
 
+/// The style a footer flash is drawn in (`Line::from(..)`, `.red()`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FlashTone {
+    #[default]
+    Plain,
+    Error,
+}
+
+/// A line the footer shows in place of its hints for a while (`show_footer_flash`: the line and
+/// how long it stays). The seed form is `{"facts":{"flash":{"text":"Copied","millis":3000}}}`
+/// (`tone` is `plain` or `error`; `millis` is five seconds without it).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct FlashLine {
+    pub text: String,
+    #[serde(default)]
+    pub tone: FlashTone,
+    #[serde(default = "five_seconds")]
+    pub millis: u64,
+}
+
+fn five_seconds() -> u64 {
+    5_000
+}
+
+/// The flash on now: its line and the number of the showing (`showing`), which the view starts its timer by
+/// (the same line shown again is another showing).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Flashed {
+    pub showing: u64,
+    pub line: FlashLine,
+}
+
 /// A read the host is asked to do.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Probe {
@@ -148,6 +181,11 @@ pub enum Ev {
     AgentsNavigation(bool),
     /// The app is closing (`ChatWidget::is_shutting_down`): the composer takes nothing more.
     ShuttingDown(bool),
+    /// The door of the footer's flash (`show_footer_flash`): whatever of the app or a thread has a
+    /// line to say in the footer for a while (a copy's result, a refused answer) raises it by this
+    /// event; none takes the line away (`show_footer_flash(Line::default(), Duration::ZERO)`).
+    /// The view keeps the clock: the flash stays in the facts and the footer ends it.
+    Flash(Option<FlashLine>),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -175,6 +213,8 @@ pub struct Facts {
     pub agent_label: Option<String>,
     pub agents_navigation: bool,
     pub shutting_down: bool,
+    flash: Option<Flashed>,
+    flashed: u64,
     cwd: Option<String>,
     now: u64,
     issued: u64,
@@ -191,6 +231,8 @@ impl Default for Facts {
             // the oracle's chat is built with agents navigation on
             agents_navigation: true,
             shutting_down: false,
+            flash: None,
+            flashed: 0,
             cwd: None,
             now: 0,
             issued: 0,
@@ -258,7 +300,19 @@ impl Facts {
             Ev::AgentLabel(label) => self.agent_label = label,
             Ev::AgentsNavigation(on) => self.agents_navigation = on,
             Ev::ShuttingDown(on) => self.shutting_down = on,
+            Ev::Flash(line) => {
+                self.flashed += 1;
+                self.flash = line.map(|line| Flashed {
+                    showing: self.flashed,
+                    line,
+                });
+            }
         }
+    }
+
+    /// The footer's flash, from its showing until the view's timer ends it.
+    pub fn flash(&self) -> Option<&Flashed> {
+        self.flash.as_ref()
     }
 
     /// `sync_status_surface_shared_state`: what the configured items need decides what is kept

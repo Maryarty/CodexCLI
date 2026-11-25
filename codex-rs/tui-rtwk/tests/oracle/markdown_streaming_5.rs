@@ -7,7 +7,7 @@
 use crate::kit::{self, Owner, Renderers, Screen};
 
 /// A table draws as its plain text: no table renderer (separators, wrapping, held tail).
-const TABLE: &str = "the chat draws a table as its plain text: the table renderer (box separators, cell wrapping at the width, the mutable tail held until the table is stable, the no-outer-pipes and fenced forms) is not in the transcript yet";
+const TABLE: &str = "G73: the chat draws a table as its plain text: the table renderer (box separators, cell wrapping at the width, the mutable tail held until the table is stable, the no-outer-pipes and fenced forms) is not in the transcript yet";
 /// The plan stream: the heading and quote markers, the table rules and the prompt surface.
 const PLAN: &str = "G73: items 1 and 3, the oracle's plan item draws the `#` heading marker and the `>` quote marker from the source and a table with a `━` rule under the header (tui markdown_render.rs); rtwk MarkdownView draws no source markers and a `│ ┼ ─` box table; the plan item stream `item/plan/delta` into a streaming plan item is the transcript owner's";
 /// The chat draws math sources as their text: no unicode math renderer.

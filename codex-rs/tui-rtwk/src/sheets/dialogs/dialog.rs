@@ -10,7 +10,9 @@ use rtwk::overlay::close_dialog;
 use rtwk::provider::read;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::keymap::actions::{GLOBAL_COPY, GLOBAL_OPEN_WARNINGS};
+use codex_tui_core::keymap::actions::{
+    GLOBAL_COPY, GLOBAL_OPEN_WARNINGS, LIST_CANCEL, LIST_MOVE_LEFT, LIST_MOVE_RIGHT,
+};
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::dialogs::Intent;
@@ -147,6 +149,22 @@ impl State for SmallDialogState {
                         GLOBAL_COPY,
                         &cx.send(Msg::Turn(Turn::Copy)),
                     ));
+                    // The list keymap's pages and cancel; plain k is the viewer's own (keep).
+                    named.extend(bindings(
+                        &keys,
+                        LIST_MOVE_LEFT,
+                        &cx.send(Msg::Turn(Turn::Previous)),
+                    ));
+                    named.extend(bindings(
+                        &keys,
+                        LIST_MOVE_RIGHT,
+                        &cx.send(Msg::Turn(Turn::Next)),
+                    ));
+                    named.extend(
+                        bindings(&keys, LIST_CANCEL, &cx.send(Msg::Close))
+                            .into_iter()
+                            .filter(|(name, _)| name != "k" && !name.starts_with("k ")),
+                    );
                     KeyBindings::new(first_of_each(named), warnings::build(pages, s, cx)).into()
                 }
                 None => AnyWidget::default(),

@@ -30,12 +30,13 @@ mod strings;
 use std::rc::Rc;
 
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
-use rtwk::provider::select;
+use rtwk::provider::{Provider, select};
 use rtwk::style::Span;
-use rtwk::text::segmenter_of;
+use rtwk::text::{TextOverflow, segmenter_of};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, StatelessWidget, impl_widget};
 
+use codex_tui_core::features::FeatureStates;
 use codex_tui_core::format::format_tokens_compact;
 use codex_tui_core::keymap::actions::COMPOSER_TOGGLE_SHORTCUTS;
 use codex_tui_core::kit::vim::VimMode;
@@ -230,6 +231,9 @@ impl Footer {
         let goal = select::<ThreadModel, Option<GoalIndicator>, _>(cx, move |thread| {
             chat_facts::goal_indicator(thread, now)
         });
+        // `/ide` on: the small commands' state, absent where the app's models are not provided
+        let ide = Provider::<FeatureStates>::maybe_of(cx, false).is_some()
+            && select::<FeatureStates, bool, _>(cx, |features| features.small_cmds.ide.enabled);
         let meter = match (percent, received) {
             (Some(percent), _) => Meter::Left(percent),
             (None, true) if used > 0 => Meter::Used(used),
@@ -246,6 +250,7 @@ impl Footer {
             // (`show_cycle = can_type && !is_task_running`)
             show_cycle: !running,
             goal,
+            ide,
             side: facts
                 .side_label
                 .or_else(|| facts.side.as_ref().map(strings::side_footer))
@@ -306,11 +311,18 @@ fn close_row(cx: &mut Cx<'_>, on_tap: Option<Handler<()>>) -> AnyWidget {
     .into()
 }
 
-/// One line of spans, `INDENT` cells in.
+/// One line of spans, `INDENT` cells in, cut at the right edge where it is longer than the
+/// window (the oracle's `render_footer_line` is a `Paragraph` the area clips): the text is the
+/// row's `Expanded`, so a row as wide as the text never overflows by the indent.
 fn transient(spans: Vec<Span>) -> AnyWidget {
     Row::new()
         .child(SizedBox::new(Some(INDENT), None, None))
-        .child(Text::rich_line(spans))
+        .child(Expanded::new(
+            1,
+            Text::rich_line(spans)
+                .max_lines(Some(1))
+                .overflow(TextOverflow::Clip),
+        ))
         .into()
 }
 
@@ -342,6 +354,8 @@ struct Spec {
     plan: bool,
     show_cycle: bool,
     goal: Option<GoalIndicator>,
+    /// `/ide` is on (`ide_context_active`): `IDE context` after the mode or goal.
+    ide: bool,
     /// The side conversation's label and whether it is the one shown.
     side: Option<(String, bool)>,
     agent_label: Option<String>,
@@ -400,6 +414,9 @@ impl Spec {
             out.push((Kind::Plan, indicators::plan(self, width)));
         } else if let Some(forms) = indicators::goal(self, width) {
             out.push((Kind::Goal, forms));
+        }
+        if let Some(forms) = indicators::ide(self, width) {
+            out.push((Kind::Ide, forms));
         }
         if self.running && !self.draft_empty && !self.shell {
             let key = self.own.queue_key;

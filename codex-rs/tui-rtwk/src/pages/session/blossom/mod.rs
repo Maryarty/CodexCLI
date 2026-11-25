@@ -4,6 +4,7 @@
 mod geometry;
 mod lighting;
 mod paths;
+mod policy;
 mod renderer;
 mod sequence;
 
@@ -26,6 +27,8 @@ use self::sequence::{
 
 const FRAME_MS: u64 = 50;
 const SETTLED_PHASE: f64 = 0.5;
+
+pub(super) use self::policy::startup_only;
 
 pub(super) fn welcome() -> AnyWidget {
     LayoutBuilder::new(|_, constraints| {

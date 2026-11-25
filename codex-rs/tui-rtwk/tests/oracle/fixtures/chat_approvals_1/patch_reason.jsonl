@@ -1,0 +1,5 @@
+# A file-change approval with the model's reason and its destination README.md under the grant root /tmp/project: the live chat shows the modal (approval_modal_patch).
+# Oracle data: chatwidget/tests/exec_flow.rs:1533 approval_modal_patch_snapshot: README.md add "hello\nworld\n", reason "The model wants to apply changes", grant_root /tmp/project; the app-server request carries no changes, the screen event the destinations the oracle's thread state gives it
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"request","message":{"method":"item/fileChange/requestApproval","id":1,"params":{"itemId":"call-approve-patch","threadId":"thread-1","turnId":"turn-1","startedAtMs":0,"reason":"The model wants to apply changes","grantRoot":"/tmp/project"}}}
+{"step":"screen","dir":"approvals","ev":{"kind":"request","request":{"method":"item/fileChange/requestApproval","id":1,"params":{"itemId":"call-approve-patch","threadId":"thread-1","turnId":"turn-1","startedAtMs":0,"reason":"The model wants to apply changes","grantRoot":"/tmp/project"}},"destinations":["/tmp/project/README.md"]}}

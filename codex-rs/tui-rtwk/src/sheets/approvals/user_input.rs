@@ -45,6 +45,8 @@ use crate::widgets::thread_ui::ThreadUi;
 pub struct UserInputView {
     pub key: RequestKey,
     pub prompt: Rc<Prompt>,
+    /// The dialog opens on the confirmation of a submit with unanswered questions.
+    pub confirming: bool,
 }
 
 impl UserInputView {
@@ -165,8 +167,8 @@ impl StatefulWidget for UserInputView {
         UserInputViewState {
             questions,
             current: 0,
-            notes_focus,
-            confirming: false,
+            notes_focus: notes_focus && !self.confirming,
+            confirming: self.confirming,
             confirm: Options::new(),
             node: FocusNode::new(),
             clock: None,

@@ -5,7 +5,8 @@
 //! - headings keep their source markers: `## Title` is drawn with its two hashes in the
 //!   heading's own style (markdown_render.rs `start_heading`; G73 in rtwk-gaps.md);
 //! - line breaks, local file links and references to them: `inlines.rs`;
-//! - a web link's destination follows the host's terminal fact (`Markdown`).
+//! - a web link's destination follows the host's terminal fact (`Markdown`); only a web
+//!   address is a hyperlink (`http`, `https`: the oracle's `web_destination`).
 //!
 //! Flutter: `MarkdownBody(builders: {'h1': HeadingWithMarker(), 'a': LocalFileLink(cwd)})` under
 //! a `Theme` that knows how links show. The view lays out, wraps and styles each rewritten
@@ -13,6 +14,7 @@
 
 mod inlines;
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
@@ -82,10 +84,14 @@ impl State for MarkdownState {
             LinkDisplay::WithDestination => LinkDestinations::Suffix,
             LinkDisplay::LabelOnly => LinkDestinations::Auto,
         };
+        // Only a web address is a hyperlink, as the oracle's `web_destination` has it: a
+        // `mailto:` link shows its destination and is no hyperlink.
+        let schemes = BTreeSet::from(["http".to_string(), "https".to_string()]);
         widget
             .view
             .clone()
             .theme(widget.theme.clone())
+            .hyperlink_schemes(schemes)
             .link_destinations(destinations)
             .into()
     }
