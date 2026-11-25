@@ -175,9 +175,10 @@ fn marketplace_upgrade_failure_includes_backend_messages_snapshot() {
 #[test]
 fn hooks_popup_shows_list_diagnostics() {
     let mut s = Screen::build(Owner::DialogsPane)
-        .size(112, 20)
-        .script(include_str!("fixtures/chat_popups_3/hooks_diagnostics.jsonl"))
-        .live()
+        .size(112, 21)
+        .script(include_str!(
+            "fixtures/chat_popups_3/hooks_diagnostics.jsonl"
+        ))
         .open();
     s.type_text("/hooks").keys("enter");
     // The oracle's snapshot is the popup alone, from its title.

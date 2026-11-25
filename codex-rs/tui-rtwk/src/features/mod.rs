@@ -213,7 +213,14 @@ impl OpenArgs {
 /// `FeatureSheet`: no feature target names them, the command's own target does.
 pub fn open_settings<S: 'static>(cx: &mut Cx<'_, S>, command: SlashCommand, args: &str) {
     let opens = settings::Args::of(command);
-    settings::open(cx, if args == "debug" { opens.inspecting() } else { opens });
+    settings::open(
+        cx,
+        if args == "debug" {
+            opens.inspecting()
+        } else {
+            opens
+        },
+    );
 }
 
 /// Enter on a pet of the `/pets` picker: `[tui].pet` is written (the settings own the config

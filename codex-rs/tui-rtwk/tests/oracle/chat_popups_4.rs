@@ -103,7 +103,9 @@ fn apps_popup_for_not_installed_app_uses_install_only_selected_description() {
 fn experimental_features_popup_snapshot() {
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 14)
-        .script(include_str!("fixtures/chat_popups_4/experimental_three.jsonl"))
+        .script(include_str!(
+            "fixtures/chat_popups_4/experimental_three.jsonl"
+        ))
         .open();
     s.type_text("/experimental");
     s.keys("enter");
@@ -113,7 +115,9 @@ fn experimental_features_popup_snapshot() {
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 10)
         .keymap(&[("list.accept", "ctrl+x enter")])
-        .script(include_str!("fixtures/chat_popups_4/experimental_shell.jsonl"))
+        .script(include_str!(
+            "fixtures/chat_popups_4/experimental_shell.jsonl"
+        ))
         .open();
     s.type_text("/experimental");
     s.keys("enter");
@@ -126,7 +130,9 @@ fn experimental_features_toggle_saves_on_exit() {
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
         .keymap(&[("list.cancel", "f2")])
-        .script(include_str!("fixtures/chat_popups_4/experimental_js_repl.jsonl"))
+        .script(include_str!(
+            "fixtures/chat_popups_4/experimental_js_repl.jsonl"
+        ))
         .open();
     s.type_text("/experimental");
     s.keys("enter");
@@ -170,7 +176,9 @@ fn experimental_popup_loading_snapshot() {
 fn experimental_popup_available_snapshot() {
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 13)
-        .script(include_str!("fixtures/chat_popups_4/experimental_available.jsonl"))
+        .script(include_str!(
+            "fixtures/chat_popups_4/experimental_available.jsonl"
+        ))
         .open();
     s.type_text("/experimental");
     s.keys("enter");
@@ -1592,8 +1600,16 @@ fn manage_skills_summary_snapshot() {
     // The three skills of the oracle's fixture ([off, off, on]); each scenario switches some of
     // them in the toggle and closes it: the line says how many it switched.
     let scenarios: [(&str, &[&str], Option<&str>); 4] = [
-        ("enable", &["space", "down", "space"], Some("Enabled 2 skills")),
-        ("disable", &["down", "down", "space"], Some("Disabled 1 skill")),
+        (
+            "enable",
+            &["space", "down", "space"],
+            Some("Enabled 2 skills"),
+        ),
+        (
+            "disable",
+            &["down", "down", "space"],
+            Some("Disabled 1 skill"),
+        ),
         (
             "mixed",
             &["space", "down", "space", "down", "space"],

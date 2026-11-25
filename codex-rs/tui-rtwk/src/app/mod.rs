@@ -15,6 +15,7 @@ use rtwk::app::AppCx;
 use std::rc::Rc;
 
 pub mod debug;
+mod export_text;
 pub mod presenters;
 pub mod run;
 pub mod start_page;
@@ -70,7 +71,10 @@ pub struct UiApp {
 
 impl UiApp {
     pub fn new(backend: shell::Backend) -> Self {
-        Self::over(CodexApp::new(), backend)
+        Self::over(
+            CodexApp::new().with_transcript_text(export_text::renderer()),
+            backend,
+        )
     }
 
     /// The app over a core model made elsewhere (a seeded one, for the

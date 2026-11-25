@@ -1,0 +1,50 @@
+{
+ "thread": {
+  "id": "00000000-0000-0000-0000-000000000123",
+  "environments": null,
+  "extra": null,
+  "sessionId": "00000000-0000-0000-0000-000000000123",
+  "forkedFromId": null,
+  "attachedToThreadId": null,
+  "parentThreadId": null,
+  "preview": "",
+  "ephemeral": false,
+  "section": null,
+  "sectionEnteredAt": null,
+  "projectId": null,
+  "historyMode": "legacy",
+  "modelProvider": "openai",
+  "model": null,
+  "reasoningEffort": null,
+  "createdAt": 0,
+  "updatedAt": 0,
+  "recencyAt": 0,
+  "status": {
+   "type": "idle"
+  },
+  "path": null,
+  "cwd": "/tmp/project",
+  "cliVersion": "0.0.0",
+  "originator": null,
+  "source": "cli",
+  "canAcceptDirectInput": true,
+  "threadSource": null,
+  "agentNickname": null,
+  "agentRole": null,
+  "gitInfo": null,
+  "name": null,
+  "daybreakEnabled": null,
+  "turns": []
+ },
+ "model": "gpt-5.5",
+ "modelProvider": "openai",
+ "serviceTier": null,
+ "cwd": "/tmp/project",
+ "instructionSources": [],
+ "approvalPolicy": "on-request",
+ "approvalsReviewer": "user",
+ "sandbox": {
+  "type": "dangerFullAccess"
+ },
+ "reasoningEffort": null
+}

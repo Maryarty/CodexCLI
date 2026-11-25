@@ -434,16 +434,23 @@ impl State {
             // The host's catalogues, as the facts have them (none yet: what was offered stays).
             Which::Config => match self.facts.config_panel() {
                 Some(panel) => Offer::Config(panel),
-                None => return,
+                None => return self.show_offered(which, inspect, cx),
             },
             Which::Keymap => match self.facts.keymap_picker() {
                 Some(picker) => Offer::Keymap(picker),
-                None => return,
+                None => return self.show_offered(which, inspect, cx),
             },
         };
         let shown = offer.which();
         self.offer(offer);
         self.show(shown, inspect, cx);
+    }
+
+    /// The host has no catalogue in its facts (yet): what it offered stays, and shows.
+    fn show_offered(&mut self, which: Which, inspect: bool, cx: &mut AppCx<'_>) {
+        if self.offers.contains_key(&which) {
+            self.show(which, inspect, cx);
+        }
     }
 
     /// The dialog of kind `which` has its catalogue: its sheet is wished for (ADR-013), once.

@@ -63,8 +63,13 @@ fn slash_export_opens_destination_picker() {
     let screen = |height: u16| {
         Screen::build(Owner::ChatNavPane)
             .size(100, height)
+            .thread_start(
+                serde_json::from_str(include_str!(
+                    "fixtures/chat_commands_3/export_thread_start.json"
+                ))
+                .expect("the thread start"),
+            )
             .script(EXPORT_THREAD)
-            .live()
             .open()
     };
     // The oracle's snapshots are the popup alone, from its title.
@@ -104,7 +109,11 @@ fn slash_export_opens_destination_picker() {
     );
     // The host answers the write that failed, then a write that went through.
     s.keys("enter");
-    answer(&mut s, export, Done::Export(Err("missing parent".to_owned())));
+    answer(
+        &mut s,
+        export,
+        Done::Export(Err("missing parent".to_owned())),
+    );
     s.assert_contains("■ Export failed: missing parent");
     s.type_text("/export");
     s.keys("enter");
@@ -167,7 +176,6 @@ fn slash_keymap_debug_opens_keypress_inspector() {
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .script(KEYMAP_DEFAULT)
-        .live()
         .open();
     s.type_text("/keymap debug");
     s.keys("enter");
@@ -185,7 +193,6 @@ fn slash_keymap_debug_can_inspect_app_shortcuts() {
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(100, 24)
         .script(KEYMAP_DEFAULT)
-        .live()
         .open();
     s.type_text("/keymap debug");
     s.keys("enter");

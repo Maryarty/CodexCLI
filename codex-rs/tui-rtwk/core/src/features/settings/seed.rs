@@ -93,6 +93,9 @@ enum SeedEv {
     Facts {
         #[serde(default)]
         memories: Option<MemoryFacts>,
+        /// The keymap picker of the built-in keymap is among the facts.
+        #[serde(default)]
+        keymap_default: bool,
     },
 }
 
@@ -121,9 +124,22 @@ pub fn seed(value: serde_json::Value) -> Result<Fact, SeedError> {
                 features,
             });
         }
-        SeedEv::Facts { memories } => {
+        SeedEv::Facts {
+            memories,
+            keymap_default,
+        } => {
+            let keymap_tabs = if keymap_default {
+                super::keymap::picker(
+                    &crate::keymap::Keymap::defaults(),
+                    super::keymap::Filter::default(),
+                )
+                .tabs
+            } else {
+                Vec::new()
+            };
             return Ok(Fact::Facts(Facts {
                 memories,
+                keymap_tabs,
                 ..Facts::default()
             }));
         }

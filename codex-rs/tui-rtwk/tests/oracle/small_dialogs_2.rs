@@ -444,7 +444,7 @@ fn renders_long_names_at_narrow_width() {
 fn footer_hint_uses_list_keymap_accept_and_cancel() {
     // The list keymap's accept and cancel keys, ctrl+t and ctrl+x (the oracle's `ListKeymap`).
     let s = Screen::build(Owner::DialogsPane)
-        .size(72, 8)
+        .size(72, 12)
         .keymap(&[("list.accept", "ctrl+t"), ("list.cancel", "ctrl+x")])
         .entry("settings", "skills_empty")
         .open();
