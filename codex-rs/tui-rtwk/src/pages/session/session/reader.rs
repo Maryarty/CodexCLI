@@ -1,10 +1,10 @@
 //! The transcript the page shows (the reader, with the welcome blossom over an empty chat) and
 //! what its keys do: the selection's copy keys, browsing the prompts.
 
-use rtwk::Cx;
 use rtwk::foundation::ListenableBuilder;
 use rtwk::layout::{Alignment, Stack};
 use rtwk::provider::read;
+use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::screens::backtrack::Targets;
@@ -85,16 +85,30 @@ pub(super) fn pane(state: &ChatState, w: &Chat, frame: &Frame) -> Stack {
     let facts = &frame.drawn.status;
     let thread = &frame.thread;
     let mut transcript = Stack::new().alignment(Alignment::CENTER).child(reader);
+    // The oracle's first screen (`first_screen_composer`): startup metadata only in the thread,
+    // the ordinary composer empty, the rich transcript, no search or sheet of the reader over it.
     if facts.animations
         && facts.empty_state
         && state.draft_empty
         && !state.shortcuts
         && frame.searching.is_none()
-        && thread.transcript().is_empty()
+        && !frame.drawn.raw_output
+        && crate::pages::session::blossom::startup_only(thread.transcript())
         && thread.last_submit().is_none()
         && !thread.read_only()
     {
-        transcript = transcript.child(crate::pages::session::blossom::welcome());
+        // the detailed transcript (Ctrl+T) hides the blossom and gives it back when it closes
+        let modes = w.ui.modes.clone();
+        transcript = transcript.child(ListenableBuilder::new(
+            w.ui.modes.listenable(),
+            move |_, _| {
+                if modes.detailed() {
+                    AnyWidget::default()
+                } else {
+                    crate::pages::session::blossom::welcome()
+                }
+            },
+        ));
     }
     transcript
 }
