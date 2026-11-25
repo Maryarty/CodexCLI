@@ -11,19 +11,18 @@
 
 use rtwk::editing::{StoredStops, TextEditingController, editing_key};
 use rtwk::focus::KeyPress;
-use rtwk::prelude::KeyCode;
 
 use codex_tui_core::keymap::actions::{
-    EDITOR_MOVE_LEFT, VIM_NORMAL_APPEND_AFTER_CURSOR, VIM_NORMAL_APPEND_LINE_END, VIM_NORMAL_CANCEL_OPERATOR,
-    VIM_NORMAL_CHANGE_TO_LINE_END, VIM_NORMAL_DELETE_CHAR, VIM_NORMAL_DELETE_TO_LINE_END,
-    VIM_NORMAL_ENTER_INSERT, VIM_NORMAL_ENTER_REPLACE_MODE, VIM_NORMAL_FIND_BACKWARD,
-    VIM_NORMAL_FIND_FORWARD, VIM_NORMAL_INSERT_LINE_START, VIM_NORMAL_JUMP_BOTTOM,
-    VIM_NORMAL_JUMP_TOP, VIM_NORMAL_MOVE_DOWN, VIM_NORMAL_MOVE_LEFT, VIM_NORMAL_MOVE_LINE_END,
-    VIM_NORMAL_MOVE_LINE_START, VIM_NORMAL_MOVE_RIGHT, VIM_NORMAL_MOVE_UP,
-    VIM_NORMAL_MOVE_WORD_BACKWARD, VIM_NORMAL_MOVE_WORD_END, VIM_NORMAL_MOVE_WORD_FORWARD,
-    VIM_NORMAL_OPEN_LINE_ABOVE, VIM_NORMAL_OPEN_LINE_BELOW, VIM_NORMAL_PASTE_AFTER,
-    VIM_NORMAL_REDO, VIM_NORMAL_REPEAT_LAST_CHANGE, VIM_NORMAL_REPLACE_CHAR,
-    VIM_NORMAL_START_CHANGE_OPERATOR, VIM_NORMAL_START_DELETE_OPERATOR,
+    EDITOR_MOVE_LEFT, VIM_NORMAL_APPEND_AFTER_CURSOR, VIM_NORMAL_APPEND_LINE_END,
+    VIM_NORMAL_CANCEL_OPERATOR, VIM_NORMAL_CHANGE_TO_LINE_END, VIM_NORMAL_DELETE_CHAR,
+    VIM_NORMAL_DELETE_TO_LINE_END, VIM_NORMAL_ENTER_INSERT, VIM_NORMAL_ENTER_REPLACE_MODE,
+    VIM_NORMAL_FIND_BACKWARD, VIM_NORMAL_FIND_FORWARD, VIM_NORMAL_INSERT_LINE_START,
+    VIM_NORMAL_JUMP_BOTTOM, VIM_NORMAL_JUMP_TOP, VIM_NORMAL_MOVE_DOWN, VIM_NORMAL_MOVE_LEFT,
+    VIM_NORMAL_MOVE_LINE_END, VIM_NORMAL_MOVE_LINE_START, VIM_NORMAL_MOVE_RIGHT,
+    VIM_NORMAL_MOVE_UP, VIM_NORMAL_MOVE_WORD_BACKWARD, VIM_NORMAL_MOVE_WORD_END,
+    VIM_NORMAL_MOVE_WORD_FORWARD, VIM_NORMAL_OPEN_LINE_ABOVE, VIM_NORMAL_OPEN_LINE_BELOW,
+    VIM_NORMAL_PASTE_AFTER, VIM_NORMAL_REDO, VIM_NORMAL_REPEAT_LAST_CHANGE,
+    VIM_NORMAL_REPLACE_CHAR, VIM_NORMAL_START_CHANGE_OPERATOR, VIM_NORMAL_START_DELETE_OPERATOR,
     VIM_NORMAL_START_YANK_OPERATOR, VIM_NORMAL_SUBSTITUTE_CHAR, VIM_NORMAL_TILL_BACKWARD,
     VIM_NORMAL_TILL_FORWARD, VIM_NORMAL_UNDO, VIM_NORMAL_YANK_LINE, VIM_OPERATOR_CANCEL,
     VIM_OPERATOR_DELETE_LINE, VIM_OPERATOR_MOTION_DOWN, VIM_OPERATOR_MOTION_FIND_BACKWARD,
@@ -39,7 +38,7 @@ use codex_tui_core::keymap::actions::{
     VIM_TEXT_OBJECT_DOUBLE_QUOTE, VIM_TEXT_OBJECT_PARENTHESES, VIM_TEXT_OBJECT_SINGLE_QUOTE,
     VIM_TEXT_OBJECT_WORD,
 };
-use codex_tui_core::keymap::fixed::SLASH_COMPLETE;
+use codex_tui_core::keymap::fixed::{OPEN_AGENTS_FROM_LEFT, SLASH_COMPLETE};
 use codex_tui_core::keymap::{ActionId, Binding, Keymap};
 use codex_tui_core::kit::vim::{
     Find, Input, Motion, Normal, Object, Operator, OperatorKey, Vim, VimDirection, VimPending,
@@ -49,7 +48,7 @@ use codex_tui_core::kit::vim::{
 use super::ComposerMsg;
 use super::editing::{self, Edit, KeyData, Resolved};
 use crate::keymap::{
-    at_most_shift, combo_of, holds_shift_or_alt, pressed, pressed_fixed, unmodified,
+    at_most_shift, combo_of, holds_shift_or_alt, press_for, pressed, pressed_fixed, unmodified,
 };
 use crate::widgets::composer_draft::{ComposerDraft, VimHost};
 use codex_tui_core::keymap::fixed::{
@@ -189,6 +188,14 @@ const OBJECTS: [(ActionId, Object); 8] = [
     (VIM_TEXT_OBJECT_BACKTICK, Object::Backtick),
 ];
 
+/// Normal mode's search keys (`/`, `?`, `n`, `N`), each a key or a chord as remapped.
+const SEARCH: [ActionId; 4] = [
+    VIM_SEARCH_FORWARD,
+    VIM_SEARCH_BACKWARD,
+    VIM_SEARCH_NEXT,
+    VIM_SEARCH_PREVIOUS,
+];
+
 /// Whether `key` is the action's: one of its single keys, or the end of a
 /// chord whose first key was `prefix`.
 fn fires(keymap: &Keymap, id: ActionId, key: &KeyPress, prefix: Option<&KeyPress>) -> bool {
@@ -252,7 +259,7 @@ fn read(keymap: &Keymap, pending: VimPending, key: &KeyPress, prefix: Option<&Ke
                     return Read::Input(Input::Normal(command));
                 }
             }
-            if starts_chord(keymap, NORMAL.iter().map(|(id, _)| *id), key) {
+            if starts_chord(keymap, NORMAL.iter().map(|(id, _)| *id).chain(SEARCH), key) {
                 return Read::Prefix;
             }
             Read::Unbound
@@ -285,7 +292,11 @@ fn read(keymap: &Keymap, pending: VimPending, key: &KeyPress, prefix: Option<&Ke
                     return Read::Input(Input::Operator(command));
                 }
             }
-            if starts_chord(keymap, OPERATOR_COMMANDS.iter().map(|(id, _)| *id), key) {
+            if starts_chord(
+                keymap,
+                OPERATOR_COMMANDS.iter().map(|(id, _)| *id).chain(SEARCH),
+                key,
+            ) {
                 return Read::Prefix;
             }
             Read::Unbound
@@ -388,7 +399,7 @@ pub fn agents_key_available(draft: &ComposerDraft, keymap: &Keymap) -> bool {
         EDITOR_MOVE_LEFT
     };
     !matches!(mode.pending, VimPending::Operator(_))
-        && pressed(keymap, id, &KeyPress::code(KeyCode::Left))
+        && press_for(OPEN_AGENTS_FROM_LEFT).is_some_and(|left| pressed(keymap, id, &left))
 }
 
 /// The keys Normal mode answers before anything else of the composer: the
@@ -409,21 +420,26 @@ pub fn early(
             (data.tell)(ComposerMsg::Redraw);
             return None;
         }
-        let direction = if pressed(keymap, VIM_SEARCH_FORWARD, key) {
+        // a search key may be a chord (`g s`): the second key completes it
+        let chord = draft.vim_chord();
+        let fires = |id| fires(keymap, id, key, chord.as_ref());
+        let direction = if fires(VIM_SEARCH_FORWARD) {
             Some(VimDirection::Forward)
-        } else if pressed(keymap, VIM_SEARCH_BACKWARD, key) {
+        } else if fires(VIM_SEARCH_BACKWARD) {
             Some(VimDirection::Backward)
         } else {
             None
         };
         if let Some(direction) = direction {
+            draft.set_vim_chord(None);
             draft.vim_query().clear();
             draft.with_vim(|v| v.begin_search(direction));
             (data.tell)(ComposerMsg::Redraw);
             return Some(true);
         }
         for (id, reverse) in [(VIM_SEARCH_NEXT, false), (VIM_SEARCH_PREVIOUS, true)] {
-            if pressed(keymap, id, key) {
+            if fires(id) {
+                draft.set_vim_chord(None);
                 run(data, c, |v, host| v.repeat_search(host, reverse));
                 finish(data, c);
                 (data.tell)(ComposerMsg::Redraw);

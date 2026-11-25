@@ -10,6 +10,9 @@ use std::rc::Rc;
 use rtwk::editing::{TextBuffer, TextEditingController, TextSelection};
 use rtwk::focus::KeyPress;
 
+use codex_tui_core::commands::parse_slash_name;
+use codex_tui_core::kit::paste as paste_rules;
+
 use codex_tui_core::kit::vim::{
     EditorAction, Persistent, Register, RegisterKind, UndoHistory, Vim, VimText,
 };
@@ -313,6 +316,65 @@ impl ComposerDraft {
         let mut host = VimHost::new(c, self);
         self.with_vim(|v| v.enter_normal(&mut host));
         true
+    }
+
+    /// Answers recovered after a turn ended, joined to the draft as one
+    /// edit (`append_recovered_drafts`): a command, query or text object
+    /// that waited is cancelled; a `!` or `/command` the draft begins with is
+    /// escaped by a `\` so the draft is a prompt; the answer follows a blank
+    /// line at the end, as a placeholder when it is large (`label` names it from
+    /// its size). `.` and `n` do not repeat it. The caller has flushed the
+    /// paste burst.
+    pub fn append_recovered_drafts(
+        &self,
+        c: &TextEditingController,
+        drafts: &str,
+        label: impl Fn(usize) -> String,
+    ) {
+        if self.with_vim(|v| v.is_operator_pending()) {
+            let mut host = VimHost::new(c, self);
+            self.with_vim(|v| {
+                v.abort_search();
+                v.enter_normal(&mut host);
+            });
+            self.vim_query().clear();
+        }
+        if self.vim_enabled() {
+            self.vim_finish_edit(c);
+        }
+        let mut kept = Persistent::default();
+        self.with_vim(|v| {
+            v.swap_persistent(&mut kept);
+            // what Replace mode overwrote is not what is under the caret now
+            v.forget_recovery();
+        });
+        self.vim_direct(c, || {
+            // a recovered answer makes the draft a prompt: no command prefix
+            let text = c.text();
+            let slash = !self.is_plain()
+                && !text.starts_with(' ')
+                && text.trim().starts_with('/')
+                && parse_slash_name(text.trim_start())
+                    .is_none_or(|(name, _, _)| !name.contains('/'));
+            if self.shell() {
+                self.set_shell(false);
+                c.replace(0, 0, "\\!");
+            } else if slash {
+                let at = text.len() - text.trim_start().len();
+                c.replace(at, at, "\\");
+            }
+            c.set_selection(TextSelection::collapsed(c.text().len()));
+            if !c.text().is_empty() {
+                c.insert("\n\n");
+            }
+            if let Some(chars) = paste_rules::large_paste(drafts) {
+                let label = self.next_label(c, &label(chars));
+                self.insert_element(c, &label, drafts);
+            } else {
+                c.insert(drafts);
+            }
+        });
+        self.with_vim(|v| v.swap_persistent(&mut kept));
     }
 
     /// Back to Insert mode as a submit or a new draft leaves it.

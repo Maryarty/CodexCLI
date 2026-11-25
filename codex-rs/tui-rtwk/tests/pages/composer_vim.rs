@@ -255,3 +255,146 @@ fn a_typed_character_is_what_dot_repeats_after_escape() {
     keys(&mut h, "esc .");
     assert_eq!(prompt(&h), "› xx");
 }
+
+/// The draft's own recovered-answer append (`append_recovered_drafts`), the
+/// question sheet's turn-end recovery (the sheet is another feature's).
+mod recovered {
+    use codex_tui_core::kit::vim::{Input, Normal, Operator};
+    use codex_tui_rtwk::widgets::composer_draft::{ComposerDraft, VimHost};
+    use rtwk::editing::TextEditingController;
+
+    fn vim_draft(text: &str) -> (ComposerDraft, TextEditingController) {
+        let c = TextEditingController::new(text);
+        let d = ComposerDraft::default();
+        d.set_vim_enabled(true);
+        let mut host = VimHost::new(&c, &d);
+        d.with_vim(|v| v.enter_normal(&mut host));
+        (d, c)
+    }
+
+    fn recover(d: &ComposerDraft, c: &TextEditingController, answer: &str) {
+        d.append_recovered_drafts(c, answer, |n| format!("[Pasted Content {n} chars]"));
+    }
+
+    /// A recovered answer follows a blank line and is one step of undo.
+    #[test]
+    fn a_recovered_answer_is_one_undoable_edit() {
+        let (d, c) = vim_draft("abc");
+        let before = d.snapshot(&c);
+        recover(&d, &c, "answer");
+        assert_eq!(&*c.text(), "abc\n\nanswer");
+        assert!(d.vim_step(&c, false));
+        assert_eq!(d.snapshot(&c), before);
+        assert!(d.vim_step(&c, true));
+        assert_eq!(&*c.text(), "abc\n\nanswer");
+        // an empty draft takes it without the blank line
+        let (d, c) = vim_draft("");
+        recover(&d, &c, "answer");
+        assert_eq!(&*c.text(), "answer");
+    }
+
+    #[test]
+    fn a_large_recovered_answer_is_a_placeholder() {
+        let (d, c) = vim_draft("abc");
+        let answer = "x".repeat(1001);
+        recover(&d, &c, &answer);
+        assert_eq!(&*c.text(), "abc\n\n[Pasted Content 1001 chars]");
+        assert_eq!(d.expanded(&c), format!("abc\n\n{answer}"));
+    }
+
+    /// The draft becomes a prompt: a shell mode or a `/command` it began with
+    /// is escaped.
+    #[test]
+    fn a_recovered_answer_escapes_the_command_prefix() {
+        let (d, c) = vim_draft("echo");
+        d.set_shell(true);
+        let before = d.snapshot(&c);
+        recover(&d, &c, "answer");
+        assert_eq!((&*c.text(), d.shell()), ("\\!echo\n\nanswer", false));
+        assert!(d.vim_step(&c, false));
+        assert_eq!(d.snapshot(&c), before);
+        let (d, c) = vim_draft("/diff");
+        recover(&d, &c, "answer");
+        assert_eq!(&*c.text(), "\\/diff\n\nanswer");
+        // a path is not a command
+        let (d, c) = vim_draft("/tmp/x");
+        recover(&d, &c, "answer");
+        assert_eq!(&*c.text(), "/tmp/x\n\nanswer");
+    }
+
+    /// A command that waited for its next key is cancelled.
+    #[test]
+    fn a_recovered_answer_cancels_a_waiting_query() {
+        let (d, c) = vim_draft("existing draft");
+        d.with_vim(|v| {
+            let mut host = VimHost::new(&c, &d);
+            v.input(
+                &mut host,
+                Input::Normal(Normal::StartOperator(Operator::Delete)),
+            );
+        });
+        assert!(d.with_vim(|v| v.is_operator_pending()));
+        recover(&d, &c, "answer");
+        assert!(!d.with_vim(|v| v.is_operator_pending()));
+        assert_eq!(&*c.text(), "existing draft\n\nanswer");
+    }
+
+    /// While the history search shows a preview, the answer goes to the
+    /// draft Esc will bring back.
+    #[test]
+    fn a_recovered_answer_goes_to_the_draft_a_search_kept() {
+        let (d, c) = vim_draft("bc");
+        d.search_begin(&c);
+        c.set_text("archived prompt");
+        d.edit_stored(&c, || recover(&d, &c, "answer"));
+        assert_eq!(&*c.text(), "archived prompt");
+        assert!(d.searching());
+        assert!(d.search_cancel(&c));
+        assert_eq!(&*c.text(), "bc\n\nanswer");
+    }
+}
+
+/// A file path picked in the `@` popup while Replace mode is on (the oracle's
+/// `vim_replace_completion_preserves_suffix` calls `insert_selected_file_path` itself: the popup's
+/// results come from a search over the session's directory, which no screen test can seed).
+mod completion {
+    use codex_tui_core::kit::mentions::session::{MentionPick, PickAction};
+    use codex_tui_core::kit::vim::{Input, Normal};
+    use codex_tui_rtwk::widgets::composer_draft::{ComposerDraft, VimHost};
+    use rtwk::editing::{TextEditingController, TextSelection};
+
+    #[test]
+    fn a_path_in_replace_mode_keeps_the_suffix_and_what_backspace_could_restore() {
+        for (text, caret, typed, path) in [
+            ("@ma next", 3, "", "src/main.rs"),
+            ("abc next", 0, "@ma", "ma"),
+        ] {
+            let c = TextEditingController::new(text);
+            let d = ComposerDraft::default();
+            d.set_vim_enabled(true);
+            c.set_selection(TextSelection::collapsed(caret));
+            d.vim_begin_edit(&c);
+            let mut host = VimHost::new(&c, &d);
+            d.with_vim(|v| {
+                v.input(&mut host, Input::Normal(Normal::EnterReplaceMode));
+                v.type_text(&mut host, typed);
+            });
+            assert!(d.with_vim(|v| v.is_replace()));
+            assert_eq!(&*c.text(), "@ma next");
+            let pick = MentionPick {
+                range: 0.."@ma".len(),
+                action: PickAction::Path(path.into()),
+                usage: None,
+            };
+            d.apply_pick(&c, &pick, |n| format!("[Image #{n}]"), false);
+            assert_eq!(
+                (&*c.text(), c.selection().extent_offset),
+                (format!("{path}  next").as_str(), path.len() + 1)
+            );
+            // what the completion replaced is not what Backspace puts back
+            let mut host = VimHost::new(&c, &d);
+            assert!(!d.with_vim(|v| v.replace_backspace(&mut host)));
+            assert_eq!(&*c.text(), format!("{path}  next"));
+        }
+    }
+}

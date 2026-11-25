@@ -796,7 +796,9 @@ impl State for ComposerState {
                 let states = read::<ScreenStates, _>(cx);
                 mentions::sync(w, &states, cx);
                 let open = w.ui.draft.with_vim(|v| v.searching().is_some());
-                if (open || self.query.replace(open)) && let Some(h) = &w.on_changed {
+                if (open || self.query.replace(open))
+                    && let Some(h) = &w.on_changed
+                {
                     cx.emit(h, w.ui.composer.text());
                 }
                 self.query.set(open);

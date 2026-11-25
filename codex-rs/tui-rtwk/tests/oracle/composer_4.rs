@@ -667,20 +667,10 @@ fn draft_and_voice_composer_snapshots() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:83 recovered_answers_undo_as_one_vim_edit kind=snap owner=chat-live snap=recovered_answer_cancels_vim_search
 #[test]
 fn recovered_answers_undo_as_one_vim_edit() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body and no recovered-answer append (append_recovered_drafts has no seed): the answer after a failed turn is not joined to the draft",
+        "state test of ChatComposer::append_recovered_drafts, which only the question sheet's turn-end recovery calls (BottomPane::append_question_drafts); the port's twin is ComposerDraft::append_recovered_drafts, covered in tests/pages/composer_vim.rs (recovered::*: one undo step, `.` untouched, placeholder, command-prefix escape, query cancelled, stored draft under a history search); no screen path reaches it yet (Need: the question sheet calls it when the turn ends)",
     );
-    let mut s = chat(40, 9);
-    vim_draft(&mut s, "abc");
-    s.type_text("iX");
-    s.keys("esc");
-    s.assert_row(prompt(&s), "› Xabc");
-    let mut s = chat(40, 9);
-    vim_draft(&mut s, "existing draft");
-    s.type_text("d/draft");
-    // append_recovered_drafts("answer"): no kit call yet
-    s.assert_snap("recovered_answer_cancels_vim_search");
 }
 
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:209 undo_and_redo_preserve_confirmed_vim_search kind=ui owner=chat-live
@@ -768,10 +758,6 @@ fn direct_edits_join_the_active_vim_insert_transaction() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:339 vim_search_query_paste_does_not_invalidate_draft_redo kind=ui owner=chat-live
 #[test]
 fn vim_search_query_paste_does_not_invalidate_draft_redo() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body, and no Vim search prompt on the chat composer: `/` opens no query line, a paste into it is not drawn, and redo is not seeded",
-    );
     let mut s = chat(100, 24);
     vim_draft(&mut s, "alpha beta alpha");
     s.type_text("xu/");
@@ -823,10 +809,6 @@ fn removing_the_shell_prefix_is_its_own_undoable_edit() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:451 canceled_history_preview_preserves_active_vim_commands kind=ui owner=chat-live
 #[test]
 fn canceled_history_preview_preserves_active_vim_commands() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body, and no reverse history search (Ctrl+R) on the chat composer: the preview and its cancel are not drawn",
-    );
     for query in ["", "archive", "missing"] {
         for (command, edited) in [
             ("iX", "XYalpha beta"),
@@ -1011,18 +993,18 @@ fn vim_replace_paste_bursts_preserve_overwritten_text_and_repeat() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:765 vim_replace_completion_preserves_suffix kind=snap owner=chat-live snap=vim_replace_completion_suffix
 #[test]
 fn vim_replace_completion_preserves_suffix() {
-    kit::pending(
+    // Replace mode: `R@ma` over `abc next`, then the path `ma` completes the token and Backspace
+    // takes the separator the completion added (the Vim state of the draft is checked here)
+    let mut s = vim_alone(100, 9);
+    type_lines(&mut s, "abc next");
+    s.keys("f9 g g");
+    s.type_text("R@ma");
+    s.assert_row(prompt(&s), "› @ma next");
+    s.assert_contains("Vim: Replace");
+    kit::na(
         Owner::ChatLive,
-        "no Vim Replace mode and no file-path completion on the chat composer (insert_selected_file_path has no kit seed); the snapshot is the composer alone at 100 columns",
+        "the oracle calls insert_selected_file_path(0..3, \"ma\") itself; the port's picks come from the `@` popup, whose file results come from an in-process search over the session's directory that no screen test can seed, so the snapshot's `› ma next` cannot be reached from the keys. The same steps (Replace over `abc next`, a pick of `ma` or `src/main.rs`, Backspace restoring nothing) run on ComposerDraft::apply_pick in tests/pages/composer_vim.rs (completion::a_path_in_replace_mode_keeps_the_suffix_and_what_backspace_could_restore)",
     );
-    let mut s = chat(100, 9);
-    s.type_text("abc next");
-    s.keys("esc");
-    s.type_text("0R@ma");
-    // the completion of `@ma` to the path `ma` (insert_selected_file_path): no kit call yet
-    s.keys("backspace");
-    s.assert_row(prompt(&s), "› ma next");
-    s.assert_snap("vim_replace_completion_suffix");
 }
 
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:797 external_editor_import_preserves_replace_backspace_recovery kind=ui owner=chat-live
@@ -1327,7 +1309,11 @@ fn backspace_cancels_empty_vim_search() {
             s.keys("backspace");
             // no operator waits, Normal mode, the draft and the caret as they were
             s.assert_same_rows(&before);
-            assert_eq!(s.grid().cursor, cursor, "the caret after `{prefix}` Backspace");
+            assert_eq!(
+                s.grid().cursor,
+                cursor,
+                "the caret after `{prefix}` Backspace"
+            );
         }
     }
     s.snap("vim_search_cancelled").assert();
@@ -1336,21 +1322,25 @@ fn backspace_cancels_empty_vim_search() {
 // ORACLE bottom_pane/chat_composer/vim_search_tests.rs:74 vim_search_query_edits_and_paste_preserve_the_draft kind=snap owner=chat-live snap=vim_composer_search
 #[test]
 fn vim_search_query_edits_and_paste_preserve_the_draft() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body, no `[vim_search]` keymap (forward = `g s`) and no search query line on the chat composer; the snapshot is the composer alone at 40 columns",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(40, 9)
-        .live()
-        .keymap(&[("vim_search.forward", "g s")])
+        .keymap(&[
+            ("global.toggle_vim_mode", "f9"),
+            ("vim_search.forward", "g s"),
+        ])
+        .entry("composer", "alone")
         .open();
-    vim_draft(&mut s, "a g\u{301}g b हि gg");
+    vim_draft(&mut s, "a g\u{301}g b \u{939}\u{93f} gg");
     s.type_text("dgse\u{301}");
     s.keys("backspace");
     s.type_text("gg");
     s.paste("photo.png");
     s.assert_contains("ggphoto.png");
+    // the draft is whole and no image was attached
+    s.assert_row(prompt(&s), "› a g\u{301}g b \u{939}\u{93f} gg");
+    s.keys("esc");
+    s.type_text("?");
+    s.paste("\u{939}");
     s.assert_snap("vim_composer_search");
 }
 

@@ -814,11 +814,7 @@ fn agents_navigation_hint_snapshots() {
 // ORACLE bottom_pane/chat_composer/agents_navigation_tests.rs:134 left_respects_editor_and_vim_history_remaps kind=ui owner=chat-live
 #[test]
 fn left_respects_editor_and_vim_history_remaps() {
-    kit::pending(
-        Owner::ChatLive,
-        "no keymap seed for editor.move_left, editor.move_up or vim_normal.move_left, and no agents navigation on the chat composer: a remapped Left recalls history and does not open the overview",
-    );
-    // oracle, editor remap: move_left = ctrl-b, move_up = left; 'previous' submitted, then Left recalls it
+    // editor remap: move_left = ctrl-b, move_up = left; `previous` submitted, then Left recalls it
     let mut s = Screen::build(Owner::ChatLive)
         .size(100, 24)
         .keymap(&[("editor.move_left", "ctrl-b"), ("editor.move_up", "left")])
@@ -827,16 +823,20 @@ fn left_respects_editor_and_vim_history_remaps() {
     s.type_text("previous").keys("enter");
     s.keys("left");
     s.assert_row(prompt(&s), "› previous");
-    // oracle, vim remap: vim_normal.move_left = h, move_up = left
+    // the overview stayed closed (its page names the agents) and the footer has no hint for it
+    s.assert_absent("Agents");
+    // Vim remap: vim_normal.move_left = h, move_up = left; Vim goes on after the submit
     let mut s = Screen::build(Owner::ChatLive)
         .size(100, 24)
         .keymap(&[
             ("vim_normal.move_left", "h"),
             ("vim_normal.move_up", "left"),
+            ("global.toggle_vim_mode", "f9"),
         ])
         .live()
         .open();
     s.type_text("previous").keys("enter");
-    s.keys("esc left");
+    s.keys("f9 left");
     s.assert_row(prompt(&s), "› previous");
+    s.assert_absent("Agents");
 }

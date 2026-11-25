@@ -107,10 +107,7 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
             };
             let props = Footer {
                 line,
-                agents: composer_vim::agents_key_available(
-                    &w.ui.draft,
-                    &crate::keymap::keymap(cx),
-                ),
+                agents: composer_vim::agents_key_available(&w.ui.draft, &crate::keymap::keymap(cx)),
                 draft_empty: state.draft_empty,
                 shell: state.draft_shell,
                 vim: w

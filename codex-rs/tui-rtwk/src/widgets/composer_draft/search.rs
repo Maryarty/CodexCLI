@@ -4,6 +4,8 @@
 //! query is typed (`chat_composer/history_search.rs`,
 //! `history_search_draft.rs`).
 
+use std::hash::{Hash, Hasher};
+
 use rtwk::editing::TextEditingController;
 
 use codex_tui_core::data::history::{Lookup, Store};
@@ -33,7 +35,18 @@ impl ComposerDraft {
     /// How many times the search opened, stepped, was edited or ended: what
     /// the footer shows is of this revision.
     pub fn search_rev(&self) -> u64 {
-        self.0.borrow().search_rev
+        let inner = self.0.borrow();
+        // Normal mode's `/` query is a footer of its own, so its text and
+        // whether it is open count as the search's changes too
+        let query = inner
+            .vim
+            .vim
+            .searching()
+            .is_some()
+            .then(|| inner.vim.query.text());
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        (inner.search_rev, query).hash(&mut hasher);
+        hasher.finish()
     }
 
     /// The query as the footer shows it and where the search stands.
@@ -131,6 +144,33 @@ impl ComposerDraft {
         inner.vim.history = session.vim_history;
         inner.prompts.reset_navigation();
         true
+    }
+
+    /// `edit` on the draft the search kept aside (Esc brings it back), not on
+    /// the preview shown in its place; the preview is back after it
+    /// (`edit_stored_draft`). Without a search it is `edit` itself.
+    pub fn edit_stored(&self, c: &TextEditingController, edit: impl FnOnce()) {
+        let Some(mut session) = self.0.borrow_mut().search.take() else {
+            edit();
+            return;
+        };
+        let preview = self.snapshot(c);
+        let preview_history = {
+            let mut inner = self.0.borrow_mut();
+            std::mem::replace(
+                &mut inner.vim.history,
+                std::mem::take(&mut session.vim_history),
+            )
+        };
+        self.restore(c, &session.original);
+        edit();
+        session.original = self.snapshot(c);
+        {
+            let mut inner = self.0.borrow_mut();
+            session.vim_history = std::mem::replace(&mut inner.vim.history, preview_history);
+            inner.search = Some(session);
+        }
+        self.restore(c, &preview);
     }
 
     /// Runs `step` on the search, then shows what it found in the draft's
