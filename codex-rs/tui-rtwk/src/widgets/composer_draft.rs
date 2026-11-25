@@ -331,6 +331,12 @@ impl ComposerDraft {
         true
     }
 
+    /// Puts `text` at the caret, as if typed (`insert_str`): what a sheet hands over.
+    pub fn insert_text(&self, c: &TextEditingController, text: &str) {
+        self.sync(c);
+        c.insert(text);
+    }
+
     /// Puts an element showing `label` for `payload` in place of the
     /// selection, the caret after it.
     pub fn insert_element(&self, c: &TextEditingController, label: &str, payload: &str) {

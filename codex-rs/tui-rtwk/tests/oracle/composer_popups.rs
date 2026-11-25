@@ -506,12 +506,13 @@ fn mention_menu_reserves_height_above_composer_and_owns_cursor_over_interactive_
 // ORACLE bottom_pane/chat_composer/mentions_layout_tests.rs:191 fallback_completions_keep_the_draft_cursor_and_footer_anchored kind=ui owner=chat-nav-pane
 #[test]
 fn fallback_completions_keep_the_draft_cursor_and_footer_anchored() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the transcript footer (TRANSCRIPT STATUS) under the composer is not seeded, and the oracle sets the popups on the composer directly",
-    );
+    // The oracle seeds the popups on the composer; here the draft is typed, so the `@` token
+    // carries the query the file matches of the seed answer (`ex`). The anchoring (rows,
+    // caret, footer unchanged by the popup) is the page test `composer_mentions`. The file row
+    // reads `example.rs  src/` (the name, then its parent in a column), as the oracle's own
+    // `mentions_v2` rows do, where the legacy fallback popup the test sets listed `src/example.rs`.
     for (width, height) in [(80, 24), (40, 16), (20, 5)] {
-        for (token, item) in [("$", "Example skill"), ("@", "src/example.rs")] {
+        for (token, item) in [("$", "Example skill"), ("@ex", "example.rs")] {
             let mut s = Screen::build(Owner::ChatNavPane)
                 .size(width, height)
                 .script(include_str!(
@@ -752,6 +753,7 @@ fn live_picker_frame_snapshots() {
         0,
     );
     s.resize(40, 24);
+    s.keys("up");
     s.assert_snap_region(
         "codex_tui__bottom_pane__mentions_v2__render__tests__narrow_scrolled",
         row_starting(&s, "  Mentions"),

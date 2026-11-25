@@ -387,6 +387,7 @@ impl StatefulWidget for Composer {
             suggest: Rc::default(),
             restricted: Cell::new(false),
             edited: Cell::new(None),
+            inserted: Cell::new(None),
             query: Cell::new(false),
         }
     }
@@ -406,6 +407,8 @@ pub struct ComposerState {
     /// The number of the text the external editor left that this composer took last (each is
     /// applied once).
     edited: Cell<Option<u64>>,
+    /// The number of the last insert a sheet handed over that this composer took.
+    inserted: Cell<Option<u64>>,
     /// Whether the `/` query was open at the last redraw: its row is the page's footer, which
     /// hears of the query opening, changing and closing.
     query: Cell<bool>,
@@ -471,6 +474,11 @@ pub enum ComposerMsg {
     Restrict,
     /// The external editor left `text` for this composer (`apply_external_edit`).
     Edited {
+        number: u64,
+        text: String,
+    },
+    /// A sheet handed over `text` for the caret (`popovers::Intent::InsertText`).
+    Inserted {
         number: u64,
         text: String,
     },
@@ -905,6 +913,21 @@ impl State for ComposerState {
                 crate::features::taken(number, &hs, cx);
                 return rtwk::Rebuild::Yes;
             }
+            ComposerMsg::Inserted { number, text } => {
+                w.ui.draft.insert_text(&w.ui.composer, &text);
+                if let Some(h) = &w.on_changed {
+                    cx.emit(h, w.ui.composer.text());
+                }
+                // the model forgets it, and a `$` now opens the popup
+                let hs = read::<Hs, _>(cx);
+                cx.emit(
+                    &hs.screen,
+                    ScreenIntent::from(popovers::Intent::Inserted(number)),
+                );
+                let states = read::<ScreenStates, _>(cx);
+                mentions::sync(w, &states, cx);
+                return rtwk::Rebuild::Yes;
+            }
             ComposerMsg::Restrict => {
                 if let Some(binding) = AppBinding::maybe_of(cx) {
                     let table = strings::of(cx);
@@ -978,6 +1001,16 @@ impl State for ComposerState {
             {
                 cx.local_sender()(ComposerMsg::Edited { number, text });
             }
+        }
+        if !w.bare
+            && w.plain.is_none()
+            && let Some(insert) = &popovers.insert
+            && self.inserted.replace(Some(insert.seq)) != Some(insert.seq)
+        {
+            cx.local_sender()(ComposerMsg::Inserted {
+                number: insert.seq,
+                text: insert.text.clone(),
+            });
         }
         let restricted = self.mode(w, cx);
         if self.restricted.replace(restricted.is_some()) != restricted.is_some()

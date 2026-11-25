@@ -5,11 +5,14 @@
 use std::rc::Rc;
 
 use rtwk::overlay::close_dialog;
+use rtwk::provider::read;
 use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::features::settings::{Edit, Enable, Intent, Which};
+use codex_tui_core::screens::{ScreenIntent, popovers};
 
 use super::strings;
+use crate::app::view::Hs;
 use crate::features::verb;
 use crate::widgets::picker::{Event, Picker};
 
@@ -45,9 +48,17 @@ impl State for PromptState {
                 close_dialog::<_, ()>(cx, None);
                 verb(cx, Intent::Open(Which::Skills));
             }
-            // "List skills" inserts `$` into the composer (`insert_str("$")`): the page's
-            // composer takes no text from a sheet yet (a Need of the task), the menu closes.
-            Event::Choose(_) | Event::Cancel => close_dialog::<_, ()>(cx, None),
+            // "List skills" inserts `$` into the composer (`insert_str("$")`): the composer
+            // takes it from the popovers' model, and the `$` popup opens
+            Event::Choose(_) => {
+                close_dialog::<_, ()>(cx, None);
+                let hs = read::<Hs, _>(cx);
+                cx.emit(
+                    &hs.screen,
+                    ScreenIntent::from(popovers::Intent::InsertText("$".to_string())),
+                );
+            }
+            Event::Cancel => close_dialog::<_, ()>(cx, None),
             _ => {}
         }
         Rebuild::No

@@ -57,6 +57,10 @@ pub struct Model {
     pub tasks_from: Option<(ThreadId, u64)>,
     /// `tasks` is a seed (`Ev::Tasks`): an empty search answer leaves it.
     pub tasks_seeded: bool,
+    /// Text a sheet left for the composer (`Intent::InsertText`) until the composer took it.
+    pub insert: Option<Insert>,
+    /// Numbers the inserts, so a composer takes each once.
+    inserts: u64,
     /// What the file search last answered: the query and its matches.
     pub file_matches: FileMatches,
     /// The window of recent `$` picks.
@@ -203,8 +207,21 @@ pub enum Intent {
     ListApps,
     /// A task was picked: the list of tasks the search found is spent.
     SpendTasks,
+    /// A sheet puts `text` in the composer at its caret (`/skills`: `List skills` inserts `$`),
+    /// as the external editor's text goes in: the model holds it until the composer says it took
+    /// it (`Inserted`).
+    InsertText(String),
+    /// The composer took the insert numbered so.
+    Inserted(u64),
     /// Ctrl+V: the clipboard's image is wanted (`Ask::ClipboardImage`).
     PasteImage,
+}
+
+/// Text for the composer's caret, numbered.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Insert {
+    pub seq: u64,
+    pub text: String,
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -269,6 +286,18 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         // the thread's: the app routes it (`app::apply_intent`)
         Intent::SearchTasks(_) | Intent::ListApps => {}
         Intent::SpendTasks => model.tasks.clear(),
+        Intent::InsertText(text) => {
+            model.inserts += 1;
+            model.insert = Some(Insert {
+                seq: model.inserts,
+                text,
+            });
+        }
+        Intent::Inserted(seq) => {
+            if model.insert.as_ref().is_some_and(|insert| insert.seq == seq) {
+                model.insert = None;
+            }
+        }
         Intent::PasteImage => model.asks.push(Ask::ClipboardImage),
         Intent::RecordMention(identity) => {
             model.usage.record(&identity);
