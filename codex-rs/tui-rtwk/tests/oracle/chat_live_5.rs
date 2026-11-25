@@ -638,8 +638,12 @@ fn review_queues_user_messages_snapshot() {
         .unwrap_or_else(|| panic!("no working line:\n{}", s.text()));
     let got = &ours[from..(from + want.len()).min(ours.len())];
     pretty_assertions::assert_eq!(
-        got.iter().map(|row| row.trim_start_matches(glyph)).collect::<Vec<_>>(),
-        want.iter().map(|row| row.trim_start_matches(glyph)).collect::<Vec<_>>(),
+        got.iter()
+            .map(|row| row.trim_start_matches(glyph))
+            .collect::<Vec<_>>(),
+        want.iter()
+            .map(|row| row.trim_start_matches(glyph))
+            .collect::<Vec<_>>(),
         "the bottom pane:\n{}",
         s.text()
     );

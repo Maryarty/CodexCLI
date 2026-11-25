@@ -36,7 +36,7 @@ use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget
 use rtwk_core::unicode::TextSegmenter;
 
 use codex_tui_core::keymap::fixed;
-use codex_tui_core::kit::vim::VimMode;
+use codex_tui_core::kit::vim::{Vim, VimMode};
 
 use crate::app::theme::Tokens;
 use crate::keymap::{bind_fixed, pressed_fixed};
@@ -285,7 +285,7 @@ impl TextPromptState {
         *self.seen.borrow_mut() = Rc::from(text.as_str());
         self.ui.composer.reset(text);
         if self.ui.draft.vim_enabled() {
-            self.ui.draft.with_vim(|v| v.text_replaced());
+            self.ui.draft.with_vim(Vim::text_replaced);
         }
         self.applied = true;
     }
@@ -401,7 +401,7 @@ impl State for TextPromptState {
         // (a burst's Tab is the burst's), the prompt's is nothing; each key may change the mode.
         let send = cx.local_sender();
         let ui = self.ui.clone();
-        let clock = AppBinding::maybe_of(cx).map(|binding| binding.clock().clone());
+        let clock = AppBinding::maybe_of(cx).map(|binding| binding.clock());
         let take = move |_: &TextEditingController, key: &KeyPress, _: KeyCx| -> bool {
             // Esc the editor does not own is the prompt's, before Normal mode's own cancel takes it
             // (`prefer_esc_to_handle_key_event`: the view cancels, the text area never sees it)
@@ -415,7 +415,8 @@ impl State for TextPromptState {
             }
             let in_burst = clock.as_ref().is_some_and(|clock| {
                 let now = clock.now();
-                ui.draft.burst(|b| b.direct_insert_newline_should_insert(now))
+                ui.draft
+                    .burst(|b| b.direct_insert_newline_should_insert(now))
             });
             ui.draft.with_vim(|v| v.is_normal()) || !in_burst
         };
@@ -553,7 +554,8 @@ fn hint_row(
 ) -> AnyWidget {
     let dim = tokens.dim();
     let row = (width - 4).max(0);
-    let text = |text: String, style: Style| Text::line(text).style(style).overflow(TextOverflow::Clip);
+    let text =
+        |text: String, style: Style| Text::line(text).style(style).overflow(TextOverflow::Clip);
     let mut line = Row::new();
     let fits = vim.as_ref().is_some_and(|(mode, _)| {
         let mode = i32::try_from(seg.width(mode)).unwrap_or(i32::MAX);

@@ -63,9 +63,15 @@ impl State for PromptState {
     }
 
     fn build(&self, w: &Prompt, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let prompt = TextPrompt::new(w.title, w.placeholder, "", Suggest::Off, cx.map(Msg::Submit))
-            .on_cancel(cx.map(|()| Msg::Back))
-            .keep_open();
+        let prompt = TextPrompt::new(
+            w.title,
+            w.placeholder,
+            "",
+            Suggest::Off,
+            cx.map(Msg::Submit),
+        )
+        .on_cancel(cx.map(|()| Msg::Back))
+        .keep_open();
         match w.context {
             Some(context) => prompt.context(context),
             None => prompt,

@@ -18,9 +18,9 @@ use codex_tui_core::screens::{ScreenIntent, ScreenThreadIntent};
 use codex_tui_core::threads::UserMessage;
 
 use crate::app::UiApp;
-use crate::features::prompt::ChatVim;
 use crate::app::debug::menu::DebugMenu;
 use crate::app::start_page::{Start, StartPage, StartupGate};
+use crate::features::prompt::ChatVim;
 use crate::pages;
 use crate::pages::session::transcript::copy::CopyJob;
 use crate::sheets::presenter::home_node;
