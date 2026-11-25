@@ -9,6 +9,7 @@
 mod banners;
 mod clock;
 mod connection;
+mod consent;
 pub mod effects;
 pub mod facts;
 pub(crate) mod features;
@@ -805,6 +806,16 @@ impl CodexApp {
         crate::screens::onboarding::session::want(
             &mut Rc::make_mut(&mut self.screens).onboarding,
             start,
+        );
+        self
+    }
+
+    /// The host answers the folder trust of `/cd` (`Ask::CheckConsent`): `/cd` into a folder whose
+    /// trust is undecided asks the question before the session starts there.
+    pub fn with_folder_consent(mut self, on: bool) -> Self {
+        crate::screens::onboarding::consent::arm(
+            &mut Rc::make_mut(&mut self.screens).onboarding,
+            on,
         );
         self
     }
@@ -1796,6 +1807,7 @@ fn start_thread(app: &CodexApp, ticket: Ticket, backend: BackendId) -> Command {
 /// launch prompts). Checked after every event and intent that can end the
 /// last of them.
 fn release_held_start(app: &mut CodexApp, fx: &mut AppFx) {
+    consent::follow(app, fx);
     if app.start_held
         && app.screens.onboarding.launched()
         && !app.screens.onboarding.due()

@@ -235,6 +235,11 @@ where
                 },
             }
         }
+        Ask::CheckConsent {
+            request,
+            cwd,
+            cancel,
+        } => consent(&startup, request, &cwd, cancel, &ids, &send).await,
         Ask::DismissUpdate { version } => {
             // The oracle only logs a failed dismissal.
             let _ = dismiss_version(&version_file(&startup.config), &version);
@@ -725,7 +730,7 @@ where
         .filter(|_| startup.target.remote_workspace())
     {
         Some(cwd) => remote_lookup(cwd, ids, send).await?,
-        None => local_lookup(&startup.config, ids, send).await?,
+        None => local_lookup(&startup.config.cwd, ids, send).await?,
     };
     Ok(lookup.map(|lookup| TrustAsk {
         cwd: lookup.cwd,
@@ -739,13 +744,57 @@ where
     }))
 }
 
+/// The trust question of a `/cd` into `cwd` (`check_directory_trust` with the current task's
+/// cancel): none for a folder that needs none, and none for one saved as untrusted (it opens with
+/// its restricted settings, no prompt) or on a remote workspace (`/cd` has no `--cd` there).
+async fn consent<F, Fut>(
+    startup: &Startup,
+    request: u64,
+    cwd: &str,
+    cancel: TrustCancel,
+    ids: &Ids,
+    send: &F,
+) -> Ev
+where
+    F: Fn(ClientRequest) -> Fut,
+    Fut: Future<Output = Result<serde_json::Value, ServerError>>,
+{
+    if startup.target.remote_workspace() {
+        return Ev::Consent { request, ask: None };
+    }
+    let Ok(folder) = AbsolutePathBuf::from_absolute_path(cwd) else {
+        return Ev::ConsentFailed {
+            request,
+            message: format!("Cannot check folder trust: {cwd} is not an absolute path"),
+        };
+    };
+    match local_lookup(&folder, ids, send).await {
+        Ok(lookup) => Ev::Consent {
+            request,
+            ask: lookup
+                .filter(|lookup| !lookup.restricted)
+                .map(|lookup| TrustAsk {
+                    cwd: lookup.cwd,
+                    target: lookup.target,
+                    restricted: false,
+                    existing_task: false,
+                    cancel,
+                    sandbox_hint: false,
+                    error: None,
+                    decision: None,
+                }),
+        },
+        Err(message) => Ev::ConsentFailed { request, message },
+    }
+}
+
 fn trust_read_error(error: ServerError) -> String {
     format!("config/read failed while checking remote project trust: {error}")
 }
 
 /// `read_remote_project_trust` for the local host.
 async fn local_lookup<F, Fut>(
-    config: &Config,
+    folder: &AbsolutePathBuf,
     ids: &Ids,
     send: &F,
 ) -> Result<Option<wire::Lookup>, String>
@@ -753,7 +802,7 @@ where
     F: Fn(ClientRequest) -> Fut,
     Fut: Future<Output = Result<serde_json::Value, ServerError>>,
 {
-    let cwd = config.cwd.as_path();
+    let cwd = folder.as_path();
     let cwd_text = cwd
         .to_str()
         .ok_or("Cannot check folder trust: directory path is not valid UTF-8")?
@@ -761,7 +810,7 @@ where
     let response = send(wire::trust_read(&cwd_text, ids.next()))
         .await
         .map_err(trust_read_error)?;
-    let roots = local_roots(&config.cwd, &response).await?;
+    let roots = local_roots(folder, &response).await?;
     Ok(wire::trust_lookup(
         &response,
         &cwd_text,
@@ -1573,6 +1622,80 @@ mod tests {
         assert_eq!(
             *asked.lock().unwrap(),
             ["account/gatewayOAuth/read", "account/gatewayOAuth/cancel"]
+        );
+    }
+
+    /// What `config/read` answers for `cwd` with a project layer the folder's trust disables.
+    fn undecided_read(cwd: &str, saved: Option<(&str, &str)>) -> serde_json::Value {
+        let projects: serde_json::Map<String, serde_json::Value> = saved
+            .into_iter()
+            .map(|(path, level)| (path.to_owned(), serde_json::json!({"trust_level": level})))
+            .collect();
+        serde_json::json!({
+            "config": {"projects": projects},
+            "layers": [{
+                "name": {"type": "project", "dotCodexFolder": format!("{cwd}/.codex")},
+                "disabledReason": format!(
+                    "config.toml is disabled, add {cwd} as a trusted project in config.toml"
+                ),
+            }],
+        })
+    }
+
+    async fn consent_of(read: serde_json::Value, cwd: &Path) -> Option<AppEv> {
+        let (startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        let send = move |_: ClientRequest| std::future::ready(Ok(read.clone()));
+        run(
+            startup,
+            Ask::CheckConsent {
+                request: 7,
+                cwd: cwd.to_str().expect("utf-8").to_owned(),
+                cancel: TrustCancel::CurrentTask,
+            },
+            Ids::default(),
+            send,
+        )
+        .await
+    }
+
+    // `/cd` into a folder with no saved decision: the oracle's question, with the current task's
+    // cancel choice.
+    #[tokio::test]
+    async fn consent_lookup_of_a_folder_with_no_decision_is_asked() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let cwd = dir.path().to_str().expect("utf-8").to_owned();
+        let ev = consent_of(undecided_read(&cwd, None), dir.path()).await;
+        let Some(AppEv::Screen(ScreenEv::Onboarding(Ev::Consent {
+            request: 7,
+            ask: Some(ask),
+        }))) = ev
+        else {
+            panic!("a question: {ev:?}");
+        };
+        assert_eq!(
+            (ask.cwd, ask.target, ask.restricted, ask.cancel),
+            (cwd.clone(), cwd, false, TrustCancel::CurrentTask)
+        );
+    }
+
+    // A folder saved as untrusted is not asked at `/cd` (the oracle gates on the project having
+    // no trust level): the new thread opens with its restricted settings.
+    #[tokio::test]
+    async fn consent_lookup_of_a_saved_untrusted_folder_is_not_asked() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let cwd = dir.path().to_str().expect("utf-8").to_owned();
+        let keys = normalized_project_trust_keys(dir.path());
+        let key = keys.first().expect("a key").clone();
+        let ev = consent_of(undecided_read(&cwd, Some((&key, "untrusted"))), dir.path()).await;
+        assert!(
+            matches!(
+                ev,
+                Some(AppEv::Screen(ScreenEv::Onboarding(Ev::Consent {
+                    request: 7,
+                    ask: None
+                })))
+            ),
+            "{ev:?}"
         );
     }
 }

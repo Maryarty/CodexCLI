@@ -8,6 +8,7 @@
 //! the sign-in step (S02) is `auth`.
 
 pub mod auth;
+pub mod consent;
 pub mod device;
 pub mod gateway;
 pub mod session;
@@ -21,10 +22,10 @@ use serde::Deserialize;
 
 use crate::app::AppFx;
 use crate::app::Command as AppCommand;
-use crate::screens::startup;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::screens::Kind;
+use crate::screens::startup;
 use crate::threads::ThreadFx;
 
 pub const NAME: &str = "onboarding";
@@ -94,6 +95,8 @@ pub struct Model {
     session: session::Phase,
     /// What the host read for the session's working directory (`Facts`).
     resume: startup::cwd::Setting,
+    /// The folder trust asked over the chat (`/cd`), apart from the launch's.
+    consent: consent::Consent,
 }
 
 /// The number of an ask of this page to the host (`Ask`): its answer carries
@@ -110,6 +113,14 @@ pub enum Ask {
     /// Save `target` as a trusted project (`config/batchWrite`), answered
     /// with `Ev::TrustSaved` or `Ev::TrustFailed`.
     WriteTrust { request: Request, target: String },
+    /// Read the trust of the folder `cwd` a `/cd` goes to, answered with
+    /// `Ev::Consent` (the question to ask, if any) or `Ev::ConsentFailed`
+    /// under `request`.
+    CheckConsent {
+        request: Request,
+        cwd: String,
+        cancel: TrustCancel,
+    },
     /// Do not offer `version` again (`updates::dismiss_version`); not answered.
     DismissUpdate { version: String },
     /// Run the offered update once the app has ended (`UpdateAction`),
@@ -445,6 +456,18 @@ pub enum Ev {
     UpdateQueued {
         request: Request,
     },
+    /// The answer to `Ask::CheckConsent { request, .. }`: the question the
+    /// folder needs, none when it needs none.
+    Consent {
+        request: Request,
+        ask: Option<TrustAsk>,
+    },
+    /// The folder's trust of `Ask::CheckConsent { request, .. }` could not be
+    /// read.
+    ConsentFailed {
+        request: Request,
+        message: String,
+    },
     /// The trust write `request` failed with this message.
     TrustFailed {
         request: Request,
@@ -457,7 +480,9 @@ pub enum Ev {
     },
     /// The answer to `Ask::SelectGateway { request, .. }`: the server runs
     /// with the selected gateway.
-    GatewayStarted { request: Request },
+    GatewayStarted {
+        request: Request,
+    },
     /// The answer to `Ask::GatewayLogins { request, .. }`.
     GatewayLogins {
         request: Request,
@@ -589,6 +614,7 @@ pub fn disconnected(model: &mut Model) {
     session::lost(model);
     gateway::lost(model);
     device::lost(model);
+    consent::lost(model);
     if model.writing.take().is_some()
         && let Some(t) = model
             .trust
@@ -734,7 +760,12 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
                 model.update_queued = true;
             }
         }
+        Ev::Consent { request, ask } => consent::answered(model, request, ask),
+        Ev::ConsentFailed { request, message } => consent::failed(model, request, message),
         Ev::TrustSaved { request } => {
+            if consent::saved(model, request) {
+                return;
+            }
             if model.writing != Some(request) {
                 return;
             }
@@ -752,6 +783,9 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         // onboarding_screen.rs `persist_selected_trust`: the step stays, with
         // the error, and no choice made.
         Ev::TrustFailed { request, message } => {
+            if consent::save_failed(model, request, message.clone()) {
+                return;
+            }
             if model.writing != Some(request) {
                 return;
             }
@@ -803,6 +837,9 @@ fn apply_intent_inner(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
         }
         Intent::Trust => {
+            if consent::trust(model, fx) {
+                return;
+            }
             let Some(t) = model.trust.as_mut().filter(|t| t.decision.is_none()) else {
                 return;
             };
@@ -820,6 +857,9 @@ fn apply_intent_inner(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             ask(fx, Ask::WriteTrust { request, target });
         }
         Intent::CancelTrust => {
+            if consent::cancel(model) {
+                return;
+            }
             if let Some(t) = model
                 .trust
                 .as_mut()
@@ -1530,10 +1570,13 @@ mod tests {
     /// The host found no gateway sign-in to show (`Ask::GatewayDevice`,
     /// request `request`): the launch's prompts are asked next.
     fn no_device_code(m: &mut Model, request: Request) -> Vec<Ask> {
-        answered(m, Ev::GatewayDevice {
-            request,
-            code: None,
-        })
+        answered(
+            m,
+            Ev::GatewayDevice {
+                request,
+                code: None,
+            },
+        )
     }
 
     // run_ratatui_app: with no step due the app asks for the gateway's device
@@ -1757,7 +1800,9 @@ mod tests {
     #[test]
     fn seeds_read_the_gateway_sign_in_states() {
         assert_eq!(
-            seed(serde_json::json!({"sign_in_state": {"gateway_oauth": {"provider_id": "office"}}})),
+            seed(
+                serde_json::json!({"sign_in_state": {"gateway_oauth": {"provider_id": "office"}}})
+            ),
             Ok(Ev::SignInState(auth::State::GatewayOAuth {
                 provider_id: "office".into(),
                 url: None,
@@ -1774,10 +1819,12 @@ mod tests {
             }))
         );
         assert_eq!(
-            seed(serde_json::json!({"sign_in_state": {"gateway_oauth_failed": {
-                "provider_id": "office",
-                "message": "Gateway sign-in expired.",
-            }}})),
+            seed(
+                serde_json::json!({"sign_in_state": {"gateway_oauth_failed": {
+                    "provider_id": "office",
+                    "message": "Gateway sign-in expired.",
+                }}})
+            ),
             Ok(Ev::SignInState(auth::State::GatewayOAuthFailed {
                 provider_id: "office".into(),
                 message: "Gateway sign-in expired.".into(),
