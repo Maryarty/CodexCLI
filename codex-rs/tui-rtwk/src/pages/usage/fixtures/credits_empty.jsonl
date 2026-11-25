@@ -1,0 +1,4 @@
+# `analytics_dates_distinguish_zero_missing_and_exact_details` (analytics_tests.rs): the Credits
+# report of `credits_exact` without a day (the test's fifth panel).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"usage","ev":{"account":{"plan":"enterprise_cbp_usage_based","today":"2026-09-02"},"section":"credits","histories":[{"section":"credits","load":{"ready":{"unit":"credits","updated_at":null,"data":[]}}}]}}

@@ -1,0 +1,5 @@
+# `chat_selection_keeps_a_highlighted_trailing_blank_after_wrapping` (styles_tests.rs): a Plus
+# account's Chats report of one chat, `Building Analytics` (a Plus task: 42% weekly, 15% 5-hour,
+# 35.83; a business chat: 35.83 credits).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"usage","ev":{"account":{"plan":"plus","today":"2026-09-02","hour24":true},"section":"chats","histories":[],"tasks":{"ready":{"rows":[{"title":"Building Analytics","task":{"status":"available","amounts":{"weekly_percent":42.0,"five_hour_percent":15.0,"balance":"35.83"},"groups":[]}}]}}}}

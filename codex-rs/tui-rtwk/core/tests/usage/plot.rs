@@ -513,3 +513,130 @@ fn narrow_equal_height_totals_remain_separate_numbers() {
         body.trim_matches('\n')
     );
 }
+
+/// The text rows of an oracle `analytics_tests` snapshot (below its `---`), trailing blanks cut.
+fn panel_rows(name: &str) -> Vec<String> {
+    let path = format!(
+        "{}/../../tui/src/snapshots/codex_tui__analytics__tests__{name}.snap",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("{path}: {err}"));
+    text.lines()
+        .skip(1)
+        .skip_while(|line| *line != "---")
+        .skip(1)
+        .map(|line| line.trim_end().to_owned())
+        .collect()
+}
+
+/// The oracle's `fixture::history(0, 1, 2)` day: 40 units a day (73 on the last week's days),
+/// split by model as 60/25/10 and the rest.
+fn model_day(date: &str, total: u32) -> AccountAnalyticsDay {
+    let mut parts = [60, 25, 10].map(|weight| total * weight / 100).to_vec();
+    parts.push(total - parts.iter().sum::<u32>());
+    AccountAnalyticsDay {
+        date: self::date(date),
+        total: f64::from(total),
+        values: ["GPT-5.6-Sol", "GPT-5.6-Terra", "GPT-5.5", "Other"]
+            .into_iter()
+            .zip(parts)
+            .map(|(key, part)| value(key, f64::from(part)))
+            .collect(),
+    }
+}
+
+/// The oracle's `analytics_preserves_full_denominators_and_signed_small_credits` Usage panel is
+/// `panel(Usage, 54, 2)`: a plot of two rows, which a screen of the page never draws (under 15
+/// body rows the plot is hidden); its chart rows are the oracle's snapshot.
+#[test]
+fn a_day_of_one_hundred_units_keeps_its_denominator_in_a_two_row_chart() {
+    let day = AccountAnalyticsDay {
+        date: date("2026-09-02"),
+        total: 100.0,
+        values: vec![value("goal", 30.0)],
+    };
+    let history = AccountAnalyticsHistory {
+        unit: AccountAnalyticsUnit::RelativeUsage,
+        updated_at: None,
+        data: vec![day.clone()],
+    };
+    let days: Vec<Slot> = (27..=31)
+        .map(|d| (date(&format!("2026-08-{d}")), None))
+        .chain([
+            (date("2026-09-01"), None),
+            (day.date, Some(&day)),
+        ])
+        .collect();
+    let rendered = plot(&days, &categories(&history), 6, 54, 2, history.unit);
+    let want = panel_rows("analytics_preserves_full_denominators_and_signed_small_credits");
+    // the oracle's rows of the panel between its lead lines and the rule: the chart
+    same(&rendered, &want[3..9]);
+}
+
+/// `analytics_series_rank_by_range_and_keep_calendar_ticks_stable`: the series rank by the sum
+/// of their range (`Other`, `GPT-5.6-Sol`, `GPT-5.6-Terra`), the tick row is the same wherever
+/// the cursor stands and one `▲` marks it; the crowded chart (54 cells, 10 rows, cursor on the
+/// day of 0.4) is the oracle's snapshot. The screen of the page holds the legend and the
+/// ticks (tests/oracle/usage.rs); no screen is 54 cells with a 10-row plot.
+#[test]
+fn the_crowded_month_chart_keeps_its_ranked_series_and_stable_ticks() {
+    let dates: Vec<String> = (0..30)
+        .map(|offset| {
+            let start = date("2026-08-04");
+            start.iter_days().nth(offset).unwrap().to_string()
+        })
+        .collect();
+    let mut data: Vec<AccountAnalyticsDay> = dates
+        .iter()
+        .enumerate()
+        .map(|(index, date)| {
+            let total = if index < 23 {
+                40
+            } else {
+                [20, 73, 64, 91, 81, 100, 86][index - 23]
+            };
+            let mut day = model_day(date, total);
+            day.values[3].value += 500.0;
+            day.total += 500.0;
+            day
+        })
+        .collect();
+    let history = AccountAnalyticsHistory {
+        unit: AccountAnalyticsUnit::RelativeUsage,
+        updated_at: None,
+        data: data.clone(),
+    };
+    let series = categories(&history);
+    assert_eq!(
+        series
+            .iter()
+            .take(3)
+            .map(|series| series.label.as_str())
+            .collect::<Vec<_>>(),
+        ["Other", "GPT-5.6-Sol", "GPT-5.6-Terra"]
+    );
+    data[8].total = 0.4;
+    for value in &mut data[8].values {
+        value.value = 0.1;
+    }
+    let days: Vec<Slot> = data.iter().map(|day| (day.date, Some(day))).collect();
+    let mut ticks = None;
+    for cursor in [0, 7, 8, 25, 29] {
+        let rendered = plot(&days, &series, cursor, 96, 10, history.unit);
+        let text = rendered.text();
+        let labels = text.last().cloned().unwrap();
+        if let Some(ticks) = &ticks {
+            assert_eq!(&labels, ticks, "cursor {cursor}");
+        }
+        ticks = Some(labels);
+        assert_eq!(text.iter().filter(|row| row.contains('▲')).count(), 1);
+    }
+    let crowded = plot(&days, &series, 8, 54, 10, history.unit);
+    let text = crowded.text();
+    assert!(text.iter().any(|row| row.contains('┊')));
+    assert!(text.iter().any(|row| row.contains("0.4")));
+    same(
+        &crowded,
+        &panel_rows("analytics_series_rank_by_range_and_keep_calendar_ticks_stable"),
+    );
+}

@@ -1,0 +1,4 @@
+# `live_account_identity_is_visible_and_closing_aborts_pending_loads` (client_tests.rs): the page
+# of a signed-in account before its plan is known (the heading names it), the Usage report failed.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"usage","ev":{"account_label":"analytics@example.test","section":"usage","histories":[{"section":"usage","load":{"error":"Couldn't load usage. Press R to retry."}}]}}
