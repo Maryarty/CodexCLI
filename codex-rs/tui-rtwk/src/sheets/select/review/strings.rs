@@ -34,9 +34,7 @@ pub struct Strings {
     // `show_review_custom_prompt`, and the prompt's layout (`picker.rs`).
     pub instructions_title: &'static str,
     pub instructions_placeholder: &'static str,
-    pub instructions_hint: &'static str,
     /// The mark before the input (`›`).
-    pub prompt_mark: &'static str,
     pub num: NumSyms,
 }
 
@@ -64,8 +62,6 @@ pub const EN: Strings = Strings {
     commits_search: "Type to search commits",
     instructions_title: "Custom review instructions",
     instructions_placeholder: "Type instructions and press Enter",
-    instructions_hint: "enter submit · esc back",
-    prompt_mark: "\u{203a}",
     num: NumSyms::ENGLISH,
 };
 

@@ -239,8 +239,6 @@ pub struct Strings {
     pub prompt_title: &'static str,
     pub prompt_context: &'static str,
     pub prompt_placeholder: &'static str,
-    pub prompt_hint: &'static str,
-    pub prompt_mark: &'static str,
     pub num: NumSyms,
 }
 
@@ -580,8 +578,6 @@ pub const EN: Strings = Strings {
     prompt_title: "Add marketplace",
     prompt_context: "Examples: owner/repo, git URL, ./marketplace",
     prompt_placeholder: "owner/repo, git URL, or local marketplace path",
-    prompt_hint: "enter submit \u{b7} esc back",
-    prompt_mark: "\u{203a}",
     num: NumSyms::ENGLISH,
 };
 

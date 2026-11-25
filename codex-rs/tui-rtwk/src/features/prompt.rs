@@ -29,6 +29,7 @@ use rtwk::layout::{
     Flexible, MainAxisSize, Padding, Row, SizedBox, UNBOUNDED,
 };
 use rtwk::overlay::{Dialog, close_dialog};
+use rtwk::provider::Provider;
 use rtwk::style::{Style, Theme};
 use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
@@ -59,6 +60,16 @@ pub enum Suggest {
     Ready(Option<String>),
 }
 
+/// Whether the chat's composer edits modally: provided by the app's view for the prompts that
+/// start in Vim's Insert mode when it does (`show_text_prompt`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChatVim(pub bool);
+
+/// The chat composer's Vim flag (no provider, as in the debug entries: off).
+pub fn chat_vim<S>(cx: &mut Cx<'_, S>) -> bool {
+    Provider::<ChatVim>::maybe_of(cx, false).is_some_and(|vim| vim.0)
+}
+
 /// A text prompt: what it asks, what it starts with, and who hears the submitted text.
 #[derive(Clone)]
 pub struct TextPrompt {
@@ -74,9 +85,11 @@ pub struct TextPrompt {
     /// The two lines of `with_text_suggestion`, while the suggestion is awaited and once it is in
     /// (the prompt's own words when none).
     pub labels: Option<(&'static str, &'static str)>,
-    /// The field edits modally, in Insert mode (`enable_vim_in_insert_mode`): the opener passes
-    /// what the chat's composer has (`composer_is_vim_enabled`).
-    pub vim: bool,
+    /// The accent line a prompt that waits for no suggestion has (`context_label`).
+    pub context: Option<&'static str>,
+    /// The field edits modally, in Insert mode (`enable_vim_in_insert_mode`); none: as the chat's
+    /// composer does (`show_text_prompt`: `composer_is_vim_enabled`).
+    pub vim: Option<bool>,
     /// What Enter says in the hint (`submit` when none: `with_child_flow("select")`).
     pub submit_label: Option<&'static str>,
     /// Told Esc (`on_ctrl_c`); the prompt closes itself when none.
@@ -98,6 +111,7 @@ impl PartialEq for TextPrompt {
             && self.suggest == other.suggest
             && self.on_submit == other.on_submit
             && self.labels == other.labels
+            && self.context == other.context
             && self.vim == other.vim
             && self.submit_label == other.submit_label
             && self.on_cancel == other.on_cancel
@@ -127,7 +141,8 @@ impl TextPrompt {
             suggest,
             on_submit,
             labels: None,
-            vim: false,
+            context: None,
+            vim: None,
             submit_label: None,
             on_cancel: None,
             keep_open: false,
@@ -139,7 +154,7 @@ impl TextPrompt {
     /// The field edits modally (the chat's composer does).
     #[must_use]
     pub fn vim(mut self, on: bool) -> TextPrompt {
-        self.vim = on;
+        self.vim = Some(on);
         self
     }
 
@@ -147,6 +162,13 @@ impl TextPrompt {
     #[must_use]
     pub fn labels(mut self, loading: &'static str, applied: &'static str) -> TextPrompt {
         self.labels = Some((loading, applied));
+        self
+    }
+
+    /// The accent line under the title.
+    #[must_use]
+    pub fn context(mut self, line: &'static str) -> TextPrompt {
+        self.context = Some(line);
         self
     }
 
@@ -279,10 +301,10 @@ impl State for TextPromptState {
     type Widget = TextPrompt;
     type Msg = Msg;
 
-    fn init_state(&mut self, w: &TextPrompt, _cx: &mut Cx<'_, Self>) {
+    fn init_state(&mut self, w: &TextPrompt, cx: &mut Cx<'_, Self>) {
         *self.seen.borrow_mut() = Rc::from(w.initial.as_str());
         self.ui.composer.reset(&w.initial);
-        if w.vim {
+        if w.vim.unwrap_or_else(|| chat_vim(cx)) {
             self.ui.draft.start_in_vim_insert(&self.ui.composer);
         }
         let (c, seen, edited) = (
@@ -352,7 +374,7 @@ impl State for TextPromptState {
         let context = match (&w.suggest, self.applied) {
             (Suggest::Waiting, _) => Some(loading),
             (_, true) => Some(applied),
-            _ => None,
+            _ => w.context,
         };
         let hint = format!(
             "{} {}{}{} {}",
