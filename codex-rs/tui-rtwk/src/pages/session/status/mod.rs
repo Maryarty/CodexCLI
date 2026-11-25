@@ -5,10 +5,12 @@
 
 pub mod entries;
 mod pending;
+mod questions;
 pub mod strings;
 mod terminals;
 
 pub(super) use pending::{Pending, PendingInput};
+pub(super) use questions::QuestionSummary;
 pub(super) use terminals::TerminalsLine;
 
 use rtwk::style::{Attrs, Style};

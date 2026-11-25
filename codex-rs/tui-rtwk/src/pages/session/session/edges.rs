@@ -32,8 +32,11 @@ impl ChatState {
             // The composer clears when the model accepted (or queued) the message, not when it
             // was sent.
             Edge::Submitted => {
-                clear_sent(&w.ui);
-                self.sync_draft(w);
+                // an answer to a question is no send of the composer: its draft stays
+                if !self.answer_sent() {
+                    clear_sent(&w.ui);
+                    self.sync_draft(w);
+                }
                 Rebuild::Yes
             }
             // Messages the model gave back (an interrupt, a failed steer, the edit-queued key)

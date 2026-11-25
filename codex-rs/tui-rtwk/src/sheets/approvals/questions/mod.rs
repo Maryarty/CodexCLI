@@ -113,6 +113,9 @@ pub struct AsyncQuestions {
     /// Only the part of the choices, over the whole area and without the surface (what the
     /// oracle's test of Other in two rows draws).
     pub options_only: bool,
+    /// The pane is as tall as the editor wants (`desired_height`) instead of the whole area: the
+    /// editor that stands in the composer's place.
+    pub fit: bool,
     /// Where the editor leaves its drafts when it closes, and where it starts from.
     pub saved: Option<Rc<RefCell<Saved>>>,
     pub on_outcome: Option<Handler<Outcome>>,
@@ -491,6 +494,11 @@ impl State for AsyncState {
         if self.focus_is_input(w) {
             self.after_select(w);
         }
+        // mounted inside a page, where something else may hold the focus: take it once the
+        // frame has put the nodes in the tree
+        if let Some(binding) = AppBinding::maybe_of(cx) {
+            binding.add_post_frame_callback(cx.map(|_: Duration| Msg::FocusInput));
+        }
     }
 
     fn did_update_widget(
@@ -547,6 +555,8 @@ impl State for AsyncState {
                     && let Some(q) = self.questions.get(self.current)
                 {
                     q.node.request_focus();
+                } else {
+                    self.node.request_focus();
                 }
                 return Rebuild::No;
             }
@@ -592,6 +602,7 @@ impl State for AsyncState {
             flash: self.flash,
             queued: w.queued,
             options_only: w.options_only,
+            fit: w.fit,
             tokens: tokens.clone(),
             s,
             keymap: Rc::clone(&keymap),
@@ -644,6 +655,7 @@ struct View {
     flash: Option<&'static str>,
     queued: bool,
     options_only: bool,
+    fit: bool,
     tokens: Tokens,
     s: &'static Strings,
     keymap: Rc<Keymap>,
@@ -761,7 +773,10 @@ impl View {
     }
 
     fn input_rows(&self, seg: Measure, width: usize) -> u16 {
-        rows_u16(measure::rows(seg, &self.draft.text(), width.max(1))).clamp(1, MAX_INPUT_ROWS)
+        // the flash of a refused answer takes a row under the input (`inline_input_height`)
+        let flash = u16::from(self.flash.is_some() && !self.has_options());
+        (rows_u16(measure::rows(seg, &self.draft.text(), width.max(1))) + flash)
+            .clamp(1, MAX_INPUT_ROWS)
     }
 
     /// The rows the choices take at `width`, with the input of Other when it is the row on.
@@ -880,6 +895,20 @@ impl View {
             footer_rows: rows_u16(self.footer(seg, w16, false).len()),
             footer_rows_with_tip: rows_u16(self.footer(seg, w16, true).len()),
         };
+        // the pane the oracle sizes to its content (`desired_height`): the question, the choices
+        // or the input, the spacers, the progress row and the footer
+        let h16 = if self.fit {
+            let wanted = facts.question_rows
+                + facts.options_rows
+                + if facts.has_options { 0 } else { facts.input_rows.clamp(1, 8) }
+                + layout::DESIRED_SPACERS
+                + u16::from(!facts.has_options && facts.several)
+                + facts.footer_rows
+                + u16::from(facts.several);
+            h16.min(wanted)
+        } else {
+            h16
+        };
         let sections = layout::sections(h16, facts);
         let mut column = Column::new()
             .main_axis_size(MainAxisSize::Min)
@@ -943,6 +972,25 @@ impl View {
 
     /// The input of a freeform answer or of Other, `rows` high.
     fn input_widget(&self, rows: u16, placeholder: &'static str) -> AnyWidget {
+        // under the input, the flash of a refused answer (`render_inline_input`)
+        if let Some(flash) = self.flash.filter(|_| !self.has_options() && rows > 1) {
+            let input = self.input_widget_rows(rows - 1, placeholder);
+            let line = SizedBox::new(
+                None,
+                Some(px(1)),
+                Some(AnyWidget::from(Text::new(flash).wrap(TextWrap::None))),
+            );
+            return Column::new()
+                .main_axis_size(MainAxisSize::Min)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(input)
+                .child(line)
+                .into();
+        }
+        self.input_widget_rows(rows, placeholder)
+    }
+
+    fn input_widget_rows(&self, rows: u16, placeholder: &'static str) -> AnyWidget {
         let lines = usize::from(rows.max(1));
         let take = Rc::clone(&self.take);
         let area = TextArea::new()

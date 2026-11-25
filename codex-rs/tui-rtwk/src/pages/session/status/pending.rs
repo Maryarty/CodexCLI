@@ -70,16 +70,20 @@ fn shown(text: &str) -> String {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub(in crate::pages::session) struct PendingInput;
+pub(in crate::pages::session) struct PendingInput {
+    /// Questions wait: the queue's header stays on show, and the edit hint gives way to theirs.
+    pub questions: bool,
+}
 
 impl_widget!(stateless eq PendingInput);
 
 impl StatelessWidget for PendingInput {
     fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
         let pending = select::<ThreadModel, Pending, _>(cx, Pending::of);
-        if pending.is_empty() {
+        if pending.is_empty() && !self.questions {
             return SizedBox::shrink().into();
         }
+        let questions = self.questions;
         let strings = strings::of(cx);
         let keymap = crate::keymap::keymap(cx);
         let interrupt = crate::keymap::label(&keymap, CHAT_INTERRUPT_TURN);
@@ -131,7 +135,7 @@ impl StatelessWidget for PendingInput {
                     .collect();
                 column = section(column, header, rows);
             }
-            if !pending.queued.is_empty() {
+            if !pending.queued.is_empty() || questions {
                 let header = vec![Span::styled(strings.queued_header, Style::new())];
                 let italic = dim.clone().attrs(Attrs::ITALIC);
                 let rows = pending
@@ -142,7 +146,7 @@ impl StatelessWidget for PendingInput {
                     })
                     .collect();
                 column = section(column, header, rows);
-                if let Some(key) = &edit {
+                if let Some(key) = edit.as_ref().filter(|_| !questions) {
                     column = column.child(Row::new().child(Text::rich_line(vec![
                         Span::styled(strings.item_hang, Style::new()),
                         Span::styled(key.clone(), super::bold()),

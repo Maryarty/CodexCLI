@@ -103,7 +103,7 @@ macro_rules! preview {
             name: $name,
             description: $description,
             script: include_str!(concat!("fixtures/", $file, ".jsonl")),
-            open: EntryOpen::Route(|_| -> AnyWidget { PendingInput.into() }),
+            open: EntryOpen::Route(|_| -> AnyWidget { PendingInput { questions: false }.into() }),
         }
     };
 }

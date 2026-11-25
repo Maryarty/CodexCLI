@@ -21,6 +21,7 @@ use crate::pages::session::activity::StatusSlot;
 use crate::pages::session::backtrack::EditWatch;
 use crate::pages::session::banners::{BackendBanners, NoticeLine, ReserveSelector, reserve_of};
 use crate::pages::session::footer::{Sparkle, StatusRows};
+use crate::pages::session::status::QuestionSummary;
 use crate::pages::session::live::limits;
 use crate::pages::session::popovers::mention;
 use crate::pages::session::status_surfaces::{line_interests, raise};
@@ -50,6 +51,7 @@ pub(super) fn body(
         footer,
         hints,
         placeholder,
+        editing,
     } = slot;
     // Whether `StatusSlot` shows a row: the reader's gap then sets itself
     // apart from it with a blank row.
@@ -71,6 +73,14 @@ pub(super) fn body(
             SizedBox::shrink().into()
         })
         .child(StatusSlot)
+        // `  ? N questions`: the questions that wait while the editor is closed
+        .child(if run.asking > 0 && !editing {
+            AnyWidget::from(QuestionSummary {
+                count: run.asking,
+            })
+        } else {
+            SizedBox::shrink().into()
+        })
         .child(NoticeLine)
         .child(EditWatch);
     if state.shortcuts && searching.is_none() {
@@ -131,7 +141,7 @@ pub(super) fn body(
     } else {
         // the row the reader's control takes (`composer_gap`); a popup
         // above the draft takes the rows before it does
-        body.child({
+        let body = body.child({
             // the usage notice takes the row while the reader is at the end (`composer_hint`)
             let model = thread.screen_slots().chat.model.as_deref().or(frame
                 .drawn
@@ -142,17 +152,22 @@ pub(super) fn body(
             let gap = transcript::follow::gap(cx, w.ui.follow.clone(), status_above, notice);
             let mentions = w.ui.draft.mentions();
             ListenableBuilder::new(mentions.listenable(), move |_, _| {
-                if mentions.is_open() {
+                // the editor's own surface leaves the blank row (`menu_surface_inset`)
+                if editing || mentions.is_open() {
                     SizedBox::shrink().into()
                 } else {
                     gap.clone()
                 }
             })
-        })
+        });
+        // the editor of the model's questions stands in the composer's place
+        if editing {
+            body.child(composer)
+        } else {
         // the `@`/`$` popup stands right above the draft and takes the
         // rows the draft leaves, 17 at most (`ActivePopup::MentionV2`
         // above the composer: the draft first, then what remains)
-        .child(mention::slot(w.ui.clone()))
+        body.child(mention::slot(w.ui.clone()))
         .child(
             // keyed: the blank rows and the status come and go above it
             // and the footer's type changes below, and an unkeyed child
@@ -174,11 +189,12 @@ pub(super) fn body(
             })
             .with_key(Key::value("composer")),
         )
+        }
     };
     // a status line that names the credits or the cost wants them, whether or not it shows them
     // yet (`thread_usage_selected`): without a figure the line is empty
     let wanted = line_interests(facts);
-    let rows = (!line.is_empty() && !thread.read_only() && frame.provider.is_none()).then(|| {
+    let rows = (!line.is_empty() && !thread.read_only() && frame.provider.is_none() && !editing).then(|| {
         AnyWidget::from(StatusRows {
             spans: line,
             composer: w.ui.composer.clone(),

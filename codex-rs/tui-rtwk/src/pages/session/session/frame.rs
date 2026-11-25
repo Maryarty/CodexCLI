@@ -67,7 +67,7 @@ impl Frame {
         thread_shape(cx);
         let drawn = slice::drawn(cx, thread.id());
         let searching = w.ui.draft.search_state();
-        let run = Run::of(&thread);
+        let run = Run::of(&thread).asking(super::questions::count(cx, thread.id()));
         let reconnecting =
             session.connections.get(&drawn.owner) == Some(&ConnectionState::Reconnecting);
         let chat_strings = chat_strings::of(cx);

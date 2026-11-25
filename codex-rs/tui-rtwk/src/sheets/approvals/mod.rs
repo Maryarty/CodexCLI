@@ -14,7 +14,7 @@ mod form;
 mod guardian;
 mod keys;
 mod present;
-mod questions;
+pub mod questions;
 mod tips;
 mod user_input;
 

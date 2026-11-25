@@ -16,6 +16,7 @@
 //! - `title`    the terminal title
 //! - `overlay`  the blank sheet of a window too small to draw
 //! - `send`     Enter, Tab's queue, a picked command, the edit-queued key
+//! - `questions` the editor of the model's questions in the composer's place
 //! - `escape`   Esc's ladder
 //! - `leave`    Ctrl+C and Ctrl+D a feature takes first (the return from a side conversation)
 //! - `presets`  the shortcut menu of `/presets` over the composer: its keys and its verbs
@@ -74,6 +75,8 @@ mod msg;
 mod overlay;
 #[path = "session/presets.rs"]
 mod presets;
+#[path = "session/questions.rs"]
+mod questions;
 #[path = "session/reader.rs"]
 mod reader;
 #[path = "session/send.rs"]
@@ -103,6 +106,8 @@ pub struct ChatState {
     /// The handler the listener tells the page's edges on, made once so the listener's widget
     /// stays equal across the page's rebuilds.
     edges: Option<Handler<Edge>>,
+    /// The editor of the model's questions: open or not, and its drafts.
+    asking: questions::Asking,
     /// A queued command opened a sheet: the queue goes on when the page is in front again.
     resume: bool,
     /// The read-only thread this page asked to fork and heard no answer of
@@ -169,6 +174,7 @@ impl StatefulWidget for Chat {
     fn create_state(&self) -> ChatState {
         ChatState {
             edges: None,
+            asking: questions::Asking::default(),
             resume: false,
             forking: None,
             shortcuts: false,
@@ -297,7 +303,8 @@ impl State for ChatState {
             }
             ChatMsg::Browse(step) => reader::browsed(w, cx, &hs, step),
             ChatMsg::QueueDraft => self.queue_draft(w, cx, &hs),
-            ChatMsg::EditQueued => send::edit_queued(cx, &hs),
+            ChatMsg::EditQueued => return self.edit_key(cx, &hs),
+            ChatMsg::Question(outcome) => return self.outcome(outcome, cx, &hs),
             ChatMsg::Reasoning(direction) => reasoning_shortcut(cx, &hs, direction),
             ChatMsg::Picked(text) => self.picked(&text, w, cx, &hs),
             ChatMsg::RetryWriter => lock::retry(cx, &hs),
