@@ -34,6 +34,8 @@ pub(super) enum Seed {
         dir: &'static str,
         entry: &'static str,
     },
+    /// A screen directory's own row of the debug menu: its live opening, no fixture.
+    Dir(&'static str),
     Script(&'static str),
 }
 
@@ -57,6 +59,8 @@ pub struct Open {
     pub(super) remote_images: Vec<String>,
     /// The text the chat's draft starts with (`Open::draft`).
     pub(super) draft: Option<String>,
+    /// What the usage page's host answers (`Open::usage_accounts`, `usage_report`).
+    pub(super) usage: super::usage::Host,
 }
 
 impl Screen {
@@ -78,6 +82,7 @@ impl Screen {
             env: Env::default(),
             remote_images: Vec::new(),
             draft: None,
+            usage: super::usage::Host::default(),
         }
     }
 }
@@ -99,6 +104,14 @@ impl Open {
     /// A screen directory's debug entry.
     pub fn entry(mut self, dir: &'static str, entry: &'static str) -> Open {
         self.seed = Seed::Entry { dir, entry };
+        self
+    }
+
+    /// A screen directory's own row of the debug menu (no fixture entry): the page as the app
+    /// opens it, on the live model, asking its host (the fake backend). The usage page asks for
+    /// its account and reports; `usage_accounts` / `usage_report` say what the host answers.
+    pub fn dir(mut self, dir: &'static str) -> Open {
+        self.seed = Seed::Dir(dir);
         self
     }
 
@@ -184,7 +197,8 @@ impl Open {
         let side = self.side;
         let mut screen = match self.seed {
             Seed::Live => Screen::from(self.live_harness()),
-            Seed::Entry { dir, entry } => self.open_entry(dir, entry),
+            Seed::Entry { dir, entry } => self.open_entry(dir, Some(entry)),
+            Seed::Dir(dir) => self.open_entry(dir, None),
             Seed::Script(text) => self.open_script(text),
         };
         screen.gutter = gutter;
@@ -215,6 +229,7 @@ impl Open {
         if self.fake_turns {
             h.fake.mint_turns_as("fake-turn-");
         }
+        self.usage.tell(&h.fake);
         h
     }
 
@@ -249,12 +264,14 @@ impl Open {
         h
     }
 
-    fn open_entry(self, dir: &str, entry: &str) -> Screen {
+    fn open_entry(self, dir: &str, entry: Option<&str>) -> Screen {
         let dirs = codex_tui_rtwk::app::debug::dirs();
         let Some(d) = dirs.iter().find(|d| d.name == dir) else {
             missing(self.owner, &format!("no screen directory `{dir}`"));
         };
-        if !(d.debug_entries)().iter().any(|e| e.name == entry) {
+        if let Some(entry) = entry
+            && !(d.debug_entries)().iter().any(|e| e.name == entry)
+        {
             missing(
                 self.owner,
                 &format!("no debug entry `{dir}/{entry}`: the slice has not registered this state"),
@@ -267,19 +284,19 @@ impl Open {
             self.set_keymap(&mut h);
         }
         if self.env.inline.is_some() {
-            for _ in 0..crate::common::debug_row(dir, Some(entry)) {
+            for _ in 0..crate::common::debug_row(dir, entry) {
                 h.t.press("down");
             }
             h.t.press("enter");
             h.t.pump_for(ms(800));
         } else if self.first_frame {
-            for _ in 0..crate::common::debug_row(dir, Some(entry)) {
+            for _ in 0..crate::common::debug_row(dir, entry) {
                 h.press("down");
             }
             h.t.press("enter");
             h.t.pump();
         } else {
-            h.open_debug_row(dir, Some(entry));
+            h.open_debug_row(dir, entry);
         }
         if self.env.inline.is_some() || self.first_frame {
         } else if self.early {

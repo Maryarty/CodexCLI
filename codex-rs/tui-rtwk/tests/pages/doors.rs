@@ -982,11 +982,12 @@ mod disclosed_cells {
     #[test]
     fn each_thread_has_its_own_controller() {
         let (ui, other) = (ThreadUi::default(), ThreadUi::default());
-        assert!(ui.disclosed() == ui.clone().disclosed());
+        let clone = ui.clone();
+        assert!(ui.disclosed() == clone.disclosed());
         assert!(ui.disclosed() != other.disclosed());
         ui.disclosed().set(&key(), true);
         assert!(!other.disclosed().is_open(&key()));
-        assert!(ui.disclosed().toggle(&key()) == false);
+        assert!(!ui.disclosed().toggle(&key()));
         assert!(ui.disclosed().toggle(&key()));
     }
 
@@ -1068,5 +1069,291 @@ mod small_windows {
             s.text()
         );
         assert!(last.chars().count() <= 32, "{last:?}");
+    }
+}
+
+/// doors-r3 item 4: the usage page's host. `Open::dir("usage")` opens the page live (it asks the
+/// fake backend, not a fixture), `usage_accounts` says what the lookups are answered with.
+mod usage_host {
+    use crate::kit::{Owner, Screen};
+
+    const PLUS: &str = r#"{"plan":"plus","today":"2026-09-09"}"#;
+    const ENTERPRISE: &str = r#"{"plan":"enterprise","today":"2026-09-09"}"#;
+
+    /// A failed lookup is the host's message, whole, in the page's room; Shift+R asks again and
+    /// the server's plan (the second answer) gives the page its heading and tabs
+    /// (oracle `account_lookup_failure_recovers_on_refresh_with_the_server_plan`).
+    #[test]
+    fn a_failed_account_lookup_recovers_on_refresh_with_the_server_plan() {
+        let mut s = Screen::build(Owner::RoutesLists)
+            .size(100, 24)
+            .dir("usage")
+            .usage_accounts(&[Err("503 Service Unavailable"), Ok(ENTERPRISE)])
+            .open();
+        s.assert_contains("503 Service Unavailable");
+        s.assert_absent("Credits");
+        s.keys("R");
+        s.wait_for("Credits");
+        s.assert_absent("503 Service Unavailable");
+        s.assert_contains("Usage · Enterprise");
+    }
+
+    /// An account that changes plan while the page is open: the refresh's answer is the new
+    /// plan's tabs (a Plus account has Activity, no Credits; an Enterprise one the reverse).
+    #[test]
+    fn the_plan_changes_under_an_open_page() {
+        let mut s = Screen::build(Owner::RoutesLists)
+            .size(100, 24)
+            .dir("usage")
+            .usage_accounts(&[Ok(PLUS), Ok(ENTERPRISE)])
+            .open();
+        s.assert_contains("Activity");
+        s.assert_absent("Credits");
+        s.keys("R");
+        s.wait_for("Credits");
+        s.assert_absent("Activity");
+    }
+}
+
+/// doors-r3 item 5: the kit's keymap, palette and joined-body doors, on the usage page.
+mod kit_usage {
+    use crate::kit::{self, Owner, Screen};
+
+    const CANCEL_ON_QUESTION: &[(&str, &str)] = &[("list.cancel", "?")];
+    const CANCEL_ON_SHIFT_QUESTION: &[(&str, &str)] = &[("list.cancel", "shift+?")];
+
+    fn credits(keymap: &'static [(&'static str, &'static str)]) -> Screen {
+        Screen::build(Owner::RoutesLists)
+            .size(100, 32)
+            .entry("usage", "credits_refund")
+            .keymap(keymap)
+            .open()
+    }
+
+    /// `Open::keymap(("list.cancel", "?"))`: the page's `?` is then the cancel, it hints no help,
+    /// and the key closes the page, also the Shift spelling of it (oracle
+    /// `configured_question_mark_keeps_its_action_and_hides_help_hint`).
+    #[test]
+    fn a_configured_question_mark_cancels_and_hides_its_help_hint() {
+        for keymap in [CANCEL_ON_QUESTION, CANCEL_ON_SHIFT_QUESTION] {
+            let mut s = credits(keymap);
+            s.assert_contains("Product");
+            s.assert_absent("? help");
+            s.keys(keymap[0].1);
+            s.assert_absent("Product");
+        }
+    }
+
+    /// `key_release` / `key_repeat` reach a page's key bindings as the terminal's kitty events:
+    /// the release of `q` is no press (the page stays), its repeat is one (the page closes)
+    /// (oracle `horizontal_aliases_ignore_modifiers_and_release_but_accept_repeat`).
+    #[test]
+    fn a_release_is_no_press_and_a_repeat_is_one() {
+        let mut s = credits(&[]);
+        s.key_release("q");
+        s.assert_contains("Product");
+        s.key_release("alt+q");
+        s.assert_contains("Product");
+        s.key_repeat("q");
+        s.assert_absent("Product");
+    }
+
+    /// `kit::contrast` is the WCAG ratio, and `Grid::contrast_at` reads a plain cell (`Reset`)
+    /// against the terminal colours the test gave: black text on a white terminal is 21.
+    #[test]
+    fn a_plain_cell_is_measured_against_the_terminal_the_test_gave() {
+        assert!((kit::contrast((0, 0, 0), (255, 255, 255)) - 21.0).abs() < 1e-9);
+        assert!((kit::contrast((255, 255, 255), (255, 255, 255)) - 1.0).abs() < 1e-9);
+        let s = Screen::build(Owner::RoutesLists)
+            .size(100, 32)
+            .entry("usage", "credits_refund")
+            .terminal_colors(0x00_00_00, 0xff_ff_ff)
+            .open();
+        let grid = s.grid();
+        let plain = (0..grid.height)
+            .flat_map(|y| (0..grid.width).map(move |x| (x, y)))
+            .find(|&(x, y)| {
+                let style = grid.style(x, y);
+                !grid.cell(x, y).text.trim().is_empty()
+                    && style.fg == "Reset"
+                    && style.bg == "Reset"
+            })
+            .expect("a cell of plain text");
+        let ratio = grid
+            .contrast_at(plain.0, plain.1, kit::LIGHT)
+            .expect("a measured cell");
+        assert!(
+            (ratio - 21.0).abs() < 1e-9,
+            "the cell's contrast is {ratio}"
+        );
+        // every measured cell is listed under a ratio no cell can reach
+        assert!(
+            grid.low_contrast(kit::LIGHT, 21.5)
+                .iter()
+                .any(|(x, y, ..)| (*x, *y) == plain)
+        );
+    }
+
+    /// The bodies a test joined with a blank row, of different heights (the oracle's `panel(..)`
+    /// bodies of `analytics_dates_distinguish_zero_missing_and_exact_details`), come apart by
+    /// their heights: the first three are 16 rows each.
+    #[test]
+    fn joined_bodies_of_different_heights_come_apart() {
+        let bodies = kit::snap_states(
+            "analytics_dates_distinguish_zero_missing_and_exact_details",
+            &[16, 16, 16],
+        );
+        assert_eq!(bodies.len(), 3);
+        assert_eq!(bodies[0].first().map(String::as_str), Some("13.1K credits"));
+        assert!(
+            bodies[0]
+                .iter()
+                .any(|row| row.contains("Aug 27 · No activity (0)"))
+        );
+        assert!(
+            bodies[1]
+                .iter()
+                .any(|row| row.contains("12746.441206 credits"))
+        );
+        assert!(
+            bodies[2]
+                .iter()
+                .any(|row| row.contains("Aug 29 · Not reported"))
+        );
+        assert!(bodies.iter().all(|body| body.len() == 16));
+    }
+}
+
+/// doors-r3 item 1 and 2: the footer's `IDE context` indicator and its flash line, both raised by
+/// facts a script (or the app) tells.
+mod footer_facts {
+    use crate::kit::{Owner, Screen};
+
+    const IDE_ON: &str =
+        r#"{"step":"fact","feature":"small_cmds","fact":{"kind":"ide_on","has_context":false}}"#;
+    const FLASH: &str = r#"{"step":"screen","dir":"chat","ev":{"facts":{"flash":{"text":"Copied to clipboard","millis":3000}}}}"#;
+
+    fn chat() -> Screen {
+        Screen::build(Owner::ChatLive).size(80, 14).live().open()
+    }
+
+    /// `/ide` on (the `ide_on` seed of `small_cmds`) is `IDE context` in the footer, no note in
+    /// the transcript; the state is the feature's (a config reload does not wipe it).
+    #[test]
+    fn the_ide_context_indicator_follows_the_small_commands_state() {
+        let mut s = chat();
+        s.assert_absent("IDE context");
+        s.feed(IDE_ON);
+        s.assert_contains("IDE context");
+        s.assert_absent("IDE context on");
+    }
+
+    /// `facts::Ev::Flash`: the line takes the footer's left side for its `millis` and then goes;
+    /// the same line told again while it is on is another showing, its time starts anew.
+    #[test]
+    fn a_flash_stays_for_its_time_and_a_new_showing_restarts_it() {
+        let mut s = chat();
+        s.assert_absent("Copied to clipboard");
+        s.feed(FLASH);
+        s.assert_contains("Copied to clipboard");
+        s.wait(2_000);
+        s.assert_contains("Copied to clipboard");
+        s.feed(FLASH);
+        s.wait(2_000);
+        s.assert_contains("Copied to clipboard");
+        s.wait(1_500);
+        s.assert_absent("Copied to clipboard");
+        s.assert_contains("for shortcuts");
+    }
+}
+
+/// doors-r3 item 3: a snapshot the test joined with `join("\n---\n")` comes apart at its bare
+/// rules, not at the front matter's.
+mod snapshot_cuts {
+    use crate::kit;
+
+    #[test]
+    fn a_joined_snapshot_is_cut_at_its_bare_rules() {
+        let states = kit::snap_cuts("rate_limit_reset_popup_states");
+        assert_eq!(states.len(), 10);
+        assert_eq!(
+            states[0].first().map(String::as_str),
+            Some("  Usage limit resets")
+        );
+        assert!(
+            states[0]
+                .iter()
+                .any(|row| row.contains("Checking your available resets"))
+        );
+        assert!(
+            states[1]
+                .iter()
+                .any(|row| row.contains("2 usage limit resets available."))
+        );
+        assert!(
+            states
+                .iter()
+                .all(|state| !state.iter().any(|row| row == "---"))
+        );
+    }
+}
+
+/// doors-r3 item 6: Find's scan is the widget's, reachable for the select mode's `n` / `N`.
+mod finder_search {
+    use std::borrow::Cow;
+
+    use codex_tui_rtwk::widgets::finder::{self, Direction, Rows};
+
+    struct Lines(&'static [&'static str]);
+
+    impl Rows for Lines {
+        fn count(&self) -> usize {
+            self.0.len()
+        }
+
+        fn text(&self, row: usize) -> Cow<'_, str> {
+            Cow::Borrowed(self.0[row])
+        }
+    }
+
+    const ROWS: Lines = Lines(&["one Needle", "two", "NEEDLE needle", "four"]);
+
+    #[test]
+    fn the_query_is_folded_and_the_scan_goes_on_from_a_place_without_wrapping() {
+        assert_eq!(finder::fold("NeedLE İ"), "needle i\u{307}");
+        let query = finder::fold("Needle");
+        let hit = |from, direction| finder::search(&ROWS, &query, from, direction);
+        let newer = hit((0, 0), Direction::Newer).expect("in the first row");
+        assert_eq!((newer.row, newer.range), (0, 4..10));
+        // on from that match: the next row that has one, then its second match
+        let next = hit((0, 10), Direction::Newer).expect("in the third row");
+        assert_eq!((next.row, next.range), (2, 0..6));
+        let next = hit((2, 6), Direction::Newer).expect("its second match");
+        assert_eq!((next.row, next.range), (2, 7..13));
+        assert!(hit((2, 13), Direction::Newer).is_none(), "never wraps");
+        let older = hit((2, 7), Direction::Older).expect("before the byte");
+        assert_eq!((older.row, older.range), (2, 0..6));
+        let older = hit((2, 0), Direction::Older).expect("in an older row");
+        assert_eq!(older.row, 0);
+        assert!(hit((0, 4), Direction::Older).is_none(), "never wraps");
+        assert!(finder::search(&ROWS, "", (0, 0), Direction::Newer).is_none());
+    }
+}
+
+/// doors-r3 item 9: the command popup stays open (its rows kept) across Find.
+mod command_popup_across_find {
+    use crate::kit::{Owner, Screen};
+
+    /// The popup of `/mod` is not painted while Find's bar has the keys, and is back when Find
+    /// closes (the oracle's composer keeps `ActivePopup::Command` under the footer).
+    #[test]
+    fn the_popup_is_kept_while_find_is_open() {
+        let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+        s.type_text("/mod");
+        s.assert_contains("/model");
+        s.keys("f3");
+        s.assert_absent("/model");
+        s.keys("esc");
+        s.assert_contains("/model");
     }
 }

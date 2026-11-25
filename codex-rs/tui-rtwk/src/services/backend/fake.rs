@@ -26,7 +26,9 @@ use codex_tui_core::screens::agents::DirKeys;
 use codex_tui_core::screens::agents::Ev as AgentsEv;
 use codex_tui_core::screens::import::Places;
 use codex_tui_core::screens::usage::reset::Consume;
-use codex_tui_core::screens::usage::{Ask as UsageAsk, AskKind, Ev as UsageEv};
+use codex_tui_core::screens::usage::{
+    AccountReply, Ask as UsageAsk, AskKind, Ev as UsageEv, LoadError as UsageError, ReportReply,
+};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::mpsc::unbounded_channel;
@@ -80,6 +82,28 @@ pub(crate) struct Shared {
     /// The words before a turn's number in the id the fake mints (`mint_turns_as`); `turn-`
     /// without one.
     turn_prefix: Option<String>,
+    /// What the `/usage` page's host answers (`FakeHandle::usage_accounts`, `usage_report`).
+    usage: UsageHost,
+}
+
+/// The account lookups and reports the usage page asks of its host, answered from what a test
+/// says: the lookups one per ask in order (the last stays for every ask after it, so a plan
+/// that changes under an open page is two answers), the reports all the same. With none said
+/// the asks stay recorded and unanswered (a test answers with `inject`).
+#[derive(Default)]
+struct UsageHost {
+    accounts: VecDeque<Result<AccountReply, String>>,
+    report: Option<Result<ReportReply, String>>,
+}
+
+impl UsageHost {
+    fn account(&mut self) -> Option<Result<AccountReply, String>> {
+        if self.accounts.len() > 1 {
+            self.accounts.pop_front()
+        } else {
+            self.accounts.front().cloned()
+        }
+    }
 }
 
 /// A request the fake holds in flight (`FakeBackend::hold_request`): it is logged when the app
@@ -346,6 +370,24 @@ impl FakeHandle {
     pub fn hold_request(&self, method: &str, hold: &Hold) {
         if let Ok(mut shared) = self.shared.lock() {
             shared.held.insert(method.to_string(), hold.clone());
+        }
+    }
+
+    /// The answers to the usage page's account lookups, one per ask in order; the last one
+    /// answers every ask after it. `Err` is a lookup that failed (the host's message). A plan
+    /// that changes while a page is open is `[Ok(plus), Ok(enterprise)]`: the page's refresh
+    /// gets the second.
+    pub fn usage_accounts(&self, answers: Vec<Result<AccountReply, String>>) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.usage.accounts = answers.into();
+        }
+    }
+
+    /// The answer to every report the usage page asks for (without one the report stays
+    /// loading).
+    pub fn usage_report(&self, answer: Result<ReportReply, String>) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.usage.report = Some(answer);
         }
     }
 
@@ -619,6 +661,46 @@ async fn run_as(
                     let ev = AppEv::Screen(ScreenEv::Usage(UsageEv::Redeemed { key, result }));
                     let _ = ingress.send(Ingress::of(backend, epoch, ev));
                 });
+            }
+            // The account and the reports of a page a test scripted (`usage_accounts`): answered
+            // under the ask's session and stamp, as the host does; a failed lookup is the host's
+            // message.
+            Command::Usage {
+                ask:
+                    UsageAsk {
+                        session,
+                        stamp,
+                        what: AskKind::Account,
+                    },
+                ..
+            } => {
+                let answer = shared.lock().ok().and_then(|mut guard| guard.usage.account());
+                if let Some(result) = answer {
+                    emit(AppEv::Screen(ScreenEv::Usage(UsageEv::Account {
+                        session,
+                        stamp,
+                        result: result.map_err(UsageError::from),
+                    })));
+                }
+            }
+            Command::Usage {
+                ask:
+                    UsageAsk {
+                        session,
+                        stamp,
+                        what: AskKind::Report { section, .. },
+                    },
+                ..
+            } => {
+                let answer = shared.lock().ok().and_then(|guard| guard.usage.report.clone());
+                if let Some(result) = answer {
+                    emit(AppEv::Screen(ScreenEv::Usage(UsageEv::Report {
+                        session,
+                        stamp,
+                        section,
+                        result: result.map_err(UsageError::from),
+                    })));
+                }
             }
             Command::Usage { .. } => {}
             // The scripted server has no launch facts: nothing is due.

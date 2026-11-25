@@ -46,6 +46,16 @@ pub fn snap_cuts(name: &str) -> Vec<Vec<String>> {
         .collect()
 }
 
+/// The rows of each body of a snapshot the test glued of bodies of different heights with a
+/// blank row between (`oracle_snap::states`, `panel(..)` bodies joined by `"\n\n"`): `heights[i]`
+/// rows for body `i`, in the order the test wrote them.
+pub fn snap_states(name: &str, heights: &[usize]) -> Vec<Vec<String>> {
+    let rel = oracle_snap::find(name);
+    (0..heights.len())
+        .map(|index| oracle_snap::states(&rel, heights, index).rows)
+        .collect()
+}
+
 /// What to compare the screen with: a snapshot, one frame of it, placed at a
 /// row and column of the screen.
 pub struct Want<'a> {
@@ -78,6 +88,14 @@ pub fn assert_labelled(grid: &Grid, want: &Want<'_>, labels: &[&str], dialog: bo
 /// (`oracle_snap::state`): the screen equals state `index`, each state `height` rows.
 pub fn assert_state(grid: &Grid, want: &Want<'_>, height: usize, index: usize) {
     let frame = oracle_snap::state(&oracle_snap::find(want.name), height, index);
+    assert_frame(grid, want, frame, want.at);
+}
+
+/// `assert_snap` for a snapshot of bodies of different heights glued by a blank row with no
+/// header (`oracle_snap::states`, `panel(..)` bodies joined by `"\n\n"`): the screen equals state
+/// `index`, state `i` being `heights[i]` rows.
+pub fn assert_states(grid: &Grid, want: &Want<'_>, heights: &[usize], index: usize) {
+    let frame = oracle_snap::states(&oracle_snap::find(want.name), heights, index);
     assert_frame(grid, want, frame, want.at);
 }
 

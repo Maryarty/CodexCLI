@@ -10,8 +10,6 @@
 //! goes through the controller, so a key reaches it as a tap does. The cell's own flag stays for a
 //! cell outside a tile (the sheets, the tests).
 
-use std::rc::Rc;
-
 use rtwk::controls::Pressable;
 use rtwk::foundation::ListenableBuilder;
 use rtwk::gestures::{ExcludeSelection, PointerEvent};
@@ -75,11 +73,8 @@ pub fn disclosing<S: State<Msg = bool>>(
     // key does; the cell reads the answer back with `expanded`
     if let Some(tile) = Provider::<Tile>::maybe_of(cx, false) {
         tile.disclosed.note(&tile.key);
-        let flip = {
-            let tile: Rc<Tile> = tile.clone();
-            move || {
-                tile.disclosed.toggle(&tile.key);
-            }
+        let flip = move || {
+            tile.disclosed.toggle(&tile.key);
         };
         let (on_key, on_tap) = (flip.clone(), flip);
         let toggle = cx.callback(move |_, ()| on_key());

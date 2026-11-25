@@ -356,6 +356,29 @@ pub fn state(rel: &str, height: usize, index: usize) -> Frame {
     parse_frame(format!("state {index}"), &body[start..end])
 }
 
+/// State `index` (from 0) of a snapshot the test glued of states of different heights with a
+/// blank row between and no header (`panel(..)` bodies joined by `"\n\n"`): `heights[i]` rows
+/// for state `i`. A body's own blank rows are part of its height. Panics when the snapshot has
+/// no such state, or a state is not followed by a blank row.
+pub fn states(rel: &str, heights: &[usize], index: usize) -> Frame {
+    let body = body(rel);
+    let start: usize = heights[..index].iter().map(|height| height + 1).sum();
+    let height = heights[index];
+    assert!(
+        start < body.len(),
+        "{rel}: no state {index} of {heights:?} rows; the snapshot has {} lines",
+        body.len()
+    );
+    let end = (start + height).min(body.len());
+    if index + 1 < heights.len()
+        && let Some(sep) = body.get(end)
+        && !sep.trim().is_empty()
+    {
+        panic!("{rel}: state {index} of {heights:?} rows is not followed by a blank row: `{sep}`");
+    }
+    parse_frame(format!("state {index}"), &body[start..end])
+}
+
 /// The states of a snapshot the test joined of renders of one screen with `join("\n---\n")` and
 /// no header (`states.join("\n---\n")`): the lines between the bare `---` rules, named
 /// `state 0`, `state 1`... in the order the test wrote them. A bare `---` row of a screen's own
@@ -372,9 +395,9 @@ pub fn cut(rel: &str) -> Vec<Frame> {
 pub fn cut_state(rel: &str, index: usize) -> Frame {
     let all = cut(rel);
     let count = all.len();
-    all.into_iter()
-        .nth(index)
-        .unwrap_or_else(|| panic!("{rel}: no state {index} of {count} between its bare `---` rules"))
+    all.into_iter().nth(index).unwrap_or_else(|| {
+        panic!("{rel}: no state {index} of {count} between its bare `---` rules")
+    })
 }
 
 /// What a header reader answers for a line: the frame's name and the row the header line also is.

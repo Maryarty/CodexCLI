@@ -29,8 +29,8 @@ use rtwk::gestures::SelectionPoint;
 use rtwk::render::RenderId;
 use rtwk::scroll::ItemTexts;
 
-pub use crate::widgets::finder::{Direction, Finder, Hit, Key, Mode, QUERY_BYTES, Rows, fold, key};
 use crate::widgets::finder::search;
+pub use crate::widgets::finder::{Direction, Finder, Hit, Key, Mode, QUERY_BYTES, Rows, fold, key};
 use crate::widgets::thread_ui::ThreadUi;
 
 /// The next match of `query` (folded, as the finder holds it: `finder::fold`) from `from`, a row

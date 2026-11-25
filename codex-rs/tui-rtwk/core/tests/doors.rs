@@ -498,3 +498,83 @@ fn a_quiet_thread_leaves_no_interruption_notice() {
     interrupted(&mut app, "turn-3");
     assert_eq!(notices(&app), 2, "and says it again when it is told to");
 }
+
+// ---- doors-r3 ----
+
+/// item 1: the `ide_on` seed of the `small_cmds` facts leaves `/ide` on with an IDE that answers
+/// (what the footer's `IDE context` indicator reads), and says nothing in the transcript.
+#[test]
+fn the_ide_on_seed_leaves_the_context_on_without_a_note() {
+    let session = r#"{"step":"seed","seed":"session","thread":"thread-1"}"#;
+    let fact =
+        r#"{"step":"fact","feature":"small_cmds","fact":{"kind":"ide_on","has_context":true}}"#;
+    let base = codex_tui_core::fixtures::script::build(session)
+        .expect("plays")
+        .app;
+    let on = codex_tui_core::fixtures::script::build(&format!("{session}\n{fact}"))
+        .expect("plays")
+        .app;
+    assert!(!base.features().small_cmds.ide.enabled);
+    assert!(on.features().small_cmds.ide.enabled);
+    assert_eq!(
+        on.active_thread().transcript().iter().count(),
+        base.active_thread().transcript().iter().count(),
+        "the seed says no note"
+    );
+}
+
+/// item 2: `facts::Ev::Flash` is the footer's door: a line, shown again is another showing (its
+/// own number, so the view's timer starts anew), and none takes it away.
+#[test]
+fn the_flash_fact_numbers_every_showing_and_none_takes_the_line_away() {
+    use codex_tui_core::screens::ScreenEv;
+    use codex_tui_core::screens::chat::facts::{FlashLine, FlashTone};
+    use codex_tui_core::screens::chat::{Ev, FactEv};
+
+    let mut app = codex_tui_core::fixtures::script::build(
+        r#"{"step":"seed","seed":"session","thread":"thread-1"}"#,
+    )
+    .expect("plays")
+    .app;
+    let line = |text: &str, tone, millis| FlashLine {
+        text: text.to_string(),
+        tone,
+        millis,
+    };
+    let flash = |app: &mut CodexApp, line: Option<FlashLine>| {
+        run(
+            app,
+            AppEv::Screen(ScreenEv::Chat(Ev::Facts(FactEv::Flash(line)))),
+        );
+        app.screens().chat.facts.flash().cloned()
+    };
+    assert_eq!(flash(&mut app, None), None);
+    let first = flash(&mut app, Some(line("Copied", FlashTone::Plain, 3_000))).expect("shown");
+    assert_eq!(
+        (first.line.text.as_str(), first.line.millis),
+        ("Copied", 3_000)
+    );
+    let again = flash(&mut app, Some(line("Copied", FlashTone::Plain, 3_000))).expect("shown");
+    assert_eq!(again.line, first.line);
+    assert_ne!(
+        again.seq, first.seq,
+        "the same line again is another showing"
+    );
+    let error = flash(
+        &mut app,
+        Some(line("No clipboard", FlashTone::Error, 5_000)),
+    )
+    .expect("shown");
+    assert_eq!(error.line.tone, FlashTone::Error);
+    assert_eq!(flash(&mut app, None), None);
+    // the seed form of a script is the same line, five seconds without `millis`
+    let seeded = codex_tui_core::fixtures::script::build(concat!(
+        r#"{"step":"seed","seed":"session","thread":"thread-1"}"#,
+        "\n",
+        r#"{"step":"screen","dir":"chat","ev":{"facts":{"flash":{"text":"Copied"}}}}"#,
+    ))
+    .expect("plays")
+    .app;
+    let seeded = seeded.screens().chat.facts.flash().cloned().expect("shown");
+    assert_eq!(seeded.line.millis, 5_000);
+}
