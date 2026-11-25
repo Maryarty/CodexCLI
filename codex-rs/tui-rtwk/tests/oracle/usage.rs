@@ -61,9 +61,13 @@ fn current_palette_uses_effective_terminal_color_level() {
     let squares: Vec<usize> = (0..g.width)
         .filter(|x| g.cell(*x, row).text == "\u{25a0}")
         .collect();
-    assert_eq!(squares.len(), 5, "the legend's squares:\n{}", s.text());
+    kit::assert_same(
+        squares.len(),
+        5,
+        &format!("the legend's squares:\n{}", s.text()),
+    );
     let colors: Vec<String> = squares.iter().map(|x| g.style(*x, row).fg).collect();
-    assert_eq!(
+    kit::assert_same(
         colors,
         [
             "Rgb(33, 33, 33)",
@@ -71,9 +75,10 @@ fn current_palette_uses_effective_terminal_color_level() {
             "Rgb(39, 90, 107)",
             "Rgb(64, 146, 173)",
             "Rgb(95, 215, 255)",
-        ],
-        "{}",
-        s.text()
+        ]
+        .map(String::from)
+        .to_vec(),
+        &format!("{}", s.text()),
     );
     // a terminal of 16 colours has no gradient: the hollow glyph marks the empty cells
     let low = Screen::build(Owner::RoutesLists)
@@ -431,7 +436,11 @@ fn horizontal_aliases_ignore_modifiers_and_release_but_accept_repeat() {
         s.key_release(alias);
         kit::assert_same(day(&s), third.clone(), "the release");
         s.key_repeat(alias);
-        assert_ne!(day(&s), third, "the repeat of `{alias}` moves the day");
+        kit::assert_differs(
+            day(&s),
+            third.clone(),
+            &format!("the repeat of `{alias}` moves the day"),
+        );
         s.key_repeat(other);
         kit::assert_same(day(&s), third.clone(), "the repeat back");
     }
@@ -701,19 +710,20 @@ fn tall_reports_use_available_height_and_wide_reports_put_details_beside_plot() 
             .iter()
             .filter(|row| row.contains('\u{2588}'))
             .count();
-        assert!(
+        kit::assert_same(
             plot_rows > 14,
-            "only {plot_rows} plot rows at {width} columns"
+            true,
+            &format!("only {plot_rows} plot rows at {width} columns"),
         );
         s.assert_contains("731,000 tokens");
         s.assert_absent("scroll");
         if width == 180 {
-            assert!(
+            kit::assert_same(
                 s.rows()
                     .iter()
                     .any(|row| row.contains("4.4M tokens") && row.contains('\u{2500}')),
-                "no headline row with a rule:\n{}",
-                s.text()
+                true,
+                &format!("no headline row with a rule:\n{}", s.text()),
             );
             s.assert_snap(
                 "tall_reports_use_available_height_and_wide_reports_put_details_beside_plot",
@@ -782,16 +792,19 @@ fn keyboard_tabs_and_help_preserve_report_reading_position() {
     s.keys("?");
     s.assert_contains("Usage shortcuts");
     let rows = s.rows();
-    assert!(
+    kit::assert_same(
         rows[rows.len() - 2].contains("scroll"),
-        "no scroll hint in the help's second last row:\n{}",
-        s.text()
+        true,
+        &format!(
+            "no scroll hint in the help's second last row:\n{}",
+            s.text()
+        ),
     );
     s.assert_absent("tab report");
     s.assert_snap("narrow_help");
     let help_top = s.rows();
     s.keys("pagedown");
-    assert_ne!(s.rows(), help_top, "a page down scrolls the help");
+    kit::assert_differs(s.rows(), help_top, "a page down scrolls the help");
     s.keys("esc");
     s.assert_absent("Usage shortcuts");
     s.resize(80, 16);
@@ -843,34 +856,71 @@ fn analytics_sections_adapt_to_terminal_colors() {
         let filled: Vec<usize> = (0..g.width)
             .filter(|x| g.style(*x, 1).bg != "Reset")
             .collect();
-        assert!(!filled.is_empty(), "{at}: no active tab:\n{}", s.text());
+        kit::assert_same(
+            !filled.is_empty(),
+            true,
+            &format!("{at}: no active tab:\n{}", s.text()),
+        );
         let head = g.style(filled[0], 1);
-        assert_eq!(head.bg, terminal.fill, "{at}: the active tab's fill");
-        assert_eq!(head.fg, terminal.ink, "{at}: the active tab's text");
-        assert!(head.modifier.contains("BOLD"), "{at}: {head:?}");
+        kit::assert_same(
+            head.bg.as_str(),
+            terminal.fill,
+            &format!("{at}: the active tab's fill"),
+        );
+        kit::assert_same(
+            head.fg.as_str(),
+            terminal.ink,
+            &format!("{at}: the active tab's text"),
+        );
+        kit::assert_same(
+            head.modifier.contains("BOLD"),
+            true,
+            &format!("{at}: {head:?}"),
+        );
         for y in 0..g.height {
             for x in 0..g.width {
                 let style = g.style(x, y);
                 if g.cell(x, y).text == "\u{25b2}" {
-                    assert_eq!(style.fg, terminal.accent, "{at}: marker at {x},{y}");
-                    assert_eq!(style.bg, "Reset", "{at}: marker at {x},{y}");
-                    assert!(style.modifier.contains("BOLD"), "{at}: marker {style:?}");
+                    kit::assert_same(
+                        style.fg.as_str(),
+                        terminal.accent,
+                        &format!("{at}: marker at {x},{y}"),
+                    );
+                    kit::assert_same(
+                        style.bg.as_str(),
+                        "Reset",
+                        &format!("{at}: marker at {x},{y}"),
+                    );
+                    kit::assert_same(
+                        style.modifier.contains("BOLD"),
+                        true,
+                        &format!("{at}: marker {style:?}"),
+                    );
                 }
                 if terminal.name == "light"
                     && style.fg == "White"
                     && !g.cell(x, y).text.trim().is_empty()
                 {
-                    assert!(
+                    kit::assert_same(
                         y >= g.height - 2 || (3..5).contains(&y),
-                        "{at}: white at {x},{y}"
+                        true,
+                        &format!("{at}: white at {x},{y}"),
                     );
-                    assert_eq!(style.modifier, "BOLD", "{at}: white at {x},{y}");
+                    kit::assert_same(
+                        style.modifier.as_str(),
+                        "BOLD",
+                        &format!("{at}: white at {x},{y}"),
+                    );
                 }
             }
         }
         if terminal.name == "light" {
             let low = g.low_contrast(kit::LIGHT, 4.5);
-            assert!(low.is_empty(), "{at}: {low:?}\n{}", s.text());
+            kit::assert_same(
+                low.is_empty(),
+                true,
+                &format!("{at}: {low:?}\n{}", s.text()),
+            );
         }
     }
     for terminal in [
@@ -900,7 +950,11 @@ fn analytics_sections_adapt_to_terminal_colors() {
                 .split_whitespace()
                 .filter(|word| word.parse::<u32>().is_ok())
                 .count();
-            assert!(tabs >= 6, "{entry}: {tabs} tabs:\n{}", s.text());
+            kit::assert_same(
+                tabs >= 6,
+                true,
+                &format!("{entry}: {tabs} tabs:\n{}", s.text()),
+            );
             for index in 0..tabs {
                 let at = format!("{} {entry} report {index}", terminal.name);
                 check(&s, &at, &terminal);
@@ -950,22 +1004,24 @@ fn chat_selection_keeps_a_highlighted_trailing_blank_after_wrapping() {
                     continue;
                 };
                 selected += 1;
-                assert_eq!(
+                kit::assert_same(
                     g.cell(end, y).text.trim(),
                     "",
-                    "{entry} {width}: row {y}:\n{}",
-                    s.text()
+                    &format!("{entry} {width}: row {y}:\n{}", s.text()),
                 );
-                assert!(
+                kit::assert_same(
                     (0..end).any(|x| !g.cell(x, y).text.trim().is_empty()),
-                    "{entry} {width}: row {y} has no text before its last filled cell:\n{}",
-                    s.text()
+                    true,
+                    &format!(
+                        "{entry} {width}: row {y} has no text before its last filled cell:\n{}",
+                        s.text()
+                    ),
                 );
             }
-            assert!(
+            kit::assert_same(
                 selected > 0,
-                "{entry} {width}: no selected row:\n{}",
-                s.text()
+                true,
+                &format!("{entry} {width}: no selected row:\n{}", s.text()),
             );
         }
     }

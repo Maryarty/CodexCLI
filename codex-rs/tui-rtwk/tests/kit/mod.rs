@@ -43,7 +43,7 @@ mod view;
 mod worktrees;
 
 #[allow(unused_imports)]
-pub use asserts::{assert_same, native_status};
+pub use asserts::{assert_differs, assert_same, native_status};
 #[allow(unused_imports)]
 pub use compare::{
     Want, assert_snap as assert_snap_on, snap_cuts, snap_frames, snap_rows, snap_size, snap_states,
