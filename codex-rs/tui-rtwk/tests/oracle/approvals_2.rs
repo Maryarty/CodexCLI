@@ -43,9 +43,7 @@ fn render_single_thread_snapshot() {
 fn render_multiple_threads_snapshot() {
     let mut s = Screen::build(Owner::DialogsPane).size(44, 16).live().open();
     s.type_text("a");
-    s.feed(include_str!(
-        "fixtures/approvals_2/pending_multiple.jsonl"
-    ));
+    s.feed(include_str!("fixtures/approvals_2/pending_multiple.jsonl"));
     let at = banner_row(&s);
     s.assert_row(at, "  ! Approval needed in Main [default]");
     s.assert_row(at + 1, "  ! Approval needed in Robie [explorer]");

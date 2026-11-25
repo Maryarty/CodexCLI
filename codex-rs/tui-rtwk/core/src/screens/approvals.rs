@@ -486,6 +486,15 @@ pub fn waiting_threads(queue: &crate::app::RequestQueue) -> Vec<ThreadId> {
         .collect()
 }
 
+/// [`labels_of`] with the command center's thread list of `states`.
+pub fn labels_in(
+    states: &crate::screens::ScreenStates,
+    waiting: &[ThreadId],
+    active: Option<&ThreadId>,
+) -> Vec<String> {
+    labels_of(waiting, &states.agents.threads, active)
+}
+
 /// The labels of `waiting`, one per thread (the first request fixes its place), the shown
 /// thread left out.
 pub fn labels_of(

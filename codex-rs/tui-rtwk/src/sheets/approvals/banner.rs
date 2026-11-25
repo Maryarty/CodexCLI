@@ -13,7 +13,7 @@ use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
 use codex_tui_core::app::{RequestQueue, SessionSlice};
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::ScreenStates;
-use codex_tui_core::screens::approvals::{labels_of, waiting_threads};
+use codex_tui_core::screens::approvals::{labels_in, waiting_threads};
 
 use super::strings;
 use crate::app::theme::Tokens;
@@ -90,13 +90,9 @@ impl StatelessWidget for PendingThreadsBanner {
         let waiting = select::<RequestQueue, Vec<ThreadId>, _>(cx, waiting_threads);
         let active =
             select::<SessionSlice, Option<ThreadId>, _>(cx, |session| session.active.clone());
-        let threads =
-            select::<ScreenStates, Vec<codex_app_server_protocol::Thread>, _>(cx, |states| {
-                states.agents.threads.clone()
-            });
-        PendingThreadApprovals {
-            threads: labels_of(&waiting, &threads, active.as_ref()),
-        }
-        .into()
+        let threads = select::<ScreenStates, Vec<String>, _>(cx, move |states| {
+            labels_in(states, &waiting, active.as_ref())
+        });
+        PendingThreadApprovals { threads }.into()
     }
 }

@@ -52,14 +52,13 @@ impl Delay {
     /// Presents again after `left`, instead of any timer armed before.
     fn arm(&self, left: Duration) {
         let (binding, due) = (self.binding.borrow(), self.due.borrow());
-        if let (Some(binding), Some(due)) = (binding.as_ref(), due.as_ref()) {
-            if let Some(old) = self
+        if let (Some(binding), Some(due)) = (binding.as_ref(), due.as_ref())
+            && let Some(old) = self
                 .timer
                 .borrow_mut()
                 .replace(binding.start_timer(left, due.clone()))
-            {
-                old.cancel();
-            }
+        {
+            old.cancel();
         }
     }
 }

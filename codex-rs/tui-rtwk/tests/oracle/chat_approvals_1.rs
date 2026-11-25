@@ -775,7 +775,9 @@ fn apply_patch_events_emit_history_cells() {
     // the apply end adds no cell.
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 30)
-        .script(include_str!("fixtures/chat_approvals_1/apply_patch_16.jsonl"))
+        .script(include_str!(
+            "fixtures/chat_approvals_1/apply_patch_16.jsonl"
+        ))
         .open();
     s.keys("y");
     // The oracle draws the whole block (`create_diff_summary`): the detailed transcript.
