@@ -6,3 +6,4 @@
 - doors-r2/NOTES.md: no script; the notes of the doors-r2 round (item 12 finding, the pane_footer fact table, the Needs left to the packages).
 - doors-r3/NOTES.md: no script; the notes of the doors-r3 round (where each door is, the item 8 finding, what each door opens per package).
 - w2-live/gap_reasons.py: names the gap row (G61 math, G73 tables and list spacing) in the pending reason of the markdown_streaming tests that say what the chat lacks, in the sources and in pending-tests.tsv.
+- `f-approval-decisions/pending_tsv.py`: drops the pending-tests.tsv rows of that task's tests that pass, refreshes the reason of those still pending; then map-full build.py + check.py.

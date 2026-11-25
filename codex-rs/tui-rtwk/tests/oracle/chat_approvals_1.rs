@@ -12,7 +12,7 @@ use crate::kit::{self, Owner, Screen};
 fn exec_approval_emits_proposed_command_and_decision_history() {
     kit::pending(
         Owner::DialogsPane,
-        "the modal's `$ echo hello world` is drawn in the theme's own colours (echo Rgb(137, 180, 250), the rest Rgb(205, 214, 244)): the app's `SyntaxPalette` has the scopes, the dialog's `Highlighter` gives rtwk `TokenKind`s with an unset plain style (`SyntaxTheme::of` is the widget default, not the settings pick); rows and the decision cell equal the oracle",
+        "G-syntax: rows, text and the decision cell equal the oracle; the `$ echo hello world` row is drawn in the oracle's theme colours (echo Rgb(137, 180, 250), the rest Rgb(205, 214, 244), syntect and the bundled theme), the app has no scope data for the theme's base foreground nor a shell command name (`SyntaxPalette` holds only the scopes the screens ask for), rtwk-rich's bash `TokenKind`s are coloured Blue / Reset",
     );
     // oracle: the proposed exec request (echo hello world, reason) renders as the modal, no history cell;
     // `y` answers it and the history gets the decision cell.
