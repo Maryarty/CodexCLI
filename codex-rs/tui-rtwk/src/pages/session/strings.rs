@@ -37,6 +37,12 @@ pub struct Strings {
     pub prompt: &'static str,
     /// The description of a command in the popup (`slash_command.rs`).
     pub description: fn(SlashCommand) -> &'static str,
+    /// After the name of a command the popup lists but a side conversation cannot run, and
+    /// before and after the reason in its description (`command_popup.rs`: `is_disabled`).
+    pub command_disabled: &'static str,
+    pub command_reason: [&'static str; 2],
+    /// Why that command is disabled.
+    pub command_unavailable: &'static str,
     /// `slash_dispatch.rs`: the messages a command line can end in.
     pub unrecognized: Msg<1>,
     pub disabled_during_task: Msg<1>,
@@ -235,6 +241,9 @@ pub const EN: Strings = Strings {
     title: "main chat screen",
     prompt: "› ",
     description: description_en,
+    command_disabled: " (disabled)",
+    command_reason: [" (disabled: ", ")"],
+    command_unavailable: "not available in a side conversation",
     unrecognized: msg!("Unrecognized command '/{0}'. Type \"/\" for a list of supported commands."),
     disabled_during_task: msg!("'/{0}' is disabled while a task is in progress."),
     unavailable_in_side: msg!(

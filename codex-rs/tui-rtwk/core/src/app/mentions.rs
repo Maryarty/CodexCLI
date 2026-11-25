@@ -12,6 +12,23 @@ use super::{AppFx, CodexApp, apply_thread};
 use crate::screens::ScreenThreadEv;
 use crate::screens::composer::mentions::sources;
 use crate::screens::popovers::{self, Ev, Listed, ThreadEv};
+use crate::screens::select::apps::Cache;
+
+/// The first `$` popup of a scope reads the directory of apps (the catalog lists the installed
+/// ones; `Apps::refresh`): nothing when the directory is held or asked for, or when the apps
+/// feature is off. The oracle reads it eagerly at the account update and at a thread's display;
+/// the same `app/list` serves `/apps` and the mentions (the oracle's second request of the
+/// installed apps is the one directory here).
+pub(super) fn list_apps(app: &mut CodexApp, fx: &mut AppFx) {
+    let apps = &app.screens.select.apps;
+    if !app.screens.chat.flags.connectors_enabled
+        || apps.pending.is_some()
+        || !matches!(apps.cache, Cache::Uninitialized)
+    {
+        return;
+    }
+    super::select::refresh_apps(app, fx);
+}
 
 pub(super) fn sync(app: &mut CodexApp, fx: &mut AppFx) {
     let Some(thread) = app.session.active.clone() else {

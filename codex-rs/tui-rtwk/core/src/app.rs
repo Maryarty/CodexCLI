@@ -2181,6 +2181,9 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 }
             }
         }
+        Intent::Screen(ScreenIntent::Popovers(crate::screens::popovers::Intent::ListApps)) => {
+            mentions::list_apps(app, fx)
+        }
         // the task search is the thread in use's: its RPCs carry the thread
         Intent::Screen(ScreenIntent::Popovers(crate::screens::popovers::Intent::SearchTasks(query))) => {
             if let Some(thread) = app.session.active.clone() {

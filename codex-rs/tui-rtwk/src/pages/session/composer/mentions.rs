@@ -78,11 +78,21 @@ pub(super) fn sync(w: &Composer, states: &ScreenStates, cx: &mut Cx<'_, Composer
         || draft.searching()
         || vim::mode(draft).searching
         || draft.history_browsing(c, &states.popovers.history);
+    let dollar = || {
+        draft
+            .mentions()
+            .read(|session| matches!(session.active(), Active::Dollar(_)))
+    };
+    let was_dollar = dollar();
     let synced = if closes {
         draft.mentions().close()
     } else {
         draft.sync_mentions(c, &states.popovers.sources())
     };
+    // the first `$` popup asks the app for the directory of apps it lists
+    if !was_dollar && dollar() {
+        emit(cx, vec![popovers::Intent::ListApps]);
+    }
     // the `@` token's query also searches the user's other tasks
     let tasks: Vec<_> = synced
         .asks

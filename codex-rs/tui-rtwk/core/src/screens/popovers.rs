@@ -195,6 +195,10 @@ pub enum Intent {
     /// The `@` token is now this query: the tasks of the thread in use are searched (the app
     /// hands it to the active thread, `ThreadEv::SearchTasks`).
     SearchTasks(String),
+    /// The `$` popup came up: the directory of apps is read, once, if it is not (the oracle
+    /// reads it when the account and the thread are known; here it waits for the first `$`, so a
+    /// session that never mentions an app asks no `app/list` of its own, `app/mentions.rs`).
+    ListApps,
     /// A task was picked: the list of tasks the search found is spent.
     SpendTasks,
     /// Ctrl+V: the clipboard's image is wanted (`Ask::ClipboardImage`).
@@ -254,7 +258,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::Lookup(lookup) => model.asks.push(Ask::Lookup(lookup)),
         Intent::SearchFiles(ask) => model.asks.push(Ask::FileSearch(ask)),
         // the thread's: the app routes it (`app::apply_intent`)
-        Intent::SearchTasks(_) => {}
+        Intent::SearchTasks(_) | Intent::ListApps => {}
         Intent::SpendTasks => model.tasks.clear(),
         Intent::PasteImage => model.asks.push(Ask::ClipboardImage),
         Intent::RecordMention(identity) => {

@@ -52,13 +52,24 @@ fn commands(slash: &Slash, strings: &Strings, before: &str) -> Vec<Suggestion> {
     popup
         .rows()
         .into_iter()
-        .filter(|row| !row.unavailable)
         .map(|row| {
             let name = format!("/{}", row.item.command());
             let description = row.description.unwrap_or_else(|| match &row.item {
                 SlashCommandItem::Builtin(command) => (strings.description)(*command).to_string(),
                 SlashCommandItem::ServiceTier(tier) => tier.description.clone(),
             });
+            // a command a side conversation cannot run is listed after a search, muted and no
+            // pick (`rows_from_matches`: `is_disabled`)
+            if row.unavailable {
+                let [before, after] = strings.command_reason;
+                return Suggestion::new(name.clone())
+                    .label(format!("{name}{}", strings.command_disabled))
+                    .detail(format!(
+                        "{description}{before}{}{after}",
+                        strings.command_unavailable
+                    ))
+                    .enabled(false);
+            }
             Suggestion::new(name.clone())
                 .label(name)
                 .detail(description)
