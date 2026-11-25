@@ -1096,6 +1096,82 @@ fn a_loaded_failed_turn_shows_its_error_after_its_items() {
     assert_eq!(kinds, ["Before the failure", "error: Quota exceeded."]);
 }
 
+#[test]
+fn a_loaded_interrupted_turn_ends_with_the_interruption_notice() {
+    // oracle chatwidget/replay.rs replay_thread_turns: an interrupted turn is completed as
+    // `on_interrupted_server_turn` does, so the notice a live interrupt gets closes its rows; a
+    // hidden nested review turn counts as completed and gets none.
+    let mut app = ready();
+    let message = |id: &str, text: &str| {
+        json!({"type": "userMessage", "id": id, "clientId": null,
+            "content": [{"type": "text", "text": text, "text_elements": []}]})
+    };
+    let turn = |id: &str,
+                status: &str,
+                completed: Value,
+                items: Value|
+     -> codex_app_server_protocol::Turn {
+        serde_json::from_value(json!({
+            "id": id, "itemsView": "full", "status": status, "completedAt": completed, "items": items
+        }))
+        .expect("turn")
+    };
+    let review = |id: &str| {
+        turn(
+            id,
+            "completed",
+            Value::Null,
+            json!([
+                {"type": "enteredReviewMode", "id": format!("{id}-start"), "review": "changes"},
+                {"type": "exitedReviewMode", "id": format!("{id}-end"), "review": "done"}
+            ]),
+        )
+    };
+    // the server lists the newest turn first
+    let turns = [
+        turn(
+            "turn-nested",
+            "interrupted",
+            Value::Null,
+            json!([message("nested-1", "prompt"), message("nested-2", "prompt")]),
+        ),
+        review("turn-review"),
+        turn(
+            "turn-stopped",
+            "interrupted",
+            json!(1),
+            json!([message("typed", "hello")]),
+        ),
+    ];
+    codex_tui_core::app::apply_thread(
+        &mut app,
+        &ThreadId::new("thread-1"),
+        codex_tui_core::threads::history_page(&turns, None),
+        &mut AppFx::default(),
+    );
+    let rows: Vec<_> = app
+        .active_thread()
+        .transcript()
+        .iter()
+        .map(|(_, item)| match item {
+            Item::User(prompt) => format!("user: {}", prompt.text),
+            Item::Notice(Notice::Interrupted) => "interrupted".to_owned(),
+            Item::Notice(Notice::EnteredReview(_)) => "review started".to_owned(),
+            Item::Notice(Notice::ExitedReview(_)) => "review finished".to_owned(),
+            other => format!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            "user: hello",
+            "interrupted",
+            "review started",
+            "review finished"
+        ]
+    );
+}
+
 fn unrouted(notification: Value) -> Option<ThreadEv> {
     let notification: ServerNotification =
         serde_json::from_value(notification).expect("notification");

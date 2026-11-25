@@ -702,7 +702,9 @@ fn transcript_prompt_surfaces_and_separators_keep_their_rows() {
         let second = row("Второй запрос");
         let after = row("Следующий ответ.");
         assert_eq!(first, before + 3, "{}", h.t.screen());
-        assert_eq!(second, first + 2, "{}", h.t.screen());
+        // the chat keeps each prompt's own rows: the pad under the first, the blank row between
+        // two cells, the pad over the second (the detailed transcript shares one block)
+        assert_eq!(second, first + 4, "{}", h.t.screen());
         assert_eq!(after, second + 4, "{}", h.t.screen());
         assert!(
             lines[second + 1].starts_with("  Продолжение"),
@@ -715,13 +717,32 @@ fn transcript_prompt_surfaces_and_separators_keep_their_rows() {
         assert_ne!(panel, background);
         assert_eq!(h.t.cell(0, before + 1).bg, background);
         assert_eq!(h.t.cell(0, after - 1).bg, background);
-        for line in first - 1..after - 1 {
+        assert_eq!(h.t.cell(0, first + 2).bg, background, "{}", h.t.screen());
+        for line in (first - 1..after - 1).filter(|line| *line != first + 2) {
             assert_eq!(h.t.cell(0, line).bg, panel, "row {line} at width {width}");
             assert_eq!(
                 h.t.cell(usize::from(width - 1), line).bg,
                 panel,
                 "right edge at row {line}, width {width}"
             );
+        }
+
+        // the detailed transcript (Ctrl+T) shares one block between the two prompts (oracle
+        // `TranscriptView`): one pad row, no blank row between them
+        h.press("ctrl+t");
+        h.wait_idle();
+        let lines = h.t.lines();
+        let row = |needle: &str| {
+            lines
+                .iter()
+                .position(|line| line.contains(needle))
+                .unwrap_or_else(|| panic!("missing {needle} at width {width}\n{}", h.t.screen()))
+        };
+        let (first, second) = (row("Первый запрос"), row("Второй запрос"));
+        assert_eq!(second, first + 2, "{}", h.t.screen());
+        let panel = h.t.cell(0, first).bg;
+        for line in first - 1..=second + 2 {
+            assert_eq!(h.t.cell(0, line).bg, panel, "row {line} at width {width}");
         }
     }
 }

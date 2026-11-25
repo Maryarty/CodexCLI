@@ -226,7 +226,11 @@ pub struct Strings {
     /// `emit_prompt_edit_thread_event` (`app/event_dispatch.rs`).
     pub prompt_reverted: &'static str,
     pub review_started: (&'static str, &'static str),
+    /// The detailed transcript's end of a review (`thread_transcript/other_items.rs`):
+    /// before the review's text, after it.
     pub review_finished: (&'static str, &'static str),
+    /// The chat's end of a review (`exit_review_mode_after_item`): no text.
+    pub review_finished_chat: &'static str,
     // chatwidget/rate_limits.rs: `finish_add_credits_nudge_email_request`; per kind of nudge
     // (credits, usage limit): the e-mail went out, the owner was told recently, the request failed.
     // history_cell/notices.rs SafetyAccessBlockCell, new_cyber_policy_error_event
@@ -498,6 +502,7 @@ pub const EN: Strings = Strings {
     prompt_reverted: "Conversation reverted to this point. File changes are unchanged.",
     review_started: (">> Code review started: ", " <<"),
     review_finished: ("<< Code review finished: ", " >>"),
+    review_finished_chat: "<< Code review finished >>",
     safety_mark: "ⓘ ",
     safety_title: "This content can't be shown",
     cyber_title: "This content can’t be shown",
