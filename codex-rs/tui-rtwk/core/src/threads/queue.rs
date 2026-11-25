@@ -271,6 +271,19 @@ pub(super) fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
     }
     while !model.queue.is_empty() {
         match model.queue.remove(0) {
+            // a thread whose model is empty takes no turn: the message goes back to the composer
+            // and the rest of the queue stays (`submit_user_message`)
+            Queued::Message(message) | Queued::Literal(message)
+                if super::startup::model_unavailable(model.slots.chat.model.as_deref()) =>
+            {
+                apply_appended(
+                    model,
+                    None,
+                    Item::Note(Note::from(crate::commands::Notice::ThreadModelUnavailable)),
+                );
+                give_back(model, vec![message], false);
+                return;
+            }
             Queued::Message(message) => {
                 if let Err(message) = fx.start_turn(message) {
                     model.queue.insert(0, Queued::Message(message));

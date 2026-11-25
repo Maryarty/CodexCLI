@@ -134,6 +134,10 @@ pub enum Notice {
     ShellHelp,
     /// `Message exceeds the maximum length of N characters (M provided).`
     InputTooLarge { provided: usize },
+    /// `Thread model is unavailable. Wait for the thread to finish syncing or choose a model
+    /// before sending input.`: a submit, or the queue's next message, met a thread whose model is
+    /// empty; the message goes back to the composer.
+    ThreadModelUnavailable,
 }
 
 impl Notice {

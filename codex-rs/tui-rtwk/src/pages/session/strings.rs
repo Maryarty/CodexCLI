@@ -50,6 +50,8 @@ pub struct Strings {
     pub shell_help: &'static str,
     /// `user_input_too_large_message` (`chat_composer.rs`): the limit and the size.
     pub input_too_large: Msg<2>,
+    /// `submit_user_message`: the thread has no model to send with.
+    pub thread_model_unavailable: &'static str,
     pub usage_needs_login: &'static str,
     pub usage_pwd: &'static str,
     pub usage_usage: &'static str,
@@ -134,6 +136,10 @@ pub struct Strings {
     pub forking: &'static str,
     /// `startup_draft_renderable`: what the startup draft says while the named session opens.
     pub resuming_session: &'static str,
+    /// The footer while the confirmed startup draft waits (`set_footer_hint_override`).
+    pub startup_waiting: &'static str,
+    pub startup_cancel_key: &'static str,
+    pub startup_cancel: &'static str,
     pub forking_session: &'static str,
     /// `chatwidget/provider_error.rs`: the notice that stands in place of the
     /// composer when the server refused the chat for its model provider.
@@ -250,6 +256,7 @@ pub const EN: Strings = Strings {
     side_rename: "Side conversations cannot be renamed.",
     shell_help: "Prefix a command with ! to run it locally\nExample: !ls",
     input_too_large: msg!("Message exceeds the maximum length of {0} characters ({1} provided)."),
+    thread_model_unavailable: "Thread model is unavailable. Wait for the thread to finish syncing or choose a model before sending input.",
     usage_needs_login: "Sign in with ChatGPT to use /usage.",
     usage_pwd: "Usage: /pwd",
     usage_usage: "Usage: /usage [daily|weekly|cumulative]",
@@ -315,6 +322,9 @@ pub const EN: Strings = Strings {
     writer_transcript: "transcript",
     forking: "Forking conversation…",
     resuming_session: "  Resuming session…",
+    startup_waiting: "Waiting for startup",
+    startup_cancel_key: "esc",
+    startup_cancel: "cancel",
     forking_session: "  Forking session…",
     provider_lock: "\u{1f512}",
     provider_title_continue: "Continue in a new chat",
@@ -903,6 +913,7 @@ impl Strings {
             Notice::NotAvailable(c) => text(self.not_available, c.command()),
             Notice::ModelStartup => self.model_startup.to_string(),
             Notice::ShellHelp => self.shell_help.to_string(),
+            Notice::ThreadModelUnavailable => self.thread_model_unavailable.to_string(),
             Notice::InputTooLarge { provided } => Fmt::new(
                 self.input_too_large,
                 [

@@ -158,31 +158,40 @@ fn hidden_shell_paste_restored_after_image_rejection_submits_literal_prompt() {
 #[test]
 fn hidden_shell_paste_restored_after_unavailable_model_submits_literal_prompt() {
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.set_thread_model("");
     s.paste(&hidden_shell_payload());
     s.assert_contains("[Pasted Content 1006 chars]");
     s.keys("enter");
+    s.assert_contains("Thread model is unavailable.");
+    s.assert_no_turn();
     // The oracle restores the model, then Enter submits the literal payload.
+    s.set_thread_model("gpt-5.2");
     s.keys("enter");
+    s.assert_turn_texts(&[&hidden_shell_payload()]);
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:263 rejected_hidden_shell_paste_preserves_colliding_draft_paste kind=ui owner=chat-nav-pane
 #[test]
 fn rejected_hidden_shell_paste_preserves_colliding_draft_paste() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the port has no model gate on the queue: a queued prompt drained while the model is empty is sent, not rejected back into the composer merged with the draft's colliding paste; the model change mid-run has no seed (`Open::unavailable_model` is empty from the start) nor an earlier history prompt for ctrl+r",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .script(RUNNING)
+        .message_history(&["earlier prompt"])
         .open();
     s.paste(&hidden_shell_payload());
     s.assert_contains("[Pasted Content 1006 chars]");
     s.keys("tab");
     s.paste(&format!("draft {}", "y".repeat(1000)));
+    // the model goes away while the turn runs (`set_model("")`), then a search is open
+    s.set_thread_model("");
     s.keys("ctrl+r");
     s.type_text("e");
+    // the turn ends: the drain refuses the queued prompt and gives it back to the composer,
+    // merged onto the draft that has a paste of the same size
     s.feed(COMPLETED);
+    s.assert_contains("Thread model is unavailable.");
+    s.assert_no_turn();
+    s.set_thread_model("gpt-5.2");
     s.keys("esc enter");
     let draft = "y".repeat(1000);
     s.assert_turn_texts(&[&format!("{}\ndraft {draft}", hidden_shell_payload())]);

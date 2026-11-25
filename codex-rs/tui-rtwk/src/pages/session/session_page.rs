@@ -84,6 +84,8 @@ mod reader;
 mod send;
 #[path = "session/slot.rs"]
 mod slot;
+#[path = "session/startup_confirm.rs"]
+mod startup_confirm;
 #[path = "session/title.rs"]
 mod title;
 
@@ -118,6 +120,8 @@ pub struct ChatState {
     /// The shortcut overlay is expanded above the composer (the oracle's
     /// `FooterMode::ShortcutOverlay`).
     shortcuts: bool,
+    /// Enter confirmed the startup draft: it is submitted when the session is ready.
+    startup_confirm: Option<startup_confirm::Confirmed>,
     draft_empty: bool,
     /// The revision of the composer's reverse history search (Ctrl+R) this
     /// page drew: its footer stands in the key footer's place, and a change of
@@ -179,6 +183,7 @@ impl StatefulWidget for Chat {
             resume: false,
             forking: None,
             shortcuts: false,
+            startup_confirm: None,
             draft_empty: self.ui.composer.text().is_empty(),
             search_rev: self.ui.draft.search_rev(),
             draft_shell: self.ui.draft.shell(),
@@ -212,6 +217,7 @@ struct Forking {
 #[derive(PartialEq)]
 struct Shown {
     shortcuts: bool,
+    confirmed: bool,
     primed: bool,
     draft_empty: bool,
     draft_shell: bool,
@@ -231,6 +237,7 @@ impl ChatState {
     fn shown(&self, modes: &Modes) -> Shown {
         Shown {
             shortcuts: self.shortcuts,
+            confirmed: self.startup_confirm.is_some(),
             primed: modes.primed(),
             draft_empty: self.draft_empty,
             draft_shell: self.draft_shell,
@@ -336,6 +343,7 @@ impl State for ChatState {
             ChatMsg::Edge(_) => {}
             ChatMsg::Changed(text) => {
                 self.sync_draft(w);
+                self.startup_edited(w);
                 // a paste or an edit while prompts are browsed ends browsing
                 modes.leave_browsing();
                 if self.shortcuts && !text.is_empty() {
