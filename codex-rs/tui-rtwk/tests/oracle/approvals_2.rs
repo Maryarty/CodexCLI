@@ -56,15 +56,36 @@ fn render_multiple_threads_snapshot() {
 // ORACLE bottom_pane/questions_tests.rs:7 questions_flush_buffered_typing_and_record_activity kind=snap owner=dialogs-pane snap=codex_tui__bottom_pane__question_tests__question_collapsed_countdown
 #[test]
 fn questions_flush_buffered_typing_and_record_activity() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no async-questions pane in the port: a message's questions without options (push_async_questions) have no seed; the collapsed countdown summary is the visible half; flushing what was typed ahead when a question arrives is G8 (rtwk has no input discard)",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(21, 2).live().open();
+    // oracle: the editor open, "pasted " pasted and "answer" typed at once (held by the paste burst until it is flushed),
+    // the editor collapsed and a question arrives: the summary counts the second down from its 30 seconds
+    // (`2 questions · 15s`); after 30 more it has run out.
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!("fixtures/chat_approvals_2/q_plain.jsonl"))
+        .open();
+    // the app's clock is the script's: the countdown is measured on it
+    let clock = |millis: i64| format!("{{\"step\":\"clock\",\"millis\":{millis}}}\n");
+    let base = 1_000_000_000_000_i64;
+    s.feed(&clock(base));
+    s.keys("alt+up");
     s.paste("pasted ");
-    s.type_text("answer");
-    s.wait(15_000);
-    s.assert_snap("question_collapsed_countdown");
+    s.type_burst("answer");
+    s.wait(500);
+    s.assert_contains("pasted answer");
+    s.keys("alt+down");
+    s.feed(include_str!("fixtures/chat_approvals_2/q_next.jsonl"));
+    s.feed(&clock(base + 15_000));
+    s.wait(100);
+    let at = s
+        .rows()
+        .iter()
+        .position(|row| row.contains("questions"))
+        .expect("the summary row");
+    s.assert_snap_region("question_collapsed_countdown", at, 0);
+    s.feed(&clock(base + 31_000));
+    s.wait(100);
+    s.assert_contains("2 questions");
+    s.assert_absent("questions ·");
 }
 
 // ---- oracle: bottom_pane/request_user_input/mod.rs (55 screen-level tests here; 21 state tests left to dialogs-pane)
