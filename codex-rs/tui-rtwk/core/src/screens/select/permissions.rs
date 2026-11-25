@@ -164,7 +164,12 @@ impl Current {
             approval,
             reviewer: if facts.auto_review { Reviewer::AutoReview } else { Reviewer::User },
             matches,
-            profile: matches.map(|preset| preset.profile().to_owned()),
+            // the thread's active profile as the facts name it (a named profile too), else the
+            // built-in one the preset stands for
+            profile: facts
+                .permission_profile
+                .clone()
+                .or_else(|| matches.map(|preset| preset.profile().to_owned())),
             discover: true,
             guardian: facts.permissions.guardian,
             auto_required: facts.permissions.auto_required,

@@ -7,6 +7,10 @@
 use serde_json::json;
 
 use crate::chat_popups_3::{plugin, seed, select_tab};
+use codex_app_server_protocol::ApprovalsReviewer;
+use codex_tui_core::app::Command;
+use codex_tui_core::screens::{ScreenCommand, select};
+
 use crate::kit::{self, Owner, Screen};
 
 /// The first row that contains `text`; past the screen when none does (the kit then names the row it looked for).
@@ -25,29 +29,118 @@ fn row_starting(s: &Screen, text: &str) -> usize {
         .unwrap_or(usize::MAX)
 }
 
-const NO_DISCOVERY: &str = "the discovery menus (loading, the server's catalog, failure with Retry, empty) are built (core `select::permissions`, entries `permission_discovery_*`, the 30 state tests of core/tests/permissions.rs, the sheet tests) but `/permissions` does not open them: the opener (src/pages/session) and the app's `permissionProfile/list` + `configRequirements/read` routing are other owners' files (parity/popups.md, Needs); the wait behind a covering modal is the app's hold, not the picker's";
 const NO_HISTORY: &str = "the oracle's chat has no thread, so its legacy list says `Permissions updated to X` at once (the row the config has too); the port's `/permissions` runs on a thread and says `Permission selection requested: X` once the server took the update, and nothing for the row the thread already has";
-const NO_AUTO_REVIEW: &str = "the Approve for me row, its feature gate and its (current) marker are built (core `select::permissions`, `Current.guardian`/`reviewer`, entry `permissions_unnamed_server_profile`) but `/permissions` does not open the menu: the opener (src/pages/session) reads the thread's policy and the feature gate (parity/popups.md, Needs)";
 /// The server's answers to a `/permissions` read and a pick: no requirements, the three built-in
 /// profiles, the thread's update taken.
 const PERMISSION_CATALOG: &str = r#"{"step":"respond","method":"configRequirements/read","result":{"requirements":null}}
 {"step":"respond","method":"permissionProfile/list","result":{"data":[{"id":":read-only","description":null,"allowed":true},{"id":":workspace","description":null,"allowed":true},{"id":":danger-full-access","description":null,"allowed":true}],"nextCursor":null}}
 {"step":"respond","method":"thread/settings/update","result":{}}"#;
 
-const NO_QUEUE: &str =
-    "the queued-input recovery after a cancelled /permissions picker is not built";
+const NO_COVER_HOLD: &str = "feature the inline `/permissions <profile>` pick waits behind a covering modal (w2-approvals; the oracle's `apply_pending_permission_profile` runs when the picker's view is the active one again): the port applies the pick the moment the catalog is read, under the exec approval, so the thread's settings update is asked before the approval is answered; the select model has no `covered` fact and the app (core/src/app/select.rs, not this package's file) does not tell it when a request dialog is up";
+
+/// The chat's status facts of the oracle's `make_chatwidget_manual` with the workspace profile
+/// active: on-request approvals, the `:workspace` profile, the `Approve for me` row a feature.
+const WORKSPACE_FACTS: &str = r#"{"step":"screen","dir":"chat","ev":{"status":{"approval_policy":"on-request","profile":"workspace","permission_profile":":workspace","permissions":{"guardian":true,"auto_available":true}}}}"#;
+
+/// A modal that covers the picker: an exec approval of the live chat.
+const COVERING_REQUEST: &str = r#"{"step":"request","message":{"method":"item/commandExecution/requestApproval","id":7,"params":{"kind":"command","itemId":"call-cover","approvalId":"call-cover","environmentId":null,"command":"echo hi","cwd":"/tmp","threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}"#;
+
+/// A turn notification of `thread-1`'s turn `turn-1` with `status`.
+fn turn_note(method: &str, status: &str) -> String {
+    format!(
+        r#"{{"step":"notify","message":{{"method":"{method}","params":{{"threadId":"thread-1","turn":{{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"{status}","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}}}}}"#
+    )
+}
+
+/// A turn start that carries the queued follow-up.
+fn is_turn_start_of_follow_up(command: &Command) -> bool {
+    matches!(command, Command::StartTurn { message, .. } if message.text == "follow-up")
+}
+
+/// The thread session of `permissions_selection_marks_auto_review_current_with_custom_workspace_write_details`.
+const AUTO_REVIEW_FACTS: &str = r#"{"step":"screen","dir":"chat","ev":{"status":{"approval_policy":"on-request","profile":"workspace","auto_review":true,"permissions":{"guardian":true,"auto_available":true}}}}"#;
+/// The same thread with the user reviewing.
+const USER_REVIEW_FACTS: &str = r#"{"step":"screen","dir":"chat","ev":{"status":{"approval_policy":"on-request","profile":"workspace","permission_profile":":workspace","permissions":{"guardian":true,"auto_available":true}}}}"#;
+
+/// The asks the select screen made of the app, oldest first.
+fn asked(s: &Screen, wanted: impl Fn(&select::Command) -> bool) -> Vec<Command> {
+    s.commands()
+        .into_iter()
+        .filter(|command| {
+            matches!(
+                command,
+                Command::Screen {
+                    command: ScreenCommand::Select(asked),
+                    ..
+                } if wanted(asked)
+            )
+        })
+        .collect()
+}
+
+/// The permission profile ids the thread was asked to change to, oldest first.
+fn updates(s: &Screen) -> Vec<Option<String>> {
+    s.commands()
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::Screen {
+                command: ScreenCommand::Select(select::Command::Settings { patch, .. }),
+                ..
+            } => Some(patch.permissions),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The three built-in profiles, as the server lists them (the oracle's `Discovery::local`).
+fn built_ins() -> serde_json::Value {
+    json!([
+        {"id": ":read-only", "description": null, "allowed": true},
+        {"id": ":workspace", "description": null, "allowed": true},
+        {"id": ":danger-full-access", "description": null, "allowed": true},
+    ])
+}
+
+/// The server answers the requirements read (`requirements`, its JSON) and the one page of
+/// profiles that follows it (`profiles`, the JSON list of summaries).
+fn read_catalog(s: &mut Screen, requirements: serde_json::Value, profiles: serde_json::Value) {
+    let reads = asked(s, |c| matches!(c, select::Command::Requirements { .. }));
+    let read = reads.last().expect("the requirements were asked");
+    s.answer_request(read, json!({ "requirements": requirements }));
+    let pages = asked(s, |c| matches!(c, select::Command::Profiles { .. }));
+    let page = pages.last().expect("a page of profiles was asked");
+    s.answer_request(page, json!({ "data": profiles, "nextCursor": null }));
+}
 
 // ---- oracle: chatwidget/tests/permissions.rs (42 screen-level tests here; 11 state tests left to dialogs-pane)
 // ORACLE chatwidget/tests/permissions.rs:41 permission_discovery_uses_server_catalog_for_remote_custom_selection kind=snap owner=dialogs-pane snap=permission_discovery_loading snap=permission_discovery_remote
 #[test]
 fn permission_discovery_uses_server_catalog_for_remote_custom_selection() {
-    kit::pending(Owner::DialogsPane, NO_DISCOVERY);
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    // the oracle's chat: the workspace profile active, auto-review a feature of the config
+    s.feed(WORKSPACE_FACTS);
     s.type_text("/permissions").keys("enter");
     s.assert_snap_region(
         "permission_discovery_loading",
         row_of(&s, "Update Model Permissions"),
         0,
+    );
+    read_catalog(
+        &mut s,
+        json!({
+            "allowedApprovalsReviewers": ["user"],
+            "allowedPermissionProfiles": {":workspace": true, "server-only": true},
+        }),
+        json!([
+            {"id": ":read-only", "description": null, "allowed": true},
+            {"id": ":workspace", "description": null, "allowed": true},
+            {"id": ":danger-full-access", "description": null, "allowed": true},
+            {
+                "id": "server-only",
+                "description": "Description from the connected server.",
+                "allowed": true,
+            },
+        ]),
     );
     s.resize(110, 24);
     s.assert_snap_region(
@@ -58,30 +151,49 @@ fn permission_discovery_uses_server_catalog_for_remote_custom_selection() {
     // The server-only alternative is routed to the app, not resolved by the popup.
     s.keys("2");
     s.assert_absent("Update Model Permissions");
+    assert_eq!(updates(&s), [Some("server-only".to_string())]);
 }
 
 // ORACLE chatwidget/tests/permissions.rs:92 permissions_command_waits_for_covering_modal_before_selecting_profile kind=ui owner=dialogs-pane
 #[test]
 fn permissions_command_waits_for_covering_modal_before_selecting_profile() {
-    kit::pending(Owner::DialogsPane, NO_DISCOVERY);
+    kit::pending(Owner::DialogsPane, NO_COVER_HOLD);
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    s.type_text("/permissions read-only").keys("enter");
+    s.type_text("/permissions :read-only").keys("enter");
+    s.assert_contains("Loading permission profiles");
     // The oracle opens another modal first: the picker waits behind it.
-    s.assert_contains("Other modal");
+    s.feed(COVERING_REQUEST);
+    s.assert_contains("Would you like to run the following command?");
+    read_catalog(&mut s, serde_json::Value::Null, built_ins());
+    s.assert_contains("Would you like to run the following command?");
+    assert!(updates(&s).is_empty());
     s.keys("esc");
     s.assert_absent("Update Model Permissions");
+    assert_eq!(updates(&s), [Some(":read-only".to_string())]);
 }
 
 // ORACLE chatwidget/tests/permissions.rs:122 cancelled_permissions_command_does_not_apply_after_later_modal kind=ui owner=dialogs-pane
 #[test]
 fn cancelled_permissions_command_does_not_apply_after_later_modal() {
-    kit::pending(Owner::DialogsPane, NO_QUEUE);
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    s.type_text("/permissions read-only").keys("enter");
+    // a turn runs with a follow-up queued behind it
+    s.feed(&turn_note("turn/started", "inProgress"));
+    s.type_text("follow-up").keys("tab");
+    s.type_text("/permissions :read-only").keys("enter");
+    s.assert_contains("Loading permission profiles");
     s.keys("esc");
     s.assert_absent("Update Model Permissions");
-    // The queued follow-up comes back to the composer once the picker closes.
+    // the catalog comes after the cancel: it opens nothing and applies nothing
+    read_catalog(&mut s, serde_json::Value::Null, built_ins());
+    s.assert_absent("Update Model Permissions");
+    assert!(updates(&s).is_empty(), "a cancelled profile must not apply");
+    // the queued follow-up is held back (recovered): it is not sent when the turn ends
+    s.feed(&turn_note("turn/completed", "completed"));
     s.assert_contains("follow-up");
+    assert!(
+        !s.commands().iter().any(is_turn_start_of_follow_up),
+        "the follow-up is not sent as a turn"
+    );
 }
 
 // ORACLE chatwidget/tests/permissions.rs:153 permissions_command_preserves_full_access_confirmation kind=ui owner=dialogs-pane
@@ -95,60 +207,82 @@ fn permissions_command_preserves_full_access_confirmation() {
     s.feed(
         r#"{"step":"screen","dir":"chat","ev":{"status":{"permissions":{"guardian":true,"auto_available":true}}}}"#,
     );
+    // a turn runs with a follow-up queued behind it
+    s.feed(&turn_note("turn/started", "inProgress"));
+    s.type_text("follow-up").keys("tab");
     s.type_text("/permissions :danger-full-access --reviewer=auto_review")
         .keys("enter");
     s.assert_contains("Enable full access?");
-    // Cancel returns to the picker.
+    // Cancel returns to the picker; closing that picker must still recover the queue.
     s.keys("down enter");
     s.assert_contains("Update Model Permissions");
     s.keys("esc");
     s.assert_absent("Update Model Permissions");
-    kit::pending(Owner::DialogsPane, NO_QUEUE);
+    assert!(updates(&s).is_empty());
+    s.feed(&turn_note("turn/completed", "completed"));
     s.assert_contains("follow-up");
+    assert!(
+        !s.commands().iter().any(is_turn_start_of_follow_up),
+        "the follow-up is not sent as a turn"
+    );
 }
 
 // ORACLE chatwidget/tests/permissions.rs:199 permissions_command_rejects_disabled_profile kind=snap owner=dialogs-pane
 #[test]
 fn permissions_command_rejects_disabled_profile() {
-    kit::pending(
-        Owner::DialogsPane,
-        "the `/permissions <profile>` argument path and its `unavailable` history cell are not built (no requirement-disabled profile seed)",
-    );
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    s.type_text("/permissions read-only").keys("enter");
+    s.type_text("/permissions :read-only").keys("enter");
+    read_catalog(
+        &mut s,
+        json!({"allowedPermissionProfiles": {":read-only": false}}),
+        built_ins(),
+    );
     s.assert_snap_region(
         "permissions_command_disabled_profile",
         row_starting(&s, "■"),
         0,
     );
+    s.assert_absent("Update Model Permissions");
+    assert!(updates(&s).is_empty());
 }
 
 // ORACLE chatwidget/tests/permissions.rs:229 permissions_command_rejects_unknown_profile kind=snap owner=dialogs-pane
 #[test]
 fn permissions_command_rejects_unknown_profile() {
-    kit::pending(
-        Owner::DialogsPane,
-        "the `/permissions <profile>` argument path and its unknown-profile history cell are not built",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    // the oracle's snapshot is the cell's logical line (a cell has no width of its own): wide
+    // enough that the transcript does not wrap it
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(100, 24)
+        .live()
+        .open();
     s.type_text("/permissions unknown-profile").keys("enter");
+    read_catalog(&mut s, serde_json::Value::Null, built_ins());
     s.assert_snap_region(
         "permissions_command_unknown_profile",
         row_starting(&s, "■"),
         0,
     );
+    s.assert_absent("Update Model Permissions");
+    assert!(updates(&s).is_empty());
 }
 
 // ORACLE chatwidget/tests/permissions.rs:269 inline_permission_discovery_retry_preserves_profile_id kind=ui owner=dialogs-pane
 #[test]
 fn inline_permission_discovery_retry_preserves_profile_id() {
-    kit::pending(Owner::DialogsPane, NO_DISCOVERY);
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     s.type_text("/permissions server-only").keys("enter");
+    let reads = asked(&s, |c| matches!(c, select::Command::Requirements { .. }));
+    s.answer_error(&reads[0], "disconnected");
     s.assert_contains("Failed to load permissions: disconnected");
     // Enter retries the load; the retry keeps the profile id the picker was opened with.
     s.keys("enter");
     s.assert_contains("Update Model Permissions");
+    assert!(updates(&s).is_empty());
+    let mut profiles = built_ins().as_array().cloned().unwrap_or_default();
+    profiles.push(json!({"id": "server-only", "description": null, "allowed": true}));
+    read_catalog(&mut s, serde_json::Value::Null, json!(profiles));
+    assert_eq!(updates(&s), [Some("server-only".to_string())]);
+    s.assert_absent("Update Model Permissions");
 }
 
 // ORACLE chatwidget/tests/permissions.rs:296 permission_discovery_discards_stale_results_and_preserves_covering_modal kind=ui owner=dialogs-pane
@@ -166,9 +300,14 @@ fn permission_discovery_discards_stale_results_and_preserves_covering_modal() {
 // ORACLE chatwidget/tests/permissions.rs:349 permission_discovery_failure_can_retry_and_empty_catalog_keeps_current_profile kind=snap owner=dialogs-pane snap=permission_discovery_empty snap=permission_discovery_failure
 #[test]
 fn permission_discovery_failure_can_retry_and_empty_catalog_keeps_current_profile() {
-    kit::pending(Owner::DialogsPane, NO_DISCOVERY);
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    // the oracle's chat: a named profile, `current-profile`, is the active one
+    s.feed(
+        r#"{"step":"screen","dir":"chat","ev":{"status":{"permission_profile":"current-profile"}}}"#,
+    );
     s.type_text("/permissions").keys("enter");
+    let reads = asked(&s, |c| matches!(c, select::Command::Requirements { .. }));
+    s.answer_error(&reads[0], "disconnected");
     s.assert_snap_region(
         "permission_discovery_failure",
         row_of(&s, "Update Model Permissions"),
@@ -177,11 +316,16 @@ fn permission_discovery_failure_can_retry_and_empty_catalog_keeps_current_profil
     // Retry: the load comes back with an empty catalog, the current profile is kept.
     s.keys("enter");
     s.resize(100, 24);
+    read_catalog(&mut s, serde_json::Value::Null, json!([]));
     s.assert_snap_region(
         "permission_discovery_empty",
         row_of(&s, "Update Model Permissions"),
         0,
     );
+    // the current profile row is disabled: Enter asks nothing of the thread
+    s.keys("enter");
+    s.assert_contains("Update Model Permissions");
+    assert!(updates(&s).is_empty());
 }
 
 // ORACLE chatwidget/tests/permissions.rs:442 approvals_selection_popup_snapshot kind=snap owner=dialogs-pane snap=approvals_selection_popup
@@ -583,18 +727,22 @@ fn permissions_selection_emits_history_cell_when_current_is_selected() {
 // ORACLE chatwidget/tests/permissions.rs:1549 permissions_selection_hides_auto_review_when_feature_disabled kind=snap owner=dialogs-pane
 #[test]
 fn permissions_selection_hides_auto_review_when_feature_disabled() {
-    kit::pending(Owner::DialogsPane, NO_AUTO_REVIEW);
+    // the guardian feature is off in the chat's facts
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 24)
         .live()
+        .script(PERMISSION_CATALOG)
         .open();
     s.type_text("/permissions").keys("enter");
+    s.assert_contains("Update Model Permissions");
+    s.assert_absent("Loading permission profiles");
     s.assert_absent("Approve for me");
     s.keys("esc");
-    s.type_text("/permissions approve-for-me").keys("enter");
+    s.type_text("/permissions :approve-for-me").keys("enter");
     s.assert_contains(
         "■ Approve for me is unavailable. Run `/permissions` to see available profiles.",
     );
+    assert!(updates(&s).is_empty());
 }
 
 // ORACLE chatwidget/tests/permissions.rs:1574 permissions_selection_hides_auto_review_when_feature_disabled_even_if_auto_review_is_active kind=ui owner=dialogs-pane
@@ -603,8 +751,15 @@ fn permissions_selection_hides_auto_review_when_feature_disabled_even_if_auto_re
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 24)
         .live()
+        .script(PERMISSION_CATALOG)
         .open();
+    // the auto reviewer is the config's, the guardian feature is off
+    s.feed(
+        r#"{"step":"screen","dir":"chat","ev":{"status":{"approval_policy":"on-request","profile":"workspace","auto_review":true}}}"#,
+    );
     s.type_text("/permissions").keys("enter");
+    s.assert_contains("Update Model Permissions");
+    s.assert_contains("Ask for approval");
     s.assert_absent("Approve for me");
 }
 
@@ -625,11 +780,14 @@ fn permissions_selection_marks_auto_review_current_after_session_configured() {
 // ORACLE chatwidget/tests/permissions.rs:1653 permissions_selection_marks_auto_review_current_with_custom_workspace_write_details kind=ui owner=dialogs-pane
 #[test]
 fn permissions_selection_marks_auto_review_current_with_custom_workspace_write_details() {
-    kit::pending(Owner::DialogsPane, NO_AUTO_REVIEW);
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 24)
         .live()
+        .script(PERMISSION_CATALOG)
         .open();
+    // the thread session: on-request approvals, the auto reviewer, a workspace-write profile
+    // with no active profile id of its own; the guardian feature is on
+    s.feed(AUTO_REVIEW_FACTS);
     s.type_text("/permissions").keys("enter");
     s.assert_contains("Approve for me (current)");
 }
@@ -646,17 +804,37 @@ fn permissions_selection_can_disable_auto_review() {
 // ORACLE chatwidget/tests/permissions.rs:1745 permissions_selection_sends_approvals_reviewer_in_override_turn_context kind=ui owner=dialogs-pane
 #[test]
 fn permissions_selection_sends_approvals_reviewer_in_override_turn_context() {
-    kit::pending(Owner::DialogsPane, NO_AUTO_REVIEW);
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 24)
         .live()
+        .script(PERMISSION_CATALOG)
         .open();
+    // the workspace profile and on-request approvals, the user reviewing, the guardian feature on
+    s.feed(USER_REVIEW_FACTS);
     s.type_text("/permissions").keys("enter");
     s.assert_row_starts_with(row_of(&s, "(current)"), "›");
     s.keys("down");
     s.assert_row_starts_with(row_of(&s, "Approve for me"), "›");
-    // Enter sends the override turn context; the oracle asserts that op and the profile update.
+    // Enter asks the thread to change its settings; the oracle asserts the override turn context
+    // with the auto reviewer and the workspace profile.
     s.keys("enter");
+    let patches: Vec<_> = s
+        .commands()
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::Screen {
+                command: ScreenCommand::Select(select::Command::Settings { patch, .. }),
+                ..
+            } => Some(patch),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(patches.len(), 1, "{patches:?}");
+    assert_eq!(
+        patches[0].approvals_reviewer,
+        Some(ApprovalsReviewer::AutoReview)
+    );
+    assert_eq!(patches[0].permissions.as_deref(), Some(":workspace"));
 }
 
 // ORACLE chatwidget/tests/permissions.rs:1823 permissions_full_access_history_cell_emitted_only_after_confirmation kind=ui owner=dialogs-pane
