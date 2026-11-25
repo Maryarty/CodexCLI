@@ -1138,19 +1138,44 @@ fn startup_draft_hydrates_its_header_without_moving_the_composer() {
 // ORACLE startup_draft_tests.rs:690 startup_draft_applies_super_editor_keymap_without_inserting_pending_newline kind=snap owner=chat-nav-pane snap=startup_draft_safe_chord_guide
 #[test]
 fn startup_draft_applies_super_editor_keymap_without_inserting_pending_newline() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "needs multi-key editor chords (`f12 e` as editor.move_line_end, `f12 h` as history search) and the safe-chord guide drawn after the reveal delay, plus a `super+z` single-key editor binding applied while the startup draft is open (a pending paste newline must not be inserted); the startup draft itself is built (Enter confirms it, f-startup-confirm), the editor-chord ladder is f-find-core's, the guide is follow-up f-startup-chords",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    // The oracle's startup pump holds an Enter a paste may follow (`pending_paste_newline`) and
+    // checks that a configured `super+z` is no newline; the chat here holds its Enter in the
+    // paste-burst detector instead, which its own tests cover (composer_burst), so this test
+    // keeps the keymap and the guide. The oracle advances `CHORD_REVEAL_DELAY` (350 ms), not the
+    // chord's second, so does this one (the chord is gone after `KEY_CHORD_TIMEOUT`).
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .held_start()
+        .keymap(&[
+            ("editor.move_line_start", "super-z"),
+            ("composer.history_search_previous", "f12 h"),
+            ("editor.move_line_end", "f12 e"),
+        ])
+        .open();
     s.type_text("draft");
     s.type_text("x");
     s.keys("super+z");
+    // the caret is at the start: a key typed there goes in front
+    s.type_text("Y");
+    s.assert_composer("Ydraftx");
+    s.keys("backspace");
     s.keys("f12");
-    s.wait(1000);
-    s.assert_snap("startup_draft_safe_chord_guide");
+    s.wait(350);
+    // the oracle's snapshot is the guide alone, at the right edge of its window
+    let title = s
+        .rows()
+        .iter()
+        .position(|row| row.contains("\u{2500} f12 "))
+        .expect("the guide's title row");
+    s.assert_snap_region("startup_draft_safe_chord_guide", title, 80 - 2 - 40);
     s.keys("e");
+    s.assert_absent("Move Line End");
+    s.type_text("Z");
+    s.assert_composer("draftxZ");
+    s.keys("backspace");
     s.keys("enter");
+    s.assert_contains("Waiting for startup");
 }
 
 // ORACLE startup_draft_tests.rs:770 startup_draft_waits_for_onboarding_before_accepting_input kind=snap owner=chat-nav-pane snap=startup_draft_onboarding_transition

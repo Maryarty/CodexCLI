@@ -7,12 +7,9 @@
 //! grid of `Expanded` columns over a `Wrap` of key hints.
 
 use rtwk::focus::KeyPress;
-use rtwk::layout::{
-    BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Row, SizedBox, Wrap,
-};
+use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Row, Wrap};
 use rtwk::provider::select;
 use rtwk::style::Span;
-use rtwk::text::TextWrap;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, LayoutBuilder};
 
@@ -26,16 +23,10 @@ use codex_tui_core::screens::select::quick_dials::{
 use super::strings;
 use crate::app::theme::Tokens;
 use crate::keymap::{fixed_presses, pressed_fixed, same_press};
-use crate::widgets::dots::dots_end;
+use crate::widgets::hud::{self, column_count, grid};
 
-/// The narrowest a column of entries is (`MIN_COLUMN_WIDTH`).
-const MIN_COLUMN_WIDTH: i32 = 32;
-/// The gap between two columns (`COLUMN_GAP`).
-const COLUMN_GAP: i32 = 2;
 /// The gap between two keys of the last row (`COMMAND_SEPARATOR`).
 const COMMAND_GAP: i32 = 3;
-/// Up to this many entries stay in one column (`SINGLE_COLUMN_ENTRY_LIMIT`).
-const SINGLE_COLUMN_ENTRIES: usize = 5;
 
 /// What a press is for the menu while it is open (`handle_quick_dial_menu`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -159,21 +150,13 @@ pub fn view<S: 'static>(cx: &mut Cx<'_, S>) -> AnyWidget {
     let quick = select::<ScreenStates, Quick, _>(cx, |states| states.select.quick.clone());
     let (accent, dim, bold) = (tokens.accent(), tokens.dim(), tokens.bold());
     let item = |key: &str, label: &str| -> AnyWidget {
-        Row::new()
-            .child(
-                Text::rich(vec![
-                    Span::styled(key.to_owned(), accent.clone()),
-                    Span::styled(words.hud_separator, dim.clone()),
-                ])
-                // the separator ends in a space that is the label's gap: a word-wrapped text
-                // lets it hang
-                .wrap(TextWrap::None),
-            )
-            .child(Expanded::new(
-                1,
-                dots_end(label.to_owned(), Default::default()),
-            ))
-            .into()
+        hud::item(
+            key.to_owned(),
+            label.to_owned(),
+            words.hud_separator,
+            &accent,
+            &dim,
+        )
     };
     let entries: Vec<AnyWidget> = quick
         .saved()
@@ -216,45 +199,10 @@ pub fn view<S: 'static>(cx: &mut Cx<'_, S>) -> AnyWidget {
         .into()
 }
 
-/// How many columns `width` holds for `count` entries (`column_count`: one up to
-/// `SINGLE_COLUMN_ENTRIES`, two above).
-fn column_count(width: i32, count: usize) -> usize {
-    let limit = if count > SINGLE_COLUMN_ENTRIES { 2 } else { 1 };
-    let fits = (width + COLUMN_GAP) / (MIN_COLUMN_WIDTH + COLUMN_GAP);
-    usize::try_from(fits).unwrap_or(1).clamp(1, limit)
-}
-
-/// The entries down `columns` columns of equal width (`grid_lines`).
-fn grid(entries: &[AnyWidget], columns: usize) -> AnyWidget {
-    let rows = entries.len().div_ceil(columns).max(1);
-    let mut row = Row::new().cross_axis_alignment(CrossAxisAlignment::Start);
-    for (index, chunk) in entries.chunks(rows).enumerate() {
-        if index > 0 {
-            row = row.child(SizedBox::new(Some(COLUMN_GAP), None, None));
-        }
-        let mut column = Column::new()
-            .main_axis_size(MainAxisSize::Min)
-            .cross_axis_alignment(CrossAxisAlignment::Stretch);
-        for entry in chunk {
-            column = column.child(entry.clone());
-        }
-        row = row.child(Expanded::new(1, column));
-    }
-    row.into()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::keymap::typed;
-
-    #[test]
-    fn a_narrow_room_or_few_entries_keep_one_column() {
-        assert_eq!(column_count(96, 6), 2);
-        assert_eq!(column_count(96, 5), 1);
-        assert_eq!(column_count(44, 6), 1);
-        assert_eq!(column_count(96, 0), 1);
-    }
 
     #[test]
     fn a_plain_letter_or_digit_leads_on_and_the_rest_goes_to_the_composer() {

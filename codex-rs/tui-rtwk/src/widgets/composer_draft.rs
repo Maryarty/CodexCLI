@@ -20,6 +20,8 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use rtwk::editing::{TextBuffer, TextEditingController, TextSelection};
+use rtwk::focus::KeyPress;
+use rtwk::foundation::ValueNotifier;
 
 use codex_tui_core::data::history::{Lookup, Store};
 use codex_tui_core::data::mention::Mention;
@@ -73,6 +75,11 @@ pub struct Element {
     pub binding: Option<ComposerBinding>,
 }
 
+/// How long a chord's first key waits for the second (`KEY_CHORD_TIMEOUT`).
+pub const KEY_CHORD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
+/// How long a held chord waits before its guide shows (`CHORD_REVEAL_DELAY`).
+pub const CHORD_REVEAL_DELAY: std::time::Duration = std::time::Duration::from_millis(350);
+
 #[derive(Default)]
 struct Inner {
     elements: Vec<Element>,
@@ -117,6 +124,25 @@ struct Inner {
     /// The app clock's time of the last key the oracle counts as typing
     /// (`last_composer_activity_at`).
     keyed: Option<std::time::Duration>,
+    /// The first key of an editor chord (`f12` of `f12 e`) and when it came, until the second
+    /// completes, cancels or outlives it (`KeyChordMatcher::pending`).
+    chord: Chord,
+}
+
+/// The chord the composer waits for the second key of, and the listenable that tells whoever
+/// draws its guide (a `ChangeNotifier` in Flutter).
+struct Chord {
+    held: Option<(KeyPress, std::time::Duration)>,
+    ticks: Rc<ValueNotifier<u32>>,
+}
+
+impl Default for Chord {
+    fn default() -> Chord {
+        Chord {
+            held: None,
+            ticks: Rc::new(ValueNotifier::new(0)),
+        }
+    }
 }
 
 /// The draft's elements and kill ring, shared by every clone (a handle,
@@ -219,6 +245,30 @@ impl ComposerDraft {
     /// When the last such key came.
     pub fn last_keyed(&self) -> Option<std::time::Duration> {
         self.0.borrow().keyed
+    }
+
+    /// The first key of an editor chord the composer holds, with the app clock's time it came.
+    pub fn chord(&self) -> Option<(KeyPress, std::time::Duration)> {
+        self.0.borrow().chord.held.clone()
+    }
+
+    /// The composer holds `held` as the first key of a chord (none: it holds nothing now). The
+    /// guide hears of a change.
+    pub fn set_chord(&self, held: Option<(KeyPress, std::time::Duration)>) {
+        let ticks = {
+            let mut inner = self.0.borrow_mut();
+            if inner.chord.held == held {
+                return;
+            }
+            inner.chord.held = held;
+            inner.chord.ticks.clone()
+        };
+        ticks.set_value(ticks.value().wrapping_add(1));
+    }
+
+    /// Notifies when the held chord starts, ends or is replaced: the guide listens.
+    pub fn chord_listenable(&self) -> Rc<ValueNotifier<u32>> {
+        self.0.borrow().chord.ticks.clone()
     }
 
     /// Whether keys are held as a paste right now (`is_in_paste_burst`):
