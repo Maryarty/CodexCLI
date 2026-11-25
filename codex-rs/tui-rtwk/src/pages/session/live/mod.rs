@@ -8,4 +8,4 @@ pub(super) mod plan_mode;
 pub(super) mod provider_error;
 mod restore;
 
-pub(super) use restore::{put_back, seed_history};
+pub(super) use restore::{put_back, recalled_entry, seed_history};

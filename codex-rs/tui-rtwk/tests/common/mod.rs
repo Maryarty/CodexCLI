@@ -194,6 +194,16 @@ pub fn start_driven(debug: bool, width: u16, height: u16) -> Harness {
 /// colours, its colour depth, the environment the app reads): the kit's seeds
 /// of the terminal (`kit::env`).
 pub fn start_driven_with(debug: bool, options: Options) -> Harness {
+    start_driven_as(debug, options, |app| app)
+}
+
+/// `start_driven_with` where `configure` shapes the app before it mounts (a prompt of the
+/// command line, the startup facts it waits for).
+pub fn start_driven_as(
+    debug: bool,
+    options: Options,
+    configure: impl FnOnce(UiApp) -> UiApp,
+) -> Harness {
     let runtime: &'static tokio::runtime::Runtime = Box::leak(Box::new(
         tokio::runtime::Builder::new_current_thread()
             .enable_time()
@@ -203,7 +213,7 @@ pub fn start_driven_with(debug: bool, options: Options) -> Harness {
     ));
     let guard = rtwk_tokio::enter(runtime);
     let (server, fake) = FakeServer::new();
-    let app = UiApp::new(Backend::Fake(server)).with_debug_screens(debug);
+    let app = configure(UiApp::new(Backend::Fake(server)).with_debug_screens(debug));
     let mut t = Tester::with(options);
     t.pump_widget(localized(root(app_view(app)), Lang::En));
     let mut h = Harness {

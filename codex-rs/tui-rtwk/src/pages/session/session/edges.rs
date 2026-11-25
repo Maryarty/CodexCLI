@@ -11,7 +11,7 @@ use codex_tui_core::threads::{Ran, ThreadModel};
 use crate::app::view::Hs;
 use crate::pages::session::composer::clear_sent;
 use crate::pages::session::composer::queue::run_due;
-use crate::pages::session::live::{plan_mode, put_back, seed_history};
+use crate::pages::session::live::{plan_mode, put_back, recalled_entry, seed_history};
 use crate::pages::session::open::open;
 use crate::widgets::directives::Edge;
 
@@ -58,6 +58,11 @@ impl ChatState {
             Edge::Replayed => {
                 let model = read::<ThreadModel, _>(cx);
                 seed_history(&w.ui, model.replayed_submissions());
+                Rebuild::No
+            }
+            // The prompt of the command line went out: Up recalls it (`record_local_submission`).
+            Edge::Recorded(message) => {
+                w.ui.draft.replayed(recalled_entry(&message));
                 Rebuild::No
             }
             // The prompt an edit of the backtrack put back (`restore_user_message_to_composer`).

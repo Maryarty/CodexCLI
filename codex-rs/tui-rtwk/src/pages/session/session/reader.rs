@@ -2,7 +2,7 @@
 //! what its keys do: the selection's copy keys, browsing the prompts.
 
 use rtwk::foundation::ListenableBuilder;
-use rtwk::layout::{Alignment, Stack};
+use rtwk::layout::{Align, Alignment, Stack};
 use rtwk::provider::read;
 use rtwk::{AnyWidget, Cx};
 
@@ -15,6 +15,7 @@ use crate::pages::session::backtrack;
 use crate::pages::session::live::browse::{self, Browse};
 use crate::pages::session::transcript::copy::{self, CopyJob};
 use crate::pages::session::transcript::selection::Key as SelectionKey;
+use crate::pages::session::transcript_header;
 use crate::pages::session::transcript_pane::Pane;
 
 use super::frame::Frame;
@@ -64,7 +65,7 @@ pub(super) fn browsed(w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs, step: Brows
 }
 
 /// The reader, and over an empty chat the welcome blossom.
-pub(super) fn pane(state: &ChatState, w: &Chat, frame: &Frame) -> Stack {
+pub(super) fn pane(state: &ChatState, w: &Chat, frame: &Frame, inline_draft: bool) -> Stack {
     // Ctrl+T shows the details in the chat's own transcript, the composer
     // below keeps the keys; browsing the prompts marks one in it. The
     // modes tick when either moves (Flutter's `ListenableBuilder`).
@@ -84,6 +85,25 @@ pub(super) fn pane(state: &ChatState, w: &Chat, frame: &Frame) -> Stack {
     };
     let facts = &frame.drawn.status;
     let thread = &frame.thread;
+    // `startup_session_header`: before the session starts the
+    // chat is the startup draft, the heading with its directory `loading` over the composer. The
+    // heading stands in the reader's place, so an inline region has rows for it too.
+    let reader: AnyWidget = if transcript_header::startup_draft(&frame.session) {
+        let header = transcript_header::header(
+            transcript_header::startup_dir(thread.screen_slots().chat.cwd.as_deref(), facts),
+            facts,
+            &frame.tokens,
+            frame.chat_strings,
+        );
+        // a region as tall as the heading, or the heading at the top of the transcript's room
+        if inline_draft {
+            header
+        } else {
+            Align::new(Alignment::TOP_LEFT, header).into()
+        }
+    } else {
+        reader.into()
+    };
     let mut transcript = Stack::new().alignment(Alignment::CENTER).child(reader);
     // The oracle's first screen (`first_screen_composer`): startup metadata only in the thread,
     // the ordinary composer empty, the rich transcript, no search or sheet of the reader over it.

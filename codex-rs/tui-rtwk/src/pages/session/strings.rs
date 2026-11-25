@@ -132,6 +132,9 @@ pub struct Strings {
     pub writer_exit: &'static str,
     pub writer_transcript: &'static str,
     pub forking: &'static str,
+    /// `startup_draft_renderable`: what the startup draft says while the named session opens.
+    pub resuming_session: &'static str,
+    pub forking_session: &'static str,
     /// `chatwidget/provider_error.rs`: the notice that stands in place of the
     /// composer when the server refused the chat for its model provider.
     pub provider_lock: &'static str,
@@ -311,6 +314,8 @@ pub const EN: Strings = Strings {
     writer_exit: "exit",
     writer_transcript: "transcript",
     forking: "Forking conversation…",
+    resuming_session: "  Resuming session…",
+    forking_session: "  Forking session…",
     provider_lock: "\u{1f512}",
     provider_title_continue: "Continue in a new chat",
     provider_title_mismatch: "Model provider mismatch",

@@ -68,10 +68,6 @@ fn hidden_shell_paste_submits_literal_prompt() {
 // ORACLE chatwidget/tests/composer_submission.rs:158 hidden_shell_paste_recalled_from_history_submits_literal_prompt kind=ui owner=chat-nav-pane
 #[test]
 fn hidden_shell_paste_recalled_from_history_submits_literal_prompt() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "screen feature (composer history): Up recalls the payload as the plain text `!echo xxx...` (the oracle's history keeps the large-paste placeholder and its pending paste), and Enter on it sends no turn; the kit reads the sent turns (`assert_turn_texts`)",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .script(SESSION)
@@ -174,7 +170,7 @@ fn hidden_shell_paste_restored_after_unavailable_model_submits_literal_prompt() 
 fn rejected_hidden_shell_paste_preserves_colliding_draft_paste() {
     kit::pending(
         Owner::ChatNavPane,
-        "no seed for an unavailable model (set_model(\"\")) and no earlier prompt in the history (record_replayed_user_message_history) for the ctrl+r recall; the sent text is read by `assert_turn_texts`",
+        "the port has no model gate on the queue: a queued prompt drained while the model is empty is sent, not rejected back into the composer merged with the draft's colliding paste; the model change mid-run has no seed (`Open::unavailable_model` is empty from the start) nor an earlier history prompt for ctrl+r",
     );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
@@ -195,14 +191,17 @@ fn rejected_hidden_shell_paste_preserves_colliding_draft_paste() {
 // ORACLE chatwidget/tests/composer_submission.rs:289 hidden_shell_paste_queued_before_session_submits_literal_prompt kind=ui owner=chat-nav-pane
 #[test]
 fn hidden_shell_paste_queued_before_session_submits_literal_prompt() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no seed for submissions queued until the session is configured (set_queue_submissions_until_session_configured); the live chat starts configured",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .held_start()
+        .open();
     s.paste(&hidden_shell_payload());
     s.keys("enter");
+    s.assert_no_turn();
     // The oracle configures the thread, then sends the queued input.
+    s.start_thread();
+    s.assert_turn_texts(&[&hidden_shell_payload()]);
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:302 parent_owned_thread_blocks_all_direct_input_entry_points kind=snap owner=chat-nav-pane snap=parent_owned_thread_rejects_input
@@ -455,19 +454,10 @@ fn startup_draft_handoff_merges_existing_prompt_images_and_large_pastes() {
 // ORACLE chatwidget/tests/composer_submission.rs:1491 startup_draft_handoff_rebases_cursor_around_colliding_large_pastes kind=ui owner=chat-nav-pane
 #[test]
 fn startup_draft_handoff_rebases_cursor_around_colliding_large_pastes() {
-    kit::pending(
+    kit::na(
         Owner::ChatNavPane,
-        "no seed for a startup draft handed over with colliding large pastes (restore_startup_draft) into a chat with its own pastes; the cursor is not a row",
+        "the port has one composer: the startup draft is never handed from a pump to a chat composer, so there is no restore around the cursor to collide with its pastes; the oracle asserts the draft snapshot, not rows",
     );
-    for (marker, added) in [("é", 0), (" 中 ", 3), (" tail", 6)] {
-        let _ = (marker, added);
-        let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-        s.paste(&"a".repeat(1001));
-        s.type_text(" ");
-        s.paste(&"b".repeat(1002));
-        // The oracle restores the startup draft around the cursor, then inserts ✓ at it.
-        s.assert_contains("é[Pasted Content 1001 chars] #2 中 [Pasted Content 1002 chars] #2 tail");
-    }
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:1536 startup_draft_handoff_preserves_cleared_history_across_session_configuration kind=ui owner=chat-nav-pane
@@ -510,14 +500,10 @@ fn startup_draft_handoff_keeps_vim_insert_mode_for_nonempty_drafts() {
 // ORACLE chatwidget/tests/composer_submission.rs:1642 startup_draft_file_search_waits_for_protected_view_and_enabled_input kind=ui owner=chat-nav-pane
 #[test]
 fn startup_draft_file_search_waits_for_protected_view_and_enabled_input() {
-    kit::pending(
+    kit::na(
         Owner::ChatNavPane,
-        "no seed for a startup draft waiting behind an open approvals popup and a disabled composer; the file-search request is an event, not a row",
+        "the port has one composer: no startup draft waits to be restored behind a protected view, so no file search starts at the restore; the oracle asserts the search request, not rows",
     );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    // The oracle opens the approvals popup first: the view is active and the draft waits.
-    s.keys("esc");
-    // Closed, with input disabled the draft still waits; enabled, it restores and the file search starts for `src`.
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:1773 interrupted_turn_restore_keeps_active_mode_for_resubmission kind=ui owner=chat-nav-pane

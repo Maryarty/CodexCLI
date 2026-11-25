@@ -34,6 +34,7 @@ mod seed;
 mod settings;
 mod side;
 mod sparkle;
+mod startup;
 mod states;
 mod tail;
 mod usage;

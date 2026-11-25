@@ -121,6 +121,11 @@ pub fn of(cx: &mut impl DependCx) -> &'static Strings {
     TABLES.pick(lang(cx))
 }
 
+/// The placeholder of image `n` in `lang`, for code with no tree (the command line's prompt).
+pub fn image_label(lang: Lang, n: usize) -> String {
+    TABLES.pick(lang).image(n)
+}
+
 /// The title of the screen in `lang`, for code with no tree (the debug
 /// menu's rows).
 pub fn title(lang: Lang) -> &'static str {

@@ -131,6 +131,12 @@ impl UiApp {
         self
     }
 
+    /// The prompt of the command line (`codex "prompt"`): sent when the first thread starts.
+    pub fn with_initial_prompt(mut self, message: codex_tui_core::threads::UserMessage) -> Self {
+        self.core = self.core.with_initial_prompt(message);
+        self
+    }
+
     /// When the first thread starts follows from the command line: a page
     /// (`codex agents`, `codex resume`) opens instead of one, a host that
     /// answers the startup facts has it wait for the startup steps, any

@@ -517,6 +517,15 @@ fn parse_frame(name: String, lines: &[String]) -> Frame {
         frame.cursor = Some(cursor);
         lines.pop();
     }
+    // `cursor=Some((x, y))` above the rows: a test that formats the layout's cursor into its frame
+    if let Some(first) = lines.first()
+        && let Some(cursor) = first
+            .strip_prefix("cursor=")
+            .and_then(|rest| parse_cursor(&format!("Cursor: {rest}")))
+    {
+        frame.cursor = Some(cursor);
+        lines.remove(0);
+    }
     let mut rows = Vec::new();
     let mut hidden = Vec::new();
     for line in lines {

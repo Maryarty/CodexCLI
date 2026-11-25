@@ -145,3 +145,19 @@ fn connector_slug(name: &str) -> String {
         slug.to_string()
     }
 }
+
+/// The history entry of a message the launch sent: its text with the placeholders of its images
+/// as elements, the images' files.
+pub(crate) fn recalled_entry(message: &UserMessage) -> HistoryEntry {
+    let mut entry = HistoryEntry::new(message.text.clone());
+    for image in &message.images {
+        entry.text_elements.push(TextElement {
+            start: image.range.start,
+            end: image.range.end,
+            placeholder: message.text.get(image.range.clone()).map(str::to_string),
+        });
+        entry.local_image_paths.push(image.path.clone());
+    }
+    entry.remote_image_urls = message.remote_images.clone();
+    entry
+}

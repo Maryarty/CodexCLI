@@ -30,6 +30,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use rtwk::binding::{AppBinding, ScreenMode};
 use rtwk::editing::TextEditingController;
 use rtwk::focus::FocusNode;
 use rtwk::layout::{Stack, StackFit};
@@ -372,11 +373,13 @@ impl State for ChatState {
         self.tell(w, &frame);
         // the sections, top to bottom: the transcript, the composer's place and the bottom pane
         // around it, the terminal title, and the blank sheet a window too small to draw lays over
-        let transcript = reader::pane(self, w, &frame);
+        let inline_draft = super::transcript_header::startup_draft(&frame.session)
+            && AppBinding::maybe_of(cx).is_some_and(|binding| binding.mode() == ScreenMode::Inline);
+        let transcript = reader::pane(self, w, &frame, inline_draft);
         let slot = slot::slot(self, w, cx, &frame);
         let body = bottom::body(self, w, cx, &frame, slot);
         let body = bottom::with_titles(&frame, body, title::titles(cx, &frame));
-        let page = overlay::page(transcript, body);
+        let page = overlay::page(transcript, body, inline_draft);
         let focus = input::focus(self, cx, &frame, page);
         // The listener stands outside the keyed focus: a key that changes in the same flush as a
         // directive (the continue key ends the lock and gives the words in one step) would end its
