@@ -37,7 +37,10 @@ pub enum Outcome {
     /// Approved, and commands that start with this prefix from now on.
     ApprovedWithPrefix(String),
     /// A persistent network rule: the host allowed, or denied and saved.
-    NetworkRule { host: String, allow: bool },
+    NetworkRule {
+        host: String,
+        allow: bool,
+    },
     Denied,
     /// The review did not finish in time (the auto-reviewer's).
     TimedOut,
@@ -69,8 +72,14 @@ pub enum Reviewed {
     /// A patch touching these files.
     Patch(Vec<String>),
     /// Input for the terminal of this process; `input` is the raw text.
-    Stdin { process: String, input: String },
-    Mcp { server: String, tool: String },
+    Stdin {
+        process: String,
+        input: String,
+    },
+    Mcp {
+        server: String,
+        tool: String,
+    },
     Network(String),
     Permissions(Option<String>),
 }
@@ -85,7 +94,10 @@ pub enum Decided {
     },
     Permissions(Grant),
     /// The auto-reviewer refused, or ran out of time on, something that is not a command.
-    Reviewed { verdict: Verdict, about: Reviewed },
+    Reviewed {
+        verdict: Verdict,
+        about: Reviewed,
+    },
 }
 
 impl Decided {

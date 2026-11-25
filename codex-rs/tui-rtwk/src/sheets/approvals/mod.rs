@@ -13,6 +13,7 @@ mod dismiss;
 mod form;
 mod guardian;
 mod keys;
+mod pager;
 mod present;
 pub mod questions;
 mod tips;

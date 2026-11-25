@@ -39,8 +39,8 @@ use crate::app::view::Hs;
 use crate::keymap::{bind_fixed, bindings, first_of_each, fixed_presses, keymap, label};
 use crate::widgets::options::{OptionStyles, Options, RichRow};
 
-mod suggest;
 pub mod strings;
+mod suggest;
 
 pub use suggest::Target;
 use suggest::{Action, Screen};
@@ -205,7 +205,9 @@ impl State for AppLinkState {
                         say(cx, Intent::RefreshApps);
                         close_dialog::<_, ()>(cx, None);
                     }
-                    Target::Request(key, _) => ask(cx, approvals::Intent::LinkDone { key: key.clone() }),
+                    Target::Request(key, _) => {
+                        ask(cx, approvals::Intent::LinkDone { key: key.clone() })
+                    }
                 }
                 Rebuild::No
             }
@@ -266,8 +268,7 @@ impl State for AppLinkState {
                     content = content
                         .child(text(words.url_label, tokens.dim()))
                         .child(
-                            Text::rich(vec![Span::new(url.clone()).link(url.clone())])
-                                .wrap(TextWrap::Word),
+                            Text::rich(vec![Span::new(url.clone()).link(url)]).wrap(TextWrap::Word),
                         )
                         .child(gap());
                 }
@@ -296,7 +297,7 @@ impl State for AppLinkState {
                         Text::rich(vec![
                             Span::styled(url.clone(), tokens.accent())
                                 .underline()
-                                .link(url.clone()),
+                                .link(url),
                         ])
                         // a URL is not broken at a hyphen or a slash: it runs on to the line's end
                         // (the oracle's pane does not split a URL-like token either)

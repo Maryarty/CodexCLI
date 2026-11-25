@@ -129,7 +129,9 @@ fn install_confirmation_render_keeps_url_tail_visible_when_narrow() {
 // ORACLE bottom_pane/app_link_view.rs:1403 install_tool_suggestion_resolves_elicitation_after_confirmation kind=ui owner=dialogs-pane
 #[test]
 fn install_tool_suggestion_resolves_elicitation_after_confirmation() {
-    let mut s = live(include_str!("fixtures/small_dialogs_1/app_link_install.jsonl"));
+    let mut s = live(include_str!(
+        "fixtures/small_dialogs_1/app_link_install.jsonl"
+    ));
     s.keys("enter");
     assert_eq!(s.opened_urls(), ["https://example.test/google-calendar"]);
     s.keys("enter");
@@ -142,7 +144,9 @@ fn install_tool_suggestion_resolves_elicitation_after_confirmation() {
 // ORACLE bottom_pane/app_link_view.rs:1461 declined_tool_suggestion_resolves_elicitation_decline kind=ui owner=dialogs-pane
 #[test]
 fn declined_tool_suggestion_resolves_elicitation_decline() {
-    let mut s = live(include_str!("fixtures/small_dialogs_1/app_link_install.jsonl"));
+    let mut s = live(include_str!(
+        "fixtures/small_dialogs_1/app_link_install.jsonl"
+    ));
     s.keys("2");
     assert!(s.opened_urls().is_empty());
     assert_eq!(actions(&s), ["decline"]);
@@ -152,7 +156,9 @@ fn declined_tool_suggestion_resolves_elicitation_decline() {
 // ORACLE bottom_pane/app_link_view.rs:1503 enable_tool_suggestion_resolves_elicitation_after_enable kind=ui owner=dialogs-pane
 #[test]
 fn enable_tool_suggestion_resolves_elicitation_after_enable() {
-    let mut s = live(include_str!("fixtures/small_dialogs_1/app_link_enable.jsonl"));
+    let mut s = live(include_str!(
+        "fixtures/small_dialogs_1/app_link_enable.jsonl"
+    ));
     s.keys("2");
     // the switch is written first (`SetApp`), then the request accepted
     let asked = s.commands();

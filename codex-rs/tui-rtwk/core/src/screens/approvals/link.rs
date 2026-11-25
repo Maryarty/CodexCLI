@@ -208,9 +208,11 @@ fn from_suggestion(server: &str, meta: Option<&Value>, schema: &impl serde::Seri
         Some("enable") => Kind::Enable,
         _ => return Parsed::NotALink,
     };
-    let (Some(reason), Some(app_id), Some(name)) =
-        (text(SUGGEST_REASON_KEY), text(TOOL_ID_KEY), text(TOOL_NAME_KEY))
-    else {
+    let (Some(reason), Some(app_id), Some(name)) = (
+        text(SUGGEST_REASON_KEY),
+        text(TOOL_ID_KEY),
+        text(TOOL_NAME_KEY),
+    ) else {
         return Parsed::NotALink;
     };
     let Some(install_url) = text(INSTALL_URL_KEY) else {

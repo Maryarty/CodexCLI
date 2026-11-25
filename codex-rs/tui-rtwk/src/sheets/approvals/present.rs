@@ -139,8 +139,10 @@ pub fn body(prompt: &Prompt, s: &Strings) -> Option<Body> {
     let mut body = build(prompt, s)?;
     // The oracle leaves two blank rows between the header and the options (`header_gap`): the
     // last `GAP` lines of the header, which a dialog short of room gives up before it cuts the
-    // header (`clip.rs`).
-    body.header.extend(std::iter::repeat_n(Line::Blank, GAP));
+    // header (`clip.rs`). The waiting view has no list under its header, so no gap.
+    if !body.flat {
+        body.header.extend(std::iter::repeat_n(Line::Blank, GAP));
+    }
     Some(body)
 }
 
