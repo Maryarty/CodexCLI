@@ -121,7 +121,17 @@ pub fn assert_dialog(grid: &Grid, want: &Want<'_>) {
     assert_frame(grid, want, frame, at);
 }
 
-fn assert_frame(grid: &Grid, want: &Want<'_>, frame: Frame, at: Option<(usize, usize)>) {
+fn assert_frame(grid: &Grid, want: &Want<'_>, mut frame: Frame, at: Option<(usize, usize)>) {
+    // The oracle's tests replace its own version with `<VERSION>` before they snapshot; the
+    // port's heading says the version of this build.
+    if let Some(version) = codex_tui_rtwk::services::cli_help::VERSION
+        .split_whitespace()
+        .last()
+    {
+        for row in &mut frame.rows {
+            *row = row.replace("<VERSION>", version);
+        }
+    }
     let label = if want.frame.is_empty() {
         want.name.to_string()
     } else {

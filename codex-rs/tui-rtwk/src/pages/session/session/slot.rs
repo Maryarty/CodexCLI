@@ -101,7 +101,8 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
             };
             let props = Footer {
                 line,
-                agents: true,
+                // the startup draft has no agents page to go to yet
+                agents: !super::super::transcript_header::startup_draft(&frame.session),
                 draft_empty: state.draft_empty,
                 shell: state.draft_shell,
                 vim: w

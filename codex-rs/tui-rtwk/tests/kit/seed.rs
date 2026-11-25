@@ -19,7 +19,9 @@
 
 use codex_tui_core::app::{AppEv, BackendEv};
 use codex_tui_core::fixtures::script::{self, Step};
+use codex_tui_core::screens::onboarding::session::Start;
 use codex_tui_core::screens::seed_ev;
+use codex_tui_core::screens::startup::Action;
 use codex_tui_rtwk::app::UiApp;
 
 use super::Screen;
@@ -61,6 +63,8 @@ pub struct Open {
     pub(super) draft: Option<String>,
     /// The prompt and the image files of the command line (`Open::initial_prompt`).
     pub(super) initial: Option<(String, Vec<std::path::PathBuf>)>,
+    /// The session the command line names (`Open::resume`, `Open::fork`).
+    pub(super) launch: Option<codex_tui_core::screens::onboarding::session::Start>,
     /// What the usage page's host answers (`Open::usage_accounts`, `usage_report`).
     pub(super) usage: super::usage::Host,
 }
@@ -85,12 +89,33 @@ impl Screen {
             remote_images: Vec::new(),
             draft: None,
             initial: None,
+            launch: None,
             usage: super::usage::Host::default(),
         }
     }
 }
 
 impl Open {
+    /// The command line is `codex resume <id>`: the session is read and opened once the
+    /// connection is up (the backend leaves its `thread/read` unanswered), the startup draft
+    /// says `Resuming session…`.
+    pub fn resume(mut self, id: &str) -> Open {
+        self.launch = Some(Start {
+            action: Action::Resume,
+            id: id.to_string(),
+        });
+        self
+    }
+
+    /// The command line is `codex fork <id>` (`Forking session…`).
+    pub fn fork(mut self, id: &str) -> Open {
+        self.launch = Some(Start {
+            action: Action::Fork,
+            id: id.to_string(),
+        });
+        self
+    }
+
     /// The command line carries this prompt and these image files (`codex "prompt" -i file`):
     /// it goes out when the session starts.
     pub fn initial_prompt(mut self, text: &str, images: &[std::path::PathBuf]) -> Open {
@@ -242,42 +267,49 @@ impl Open {
     /// The app on a terminal made as the env seeds say.
     fn driven(&self, debug: bool) -> Harness {
         let initial = self.initial.clone();
+        let launch = self.launch.clone();
         let h = crate::common::start_driven_as(
             debug,
             self.env.options(self.width, self.height),
-            move |app| match initial {
-                Some((text, images)) => {
-                    // A text that holds a placeholder is the message's own element (the oracle's
-                    // `text_elements`); else the command line appends them
-                    let mut message = codex_tui_core::threads::UserMessage::text(text.clone());
-                    let placeholder = |n: usize| format!("[Image #{n}]");
-                    if images
-                        .iter()
-                        .enumerate()
-                        .all(|(i, _)| text.contains(&placeholder(i + 1)))
-                        && !images.is_empty()
-                    {
-                        for (i, path) in images.iter().enumerate() {
-                            let start = text.find(&placeholder(i + 1)).expect("placeholder");
-                            message.images.push(codex_tui_core::threads::LocalImage {
-                                path: path.clone(),
-                                range: start..start + placeholder(i + 1).len(),
-                            });
+            move |app| {
+                let app = match launch {
+                    Some(start) => app.with_start_session(start),
+                    None => app,
+                };
+                match initial {
+                    Some((text, images)) => {
+                        // A text that holds a placeholder is the message's own element (the oracle's
+                        // `text_elements`); else the command line appends them
+                        let mut message = codex_tui_core::threads::UserMessage::text(text.clone());
+                        let placeholder = |n: usize| format!("[Image #{n}]");
+                        if images
+                            .iter()
+                            .enumerate()
+                            .all(|(i, _)| text.contains(&placeholder(i + 1)))
+                            && !images.is_empty()
+                        {
+                            for (i, path) in images.iter().enumerate() {
+                                let start = text.find(&placeholder(i + 1)).expect("placeholder");
+                                message.images.push(codex_tui_core::threads::LocalImage {
+                                    path: path.clone(),
+                                    range: start..start + placeholder(i + 1).len(),
+                                });
+                            }
+                            app.with_initial_prompt(message)
+                        } else {
+                            let cli = codex_tui_rtwk::Cli {
+                                prompt: Some(text),
+                                images,
+                                ..Default::default()
+                            };
+                            app.with_initial_prompt(
+                                cli.initial_message(codex_tui_rtwk::l10n::Lang::En)
+                                    .expect("a prompt"),
+                            )
                         }
-                        app.with_initial_prompt(message)
-                    } else {
-                        let cli = codex_tui_rtwk::Cli {
-                            prompt: Some(text),
-                            images,
-                            ..Default::default()
-                        };
-                        app.with_initial_prompt(
-                            cli.initial_message(codex_tui_rtwk::l10n::Lang::En)
-                                .expect("a prompt"),
-                        )
                     }
+                    None => app,
                 }
-                None => app,
             },
         );
         if self.fake_turns {

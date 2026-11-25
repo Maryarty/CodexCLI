@@ -840,7 +840,7 @@ fn startup_submission_waits_for_session_and_sends_exactly_once() {
 fn startup_submission_escape_restores_editing_without_submitting() {
     kit::pending(
         Owner::ChatNavPane,
-        "feature startup draft (w2-composer, startup): not in the port (keep the draft, cursor 4) and the rejected-startup Disconnected restricted input are not reachable black-box",
+        "needs the Enter-confirm startup submission (Enter on a startup draft waits, Esc cancels it and keeps the draft); the port queues the prompt at Enter before the session instead, and the rejected-startup Disconnected restricted input has no seed",
     );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("keep the draft");
@@ -856,7 +856,7 @@ fn startup_submission_escape_restores_editing_without_submitting() {
 fn startup_submission_waits_for_protected_view_and_preserves_paste_provenance() {
     kit::pending(
         Owner::ChatNavPane,
-        "a startup submission held behind an open approvals popup (open_approvals_popup) with a multi-line paste is not seedable black-box",
+        "needs the Enter-confirm startup submission held behind an open approvals popup; the port queues the prompt at Enter before the session instead",
     );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.paste("!echo hi\n# visible tail");
@@ -885,7 +885,7 @@ fn startup_submission_edit_or_disconnect_cancels_without_losing_draft() {
 fn owned_startup_keeps_the_live_bottom_geometry() {
     kit::pending(
         Owner::ChatNavPane,
-        "the startup-owned layout (OwnedStartupLayout, status line and footer hint override) is not a screen the kit can seed",
+        "the startup draft frames are ported (inline); this one is the alt-screen startup-owned layout, whose footer hint override (`Waiting for startup`) belongs to the Enter-confirm startup submission, which the port lacks (Enter before the session queues the prompt)",
     );
     let mut s = Screen::build(Owner::ChatNavPane).size(48, 16).live().open();
     s.type_text("first line\nsecond line");
@@ -897,7 +897,7 @@ fn owned_startup_keeps_the_live_bottom_geometry() {
 fn new_startup_decoration_tracks_draft_and_session_action() {
     kit::pending(
         Owner::ChatNavPane,
-        "feature startup blossom decoration (w2-composer, startup): not in the port per draft and session action is not reachable black-box; the kit has no any-braille-glyph assertion (kit gap)",
+        "the startup blossom decoration is not in the port, its pending state is the Enter-confirm startup submission (absent: Enter before the session queues the prompt), and the kit has no any-braille-glyph assertion",
     );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 32).live().open();
     s.type_text(" ");
@@ -920,23 +920,64 @@ fn configured_welcome_opt_out_disables_blossom_and_clicks() {
 // ORACLE startup_draft_tests.rs:69 startup_draft_renders_full_empty_and_multiline_composer_frames kind=snap owner=chat-nav-pane snap=empty snap=startup_draft_full_frames
 #[test]
 fn startup_draft_renders_full_empty_and_multiline_composer_frames() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "feature pre-session startup draft (w2-composer, startup): not in the port (session actions New, Resume, Fork; a 18-column narrow frame) is not reachable black-box",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane)
-        .size(48, 24)
-        .live()
-        .held_start()
-        .inline(&[])
-        .open();
-    s.assert_snap_section("startup_draft_full_frames", "empty (48 columns)");
-    s.assert_snap_section("startup_draft_full_frames", "configured (48 columns)");
-    s.assert_snap_section("startup_draft_full_frames", "resuming (48 columns)");
-    s.assert_snap_section("startup_draft_full_frames", "forking (48 columns)");
-    s.assert_snap_section("startup_draft_full_frames", "multiline (48 columns)");
-    s.resize(18, 24);
-    s.assert_snap_section("startup_draft_full_frames", "narrow (18 columns)");
+    // The oracle renders the draft pump six times (a session action, a width, a text); each is
+    // one chat here, opened before its session starts, inline under no shell rows.
+    const LABELS: [&str; 6] = [
+        "empty (48 columns)",
+        "configured (48 columns)",
+        "resuming (48 columns)",
+        "forking (48 columns)",
+        "multiline (48 columns)",
+        "narrow (18 columns)",
+    ];
+    let startup = |width: u16| {
+        Screen::build(Owner::ChatNavPane)
+            .size(width, 24)
+            .live()
+            .held_start()
+            .inline(&[])
+    };
+    startup(48)
+        .open()
+        .snap("startup_draft_full_frames")
+        .labelled(&LABELS)
+        .frame("empty (48 columns)")
+        .assert();
+    let mut configured = startup(48).open();
+    configured.configured_cwd("workspace");
+    configured
+        .snap("startup_draft_full_frames")
+        .labelled(&LABELS)
+        .frame("configured (48 columns)")
+        .assert();
+    startup(48)
+        .resume("saved")
+        .open()
+        .snap("startup_draft_full_frames")
+        .labelled(&LABELS)
+        .frame("resuming (48 columns)")
+        .assert();
+    let mut forking = startup(48).fork("saved").open();
+    forking.type_text("draft while loading");
+    forking
+        .snap("startup_draft_full_frames")
+        .labelled(&LABELS)
+        .frame("forking (48 columns)")
+        .assert();
+    let mut multiline = startup(48).open();
+    multiline.paste("first startup line\nsecond startup line");
+    multiline
+        .snap("startup_draft_full_frames")
+        .labelled(&LABELS)
+        .frame("multiline (48 columns)")
+        .assert();
+    let mut narrow = startup(18).open();
+    narrow.paste("first startup line\nsecond startup line");
+    narrow
+        .snap("startup_draft_full_frames")
+        .labelled(&LABELS)
+        .frame("narrow (18 columns)")
+        .assert();
 }
 
 // ORACLE startup_draft_tests.rs:148 terminal_app_ssh_fallback_renders_inline_startup kind=snap owner=chat-nav-pane snap=terminal_app_ssh_startup
@@ -979,17 +1020,26 @@ fn startup_draft_clears_loading_status_when_starting_fresh() {
 // ORACLE startup_draft_tests.rs:294 startup_draft_hydrates_its_header_without_moving_the_composer kind=ui owner=chat-nav-pane
 #[test]
 fn startup_draft_hydrates_its_header_without_moving_the_composer() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "feature startup header (w2-composer, startup): not in the port's directory line (loading, then the configured cwd) is not reachable black-box",
-    );
-    let s = Screen::build(Owner::ChatNavPane)
+    let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .live()
         .held_start()
+        .inline(&[])
         .open();
-    s.assert_contains("directory: loading");
-    // The oracle then asserts the directory line equals the configured cwd, and that the composer height did not move: the cwd is not known to the kit.
+    s.assert_has_row("     loading");
+    let composer = |s: &Screen| {
+        s.rows()
+            .iter()
+            .position(|row| row.starts_with("› "))
+            .expect("the composer")
+    };
+    let before = composer(&s);
+    // The host has read the config: the heading's directory is the configured one, on the same
+    // row, and the composer did not move.
+    s.configured_cwd("workspace");
+    s.assert_has_row("     workspace");
+    s.assert_absent("loading");
+    assert_eq!(composer(&s), before);
 }
 
 // ORACLE startup_draft_tests.rs:690 startup_draft_applies_super_editor_keymap_without_inserting_pending_newline kind=snap owner=chat-nav-pane snap=startup_draft_safe_chord_guide

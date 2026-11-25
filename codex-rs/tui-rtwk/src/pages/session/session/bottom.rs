@@ -29,6 +29,8 @@ use crate::sheets::dialogs::shortcut_panel;
 use crate::sheets::select::hud;
 use crate::widgets::status_line::{SEPARATOR, status_spans, thread_color};
 
+use codex_tui_core::screens::startup::Action;
+
 use super::frame::Frame;
 use super::slot::Slot;
 use super::{BannerBlocked, Chat, ChatState};
@@ -43,6 +45,7 @@ pub(super) fn body(
     let (tokens, thread, session) = (&frame.tokens, &frame.thread, &frame.session);
     let (run, facts, searching) = (&frame.run, &frame.drawn.status, &frame.searching);
     let running = run.running();
+    let startup = super::super::transcript_header::startup_draft(session);
     let (panel, _) = shortcut_panel(cx, running);
     let chat_strings = frame.chat_strings;
     let Slot {
@@ -56,7 +59,7 @@ pub(super) fn body(
     let status_above = !run.read_only
         && (run.word(session, frame.reconnecting) != "Ready"
             || run.has_activity_rows()
-            || matches!(session.status, Session::Starting));
+            || (matches!(session.status, Session::Starting) && !startup));
     // The reader's gap above the composer is a flexible row, the first thing a short window clips.
     // The menu of `/presets` stands over the whole pane (`above_composer`); where it is closed a
     // blank child keeps the others' places, so their state is not lost.
@@ -139,7 +142,16 @@ pub(super) fn body(
                 .model
                 .as_deref());
             let notice = limits::notice_of(session, frame.drawn.owner, model).map(AnyWidget::from);
-            let gap = transcript::follow::gap(cx, w.ui.follow.clone(), status_above, notice);
+            let gap = match (startup, session.launching) {
+                // the named session opening: its line stands in the reader's gap
+                (true, Some(action)) => Text::new(match action {
+                    Action::Resume => chat_strings.resuming_session,
+                    Action::Fork => chat_strings.forking_session,
+                })
+                .style(tokens.dim())
+                .into(),
+                _ => transcript::follow::gap(cx, w.ui.follow.clone(), status_above, notice),
+            };
             let mentions = w.ui.draft.mentions();
             ListenableBuilder::new(mentions.listenable(), move |_, _| {
                 if mentions.is_open() {
@@ -178,13 +190,14 @@ pub(super) fn body(
     // a status line that names the credits or the cost wants them, whether or not it shows them
     // yet (`thread_usage_selected`): without a figure the line is empty
     let wanted = line_interests(facts);
-    let rows = (!line.is_empty() && !thread.read_only() && frame.provider.is_none()).then(|| {
-        AnyWidget::from(StatusRows {
-            spans: line,
-            composer: w.ui.composer.clone(),
-            hints,
-        })
-    });
+    let rows = (!line.is_empty() && !startup && !thread.read_only() && frame.provider.is_none())
+        .then(|| {
+            AnyWidget::from(StatusRows {
+                spans: line,
+                composer: w.ui.composer.clone(),
+                hints,
+            })
+        });
     body = match (rows, wanted.is_empty()) {
         (Some(rows), true) => body.child(rows),
         (rows, false) => body.child(raise(

@@ -94,6 +94,9 @@ pub enum Session {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionSlice {
     pub status: Session,
+    /// The command line names a session to resume or fork and it is not open yet: the startup
+    /// draft says `Resuming session…` / `Forking session…`.
+    pub launching: Option<crate::screens::startup::Action>,
     /// The first backend's connection epoch (`BackendId::default()`); the
     /// other backends' are `epochs`.
     pub epoch: ConnEpoch,
@@ -733,6 +736,7 @@ impl CodexApp {
         Self {
             session: Rc::new(SessionSlice {
                 status: Session::Starting,
+                launching: None,
                 epoch: ConnEpoch::default(),
                 epochs: BTreeMap::new(),
                 active: None,
@@ -797,6 +801,7 @@ impl CodexApp {
     /// of a fresh thread. The first thread starts after the launch.
     pub fn with_start_session(mut self, start: crate::screens::onboarding::session::Start) -> Self {
         self.first_thread = FirstThread::AfterLaunch;
+        Rc::make_mut(&mut self.session).launching = Some(start.action);
         crate::screens::onboarding::session::want(
             &mut Rc::make_mut(&mut self.screens).onboarding,
             start,
@@ -2975,6 +2980,7 @@ fn session_opened(
     fx: &mut AppFx,
 ) {
     use crate::screens::startup::Action;
+    Rc::make_mut(&mut app.session).launching = None;
     match answer {
         Answer::Screen(ScreenReply::Agents(
             agents::Reply::Resumed(opened) | agents::Reply::Forked(opened),

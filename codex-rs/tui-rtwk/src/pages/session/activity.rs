@@ -183,7 +183,9 @@ impl StatelessWidget for StatusSlot {
                     .into(),
             )
         } else if session.status == Session::Starting {
-            Some(Text::new(strings.chat.starting).style(tokens.dim()).into())
+            // the startup draft has no status row of its own: the heading says `loading`
+            let draft = super::transcript_header::startup_draft(&session);
+            (!draft).then(|| Text::new(strings.chat.starting).style(tokens.dim()).into())
         } else if setting_up {
             // `show_windows_sandbox_setup_status`: its own header and details, no interrupt, a
             // clock that starts when the setup does (a new key on the run of the setup)
