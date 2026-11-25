@@ -103,6 +103,12 @@ pub struct RateRead {
     /// What the plan's own bucket (`codex`) says that the warnings depend on; none when the read
     /// named no such bucket.
     pub codex: Option<Sample>,
+    /// A rolling update overtook the read while it was in flight: what it says of the usage is
+    /// older than what the app holds (`applying_stale_read`). Told to the features
+    /// (`Feature::on_rate_limits_read`); a response has none.
+    pub overtaken: bool,
+    /// The read is of the backend of the thread in use. Told to the features, as above.
+    pub active: bool,
 }
 
 /// The id the oracle gives a bucket whose snapshot names none.
@@ -136,6 +142,8 @@ impl RateRead {
             buckets,
             reset_credits: response.rate_limit_reset_credits.as_ref().map(reset_credits),
             codex,
+            overtaken: false,
+            active: false,
         }
     }
 }

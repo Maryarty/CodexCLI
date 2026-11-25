@@ -1891,13 +1891,17 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                     Rc::make_mut(&mut app.session)
                         .reserve
                         .insert(backend, reserve);
-                    let told = (*read).clone();
                     // a read a rolling update overtook does not replace the summary it wrote
                     let overtaken = app
                         .session
                         .rate_snapshots
                         .get(&backend)
                         .is_some_and(|store| store.limits().next_read_is_stale());
+                    let told = status::RateRead {
+                        overtaken,
+                        active: active_backend(app) == backend,
+                        ..(*read).clone()
+                    };
                     if !overtaken {
                         install_rates(app, backend, limits);
                     }

@@ -1,8 +1,8 @@
 //! The view half of the limit prompts (ADR-013): the switch prompt (`Approaching rate limits`) and
 //! the workspace owner nudge, each a sheet over the chat that the presenter opens once for a wish
-//! of the feature (`codex_tui_core::features::rate_limit_prompt`), and the words of the transcript
-//! note that the e-mail's answer leaves. What the user picks goes back as a verb; "never show
-//! again" is the settings' write (`hide_rate_limit_prompt`).
+//! of the feature (`codex_tui_core::features::rate_limit_prompt`); the switch prompt turns into
+//! the recovery countdown in place. What the user picks goes back as a verb; "never show again"
+//! is the settings' write (`hide_rate_limit_prompt`). The e-mail's answer is the app's own note.
 
 pub mod sheet;
 pub mod strings;
@@ -11,8 +11,8 @@ use std::rc::Rc;
 
 use rtwk::AnyWidget;
 
-use codex_tui_core::features::Scope;
-use codex_tui_core::features::rate_limit_prompt::{Note, RateLimitPrompt, Wish};
+use codex_tui_core::features::{Feature, Scope};
+use codex_tui_core::features::rate_limit_prompt::{RateLimitPrompt, Wish};
 
 use self::sheet::{Kind, Prompt};
 use super::{FeatureView, Shown};
@@ -32,7 +32,7 @@ impl FeatureView for RateLimitPrompt {
         })
     }
 
-    fn note_words(note: &Note, _words: &SessionStrings) -> String {
-        strings::note(note)
+    fn note_words(note: &<RateLimitPrompt as Feature>::Note, _words: &SessionStrings) -> String {
+        note.absurd()
     }
 }

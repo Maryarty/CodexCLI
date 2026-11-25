@@ -16,6 +16,20 @@ fn rolling(snapshot: &serde_json::Value) -> serde_json::Value {
     serde_json::json!({"step": "notify", "message": {"method": "account/rateLimits/updated", "params": {"rateLimits": snapshot}}})
 }
 
+/// The clock of the fake shell says it is `millis` after the epoch.
+fn clock(millis: i64) -> String {
+    format!("{{\"step\":\"clock\",\"millis\":{millis}}}\n")
+}
+
+/// The moment the countdown tests start at.
+const START: i64 = 1_000_000_000_000;
+
+/// What `account/rateLimits/read` answers from now on: `snapshot` (the respond table of the fake).
+fn read_of(snapshot: &serde_json::Value) -> serde_json::Value {
+    serde_json::json!({"step": "respond", "method": "account/rateLimits/read",
+        "result": {"rateLimits": snapshot}})
+}
+
 /// `model/list` with the lower-cost model of the switch prompt, listed for the picker.
 fn luna_catalog() -> String {
     let model = serde_json::json!({
@@ -468,47 +482,104 @@ fn rate_limit_duration_labels_only_render_supported_windows() {
 // ORACLE chatwidget/tests/status_and_layout.rs:1550 rate_limit_switch_prompt_clears_when_account_usage_recovers kind=snap owner=ui-pane snap=rate_limit_switch_prompt_recovered
 #[test]
 fn rate_limit_switch_prompt_clears_when_account_usage_recovers() {
-    kit::pending(
-        Owner::UiPane,
-        "the countdown starts from the answer of an account read, which the rate_limit_prompt feature does not see (need: a read door for features); the switch prompt itself is built",
-    );
     // oracle: a 95% snapshot shows the switch prompt; recovery to 0% starts the countdown "Dismissing in 1 second…";
-    // the prompt is gone at the deadline; the recovered prompt is the snapshot.
+    // the prompt is gone at the deadline; the recovered prompt is the snapshot. A read that a rolling update
+    // overtook (the oracle's stale read) confirms no recovery.
     let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: rate-limit 95% rolling, usage notice read, then 0% snapshot
-    s.assert_snap("rate_limit_switch_prompt_recovered");
-    s.assert_contains("Dismissing in 1 second…");
-    s.wait(1_000);
+    s.feed(&clock(START));
+    s.feed(&format!(
+        "{}\n{}\n{}\n",
+        luna_catalog(),
+        read_of(&limit_snapshot(0, None)),
+        ACCOUNT_USAGE
+    ));
+    // a rolling 95% over a read of 0% in flight: the read is answered stale, the prompt stays
+    let hold = s.hold_request("account/rateLimits/read");
+    let reached = limit_snapshot(95, Some("rate_limit_reached"));
+    s.feed(&format!("{}\n{}\n", rolling(&reached), TURN_ENDED));
+    s.assert_contains("Approaching rate limits");
+    s.feed(&format!("{}\n", rolling(&limit_snapshot(95, None))));
+    s.release(&hold);
+    s.assert_contains("Approaching rate limits");
     s.assert_absent("Dismissing in");
+    // a read made after the last update confirms it
+    s.feed(&format!("{}\n", rolling(&reached)));
+    assert_popup(
+        &s,
+        "rate_limit_switch_prompt_recovered",
+        "You’re no longer close to your usage limit.",
+    );
+    s.feed(&clock(START + 1_000));
+    s.assert_contains("Dismissing in 4 seconds…");
+    s.feed(&clock(START + 4_000));
+    s.assert_contains("Dismissing in 1 second…");
+    s.feed(&clock(START + 5_000));
+    s.assert_absent("Dismissing in");
+    s.assert_absent("no longer close");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:1585 rate_limit_recovery_prompt_can_be_dismissed_manually kind=ui owner=ui-pane
 #[test]
 fn rate_limit_recovery_prompt_can_be_dismissed_manually() {
-    kit::pending(
-        Owner::UiPane,
-        "the countdown starts from the answer of an account read, which the rate_limit_prompt feature does not see (need: a read door for features); the switch prompt itself is built",
-    );
     // oracle: Enter and Esc both dismiss the recovery prompt (each on a fresh chat).
     for key in ["enter", "esc"] {
         let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-        // needs feed: rate-limit 95% then 0%
+        s.feed(&clock(START));
+        s.feed(&format!(
+            "{}\n{}\n{}\n",
+            luna_catalog(),
+            read_of(&limit_snapshot(95, None)),
+            ACCOUNT_USAGE
+        ));
+        s.feed(&format!("{TURN_ENDED}\n"));
+        s.assert_contains("Approaching rate limits");
+        // the usage is read again: low
+        s.feed(&format!(
+            "{}\n{}\n",
+            read_of(&limit_snapshot(0, None)),
+            rolling(&limit_snapshot(95, Some("rate_limit_reached")))
+        ));
+        s.assert_contains("Dismissing in 5 seconds…");
         s.keys(key);
         s.assert_absent("Dismissing in");
+        s.assert_absent("no longer close");
+        // dismissed for good: the countdown is not drawn again when it would have run out
+        s.feed(&clock(START + 6_000));
+        s.assert_absent("Approaching rate limits");
+        s.assert_absent("no longer close");
     }
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:1779 rate_limit_usage_warnings_keep_newly_reached_workspace_limit kind=ui owner=ui-pane
 #[test]
 fn rate_limit_usage_warnings_keep_newly_reached_workspace_limit() {
-    kit::pending(
-        Owner::UiPane,
-        "the credits and limit type come from account reads, which the rate_limit_prompt feature does not see (need: a read door for features); the same prompt is built from rolling updates",
-    );
     // oracle: a newly reached workspace limit on the codex limit id warns and shows the request popup; another limit id does not.
-    let s = Screen::build(Owner::UiPane).size(100, 24).live().open();
-    // needs feed: credits snapshot, then a 95% snapshot with WorkspaceMemberUsageLimitReached on the codex id; usage limit error
-    s.assert_contains("Request a limit increase from your owner");
+    for (limit_id, should_warn) in [("codex", true), ("codex_other", false)] {
+        let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
+        let mut funded = limit_snapshot(0, None);
+        funded["credits"] = serde_json::json!({"hasCredits": true, "unlimited": false, "balance": null});
+        funded["spendControlReached"] = serde_json::json!(false);
+        s.feed(&format!(
+            "{}\n{}\n{}\n",
+            luna_catalog(),
+            read_of(&funded),
+            ACCOUNT_USAGE
+        ));
+        let mut capped = limit_snapshot(95, Some("workspace_member_usage_limit_reached"));
+        capped["limitId"] = serde_json::json!(limit_id);
+        capped["credits"] = funded["credits"].clone();
+        // the app reads the limits again at a reached limit: the read says what the update did
+        s.feed(&format!("{}\n{}\n", read_of(&capped), rolling(&capped)));
+        s.assert_rows_with(WARNING, usize::from(should_warn));
+        // the prompt that waits for the end of the turn is the plan's own limit's
+        s.feed(&format!("{TURN_ENDED}\n"));
+        assert_eq!(s.text().contains("Approaching rate limits"), should_warn);
+        if should_warn {
+            s.keys("esc");
+        }
+        s.feed(&format!("{}\n", limit_error(true)));
+        s.assert_contains("Request a limit increase from your owner");
+    }
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:1891 rolling_credits_preserve_depleted_workspace_error_routing kind=ui owner=ui-pane
@@ -635,28 +706,44 @@ fn workspace_owner_limit_states_do_not_prompt_for_owner_nudge() {
 // ORACLE chatwidget/tests/status_and_layout.rs:2186 workspace_owner_limit_states_render_state_specific_messages kind=snap owner=ui-pane snap=workspace_owner_limit_state_messages
 #[test]
 fn workspace_owner_limit_states_render_state_specific_messages() {
-    kit::pending(
-        Owner::UiPane,
-        "the owner states replace the error's text (`on_rate_limit_error`): the threads error cell has no hook for a feature to say its own message (need: threads error hook)",
-    );
-    // oracle: each owner limit state renders its own message (the joined snapshot has one case per state).
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: WorkspaceOwnerCreditsDepleted with a generic error, then WorkspaceOwnerUsageLimitReached with a usage-limit error
-    s.assert_contains("You're out of credits. Your workspace is out of credits. Add credits to continue using Codex.");
-    s.assert_contains("Usage limit reached. You've reached your usage limit. Increase your limits to continue using codex.");
+    // oracle: each owner limit state renders its own message (the joined snapshot has one case per state),
+    // not the server's words.
+    for (reached, usage_limit, expected) in [
+        (
+            "workspace_owner_credits_depleted",
+            false,
+            "■ You're out of credits. Your workspace is out of credits. Add credits to continue using Codex.",
+        ),
+        (
+            "workspace_owner_usage_limit_reached",
+            true,
+            "■ Usage limit reached. You've reached your usage limit. Increase your limits to continue using codex.",
+        ),
+    ] {
+        let mut s = Screen::build(Owner::UiPane).size(120, 24).live().open();
+        s.feed(&format!(
+            "{}\n{}\n",
+            rolling(&limit_snapshot(100, Some(reached))),
+            limit_error(usage_limit)
+        ));
+        s.assert_has_row(expected);
+        if !usage_limit {
+            s.assert_absent("Usage limit reached");
+        }
+    }
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:2223 academic_researchers_usage_limit_renders_admin_guidance kind=snap owner=ui-pane
 #[test]
 fn academic_researchers_usage_limit_renders_admin_guidance() {
-    kit::pending(
-        Owner::UiPane,
-        "no usage-limit error message for the research plan on the chat screen",
+    // oracle: a UsageLimit error on the research plan says to ask the admin. The words are codex-protocol's
+    // `UsageLimitReachedError` display (the server's message); the chat draws it as the error cell.
+    let mut s = Screen::build(Owner::UiPane).size(120, 24).live().open();
+    let error = r#"{"step":"notify","message":{"method":"error","params":{"threadId":"thread-1","turnId":"turn-1","willRetry":false,"error":{"message":"You’ve hit your usage limit. To get more access now, send a request to your admin or try again later.","codexErrorInfo":"usageLimitExceeded","additionalDetails":null,"misalignment":null}}}}"#;
+    s.feed(&format!("{error}\n"));
+    s.assert_has_row(
+        "■ You’ve hit your usage limit. To get more access now, send a request to your admin or try again later.",
     );
-    // oracle: a UsageLimit error on the research plan says to ask the admin.
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: usage-limit error with plan type research (Sci)
-    s.assert_contains("■ You’ve hit your usage limit. To get more access now, send a request to your admin or try again later.");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:2246 missing_rate_limit_reached_type_does_not_prompt_or_refresh kind=ui owner=ui-pane

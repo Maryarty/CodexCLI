@@ -11,7 +11,7 @@ use rtwk::provider::select;
 use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::features::FeatureStates;
-use codex_tui_core::features::rate_limit_prompt::{Candidate, Intent};
+use codex_tui_core::features::rate_limit_prompt::{Candidate, Intent, Standing};
 use codex_tui_core::screens::chat::Nudge;
 
 use super::strings;
@@ -50,10 +50,10 @@ impl StatefulWidget for Prompt {
 impl_widget!(stateful eq Prompt);
 
 impl PromptState {
-    /// Whether the switch prompt is wanted: asked in `did_change_dependencies` and again in
-    /// `build`, because a build forgets the selects of the build before.
-    fn wanted(cx: &mut Cx<'_, Self>) -> bool {
-        select::<FeatureStates, bool, _>(cx, |features| features.rate_limit_prompt.offered())
+    /// What the switch prompt shows: asked in `did_change_dependencies` and again in `build`,
+    /// because a build forgets the selects of the build before.
+    fn standing(cx: &mut Cx<'_, Self>) -> Standing {
+        select::<FeatureStates, Standing, _>(cx, |features| features.rate_limit_prompt.standing())
     }
 }
 
@@ -62,7 +62,7 @@ impl State for PromptState {
     type Msg = Msg;
 
     fn did_change_dependencies(&mut self, w: &Prompt, cx: &mut Cx<'_, Self>) {
-        if matches!(w.kind, Kind::Switch(_)) && !Self::wanted(cx) {
+        if matches!(w.kind, Kind::Switch(_)) && Self::standing(cx) == Standing::Gone {
             close_dialog::<_, ()>(cx, None);
         }
     }
@@ -82,7 +82,7 @@ impl State for PromptState {
                     hide_rate_limit_prompt(cx);
                     verb(cx, Intent::Closed);
                 }
-                strings::KEEP => verb(cx, Intent::Closed),
+                strings::KEEP | strings::DISMISS => verb(cx, Intent::Closed),
                 _ => return Rebuild::No,
             },
             (Kind::Switch(_), Event::Cancel) => verb(cx, Intent::Closed),
@@ -99,12 +99,12 @@ impl State for PromptState {
     }
 
     fn build(&self, w: &Prompt, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        if matches!(w.kind, Kind::Switch(_)) {
-            Self::wanted(cx);
-        }
         let on: Handler<Event> = cx.map(Msg::Picked);
         let list = match &w.kind {
-            Kind::Switch(candidate) => strings::switch_menu(candidate),
+            Kind::Switch(candidate) => match Self::standing(cx) {
+                Standing::Recovery(seconds) => strings::recovery_menu(seconds),
+                Standing::Offer | Standing::Gone => strings::switch_menu(candidate),
+            },
             Kind::Nudge(nudge) => strings::nudge_menu(*nudge),
         };
         Picker::new(Rc::new(list), on).into()

@@ -1,11 +1,11 @@
 //! The words of the limit prompts (oracle `chatwidget/rate_limits.rs`
-//! `open_rate_limit_switch_prompt`, `open_workspace_owner_nudge_prompt`,
-//! `finish_add_credits_nudge_email_request`). The wording is the oracle's English until the
-//! catalog has these entries.
+//! `open_rate_limit_switch_prompt`, `tick_rate_limit_recovery_prompt`,
+//! `open_workspace_owner_nudge_prompt`). The wording is the oracle's English until the catalog
+//! has these entries.
 
 use crate::widgets::picker::list::{Columns, Item, List};
-use codex_tui_core::features::rate_limit_prompt::{Candidate, Note};
-use codex_tui_core::screens::chat::{Nudge, NudgeOutcome};
+use codex_tui_core::features::rate_limit_prompt::Candidate;
+use codex_tui_core::screens::chat::Nudge;
 
 /// The rows of the switch prompt and of the nudge.
 pub const SWITCH: &str = "rate_limit.switch";
@@ -13,6 +13,26 @@ pub const KEEP: &str = "rate_limit.keep";
 pub const NEVER: &str = "rate_limit.never";
 pub const YES: &str = "rate_limit.yes";
 pub const NO: &str = "rate_limit.no";
+pub const DISMISS: &str = "rate_limit.dismiss";
+
+/// `You’re no longer close to your usage limit.`: the switch prompt once a read found the usage
+/// low again, counting down to its own dismissal.
+pub fn recovery_menu(seconds: u64) -> List {
+    let unit = if seconds == 1 { "second" } else { "seconds" };
+    List {
+        title: Some("You’re no longer close to your usage limit.".to_owned()),
+        subtitle: Some(format!("Dismissing in {seconds} {unit}…")),
+        standard_hint: true,
+        items: vec![Item {
+            id: DISMISS.to_owned(),
+            name: "Dismiss".to_owned(),
+            ..Item::default()
+        }],
+        columns: Columns::AutoVisible,
+        panel: true,
+        ..List::default()
+    }
+}
 
 /// `Approaching rate limits`: the lower-cost model offered, kept, or never offered again.
 pub fn switch_menu(candidate: &Candidate) -> List {
@@ -77,24 +97,4 @@ pub fn nudge_menu(nudge: Nudge) -> List {
         panel: true,
         ..List::default()
     }
-}
-
-/// The words of the transcript note the e-mail's answer leaves.
-pub fn note(note: &Note) -> String {
-    let Note::Nudged { nudge, outcome } = note;
-    match (nudge, outcome) {
-        (Nudge::Credits, NudgeOutcome::Sent) => "Workspace owner notified.",
-        (Nudge::Credits, NudgeOutcome::Cooldown) => "Workspace owner was already notified recently.",
-        (Nudge::Credits, NudgeOutcome::Failed) => {
-            "Could not notify your workspace owner. Please try again."
-        }
-        (Nudge::UsageLimit, NudgeOutcome::Sent) => "Limit increase requested.",
-        (Nudge::UsageLimit, NudgeOutcome::Cooldown) => {
-            "A limit increase was already requested recently."
-        }
-        (Nudge::UsageLimit, NudgeOutcome::Failed) => {
-            "Could not request a limit increase. Please try again."
-        }
-    }
-    .to_owned()
 }
