@@ -4,6 +4,16 @@
 
 use serde::Deserialize;
 
+use crate::ids::ThreadId;
+
+/// What the user decides of a question: the verb of the async-questions feature, kept here so the
+/// session page that says it names no feature (`features::verb` takes it as `Into<FeatureIntent>`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Intent {
+    /// The answer of the question went out, or the question was skipped.
+    Resolve { thread: ThreadId, id: String },
+}
+
 const START: &str = "<send_user_message_question_reply>";
 const END: &str = "</send_user_message_question_reply>";
 /// The bytes of a question the envelope keeps (`AnsweredQuestion::new`).
@@ -13,7 +23,8 @@ const QUESTION_BYTES: usize = 512;
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Reply {
-    pub question_item_id: String,
+    #[serde(rename = "questionItemId")]
+    pub id: String,
     pub question: String,
     pub answer: String,
 }
@@ -88,7 +99,7 @@ mod tests {
         let id = question_id("m", 0);
         let text = render(&id, "First line\nSecond", "yes");
         let replies = parse(&text).unwrap();
-        assert_eq!(replies[0].question_item_id, id);
+        assert_eq!(replies[0].id, id);
         assert_eq!(display_text(&text).unwrap(), "> First line Second\n\nyes");
     }
 

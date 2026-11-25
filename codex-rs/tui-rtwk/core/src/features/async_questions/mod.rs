@@ -7,12 +7,10 @@
 //! seen (a replay cannot bring back a question that was handled) and the ids a reply answered
 //! (history can arrive before the question does). What the user does with them is the editor's
 //! (`src/sheets/approvals/questions`): the drafts, the question on show, the open or closed state.
-//! The user's decision leaves as a verb (`Intent::Dismiss`: the answer went out, or the question
+//! The user's decision leaves as a verb (`Intent::Resolve`: the answer went out, or the question
 //! was skipped); an answer of another client is read off the stream (`project`).
 //!
 //! The reply envelope, its parse and the words it shows are `reply`.
-
-pub mod reply;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -21,6 +19,7 @@ use codex_app_server_protocol::{
 };
 
 use super::AppCx;
+use crate::question_reply as reply;
 use crate::ids::ThreadId;
 
 /// The marker type of the feature.
@@ -43,12 +42,9 @@ pub struct Question {
     pub options: Vec<String>,
 }
 
-/// What the user decides of a question.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Intent {
-    /// The answer of the question went out, or the question was skipped.
-    Dismiss { thread: ThreadId, id: String },
-}
+/// What the user decides of a question (the enum is `question_reply::Intent`: the session page
+/// says it and may not name this feature, so the shape lives where both reach it).
+pub use crate::question_reply::Intent;
 
 /// What the stream says of the questions.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -130,7 +126,7 @@ fn answered_ids(content: &[UserInput]) -> Option<Vec<String>> {
     Some(
         reply::parse(text)?
             .into_iter()
-            .map(|reply| reply.question_item_id)
+            .map(|reply| reply.id)
             .collect(),
     )
 }
@@ -143,7 +139,7 @@ feature! {
         type Event = Event;
         {
             fn intent(state: &mut State, intent: Intent, _cx: &mut AppCx<'_>) {
-                let Intent::Dismiss { thread, id } = intent;
+                let Intent::Resolve { thread, id } = intent;
                 state.resolve(&thread, &[id]);
             }
 

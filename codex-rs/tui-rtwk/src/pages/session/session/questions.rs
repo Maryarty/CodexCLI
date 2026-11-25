@@ -15,13 +15,13 @@ use rtwk::provider::{read, select};
 use rtwk::{AnyWidget, Cx, Key, Rebuild};
 
 use codex_tui_core::features::FeatureStates;
-use codex_tui_core::features::async_questions::Intent;
 use codex_tui_core::ids::ThreadId;
+use codex_tui_core::question_reply::Intent;
 use codex_tui_core::screens::{ScreenThreadIntent, chat};
 use codex_tui_core::threads::{Queued, ThreadModel, UserMessage};
 
 use crate::app::view::Hs;
-use crate::sheets::approvals::questions::{AQuestion, AsyncQuestions, Outcome, Saved, Seed};
+use crate::sheets::approvals::questions::{AQuestion, AsyncQuestions, Kept, Outcome, Seed};
 
 use super::{ChatMsg, ChatState, send};
 
@@ -33,7 +33,7 @@ pub(super) struct Asking {
     /// An answer went out: the next `Submitted` edge is its, not the composer's.
     answered: Cell<bool>,
     /// The drafts and the question on show, kept while the editor is closed.
-    saved: Rc<RefCell<Saved>>,
+    saved: Rc<RefCell<Kept>>,
 }
 
 /// The questions of `thread` that wait.
@@ -58,7 +58,9 @@ fn waiting(cx: &mut Cx<'_, ChatState>, thread: &ThreadId) -> Rc<Vec<AQuestion>> 
 /// How many questions of `thread` wait (the status area and the summary follow it).
 pub(super) fn count(cx: &mut Cx<'_, ChatState>, thread: &ThreadId) -> usize {
     let thread = thread.clone();
-    select::<FeatureStates, usize, _>(cx, move |features| features.async_questions.of(&thread).len())
+    select::<FeatureStates, usize, _>(cx, move |features| {
+        features.async_questions.of(&thread).len()
+    })
 }
 
 impl ChatState {
@@ -170,6 +172,6 @@ impl ChatState {
 
     fn dismiss(&self, thread: &ThreadId, id: String, cx: &mut Cx<'_, ChatState>) {
         let thread = thread.clone();
-        crate::features::verb(cx, Intent::Dismiss { thread, id });
+        crate::features::verb(cx, Intent::Resolve { thread, id });
     }
 }

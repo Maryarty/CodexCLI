@@ -31,7 +31,6 @@ use rtwk::text::{DefaultTextStyle, Text, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_protocol::user_input::MAX_USER_INPUT_TEXT_CHARS;
-use codex_tui_core::features::async_questions::reply;
 use codex_tui_core::keymap::ActionId;
 use codex_tui_core::keymap::Keymap;
 use codex_tui_core::keymap::actions::{
@@ -39,6 +38,7 @@ use codex_tui_core::keymap::actions::{
     COMPOSER_SUBMIT, LIST_ACCEPT, LIST_CANCEL, LIST_JUMP_BOTTOM, LIST_JUMP_TOP, LIST_MOVE_DOWN,
     LIST_MOVE_LEFT, LIST_MOVE_RIGHT, LIST_MOVE_UP, LIST_PAGE_DOWN, LIST_PAGE_UP,
 };
+use codex_tui_core::question_reply as reply;
 
 pub use entries::debug_entries;
 
@@ -81,7 +81,7 @@ pub struct Seed {
 /// oracle keeps the drafts of the questions while the editor is collapsed): the question on show
 /// and, of each question by its id, the row of its cursor and what was typed.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct Saved {
+pub struct Kept {
     pub current: Option<String>,
     pub kept: BTreeMap<String, (Option<usize>, String)>,
 }
@@ -117,7 +117,7 @@ pub struct AsyncQuestions {
     /// editor that stands in the composer's place.
     pub fit: bool,
     /// Where the editor leaves its drafts when it closes, and where it starts from.
-    pub saved: Option<Rc<RefCell<Saved>>>,
+    pub saved: Option<Rc<RefCell<Kept>>>,
     pub on_outcome: Option<Handler<Outcome>>,
 }
 
@@ -142,7 +142,7 @@ pub struct AsyncState {
     timer: Option<Timer>,
     node: FocusNode,
     keymap: Rc<Keymap>,
-    saved: Option<Rc<RefCell<Saved>>>,
+    saved: Option<Rc<RefCell<Kept>>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -177,14 +177,16 @@ impl StatefulWidget for AsyncQuestions {
             .questions
             .iter()
             .enumerate()
-            .map(|(at, question)| match saved.as_ref().and_then(|s| s.kept.get(&question.id)) {
-                Some((selected, draft)) => qstate(question, Some(*selected), draft),
-                None => qstate(
-                    question,
-                    self.seed.selected.get(at).copied(),
-                    self.seed.drafts.get(at).map_or("", String::as_str),
-                ),
-            })
+            .map(
+                |(at, question)| match saved.as_ref().and_then(|s| s.kept.get(&question.id)) {
+                    Some((selected, draft)) => qstate(question, Some(*selected), draft),
+                    None => qstate(
+                        question,
+                        self.seed.selected.get(at).copied(),
+                        self.seed.drafts.get(at).map_or("", String::as_str),
+                    ),
+                },
+            )
             .collect();
         let current = saved
             .as_ref()
@@ -523,7 +525,7 @@ impl State for AsyncState {
 
     fn dispose(&mut self) {
         if let Some(saved) = &self.saved {
-            *saved.borrow_mut() = Saved {
+            *saved.borrow_mut() = Kept {
                 current: self.questions.get(self.current).map(|q| q.id.clone()),
                 kept: self
                     .questions
@@ -900,7 +902,11 @@ impl View {
         let h16 = if self.fit {
             let wanted = facts.question_rows
                 + facts.options_rows
-                + if facts.has_options { 0 } else { facts.input_rows.clamp(1, 8) }
+                + if facts.has_options {
+                    0
+                } else {
+                    facts.input_rows.clamp(1, 8)
+                }
                 + layout::DESIRED_SPACERS
                 + u16::from(!facts.has_options && facts.several)
                 + facts.footer_rows

@@ -453,7 +453,11 @@ fn accepted_question_answer_uses_existing_delivery_and_keeps_main_draft() {
         }
         s.keys("alt+up enter");
         if !queued {
-            s.assert_snap_region("freeform_question", row_of(&s, "Queued follow-up inputs"), 0);
+            s.assert_snap_region(
+                "freeform_question",
+                row_of(&s, "Queued follow-up inputs"),
+                0,
+            );
         }
         s.paste("!literal answer");
         s.keys("enter");
@@ -569,8 +573,16 @@ fn selected_answers_preserve_long_labels_and_reject_oversized_submissions() {
     // on a second enter after a paste of MAX/2 quotes (JSON escaping counts toward the limit) with the line
     // `  Answer too long; shorten it before sending`.
     for (fixture, snapshot, oversized) in [
-        (include_str!("fixtures/chat_approvals_2/q_named.jsonl"), "named_question", false),
-        (include_str!("fixtures/chat_approvals_2/q_oversized.jsonl"), "oversized_question", true),
+        (
+            include_str!("fixtures/chat_approvals_2/q_named.jsonl"),
+            "named_question",
+            false,
+        ),
+        (
+            include_str!("fixtures/chat_approvals_2/q_oversized.jsonl"),
+            "oversized_question",
+            true,
+        ),
     ] {
         let mut s = Screen::build(Owner::DialogsPane)
             .size(80, 24)
@@ -588,7 +600,11 @@ fn selected_answers_preserve_long_labels_and_reject_oversized_submissions() {
         } else {
             let turns = s.turns();
             assert_eq!(turns.len(), 1);
-            assert!(turns[0].text.contains(&format!("{} but do not deploy", "x".repeat(300))));
+            assert!(
+                turns[0]
+                    .text
+                    .contains(&format!("{} but do not deploy", "x".repeat(300)))
+            );
             assert!(turns[0].text.contains("\"question\":\"What next?\""));
         }
     }
@@ -664,7 +680,9 @@ fn question_editor_keeps_working_status_and_queued_messages_visible() {
     // the queue cleared, the status line off, Esc: the ONLY QUESTIONS frame.
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
-        .script(include_str!("fixtures/chat_approvals_2/q_two_running.jsonl"))
+        .script(include_str!(
+            "fixtures/chat_approvals_2/q_two_running.jsonl"
+        ))
         .open();
     s.paste("queued follow-up");
     s.keys("tab");
@@ -679,7 +697,10 @@ fn question_editor_keeps_working_status_and_queued_messages_visible() {
     );
     // the rest of the OPEN frame of questions_with_status_and_queue, cut before `1 of 2`
     let rest: Vec<&str> = rows[at + 1..at + 4].iter().map(|r| r.trim_end()).collect();
-    assert_eq!(rest, ["", "• Queued follow-up inputs", "  ↳ queued follow-up"]);
+    assert_eq!(
+        rest,
+        ["", "• Queued follow-up inputs", "  ↳ queued follow-up"]
+    );
     // the queue is taken back (the last question forward pops it), the turn ends, the question block is collapsed
     s.keys("alt+up alt+up");
     s.feed(include_str!("fixtures/chat_approvals_2/q_two_done.jsonl"));
@@ -695,7 +716,16 @@ fn question_editor_keeps_working_status_and_queued_messages_visible() {
 #[test]
 fn async_questions_reject_blank_answers_but_allow_explicit_skip() {
     // oracle: a blank and a whitespace-only answer leave the bottom popup unchanged and send nothing; ctrl+5 skips the question.
-    for (fixture, numbered) in [(include_str!("fixtures/chat_approvals_2/q_plain.jsonl"), false), (include_str!("fixtures/chat_approvals_2/q_numbered.jsonl"), true)] {
+    for (fixture, numbered) in [
+        (
+            include_str!("fixtures/chat_approvals_2/q_plain.jsonl"),
+            false,
+        ),
+        (
+            include_str!("fixtures/chat_approvals_2/q_numbered.jsonl"),
+            true,
+        ),
+    ] {
         let mut s = Screen::build(Owner::DialogsPane)
             .size(80, 24)
             .script(fixture)
@@ -724,18 +754,20 @@ fn async_questions_reject_blank_answers_but_allow_explicit_skip() {
 fn expanded_question_yields_mouse_to_terminal_for_links() {
     kit::pending(
         Owner::DialogsPane,
-        "no async-question editor and no warnings popup over the chat: the link URL of an expanded question is not drawn, and the mouse yield is terminal state",
+        "pending(G-new-mouse-yield): the editor is built and shows the URL title; what is left is terminal state: an open widget cannot lower the mouse reporting (`Mouse::sync` takes the larger of what the tree needs and the floor, `Off` only for the screen-reader mode), so the oracle's `mouse_capture(owned_screen) == Disabled` while expanded and `Inherit` after collapsing cannot be had; the kit has no reader of the terminal's mouse mode",
     );
     // oracle: a question titled with a long URL: mouse capture is inherited, then disabled when expanded (owned screen); the
     // warnings popup shows the URL; collapsing restores the inherited capture (terminal state, not drawn).
     let url = "https://example.com/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/r2/overview";
     let mut s = Screen::build(Owner::DialogsPane)
         .size(100, 24)
-        .live()
+        .script(include_str!("fixtures/chat_approvals_2/q_url.jsonl"))
         .open();
-    // needs feed: thread started; question with the URL as its title added
     s.keys("alt+up");
-    // needs: the warnings popup opened over the expanded question (open_warnings(&[]); no key in the oracle test)
+    s.assert_contains(url);
+    // the warnings popup (`open_warnings(&[])`) has no key in the oracle test: the URL is on the expanded editor
+    s.keys("alt+down");
+    s.keys("alt+up");
     s.assert_contains(url);
 }
 
@@ -822,7 +854,9 @@ fn single_question_spacing_with_working_status() {
     // one blank row, the answer two rows below, one blank row (snapshot single_question_working_spacing).
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
-        .script(include_str!("fixtures/chat_approvals_2/q_single_running.jsonl"))
+        .script(include_str!(
+            "fixtures/chat_approvals_2/q_single_running.jsonl"
+        ))
         .open();
     s.keys("alt+up");
     s.paste("A typed answer");
@@ -875,7 +909,9 @@ fn desktop_async_answer_dismisses_only_its_question_and_preserves_the_other_draf
         .open();
     s.keys("alt+up alt+up");
     s.paste("My draft for the second question");
-    s.feed(include_str!("fixtures/chat_approvals_2/q_desktop_reply.jsonl"));
+    s.feed(include_str!(
+        "fixtures/chat_approvals_2/q_desktop_reply.jsonl"
+    ));
     s.assert_snap_region(
         "async_question_answered_on_another_client",
         row_of(&s, "Queued follow-up inputs"),
@@ -885,7 +921,11 @@ fn desktop_async_answer_dismisses_only_its_question_and_preserves_the_other_draf
     // the surviving question keeps its identity: the reply names question 1 of the message
     let turns = s.turns();
     assert_eq!(turns.len(), 1);
-    assert!(turns[0].text.contains(r#"[\"request_user_input_async\",\"message\",1]"#));
+    assert!(
+        turns[0]
+            .text
+            .contains(r#"[\"request_user_input_async\",\"message\",1]"#)
+    );
     assert!(turns[0].text.contains("My draft for the second question"));
     s.assert_absent("enter submit");
 }
@@ -895,13 +935,17 @@ fn desktop_async_answer_dismisses_only_its_question_and_preserves_the_other_draf
 fn async_question_markdown_matches_loaded_history() {
     kit::pending(
         Owner::DialogsPane,
-        "no async-question titles drawn as markdown in the history on the chat screen; the oracle compares a Debug dump of styled lines (kit reads row dumps only)",
+        "pending(G73) and a need: the snapshot is the Debug dump of the cell's styled lines (`? ` accent prefix, the markdown titles, the options as `  • ` bullets in their own colour: G73 item 4, the bullet style per list), which the kit has no reader for; the cell itself waits on `core/src/threads.rs` `item_entry`, which drops `questions` of the agent message (`Item::Agent { text, phase }`), held by f-startup-draft: the cell is not built",
     );
     // oracle: an agent message with the questions "Keep `--verbose` for **failed** runs?" (option "Only for **CI**") and
     // "See the [guide](https://example.test/guide)?" draws the same transcript cell live and as loaded history (async_question_transcript).
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: agent message "ask" with the two questions, live and replayed
-    s.assert_snap("async_question_transcript");
+    let s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!("fixtures/chat_approvals_2/q_markdown.jsonl"))
+        .open();
+    s.assert_has_row("? Keep --verbose for failed runs?");
+    s.assert_has_row("  • Only for CI");
+    s.assert_has_row("? See the guide (https://example.test/guide)?");
 }
 
 // ORACLE chatwidget/tests/questions_tests.rs:1109 distinct_async_question_replies_with_identical_text_both_render kind=ui owner=dialogs-pane

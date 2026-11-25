@@ -51,7 +51,7 @@ impl UserPrompt {
     pub fn shown(&self) -> Shown<'_> {
         // an answer to an async question shows as the question quoted over the answer
         // (`display_replies`), whoever sent it
-        if let Some(text) = crate::features::async_questions::reply::display_text(&self.text) {
+        if let Some(text) = crate::question_reply::display_text(&self.text) {
             return Shown {
                 text: Cow::Owned(without_controls(&text).into_owned()),
                 elements: &[],

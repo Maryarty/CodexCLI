@@ -15,8 +15,8 @@ use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, StatelessWidget, impl_widget};
 
-use codex_tui_core::features::async_questions::reply;
 use codex_tui_core::keymap::actions::{CHAT_EDIT_QUEUED_MESSAGE, CHAT_INTERRUPT_TURN};
+use codex_tui_core::question_reply as reply;
 use codex_tui_core::threads::ThreadModel;
 
 use crate::widgets::measure;
