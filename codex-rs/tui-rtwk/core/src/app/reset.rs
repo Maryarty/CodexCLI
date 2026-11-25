@@ -8,9 +8,10 @@ use std::rc::Rc;
 
 use super::session::refresh_rates;
 use super::{AppFx, CodexApp, active_backend, apply_thread};
+use crate::ids::ThreadId;
 use crate::screens::status::{RateLimitOrigin, ResetCredits};
 use crate::screens::usage::{self, reset};
-use crate::threads::{Item, Notice, ThreadEv};
+use crate::threads::{Item, Notice, ThreadEv, ToolStatus};
 
 fn state(app: &mut CodexApp) -> &mut reset::State {
     &mut Rc::make_mut(&mut app.screens).usage.reset
@@ -57,11 +58,53 @@ pub(super) fn read_done(
             if let Some(count) = state(app).hint_read(request, credits)
                 && let Some(thread) = app.session.active.clone()
             {
-                let item = Item::Notice(Notice::ResetAvailable { count });
-                apply_thread(app, &thread, ThreadEv::Appended { turn: None, item }, fx);
+                if output_active(app, &thread) {
+                    state(app).park_hint(count);
+                } else {
+                    tell_hint(app, &thread, count, fx);
+                }
             }
         }
         RateLimitOrigin::Status(_) | RateLimitOrigin::UsageMenu | RateLimitOrigin::Startup => {}
+    }
+}
+
+/// Whether the thread shows output that is still being made: a streaming answer, a running tool
+/// call, patch or web search, or a running hook (oracle `usage_history_insertion_blocked`: a
+/// stream, the active cell, the hook cell). A line inserted among them would be out of order.
+fn output_active(app: &CodexApp, thread: &ThreadId) -> bool {
+    let Some(model) = app.threads.get(thread) else {
+        return false;
+    };
+    let transcript = model.transcript();
+    model.hook_status().is_some()
+        || transcript.iter().any(|(key, item)| {
+            transcript.is_agent_streaming(key)
+                || match item {
+                    Item::Tool(tool) => tool.status == ToolStatus::Running,
+                    Item::Patch(patch) => patch.status == ToolStatus::Running,
+                    Item::Web(web) => !web.completed,
+                    _ => false,
+                }
+        })
+}
+
+fn tell_hint(app: &mut CodexApp, thread: &ThreadId, count: i64, fx: &mut AppFx) {
+    let item = Item::Notice(Notice::ResetAvailable { count });
+    apply_thread(app, thread, ThreadEv::Appended { turn: None, item }, fx);
+}
+
+/// A thread event was applied: a hint that waited for the output to settle is told once none is
+/// active (oracle `commit_pending_usage_output`).
+pub(super) fn settle_hint(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx) {
+    if !app.screens.usage.reset.hint_waits()
+        || app.session.active.as_ref() != Some(thread)
+        || output_active(app, thread)
+    {
+        return;
+    }
+    if let Some(count) = state(app).take_hint() {
+        tell_hint(app, thread, count, fx);
     }
 }
 

@@ -6,6 +6,14 @@
 
 use crate::kit::{self, Owner, Screen};
 
+/// A server notification as a script step.
+fn notify(method: &str, params: &str) -> String {
+    format!(
+        "{}\n",
+        serde_json::json!({"step": "notify", "message": {"method": method, "params": serde_json::from_str::<serde_json::Value>(params).unwrap_or_default()}})
+    )
+}
+
 /// A ChatGPT account (the usage menu's `Redeem reset` row is for one), and the status facts that
 /// make the app read the account's limits at startup.
 const CHATGPT: &str = r#"{"step":"screen","dir":"status","ev":{"kind":"account","account":{"chat_gpt":{"email":"user@example.com","plan":"plus"}}}}
@@ -162,37 +170,111 @@ fn usage_menu_rate_limit_reset_entry_opens_reset_flow() {
 }
 
 // ORACLE chatwidget/tests/usage.rs:306 rate_limit_reset_popup_states_snapshot kind=snap owner=chat-live snap=rate_limit_reset_popup_states
+/// The oracle's ten popup states, one flow each (it dismissed the popup between them and
+/// restarted); each is the dialog of the snapshot's `index`-th cut, `---` rules apart.
+/// The states without a footer hint (`Using a reset...`, `Refreshing...`) are compared where
+/// their heading sits.
+fn assert_popup_state(s: &Screen, index: usize) {
+    let snap = s.snap("rate_limit_reset_popup_states").cut(index);
+    let rows = s.rows();
+    match rows
+        .iter()
+        .position(|row| row.trim() == "Usage limit resets")
+    {
+        Some(top) if rows.last().is_some_and(|row| row.trim().is_empty()) => snap.at(top, 0),
+        _ => snap.dialog(),
+    }
+    .assert();
+}
+
+/// A fresh chat whose startup check found one reset without details (the oracle's popups
+/// redeem with no credit id), the redemption answering `consume`.
+fn redeeming_chat(consume: &str) -> Screen {
+    let mut s = usage_chat(80, Some(&count(1)));
+    open_resets(&mut s);
+    s.feed(consume);
+    s
+}
+
+/// `Yes, use reset` on the only credit of the picker.
+fn redeem(s: &mut Screen) {
+    s.keys("enter up enter");
+}
+
 #[test]
 fn rate_limit_reset_popup_states_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "the reset popup's states are run one by one in this file (loading and consuming can be held with `hold_request`); what the snapshot needs is its ten states joined by bare `---` lines, which tests/oracle_snap frame parsing does not split (only labelled headers): a kit option (the oracle_snap owner's) to cut a snapshot at its bare rules",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    // State 1: the loading popup, then 2 credits listed (soonest expiry first).
+    // State 0: loading (the credits read is held in flight).
+    let mut s = usage_chat(80, Some(&count(2)));
+    let read = s.hold_request("account/rateLimits/read");
     s.type_text("/usage").keys("enter down enter");
-    s.assert_snap_section("rate_limit_reset_popup_states", "state 1");
-    // State 2: no credits (dismissed with Esc, reopened empty).
-    s.keys("esc");
-    s.assert_snap_section("rate_limit_reset_popup_states", "state 2");
-    // State 3: the load error.
-    s.keys("esc");
-    s.assert_snap_section("rate_limit_reset_popup_states", "state 3");
-    // State 4: consuming (Using a reset...), then the timed-out redemption.
-    s.keys("esc");
-    s.assert_snap_section("rate_limit_reset_popup_states", "state 4");
-    // State 5: the redemption answers NothingToReset.
-    s.keys("esc");
-    s.assert_snap_section("rate_limit_reset_popup_states", "state 5");
-    // State 6: the redemption answers NoCredit.
-    s.keys("esc");
-    s.assert_snap_section("rate_limit_reset_popup_states", "state 6");
-    // State 7: the redemption answers AlreadyRedeemed-free success (Reset).
-    s.keys("esc");
-    s.assert_snap_section("rate_limit_reset_popup_states", "state 7");
-    // State 8: the post-consume refresh lands with 1 credit left.
-    s.keys("esc");
-    s.assert_snap_section("rate_limit_reset_popup_states", "state 8");
+    s.wait_for("Checking your available resets");
+    assert_popup_state(&s, 0);
+    let _ = read;
+
+    // State 1: two credits, the soonest expiry first.
+    let second_expiry = FIRST_EXPIRY + 9 * DAY - 40 * 60;
+    let title = Some("Full reset (Weekly + 5 hr)");
+    let mut s = usage_chat(
+        80,
+        Some(&detailed(
+            2,
+            vec![
+                credit("credit-2", Some(second_expiry), title),
+                credit("credit-1", Some(FIRST_EXPIRY), title),
+            ],
+        )),
+    );
+    open_resets(&mut s);
+    assert_popup_state(&s, 1);
+
+    // State 2: no credits (the startup check found 2, the list read finds none).
+    let mut s = usage_chat(80, Some(&count(2)));
+    s.feed(&limits_answer(&count(0)));
+    open_resets(&mut s);
+    assert_popup_state(&s, 2);
+
+    // State 3: the read fails.
+    let mut s = usage_chat(80, Some(&count(1)));
+    s.feed(
+        r#"{"step":"respond","method":"account/rateLimits/read","error":{"message":"backend unavailable"}}
+"#,
+    );
+    s.type_text("/usage").keys("enter down enter");
+    s.wait_for("Couldn't load usage limit resets.");
+    assert_popup_state(&s, 3);
+
+    // State 4: consuming (the redemption is held), then 5: it timed out.
+    let mut s = redeeming_chat("");
+    let consume = s.hold_request("account/rateLimitResetCredit/consume");
+    redeem(&mut s);
+    s.wait_for("Using a reset...");
+    assert_popup_state(&s, 4);
+    s.feed(
+        r#"{"step":"respond","method":"account/rateLimitResetCredit/consume","error":{"message":"request timed out"}}
+"#,
+    );
+    s.release(&consume);
+    s.wait_for("Couldn't reset usage.");
+    assert_popup_state(&s, 5);
+
+    // States 6 and 7: the redemption's answers NothingToReset and NoCredit.
+    for (outcome, index) in [("nothingToReset", 6), ("noCredit", 7)] {
+        let mut s = redeeming_chat(&consume_answer(outcome));
+        redeem(&mut s);
+        s.wait_for("Close");
+        assert_popup_state(&s, index);
+    }
+
+    // States 8 and 9: Reset, the read after it held (`Refreshing...`), then landing with 1 left.
+    let mut s = redeeming_chat(&consume_answer("reset"));
+    let read = s.hold_request("account/rateLimits/read");
+    s.feed(&limits_answer(&count(1)));
+    redeem(&mut s);
+    s.wait_for("Refreshing...");
+    assert_popup_state(&s, 8);
+    s.release(&read);
+    s.wait_for("You have 1 usage limit reset left.");
+    assert_popup_state(&s, 9);
 }
 
 // ORACLE chatwidget/tests/usage.rs:417 rate_limit_reset_picker_wraps_expiry_details_snapshot kind=snap owner=chat-live snap=rate_limit_reset_picker_narrow
@@ -426,53 +508,69 @@ fn failed_post_consume_refresh_does_not_keep_stale_reset_count() {
     s.assert_absent("2 available");
 }
 
+/// The oracle's `Covering` view is a test helper; the chat's real second view is an exec
+/// approval (a server request), which opens over the picker and is answered by Esc.
+const COVERING_REQUEST: &str = r#"{"step":"request","message":{"method":"item/commandExecution/requestApproval","id":7,"params":{"kind":"command","itemId":"call-cover","approvalId":"call-cover","environmentId":null,"command":"echo hi","cwd":"/tmp","threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}"#;
+const COVER: &str = "Would you like to run the following command?";
+
 // ORACLE chatwidget/tests/usage.rs:871 rate_limit_reset_load_result_updates_popup_beneath_overlay kind=ui owner=chat-live
 #[test]
 fn rate_limit_reset_load_result_updates_popup_beneath_overlay() {
-    kit::pending(
-        Owner::ChatLive,
-        "the reset flow is in the chat (this file's other ports run it); what the test needs is a selection overlay over the reset popup (the oracle's `Covering` overlay view is a test helper: the picker is modal and no key or command opens a second view over it), so the list that lands beneath it cannot be put there",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let mut s = usage_chat(80, Some(&count(2)));
+    let read = s.hold_request("account/rateLimits/read");
     s.type_text("/usage").keys("enter down enter");
-    s.assert_contains("Covering overlay");
-    // The credits load lands beneath the overlay (seed step).
+    s.wait_for("Checking your available resets");
+    s.feed(COVERING_REQUEST);
+    s.wait_for(COVER);
+    // The credits load lands beneath the cover: the cover stays.
+    s.release(&read);
+    s.assert_contains(COVER);
     s.keys("esc");
+    s.assert_absent(COVER);
     s.assert_contains("2 usage limit resets available.");
 }
 
 // ORACLE chatwidget/tests/usage.rs:891 rate_limit_reset_success_updates_popup_beneath_overlay kind=ui owner=chat-live
 #[test]
 fn rate_limit_reset_success_updates_popup_beneath_overlay() {
-    kit::pending(
-        Owner::ChatLive,
-        "the reset flow is in the chat (this file's other ports run it, the redemption can be held with `hold_request`); what the test needs is a selection overlay over the consuming popup (the oracle's `Covering` overlay view is a test helper: no key or command opens a second view over the open picker)",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.type_text("/usage").keys("enter down enter");
-    s.assert_contains("Covering overlay");
-    // The redemption succeeds and the post-consume refresh lands beneath the overlay (seed steps).
+    let mut s = redeeming_chat(&consume_answer("reset"));
+    let consume = s.hold_request("account/rateLimitResetCredit/consume");
+    s.feed(&limits_answer(&count(1)));
+    redeem(&mut s);
+    s.wait_for("Using a reset...");
+    s.feed(COVERING_REQUEST);
+    s.wait_for(COVER);
+    // The redemption and the refresh after it land beneath the cover.
+    s.release(&consume);
+    s.assert_contains(COVER);
     s.keys("esc");
+    s.assert_absent(COVER);
     s.assert_contains("Usage reset. You have 1 usage limit reset left.");
 }
 
 // ORACLE chatwidget/tests/usage.rs:920 account_change_dismisses_reset_popup_beneath_overlay kind=ui owner=chat-live
 #[test]
 fn account_change_dismisses_reset_popup_beneath_overlay() {
-    kit::pending(
-        Owner::ChatLive,
-        "the reset flow is in the chat (this file's other ports run it); what the test needs is a confirmation over the popup (the oracle's `Covering` overlay view is a test helper: no key or command opens one over the open reset picker) and an account change as a script step (a seed step carries no account swap)",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.type_text("/usage").keys("enter down enter");
-    s.keys("enter");
-    // Up then Enter: the oracle emits ConsumeRateLimitResetCredit (not drawn).
-    s.keys("up enter");
-    s.assert_contains("Covering overlay");
-    // The account changes (seed step); the stale confirmation is ignored.
-    s.assert_absent("Stale reset");
+    let mut s = redeeming_chat("");
+    let consume = s.hold_request("account/rateLimitResetCredit/consume");
+    redeem(&mut s);
+    s.wait_for("Using a reset...");
+    s.feed(COVERING_REQUEST);
+    s.wait_for(COVER);
+    // The account changes under the cover; the redemption of the old one answers late and is
+    // not the new account's.
+    s.feed(&notify(
+        "account/updated",
+        r#"{"authMode":"apikey","planType":null}"#,
+    ));
+    s.feed(&consume_answer("reset"));
+    s.release(&consume);
+    s.assert_contains(COVER);
     s.keys("esc");
-    s.assert_absent("Covering overlay");
+    s.assert_absent(COVER);
+    s.assert_absent("Usage limit resets");
+    s.assert_absent("Using a reset...");
+    s.assert_absent("Usage reset.");
 }
 
 // ORACLE chatwidget/tests/usage.rs:974 startup_check_shows_available_reset_hint_snapshot kind=snap owner=chat-live snap=rate_limit_reset_available_hint
@@ -488,14 +586,43 @@ fn startup_check_shows_available_reset_hint_snapshot() {
 // ORACLE chatwidget/tests/usage.rs:994 startup_reset_hint_waits_for_active_output_snapshot kind=snap owner=chat-live snap=rate_limit_reset_hint_waits_for_active_output
 #[test]
 fn startup_reset_hint_waits_for_active_output_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "the reset flow is in the chat (this file's other ports run it); what the test needs is the startup check answering 2 available while a tool cell is active (a seed step for the active cell with the startup check held) and the flush of that cell: the hint's wait behind active output has no script step",
-    );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    // The active tool output is on screen, the hint is held back (seed steps).
+    // The startup read is held in flight while a tool call is running (the oracle's active
+    // cell); it lands, and the hint waits behind the running output.
+    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let read = s.hold_request("account/rateLimits/read");
+    s.feed(&format!(
+        "{CHATGPT}{}{STARTUP_CHECK}",
+        limits_answer(&count(2))
+    ));
+    s.feed(&notify(
+        "turn/started",
+        r#"{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}"#,
+    ));
+    let exec = |status: &str| {
+        format!(
+            r#"{{"type":"commandExecution","id":"call-1","command":"active tool","cwd":"/tmp","processId":null,"source":"agent","status":"{status}","commandActions":[],"aggregatedOutput":null,"exitCode":{},"durationMs":null}}"#,
+            if status == "inProgress" { "null" } else { "0" }
+        )
+    };
+    s.feed(&notify(
+        "item/started",
+        &format!(
+            r#"{{"threadId":"thread-1","turnId":"turn-1","startedAtMs":0,"item":{}}}"#,
+            exec("inProgress")
+        ),
+    ));
+    s.release(&read);
+    s.assert_contains("active tool");
     s.assert_absent("usage limit resets available");
-    // Flushing the active cell commits the hint after the output.
+    // The tool call ends: the hint is committed after the output.
+    s.feed(&notify(
+        "item/completed",
+        &format!(
+            r#"{{"threadId":"thread-1","turnId":"turn-1","completedAtMs":0,"item":{}}}"#,
+            exec("completed")
+        ),
+    ));
+    s.wait_for("Run /usage to use one.");
     s.assert_in_order(&[
         "active tool",
         "• You have 2 usage limit resets available. Run /usage to use one.",
