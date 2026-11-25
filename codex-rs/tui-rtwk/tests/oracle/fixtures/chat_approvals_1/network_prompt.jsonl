@@ -1,0 +1,3 @@
+# bottom_pane/approval_overlay.rs network_exec_prompt_title_includes_host: curl, a blocked network request (approvals_1::network_exec_prompt_title_includes_host).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"request","message":{"method":"item/commandExecution/requestApproval","id":1,"params":{"kind":"command","itemId":"call-1","approvalId":"call-1","environmentId":null,"command":"curl https://example.com","cwd":"/tmp","reason":"network request blocked","networkApprovalContext":{"host":"example.com","protocol":"https"},"proposedNetworkPolicyAmendments":[{"host":"example.com","action":"allow"}],"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}

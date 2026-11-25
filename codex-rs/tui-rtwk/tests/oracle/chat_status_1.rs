@@ -1032,13 +1032,13 @@ fn ambient_pet_hides_notification_text_overlay() {
 // ORACLE chatwidget/tests/status_and_layout.rs:3047 status_widget_and_approval_modal_snapshot kind=snap owner=ui-pane snap=status_widget_and_approval_modal
 #[test]
 fn status_widget_and_approval_modal_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "no status widget with an exec approval modal on the chat screen",
-    );
-    // oracle: width 100; a running turn with reasoning "**Analyzing**" and an exec approval request (echo hello world).
-    let s = Screen::build(Owner::UiPane).size(100, 24).live().open();
-    // needs feed: turn started, reasoning delta "**Analyzing**", exec approval request call-approve-exec
+    // oracle: width 100 at the pane's desired height (14 rows); the modal replaces the status row.
+    let s = Screen::build(Owner::UiPane)
+        .size(100, 14)
+        .script(include_str!(
+            "fixtures/chat_status_1/running_exec_approval.jsonl"
+        ))
+        .open();
     s.assert_snap("status_widget_and_approval_modal");
 }
 

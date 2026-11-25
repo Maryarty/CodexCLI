@@ -39,7 +39,8 @@ use super::search;
 use super::suggest::Suggest;
 use super::vim;
 use crate::keymap::{
-    c0_ctrl_h, holds_command_mod, holds_shift_or_alt, only_shift, press_for, pressed, unmodified,
+    c0_ctrl_h, holds_command_mod, holds_ctrl_or_alt, holds_shift_or_alt, only_shift, press_for,
+    pressed, unmodified,
 };
 use crate::widgets::composer_draft::ComposerDraft;
 use crate::widgets::composer_sparkle::{Key as SparkleKey, SparkleController};
@@ -107,6 +108,12 @@ pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: 
     // the sparkle hears of the key first (`before_sparkle_key`) and of what a
     // held character became after it (`after_sparkle_key`: a character held
     // back that the key dropped changed the draft with no change of its text)
+    // an approval request waits for the typing to be idle (`note_composer_activity`)
+    if let Some(env) = &data.burst
+        && counts_as_typing(key)
+    {
+        data.draft.keyed((env.now)());
+    }
     let held = data.draft.in_burst();
     let mode = data.draft.vim_label();
     data.sparkle.before_key(&sparkle_key(data, c, key));
@@ -119,6 +126,18 @@ pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: 
         data.sparkle.replaced(&c.text());
     }
     took
+}
+
+/// Whether the oracle counts the key as typing (characters, Backspace, Delete, Enter and Tab
+/// without Ctrl or Alt).
+fn counts_as_typing(key: &KeyPress) -> bool {
+    if holds_ctrl_or_alt(key) {
+        return false;
+    }
+    key.text().is_some()
+        || ["backspace", "delete", "enter", "tab"].iter().any(|name| {
+            rtwk::focus::KeyCombo::parse(name).is_ok_and(|combo| combo.accepts_press(key))
+        })
 }
 
 /// What the sparkle asks of a key: whether it is a plain character, whether

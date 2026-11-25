@@ -1,0 +1,6 @@
+# A running turn with the reasoning header `Analyzing`, then an exec approval request (status_widget_and_approval_modal_snapshot).
+# Oracle data: chatwidget/tests/status_and_layout.rs:3047: call-approve-exec, command echo 'hello world', the reason, amendment [echo, hello world]
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"item/reasoning/summaryTextDelta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"reasoning-1","delta":"**Analyzing**","summaryIndex":0}}}
+{"step":"request","message":{"method":"item/commandExecution/requestApproval","id":1,"params":{"kind":"command","itemId":"call-approve-exec","approvalId":"call-approve-exec","environmentId":null,"command":"echo 'hello world'","cwd":"/tmp","reason":"this is a test reason such as one that would be produced by the model","proposedExecpolicyAmendment":["echo","hello world"],"threadId":"thread-1","turnId":"turn-approve-exec","startedAtMs":0}}}

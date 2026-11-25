@@ -62,7 +62,11 @@ pub(crate) fn answer(
                                     }
                                 },
                             ))
-                            .find(|amendment| amendment.command.join(" ") == *prefix)?;
+                            .find(|amendment| {
+                                crate::screens::approvals::escape_command(
+                                    amendment.command.iter().map(String::as_str),
+                                ) == *prefix
+                            })?;
                     ExecDecision::AcceptWithExecpolicyAmendment {
                         execpolicy_amendment: amendment.clone(),
                     }

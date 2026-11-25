@@ -244,12 +244,14 @@ fn apply_patch_prompt_without_changes_shows_unavailable_destination() {
 fn network_exec_prompt_title_includes_host() {
     kit::pending(
         Owner::DialogsPane,
-        "the cursor row now reverses bold with the default colour (no terminal background known) and the text rows are the oracle's; 8+ cells differ in blank-cell styles of rows 2 and 3 (ours dim Indexed(245) on the blank cells left of the Reason row, bold on the cell after the title) and the `1. ` prefix of the cursor row is not reversed (the row's hanging prefix is outside the list's style); a style pass of dialog.rs's Pane/Block",
+        "G54: the text and every style of the dialog match but the hint row: the dialog is drawn over the composer's footer and a Text with no colour keeps the fg (245) of the footer cell under it, where the oracle's overlay replaces the pane (fg Reset); rtwk has no explicit reset colour",
     );
     // The sheet is bottom-aligned: 13 rows tall, the oracle's buffer.
     let s = Screen::build(Owner::DialogsPane)
         .size(100, 13)
-        .entry("approvals", "exec_network")
+        .script(include_str!(
+            "fixtures/chat_approvals_1/network_prompt.jsonl"
+        ))
         .open();
     s.assert_snap("network_exec_prompt");
     s.assert_contains("Do you want to approve network access to \"example.com\"?");

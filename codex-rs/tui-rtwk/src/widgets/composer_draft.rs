@@ -113,6 +113,9 @@ struct Inner {
     /// Counts the changes of that search: a page that shows its footer asks
     /// whether it is the one it drew (`ComposerDraft::search_rev`).
     search_rev: u64,
+    /// The app clock's time of the last key the oracle counts as typing
+    /// (`last_composer_activity_at`).
+    keyed: Option<std::time::Duration>,
 }
 
 /// The draft's elements and kill ring, shared by every clone (a handle,
@@ -205,6 +208,16 @@ impl ComposerDraft {
     /// into the draft).
     pub fn burst<R>(&self, f: impl FnOnce(&mut PasteBurst) -> R) -> R {
         f(&mut self.0.borrow_mut().burst)
+    }
+
+    /// A key the oracle counts as typing reached the composer at `at` (the app clock).
+    pub fn keyed(&self, at: std::time::Duration) {
+        self.0.borrow_mut().keyed = Some(at);
+    }
+
+    /// When the last such key came.
+    pub fn last_keyed(&self) -> Option<std::time::Duration> {
+        self.0.borrow().keyed
     }
 
     /// Whether keys are held as a paste right now (`is_in_paste_burst`):
