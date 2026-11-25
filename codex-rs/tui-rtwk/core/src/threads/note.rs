@@ -69,6 +69,8 @@ pub enum NoteKey {
     DesktopOpened,
     /// `/stop`: the background terminals are being stopped.
     StoppingTerminals,
+    /// The edit of a past prompt reverted the thread (oracle `emit_prompt_edit_thread_event`).
+    PromptReverted,
     /// A feature the TUI does not carry.
     Stub(Stub),
     /// `/raw`, `/vim`: the setting is on or off now.
@@ -130,6 +132,7 @@ impl NoteKey {
             | NoteKey::Rollout(_)
             | NoteKey::DesktopOpened
             | NoteKey::StoppingTerminals
+            | NoteKey::PromptReverted
             | NoteKey::Toggled(..)
             | NoteKey::Mode(_)
             | NoteKey::Server(_) => Tone::Info,

@@ -1,8 +1,8 @@
 # Карта всего порта: oracle (codex-rs/tui) против порта (codex-rs/tui-rtwk)
 
-Дата: 2026-11-24, база 01741db4b (батчи 10-12). Документ собран скриптом `tools/rtwk-port/map-full/build.py` из данных рядом с ним: правится дата, перезапуск. Проверка непротиворечивости — `tools/rtwk-port/map-full/check.py`. Карта экрана чата `chat-feature-map.md` остаётся (подробные ячейки, числа тестов, архитектура ADR-013) и ссылается сюда; здесь — вся функциональность oracle без исключений, пакеты работ по владению файлами, и 953 pending-тестов по пакетам.
+Дата: 2026-11-24, база 01741db4b (батчи 10-12). Документ собран скриптом `tools/rtwk-port/map-full/build.py` из данных рядом с ним: правится дата, перезапуск. Проверка непротиворечивости — `tools/rtwk-port/map-full/check.py`. Карта экрана чата `chat-feature-map.md` остаётся (подробные ячейки, числа тестов, архитектура ADR-013) и ссылается сюда; здесь — вся функциональность oracle без исключений, пакеты работ по владению файлами, и 952 pending-тестов по пакетам.
 
-**Итог.** Строк-функций: 328 (экран чата — 293 из `chat-feature-map.md` + 35 вне экрана чата): ✅ 138, 🟡 86, ❌ 99, «?» 5. Все 312 строк `codex-tui-features.csv` покрыты строкой (раздел «Покрытие CSV»), все 1230 файлов `codex-rs/tui/src` — пакетом или «✅ rtwk» (`port-map-modules.tsv`), все 24 экранов карты S01-S27 (в карте нет S07-S09) — строкой. Пакетов: 30 (волна 1 — 9, влита; волна 2 — 11; волна 3 — 10); кроме волны 1 — 46-49 прогонов порт-агента (прогон ≈150-250 ходов, ≈1500 написанных строк). Pending-тестов oracle: 953, у каждого пакет (раздел «Тесты»).
+**Итог.** Строк-функций: 328 (экран чата — 293 из `chat-feature-map.md` + 35 вне экрана чата): ✅ 138, 🟡 86, ❌ 99, «?» 5. Все 312 строк `codex-tui-features.csv` покрыты строкой (раздел «Покрытие CSV»), все 1230 файлов `codex-rs/tui/src` — пакетом или «✅ rtwk» (`port-map-modules.tsv`), все 24 экранов карты S01-S27 (в карте нет S07-S09) — строкой. Пакетов: 30 (волна 1 — 9, влита; волна 2 — 11; волна 3 — 10); кроме волны 1 — 46-49 прогонов порт-агента (прогон ≈150-250 ходов, ≈1500 написанных строк). Pending-тестов oracle: 952, у каждого пакет (раздел «Тесты»).
 
 ## Как читать
 
@@ -40,7 +40,7 @@
 | `w2-approvals` — UI approvals, request-user-input и все select/dialog-листы; bare /review и /permissions | W2 | 3 | ≈2200 | 24 | 129 | fw-ui-registry, fw1-c9 |
 | `w2-commands` — UI /side, /subagents, daemon, presets, worktree, Windows sandbox, security setup, /feedback и малые команды | W2 | 3 | ≈2550 | 26 | 34 | fw-ui-registry, fw1-c1, fw1-c2, fw1-c8, fw1-c4, fw1-c9 |
 | `w2-status` — UI /usage, thread usage, лимиты, карточка /status, футер и строка статуса | W2 | 4 | ≈3000 | 20 | 148 | fw-ui-registry, fw1-c7, fw1-c3, fw1-c2 |
-| `w2-live` — UI живой ход: backtrack, plan mode, interrupts, баннеры, empty-state animation, Markdown | W2 | 2 | ≈2000 | 3 | 149 | fw-ui-registry, rtwk |
+| `w2-live` — UI живой ход: backtrack, plan mode, interrupts, баннеры, empty-state animation, Markdown | W2 | 2 | ≈2000 | 3 | 148 | fw-ui-registry, rtwk |
 | `voice` — voice/realtime: /voice, F8, voice strip, настройки, split-flap, session lock | W3 | 3 | ≈1900 | 5 | 1 | fw-ui-registry, fw-core-hubs (Ask::Audio) |
 | `sidebar` — sidebar: документы, файлы, ссылки, chooser, анимация | W3 | 2 | ≈1300 | 1 | 0 | fw-ui-registry |
 | `inline-mode` — inline-режим S27: viewport, вставка в scrollback, reflow, временный alt-screen (rtwk уже умеет inline) | W3 | 2 | ≈1500 | 6 | 13 | fw-core-hubs (Ask::ScreenMode) |
@@ -226,7 +226,7 @@
 - **Бриф и задача:** `docs/rtwk-port/research/w2-packages/briefs.md` §A.8; задача tm `w2-live`, её `area` — список владения (10 путей, `tools/rtwk-port/map-full/packages.py`).
 - **Зависит:** fw-ui-registry, rtwk.
 - **Строки (3):** Ответ агента: стриминг markdown, списки, таблицы, код, ссылк; Резерв Luna: селектор и статус; Empty-state animation.
-- **Тесты:** 149 pending (список — `tools/rtwk-port/map-full/unpend/w2-live.txt`).
+- **Тесты:** 148 pending (список — `tools/rtwk-port/map-full/unpend/w2-live.txt`).
 
 ### `voice`
 
@@ -1115,7 +1115,7 @@
 | `app-misc` | 2 | 0 | 0 | 2 |
 | `sidebar` | 2 | 0 | 0 | 2 |
 
-## Тесты: 953 pending по пакетам
+## Тесты: 952 pending по пакетам
 
 Правило отнесения (`tests_rules.py`): тест, чья причина названа семенем/входом/именами кадров kit, — в `kit-seeds` (это обвязка, пока она не влита, функция не зазеленит тест); остальные — по имени теста, затем по причине, затем по шарду. Неточность правил — не пробел: пакет получает свой список, перенос теста между пакетами — правка одной строки в `unpend/`.
 
@@ -1128,14 +1128,14 @@
 | `w2-approvals` | 129 | small_dialogs_1 23, approvals_1 18, chat_approvals_2 17, chat_approvals_1 16, composer_popups 10, approvals_2 7 |
 | `w2-commands` | 34 | chat_popups_4 7, chat_popups_2 5, chat_live_5 3, chat_status_3 3, small_dialogs_1 3, transcript_view_1 3 |
 | `w2-status` | 148 | pane_footer_2 40, chat_status_2 27, chat_status_1 26, usage 16, pane_footer_1 9, chat_status_3 6 |
-| `w2-live` | 149 | markdown_streaming_2 33, markdown_streaming_1 29, markdown_streaming_4 26, markdown_streaming_5 18, chat_live_1 17, chat_live_2 8 |
+| `w2-live` | 148 | markdown_streaming_2 33, markdown_streaming_1 29, markdown_streaming_4 26, markdown_streaming_5 18, chat_live_1 17, chat_commands_3 7 |
 | `voice` | 1 | composer_popups 1 |
 | `inline-mode` | 13 | markdown_streaming_2 4, textarea 3, markdown_streaming_5 2, cells_4 1, chat_commands_3 1, chat_popups_2 1 |
 | `startup-rest` | 19 | chat_commands_3 8, chat_live_3 4, startup_prompts 3, signin 2, cells_1 1, cells_2 1 |
 | `resume-rest` | 5 | resume_2 3, resume_1 2 |
 | `kit-seeds` | 72 | chat_commands_1 13, transcript_view_5 8, chat_commands_3 7, cells_4 5, composer_4 5, picker 5 |
 
-По тегам владельца шарда: chat-live 543, dialogs-pane 172, ui-pane 126, chat-nav-pane 79, routes-lists 27, startup-prompts 3, onboarding 2, startup-flow 1.
+По тегам владельца шарда: chat-live 542, dialogs-pane 172, ui-pane 126, chat-nav-pane 79, routes-lists 27, startup-prompts 3, onboarding 2, startup-flow 1.
 
 ## Связь с прежней картой
 

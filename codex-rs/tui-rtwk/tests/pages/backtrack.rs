@@ -49,6 +49,17 @@ fn thread_with_one_turn(prompt: &str) -> Value {
     thread
 }
 
+/// The turn the revert kept: the prompt before the edited one, and its answer.
+fn kept_turn() -> Value {
+    json!({"id": "turn-0", "rootTurnId": null, "itemsView": "full", "status": "completed",
+    "error": null, "startedAt": null, "completedAt": null, "durationMs": null,
+    "items": [
+        {"type": "userMessage", "id": "user-0", "clientId": null,
+         "content": [{"type": "text", "text": "kept prompt", "text_elements": []}]},
+        {"type": "agentMessage", "id": "agent-0", "text": "kept answer"}
+    ]})
+}
+
 /// A chat that holds the finished turn of `go`, its server answering the read and the
 /// revert of the edit.
 fn chat_with_a_prompt() -> Harness {
@@ -57,6 +68,10 @@ fn chat_with_a_prompt() -> Harness {
     h.fake.respond(|request| match request["method"].as_str()? {
         "thread/read" => Some(Ok(json!({"thread": thread_with_one_turn("go")}))),
         "thread/revert" => Some(Ok(json!({"thread": thread_with_one_turn("go")}))),
+        // what the revert kept, read again once the server says it reverted
+        "thread/turns/list" if request["params"]["limit"].as_u64() != Some(1) => {
+            Some(Ok(json!({"data": [kept_turn()], "nextCursor": null})))
+        }
         _ => None,
     });
     h.fake.script_turn(vec![]);
@@ -173,6 +188,58 @@ fn the_servers_notice_in_time_leaves_no_error() {
     h.t.pump_for(ms(11_000));
     assert!(
         !h.t.screen().contains("could not be confirmed"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// `thread/reverted` as the server sends it, for the one thread.
+fn reverted_notice(h: &Harness) {
+    let epoch = h.fake.epoch().expect("attached");
+    let reverted = serde_json::from_value(
+        json!({"method": "thread/reverted", "params": {"threadId": FAKE_THREAD}}),
+    )
+    .expect("notification");
+    h.fake.inject(
+        epoch,
+        AppEv::Backend(codex_tui_core::app::BackendEv::Notification(Box::new(
+            reverted,
+        ))),
+    );
+}
+
+const REVERTED_LINE: &str = "• Conversation reverted to this point. File changes are unchanged.";
+
+#[test]
+fn the_edit_says_the_conversation_was_reverted_after_the_history_it_kept() {
+    // oracle: `emit_prompt_edit_thread_event`, the line the revert's end inserts after the
+    // retained history (`owned_prompt_revert_retained_history`)
+    let mut h = chat_with_a_prompt();
+    edit_the_prompt(&mut h);
+    reverted_notice(&h);
+    h.wait_for("the line after the kept history", |screen| {
+        screen.contains(REVERTED_LINE) && screen.contains("kept answer")
+    });
+    let screen = h.t.screen();
+    let rows: Vec<&str> = screen.lines().collect();
+    let kept = rows
+        .iter()
+        .position(|row| row.contains("kept answer"))
+        .expect("the kept answer");
+    let line = rows
+        .iter()
+        .position(|row| row.trim_start() == REVERTED_LINE)
+        .expect("the line");
+    assert!(kept < line, "{screen}");
+}
+
+#[test]
+fn a_revert_nobody_here_asked_for_says_nothing() {
+    let mut h = chat_with_a_prompt();
+    reverted_notice(&h);
+    h.settle();
+    assert!(
+        !h.t.screen().contains("Conversation reverted"),
         "{}",
         h.t.screen()
     );

@@ -2704,12 +2704,26 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         }
         ThreadEv::Reverted => {
             // the edit of a past prompt waits for this (`ThreadReverted`)
+            let edited = model.slots.backtrack.editing();
             screens::apply_thread_ev(
                 &mut model.slots,
                 ScreenThreadEv::Backtrack(screens::backtrack::ThreadEv::Reverted),
                 fx,
             );
             reset_history(model);
+            // Our own edit says so after the history it kept (`FinishPromptRevert`: the retained
+            // turns are read next and go before the line); a revert another client made says
+            // nothing.
+            if edited {
+                apply_ev(
+                    model,
+                    ThreadEv::Appended {
+                        turn: None,
+                        item: Item::Note(Note::from(NoteKey::PromptReverted)),
+                    },
+                    fx,
+                );
+            }
         }
         ThreadEv::Failure(error) => model.last_error = Some(error),
         ThreadEv::Goal(goal, budget_turn) => {
