@@ -174,8 +174,6 @@ pub fn add_prompt(on_answer: Handler<Answer>, s: &'static Strings) -> Prompt {
         title: s.prompt_title,
         context: Some(s.prompt_context),
         placeholder: s.prompt_placeholder,
-        hint: s.prompt_hint,
-        mark: s.prompt_mark,
         on_answer,
     }
 }

@@ -126,13 +126,13 @@ impl State for EditPromptState {
     }
 
     fn build(&self, w: &EditPrompt, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        TextPrompt {
-            title: strings::EDIT_TITLE.to_owned(),
-            placeholder: strings::EDIT_PLACEHOLDER.to_owned(),
-            initial: w.objective.clone(),
-            suggest: Suggest::Off,
-            on_submit: cx.map(EditMsg::Submit),
-        }
+        TextPrompt::new(
+            strings::EDIT_TITLE,
+            strings::EDIT_PLACEHOLDER,
+            w.objective.clone(),
+            Suggest::Off,
+            cx.map(EditMsg::Submit),
+        )
         .into()
     }
 }

@@ -602,6 +602,32 @@ impl Screen {
         })
     }
 
+    /// The git-branches asks of the review picker the host has not answered, oldest first.
+    pub fn asked_git_branches(&self) -> Vec<Ask> {
+        self.asked_of(|c| {
+            matches!(
+                c,
+                Command::Effect {
+                    ask: Effect::GitBranches { .. },
+                    ..
+                }
+            )
+        })
+    }
+
+    /// The `turn/steer` requests the app has made and the server has not answered, oldest first.
+    pub fn asked_steers(&self) -> Vec<Ask> {
+        self.asked_of(|c| {
+            matches!(
+                c,
+                Command::Screen {
+                    command: ScreenCommand::Chat(chat::Command::Steer { .. }),
+                    ..
+                }
+            )
+        })
+    }
+
     /// The title suggestion `/rename` asked of the structured-turn door: the run's first request
     /// (the MCP servers of the config), none when the conversation had nothing to name the
     /// thread by.
@@ -755,6 +781,18 @@ impl Screen {
             })
             .collect();
         self.answer_effect(ask, Done::GitLog(log));
+    }
+
+    /// The host answers the git branches `ask` with the branch checked out (none: detached HEAD,
+    /// or no repository) and the local branches.
+    pub fn answer_git_branches(&mut self, ask: &Ask, current: Option<&str>, branches: &[&str]) {
+        self.answer_effect(
+            ask,
+            Done::GitBranches {
+                current: current.map(Into::into),
+                branches: branches.iter().map(|b| (*b).into()).collect(),
+            },
+        );
     }
 
     /// `n` commands have been given so far (a mark for `assert_no_models_asked_since`).

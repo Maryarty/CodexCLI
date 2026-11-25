@@ -211,10 +211,6 @@ fn generic_url_elicitation_confirmation_snapshot() {
 // ORACLE bottom_pane/custom_prompt_view_tests.rs:9 picker_prompt_keeps_multiline_cursor_and_escape_hint_visible_after_resize kind=snap owner=dialogs-pane
 #[test]
 fn picker_prompt_keeps_multiline_cursor_and_escape_hint_visible_after_resize() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature custom prompt view (w2-approvals, dialogs screen): the view is not built (CustomPromptView, title Edit goal) with vim insert mode on: entry `custom_prompt_vim` missing",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 16)
         .entry("dialogs", "custom_prompt_vim")
@@ -227,8 +223,12 @@ fn picker_prompt_keeps_multiline_cursor_and_escape_hint_visible_after_resize() {
     s.assert_snap("picker_prompt_multiline_80x16");
     s.resize(12, 3);
     s.resize(80, 16);
-    s.keys("esc");
+    // the first Escape is Vim's (Insert to Normal: the hint then says `esc back`), the second
+    // is the prompt's
     s.assert_contains("esc normal mode");
+    s.keys("esc");
+    s.assert_contains("Vim: Normal");
+    s.assert_contains("Check the parser");
     s.keys("esc");
     s.assert_absent("Check the parser");
 }
@@ -236,17 +236,13 @@ fn picker_prompt_keeps_multiline_cursor_and_escape_hint_visible_after_resize() {
 // ORACLE bottom_pane/custom_prompt_view_tests.rs:47 paste_burst_newline_does_not_submit_short_first_line kind=ui owner=dialogs-pane
 #[test]
 fn paste_burst_newline_does_not_submit_short_first_line() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature custom prompt view (w2-approvals, dialogs screen): the view is not built (CustomPromptView, title Edit goal): entry `custom_prompt` missing",
-    );
     for (first, second) in [("x", "rest"), ("id", "body"), ("foo", "bar")] {
         let mut s = Screen::build(Owner::DialogsPane)
             .entry("dialogs", "custom_prompt")
             .open();
-        s.type_text(first);
-        s.keys("enter");
-        s.type_text(second);
+        // The oracle's keys come a millisecond apart: a burst, not a person's typing.
+        s.type_burst(&format!("{first}\n{second}"));
+        s.wait(200);
         s.assert_contains("Edit goal");
         s.assert_contains(second);
         s.keys("enter");
@@ -257,16 +253,11 @@ fn paste_burst_newline_does_not_submit_short_first_line() {
 // ORACLE bottom_pane/custom_prompt_view_tests.rs:79 paste_burst_newline_after_tab_does_not_submit kind=ui owner=dialogs-pane
 #[test]
 fn paste_burst_newline_after_tab_does_not_submit() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature custom prompt view (w2-approvals, dialogs screen): the view is not built (CustomPromptView, title Edit goal): entry `custom_prompt` missing",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .entry("dialogs", "custom_prompt")
         .open();
-    s.type_text("x");
-    s.keys("tab enter");
-    s.type_text("rest");
+    s.type_burst("x\t\nrest");
+    s.wait(200);
     s.assert_contains("Edit goal");
     s.assert_contains("rest");
     s.keys("enter");
@@ -276,10 +267,6 @@ fn paste_burst_newline_after_tab_does_not_submit() {
 // ORACLE bottom_pane/custom_prompt_view_tests.rs:105 delayed_enter_after_typing_submits kind=ui owner=dialogs-pane
 #[test]
 fn delayed_enter_after_typing_submits() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature custom prompt view (w2-approvals, dialogs screen): the view is not built (CustomPromptView, title Edit goal): entry `custom_prompt` missing",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .entry("dialogs", "custom_prompt")
         .open();
@@ -291,10 +278,6 @@ fn delayed_enter_after_typing_submits() {
 // ORACLE bottom_pane/custom_prompt_view_tests.rs:119 vim_insert_escape_clears_paste_burst_before_enter kind=ui owner=dialogs-pane
 #[test]
 fn vim_insert_escape_clears_paste_burst_before_enter() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature custom prompt view (w2-approvals, dialogs screen): the view is not built with vim insert mode on (title Edit goal): entry `custom_prompt_vim` missing",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .entry("dialogs", "custom_prompt_vim")
         .open();
@@ -307,10 +290,6 @@ fn vim_insert_escape_clears_paste_burst_before_enter() {
 // ORACLE bottom_pane/custom_prompt_view_tests.rs:135 vim_prompt_hint_tracks_escape_behavior kind=snap owner=dialogs-pane snap=vim_prompt_hint_tracks_escape_behavior
 #[test]
 fn vim_prompt_hint_tracks_escape_behavior() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no custom prompt entries `custom_prompt` and `custom_prompt_vim` (title Edit goal, plain and vim insert mode): the hint is the prompt's last row",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(80, 5)
         .entry("dialogs", "custom_prompt")
@@ -349,10 +328,6 @@ fn vim_prompt_hint_tracks_escape_behavior() {
 // ORACLE bottom_pane/custom_prompt_view_tests.rs:170 vim_insert_cursor_tracks_mode_and_normal_mode_commands kind=ui owner=dialogs-pane
 #[test]
 fn vim_insert_cursor_tracks_mode_and_normal_mode_commands() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no custom prompt with the text rename (entries `custom_prompt_rename` and `custom_prompt_rename_vim`) and the editor keys remapped (editor.move_left f2, vim_normal.delete_char f3)",
-    );
     // KIT GAP: the oracle asserts the cursor shape (SetCursorStyle) and a cursor
     // column with no literal; no kit call reads the cursor shape. The text steps
     // are the visible half.
@@ -387,10 +362,6 @@ fn vim_insert_cursor_tracks_mode_and_normal_mode_commands() {
 // ORACLE bottom_pane/custom_prompt_view_tests.rs:253 escape_without_vim_cancels_prompt kind=ui owner=dialogs-pane
 #[test]
 fn escape_without_vim_cancels_prompt() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature custom prompt view (w2-approvals, dialogs screen): the view is not built (CustomPromptView, title Edit goal): entry `custom_prompt` missing",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .entry("dialogs", "custom_prompt")
         .open();
@@ -401,10 +372,6 @@ fn escape_without_vim_cancels_prompt() {
 // ORACLE bottom_pane/custom_prompt_view_tests.rs:263 background_prefill_requires_a_matching_unedited_prompt kind=ui owner=dialogs-pane
 #[test]
 fn background_prefill_requires_a_matching_unedited_prompt() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature custom prompt view (w2-approvals, dialogs screen): the view is not built with a background text suggestion (loading Loading, context Ready) applied: entry `custom_prompt_prefill` missing",
-    );
     // The stale request is ignored (nothing drawn); the matching one fills the
     // text and sets the context label, and Enter submits it.
     let mut s = Screen::build(Owner::DialogsPane)
@@ -419,10 +386,6 @@ fn background_prefill_requires_a_matching_unedited_prompt() {
 // ORACLE bottom_pane/custom_prompt_view_tests.rs:293 background_prefill_preserves_typing_even_after_the_text_is_deleted kind=ui owner=dialogs-pane
 #[test]
 fn background_prefill_preserves_typing_even_after_the_text_is_deleted() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature custom prompt view (w2-approvals, dialogs screen): the view is not built where a character was typed and deleted before the suggestion (Generated) is applied: entry `custom_prompt_prefill_typed` missing",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .entry("dialogs", "custom_prompt_prefill_typed")
         .open();
@@ -434,10 +397,6 @@ fn background_prefill_preserves_typing_even_after_the_text_is_deleted() {
 // ORACLE bottom_pane/custom_prompt_view_tests.rs:309 background_prefill_preserves_pasted_text kind=ui owner=dialogs-pane
 #[test]
 fn background_prefill_preserves_pasted_text() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature custom prompt view (w2-approvals, dialogs screen): the view is not built where text was pasted before the suggestion (Generated) is applied: entry `custom_prompt_prefill_pasted` missing",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .entry("dialogs", "custom_prompt_prefill_pasted")
         .open();
@@ -449,10 +408,6 @@ fn background_prefill_preserves_pasted_text() {
 // ORACLE bottom_pane/custom_prompt_view_tests.rs:323 background_prefill_survives_cursor_movement kind=ui owner=dialogs-pane
 #[test]
 fn background_prefill_survives_cursor_movement() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature custom prompt view (w2-approvals, dialogs screen): the view is not built with the text Existing, cursor moved left, then the suggestion Generated applied: entry `custom_prompt_prefill_cursor` missing",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .entry("dialogs", "custom_prompt_prefill_cursor")
         .open();
@@ -464,10 +419,6 @@ fn background_prefill_survives_cursor_movement() {
 // ORACLE bottom_pane/custom_prompt_view_tests.rs:340 background_prefill_preserves_replace_backspace_recovery kind=ui owner=dialogs-pane
 #[test]
 fn background_prefill_preserves_replace_backspace_recovery() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature custom prompt view (w2-approvals, dialogs screen): the view is not built in vim replace mode with the suggestion abc applied (then Left, X, Backspace): entry `custom_prompt_prefill_replace` missing",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .entry("dialogs", "custom_prompt_prefill_replace")
         .open();

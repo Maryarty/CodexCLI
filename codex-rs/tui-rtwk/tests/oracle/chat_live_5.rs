@@ -127,14 +127,6 @@ fn goal_budget_limited(turn_id: &str) -> String {
     )
 }
 
-/// The `error` of a steer a review turn refuses (the oracle's `handle_error` with `ActiveTurnNotSteerable`).
-fn steer_refused() -> String {
-    notify(
-        "error",
-        r#"{"threadId":"thread-1","turnId":"turn-1","willRetry":false,"error":{"message":"cannot steer a review turn","codexErrorInfo":{"activeTurnNotSteerable":{"turnKind":"review"}},"additionalDetails":null}}"#,
-    )
-}
-
 // ---- oracle: chatwidget/tests/review_mode.rs (33 screen-level tests here; 8 state tests left to chat-live)
 // ORACLE chatwidget/tests/review_mode.rs:106 entered_review_mode_uses_request_hint kind=ui owner=chat-live
 #[test]
@@ -445,13 +437,16 @@ fn review_popup_custom_prompt_action_sends_event() {
 // ORACLE chatwidget/tests/review_mode.rs:1146 review_commit_picker_shows_subjects_without_timestamps kind=ui owner=chat-live
 #[test]
 fn review_commit_picker_shows_subjects_without_timestamps() {
-    kit::pending(
-        Owner::ChatLive,
-        "no review commit picker with commit entries on the chat screen (oracle seed: show_review_commits with two synthetic entries); no kit step feeds commit log entries",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(72, 24).live().open();
     s.type_text("/review");
     s.keys("enter");
+    // oracle: `Review a commit` is the third preset; the host answers the log it asks for
+    s.keys("down down enter");
+    let asks = s.asked_git_logs();
+    s.answer_git_log(
+        &asks[0],
+        &[("abc1234", "Add new feature X"), ("def5678", "Fix bug Y")],
+    );
     // oracle: the commit subjects are drawn, and no relative time words are (the oracle lowercases the screen).
     s.assert_contains("Add new feature X");
     s.assert_contains("Fix bug Y");
@@ -561,20 +556,18 @@ fn interrupted_turn_pending_steers_message_snapshot() {
 // ORACLE chatwidget/tests/review_mode.rs:1422 review_custom_prompt_escape_navigates_back_then_dismisses kind=ui owner=chat-live
 #[test]
 fn review_custom_prompt_escape_navigates_back_then_dismisses() {
-    kit::pending(
-        Owner::ChatLive,
-        "no review presets popup on the chat screen (/review): 'Select a review preset' and the 'Custom review instructions' view are not drawn",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(60, 24).live().open();
     s.type_text("/review");
     s.keys("enter");
     // oracle: the custom prompt is the fourth preset.
     s.keys("down down down enter");
+    // (the preset list has a row of that name too: the prompt is told by its placeholder)
     s.assert_contains("Custom review instructions");
+    s.assert_contains("Type instructions and press Enter");
     s.keys("esc");
     // oracle: Esc once returns to the parent popup.
     s.assert_contains("Select a review preset");
-    s.assert_absent("Custom review instructions");
+    s.assert_absent("Type instructions and press Enter");
     s.keys("esc");
     // oracle: Esc again dismisses all panels (normal composer mode).
     s.assert_absent("Select a review preset");
@@ -583,15 +576,14 @@ fn review_custom_prompt_escape_navigates_back_then_dismisses() {
 // ORACLE chatwidget/tests/review_mode.rs:1457 review_branch_picker_escape_navigates_back_then_dismisses kind=ui owner=chat-live
 #[test]
 fn review_branch_picker_escape_navigates_back_then_dismisses() {
-    kit::pending(
-        Owner::ChatLive,
-        "no review presets popup or base-branch picker on the chat screen; the oracle reads branches from a temp dir with no git repo, and the kit runs in the repo",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(60, 24).live().open();
     s.type_text("/review");
     s.keys("enter");
-    // oracle: "Review against a base branch" is the first preset.
+    // oracle: "Review against a base branch" is the first preset; the oracle reads the branches
+    // from a temp dir that is no repository: the host answers with none
     s.keys("enter");
+    let asks = s.asked_git_branches();
+    s.answer_git_branches(&asks[0], None, &[]);
     s.assert_contains("Select a base branch");
     s.keys("esc");
     s.assert_contains("Select a review preset");
@@ -614,17 +606,48 @@ fn enter_submits_steer_while_review_is_running() {
 // ORACLE chatwidget/tests/review_mode.rs:1531 review_queues_user_messages_snapshot kind=snap owner=chat-live snap=review_queues_user_messages_snapshot
 #[test]
 fn review_queues_user_messages_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no review mode and no steer-refused queue on the chat screen: the steer a review turn refuses is not queued as a user message",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 18).live().open();
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}"#);
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"GPT-5.6-Sol","cwd":"/tmp/project","items":["model-with-reasoning","current-dir"]}}}"#);
     s.feed(&turn_started("turn-1"));
     s.feed(&entered_review("current changes"));
-    s.type_text("Steer submitted while /review was running.");
+    s.paste("Steer submitted while /review was running.");
     s.keys("enter");
-    s.feed(&steer_refused());
-    s.assert_snap("review_queues_user_messages_snapshot");
+    // the server refuses the steer of a review turn: the message waits for the end of the turn
+    let asks = s.asked_steers();
+    s.answer_error(&asks[0], "cannot steer a review turn");
+    // The oracle drew the chat widget alone: its history was drained and its composer has no
+    // gap row (the app's reader control and copy feedback). The rows of its snapshot, blanks
+    // aside, are the app's bottom rows from the working line on (the spinner glyph follows the
+    // clock).
+    let glyph: &[char] = &['•', '◦'];
+    let want: Vec<String> = kit::snap_rows("review_queues_user_messages_snapshot", "")
+        .iter()
+        .map(|row| row.trim_end().to_string())
+        .filter(|row| !row.is_empty())
+        .collect();
+    let ours: Vec<String> = s
+        .rows()
+        .iter()
+        .map(|row| row.trim_end().to_string())
+        .filter(|row| !row.is_empty())
+        .collect();
+    let from = ours
+        .iter()
+        .position(|row| row.trim_start_matches(glyph) == want[0].trim_start_matches(glyph))
+        .unwrap_or_else(|| panic!("no working line:\n{}", s.text()));
+    let got = &ours[from..(from + want.len()).min(ours.len())];
+    pretty_assertions::assert_eq!(
+        got.iter()
+            .map(|row| row.trim_start_matches(glyph))
+            .collect::<Vec<_>>(),
+        want.iter()
+            .map(|row| row.trim_start_matches(glyph))
+            .collect::<Vec<_>>(),
+        "the bottom pane:\n{}",
+        s.text()
+    );
+    s.assert_absent("cannot steer a review turn");
 }
 
 // ---- oracle: chatwidget/tests/side.rs (10 screen-level tests here; 3 state tests left to chat-live)

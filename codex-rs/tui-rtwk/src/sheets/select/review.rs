@@ -88,8 +88,6 @@ pub fn instructions(on_answer: Handler<Answer>, s: &'static Strings) -> Prompt {
         title: s.instructions_title,
         context: None,
         placeholder: s.instructions_placeholder,
-        hint: s.instructions_hint,
-        mark: s.prompt_mark,
         on_answer,
     }
 }

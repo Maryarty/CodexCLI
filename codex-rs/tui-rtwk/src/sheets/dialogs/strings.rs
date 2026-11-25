@@ -126,11 +126,26 @@ pub struct Strings {
     /// bottom_pane/popup_consts.rs: `standard_popup_hint_line`.
     pub popup_hint: &'static str,
     // bottom_pane/custom_prompt_view.rs: the text prompt (`/rename`, `/export`'s file name).
-    pub prompt_hint: &'static str,
-    pub prompt_mark: &'static str,
+    /// The hint row: `enter submit · esc back` (`esc normal mode` while Esc goes to Vim).
+    pub prompt_hint_enter: &'static str,
+    pub prompt_hint_esc: &'static str,
+    pub prompt_hint_join: &'static str,
+    pub prompt_submit: &'static str,
+    pub prompt_back: &'static str,
+    pub prompt_normal_mode: &'static str,
+    /// The mode word at the row's right end while the prompt edits modally.
+    pub prompt_vim_normal: &'static str,
+    pub prompt_vim_insert: &'static str,
+    pub prompt_vim_replace: &'static str,
     /// `with_text_suggestion`: the line while the suggestion is awaited, and once it is in.
     pub prompt_suggestion_loading: &'static str,
     pub prompt_suggestion_ready: &'static str,
+    /// The debug entries of the prompt (`custom_prompt*`: the oracle's tests' view): the title
+    /// and placeholder of `/goal edit`, the two lines of its suggestion and the text it brings.
+    pub debug_prompt_title: &'static str,
+    pub debug_prompt_placeholder: &'static str,
+    pub debug_prompt_loading: &'static str,
+    pub debug_prompt_ready: &'static str,
 }
 
 /// English: the oracle's text.
@@ -371,10 +386,21 @@ pub const EN: Strings = Strings {
     consent_no: "No",
     consent_no_description: "Keep only your note and report metadata",
     popup_hint: "enter select \u{b7} esc back",
-    prompt_hint: "enter submit \u{b7} esc back",
-    prompt_mark: "\u{203a}",
+    prompt_hint_enter: "enter",
+    prompt_hint_esc: "esc",
+    prompt_hint_join: " \u{b7} ",
+    prompt_submit: "submit",
+    prompt_back: "back",
+    prompt_normal_mode: "normal mode",
+    prompt_vim_normal: "Vim: Normal",
+    prompt_vim_insert: "Vim: Insert",
+    prompt_vim_replace: "Vim: Replace",
     prompt_suggestion_loading: "Generating a title suggestion\u{2026}",
     prompt_suggestion_ready: "Suggested from this conversation",
+    debug_prompt_title: "Edit goal",
+    debug_prompt_placeholder: "Type a goal objective and press Enter",
+    debug_prompt_loading: "Loading",
+    debug_prompt_ready: "Ready",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);

@@ -68,13 +68,13 @@ impl State for NamePromptState {
                 _ => Suggest::Waiting,
             }
         });
-        let prompt = TextPrompt {
-            title: strings::title(!w.existing.is_empty()).to_owned(),
-            placeholder: strings::PLACEHOLDER.to_owned(),
-            initial: w.existing.clone(),
+        let prompt = TextPrompt::new(
+            strings::title(!w.existing.is_empty()),
+            strings::PLACEHOLDER,
+            w.existing.clone(),
             suggest,
-            on_submit: cx.map(Msg::Submit),
-        };
+            cx.map(Msg::Submit),
+        );
         Wanted::new(
             Interest::Title {
                 thread: w.thread.clone(),

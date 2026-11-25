@@ -20,6 +20,7 @@ use codex_tui_core::threads::UserMessage;
 use crate::app::UiApp;
 use crate::app::debug::menu::DebugMenu;
 use crate::app::start_page::{Start, StartPage, StartupGate};
+use crate::features::prompt::ChatVim;
 use crate::pages;
 use crate::pages::session::transcript::copy::CopyJob;
 use crate::sheets::presenter::home_node;
@@ -152,6 +153,16 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
             Provider::value(app.core.agents_threads()).update_should_notify(|old, new| old != new),
         )
         .with(Provider::value(app.core.tui()).update_should_notify(|old, new| old != new))
+        .with(
+            Provider::value(ChatVim(
+                app.ui
+                    .thread_ui
+                    .get(app.core.session().active.as_ref())
+                    .draft
+                    .vim_enabled(),
+            ))
+            .update_should_notify(|old, new| old != new),
+        )
         .with(Provider::value(app.ui.copies.shown()).update_should_notify(|old, new| old != new))
         .with(Provider::value_shared(Rc::new(hs)).update_should_notify(|_, _| false))
         .child(AnyWidget::from(Navigator::new().home(home)).with_key(app.ui.nav_key.clone()))

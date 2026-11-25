@@ -1,0 +1,3 @@
+# The text prompt (the custom prompt view) on a seeded session.
+# Oracle data: bottom_pane/custom_prompt_view_tests.rs custom_prompt_view()
+{"step":"seed","seed":"session","thread":"thread-1"}
