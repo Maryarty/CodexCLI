@@ -1,7 +1,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 //! The text a launch that failed leaves for the user (oracle `startup_recovery.rs`, its tests in
-//! `startup_recovery_tests.rs`): what waits for the first thread, else the draft, with control
+//! `startup_recovery_tests.rs`): the first ask that waits for the first thread, else the draft, with control
 //! characters escaped, and nothing once the first thread took the queue. The stage machine of the
 //! oracle (`HandedOff`, `Submitted`, `Dispatched`) is not ported: the queue's drain is the
 //! acknowledgement.
@@ -39,6 +39,19 @@ fn shell(app: &mut CodexApp, command: &str) {
     );
 }
 
+fn plan(app: &mut CodexApp, prompt: &str) {
+    run(
+        app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
+            thread: None,
+            command: SlashCommand::Plan,
+            intent: SessionIntent::Plan {
+                prompt: Some(prompt.to_string()),
+            },
+        }))),
+    );
+}
+
 fn start_ticket(fx: &AppFx) -> Ticket {
     fx.commands()
         .iter()
@@ -62,27 +75,37 @@ fn unsent_text_is_the_draft_when_nothing_was_asked() {
 }
 
 // oracle `recovery_keeps_buffered_input_on_exit_or_queued_submission` (queue = true): a message
-// queued before the session is configured is what is printed; the asks come in the order they
-// were made, a shell line and a `/plan` prompt with them, the command line's prompt first.
+// queued before the session is configured is what is printed. Only the first ask is: the oracle's
+// recovery keeps the first submission until it is acknowledged (`Submitted`) and takes no later
+// input; the composer text typed after it is not added, a shell line and a `/plan` prompt are
+// asks like any other, and the command line's own prompt is not the user's draft.
 #[test]
-fn unsent_text_is_the_queued_asks_in_order() {
+fn unsent_text_is_the_first_submitted_ask() {
     let mut app = CodexApp::new().with_initial_prompt(UserMessage::text("from the command line"));
+    assert_eq!(
+        app.unsent_startup_text("typed in the composer"),
+        Some("typed in the composer".to_string()),
+        "the command line's prompt is not a draft"
+    );
     submit(&mut app, "startup draftxy");
     shell(&mut app, "ls -la");
-    run(
-        &mut app,
-        AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
-            thread: None,
-            command: SlashCommand::Plan,
-            intent: SessionIntent::Plan {
-                prompt: Some("make a plan".to_string()),
-            },
-        }))),
-    );
+    plan(&mut app, "make a plan");
     assert_eq!(
         app.unsent_startup_text("typed after"),
-        Some("from the command line\nstartup draftxy\n!ls -la\n/plan make a plan".to_string()),
-        "the queue is what the user asked for; the composer text typed after it is not added"
+        Some("startup draftxy".to_string())
+    );
+
+    let mut app = CodexApp::new();
+    shell(&mut app, "ls -la");
+    submit(&mut app, "then");
+    assert_eq!(app.unsent_startup_text(""), Some("!ls -la".to_string()));
+
+    let mut app = CodexApp::new();
+    plan(&mut app, "make a plan");
+    submit(&mut app, "then");
+    assert_eq!(
+        app.unsent_startup_text(""),
+        Some("/plan make a plan".to_string())
     );
 }
 
