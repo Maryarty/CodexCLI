@@ -185,7 +185,7 @@ fn live_request_uses_the_original_parameters_even_when_another_backend_reuses_it
     let answer = || {
         AppEv::Intent(Intent::AnswerRequest {
             key: key.clone(),
-            answer: RequestAnswer::Choice(Decision::AcceptWithPrefix("echo hello world".into())),
+            answer: RequestAnswer::Choice(Decision::AcceptWithPrefix("echo 'hello world'".into())),
         })
     };
     apply_app(&mut app, answer(), &mut fx);
