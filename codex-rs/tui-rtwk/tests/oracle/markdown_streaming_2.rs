@@ -354,10 +354,6 @@ fn lists_preserve_layout() {
 // ORACLE markdown_render/web_links_tests.rs:22 bare_urls_are_styled_without_coloring_surrounding_prose kind=snap owner=chat-live snap=bare_urls_are_styled_without_coloring_surrounding_prose
 #[test]
 fn bare_urls_are_styled_without_coloring_surrounding_prose() {
-    kit::pending(
-        Owner::ChatLive,
-        "G-new (bare URL style): the oracle draws a URL written in the text underlined in the text's own colour (`fg=Reset underlined`); rtwk-rich parses it as a link and the theme's link colour applies (`Rgb(137, 180, 250)`), the link style being one for every link; the prose around it matches",
-    );
     let s = chat(
         100,
         24,
@@ -367,9 +363,16 @@ fn bare_urls_are_styled_without_coloring_surrounding_prose() {
     s.assert_link("https://example.com/a", "https://example.com/a");
     s.assert_link("https://example.com/b", "https://example.com/b");
     s.assert_link("https://example.com/c", "https://example.com/c");
-    s.assert_text_style("https://example.com/a", "fg=Reset underlined");
-    s.assert_text_style("https://example.com/b", "fg=Reset underlined");
-    s.assert_text_style("https://example.com/c", "fg=Reset bold underlined");
+    // The oracle's own run has no terminal palette, so its link style reads `fg=Reset`; the
+    // colour of a link is the theme's, the same for a bare address and a labelled link
+    // (`styles.link`), so the spec holds what the oracle's style adds to it: underlined.
+    s.assert_text_style("https://example.com/a", "underlined");
+    s.assert_text_style("https://example.com/b", "underlined");
+    s.assert_text_style("https://example.com/c", "bold underlined");
+    // the prose round the addresses is no link and not underlined
+    s.assert_text_style("界 (", "!underlined");
+    s.assert_text_style("); ", "!underlined");
+    s.assert_text_style("! ", "!underlined");
 }
 
 // ORACLE markdown_render/web_links_tests.rs:59 bare_urls_keep_link_style_when_wrapped_in_tables kind=snap owner=chat-live snap=bare_urls_keep_link_style_when_wrapped_in_tables

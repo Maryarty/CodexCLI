@@ -337,7 +337,7 @@ fn wraps_list_items_containing_blockquotes() {
 fn does_not_wrap_code_blocks() {
     kit::pending(
         Owner::ChatLive,
-        "the chat draws no fenced code block: a code line wider than the content is not kept on one row",
+        "G73: item 1, a code row is wrapped by graphemes at the width of the cell (rtwk's code block, `code_wrap`); the oracle's renderer keeps the line whole and the cell breaks it by words, and its rows carry no padding",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(10, 24)
@@ -353,7 +353,7 @@ fn does_not_wrap_code_blocks() {
 fn does_not_split_long_url_like_token_without_scheme() {
     kit::pending(
         Owner::ChatLive,
-        "the chat wraps prose without a word break rule: a long URL-like token is split across rows",
+        "G72: `TextWrap::Word` breaks the token after a hyphen (`alpha-` / `team/releases/2026-02-17`) where the oracle's URL-aware wrap keeps it whole (the terminal folds it at the width); the rtwk text has no break rule to set",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(24, 24)
@@ -488,10 +488,6 @@ fn key_value_table_keeps_web_annotations() {
 // ORACLE markdown_render.rs:3300 does_not_annotate_code_or_non_web_markdown_links kind=ui owner=chat-live
 #[test]
 fn does_not_annotate_code_or_non_web_markdown_links() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat draws agent links and code without markdown: links are not set on code or mailto text yet",
-    );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 40)
         .script(include_str!(
