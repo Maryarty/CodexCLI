@@ -1032,6 +1032,18 @@ impl ComposerDraft {
         }
     }
 
+    /// The messages this draft's recall holds, oldest first (what an owner of another draft
+    /// copies: the answers of the async questions recall what the chat's composer sent).
+    pub fn local_history(&self) -> Vec<HistoryEntry> {
+        self.0.borrow().prompts.local().to_vec()
+    }
+
+    /// The walk of Up and Down starts over from the draft as it is (the draft is shown again
+    /// after another took the field: `restore_inline_draft`).
+    pub fn forget_walk(&self) {
+        self.0.borrow_mut().prompts.reset_navigation();
+    }
+
     /// Ctrl+C on a draft (`clear_for_ctrl_c`): the draft is kept for Up and
     /// Ctrl+R whole, its placeholders and what they stand for with it.
     pub fn cancelled(&self, c: &TextEditingController) {

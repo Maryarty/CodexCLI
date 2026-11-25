@@ -12,7 +12,7 @@ pub(crate) mod blossom;
 pub mod cells;
 pub mod composer;
 mod external_writer;
-mod footer;
+pub(crate) mod footer;
 mod key_actions;
 mod keys;
 mod live;

@@ -12,6 +12,12 @@ use crate::ids::ThreadId;
 pub enum Intent {
     /// The answer of the question went out, or the question was skipped.
     Resolve { thread: ThreadId, id: String },
+    /// The user is at the questions of `thread` (the editor opened, a key or a paste landed in
+    /// it): their countdown stops (`snooze_auto_resolution`).
+    Snooze { thread: ThreadId },
+    /// The clock reached the moment the countdown changes (`Feature::wake_at`): never said by a
+    /// page.
+    Tick,
 }
 
 const START: &str = "<send_user_message_question_reply>";

@@ -27,6 +27,7 @@ fn editor(questions: Vec<AQuestion>, seed: Seed) -> AnyWidget {
         options_only: false,
         fit: false,
         saved: None,
+        host: None,
         on_outcome: None,
     }
     .into()
@@ -181,6 +182,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
                 options_only: true,
                 fit: false,
                 saved: None,
+                host: None,
                 on_outcome: None,
             }
             .into()

@@ -16,6 +16,8 @@ use crate::app::theme::Tokens;
 #[derive(Clone, Debug, PartialEq)]
 pub(in crate::pages::session) struct QuestionSummary {
     pub count: usize,
+    /// The seconds left of the countdown, in its last twenty (`· 15s`).
+    pub countdown: Option<u64>,
 }
 
 impl_widget!(stateless eq QuestionSummary);
@@ -25,16 +27,20 @@ impl StatelessWidget for QuestionSummary {
         let strings = strings::of(cx);
         let tokens = Tokens::of(cx);
         let keymap = crate::keymap::keymap(cx);
+        let mut title = vec![
+            Span::styled(strings.question_mark, super::dim()),
+            Span::styled(
+                strings.questions(self.count),
+                tokens.accent().attrs(Attrs::BOLD),
+            ),
+        ];
+        if let Some(seconds) = self.countdown {
+            title.push(Span::styled(strings.countdown(seconds), super::dim()));
+        }
         let mut column = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Start)
-            .child(Text::rich_line(vec![
-                Span::styled(strings.question_mark, super::dim()),
-                Span::styled(
-                    strings.questions(self.count),
-                    tokens.accent().attrs(Attrs::BOLD),
-                ),
-            ]));
+            .child(Text::rich_line(title));
         if let Some(key) = crate::keymap::label(&keymap, CHAT_EDIT_QUEUED_MESSAGE) {
             column = column.child(Text::rich_line(vec![
                 Span::styled(strings.item_hang, rtwk::style::Style::new()),

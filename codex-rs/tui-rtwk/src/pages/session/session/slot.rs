@@ -70,7 +70,7 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
             external_writer::notice(cx, chat_strings, tokens),
             external_writer::footer(cx, chat_strings, tokens),
         )
-    } else if editing && let Some(editor) = state.editor(cx, thread) {
+    } else if editing && let Some(editor) = state.editor(cx, thread, &w.ui) {
         (editor, SizedBox::shrink().into())
     } else {
         let mut composer = Composer::new(w.ui.clone(), state.node.clone())

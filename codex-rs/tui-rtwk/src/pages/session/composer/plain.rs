@@ -55,6 +55,9 @@ pub struct Look {
     pub autofocus: bool,
     pub placeholder: Option<&'static str>,
     pub prompt: Option<Style>,
+    /// The field draws no `›` before its text (the inline editor of the async questions: the
+    /// answer starts where the question's text does).
+    pub unprompted: bool,
     pub keys: Option<TakeKey>,
 }
 
@@ -64,6 +67,7 @@ impl Default for Look {
             autofocus: true,
             placeholder: None,
             prompt: None,
+            unprompted: false,
             keys: None,
         }
     }
@@ -74,6 +78,7 @@ impl PartialEq for Look {
         self.autofocus == other.autofocus
             && self.placeholder == other.placeholder
             && self.prompt == other.prompt
+            && self.unprompted == other.unprompted
             && match (&self.keys, &other.keys) {
                 (Some(a), Some(b)) => Rc::ptr_eq(a, b),
                 (None, None) => true,
@@ -123,6 +128,15 @@ impl Composer {
         self
     }
 
+    /// The field draws no prompt before its text (a plain-text composer).
+    #[must_use]
+    pub fn unprompted(mut self) -> Composer {
+        if let Some(look) = &mut self.plain {
+            look.unprompted = true;
+        }
+        self
+    }
+
     /// Whether the field takes the focus when it is built (a plain-text composer).
     #[must_use]
     pub fn autofocus(mut self, on: bool) -> Composer {
@@ -163,6 +177,9 @@ pub(super) fn row(
     label: &'static str,
     field: AnyWidget,
 ) -> AnyWidget {
+    if look.unprompted {
+        return field;
+    }
     let style = look.prompt.clone().unwrap_or_else(|| tokens.bold());
     Row::new()
         .cross_axis_alignment(CrossAxisAlignment::Start)

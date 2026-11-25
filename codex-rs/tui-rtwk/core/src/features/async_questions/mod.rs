@@ -19,8 +19,9 @@ use codex_app_server_protocol::{
 };
 
 use super::AppCx;
-use crate::question_reply as reply;
+use crate::app::Now;
 use crate::ids::ThreadId;
+use crate::question_reply as reply;
 
 /// The marker type of the feature.
 pub struct AsyncQuestions;
@@ -60,18 +61,63 @@ pub enum Event {
     Answered { thread: ThreadId, ids: Vec<String> },
 }
 
+/// How long a question that arrives while the editor is closed waits before it is worth a
+/// countdown, and how much of that the summary shows (`expires_at`, `countdown`).
+const WAIT_MILLIS: i64 = 30_000;
+const COUNTDOWN_MILLIS: i64 = 20_000;
+
+/// `millis` in whole seconds, rounded up.
+fn ceil_secs(millis: i64) -> i64 {
+    (millis + 999).div_euclid(1000)
+}
+
 /// The questions that wait, by thread.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct State {
     pending: BTreeMap<ThreadId, Vec<Question>>,
     seen: BTreeSet<(ThreadId, String)>,
     answered: BTreeSet<String>,
+    /// The moment (epoch milliseconds) each question's countdown ends; none: it does not count
+    /// (the user was at it, or it came while the editor was open).
+    expires: BTreeMap<String, i64>,
+    /// The last moment the feature heard of: the countdown is measured on it.
+    now: i64,
 }
 
 impl State {
     /// The questions of `thread` that wait, in the order they came.
     pub fn of(&self, thread: &ThreadId) -> &[Question] {
         self.pending.get(thread).map_or(&[], Vec::as_slice)
+    }
+
+    /// The seconds left of the countdown of `thread`'s questions, when they are the last
+    /// `COUNTDOWN_MILLIS` (`countdown`: the nearest end, rounded up).
+    pub fn countdown(&self, thread: &ThreadId) -> Option<u64> {
+        self.of(thread)
+            .iter()
+            .filter_map(|q| self.expires.get(&q.id))
+            .map(|end| end - self.now)
+            .filter(|left| (1..=COUNTDOWN_MILLIS).contains(left))
+            .min()
+            .map(|left| u64::try_from(ceil_secs(left)).unwrap_or(0))
+    }
+
+    /// The moment the shown countdown changes next: the last twenty seconds begin, then each
+    /// second, then the end.
+    fn next_change(&self) -> Option<i64> {
+        let end = self
+            .expires
+            .values()
+            .copied()
+            .filter(|end| *end > self.now)
+            .min()?;
+        let left = end - self.now;
+        let at = if left > COUNTDOWN_MILLIS {
+            end - COUNTDOWN_MILLIS
+        } else {
+            end - (ceil_secs(left) - 1) * 1000
+        };
+        Some(at.max(self.now + 1))
     }
 
     fn ask(&mut self, thread: ThreadId, message: &str, questions: &[AsyncUserInputQuestion]) {
@@ -91,6 +137,7 @@ impl State {
                 .filter(|label| label.len() <= MAX_OPTION_BYTES)
                 .cloned()
                 .collect();
+            self.expires.insert(id.clone(), self.now + WAIT_MILLIS);
             self.pending.entry(thread.clone()).or_default().push(Question {
                 id,
                 message: message.to_owned(),
@@ -104,6 +151,11 @@ impl State {
     fn resolve(&mut self, thread: &ThreadId, ids: &[String]) {
         self.answered.extend(ids.iter().cloned());
         if let Some(list) = self.pending.get_mut(thread) {
+            for q in list.iter() {
+                if ids.contains(&q.id) || ids.contains(&q.message) {
+                    self.expires.remove(&q.id);
+                }
+            }
             list.retain(|q| !ids.contains(&q.id) && !ids.contains(&q.message));
             if list.is_empty() {
                 self.pending.remove(thread);
@@ -138,9 +190,28 @@ feature! {
         type Intent = Intent;
         type Event = Event;
         {
-            fn intent(state: &mut State, intent: Intent, _cx: &mut AppCx<'_>) {
-                let Intent::Resolve { thread, id } = intent;
-                state.resolve(&thread, &[id]);
+            fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
+                state.now = cx.view().facts().now().millis();
+                match intent {
+                    Intent::Resolve { thread, id } => state.resolve(&thread, &[id]),
+                    Intent::Snooze { thread } => {
+                        let ids: Vec<String> =
+                            state.of(&thread).iter().map(|q| q.id.clone()).collect();
+                        state.expires.retain(|id, _| !ids.contains(id));
+                    }
+                    Intent::Tick => {
+                        let now = state.now;
+                        state.expires.retain(|_, end| *end > now);
+                    }
+                }
+            }
+
+            /// The countdown of the summary changes at the start of its last twenty seconds and
+            /// then each second.
+            fn wake_at(state: &State) -> Option<(Now, Intent)> {
+                state
+                    .next_change()
+                    .map(|at| (Now::at_millis(at), Intent::Tick))
             }
 
             /// An agent message with questions, and a user message that answers some.
@@ -169,7 +240,8 @@ feature! {
                 }
             }
 
-            fn on_event(state: &mut State, event: Event, _cx: &mut AppCx<'_>) {
+            fn on_event(state: &mut State, event: Event, cx: &mut AppCx<'_>) {
+                state.now = cx.view().facts().now().millis();
                 match event {
                     Event::Asked {
                         thread,

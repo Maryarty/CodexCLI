@@ -616,26 +616,45 @@ fn selected_answers_preserve_long_labels_and_reject_oversized_submissions() {
     }
 }
 
-// ORACLE chatwidget/tests/questions_tests.rs:469 question_inputs_support_vim_editing_and_search kind=snap owner=dialogs-pane
+// ORACLE chatwidget/tests/questions_tests.rs:469 question_inputs_support_vim_editing_and_search kind=snap owner=dialogs-pane snap=question_vim_<single|other>
 #[test]
 fn question_inputs_support_vim_editing_and_search() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no vim mode in the question editor on the chat screen (NORMAL and SEARCH frames, the Vim footer, the `d w`, `c i w` and `/` motions)",
-    );
     // oracle: with vim on, "alpha beta" / "alpha gamma" typed into the answer; the NORMAL frame and the SEARCH frame (`/gamma`) are
     // snapshots (question_vim_<single|other>); `dw` removes "alpha beta" until `u` restores it; `ctrl+r` redoes; `ciw` + "delta" answers.
-    for name in ["single", "other"] {
-        let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-        // needs feed: vim mode on; question "Which way?" added (options: none for single; "Named" for other)
+    // (The oracle's `delivery_enabled = false` Enter is a hook of its tests: the port has no such state.)
+    for (name, fixture, other) in [
+        (
+            "question_vim_single",
+            include_str!("fixtures/chat_approvals_2/q_plain.jsonl"),
+            false,
+        ),
+        (
+            "question_vim_other",
+            include_str!("fixtures/chat_approvals_2/q_numbered.jsonl"),
+            true,
+        ),
+    ] {
+        let mut s = Screen::build(Owner::DialogsPane)
+            .size(80, 24)
+            .script(fixture)
+            .open();
+        // `set_vim_enabled(true)`: the chat's `/vim`
+        s.type_text("/vim");
+        s.keys("enter");
         s.keys("alt+up");
-        if name == "other" {
+        if other {
             s.keys("2");
         }
         s.keys("i");
         s.paste("alpha beta\nalpha gamma");
         s.keys("esc 0 k");
-        s.assert_snap_section(&format!("question_vim_{name}"), "NORMAL");
+        s.assert_contains("Which way?");
+        let at = row_of(&s, "Queued follow-up inputs");
+        s.snap(name)
+            .labelled(&["NORMAL", "SEARCH"])
+            .frame("NORMAL")
+            .at(at, 0)
+            .assert();
         s.keys("d w");
         s.assert_absent("alpha beta");
         s.keys("u");
@@ -644,26 +663,60 @@ fn question_inputs_support_vim_editing_and_search() {
         s.assert_absent("alpha beta");
         s.keys("u");
         s.type_text("/gamma");
-        s.assert_snap_section(&format!("question_vim_{name}"), "SEARCH");
+        let at = row_of(&s, "Queued follow-up inputs");
+        s.snap(name)
+            .labelled(&["NORMAL", "SEARCH"])
+            .frame("SEARCH")
+            .at(at, 0)
+            .assert();
         s.keys("enter");
+        kit::assert_same(s.turns().len(), 0, "the search's Enter answers nothing");
+        s.assert_contains("Which way?");
         s.keys("c i w");
         s.paste("delta");
         s.keys("esc enter");
+        let turns = s.turns();
+        kit::assert_same(turns.len(), 1, "one answer");
+        kit::assert_same(
+            turns[0].text.contains("alpha beta\\nalpha delta"),
+            true,
+            "the answer",
+        );
     }
 }
 
 // ORACLE chatwidget/tests/questions_tests.rs:529 question_history_search_uses_updated_bindings kind=ui owner=dialogs-pane
 #[test]
 fn question_history_search_uses_updated_bindings() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no composer history search over the question editor on the chat screen, and no keymap config seed (the rebound history_search_previous key)",
-    );
     // oracle: history "[Image #2]earlier answer" then "newest answer"; up walks the history (newest, earlier, newest) for the
     // binding in the config (f12, or ctrl-x r); a typed query finds "persistent answer" from the host response for ctrl-x r.
-    for (binding, word) in [("f12", "earlier"), ("ctrl+x r", "persistent")] {
-        let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-        // needs feed: history entries (id 7); question "Which way?" added; alt+up; history "newest answer" recorded
+    // (The messages are sent from the chat's composer here, the way the port records them; the file's entry is the kit's
+    // `message_history`; the remote image of the first one is the composer's own test.)
+    let rebound: [&'static [(&'static str, &'static str)]; 2] = [
+        &[("composer.history_search_previous", "f12")],
+        &[("composer.history_search_previous", "ctrl+x r")],
+    ];
+    let file: [&[&str]; 2] = [&[], &["persistent answer"]];
+    for (((keys, word), keymap), file) in [("f12", "earlier"), ("ctrl+x r", "persistent")]
+        .into_iter()
+        .zip(rebound)
+        .zip(file)
+    {
+        let mut s = Screen::build(Owner::DialogsPane)
+            .size(80, 24)
+            .script(include_str!("fixtures/chat_approvals_2/q_plain.jsonl"))
+            .keymap(keymap)
+            .message_history(file)
+            .open();
+        s.type_text("earlier answer");
+        s.keys("enter");
+        s.type_text("newest answer");
+        s.keys("enter");
+        // the first message started the turn; the second waits behind it: the answer goes with the
+        // backend's commands, a steer or the queue
+        let sent = |s: &Screen| format!("{:?}", s.commands()).matches("send_user_message_question_reply").count();
+        let before = sent(&s);
+        s.keys("alt+up");
         s.keys("up");
         s.assert_contains("newest answer");
         s.keys("up");
@@ -671,11 +724,26 @@ fn question_history_search_uses_updated_bindings() {
         s.keys("down");
         s.assert_contains("newest answer");
         s.keys("ctrl+c");
-        s.keys(binding);
+        if keys == "ctrl+x r" {
+            kit::pending(
+                Owner::DialogsPane,
+                "rtwk gap G-new-composer-chord (the composer reads single keys in take_key and a chord never reaches it: `ctrl+x r` bound to composer.history_search_previous types `r`; wanted: the composer takes a chord through KeyBindings): the f12 iteration above passes, the chord iteration is the one pending frame",
+            );
+            return;
+        }
+        s.keys(keys);
         s.type_text(word);
-        // needs (ctrl-x r only): the host's history lookup response "persistent answer"
+        s.assert_contains("reverse-i-search");
         s.keys("enter");
+        kit::assert_same(sent(&s), before, "the search's Enter answers nothing");
         s.keys("enter");
+        kit::assert_same(sent(&s) > before, true, "the answer went out");
+        let last = format!("{:?}", s.commands().last());
+        kit::assert_same(
+            last.contains(&format!("{word} answer")),
+            true,
+            "the answer is the entry the search found",
+        );
     }
 }
 

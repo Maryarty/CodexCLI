@@ -155,6 +155,24 @@ pub fn flush_held_with(
     }
 }
 
+/// What is held goes in as a paste now, for an owner that takes the field away from the composer
+/// for a moment (the editor of the async questions moves to another answer): it has no timer of the
+/// composer's, so nothing is armed.
+pub fn flush_pending(
+    draft: &ComposerDraft,
+    c: &TextEditingController,
+    label: impl Fn(usize) -> String + 'static,
+    image: impl Fn(usize) -> String + 'static,
+) {
+    let env = BurstEnv {
+        now: Rc::new(|| Duration::ZERO),
+        arm: Rc::new(|| {}),
+        label: Rc::new(label),
+        image: Rc::new(image),
+    };
+    flush_held_with(draft, &|_| {}, &env, c);
+}
+
 /// Puts `text` in as a paste (`apply_paste`): a large one as a placeholder,
 /// a small one as text at the selection; the Enter window ends with it.
 pub fn apply_paste(

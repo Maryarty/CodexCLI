@@ -79,7 +79,10 @@ pub(super) fn body(
         .child(StatusSlot)
         // `  ? N questions`: the questions that wait while the editor is closed
         .child(if run.asking > 0 && !editing {
-            AnyWidget::from(QuestionSummary { count: run.asking })
+            AnyWidget::from(QuestionSummary {
+                count: run.asking,
+                countdown: super::questions::countdown(cx, thread.id()),
+            })
         } else {
             SizedBox::shrink().into()
         })
