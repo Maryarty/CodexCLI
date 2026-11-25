@@ -137,6 +137,10 @@ pub(super) fn wake(app: &CodexApp) -> Option<Wake> {
             }),
     );
     next = nearest(next, app.structured.wake_at());
+    // the cloud switch's refusal is shown for one apply: an idle app is woken to take it away
+    if app.session.cloud_switch == Some(crate::app::CloudSwitch::Failed) {
+        next = nearest(next, Some(app.now));
+    }
     next.map(|at| Wake::new(app.now, at))
 }
 

@@ -58,6 +58,8 @@ use super::banners::BannerGate;
 
 #[path = "session/bottom.rs"]
 mod bottom;
+#[path = "session/cloud_wait.rs"]
+mod cloud_wait;
 #[path = "session/edges.rs"]
 mod edges;
 #[path = "session/escape.rs"]
