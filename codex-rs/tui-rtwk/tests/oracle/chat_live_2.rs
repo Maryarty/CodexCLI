@@ -737,10 +737,6 @@ fn replayed_delegated_tool_output_is_attributed_without_seeding_composer_history
 // ORACLE chatwidget/tests/history_replay.rs:410 replayed_nested_review_prompts_do_not_render_or_seed_composer_history kind=snap owner=chat-live
 #[test]
 fn replayed_nested_review_prompts_do_not_render_or_seed_composer_history() {
-    kit::pending(
-        Owner::ChatLive,
-        "three rows of the replayed history differ: the review's end draws `<< Code review finished: review complete >>` (the transcript projection's text) where the chat shows `<< Code review finished >>`; a replayed interrupted turn draws no `■ Conversation interrupted - use /feedback if something went wrong` notice (the core adds it only for a live interrupt); the user cells have one blank row between them where the oracle's have two",
-    );
     let hint = "current changes";
     let prompt = "Review the current code changes (staged, unstaged, and untracked files).";
     let marker = |id: &str| {
@@ -772,12 +768,19 @@ fn replayed_nested_review_prompts_do_not_render_or_seed_composer_history() {
         ]),
     );
     child["completedAt"] = serde_json::Value::Null;
-    let mut s = resumed(vec![
+    // taller than `resumed`: the oracle's frame is the history alone, 19 rows
+    let mut turns = vec![
         marker("turn-review-before-steer"),
         interrupted,
         marker("turn-review"),
         child,
-    ]);
+    ];
+    turns.reverse();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 30)
+        .replay(turns)
+        .live()
+        .open();
     s.assert_absent(prompt);
     s.assert_snap_region(
         "replayed_nested_review_prompts",

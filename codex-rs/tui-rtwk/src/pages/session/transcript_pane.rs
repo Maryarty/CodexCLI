@@ -13,7 +13,7 @@ use rtwk::gestures::SelectionTarget;
 use rtwk::layout::{Column, CrossAxisAlignment, MainAxisSize};
 use rtwk::provider::{read, select, watch};
 use rtwk::scroll::{ItemTexts, ListView, ScrollController, ScrollNotification};
-use rtwk::style::Attrs;
+use rtwk::style::{Attrs, Style};
 use rtwk::{AnyWidget, Cx, Key, NotificationListener, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::app::facts::TuiSettings;
@@ -31,6 +31,7 @@ use crate::widgets::thread_ui::{Follow, TextSelection};
 
 use super::cells::strings as cells_strings;
 use super::cells::text::Env;
+use super::cells::user;
 use super::cells::{CellEnv, Place, cell};
 use super::strings as chat_strings;
 use super::transcript::activity_focus::{self, Activity};
@@ -822,7 +823,8 @@ impl State for ViewportState {
         let strings = l10n::of(cx);
         let tokens = theme::Tokens::of(cx);
         let prompt_surface = tokens.prompt_surface(cx, true);
-        let agent_style = tokens.dim().attrs(Attrs::DIM);
+        // `"• ".dim()`: the terminal's own foreground, faint
+        let agent_style = Style::new().attrs(Attrs::DIM);
         let bullet = strings.agent_line("").to_string();
         let table = chat_strings::of(cx);
         let now = rtwk::provider::read::<ScreenStates, _>(cx).agents.now;
@@ -1101,8 +1103,18 @@ impl State for ViewportState {
             let separator = previous.is_some() || header.is_some();
             let place = Place {
                 separator,
-                joins_prompt: matches!(previous, Some((_, Item::User(_))))
-                    && transcript.timing_after(index.saturating_sub(1)).is_none(),
+                // only the detailed transcript (oracle `TranscriptView`) draws prompts with no
+                // turn between them as one block; the chat keeps each prompt's own rows
+                joins_prompt: detailed && {
+                    // the nearest prompt or cell above that draws rows (a blank prompt draws none)
+                    let drawn = (0..index).rev().find(|above| {
+                        !matches!(transcript.get(*above), Some((_, Item::User(prompt))) if user::is_blank(prompt))
+                    });
+                    drawn.is_some_and(|above| {
+                        matches!(transcript.get(above), Some((_, Item::User(_))))
+                            && (above..index).all(|turn| transcript.timing_after(turn).is_none())
+                    })
+                },
                 highlighted: marked.as_ref() == Some(key),
                 streaming: transcript.is_agent_streaming(key),
                 rest: (index + 1..range.end)

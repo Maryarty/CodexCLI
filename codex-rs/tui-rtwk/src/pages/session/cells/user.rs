@@ -15,6 +15,7 @@ use rtwk::AnyWidget;
 use rtwk::gestures::ExcludeSelection;
 use rtwk::layout::{
     BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row,
+    SizedBox,
 };
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::DefaultTextStyle;
@@ -163,12 +164,22 @@ fn has_markup(text: &str) -> bool {
         })
 }
 
+/// A prompt with nothing to draw: no text (spaces and control characters aside) and no image.
+/// The oracle's cell has no rows then (`transcript_hyperlink_lines`), and the cells around it
+/// are laid out as if it were not there.
+pub fn is_blank(prompt: &UserPrompt) -> bool {
+    prompt.shown().text.trim().is_empty() && prompt.images.is_empty()
+}
+
 /// A prompt: the panel on the prompt surface; its blank row belongs to the transcript, outside the surface, and a prompt that joins the one above has none.
 /// The cell of `item` when it is this file's (`cell_list!`).
 pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
     let Item::User(prompt) = item else {
         return AnyWidget::default();
     };
+    if is_blank(prompt) {
+        return SizedBox::shrink().into();
+    }
     let panel = panel(
         prompt,
         &Look {

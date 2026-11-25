@@ -3077,8 +3077,8 @@ mod text_contract {
     use codex_tui_rtwk::pages::session::cells::strings::EN as CELLS;
     use codex_tui_rtwk::pages::session::cells::text::{Env, Gap, Texts, texts};
     use codex_tui_rtwk::pages::session::cells::{
-        agent, deprecation, error, generated_image, hook, note, notice, user, viewed_image,
-        warning, web,
+        CellEnv, Place, agent, deprecation, error, generated_image, hook, note, notice, user,
+        viewed_image, warning, web,
     };
     use codex_tui_rtwk::pages::session::strings::EN as CHAT;
     use rtwk::AnyWidget;
@@ -3149,6 +3149,24 @@ mod text_contract {
                 details: details.clone(),
             }
             .into(),
+            // the chat's end of a review is a cell of its own (no review text)
+            Item::Notice(Notice::ExitedReview(_)) if !detailed => notice::view(
+                item,
+                &CellEnv {
+                    tokens: &tokens,
+                    markdown: &theme,
+                    prompt_surface: &Style::new(),
+                    chat: &CHAT,
+                    cells: &CELLS,
+                    bullet: "• ",
+                    bullet_style: &Style::new(),
+                    cwd: None,
+                    detailed,
+                    raw: false,
+                    show_raw_reasoning: false,
+                },
+                &Place::default(),
+            ),
             Item::Notice(n) => notice::NoticeCell { notice: n.clone() }.into(),
             Item::Hook(run) => hook::HookCell { run: run.clone() }.into(),
             Item::Note(note) => note::NoteCell { note: note.clone() }.into(),
@@ -3222,6 +3240,51 @@ mod text_contract {
     }
 
     #[test]
+    fn a_blank_prompt_draws_no_rows_and_a_prompt_with_text_does() {
+        // oracle `UserHistoryCell`: a message of spaces has no lines at all, not even the pad
+        let tokens =
+            codex_tui_rtwk::app::theme::Tokens::new(Rc::new(rtwk::prelude::ThemeData::DARK));
+        let theme = MarkdownTheme::default();
+        let rows = |text: &str| {
+            let item = Item::User(prompt(text));
+            let cell = user::view(
+                &item,
+                &CellEnv {
+                    tokens: &tokens,
+                    markdown: &theme,
+                    prompt_surface: &Style::new(),
+                    chat: &CHAT,
+                    cells: &CELLS,
+                    bullet: "• ",
+                    bullet_style: &Style::new(),
+                    cwd: None,
+                    detailed: false,
+                    raw: false,
+                    show_raw_reasoning: false,
+                },
+                &Place {
+                    separator: true,
+                    ..Place::default()
+                },
+            );
+            let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(WIDTH, HEIGHT));
+            t.pump_widget(
+                rtwk::layout::Column::new()
+                    .main_axis_size(rtwk::layout::MainAxisSize::Min)
+                    .child(cell)
+                    .child(rtwk::widgets::Text::new("end")),
+            );
+            t.lines()
+                .iter()
+                .position(|line| line.trim() == "end")
+                .expect("the marker is drawn")
+        };
+        assert_eq!(rows("   \n "), 0);
+        // the separator, the pad, the text, the pad
+        assert_eq!(rows("hello"), 4);
+    }
+
+    #[test]
     fn a_users_prompt_is_its_text_without_the_mark() {
         agrees(Item::User(prompt("fix the build\nthen the tests")));
         agrees(Item::User(UserPrompt {
@@ -3284,7 +3347,18 @@ mod text_contract {
         agrees(Item::Notice(Notice::ContextCompacted { took: None }));
         agrees(Item::Notice(Notice::ContextCompacted { took: Some(83) }));
         agrees(Item::Notice(Notice::EnteredReview("the diff".into())));
-        agrees(Item::Notice(Notice::ExitedReview("the diff".into())));
+        // the chat's end of a review has no review text; the detailed transcript's names it
+        let finished = Item::Notice(Notice::ExitedReview("the diff".into()));
+        agrees(finished.clone());
+        agrees_in(finished.clone(), true);
+        assert_eq!(
+            texts(&finished, &env(false, false)).as_mounted().as_deref(),
+            Some("<< Code review finished >>")
+        );
+        assert_eq!(
+            texts(&finished, &env(true, false)).as_mounted().as_deref(),
+            Some("<< Code review finished: the diff >>")
+        );
         for outcome in [
             NudgeOutcome::Sent,
             NudgeOutcome::Cooldown,

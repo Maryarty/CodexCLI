@@ -12,6 +12,9 @@
 //!   (`record_replayed_user_message_history`). Core keeps each as the typed prompt the composer
 //!   restores from (`backtrack::Prompt`), oldest first; the composer derives its entries from it
 //!   (mention bindings, placeholders, attachments).
+//!
+//! An interrupted turn that is not hidden also ends with the interruption notice a live one gets
+//! (`on_interrupted_server_turn`, [`INTERRUPTED_NOTICE`] is its item id in the turn).
 
 use codex_app_server_protocol::ThreadItemPayload;
 use codex_app_server_protocol::Turn;
@@ -22,14 +25,19 @@ use crate::screens::backtrack::Prompt;
 
 use super::Fault;
 use super::HistoryTurn;
+use super::Item;
 use super::ItemId;
 use super::ItemKey;
+use super::Notice;
 use super::TurnEnd;
 use super::TurnId;
 use super::TurnSnapshot;
 use super::TurnTiming;
 use super::item_entry;
 use super::turn_end;
+
+/// The id of the notice that closes a replayed interrupted turn.
+pub const INTERRUPTED_NOTICE: &str = "#interrupted";
 
 /// A user message of the replayed turns that seeds the composer's history.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -130,6 +138,18 @@ pub(super) fn project(turns: &[Turn]) -> (Vec<HistoryTurn>, Vec<Submission>) {
             if let Some(entry) = item_entry(payload, true) {
                 items.push(super::cells::history(payload, entry));
             }
+        }
+        // `replay_thread_turns` completes an interrupted turn as `on_interrupted_server_turn`
+        // does: the notice a live interrupt gets closes the turn's rows (a hidden nested review
+        // turn counts as completed)
+        if !hidden
+            && turn.status == TurnStatus::Interrupted
+            && turn.items_view != TurnItemsView::NotLoaded
+        {
+            items.push((
+                ItemId::new(INTERRUPTED_NOTICE),
+                Item::Notice(Notice::Interrupted),
+            ));
         }
         let items = match turn.items_view {
             TurnItemsView::Full => TurnSnapshot::Full(items),
