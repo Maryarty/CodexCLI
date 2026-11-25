@@ -37,6 +37,9 @@ use crate::widgets::options::{OptionStyles, Options, RichRow};
 #[derive(Clone, Debug, PartialEq)]
 pub struct RequestDialog {
     pub key: RequestKey,
+    /// A `request_user_input` that opens on its confirmation of unanswered questions (the
+    /// oracle's `open_unanswered_confirmation`; the debug menu's state).
+    pub confirming: bool,
 }
 
 pub struct RequestDialogState {
@@ -159,6 +162,7 @@ impl State for RequestDialogState {
             return UserInputView {
                 key: w.key.clone(),
                 prompt,
+                confirming: w.confirming,
             }
             .into();
         }

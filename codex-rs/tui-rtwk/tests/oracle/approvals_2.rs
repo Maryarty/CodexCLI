@@ -707,15 +707,10 @@ fn request_user_input_multi_question_last_snapshot() {
 // ORACLE bottom_pane/request_user_input/mod.rs:3912 request_user_input_unanswered_confirmation_snapshot kind=snap owner=dialogs-pane snap=request_user_input_unanswered_confirmation
 #[test]
 fn request_user_input_unanswered_confirmation_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no seed opens the confirmation: the oracle's test calls `open_unanswered_confirmation()` with two unanswered questions; by keys it opens only at the last question, whose Enter takes the default option (so one question stays unanswered, as in `switching_from_freeform_...`) and an Enter on an empty freeform answer does nothing. With the old Enter that advanced on an empty answer the rows equalled this snapshot; the sheet test `approvals::user_input_unanswered_confirmation_rows` pins the confirmation of one",
-    );
-    let mut s = Screen::build(Owner::DialogsPane)
+    let s = Screen::build(Owner::DialogsPane)
         .size(80, 12)
-        .entry("approvals", "user_input_options_then_freeform")
+        .entry("approvals", "user_input_unanswered")
         .open();
-    s.keys("right enter");
     s.assert_snap("request_user_input_unanswered_confirmation");
 }
 

@@ -226,6 +226,11 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             include_str!("fixtures/user_input_auto_resolution.jsonl"),
         ),
         (
+            "user_input_unanswered",
+            "request_user_input_unanswered_confirmation: two unanswered questions, the confirmation open",
+            include_str!("fixtures/user_input_options_then_freeform.jsonl"),
+        ),
+        (
             "user_verification",
             "verify and approve, or cancel the request",
             include_str!("fixtures/user_verification.jsonl"),
@@ -250,7 +255,9 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             // The oracle's form snapshots render the overlay into a buffer taller than its
             // desired height, and the form fills it; the debug menu is that frame.
             open: EntryOpen::Dialog(
-                if name.starts_with("mcp_") || name.starts_with("user_input_") {
+                if name == "user_input_unanswered" {
+                    confirming_dialog
+                } else if name.starts_with("mcp_") || name.starts_with("user_input_") {
                     framed_dialog
                 } else {
                     head_dialog
@@ -263,7 +270,22 @@ pub fn debug_entries() -> Vec<DebugEntry> {
 /// The head's dialog in a frame as tall as the screen (the oracle snapshot tests' buffer): the
 /// form's footer stays at the foot and its input takes the rows between.
 fn framed_dialog(seeded: &Seeded) -> AnyWidget {
-    let dialog = head_dialog(seeded);
+    framed(head_dialog(seeded))
+}
+
+/// The head's `request_user_input` open on its confirmation of unanswered questions, framed.
+fn confirming_dialog(seeded: &Seeded) -> AnyWidget {
+    framed(match seeded.core.requests().head() {
+        Some(request) => dialog::RequestDialog {
+            key: request.key.clone(),
+            confirming: true,
+        }
+        .into(),
+        None => AnyWidget::default(),
+    })
+}
+
+fn framed(dialog: AnyWidget) -> AnyWidget {
     LayoutBuilder::new(move |_, constraints| {
         SizedBox::new(None, Some(constraints.max_height), Some(dialog.clone())).into()
     })
@@ -281,7 +303,11 @@ fn head_dialog(seeded: &Seeded) -> AnyWidget {
 /// The dialog the request presenter shows for the request `key`: the prompt
 /// the model holds for it, else the skeleton's dismiss dialog.
 pub fn request_dialog(key: codex_tui_core::ids::RequestKey) -> AnyWidget {
-    dialog::RequestDialog { key }.into()
+    dialog::RequestDialog {
+        key,
+        confirming: false,
+    }
+    .into()
 }
 
 /// Opens the dialog from the widget that asks (`show_dialog`); the result
