@@ -13,7 +13,7 @@ item is a one-off hand edit (no pattern repeats across files).
    `session/slot.rs` hands it to `Timed`. Tests: `core/tests/doors.rs` `the_flash_fact_numbers_every_showing...`,
    `footer_facts::a_flash_stays_for_its_time_and_a_new_showing_restarts_it`. Edge: the clock is the view's (`Timed`): the flash stays in the facts after its time and the footer
    ends it, so a footer built anew (a thread switch, a rebuilt page) shows it again for its full time; a caller that
-   wants it gone for good tells `None`. The same line told again is a new showing (`seq`), its time starts anew.
+   wants it gone for good tells `None`. The same line told again is a new showing (`Flashed::showing`), its time starts anew.
 3. `oracle_snap::cut` / `cut_state`, `kit::snap_cuts`, `Snap::cut(index)`: explicit, because 29 snapshots hold
    a legitimate bare `---` row of their own. Test: `snapshot_cuts`.
 4. Fake and kit: `FakeHandle::usage_accounts(Vec<Result<AccountReply, String>>)` (one answer per ask, the last
@@ -37,13 +37,16 @@ item is a one-off hand edit (no pattern repeats across files).
    focus leaving to Find's query does not dismiss it. Test: `command_popup_across_find`.
 
 ## Item 8: the finding
-Root causes (by reading the oracle and the port; the probe run was refused by the permission layer, so the page
-tests of `small_windows` and the rest of the batch are UNRUN by me):
-- 4 rows: the bottom pane's fixed gap row (1 row) pushed the footer out of the window (a Column overflows at its end).
-  The gap is now `Flexible(1)`, cut before the footer.
+The probe run was refused by the permission layer, so I read the oracle and the port; the page tests of
+`small_windows` are UNRUN by me (the batch runs them).
 - 32 columns: the transient footer line (the `esc again to edit previous` hint is 34 cells) overflowed by the
-  2-cell indent; it is now Expanded + Clip as the oracle's clipped `Paragraph`.
-- 5 and 6 rows: already as the oracle (the list gets 0 and 1 rows).
+  2-cell indent; it is now Expanded + Clip, as the oracle's clipped `Paragraph` (`footer/mod.rs::transient`). This
+  is the "footer overflows 2 columns" of the need.
+- 4, 5 and 6 rows: no code change. The bottom pane's gap is already a flex-1 child (`transcript::follow::gap` returns
+  `Flexible::new(1, ..)`; a `Flexible` above it in `session/bottom.rs` is the rtwk error "Flexible and Flexible below
+  it both put FlexParentData": I tried it and the rules run showed it). At 6 rows the list gets 1 row, at 5 rows 0,
+  at 4 the gap is cut before the composer and the footer, as the oracle's `bottom_pane_renderable`
+  (the list's 0 rows at 5 is the oracle's, not a bug).
 The oracle's `transcript_view` tests drive the view alone (no bottom pane), so the pending 32x6 `sm_entry_*` tests
 still cannot see the two rows in the chat: those want the transcript sheet (Ctrl+T) or the view alone, an owner decision.
 

@@ -46,7 +46,7 @@ impl Flash {
                 FlashTone::Plain => Tone::Plain,
                 FlashTone::Error => Tone::Error,
             },
-            epoch: flashed.seq,
+            epoch: flashed.showing,
             lasts: Duration::from_millis(flashed.line.millis),
         }
     }

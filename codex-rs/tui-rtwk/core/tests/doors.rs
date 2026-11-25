@@ -557,7 +557,7 @@ fn the_flash_fact_numbers_every_showing_and_none_takes_the_line_away() {
     let again = flash(&mut app, Some(line("Copied", FlashTone::Plain, 3_000))).expect("shown");
     assert_eq!(again.line, first.line);
     assert_ne!(
-        again.seq, first.seq,
+        again.showing, first.showing,
         "the same line again is another showing"
     );
     let error = flash(

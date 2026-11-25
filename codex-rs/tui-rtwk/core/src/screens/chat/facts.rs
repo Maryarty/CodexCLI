@@ -132,11 +132,11 @@ fn five_seconds() -> u64 {
     5_000
 }
 
-/// The flash on now: its line and the number of the showing, which the view starts its timer by
+/// The flash on now: its line and the number of the showing (`showing`), which the view starts its timer by
 /// (the same line shown again is another showing).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Flashed {
-    pub seq: u64,
+    pub showing: u64,
     pub line: FlashLine,
 }
 
@@ -303,7 +303,7 @@ impl Facts {
             Ev::Flash(line) => {
                 self.flashed += 1;
                 self.flash = line.map(|line| Flashed {
-                    seq: self.flashed,
+                    showing: self.flashed,
                     line,
                 });
             }
