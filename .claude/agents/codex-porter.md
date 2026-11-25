@@ -65,11 +65,13 @@ when stuck on a type). Then, from `codex-rs/tui-rtwk`:
 - `~/.cache/rtwk/acargo fmt`, and for test files (macro-declared modules that
   cargo fmt skips) `rustfmt --edition 2024 tests/{app,pages,sheets,oracle,services}/*.rs`
   from `codex-rs/tui-rtwk`.
-Nothing else: no other nextest root, no oracle shard, no pty run, no
-land-check. The orchestrator merges the hand-ins and a waiter runs the tests on
-the batch; a red comes back to you by message. A hook refuses other test runs.
-Only when you cannot judge behaviour without a run: prefix that one call with
-`PORTER_RUN_OK=1` and say why in the deliverable.
+- the scoped tests of your feature, always with a filter: `~/.cache/rtwk/acargo
+  nextest run -p codex-tui-rtwk --test <root> -E 'test(<pattern>)'` (same quiet
+  flags; oracle shards: `--profile oracle -E 'test(<shard>::)'`), and the
+  oracle shards you touched, before hand-in. They must be green.
+No unscoped run (no root without `-E`, no `--workspace`/`--lib`), no pty run,
+no land-check: the orchestrator merges the hand-ins and a waiter runs the whole
+suite on the batch; a red comes back to you by message. A hook refuses the rest.
 
 ## Before task_done
 Merge `claude/tui-rtwk` into your branch, re-run `clippy` + the rules call,
