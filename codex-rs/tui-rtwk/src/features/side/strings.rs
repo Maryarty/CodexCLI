@@ -10,6 +10,9 @@ pub fn note(note: &Note) -> String {
         Note::MainUnavailable => {
             "'/side' is unavailable until the main thread is ready.".to_owned()
         }
+        Note::BeforeSession(command) => {
+            format!("'/{command}' is unavailable before the session starts.")
+        }
         Note::NoStartedConversation => concat!(
             "'/side' is unavailable until the current conversation has started. ",
             "Send a message first, then try /side again."
