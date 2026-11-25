@@ -2227,7 +2227,14 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 // it) ends the launch with the oracle's message.
                 let read = match answer {
                     Answer::Screen(ScreenReply::Agents(agents::Reply::Read { thread, .. })) => {
-                        Ok(Some(thread.cwd.display().to_string()))
+                        Ok(crate::screens::onboarding::session::Found {
+                            cwd: Some(thread.cwd.display().to_string()),
+                            thread: Some(crate::screens::onboarding::session::Resumed {
+                                provider: thread.model_provider.clone(),
+                                loaded: thread.status
+                                    != codex_app_server_protocol::ThreadStatus::NotLoaded,
+                            }),
+                        })
                     }
                     _ => Err(()),
                 };

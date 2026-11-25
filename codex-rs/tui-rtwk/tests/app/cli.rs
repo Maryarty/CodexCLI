@@ -28,6 +28,39 @@ fn the_model_flag_needs_a_value() {
 }
 
 #[test]
+fn oss_and_local_provider_parse() {
+    let plain = parse(&[]).expect("parsed");
+    assert!(!plain.oss);
+    assert_eq!(plain.oss_provider, None);
+    let oss = parse(&["--oss"]).expect("parsed");
+    assert!(oss.oss);
+    assert_eq!(oss.oss_provider, None);
+    for (args, want) in [
+        (["--oss", "--local-provider", "ollama"].as_slice(), "ollama"),
+        (
+            ["--local-provider=lmstudio", "--oss"].as_slice(),
+            "lmstudio",
+        ),
+    ] {
+        let cli = parse(args).expect("parsed");
+        assert_eq!(cli.oss_provider.as_deref(), Some(want), "{args:?}");
+    }
+}
+
+#[test]
+fn local_provider_needs_a_value() {
+    assert!(parse(&["--local-provider"]).is_err());
+}
+
+#[test]
+fn early_answer_skips_the_local_provider_value() {
+    // The value of the flag is not a word of the command line: `help` after
+    // it is a provider name, not the help subcommand.
+    assert_eq!(answer(&["--local-provider", "help"]), None);
+    assert!(answer(&["--local-provider", "ollama", "--help"]).is_some());
+}
+
+#[test]
 fn an_unknown_argument_is_an_error() {
     assert!(parse(&["--nope"]).is_err());
 }

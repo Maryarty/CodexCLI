@@ -70,4 +70,5 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = ["s
 libc = "0.2"
 
 [dev-dependencies]
+tokio = { version = "1", features = ["net", "io-util"] }
 codex-ollama = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/ollama" }

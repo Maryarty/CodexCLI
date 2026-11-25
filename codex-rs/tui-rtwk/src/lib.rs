@@ -25,6 +25,12 @@ pub struct Cli {
     pub locale: Option<rtwk::l10n::Locale>,
     /// `-m` / `--model`: the model for the new thread, over the config's.
     pub model: Option<String>,
+    /// `--oss`: the open-source (local) provider, over the config's.
+    pub oss: bool,
+    /// `--local-provider ID`: which local provider `--oss` uses (`lmstudio`
+    /// or `ollama`); without it the config's `oss_provider`, then the one
+    /// server that is running.
+    pub oss_provider: Option<String>,
     /// The `agents` subcommand: open the agent command center first.
     pub agents: bool,
     /// The `resume` subcommand: open the resume picker first.
@@ -102,6 +108,7 @@ impl Cli {
                 "-m"
                 | "--model"
                 | "--locale"
+                | "--local-provider"
                 | "-C"
                 | "--cd"
                 | "-c"
@@ -131,6 +138,13 @@ impl Cli {
                 "agents" => cli.agents = true,
                 "--no-alt-screen" => cli.no_alt_screen = true,
                 "--no-daemon" => cli.no_daemon = true,
+                "--oss" => cli.oss = true,
+                "--local-provider" => {
+                    let value = args
+                        .next()
+                        .ok_or_else(|| anyhow::anyhow!("--local-provider needs a value"))?;
+                    cli.oss_provider = Some(value);
+                }
                 "-c" | "--config" => {
                     let value = args
                         .next()
@@ -204,6 +218,8 @@ impl Cli {
                         cli.locale = Some(parse_locale(value)?);
                     } else if let Some(value) = other.strip_prefix("--model=") {
                         cli.model = Some(value.to_string());
+                    } else if let Some(value) = other.strip_prefix("--local-provider=") {
+                        cli.oss_provider = Some(value.to_string());
                     } else {
                         anyhow::bail!("unknown argument: {other}");
                     }

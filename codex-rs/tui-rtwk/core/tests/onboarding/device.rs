@@ -66,7 +66,13 @@ fn launched() -> CodexApp {
             facts: Facts::default(),
         }),
     );
-    assert_eq!(asks, [Ask::GatewayDevice { request: 2 }]);
+    assert_eq!(
+        asks,
+        [Ask::GatewayDevice {
+            request: 2,
+            thread: None
+        }]
+    );
     app
 }
 
@@ -230,7 +236,13 @@ fn a_stale_answer_is_dropped_and_a_lost_connection_asks_again() {
     assert_eq!(onboarding(&app).device_code(), None);
     send(&mut app, AppEv::Disconnected);
     let asks = asks_of(&mut app, AppEv::Connected);
-    assert_eq!(asks, [Ask::GatewayDevice { request: 3 }]);
+    assert_eq!(
+        asks,
+        [Ask::GatewayDevice {
+            request: 3,
+            thread: None
+        }]
+    );
     // The answer of the lost connection's ask is not taken.
     assert_eq!(
         asks_of(
