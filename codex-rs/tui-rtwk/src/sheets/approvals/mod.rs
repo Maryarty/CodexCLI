@@ -14,6 +14,7 @@ mod form;
 mod guardian;
 mod keys;
 mod present;
+mod questions;
 mod tips;
 mod user_input;
 
@@ -246,7 +247,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             include_str!("fixtures/user_verification_long_urls.jsonl"),
         ),
     ];
-    entries
+    let mut out: Vec<DebugEntry> = entries
         .into_iter()
         .map(|(name, description, script)| DebugEntry {
             name,
@@ -262,7 +263,9 @@ pub fn debug_entries() -> Vec<DebugEntry> {
                 head_dialog
             }),
         })
-        .collect()
+        .collect();
+    out.extend(questions::debug_entries());
+    out
 }
 
 /// The head's dialog in a frame as tall as the screen (the oracle snapshot tests' buffer): the
