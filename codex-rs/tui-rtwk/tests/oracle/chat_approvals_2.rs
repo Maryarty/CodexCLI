@@ -468,11 +468,11 @@ fn accepted_question_answer_uses_existing_delivery_and_keeps_main_draft() {
                 row_of(&s, "Queued follow-up inputs"),
                 0,
             );
-            assert!(s.turns().is_empty(), "the reply waits in the queue");
+            kit::assert_same(s.turns().len(), 0, "the reply waits in the queue");
         } else {
             let turns = s.turns();
-            assert_eq!(turns.len(), 1);
-            assert_eq!(turns[0].text, reply);
+            kit::assert_same(turns.len(), 1, "one turn");
+            kit::assert_same(turns[0].text.as_str(), reply, "the reply envelope");
         }
         // the editor of the other question is open; the main draft is back with the composer
         s.assert_contains("Any details?");
@@ -592,20 +592,26 @@ fn selected_answers_preserve_long_labels_and_reject_oversized_submissions() {
         s.assert_snap_region(snapshot, row_of(&s, "Queued follow-up inputs"), 0);
         s.keys("enter");
         if oversized {
-            assert!(s.turns().is_empty());
+            kit::assert_same(s.turns().len(), 0, "an empty answer sends nothing");
             s.paste(&"\"".repeat((1 << 20) / 2));
             s.keys("enter");
-            assert!(s.turns().is_empty());
+            kit::assert_same(s.turns().len(), 0, "an oversized answer sends nothing");
             s.assert_has_row("  Answer too long; shorten it before sending");
         } else {
             let turns = s.turns();
-            assert_eq!(turns.len(), 1);
-            assert!(
+            kit::assert_same(turns.len(), 1, "one turn");
+            kit::assert_same(
                 turns[0]
                     .text
-                    .contains(&format!("{} but do not deploy", "x".repeat(300)))
+                    .contains(&format!("{} but do not deploy", "x".repeat(300))),
+                true,
+                "the long answer is sent whole",
             );
-            assert!(turns[0].text.contains("\"question\":\"What next?\""));
+            kit::assert_same(
+                turns[0].text.contains("\"question\":\"What next?\""),
+                true,
+                "the reply names the question",
+            );
         }
     }
 }
@@ -691,15 +697,17 @@ fn question_editor_keeps_working_status_and_queued_messages_visible() {
     // the snapshot's first row is the spinner's bullet, which follows the clock (`•` or `◦`)
     let at = row_of(&s, "Working");
     let rows = s.rows();
-    assert_eq!(
+    kit::assert_same(
         rows[at].trim_start_matches(['•', '◦']),
-        " Working (0s • esc to interrupt)"
+        " Working (0s • esc to interrupt)",
+        "the status row",
     );
     // the rest of the OPEN frame of questions_with_status_and_queue, cut before `1 of 2`
     let rest: Vec<&str> = rows[at + 1..at + 4].iter().map(|r| r.trim_end()).collect();
-    assert_eq!(
+    kit::assert_same(
         rest,
-        ["", "• Queued follow-up inputs", "  ↳ queued follow-up"]
+        vec!["", "• Queued follow-up inputs", "  ↳ queued follow-up"],
+        "the rest of the open frame",
     );
     // the queue is taken back (the last question forward pops it), the turn ends, the question block is collapsed
     s.keys("alt+up alt+up");
@@ -739,13 +747,13 @@ fn async_questions_reject_blank_answers_but_allow_explicit_skip() {
             let before = s.shot();
             s.keys("enter");
             s.assert_same_rows(&before);
-            assert!(s.turns().is_empty());
+            kit::assert_same(s.turns().len(), 0, "an empty answer sends nothing");
         }
         s.keys("ctrl+]");
         // the skip leaves no question: the editor is gone and nothing was sent
         s.assert_absent("enter submit");
         s.assert_absent("? 1 question");
-        assert!(s.turns().is_empty());
+        kit::assert_same(s.turns().len(), 0, "the skip sends nothing");
     }
 }
 
@@ -920,13 +928,19 @@ fn desktop_async_answer_dismisses_only_its_question_and_preserves_the_other_draf
     s.keys("enter");
     // the surviving question keeps its identity: the reply names question 1 of the message
     let turns = s.turns();
-    assert_eq!(turns.len(), 1);
-    assert!(
+    kit::assert_same(turns.len(), 1, "one turn");
+    kit::assert_same(
         turns[0]
             .text
-            .contains(r#"[\"request_user_input_async\",\"message\",1]"#)
+            .contains(r#"[\"request_user_input_async\",\"message\",1]"#),
+        true,
+        "the reply names question 1 of the message",
     );
-    assert!(turns[0].text.contains("My draft for the second question"));
+    kit::assert_same(
+        turns[0].text.contains("My draft for the second question"),
+        true,
+        "the kept draft is the answer",
+    );
     s.assert_absent("enter submit");
 }
 
