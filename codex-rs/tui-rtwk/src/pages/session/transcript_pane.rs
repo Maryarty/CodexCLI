@@ -30,6 +30,7 @@ use super::cells::strings as cells_strings;
 use super::cells::text::Env;
 use super::cells::{CellEnv, Place, cell};
 use super::strings as chat_strings;
+use super::transcript::activity_focus::{self, Activity};
 use super::transcript::copy::{self as copying, Targets};
 use super::transcript::find::{Finder, RowTexts};
 use super::transcript::item_text::{Reading, mounted_parts};
@@ -37,7 +38,7 @@ use super::transcript::select::{self, Pos, Select};
 use super::transcript::selection::SelectionHost;
 use super::transcript::strings as transcript_strings;
 use super::transcript::turn_details::{
-    Anchor, FoldRow, Kind, Plan, PromptFold, Row, Unfolded, Words, arrow, prompt_label,
+    Anchor, FoldRow, Kind, Plan, PromptFold, Row, Words, arrow, prompt_label,
 };
 
 /// The transcript with a prompt marked (Flutter: a `ListView` whose item
@@ -56,9 +57,6 @@ pub(super) struct Pane {
 
 pub(super) struct ViewportState {
     layout: RefCell<Option<RowLayout>>,
-    /// The folds the reader opened, and a counter that tells the rows it changed.
-    open: Unfolded,
-    opened: u64,
     /// The prompt the list was last scrolled to show.
     shown: RefCell<Option<ItemKey>>,
     /// The first row the list showed, to see rows come in above it.
@@ -76,6 +74,9 @@ pub(super) struct ViewportState {
     /// The finder of the thread shown, and what it told this list to listen with: the list
     /// builds again when Find moves.
     finding: RefCell<Option<(Finder, VoidCallback)>>,
+    /// The folds of the thread shown, and its listener: the list builds again when the reader
+    /// opens one or the focus moves.
+    folding: RefCell<Option<(Activity, VoidCallback)>>,
     /// The select mode of the thread shown, and its listener: the list builds again when the
     /// caret moves.
     selecting: RefCell<Option<(Select, VoidCallback)>>,
@@ -154,7 +155,13 @@ impl ViewportState {
     /// summary and the warnings show only in the detailed transcript (oracle
     /// `ReasoningSummaryCell::transcript_only`, `WarningHistoryCell`). With the
     /// turn details collapsed the plan of the folds decides instead.
-    fn rows(&self, thread: &ThreadModel, detailed: bool, collapse: bool) -> Shown {
+    fn rows(
+        &self,
+        thread: &ThreadModel,
+        detailed: bool,
+        collapse: bool,
+        activity: &Activity,
+    ) -> Shown {
         let mut cache = self.layout.borrow_mut();
         let transcript = thread.transcript();
         let revision = transcript.layout_revision();
@@ -163,7 +170,7 @@ impl ViewportState {
             && layout.revision == revision
             && layout.detailed == detailed
             && layout.collapse == collapse
-            && layout.opened == self.opened
+            && layout.opened == activity.revision()
         {
             return layout.shown.clone();
         }
@@ -175,7 +182,7 @@ impl ViewportState {
         };
         let shown = if collapse && !detailed {
             let plan = Plan::of(transcript);
-            let rows = plan.rows(transcript, &self.open, hidden);
+            let rows = plan.rows(transcript, &activity.open(), hidden);
             Shown {
                 rows: rows.into(),
                 plan: Rc::new(plan),
@@ -211,7 +218,7 @@ impl ViewportState {
             revision,
             detailed,
             collapse,
-            opened: self.opened,
+            opened: activity.revision(),
             shown: shown.clone(),
         });
         shown
@@ -232,6 +239,21 @@ impl ViewportState {
         let listener: VoidCallback = Rc::new(move || send(Msg::Find));
         finder.listenable().add_listener(listener.clone());
         *held = Some((finder.clone(), listener));
+    }
+
+    /// The list builds again when the folds of the thread shown change (one opens or closes, the
+    /// focus moves): one listener, on its `activity`.
+    fn listen_folds(&self, activity: &Activity, send: Rc<dyn Fn(Msg)>) {
+        let mut held = self.folding.borrow_mut();
+        if held.as_ref().is_some_and(|(held, _)| held == activity) {
+            return;
+        }
+        if let Some((old, listener)) = held.take() {
+            old.listenable().remove_listener(&listener);
+        }
+        let listener: VoidCallback = Rc::new(move || send(Msg::Find));
+        activity.listenable().add_listener(listener.clone());
+        *held = Some((activity.clone(), listener));
     }
 
     /// The list builds again when `select` moves: one listener, on the select mode of the thread
@@ -449,20 +471,36 @@ fn fingerprint(item: &Item) -> u64 {
     sink.0.finish()
 }
 
+/// The ids of the fold a row draws, if it draws one: a prompt with messages behind it, a run of
+/// calls (a lone finished search is the row it is).
+fn fold_of(row: &Row, transcript: &codex_tui_core::threads::Transcript) -> Option<Vec<ItemKey>> {
+    match &row.kind {
+        Kind::Prompt(prompt) => Some(vec![prompt.id.clone()]),
+        Kind::Tools(group) if !group.is_lone_search(transcript) => Some(group.ids.clone()),
+        _ => None,
+    }
+}
+
+/// The folds of the rows, oldest first.
+fn fold_ids(rows: &[Row], transcript: &codex_tui_core::threads::Transcript) -> Vec<Vec<ItemKey>> {
+    rows.iter()
+        .filter_map(|row| fold_of(row, transcript))
+        .collect()
+}
+
 impl StatefulWidget for Pane {
     type State = ViewportState;
 
     fn create_state(&self) -> Self::State {
         ViewportState {
             layout: RefCell::default(),
-            open: Unfolded::default(),
-            opened: 0,
             shown: RefCell::default(),
             first: RefCell::default(),
             tail: None,
             left: Vec::new(),
             restoring: None,
             finding: RefCell::default(),
+            folding: RefCell::default(),
             selecting: RefCell::default(),
             texts: RefCell::default(),
             targets: RefCell::default(),
@@ -512,6 +550,9 @@ impl State for ViewportState {
         if let Some((select, listener)) = self.selecting.get_mut().take() {
             select.listenable().remove_listener(&listener);
         }
+        if let Some((activity, listener)) = self.folding.get_mut().take() {
+            activity.listenable().remove_listener(&listener);
+        }
     }
 
     fn did_change_dependencies(&mut self, widget: &Pane, cx: &mut Cx<'_, Self>) {
@@ -520,7 +561,12 @@ impl State for ViewportState {
         // (`sync_history_tail`). A thread the reader has just opened has none.
         let thread = watch::<ThreadModel, _>(cx);
         let collapse = select::<TuiSettings, _, _>(cx, |settings| settings.collapse_turn_details);
-        let shown = self.rows(&thread, widget.detailed, collapse);
+        let shown = self.rows(
+            &thread,
+            widget.detailed,
+            collapse,
+            &activity_focus::of(&widget.find),
+        );
         let transcript = thread.transcript();
         let tail = shown
             .rows
@@ -536,7 +582,7 @@ impl State for ViewportState {
         self.tail = tail;
     }
 
-    fn update(&mut self, msg: Msg, _: &Pane, cx: &mut Cx<'_, Self>) -> Rebuild {
+    fn update(&mut self, msg: Msg, widget: &Pane, cx: &mut Cx<'_, Self>) -> Rebuild {
         match msg {
             Msg::Load(thread) => {
                 let handlers = read::<Hs, _>(cx);
@@ -544,8 +590,7 @@ impl State for ViewportState {
                 Rebuild::No
             }
             Msg::Toggle(ids) => {
-                self.open.toggle(&ids);
-                self.opened += 1;
+                activity_focus::of(&widget.find).toggle(&ids);
                 Rebuild::Yes
             }
             Msg::Find => Rebuild::Yes,
@@ -584,10 +629,31 @@ impl State for ViewportState {
             select::<ScreenStates, _, _>(cx, |states| states.cells.show_raw_reasoning);
         let collapse = select::<TuiSettings, _, _>(cx, |settings| settings.collapse_turn_details);
         let rendering = select::<TuiSettings, _, _>(cx, |settings| settings.rendering);
-        let Shown { rows, plan } = self.rows(&thread, detailed, collapse);
+        let activity = activity_focus::of(&widget.find);
+        let Shown { rows, plan } = self.rows(&thread, detailed, collapse, &activity);
         let reverse = !thread.read_only() && header.is_none();
         let header = header.filter(|_| !can_load);
         let count = rows.len() + usize::from(header.is_some());
+        self.listen_folds(&activity, cx.local_sender());
+        // the folds the chat's own list has, for the keys that walk them (F4); the Ctrl+T
+        // transcript has none, and leaves the chat's alone
+        if !detailed {
+            let folds = fold_ids(&rows, thread.transcript());
+            activity.set_folds(folds);
+            if let Some(ids) = activity.take_reveal()
+                && let Some(logical) = rows.iter().position(|row| {
+                    fold_of(row, thread.transcript())
+                        .is_some_and(|fold| fold.iter().any(|id| ids.contains(id)))
+                })
+            {
+                let logical = logical + usize::from(header.is_some());
+                widget.follow.scroll().ensure_index_visible(if reverse {
+                    count - 1 - logical
+                } else {
+                    logical
+                });
+            }
+        }
         let marked = widget
             .mark
             .and_then(|nth| nth_user(thread.transcript(), nth))
@@ -690,8 +756,9 @@ impl State for ViewportState {
             *self.texts.borrow_mut() = None;
         }
         let toggled = cx.map(Msg::Toggle);
-        let open = self.open.clone();
+        let state = activity;
         let control = tokens.dim().attrs(Attrs::DIM);
+        let focus = tokens.accent().attrs(Attrs::BOLD);
         let cwd = cwd.map(str::to_owned);
         // where a row went when rows came in above it (an older page joined): the list keeps the
         // row the reader is at on its line (Flutter's `findChildIndexCallback`)
@@ -757,7 +824,7 @@ impl State for ViewportState {
             let fold = match &row.kind {
                 Kind::Tools(group) if !group.is_lone_search(transcript) => {
                     let calls = group.calls(transcript, words);
-                    let open = open.is_open(&group.ids);
+                    let open = state.is_open(&group.ids);
                     let search = calls
                         .last()
                         .is_some_and(|call| call.starts_with(folds.search_prefix));
@@ -769,6 +836,7 @@ impl State for ViewportState {
                             calls: if open { calls } else { Vec::new() },
                             ids: group.ids.clone(),
                             style: control.clone(),
+                            focus: state.is_focused(&group.ids).then(|| focus.clone()),
                             toggled: toggled.clone(),
                         }
                         .into(),
@@ -808,7 +876,7 @@ impl State for ViewportState {
                     let turn = transcript.get(*last).map(|(key, _)| &key.turn)?;
                     super::cells::separator::label(timing, timing_facts(turn), cells)
                 });
-                let open = open.is_open(std::slice::from_ref(id));
+                let open = state.is_open(std::slice::from_ref(id));
                 let label = prompt_label(*hidden, timing, words);
                 column = column.child(FoldRow {
                     anchor: Anchor::Turn,
@@ -816,6 +884,9 @@ impl State for ViewportState {
                     calls: Vec::new(),
                     ids: vec![id.clone()],
                     style: control.clone(),
+                    focus: state
+                        .is_focused(std::slice::from_ref(id))
+                        .then(|| focus.clone()),
                     toggled: toggled.clone(),
                 });
             }

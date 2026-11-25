@@ -20,6 +20,7 @@ use rtwk::style::{Span, Style};
 use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
+use super::activity_focus::{self, Activity};
 use super::copy;
 use super::find::{self, Finder, Mode};
 use super::select;
@@ -172,11 +173,20 @@ pub fn query_row(table: &'static Strings, label: Style, editor: AnyWidget) -> An
 /// row, two cells in, in the place of `normal`, the footer the page would draw; while select mode
 /// is on and Find is not, its hint row (`select_hints`) (Flutter: a `ListenableBuilder` on the
 /// finder and on the select mode). One call from the page's footer slot.
-pub fn slot<S>(cx: &mut Cx<'_, S>, finder: &Finder, normal: AnyWidget) -> AnyWidget {
+pub fn slot<S: 'static>(cx: &mut Cx<'_, S>, finder: &Finder, normal: AnyWidget) -> AnyWidget {
     let table = strings::of(cx);
     let tokens = Tokens::of(cx);
     let (dim, bold) = (tokens.dim(), tokens.bold());
     let finder = finder.clone();
+    let keymap = crate::keymap::keymap(cx);
+    let normal = activity_hints(
+        table,
+        &activity_focus::of(&finder),
+        keymap,
+        normal,
+        bold.clone(),
+        dim.clone(),
+    );
     let normal = select_hints(
         table,
         &select::of(&finder),
@@ -210,6 +220,53 @@ pub fn slot<S>(cx: &mut Cx<'_, S>, finder: &Finder, normal: AnyWidget) -> AnyWid
             dim.clone(),
         )))
         .into()
+    })
+    .into()
+}
+
+/// The hint row of the focus on a fold of the turn details in the place of `normal` while a fold
+/// has it (`disclosure_footer`): the keys, the first spelling that fits, dropping what leads
+/// before the toggle and the way back.
+fn activity_hints(
+    table: &'static Strings,
+    activity: &Activity,
+    keymap: Rc<codex_tui_core::keymap::Keymap>,
+    normal: AnyWidget,
+    key: Style,
+    dim: Style,
+) -> AnyWidget {
+    let activity = activity.clone();
+    ListenableBuilder::new(activity.listenable(), move |_, _| {
+        let Some(hints) = activity.hints(&keymap, table) else {
+            return normal.clone();
+        };
+        let (key, dim) = (key.clone(), dim.clone());
+        row(LayoutBuilder::new(move |cx, constraints| {
+            let segmenter = segmenter_of(cx);
+            let spans = |from: usize| {
+                let mut spans = Vec::new();
+                for (index, (name, label)) in hints[from..].iter().enumerate() {
+                    if index > 0 {
+                        spans.push(Span::styled(table.hint_joiner, dim.clone()));
+                    }
+                    spans.push(Span::styled(name.clone(), key.clone()));
+                    spans.push(Span::styled(format!(" {label}"), dim.clone()));
+                }
+                spans
+            };
+            let width = |spans: &[Span]| -> i32 {
+                spans
+                    .iter()
+                    .map(|span| i32::try_from(segmenter.width(&span.text)).unwrap_or(i32::MAX))
+                    .sum()
+            };
+            let fitting = (0..hints.len())
+                .map(spans)
+                .find(|spans| width(spans) <= constraints.max_width)
+                .unwrap_or_else(|| spans(hints.len().saturating_sub(1)));
+            Text::rich_line(fitting).overflow(TextOverflow::Clip).into()
+        })
+        .into())
     })
     .into()
 }

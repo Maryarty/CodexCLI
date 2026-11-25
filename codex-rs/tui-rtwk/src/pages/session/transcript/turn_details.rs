@@ -547,7 +547,7 @@ pub fn arrow(open: bool, search: bool, words: Words<'_>) -> &'static str {
 const CALL_INDENT: i32 = 6;
 
 /// A disclosure row: the control, and below it the calls of an open run (Flutter: an
-/// `ExpansionTile` header and children in one `Pressable`; tap, Enter and Space ask `toggled` for
+/// `ExpansionTile` header and children in one `Pressable`; a tap asks `toggled` for
 /// the fold's keys).
 #[derive(Clone, PartialEq)]
 pub struct FoldRow {
@@ -557,6 +557,8 @@ pub struct FoldRow {
     pub calls: Vec<String>,
     pub ids: Vec<ItemKey>,
     pub style: Style,
+    /// How the control is drawn while the fold has the focus (F4).
+    pub focus: Option<Style>,
     pub toggled: Handler<Vec<ItemKey>>,
 }
 
@@ -584,7 +586,7 @@ impl State for FoldState {
     fn build(&self, widget: &FoldRow, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let control = widget.control.clone();
         let calls = widget.calls.clone();
-        let style = widget.style.clone();
+        let style = widget.focus.clone().unwrap_or_else(|| widget.style.clone());
         let anchor = widget.anchor;
         let body: AnyWidget = LayoutBuilder::new(move |_, room| {
             let line = |text: &str, left: i32, top: i32, overflow: TextOverflow| -> AnyWidget {
@@ -611,9 +613,10 @@ impl State for FoldState {
             column.into()
         })
         .into();
-        let toggle = cx.send(());
+        // a control of the mouse: the composer keeps the keys, and the focus on a fold is the
+        // transcript's own (`activity_focus`), whose Enter toggles it
         Pressable::new(move |_, _| body.clone())
-            .bindings([("enter", Some(toggle.clone())), ("space", Some(toggle))])
+            .can_request_focus(false)
             .on_tap(cx.map(|_| ()))
             .into()
     }

@@ -17,6 +17,7 @@ use crate::keymap::{combo_of, holds_ctrl_or_alt, pressed_fixed, unmodified};
 use crate::pages::session::keys;
 use crate::pages::session::live::browse::{self, Browse};
 use crate::pages::session::live::provider_error;
+use crate::pages::session::transcript::activity_focus::{self, Step as ActivityStep};
 use crate::pages::session::transcript::copy::{self as copying, Step as CopyStep};
 use crate::pages::session::transcript::select::{self as caret, Step};
 use crate::pages::session::transcript::selection::Key as SelectionKey;
@@ -72,6 +73,7 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
         // a match being read (Find accepted): `Ctrl+P`, `Ctrl+N`, Enter (swallowed), Esc and
         // `Ctrl+C` are Find's (`handle_search_key`), whatever the composer holds
         let finder = finder.borrow().clone();
+        let activity = activity_focus::of(&finder);
         if finder.reading()
             && let Some(taken) = find::key(finder.mode(), &key)
             && finder.take(taken)
@@ -104,6 +106,17 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
                 CopyStep::Page(pages) => send(ChatMsg::Page(pages)),
             }
             return KeyEventResult::Handled;
+        }
+        // a fold of the turn details in focus (F4): the keys of a list, any other key lets go of it
+        // and goes on to the field (`handle_disclosure_key`)
+        if !finder.active()
+            && !modes.borrow().detailed()
+            && let Some(step) = activity.key(&keymap.borrow(), &key)
+        {
+            return match step {
+                ActivityStep::Taken => KeyEventResult::Handled,
+                ActivityStep::Left => KeyEventResult::Ignored,
+            };
         }
         // select mode: the caret's keys come before the field's, while Find is not asking
         // (`handle_select_mode_key`); a key of the mode ends here, one that is not goes on

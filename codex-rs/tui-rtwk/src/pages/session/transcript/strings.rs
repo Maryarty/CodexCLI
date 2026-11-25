@@ -186,6 +186,13 @@ pub struct Strings {
     pub copy_code: &'static str,
     pub copy_quote: &'static str,
     pub copy_hints: [&'static str; 2],
+    /// The footer while a fold of the turn details has the focus (`disclosure_footer`): what the
+    /// keys do, the toggle by what the fold would do.
+    pub activity_previous: &'static str,
+    pub activity_next: &'static str,
+    pub activity_expand: &'static str,
+    pub activity_collapse: &'static str,
+    pub activity_back: &'static str,
 }
 
 /// English: the oracle's text (the slice names the oracle file per group).
@@ -355,6 +362,11 @@ pub const EN: Strings = Strings {
         "↑/↓/j/k select · g/G ends · enter copy · esc close",
         "↑/↓ select · enter copy · esc close",
     ],
+    activity_previous: "previous",
+    activity_next: "next",
+    activity_expand: "expand",
+    activity_collapse: "collapse",
+    activity_back: "back",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);
