@@ -29,10 +29,10 @@ use codex_tui_core::screens::{ScreenThreadIntent, chat};
 use codex_tui_core::threads::{HistoryState, ThreadModel};
 
 use super::TranscriptMode;
+use super::copy::{self, CopyJob};
 use super::find;
 use super::find_footer;
 use super::history;
-use super::copy::{self, CopyJob};
 use super::pager;
 use super::selection;
 use super::strings::{self, Strings};

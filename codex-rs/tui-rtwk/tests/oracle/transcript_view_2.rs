@@ -630,17 +630,29 @@ fn passive_footer_keeps_jump_actions_in_one_row() {
 // ORACLE transcript_view/footer_tests.rs:382 narrow_selection_and_search_keep_complete_exit_hints kind=snap owner=chat-live snap=narrow_selection_and_search_keep_complete_exit_hints
 #[test]
 fn narrow_selection_and_search_keep_complete_exit_hints() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no selection or search footer that keeps the exit hints at 12, 20, 32 and 80 columns",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(12, 3)
+    let name = "narrow_selection_and_search_keep_complete_exit_hints";
+    // the oracle's `footer(width)` is the width of the hint row, which the screen indents
+    const FOOTER_INDENT: u16 = 2;
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 12)
         .script(include_str!(
             "fixtures/transcript_view_2/needle_final.jsonl"
         ))
         .open();
-    s.assert_snap("narrow_selection_and_search_keep_complete_exit_hints");
+    // the line `needle final`, as the oracle's triple click selects it
+    s.triple_click(4, 5);
+    for (at, width) in [12, 20, 32, 80].into_iter().enumerate() {
+        s.resize(width + FOOTER_INDENT, 12);
+        s.assert_exit_hint(name, at);
+    }
+    s.keys("esc");
+    // the chat's key for Find is `find_transcript` (F3); `/` is the pager's
+    s.keys("f3");
+    s.paste("needle");
+    for (at, width) in [12, 20, 32, 80].into_iter().enumerate() {
+        s.resize(width + FOOTER_INDENT, 12);
+        s.assert_exit_hint(name, 4 + at);
+    }
 }
 
 // ORACLE transcript_view/footer_tests.rs:439 patch_disclosure_preserves_manual_scrolling kind=ui owner=chat-live

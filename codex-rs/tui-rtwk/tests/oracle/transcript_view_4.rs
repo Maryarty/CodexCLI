@@ -183,10 +183,8 @@ fn reading_without_a_match_searches_from_the_visible_entry_in_each_direction() {
         s.keys(key);
         s.assert_contains(expected);
     }
-    kit::pending(
-        Owner::ChatLive,
-        "G-new-sel-reveal: with no match (the oracle's `restart_search` after it jumped to entry 1, `context`) Ctrl+P and Ctrl+N go on from the entry the reader sees; the port scans a restarted query from the newest row, and the list tells no item extent, so the pane cannot tell which entry is first in view",
-    );
+    // with no match read the two keys go on from the entry the reader sees: the older and the
+    // newer needle
     for (key, expected) in [("ctrl+p", "older needle"), ("ctrl+n", "newer needle")] {
         let mut s = Screen::build(Owner::ChatLive)
             .size(30, 4)
@@ -198,7 +196,8 @@ fn reading_without_a_match_searches_from_the_visible_entry_in_each_direction() {
         s.keys("/");
         s.type_text("needle");
         s.keys("enter");
-        // the oracle reads entry 1 (`context`) in the one row it has, with no match
+        // the reader leaves the match for the entry between the two (the oracle's
+        // `jump_to_entry(1)`, which has none), and the query is asked again
         s.keys("pageup");
         s.keys("/");
         s.keys("backspace");
@@ -206,6 +205,7 @@ fn reading_without_a_match_searches_from_the_visible_entry_in_each_direction() {
         s.keys("enter");
         s.keys(key);
         s.assert_contains(expected);
+        s.assert_text_style("needle", "reversed");
     }
 }
 

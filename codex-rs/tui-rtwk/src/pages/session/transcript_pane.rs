@@ -59,6 +59,10 @@ pub(super) struct Pane {
     pub mark: Option<usize>,
 }
 
+/// How many frames after a swap of the list the reader is put back again (the first lands on
+/// estimates of the rows not laid out yet).
+const KEEPS: u8 = 3;
+
 pub(super) struct ViewportState {
     layout: RefCell<Option<RowLayout>>,
     /// The prompt the list was last scrolled to show.
@@ -163,8 +167,9 @@ pub(super) enum Msg {
     /// Find closed and the list built again: the reader goes back.
     Restore,
     /// The list became another widget under a reader who was away from the last row: the new
-    /// list starts at the end, and the reader goes back to where they were.
-    Keep(i64),
+    /// list starts at the end, and the reader goes back to where they were. The rows it has not
+    /// measured yet are estimates, so the move is made again (the count) once they are.
+    Keep(i64, u8),
 }
 
 impl ViewportState {
@@ -662,15 +667,30 @@ impl State for ViewportState {
             }
             Msg::Find => Rebuild::Yes,
             Msg::Restore => {
-                widget.find.go_back();
+                if let Some(pixels) = widget.find.go_back()
+                    && let Some(binding) = AppBinding::maybe_of(cx)
+                {
+                    binding.add_post_frame_callback(
+                        cx.map(move |_: Duration| Msg::Keep(pixels, KEEPS - 1)),
+                    );
+                }
                 Rebuild::No
             }
-            Msg::Keep(pixels) => {
-                widget
-                    .follow
-                    .scroll()
-                    .as_scroll_controller()
-                    .jump_to(pixels);
+            Msg::Keep(pixels, again) => {
+                let controller = widget.follow.scroll().as_scroll_controller().clone();
+                let moved = controller
+                    .try_position()
+                    .is_ok_and(|position| position.pixels() != pixels);
+                if moved {
+                    controller.jump_to(pixels);
+                }
+                if again > 0
+                    && let Some(binding) = AppBinding::maybe_of(cx)
+                {
+                    binding.add_post_frame_callback(
+                        cx.map(move |_: Duration| Msg::Keep(pixels, again - 1)),
+                    );
+                }
                 Rebuild::No
             }
         }
@@ -759,11 +779,12 @@ impl State for ViewportState {
         if reads != self.texted.replace(reads)
             && widget.follow.away()
             && self.restoring.is_none()
+            && !search.going_back()
             && let Ok(position) = widget.follow.scroll().as_scroll_controller().try_position()
             && let Some(binding) = AppBinding::maybe_of(cx)
         {
             let pixels = position.pixels();
-            binding.add_post_frame_callback(cx.map(move |_: Duration| Msg::Keep(pixels)));
+            binding.add_post_frame_callback(cx.map(move |_: Duration| Msg::Keep(pixels, KEEPS)));
         }
         // Find closed: the list builds again and takes no move made in the frame that does, so the
         // reader is put back after it

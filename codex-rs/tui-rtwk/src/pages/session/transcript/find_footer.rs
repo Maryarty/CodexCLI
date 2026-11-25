@@ -8,12 +8,13 @@
 //! `Text` and an `Expanded` field, and a `LayoutBuilder` + `segmenter_of` that
 //! picks the spelling (as `follow.rs`).
 
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
 use rtwk::binding::AppBinding;
 use rtwk::editing::{EditingKeys, TextField};
-use rtwk::focus::{Focus, FocusNode};
+use rtwk::focus::{Focus, FocusNode, KeyPress};
 use rtwk::foundation::ListenableBuilder;
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
 use rtwk::style::{Span, Style};
@@ -27,6 +28,7 @@ use super::select;
 use super::selection;
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
+use crate::pages::session::composer::editing::edit_query;
 pub use crate::widgets::finder::{Progress, Status};
 
 /// The spellings of the status row, the widest first (`status_line`).
@@ -463,13 +465,18 @@ enum Edit {
 
 struct QueryState {
     back: Option<FocusNode>,
+    /// The first key of an Editor chord the query is part way through.
+    chord: Rc<RefCell<Option<KeyPress>>>,
 }
 
 impl StatefulWidget for QueryField {
     type State = QueryState;
 
     fn create_state(&self) -> QueryState {
-        QueryState { back: None }
+        QueryState {
+            back: None,
+            chord: Rc::default(),
+        }
     }
 }
 
@@ -520,15 +527,18 @@ impl State for QueryState {
             });
         let keys = finder.clone();
         let caret = select::of(&finder);
+        let keymap = crate::keymap::keymap(cx);
+        let chord = self.chord.clone();
         let field = EditingKeys::new(
-            move |_, key, _| {
+            move |c, key, _| {
                 // what the reader selected comes first: its copy keys and Esc are the selection's
                 // (`handle_selection_key`), the page takes them
                 if keys.paused() && selection::key(key).is_some() {
                     return false;
                 }
                 let Some(taken) = find::key(keys.mode(), key) else {
-                    return false;
+                    // the user's Editor bindings are the query's too (`input_with_keymap`)
+                    return edit_query(&keymap, c, key, &chord);
                 };
                 // Enter on an empty query in select mode is the search accepted there once more:
                 // Find closes and `n` and `N` go on with it (`restore_saved_select_search`)

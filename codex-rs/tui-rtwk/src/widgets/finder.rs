@@ -152,6 +152,9 @@ struct Data {
     awaiting: Option<usize>,
     /// The pane is to ask for the older page.
     load: bool,
+    /// The page was asked for again after it failed, and the history still says it failed: the
+    /// answer to the new request is not in yet.
+    retrying: bool,
     truncated: bool,
     history_failed: bool,
     saved: Option<Saved>,
@@ -216,6 +219,7 @@ impl Finder {
                 reader: false,
                 awaiting: None,
                 load: false,
+                retrying: false,
                 truncated: false,
                 history_failed: false,
                 saved: None,
@@ -364,7 +368,9 @@ impl Finder {
         // typing ends the selection the reader made (`handle_search_key` drops it)
         let reader = {
             let data = self.0.data.borrow();
-            reader_selection(&data).then(|| data.selection.clone()).flatten()
+            reader_selection(&data)
+                .then(|| data.selection.clone())
+                .flatten()
         };
         if let Some(selection) = reader {
             selection.controller().clear();
@@ -378,6 +384,7 @@ impl Finder {
             data.progress = Progress::Restart;
             data.awaiting = None;
             data.history_failed = false;
+            data.retrying = false;
             data.truncated = false;
         }
         self.notify();
@@ -458,15 +465,17 @@ impl Finder {
     }
 
     /// The reader goes where the closed Find leaves them, once: asked after the frame that built
-    /// the list again, which takes no move made before it.
-    pub fn go_back(&self) {
+    /// the list again, which takes no move made before it. The answer is the pixels of a reader
+    /// put away from the last row, whose jump lands on estimated extents until the rows are laid
+    /// (the caller makes it again).
+    pub fn go_back(&self) -> Option<i64> {
         let (saved, follow) = {
             let mut data = self.0.data.borrow_mut();
             (data.restore.take(), data.follow.clone())
         };
-        if let (Some(saved), Some(follow)) = (saved, follow) {
-            put_back(&follow, saved);
-        }
+        let (saved, follow) = saved.zip(follow)?;
+        put_back(&follow, saved);
+        (!saved.at_tail).then_some(saved.pixels)
     }
 
     /// Find closed and the reader is yet to be put back (`go_back`).
@@ -500,6 +509,7 @@ impl Finder {
             data.history_failed = false;
             data.awaiting = None;
             data.load = false;
+            data.retrying = false;
             data.saved = None;
             data.reader = false;
             let held = std::mem::take(&mut data.selected);
@@ -594,7 +604,12 @@ impl Finder {
                         hit.row += added;
                     }
                     search(rows, &folded, (added - 1, usize::MAX), Direction::Older)
-                } else if matches!(more, More::Loadable | More::Loading) || (failed && more == More::Failed) {
+                } else if more == More::Loading {
+                    self.loading();
+                    return None;
+                } else if more == More::Loadable
+                    || (more == More::Failed && (failed || self.0.data.borrow().retrying))
+                {
                     return None;
                 } else {
                     None
@@ -652,6 +667,7 @@ impl Finder {
                     data.awaiting = Some(count);
                     data.history_failed = more == More::Failed && !retry;
                     data.load = more == More::Loadable || (more == More::Failed && retry);
+                    data.retrying = more == More::Failed && retry;
                     if want == Want::Restart {
                         data.current = None;
                     }
@@ -668,6 +684,20 @@ impl Finder {
         }
         self.notify();
         self.take_unshown()
+    }
+
+    /// The older page is on its way: what failed before is no longer the news.
+    fn loading(&self) {
+        let changed = {
+            let mut data = self.0.data.borrow_mut();
+            let changed = data.history_failed || data.retrying;
+            data.history_failed = false;
+            data.retrying = false;
+            changed
+        };
+        if changed {
+            self.notify();
+        }
     }
 
     /// The scan reached the oldest row and older history is to be had: the pane asks for the
