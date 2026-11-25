@@ -1142,7 +1142,9 @@ mod kit_usage {
             let mut s = credits(keymap);
             s.assert_contains("Product");
             s.assert_absent("? help");
-            s.keys(keymap[0].1);
+            // A terminal reports Shift+/ as the character `?` (rtwk names the press by it): the
+            // oracle's `KeyEvent(Char('?'), SHIFT)` is this one key.
+            s.keys(keymap[0].1.trim_start_matches("shift+"));
             s.assert_absent("Product");
         }
     }
