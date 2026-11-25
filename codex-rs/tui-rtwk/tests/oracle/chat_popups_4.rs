@@ -6,6 +6,8 @@
 
 #![allow(clippy::expect_used)]
 
+use serde_json::json;
+
 use crate::kit::{self, Checkout, Held, Owner, Screen};
 
 // ---- oracle: chatwidget/tests/popups_and_settings.rs (43 screen-level tests here; 4 state tests left to dialogs-pane)
@@ -147,7 +149,13 @@ fn experimental_popup_loading_snapshot() {
         .open();
     s.type_text("/experimental");
     s.keys("enter");
-    s.assert_snap("experimental_features_startup");
+    // The oracle's snapshot is the history cell alone.
+    let row = s
+        .rows()
+        .iter()
+        .position(|row| row.contains("Experimental features are unavailable"))
+        .expect("the startup line");
+    s.assert_snap_region("experimental_features_startup", row, 0);
     // With a thread and no answer yet: the popup loads; esc closes it without a request more.
     let mut s = Screen::build(Owner::DialogsPane).size(80, 11).live().open();
     s.type_text("/experimental");
@@ -172,10 +180,49 @@ fn experimental_popup_available_snapshot() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:3259 feature_enable_prompts_snapshot kind=snap owner=dialogs-pane snap=memories_enable_prompt snap=multi_agent_enable_prompt
 #[test]
 fn feature_enable_prompts_snapshot() {
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 10).live().open();
-    s.assert_snap("memories_enable_prompt");
-    s.resize(80, 9);
-    s.assert_snap("multi_agent_enable_prompt");
+    // `/memories` while the memory tool is off (the live chat has no facts of it): the prompt.
+    let mut s = Screen::build(Owner::DialogsPane).size(80, 11).live().open();
+    s.type_text("/memories");
+    s.keys("enter");
+    // The oracle's snapshots draw the popup over the composer's placeholder in a narrower
+    // buffer (`As`, `GP` and a four column indent are that overdraw): the rows are compared by
+    // their words.
+    for words in [
+        "Enable memories?",
+        "Memories are disabled in this TUI session.",
+        "1. Yes, enable",
+        "2. Not now",
+        "Keep memories disabled",
+        "Learn more: https://developers.openai.com/codex/memories",
+        "enter select · esc back",
+    ] {
+        s.assert_contains(words);
+    }
+    // "Yes, enable" saves the feature on the server for new threads (`memories` and the legacy
+    // `memory_tool`) and closes the prompt.
+    s.keys("enter");
+    s.assert_config_write(&[
+        ("features.memories", json!(true)),
+        ("features.memory_tool", json!(true)),
+    ]);
+    s.assert_absent("Enable memories?");
+    // The subagents prompt: the agent picker opens it while the feature is off (the picker is
+    // another owner's); the debug menu's entry offers it.
+    let s = Screen::build(Owner::DialogsPane)
+        .size(80, 10)
+        .entry("settings", "enable_subagents")
+        .open();
+    for words in [
+        "Enable subagents?",
+        "Subagents are disabled in this TUI session.",
+        "1. Yes, enable",
+        "2. Not now",
+        "Keep subagents disabled",
+        "enter select · esc back",
+    ] {
+        s.assert_contains(words);
+    }
+    s.assert_absent("Learn more");
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:3289 memories_settings_popup_snapshot kind=snap owner=dialogs-pane snap=memories_settings_popup
@@ -594,10 +641,10 @@ fn model_picker_refresh_dismisses_empty_choices() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:3654 skills_menu_default_mentions_shortcut_snapshot kind=snap owner=dialogs-pane snap=skills_menu_default_mentions_shortcut
 #[test]
 fn skills_menu_default_mentions_shortcut_snapshot() {
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 8).live().open();
+    let mut s = Screen::build(Owner::DialogsPane).size(80, 9).live().open();
     s.type_text("/skills");
     s.keys("enter");
-    s.assert_snap("skills_menu_default_mentions_shortcut");
+    s.assert_snap_region("skills_menu_default_mentions_shortcut", 1, 0);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:3663 model_picker_hides_show_in_picker_false_models_from_cache kind=snap owner=dialogs-pane snap=model_picker_filters_hidden_models
@@ -1542,8 +1589,41 @@ fn provider_switch_blocks_cached_choices_in_old_and_new_chats() {
 // ORACLE chatwidget/tests/skills_summary_tests.rs:8 manage_skills_summary_snapshot kind=snap owner=dialogs-pane snap=manage_skills_summary
 #[test]
 fn manage_skills_summary_snapshot() {
-    let s = Screen::build(Owner::DialogsPane).size(80, 4).live().open();
-    s.assert_snap("manage_skills_summary");
+    // The three skills of the oracle's fixture ([off, off, on]); each scenario switches some of
+    // them in the toggle and closes it: the line says how many it switched.
+    let scenarios: [(&str, &[&str], Option<&str>); 4] = [
+        ("enable", &["space", "down", "space"], Some("Enabled 2 skills")),
+        ("disable", &["down", "down", "space"], Some("Disabled 1 skill")),
+        (
+            "mixed",
+            &["space", "down", "space", "down", "space"],
+            Some("Enabled 2 skills, disabled 1 skill"),
+        ),
+        ("no changes", &["space", "space"], None),
+    ];
+    for (name, keys, summary) in scenarios {
+        let mut s = Screen::build(Owner::DialogsPane)
+            .size(80, 24)
+            .script(include_str!("fixtures/chat_popups_4/skills_three.jsonl"))
+            .live()
+            .open();
+        s.type_text("/skills");
+        s.keys("enter");
+        s.keys("down enter");
+        for key in keys {
+            s.keys(key);
+        }
+        s.keys("esc");
+        match summary {
+            Some(line) => s.assert_contains(line),
+            None => {
+                s.assert_absent("Enabled");
+                s.assert_absent("Disabled");
+            }
+        }
+        // The oracle's snapshot line of the scenario: `{name}: • {summary}`.
+        let _ = name;
+    }
 }
 
 // ---- oracle: chatwidget/tests/worktree_picker_tests.rs (5 screen-level tests here; 0 state tests left to dialogs-pane)

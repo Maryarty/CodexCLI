@@ -3,7 +3,7 @@
 //! values an `Edit` stands for (the wire request of a batch is `protocol::config`). The dialogs
 //! never name a key; the feature turns the edits they recorded into one write each.
 
-use super::{Edit, MemoryFacts, SettingId, SetupKind};
+use super::{Edit, Enable, MemoryFacts, SettingId, SetupKind};
 use crate::app::effects::ConfigEdit;
 
 /// What a write is for, with the values it saves: the words of its failure line are the
@@ -24,6 +24,8 @@ pub enum Subject {
     Pet(String),
     /// The rate limit prompt is not shown again, `[notice].hide_rate_limit_model_nudge`.
     RateLimitPrompt,
+    /// A feature is turned on for new threads (`enable_feature_for_new_threads`).
+    Enable(Enable),
 }
 
 impl Subject {
@@ -41,6 +43,8 @@ impl Subject {
             }
             Subject::Pet(_) => Setting::PetSelection,
             Subject::RateLimitPrompt => Setting::RateLimitReminder,
+            Subject::Enable(Enable::Memories) => Setting::MemoriesFeature,
+            Subject::Enable(Enable::Subagents) => Setting::SubagentsFeature,
         }
     }
 }
@@ -57,6 +61,8 @@ pub enum Setting {
     PetSelection,
     PetsDisabled,
     RateLimitReminder,
+    MemoriesFeature,
+    SubagentsFeature,
 }
 
 /// One batch of the config file and what it is for.
@@ -166,6 +172,15 @@ pub fn write_of(edit: &Edit) -> Option<Write> {
                     serde_json::json!(generate_memories),
                 ),
             ],
+        },
+        // `enable_feature_for_new_threads`: the feature's key, and the memory tool's legacy one.
+        Edit::FeatureEnabled(feature) => Write {
+            subject: Subject::Enable(*feature),
+            edits: feature
+                .keys()
+                .iter()
+                .map(|key| replace(&["features.", key].concat(), serde_json::json!(true)))
+                .collect(),
         },
         _ => return None,
     })

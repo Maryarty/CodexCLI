@@ -29,6 +29,7 @@ mod keys;
 pub mod keymap_editor;
 pub mod memories;
 mod open;
+mod prompts;
 mod preview;
 pub mod setup;
 mod shown;
@@ -45,13 +46,35 @@ impl FeatureView for Settings {
     /// The key the keymap cannot take opens the conflict sheet once, at the bottom like the
     /// oracle's view (the keymap editor under it stays).
     fn shown(wish: &Wish, _scope: &Scope) -> Option<Shown> {
-        let Wish::KeymapConflict {
-            context,
-            action,
-            key,
-            intent,
-            error,
-        } = wish.clone();
+        let (context, action, key, intent, error) = match wish.clone() {
+            // The dialog has its catalogue: the sheet opens (Esc is its own key when one is up;
+            // the barrier closes it, the theme picker restores its preview as it goes).
+            Wish::Show { which, inspect } => {
+                return Some(Shown {
+                    held_by: None,
+                    open: Rc::new(move || -> AnyWidget {
+                        Screen {
+                            which: Some(which),
+                            confirm_reset: false,
+                            inspect,
+                            live: true,
+                        }
+                        .into()
+                    }),
+                    options: rtwk::overlay::DialogOptions {
+                        barrier_dismissible: true,
+                        ..crate::sheets::sheet_options()
+                    },
+                });
+            }
+            Wish::KeymapConflict {
+                context,
+                action,
+                key,
+                intent,
+                error,
+            } => (context, action, key, intent, error),
+        };
         Some(Shown {
             held_by: None,
             open: Rc::new(move || -> AnyWidget {

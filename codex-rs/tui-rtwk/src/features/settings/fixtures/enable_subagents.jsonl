@@ -1,0 +1,4 @@
+# The prompt that offers to turn the subagents on (the agent picker opens it while the feature is off)
+# Oracle data: chatwidget.rs:1101 open_feature_enable_prompt(Feature::Collab)
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"fact","feature":"settings","fact":{"kind":"enable","subagents":true}}

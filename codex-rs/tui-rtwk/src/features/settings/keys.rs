@@ -19,6 +19,19 @@ use codex_tui_core::keymap::actions::{
 use crate::keymap::{keymap, pressed, types_text, unmodified};
 use crate::widgets::session_list::Move;
 
+/// A footer hint of the sheets with the list keymap's own keys: `enter` is the first binding of
+/// the accept action and `esc` of the cancel (`picker_hint_line_for_keymap`); an action with no
+/// binding keeps the word, as the sheets' hints are written for the default keymap.
+pub(super) fn keyed(hint: &str, keys: &Keymap) -> String {
+    let mut hint = hint.to_owned();
+    for (word, action) in [("enter", LIST_ACCEPT), ("esc", LIST_CANCEL)] {
+        if let Some(label) = crate::keymap::label(keys, action) {
+            hint = hint.replace(word, &label);
+        }
+    }
+    hint
+}
+
 /// The keymap the sheet's key callback reads.
 #[derive(Clone)]
 pub(super) struct Keys(Rc<RefCell<Rc<Keymap>>>);

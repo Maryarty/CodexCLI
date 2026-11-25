@@ -442,9 +442,11 @@ fn renders_long_names_at_narrow_width() {
 // ORACLE bottom_pane/skills_toggle_view.rs:535 footer_hint_uses_list_keymap_accept_and_cancel kind=ui owner=dialogs-pane
 #[test]
 fn footer_hint_uses_list_keymap_accept_and_cancel() {
+    // The list keymap's accept and cancel keys, ctrl+t and ctrl+x (the oracle's `ListKeymap`).
     let s = Screen::build(Owner::DialogsPane)
         .size(72, 8)
-        .entry("dialogs", "skills_empty_custom_keys")
+        .keymap(&[("list.accept", "ctrl+t"), ("list.cancel", "ctrl+x")])
+        .entry("settings", "skills_empty")
         .open();
     s.assert_contains("⌃t");
     s.assert_contains("⌃x");

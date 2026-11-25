@@ -68,6 +68,8 @@ pub enum Intent {
     /// The dialog of this kind is opened: its catalogue is built from the facts the app holds
     /// (a kind the server or the host offers has none to build and keeps what it was given).
     Open(Which),
+    /// `/keymap debug`: the keymap editor opens on the keypress inspector.
+    Inspect,
     /// The syntax theme in force (the picker's preview, and the restore on cancel: none is the
     /// config's own).
     SyntaxTheme(Option<String>),
@@ -92,6 +94,10 @@ pub enum Intent {
 /// presenter shows once).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Wish {
+    /// The dialog of this kind has its catalogue now (`Intent::Open` built it, or the server's
+    /// answer did): the presenter shows its sheet. The keymap editor opens on its inspector
+    /// when `inspect` says so.
+    Show { which: Which, inspect: bool },
     /// The captured key cannot be bound: the keymap with it does not resolve (the conflict
     /// sheet: pick another key, or cancel).
     KeymapConflict {
@@ -165,6 +171,8 @@ pub enum Ctx {
         cursors: Vec<String>,
     },
     Skills,
+    /// The listing a closed skills toggle reads back (the dialog is not shown again).
+    SkillsRefresh,
     SkillWrite {
         path: String,
         enabled: bool,
@@ -215,6 +223,10 @@ pub enum Note {
     /// What a visit of `/skills` changed: `Enabled {enabled} skill(s)` and/or `disabled
     /// {disabled} skill(s)`.
     SkillsChanged { enabled: usize, disabled: usize },
+    /// `/skills` > "Enable/Disable Skills" with no skill to toggle.
+    NoSkills,
+    /// `{label} setting saved on the server for new threads. ...` (a feature was turned on).
+    FeatureEnabled(Enable),
     /// `Failed to load skills: {error}` (the listing failed).
     SkillsFailed { error: String },
     /// `Failed to update hook config: {error}`.
@@ -269,6 +281,7 @@ impl Note {
         matches!(
             self,
             Note::ExperimentalUnavailable
+                | Note::NoSkills
                 | Note::TuiModeSaved { .. }
                 | Note::KeymapEdited { .. }
                 | Note::KeymapRemoved { .. }
@@ -381,15 +394,19 @@ impl State {
     }
 
     /// The catalogue of the dialog of kind `which`, built from what the app holds.
-    fn open(&mut self, which: Which, cx: &mut AppCx<'_>) {
+    fn open(&mut self, which: Which, inspect: bool, cx: &mut AppCx<'_>) {
         let offer = match which {
+            Which::SkillsMenu => Offer::SkillsMenu,
+            Which::EnableMemories => Offer::Enable(Enable::Memories),
+            Which::EnableSubagents => Offer::Enable(Enable::Subagents),
             Which::Theme => Offer::Theme(self.facts.theme_picker()),
             Which::Memories => match self.facts.memories {
                 Some(facts) => Offer::Memories(Memories {
                     use_memories: facts.use_memories,
                     generate_memories: facts.generate_memories,
                 }),
-                None => return,
+                // The memory tool is off: the prompt that offers to turn it on.
+                None => Offer::Enable(Enable::Memories),
             },
             Which::StatusLine => Offer::Setup(items::status_line(&cx.view().screens().chat.status)),
             Which::Title => Offer::Setup(items::title(&cx.view().screens().chat.status)),
@@ -424,7 +441,15 @@ impl State {
                 None => return,
             },
         };
+        let shown = offer.which();
         self.offer(offer);
+        self.show(shown, inspect, cx);
+    }
+
+    /// The dialog of kind `which` has its catalogue: its sheet is wished for (ADR-013), once.
+    fn show(&mut self, which: Which, inspect: bool, cx: &mut AppCx<'_>) {
+        let scope = cx.view().active().cloned().unwrap_or_default();
+        cx.wish(scope, Wish::Show { which, inspect });
     }
 
     /// `/experimental`: the dialog opens loading and the first page is asked for the active
@@ -443,6 +468,7 @@ impl State {
             true,
             generation,
         )));
+        self.show(Which::Experimental, false, cx);
         cx.ask(
             Some(&thread),
             Command::Features { cursor: None },
@@ -536,7 +562,7 @@ impl State {
     }
 
     /// The skills the server listed are the checklist of `/skills`.
-    fn skills_listed(&mut self, skills: Vec<Skill>) {
+    fn skills_listed(&mut self, skills: Vec<Skill>, show: Option<&mut AppCx<'_>>) {
         self.skills_opened = skills
             .iter()
             .map(|skill| (skill.path.clone(), skill.enabled))
@@ -558,6 +584,14 @@ impl State {
             items,
             values: BTreeMap::new(),
         }));
+        if let Some(cx) = show {
+            if self.skills_opened.is_empty() {
+                self.offers.remove(&Which::Skills);
+                cx.note(None, Note::NoSkills);
+            } else {
+                self.show(Which::Skills, false, cx);
+            }
+        }
     }
 
     /// `handle_manage_skills_closed`: how many skills the visit switched on and off (a skill
@@ -656,7 +690,7 @@ impl State {
     ) {
         use crate::commands::SlashCommand;
         let verb = match command {
-            SlashCommand::Hooks => return self.open(Which::Hooks, cx),
+            SlashCommand::Hooks => return self.open(Which::Hooks, false, cx),
             SlashCommand::Resume => return Self::resume(args.trim(), cx),
             SlashCommand::Title => {
                 args::title_with(args, cx.view().facts().rate_limits()).map(PublicVerb::StatusOverride)
@@ -886,9 +920,10 @@ impl State {
                     Command::Skills {
                         cwd: cx.view().working_directory(None),
                     },
-                    Ctx::Skills,
+                    Ctx::SkillsRefresh,
                 );
             }
+            Edit::FeatureEnabled(_) => {}
             Edit::Toggled(..) | Edit::Chosen(..) => {
                 if let Some(write) = persist::preference_write(&edit) {
                     if let Some(panel) = self.config_panel_mut() {
@@ -930,6 +965,7 @@ impl State {
             persist::Subject::Theme(name) => self.facts.syntax_theme = Some(name),
             persist::Subject::Memories(memories) => self.facts.memories = Some(memories),
             persist::Subject::TuiMode(_)
+            | persist::Subject::Enable(_)
             | persist::Subject::Keymap
             | persist::Subject::Pet(_)
             | persist::Subject::RateLimitPrompt => {}
@@ -1030,7 +1066,8 @@ impl super::Feature for Settings {
 
     fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
         match intent {
-            Intent::Open(which) => state.open(which, cx),
+            Intent::Open(which) => state.open(which, false, cx),
+            Intent::Inspect => state.open(Which::Keymap, true, cx),
             Intent::SyntaxTheme(theme) => {
                 state.syntax_theme = theme.or_else(|| state.facts.syntax_theme.clone());
             }
@@ -1106,6 +1143,9 @@ impl super::Feature for Settings {
                         },
                     );
                 }
+                if let persist::Subject::Enable(feature) = &subject {
+                    cx.note(None, Note::FeatureEnabled(*feature));
+                }
                 state.saved(subject);
             }
             Err(error) => {
@@ -1124,8 +1164,11 @@ impl super::Feature for Settings {
     fn answered(state: &mut State, ctx: Ctx, result: Result<Reply, RpcError>, cx: &mut AppCx<'_>) {
         match ctx {
             Ctx::FeaturesPage { .. } => state.features_page(ctx, result, cx),
-            Ctx::Skills => match result {
-                Ok(Reply::Skills(skills)) => state.skills_listed(skills),
+            Ctx::Skills | Ctx::SkillsRefresh => match result {
+                Ok(Reply::Skills(skills)) => {
+                    let show = (ctx == Ctx::Skills).then_some(&mut *cx);
+                    state.skills_listed(skills, show)
+                }
                 Ok(_) => {}
                 Err(error) => cx.note(
                     None,
@@ -1145,7 +1188,10 @@ impl super::Feature for Settings {
                 ),
             },
             Ctx::Hooks => match result {
-                Ok(Reply::Hooks(hooks)) => state.offer(Offer::Hooks(hooks)),
+                Ok(Reply::Hooks(hooks)) => {
+                    state.offer(Offer::Hooks(hooks));
+                    state.show(Which::Hooks, false, cx);
+                }
                 Ok(_) => {}
                 Err(error) => cx.note(
                     None,

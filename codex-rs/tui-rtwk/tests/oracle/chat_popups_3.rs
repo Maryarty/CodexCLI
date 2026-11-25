@@ -175,11 +175,13 @@ fn marketplace_upgrade_failure_includes_backend_messages_snapshot() {
 #[test]
 fn hooks_popup_shows_list_diagnostics() {
     let mut s = Screen::build(Owner::DialogsPane)
-        .size(112, 24)
+        .size(112, 20)
+        .script(include_str!("fixtures/chat_popups_3/hooks_diagnostics.jsonl"))
         .live()
         .open();
     s.type_text("/hooks").keys("enter");
-    s.assert_snap("hooks_popup_shows_list_diagnostics");
+    // The oracle's snapshot is the popup alone, from its title.
+    s.assert_snap_region("hooks_popup_shows_list_diagnostics", row_of(&s, "Hooks"), 0);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:160 plugins_popup_snapshot_shows_all_marketplaces_and_sorts_installed_then_name kind=snap owner=dialogs-pane snap=plugins_popup_curated_marketplace

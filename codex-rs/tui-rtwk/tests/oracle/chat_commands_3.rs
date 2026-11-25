@@ -6,6 +6,10 @@
 
 use crate::kit::{self, Owner, Screen};
 
+/// The host's keymap editor over the built-in keymap (what `/keymap` opens from).
+const KEYMAP_DEFAULT: &str = include_str!("fixtures/chat_commands_3/keymap_default.jsonl");
+/// The conversation the export test names (`00000000-0000-0000-0000-000000000123`), one turn done.
+const EXPORT_THREAD: &str = include_str!("fixtures/chat_commands_3/export_thread.jsonl");
 /// The memory tool on: the host's facts of the config (`set_feature_enabled(MemoryTool, true)`).
 const MEMORY_TOOL: &str = include_str!("fixtures/chat_commands_3/memory_tool.jsonl");
 /// A running turn (the oracle's `handle_turn_started`).
@@ -53,14 +57,80 @@ fn slash_copy_reports_when_no_agent_response_exists() {
 // ORACLE chatwidget/tests/slash_commands.rs:2400 slash_export_opens_destination_picker kind=snap owner=chat-nav-pane snap=slash_export_completion_message snap=slash_export_destination_picker snap=slash_export_filename_prompt
 #[test]
 fn slash_export_opens_destination_picker() {
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    use codex_tui_core::app::Command;
+    use codex_tui_core::app::effects::{Ask, CopyStatus, Done};
+
+    let screen = |height: u16| {
+        Screen::build(Owner::ChatNavPane)
+            .size(100, height)
+            .script(EXPORT_THREAD)
+            .live()
+            .open()
+    };
+    // The oracle's snapshots are the popup alone, from its title.
+    let popup_row = |s: &Screen, title: &str| {
+        s.rows()
+            .iter()
+            .position(|row| row.trim() == title)
+            .unwrap_or(usize::MAX)
+    };
+    // The host's answer to the latest effect of the kind `pick` names.
+    let answer = |s: &mut Screen, pick: fn(&Ask) -> bool, done: Done| {
+        let command = s
+            .commands()
+            .into_iter()
+            .rev()
+            .find(|c| matches!(c, Command::Effect { ask, .. } if pick(ask)))
+            .expect("the effect was asked");
+        s.answer_effect(&command, done);
+    };
+    let copy: fn(&Ask) -> bool = |ask| matches!(ask, Ask::Copy { .. });
+    let export: fn(&Ask) -> bool = |ask| matches!(ask, Ask::Export { .. });
+
+    let mut s = screen(14);
     s.type_text("/export");
-    s.keys("tab");
     s.keys("enter");
-    s.assert_snap("slash_export_destination_picker");
-    s.resize(100, 24);
-    s.assert_snap("slash_export_filename_prompt");
-    s.assert_snap("slash_export_completion_message");
+    s.assert_snap_region(
+        "slash_export_destination_picker",
+        popup_row(&s, "Export conversation"),
+        0,
+    );
+    // "Save to file" opens the filename prompt, the thread's own name in it.
+    s.keys("down enter");
+    s.assert_snap_region(
+        "slash_export_filename_prompt",
+        popup_row(&s, "Save conversation"),
+        0,
+    );
+    // The host answers the write that failed, then a write that went through.
+    s.keys("enter");
+    answer(&mut s, export, Done::Export(Err("missing parent".to_owned())));
+    s.assert_contains("■ Export failed: missing parent");
+    s.type_text("/export");
+    s.keys("enter");
+    s.keys("down enter");
+    s.keys("enter");
+    answer(
+        &mut s,
+        export,
+        Done::Export(Ok("conversation.md".to_owned())),
+    );
+    s.assert_contains("• Saved conversation to conversation.md");
+    // The copy, confirmed, and refused.
+    s.type_text("/export");
+    s.keys("enter");
+    s.keys("enter");
+    answer(&mut s, copy, Done::Copy(Ok(CopyStatus::Confirmed)));
+    s.assert_contains("• Copied conversation to clipboard");
+    s.type_text("/export");
+    s.keys("enter");
+    s.keys("enter");
+    answer(
+        &mut s,
+        copy,
+        Done::Copy(Err("clipboard unavailable".to_owned())),
+    );
+    s.assert_contains("■ Copy failed: clipboard unavailable");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2434 copy_action_reports_when_no_agent_response_exists kind=ui owner=chat-nav-pane
@@ -94,7 +164,11 @@ fn slash_keymap_capture_can_capture_app_shortcuts() {
 // ORACLE chatwidget/tests/slash_commands.rs:2515 slash_keymap_debug_opens_keypress_inspector kind=ui owner=chat-nav-pane
 #[test]
 fn slash_keymap_debug_opens_keypress_inspector() {
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(KEYMAP_DEFAULT)
+        .live()
+        .open();
     s.type_text("/keymap debug");
     s.keys("enter");
     s.assert_contains("Keypress Inspector");
@@ -110,6 +184,7 @@ fn slash_keymap_debug_opens_keypress_inspector() {
 fn slash_keymap_debug_can_inspect_app_shortcuts() {
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(100, 24)
+        .script(KEYMAP_DEFAULT)
         .live()
         .open();
     s.type_text("/keymap debug");
