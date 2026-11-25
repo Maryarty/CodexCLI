@@ -174,6 +174,21 @@ pub fn query_row(table: &'static Strings, label: Style, editor: AnyWidget) -> An
 /// is on and Find is not, its hint row (`select_hints`) (Flutter: a `ListenableBuilder` on the
 /// finder and on the select mode). One call from the page's footer slot.
 pub fn slot<S: 'static>(cx: &mut Cx<'_, S>, finder: &Finder, normal: AnyWidget) -> AnyWidget {
+    slot_in(cx, finder, normal, COMPOSER_MARGIN)
+}
+
+/// The cells the composer's footer rows start in from the left.
+const COMPOSER_MARGIN: i32 = 2;
+
+/// [`slot`] where the rows start `margin` cells in: the chat's footer is the composer's, two in;
+/// the pager's rows begin at the edge (`TranscriptOverlay::render` draws the footer at the
+/// status row's `x`).
+pub fn slot_in<S: 'static>(
+    cx: &mut Cx<'_, S>,
+    finder: &Finder,
+    normal: AnyWidget,
+    margin: i32,
+) -> AnyWidget {
     let table = strings::of(cx);
     let tokens = Tokens::of(cx);
     let (dim, bold) = (tokens.dim(), tokens.bold());
@@ -186,6 +201,7 @@ pub fn slot<S: 'static>(cx: &mut Cx<'_, S>, finder: &Finder, normal: AnyWidget) 
         normal,
         bold.clone(),
         dim.clone(),
+        margin,
     );
     let normal = select_hints(
         table,
@@ -193,6 +209,7 @@ pub fn slot<S: 'static>(cx: &mut Cx<'_, S>, finder: &Finder, normal: AnyWidget) 
         normal,
         bold.clone(),
         dim.clone(),
+        margin,
     );
     let normal = copy_footer(
         table,
@@ -201,6 +218,7 @@ pub fn slot<S: 'static>(cx: &mut Cx<'_, S>, finder: &Finder, normal: AnyWidget) 
         normal,
         bold.clone(),
         dim.clone(),
+        margin,
     );
     ListenableBuilder::new(finder.listenable(), move |_, _| {
         let mode = finder.mode();
@@ -211,14 +229,15 @@ pub fn slot<S: 'static>(cx: &mut Cx<'_, S>, finder: &Finder, normal: AnyWidget) 
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Stretch);
         if mode == Mode::Editing {
-            rows = rows.child(row(QueryField::new(&finder, table, dim.clone()).into()));
+            rows = rows.child(row(
+                margin,
+                QueryField::new(&finder, table, dim.clone()).into(),
+            ));
         }
-        rows.child(row(status_row(
-            table,
-            finder.status(),
-            bold.clone(),
-            dim.clone(),
-        )))
+        rows.child(row(
+            margin,
+            status_row(table, finder.status(), bold.clone(), dim.clone()),
+        ))
         .into()
     })
     .into()
@@ -234,6 +253,7 @@ fn activity_hints(
     normal: AnyWidget,
     key: Style,
     dim: Style,
+    margin: i32,
 ) -> AnyWidget {
     let activity = activity.clone();
     ListenableBuilder::new(activity.listenable(), move |_, _| {
@@ -241,32 +261,35 @@ fn activity_hints(
             return normal.clone();
         };
         let (key, dim) = (key.clone(), dim.clone());
-        row(LayoutBuilder::new(move |cx, constraints| {
-            let segmenter = segmenter_of(cx);
-            let spans = |from: usize| {
-                let mut spans = Vec::new();
-                for (index, (name, label)) in hints[from..].iter().enumerate() {
-                    if index > 0 {
-                        spans.push(Span::styled(table.hint_joiner, dim.clone()));
+        row(
+            margin,
+            LayoutBuilder::new(move |cx, constraints| {
+                let segmenter = segmenter_of(cx);
+                let spans = |from: usize| {
+                    let mut spans = Vec::new();
+                    for (index, (name, label)) in hints[from..].iter().enumerate() {
+                        if index > 0 {
+                            spans.push(Span::styled(table.hint_joiner, dim.clone()));
+                        }
+                        spans.push(Span::styled(name.clone(), key.clone()));
+                        spans.push(Span::styled(format!(" {label}"), dim.clone()));
                     }
-                    spans.push(Span::styled(name.clone(), key.clone()));
-                    spans.push(Span::styled(format!(" {label}"), dim.clone()));
-                }
-                spans
-            };
-            let width = |spans: &[Span]| -> i32 {
-                spans
-                    .iter()
-                    .map(|span| i32::try_from(segmenter.width(&span.text)).unwrap_or(i32::MAX))
-                    .sum()
-            };
-            let fitting = (0..hints.len())
-                .map(spans)
-                .find(|spans| width(spans) <= constraints.max_width)
-                .unwrap_or_else(|| spans(hints.len().saturating_sub(1)));
-            Text::rich_line(fitting).overflow(TextOverflow::Clip).into()
-        })
-        .into())
+                    spans
+                };
+                let width = |spans: &[Span]| -> i32 {
+                    spans
+                        .iter()
+                        .map(|span| i32::try_from(segmenter.width(&span.text)).unwrap_or(i32::MAX))
+                        .sum()
+                };
+                let fitting = (0..hints.len())
+                    .map(spans)
+                    .find(|spans| width(spans) <= constraints.max_width)
+                    .unwrap_or_else(|| spans(hints.len().saturating_sub(1)));
+                Text::rich_line(fitting).overflow(TextOverflow::Clip).into()
+            })
+            .into(),
+        )
     })
     .into()
 }
@@ -279,6 +302,7 @@ fn select_hints(
     normal: AnyWidget,
     key: Style,
     dim: Style,
+    margin: i32,
 ) -> AnyWidget {
     let select = select.clone();
     ListenableBuilder::new(select.listenable(), move |_, _| {
@@ -306,9 +330,12 @@ fn select_hints(
                 .or(spellings.last())
                 .cloned()
                 .unwrap_or_default();
-            row(Text::rich_line(navigation_spans(table, &text, &key, &dim))
-                .overflow(TextOverflow::Clip)
-                .into())
+            row(
+                margin,
+                Text::rich_line(navigation_spans(table, &text, &key, &dim))
+                    .overflow(TextOverflow::Clip)
+                    .into(),
+            )
         })
         .into()
     })
@@ -324,6 +351,7 @@ fn copy_footer(
     normal: AnyWidget,
     key: Style,
     dim: Style,
+    margin: i32,
 ) -> AnyWidget {
     let mode = mode.clone();
     ListenableBuilder::new(ticks.listenable(), move |_, _| {
@@ -348,17 +376,18 @@ fn copy_footer(
             Column::new()
                 .main_axis_size(MainAxisSize::Min)
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                .child(row(Text::rich_line(vec![Span::styled(
-                    title.clone(),
-                    key.clone(),
-                )])
-                .overflow(TextOverflow::Clip)
-                .into()))
-                .child(row(Text::rich_line(navigation_spans(
-                    table, hints, &key, &dim,
+                .child(row(
+                    margin,
+                    Text::rich_line(vec![Span::styled(title.clone(), key.clone())])
+                        .overflow(TextOverflow::Clip)
+                        .into(),
                 ))
-                .overflow(TextOverflow::Clip)
-                .into()))
+                .child(row(
+                    margin,
+                    Text::rich_line(navigation_spans(table, hints, &key, &dim))
+                        .overflow(TextOverflow::Clip)
+                        .into(),
+                ))
                 .into()
         })
         .into()
@@ -366,10 +395,10 @@ fn copy_footer(
     .into()
 }
 
-/// A footer row two cells in.
-fn row(child: AnyWidget) -> AnyWidget {
+/// A footer row `margin` cells in.
+fn row(margin: i32, child: AnyWidget) -> AnyWidget {
     Row::new()
-        .child(SizedBox::new(Some(2), None, None))
+        .child(SizedBox::new(Some(margin), None, None))
         .child(Expanded::new(1, child))
         .into()
 }

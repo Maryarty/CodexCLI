@@ -943,6 +943,7 @@ impl State for ViewportState {
             selection: widget.selection.clone(),
             follow: widget.follow.clone(),
             caret: caret.caret(),
+            find: widget.find.clone(),
         }
         .into()
     }

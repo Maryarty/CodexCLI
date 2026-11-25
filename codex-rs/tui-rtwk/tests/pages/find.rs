@@ -151,3 +151,81 @@ fn the_pane_shows_the_match_its_finder_found_and_closing_takes_it_away() {
     s.wait(50);
     s.assert_text_style("Needle two", "!reversed");
 }
+
+/// Find on the transcript sheet (oracle `pager_overlay/transcript.rs`: `find` and `find_transcript`
+/// begin the search, `footer_with_navigation` draws its query row and status row in the place of
+/// the status row and the hints, from the first column): the sheet's `sheet_basic` entry, a
+/// prompt, a reasoning summary and an answer of forty rows, at 60x12.
+mod on_the_sheet {
+    use crate::kit::{Owner, Screen};
+
+    fn sheet() -> Screen {
+        Screen::build(Owner::ChatLive)
+            .size(60, 12)
+            .entry("transcript", "sheet_basic")
+            .open()
+    }
+
+    const HINTS: &str = "q close · f3 find · esc browse prompts";
+
+    #[test]
+    fn f3_puts_the_query_row_and_the_status_row_where_the_status_and_hints_were() {
+        let mut s = sheet();
+        s.assert_contains(HINTS);
+        s.keys("f3");
+        let rows = s.rows();
+        // from the first column, the footer is the last two rows
+        assert!(rows[10].starts_with("Find:"), "{}", s.text());
+        assert!(rows[11].starts_with("Type to find"), "{}", s.text());
+        s.assert_absent(HINTS);
+        s.assert_absent("to scroll");
+    }
+
+    #[test]
+    fn the_slash_key_of_the_pager_opens_it_too() {
+        let mut s = sheet();
+        s.keys("/");
+        s.assert_contains("Type to find · full transcript · esc cancel");
+    }
+
+    #[test]
+    fn typing_finds_the_newest_match_and_scrolls_to_it() {
+        let mut s = sheet();
+        s.keys("home");
+        s.assert_absent("row 39");
+        s.keys("f3");
+        s.type_text("row 39");
+        s.assert_contains("Find: row 39");
+        s.assert_text_style("row 39", "reversed");
+        s.assert_contains("enter accept");
+    }
+
+    #[test]
+    fn enter_reads_the_match_and_esc_gives_the_hints_back() {
+        let mut s = sheet();
+        s.keys("f3");
+        s.type_text("row 30");
+        s.keys("enter");
+        // reading: the status row alone, the keys of the match are Find's
+        s.assert_contains("Find · ctrl+p older · ctrl+n newer · esc latest");
+        s.assert_absent("Find: ");
+        s.keys("ctrl+p");
+        s.assert_contains("row 30");
+        s.keys("esc");
+        s.assert_absent("Find · ");
+        s.assert_contains(HINTS);
+        // the sheet is open still
+        s.assert_contains("T R A N S C R I P T");
+    }
+
+    #[test]
+    fn esc_while_editing_closes_find_and_not_the_sheet() {
+        let mut s = sheet();
+        s.keys("f3");
+        s.type_text("row");
+        s.keys("esc");
+        s.assert_absent("Find: ");
+        s.assert_contains("T R A N S C R I P T");
+        s.assert_contains(HINTS);
+    }
+}
