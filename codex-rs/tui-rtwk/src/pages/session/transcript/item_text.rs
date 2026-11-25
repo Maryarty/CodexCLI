@@ -237,6 +237,35 @@ fn markdown_pieces(item: &Item, reading: &Reading<'_>) -> Option<Vec<Piece>> {
     }
 }
 
+/// The nodes of the Markdown body of `item`, as the cell draws it: what the Markdown a copy of a
+/// selection in it writes (`markdown_copy`) reads. None where the item has no Markdown body.
+pub fn body_nodes(item: &Item, reading: &Reading<'_>) -> Option<Vec<markdown_text::Node>> {
+    let strings = reading.env.cells;
+    if reading.raw && raw::lines(item, strings).is_some() {
+        return None;
+    }
+    match item {
+        Item::User(prompt) => drawn(crate::widgets::markdown::view(
+            prompt.shown().text.trim_end(),
+        )),
+        Item::Agent { text, .. } | Item::Plan { text } if !text.trim().is_empty() => {
+            body_of(text, reading)
+        }
+        Item::Reasoning { .. } => {
+            let summary = item.reasoning_text(reading.raw_reasoning);
+            (!summary.trim().is_empty())
+                .then(|| drawn(crate::widgets::markdown::view(summary)))
+                .flatten()
+        }
+        Item::Delegated(message) => drawn(crate::widgets::markdown::view(&message.markdown)),
+        Item::Notice(Notice::SessionInfo(info)) if session_info::has_markdown(info) => {
+            let tip = strings.fill(strings.tip_label, &[info.tip.as_deref()?]);
+            drawn(crate::widgets::markdown::view(&tip))
+        }
+        _ => None,
+    }
+}
+
 /// The blocks the cell of a message or a plan draws, whose code and quotes the copy mode selects.
 pub fn drawn_blocks(item: &Item, reading: &Reading<'_>) -> Vec<Block> {
     match item {

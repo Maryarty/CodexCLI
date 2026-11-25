@@ -272,7 +272,9 @@ fn activity_hints(
                             spans.push(Span::styled(table.hint_joiner, dim.clone()));
                         }
                         spans.push(Span::styled(name.clone(), key.clone()));
-                        spans.push(Span::styled(format!(" {label}"), dim.clone()));
+                        // the key, a space, what it does
+                        let said = [" ", *label].concat();
+                        spans.push(Span::styled(said, dim.clone()));
                     }
                     spans
                 };

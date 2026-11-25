@@ -33,7 +33,8 @@ use super::strings as chat_strings;
 use super::transcript::activity_focus::{self, Activity};
 use super::transcript::copy::{self as copying, Targets};
 use super::transcript::find::{Finder, RowTexts};
-use super::transcript::item_text::{Reading, mounted_parts};
+use super::transcript::item_text::{Reading, body_nodes, mounted_parts};
+use super::transcript::markdown_copy::{self, Marks};
 use super::transcript::select::{self, Pos, Select};
 use super::transcript::selection::SelectionHost;
 use super::transcript::strings as transcript_strings;
@@ -80,6 +81,11 @@ pub(super) struct ViewportState {
     /// The select mode of the thread shown, and its listener: the list builds again when the
     /// caret moves.
     selecting: RefCell<Option<(Select, VoidCallback)>>,
+    /// The selection of the thread shown, and its listener: the list builds again when something
+    /// comes to be selected, to read the Markdown of the rows the selection is copied with.
+    watching: RefCell<Option<(TextSelection, VoidCallback)>>,
+    /// The thread and the revision of its rows whose Markdown `Marks` holds.
+    marked: RefCell<Option<(ThreadId, u64)>>,
     /// The texts of the rows Find reads, kept while they are the same so that what the selection
     /// area was asked to select stays named by the same model.
     texts: RefCell<Option<Rc<RowTexts>>>,
@@ -269,6 +275,53 @@ impl ViewportState {
         let listener: VoidCallback = Rc::new(move || send(Msg::Find));
         select.listenable().add_listener(listener.clone());
         *held = Some((select.clone(), listener));
+    }
+
+    /// The list builds again when something comes to be selected or nothing is any more: one
+    /// listener, on the selection of the thread shown.
+    fn listen_selection(&self, selection: &TextSelection, send: Rc<dyn Fn(Msg)>) {
+        let mut held = self.watching.borrow_mut();
+        if held.as_ref().is_some_and(|(held, _)| held == selection) {
+            return;
+        }
+        if let Some((old, listener)) = held.take() {
+            old.controller().remove_listener(&listener);
+        }
+        let listener: VoidCallback = Rc::new(move || send(Msg::Find));
+        selection.controller().add_listener(listener.clone());
+        *held = Some((selection.clone(), listener));
+    }
+
+    /// The Markdown bodies of the rows, for the copy of a selection nobody made through a mode
+    /// (a drag, a double click): kept while the selection lasts and the rows are the same.
+    fn mark(
+        &self,
+        marks: &Marks,
+        selection: &TextSelection,
+        thread: &ThreadModel,
+        rows: &[Row],
+        reading: &Reading<'_>,
+    ) {
+        let transcript = thread.transcript();
+        if !selection.controller().has_selection() {
+            if self.marked.borrow_mut().take().is_some() {
+                marks.fill(Vec::new());
+            }
+            return;
+        }
+        marks.attach(selection.controller());
+        let stamp = (thread.id().clone(), transcript.layout_revision());
+        if self.marked.borrow().as_ref() == Some(&stamp) {
+            return;
+        }
+        let bodies = rows
+            .iter()
+            .filter_map(|row| transcript.get(row.range.start))
+            .filter_map(|(_, item)| body_nodes(item, reading))
+            .map(Rc::from)
+            .collect();
+        marks.fill(bodies);
+        *self.marked.borrow_mut() = Some(stamp);
     }
 
     /// What copy mode can copy of `texts`' rows: the prompts, the messages' code blocks and quotes
@@ -502,6 +555,8 @@ impl StatefulWidget for Pane {
             finding: RefCell::default(),
             folding: RefCell::default(),
             selecting: RefCell::default(),
+            watching: RefCell::default(),
+            marked: RefCell::default(),
             texts: RefCell::default(),
             targets: RefCell::default(),
         }
@@ -676,21 +731,29 @@ impl State for ViewportState {
         // while Find is open or select mode is on the list reads its rows as text: the scan runs
         // over them, and the match it found (or the caret, or the range marked) is scrolled to and
         // selected, which is how the oracle draws it (REVERSED)
+        let env = Env {
+            cells,
+            chat: table,
+            detailed,
+            expanded: false,
+        };
+        let reading = Reading {
+            env: &env,
+            bullet: &bullet,
+            cwd,
+            rendering,
+            raw,
+            raw_reasoning: show_raw_reasoning,
+        };
+        self.listen_selection(&widget.selection, cx.local_sender());
+        self.mark(
+            &markdown_copy::of(&search),
+            &widget.selection,
+            &thread,
+            &rows,
+            &reading,
+        );
         let (texts, targets) = if search.active() || caret.active() || copier.active() {
-            let env = Env {
-                cells,
-                chat: table,
-                detailed,
-                expanded: false,
-            };
-            let reading = Reading {
-                env: &env,
-                bullet: &bullet,
-                cwd,
-                rendering,
-                raw,
-                raw_reasoning: show_raw_reasoning,
-            };
             let texts = self.row_texts(&thread, &rows, header.is_some(), reverse, &reading);
             let targets = copier.cutter().filter(|_| copier.active()).map(|cutter| {
                 self.targets_of(

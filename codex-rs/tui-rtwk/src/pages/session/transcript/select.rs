@@ -408,7 +408,7 @@ impl Select {
                 Step::Moved
             }
             Do::Repeat(newer) => {
-                self.repeat(&rows, newer);
+                self.again(&rows, newer);
                 Step::Moved
             }
             Do::Extend(motion) => {
@@ -511,7 +511,7 @@ impl Select {
     /// `n` (older) and `N` (newer): the next match of the accepted Find's query from the caret
     /// (`repeat_select_search`): before it for older, after the grapheme it is on for newer, never
     /// wrapping. The caret goes to the match, a range marked going on from it.
-    fn repeat(&self, rows: &RowTexts, newer: bool) {
+    fn again(&self, rows: &RowTexts, newer: bool) {
         let (query, cursor) = {
             let data = self.0.data.borrow();
             (data.query.clone(), data.cursor)

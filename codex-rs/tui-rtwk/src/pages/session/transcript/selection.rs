@@ -20,7 +20,7 @@ use codex_tui_core::app::effects::CopyStatus;
 use codex_tui_core::app::facts::TuiSettings;
 
 use super::TranscriptMode;
-use super::copy::{CopyJob, Shown};
+use super::copy::{self, CopyJob, Shown};
 use crate::app::view::Hs;
 use crate::widgets::finder::Finder;
 use crate::widgets::thread_ui::{Follow, TextSelection};
@@ -142,7 +142,8 @@ impl State for HostState {
         }
         let settings = read::<TuiSettings, _>(cx);
         let handlers = read::<Hs, _>(cx);
-        cx.emit(&handlers.copy, CopyJob::selected(text, explicit, &settings));
+        let job = CopyJob::selected(text, explicit, &settings);
+        cx.emit(&handlers.copy, copy::mode_of(&w.find).marked(job));
         Rebuild::No
     }
 
@@ -163,15 +164,19 @@ impl State for HostState {
         // from (the sheet has no composer): the match Find shows is selected, and Esc is Find's
         // while it is read
         let area = ListenableBuilder::new(w.find.listenable(), move |_, _| {
-            SelectionArea::new(child.clone())
+            let area = SelectionArea::new(child.clone())
                 // the oracle draws the selection REVERSED on top of the cell's own style
                 // (`transcript_view/selection.rs`; `rendered_selection`)
                 .style(Style::new().attrs(attrs).pen())
                 .controller(controller.clone())
                 .copy_on_release(copy_on_select)
-                .on_copy(on_copy.clone())
-                .clear_key((!find.reading()).then_some(KeyPress::ESC))
-                .into()
+                .on_copy(on_copy.clone());
+            // the area's own clear key (Esc) is Find's while Find reads
+            if find.reading() {
+                area.clear_key(None).into()
+            } else {
+                area.into()
+            }
         });
         Listener::new()
             .on_pointer_down(cx.map(Msg::Press))

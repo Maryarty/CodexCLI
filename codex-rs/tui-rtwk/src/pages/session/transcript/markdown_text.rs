@@ -19,6 +19,8 @@ use std::ops::Range;
 
 use rtwk_rich::markdown::{Block, MdBlock, MdInline};
 
+use super::markdown_copy::{self, Inline, Line};
+
 /// The `#`s of a heading, one per level.
 const MARKS: &str = "######";
 
@@ -34,6 +36,8 @@ pub struct Node {
     /// What a copy puts before this node when the node before it is selected too (empty for the
     /// first node of the view).
     pub before: &'static str,
+    /// What a copy of a selection of it says about its formatting (`markdown_copy`).
+    pub copy: Line,
 }
 
 /// The nodes of a parsed source (`parse_markdown`), or `None` where one of the blocks is not
@@ -100,6 +104,35 @@ struct Walk {
     nodes: Vec<Node>,
     found: Vec<Found>,
     marked: bool,
+    /// The quotes and list items around the block being walked, outermost first.
+    frames: Vec<Frame>,
+}
+
+/// A container a block is in, for the prefix a copy of it writes.
+enum Frame {
+    Quote,
+    Item {
+        /// What the item's first line starts with: its bullet or number, and a task's box.
+        marker: String,
+        /// The width of the bullet or number, which the item's later lines are indented by.
+        width: usize,
+        /// The item's first block has been walked.
+        used: bool,
+    },
+}
+
+/// The text and the annotations of a run of inlines.
+#[derive(Default)]
+struct Built {
+    text: String,
+    line: Line,
+}
+
+impl Built {
+    fn add(&mut self, text: &str, stack: &[Inline]) {
+        self.text.push_str(text);
+        self.line.push(text.len(), stack);
+    }
 }
 
 impl Walk {
@@ -108,13 +141,56 @@ impl Walk {
             nodes: Vec::new(),
             found: Vec::new(),
             marked,
+            frames: Vec::new(),
         };
         walk.blocks(blocks, "\n\n")?;
         Some(walk)
     }
 
-    fn leaf(&mut self, text: String) {
-        self.nodes.push(Node { text, before: "" });
+    /// A node of `text`, nested as the blocks around it say.
+    fn leaf(&mut self, text: String, mut line: Line) {
+        let innermost = self
+            .frames
+            .iter()
+            .rposition(|frame| matches!(frame, Frame::Item { .. }));
+        for (at, frame) in self.frames.iter_mut().enumerate() {
+            match frame {
+                Frame::Quote => {
+                    for prefix in [
+                        &mut line.prefix,
+                        &mut line.continuation,
+                        &mut line.item_prefix,
+                    ] {
+                        prefix.push_str("> ");
+                    }
+                }
+                Frame::Item {
+                    marker,
+                    width,
+                    used,
+                } => {
+                    let spaces = format!("{:1$}", "", *width);
+                    line.prefix.push_str(if *used { &spaces } else { marker });
+                    line.continuation.push_str(&spaces);
+                    line.item_prefix.push_str(if Some(at) == innermost {
+                        marker
+                    } else {
+                        &spaces
+                    });
+                    *used = true;
+                }
+            }
+        }
+        self.nodes.push(Node {
+            text,
+            before: "",
+            copy: line,
+        });
+    }
+
+    /// A node of the inlines `built`.
+    fn inline_leaf(&mut self, built: Built) {
+        self.leaf(built.text, built.line);
     }
 
     /// `blocks` one after the other, `sep` between them.
@@ -133,11 +209,21 @@ impl Walk {
 
     fn block(&mut self, block: &MdBlock) -> Option<()> {
         match block {
-            MdBlock::Paragraph(inlines) => self.leaf(inline_text(inlines)?),
-            MdBlock::Heading { children, .. } if self.marked => self.leaf(inline_text(children)?),
+            MdBlock::Paragraph(inlines) => self.inline_leaf(built(inlines)?),
             MdBlock::Heading { level, children } => {
-                let marks = &MARKS[..usize::from(*level).clamp(1, MARKS.len())];
-                self.leaf(format!("{marks} {}", inline_text(children)?));
+                // the marker is drawn text already, or is put before the text here
+                let marker = format!("{} ", &MARKS[..usize::from(*level).clamp(1, MARKS.len())]);
+                let mut heading = Built::default();
+                if !self.marked {
+                    heading.add(&marker, &[]);
+                }
+                push(children, &mut Vec::new(), &mut heading)?;
+                heading.line.heading = if heading.text.starts_with(&marker) {
+                    marker.len()
+                } else {
+                    0
+                };
+                self.inline_leaf(heading);
             }
             MdBlock::CodeBlock(code) => {
                 let text = code.code.trim_end_matches('\n').to_owned();
@@ -149,11 +235,13 @@ impl Walk {
                         text: text.clone(),
                     });
                 }
-                self.leaf(text);
+                self.leaf(text, Line::code());
             }
             MdBlock::BlockQuote(children) => {
                 let (start, at) = (self.nodes.len(), self.found.len());
+                self.frames.push(Frame::Quote);
                 self.blocks(children, "\n\n")?;
+                self.frames.pop();
                 let text = copied(&self.nodes[start..]);
                 if !text.is_empty() {
                     // the quote comes before the blocks it holds
@@ -173,7 +261,23 @@ impl Walk {
                 let sep = if list.tight { "\n" } else { "\n\n" };
                 for (at, item) in list.items.iter().enumerate() {
                     let start = self.nodes.len();
+                    let number = match list.start {
+                        Some(first) => format!("{}{} ", first + at as u64, list.marker),
+                        None => format!("{} ", list.marker),
+                    };
+                    let width = number.len();
+                    let task = match item.checked {
+                        Some(true) => "[x] ",
+                        Some(false) => "[ ] ",
+                        None => "",
+                    };
+                    self.frames.push(Frame::Item {
+                        marker: format!("{number}{task}"),
+                        width,
+                        used: false,
+                    });
                     self.blocks(&item.children, sep)?;
+                    self.frames.pop();
                     if at > 0
                         && let Some(first) = self.nodes.get_mut(start)
                     {
@@ -185,7 +289,7 @@ impl Walk {
                 // the header's cells, a blank row, then the cells of the rows: a node a cell
                 for (at, cell) in table.header.iter().enumerate() {
                     let start = self.nodes.len();
-                    self.leaf(inline_text(cell)?);
+                    self.leaf(inline_text(cell)?, Line::cell());
                     if at > 0 {
                         self.nodes[start].before = "\n";
                     }
@@ -193,7 +297,7 @@ impl Walk {
                 let mut first = true;
                 for cell in table.rows.iter().flatten() {
                     let start = self.nodes.len();
-                    self.leaf(inline_text(cell)?);
+                    self.leaf(inline_text(cell)?, Line::cell());
                     self.nodes[start].before = if first { "\n\n" } else { "\n" };
                     first = false;
                 }
@@ -205,36 +309,70 @@ impl Walk {
 }
 
 fn inline_text(inlines: &[MdInline]) -> Option<String> {
-    let mut out = String::new();
-    push(inlines, &mut out)?;
+    built(inlines).map(|built| built.text)
+}
+
+/// The text of `inlines` and what it is wrapped in, byte by byte.
+fn built(inlines: &[MdInline]) -> Option<Built> {
+    let mut out = Built::default();
+    push(inlines, &mut Vec::new(), &mut out)?;
     Some(out)
 }
 
-fn push(inlines: &[MdInline], out: &mut String) -> Option<()> {
+fn push(inlines: &[MdInline], stack: &mut Vec<Inline>, out: &mut Built) -> Option<()> {
     for inline in inlines {
         match inline {
-            MdInline::Text(text) | MdInline::Code(text) => out.push_str(text),
-            MdInline::SoftBreak | MdInline::HardBreak => out.push('\n'),
-            MdInline::Emphasis(children)
-            | MdInline::Strong(children)
-            | MdInline::Strikethrough(children) => push(children, out)?,
+            MdInline::Text(text) => out.add(text, stack),
+            MdInline::Code(text) => {
+                stack.push(Inline::Code);
+                out.add(text, stack);
+                stack.pop();
+            }
+            MdInline::SoftBreak => out.add("\n", stack),
+            MdInline::HardBreak => {
+                out.line.hard_breaks.push(out.text.len());
+                out.add("\n", stack);
+            }
+            MdInline::Emphasis(children) => inside(children, Inline::Delimiter("_"), stack, out)?,
+            MdInline::Strong(children) => inside(children, Inline::Delimiter("**"), stack, out)?,
+            MdInline::Strikethrough(children) => {
+                inside(children, Inline::Delimiter("~~"), stack, out)?;
+            }
             MdInline::Link {
                 destination,
                 children,
                 ..
             } => {
-                let start = out.len();
-                push(children, out)?;
-                if out[start..] != **destination {
-                    out.push_str(" (");
-                    out.push_str(destination);
-                    out.push(')');
+                stack.push(if markdown_copy::web(destination) {
+                    Inline::Link(destination.clone())
+                } else {
+                    Inline::Ignored
+                });
+                let start = out.text.len();
+                push(children, stack, out)?;
+                if out.text[start..] != **destination {
+                    out.add(" (", stack);
+                    out.add(destination, stack);
+                    out.add(")", stack);
                 }
+                stack.pop();
             }
-            MdInline::Image { children, .. } => push(children, out)?,
+            MdInline::Image { children, .. } => push(children, stack, out)?,
             // resolved before the view draws them; not modelled unresolved
             MdInline::Reference { .. } => return None,
         }
     }
+    Some(())
+}
+
+fn inside(
+    children: &[MdInline],
+    inline: Inline,
+    stack: &mut Vec<Inline>,
+    out: &mut Built,
+) -> Option<()> {
+    stack.push(inline);
+    push(children, stack, out)?;
+    stack.pop();
     Some(())
 }

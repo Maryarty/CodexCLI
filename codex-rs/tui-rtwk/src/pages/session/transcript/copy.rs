@@ -26,6 +26,7 @@ use codex_tui_core::threads::Item;
 use super::TranscriptMode;
 use super::find::{Finder, RowTexts};
 use super::item_text::{Reading, drawn_blocks};
+use super::markdown_copy::{self, Marks};
 use super::markdown_text::{self, Kind};
 use super::select;
 use super::strings::Strings;
@@ -594,6 +595,8 @@ struct Data {
 
 struct Inner {
     data: RefCell<Data>,
+    /// The Markdown bodies a selection that no mode made is copied with (`markdown_copy`).
+    marks: Marks,
     /// The select mode's: the pane and the footer listen to the one notifier.
     ticks: Rc<ValueNotifier<u32>>,
 }
@@ -611,6 +614,7 @@ impl PartialEq for CopyMode {
 /// The copy mode of the thread whose finder this is (made on first ask, held with the thread's
 /// controllers: `ThreadUi::held`).
 pub fn mode_of(finder: &Finder) -> CopyMode {
+    let marks = markdown_copy::of(finder);
     finder.held(|| {
         CopyMode(Rc::new(Inner {
             data: RefCell::new(Data {
@@ -624,6 +628,7 @@ pub fn mode_of(finder: &Finder) -> CopyMode {
                 reveal: false,
                 pending: None,
             }),
+            marks,
             ticks: select::of(finder).listenable(),
         }))
     })
@@ -860,6 +865,20 @@ impl CopyMode {
         if let Some(payload) = self.0.data.borrow_mut().pending.take() {
             job.text = payload.text;
             job.format = payload.format;
+            return job;
+        }
+        self.marked(job)
+    }
+
+    /// A copy of what the reader selected in a Markdown message also offers the selection as
+    /// Markdown (`markdown_copy`: its HTML flavour keeps the words' formatting), the plain text
+    /// the same.
+    #[must_use]
+    pub fn marked(&self, mut job: CopyJob) -> CopyJob {
+        if job.format == CopyFormat::PlainText
+            && let Some(source) = self.0.marks.selected(&job.text)
+        {
+            job.format = CopyFormat::MarkdownSelection(source.into());
         }
         job
     }

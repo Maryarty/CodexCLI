@@ -19,6 +19,7 @@ pub mod find_footer;
 pub mod follow;
 pub mod history;
 pub mod item_text;
+pub mod markdown_copy;
 pub mod markdown_text;
 pub mod strings;
 pub mod turn_details;
