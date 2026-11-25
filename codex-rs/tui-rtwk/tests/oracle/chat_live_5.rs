@@ -637,16 +637,12 @@ fn review_queues_user_messages_snapshot() {
         .position(|row| row.trim_start_matches(glyph) == want[0].trim_start_matches(glyph))
         .unwrap_or_else(|| panic!("no working line:\n{}", s.text()));
     let got = &ours[from..(from + want.len()).min(ours.len())];
-    pretty_assertions::assert_eq!(
-        got.iter()
-            .map(|row| row.trim_start_matches(glyph))
-            .collect::<Vec<_>>(),
-        want.iter()
-            .map(|row| row.trim_start_matches(glyph))
-            .collect::<Vec<_>>(),
-        "the bottom pane:\n{}",
-        s.text()
-    );
+    let got: Vec<String> = got
+        .iter()
+        .map(|row| row.trim_start_matches(glyph).to_string())
+        .collect();
+    let want: Vec<&str> = want.iter().map(|row| row.trim_start_matches(glyph)).collect();
+    kit::assert_rows_are(&got, &want);
     s.assert_absent("cannot steer a review turn");
 }
 
