@@ -557,7 +557,8 @@ fn rate_limit_usage_warnings_keep_newly_reached_workspace_limit() {
     for (limit_id, should_warn) in [("codex", true), ("codex_other", false)] {
         let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
         let mut funded = limit_snapshot(0, None);
-        funded["credits"] = serde_json::json!({"hasCredits": true, "unlimited": false, "balance": null});
+        funded["credits"] =
+            serde_json::json!({"hasCredits": true, "unlimited": false, "balance": null});
         funded["spendControlReached"] = serde_json::json!(false);
         s.feed(&format!(
             "{}\n{}\n{}\n",

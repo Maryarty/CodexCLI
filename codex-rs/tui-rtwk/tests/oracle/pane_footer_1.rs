@@ -1006,7 +1006,11 @@ fn fullscreen_plan_indicator_keeps_the_cycle_hint_when_it_fits() {
     s.feed(&agent("reviewer"));
     s.resize(37, 24);
     s.assert_contains("project · PR #42 · reviewer");
-    assert!(s.rows().last().unwrap().contains("Plan mode"), "{}", s.text());
+    assert!(
+        s.rows().last().unwrap().contains("Plan mode"),
+        "{}",
+        s.text()
+    );
     s.feed(&agent(""));
     s.resize(100, 24);
     // a running task keeps the indicator and drops the cycle key

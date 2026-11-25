@@ -6,11 +6,11 @@
 //! pane over.
 
 use rtwk::foundation::ListenableBuilder;
-use rtwk::provider::select;
-use rtwk::style::Span;
 use rtwk::layout::{
     BoxWidget, Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Row, SizedBox,
 };
+use rtwk::provider::select;
+use rtwk::style::Span;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Key};
 

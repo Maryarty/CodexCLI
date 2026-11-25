@@ -2,4 +2,5 @@
 - w2-settings/keymap_press.py: moves the KeyCode reading of the keymap editor to src/keymap/press.rs (ADR-006); for the owner of src/keymap to run (UNTESTED: written when the area rule forbade running it).
 - doors-r1/span_link.py: `link: None` in every struct literal of the picker `Span { text, role }` (a `link` field on the picker run, doors-r1 item 6).
 - w2-status/usage_fixtures.py: writes the usage debug entries credits_days and credits_exact (src/pages/usage/fixtures) from the oracle's `fixture::history(1,0,0)` with the edits its tests make.
+- w2-status/activity_fixtures.py: writes the usage debug entries activity_daily/weekly/cumulative/empty, chats_balance and summary_partial (src/pages/usage/fixtures) from overview.jsonl and tasks.jsonl with the edits the oracle's tests make.
 - doors-r2/NOTES.md: no script; the notes of the doors-r2 round (item 12 finding, the pane_footer fact table, the Needs left to the packages).
