@@ -68,10 +68,6 @@ fn slash_export_opens_destination_picker() {
 // ORACLE chatwidget/tests/slash_commands.rs:2434 copy_action_reports_when_no_agent_response_exists kind=ui owner=chat-nav-pane
 #[test]
 fn copy_action_reports_when_no_agent_response_exists() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the copy key action (ctrl+o) and its no-output info cell are not built",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.keys("ctrl+o");
     s.assert_contains("No agent response to copy");

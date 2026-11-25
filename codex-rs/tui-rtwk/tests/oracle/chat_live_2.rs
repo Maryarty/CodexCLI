@@ -872,12 +872,21 @@ fn forked_thread_history_line_without_name_shows_id_once_snapshot() {
 // ORACLE chatwidget/tests/history_replay.rs:1091 prompt_edit_thread_history_line_snapshot kind=snap owner=chat-live snap=prompt_edit_thread_history_line
 #[test]
 fn prompt_edit_thread_history_line_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no `Conversation reverted to this point. File changes are unchanged.` line: the prompt edit's revert does not add the line the oracle's `emit_prompt_edit_thread_event` inserts",
+    // The oracle calls `emit_prompt_edit_thread_event` and snapshots the cell it sends; the edit
+    // is run whole here: Esc Esc, Enter, the server's revert and its `thread/reverted`.
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/chat_live_2/prompt_edit_revert.jsonl"
+        ))
+        .open();
+    s.keys("esc");
+    s.keys("esc");
+    s.keys("enter");
+    // the server reverted: its notification comes after the answer of `thread/revert`
+    s.feed(
+        r#"{"step":"notify","message":{"method":"thread/reverted","params":{"threadId":"thread-1"}}}"#,
     );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    // needs: a prompt edit (Esc Esc, Enter) answered by the revert
     s.assert_snap_region(
         "prompt_edit_thread_history_line",
         row_of(&s, "• Conversation reverted"),
