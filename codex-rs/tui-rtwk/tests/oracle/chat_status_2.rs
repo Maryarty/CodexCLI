@@ -41,6 +41,15 @@ const BREAKDOWN: &str = r#"{"estimatedUsageCreditsMicros":50000000,"estimatedUsa
 /// 50 credits and no dollars, one group.
 const CREDITS_ONLY: &str = r#"{"estimatedUsageCreditsMicros":50000000,"estimatedUsageUsdMicros":null,"groups":[{"model":"gpt-5.4","reasoningEffort":"high","speed":"fast","estimatedUsageCreditsMicros":50000000,"netNewInputTokens":80,"cachedInputTokens":20,"inputTokens":100,"outputTokens":40,"totalTokens":140}]}"#;
 
+/// A background terminal starts (`begin_unified_exec_startup`: `sleep 2`).
+const BACKGROUND: &str = r#"{"step":"notify","message":{"method":"item/started","params":{"item":{"type":"commandExecution","id":"call-1","pluginId":null,"scriptPath":null,"command":"bash -lc 'sleep 2'","cwd":"/tmp/project","processId":"proc-1","source":"unifiedExecStartup","status":"inProgress","commandActions":[],"aggregatedOutput":null,"exitCode":null,"durationMs":null,"startedAtMs":0,"completedAtMs":null},"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}"#;
+
+/// The agent runs `echo done` (`begin_exec`).
+const EXEC_BEGIN: &str = r#"{"step":"notify","message":{"method":"item/started","params":{"item":{"type":"commandExecution","id":"call-1","pluginId":null,"scriptPath":null,"command":"bash -lc 'echo done'","cwd":"/tmp/project","processId":null,"source":"agent","status":"inProgress","commandActions":[{"type":"unknown","command":"echo done"}],"aggregatedOutput":null,"exitCode":null,"durationMs":null,"startedAtMs":0,"completedAtMs":null},"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}"#;
+
+/// It ends with exit 0 and the output `done` (`end_exec`).
+const EXEC_END: &str = r#"{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"call-1","pluginId":null,"scriptPath":null,"command":"bash -lc 'echo done'","cwd":"/tmp/project","processId":null,"source":"agent","status":"completed","commandActions":[{"type":"unknown","command":"echo done"}],"aggregatedOutput":"done","exitCode":0,"durationMs":5,"startedAtMs":null,"completedAtMs":null},"threadId":"thread-1","turnId":"turn-1","contentTokenCount":null,"completedAtMs":0}}}"#;
+
 /// The turn thinks: a reasoning summary part began (`set_status_header("Thinking")`).
 const THINKING: &str = r#"{"step":"notify","message":{"method":"item/reasoning/summaryPartAdded","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"reasoning-1","summaryIndex":0}}}"#;
 
@@ -49,6 +58,14 @@ fn assistant_message(id: &str, text: &str) -> String {
     format!(
         r#"{{"step":"notify","message":{{"method":"item/completed","params":{{"threadId":"thread-1","turnId":"turn-1","completedAtMs":0,"item":{{"type":"agentMessage","id":"{id}","text":"{text}","phase":null,"moderation":null}}}}}}}}"#
     )
+}
+
+/// The screen row that says `text`.
+fn row_of(s: &Screen, text: &str) -> usize {
+    s.rows()
+        .iter()
+        .position(|row| row.trim_end() == text)
+        .unwrap_or_else(|| panic!("no `{text}` row:\n{}", s.text()))
 }
 
 /// How many rows of the screen say `text`.
@@ -152,24 +169,41 @@ fn steady(row: &str) -> String {
 struct Frames {
     name: &'static str,
     labels: &'static [&'static str],
+    /// The test's labels are headers the kit reads (`80 columns:`): each render is asked for by name.
+    named: bool,
 }
 
 impl Frames {
     /// The rows of render `k` (from 0, in the order the test wrote them): the lines between the
     /// labels, the first label being the snapshot's own first line.
     fn rows(&self, k: usize) -> Vec<String> {
-        let mut all: Vec<String> = kit::snap_rows(self.name, "")
-            .iter()
-            .map(|row| row.trim_end().to_string())
-            .collect();
+        if self.named {
+            let label = self.labels[k].trim_end_matches(':');
+            let mut rows: Vec<String> = kit::snap_rows(self.name, label)
+                .iter()
+                .map(|row| row.trim_end().to_string())
+                .collect();
+            while rows.last().is_some_and(String::is_empty) {
+                rows.pop();
+            }
+            return rows;
+        }
+        // the whole snapshot: the kit cuts it at the labels it takes for headers and leaves them out
+        let mut all: Vec<String> = Vec::new();
+        for frame in kit::snap_frames(self.name) {
+            if !frame.is_empty() {
+                all.push(frame.clone());
+            }
+            all.extend(
+                kit::snap_rows(self.name, &frame)
+                    .iter()
+                    .map(|row| row.trim_end().to_string()),
+            );
+        }
         let rows = if self.labels.is_empty() {
             all
         } else {
             let bare = |row: &str| row.trim_end_matches(':').to_string();
-            // the kit takes a first label for the snapshot's header and leaves it out
-            if all.first().is_none_or(|row| bare(row) != bare(self.labels[0])) {
-                all.insert(0, self.labels[0].to_string());
-            }
             let mut chunks: Vec<Vec<String>> = Vec::new();
             for row in all {
                 if self.labels.iter().any(|label| bare(label) == bare(&row)) {
@@ -190,10 +224,10 @@ impl Frames {
         rows
     }
 
-    /// Render `k` equals the screen's rows from `top` on (the status row's bullet and elapsed
-    /// time aside, `steady`).
-    fn region(&self, s: &Screen, k: usize, top: usize) {
-        let want = self.rows(k);
+    /// Render `k`, but its first `skip` rows, equals the screen's rows from `top` on (the status
+    /// row's bullet and elapsed time aside, `steady`).
+    fn region(&self, s: &Screen, k: usize, top: usize, skip: usize) {
+        let want = self.rows(k).split_off(skip);
         let ours = s.rows();
         let got: Vec<String> = (0..want.len())
             .map(|at| steady(ours.get(top + at).map_or("", String::as_str)))
@@ -206,14 +240,27 @@ impl Frames {
         );
     }
 
-    /// Render `k` is the bottom pane: its first row is `above` rows above the composer's.
-    fn pane(&self, s: &Screen, k: usize, above: usize) {
+    /// Render `k` is the bottom pane: its first row is as many rows above the composer's as the
+    /// oracle's render says.
+    fn pane(&self, s: &Screen, k: usize) {
+        self.pane_from(s, k, 0);
+    }
+
+    /// Render `k` is the chat widget alone: the bottom pane's rows, but the first `skip` rows of
+    /// the oracle's render, equal ours. Those rows are its active cell, drawn flush above the pane;
+    /// the app keeps the cell in its transcript.
+    fn pane_from(&self, s: &Screen, k: usize, skip: usize) {
+        let above = self
+            .rows(k)
+            .iter()
+            .position(|row| row.starts_with("› "))
+            .unwrap_or_else(|| panic!("{}: no composer row in render {k}", self.name));
         let composer = s
             .rows()
             .iter()
             .rposition(|row| row.starts_with("› "))
             .unwrap_or_else(|| panic!("no composer row:\n{}", s.text()));
-        self.region(s, k, composer - above);
+        self.region(s, k, composer - (above - skip), skip);
     }
 
     /// Render `k` is history: it starts at the row `first` says.
@@ -223,7 +270,7 @@ impl Frames {
             .iter()
             .position(|row| row.trim_end() == first)
             .unwrap_or_else(|| panic!("no `{first}` row:\n{}", s.text()));
-        self.region(s, k, top);
+        self.region(s, k, top, 0);
     }
 }
 
@@ -400,6 +447,7 @@ fn interrupted_turn_clears_visible_running_hook() {
     let frames = Frames {
         name: "interrupted_turn_clears_visible_running_hook",
         labels: &["before interrupt:", "after interrupt:"],
+        named: false,
     };
     let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
     s.feed(BASE).feed(TURN).feed(&hook_started(
@@ -408,9 +456,9 @@ fn interrupted_turn_clears_visible_running_hook() {
         Some("checking command policy"),
     ));
     s.wait(300);
-    frames.pane(&s, 0, 4);
+    frames.pane(&s, 0);
     s.feed(&turn_ended("interrupted"));
-    frames.pane(&s, 1, 2);
+    frames.pane(&s, 1);
     s.assert_absent("checking command policy");
 }
 
@@ -421,15 +469,16 @@ fn completed_turn_clears_visible_running_hook() {
     let frames = Frames {
         name: "completed_turn_clears_visible_running_hook",
         labels: &["before completion:", "after completion:"],
+        named: false,
     };
     let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
     s.feed(BASE)
         .feed(TURN)
         .feed(&hook_started("post-tool-use:0:/tmp/hooks.json", "postToolUse", None));
     s.wait(300);
-    frames.pane(&s, 0, 4);
+    frames.pane(&s, 0);
     s.feed(&turn_ended("completed"));
-    frames.pane(&s, 1, 2);
+    frames.pane(&s, 1);
     s.assert_absent("Running hook");
 }
 
@@ -750,6 +799,7 @@ fn user_prompt_submit_app_server_hook_notifications_render_snapshot() {
     let frames = Frames {
         name: "user_prompt_submit_app_server_hook_notifications_render_snapshot",
         labels: &[],
+        named: false,
     };
     let id = "user-prompt-submit:0:/tmp/hooks.json";
     let message = "checking go-workflow input policy";
@@ -843,6 +893,7 @@ fn blocked_and_failed_hooks_render_feedback_and_errors() {
     let frames = Frames {
         name: "hook_blocked_failed_feedback_history_snapshot",
         labels: &[],
+        named: false,
     };
     let mut s = chat();
     s.feed(&hook_completed(
@@ -874,13 +925,14 @@ fn completed_hook_with_output_flushes_immediately() {
     let frames = Frames {
         name: "completed_hook_with_output_flushes_immediately_snapshot",
         labels: &["running", "completed", "activity:", "history:"],
+        named: false,
     };
     let id = "pre-tool-use:0:/tmp/hooks.json:tool-call-1";
     let mut s = chat();
     s.feed(&hook_started(id, "preToolUse", Some("checking command")));
     s.wait(150);
     // running: an activity row, nothing in history
-    frames.pane(&s, 1, 4);
+    frames.pane(&s, 1);
     s.assert_absent("Blocked by hook");
     // completed with output: the output is in history at once
     s.feed(&hook_completed(
@@ -890,7 +942,7 @@ fn completed_hook_with_output_flushes_immediately() {
         None,
         &[("feedback", "command blocked by policy")],
     ));
-    frames.pane(&s, 4, 2);
+    frames.pane(&s, 4);
     frames.history(&s, 5, "• Blocked by hook");
 }
 
@@ -900,6 +952,7 @@ fn completed_hook_output_precedes_following_assistant_message() {
     let frames = Frames {
         name: "completed_hook_output_precedes_following_assistant_message_snapshot",
         labels: &[],
+        named: false,
     };
     let id = "pre-tool-use:0:/tmp/hooks.json:tool-call-1";
     let mut s = chat();
@@ -923,6 +976,7 @@ fn completed_same_id_hook_output_survives_restart() {
     let frames = Frames {
         name: "completed_same_id_hook_output_survives_restart_snapshot",
         labels: &["restarted", "activity:", "history:"],
+        named: false,
     };
     let id = "stop:0:/tmp/hooks.json";
     let mut s = chat();
@@ -939,25 +993,63 @@ fn completed_same_id_hook_output_survives_restart() {
     s.feed(&hook_started(id, "stop", Some("checking stop condition")));
     s.wait(150);
     s.assert_in_order(&["Hook stopped", "continue with more context"]);
-    frames.pane(&s, 1, 4);
+    frames.pane(&s, 1);
     frames.history(&s, 2, "• Hook stopped");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5627 running_hooks_fit_around_background_activity_and_finish_without_history_snapshot kind=snap owner=ui-pane snap=long_running_hook_below_background_activity_row snap=mixed_running_hooks_share_background_activity_row snap=running_hooks_share_background_activity_row
 #[test]
 fn running_hooks_fit_around_background_activity_and_finish_without_history_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items); the exec and status layout of the chat is not built (the skeleton has no status row, footer or exec cell)",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: a task started with 1 background terminal; long running hook 'checking command policy' and a mixed set of hooks
-    s.assert_contains("1 background terminal running");
-    s.assert_absent("Running hooks");
-    s.assert_absent("checking command policy");
-    s.assert_snap("long_running_hook_below_background_activity_row");
-    // then the mixed running hooks share the background activity row (a second state)
-    s.assert_snap("mixed_running_hooks_share_background_activity_row");
+    for (messages, name) in [
+        (
+            vec!["checking command policy"; 3],
+            "running_hooks_share_background_activity_row",
+        ),
+        (
+            vec![
+                "checking command policy",
+                "scanning for secrets",
+                "loading project context",
+            ],
+            "mixed_running_hooks_share_background_activity_row",
+        ),
+        (
+            vec![
+                "checking command policy for deployment commands, production credentials, and paths containing 日本語 before continuing",
+            ],
+            "long_running_hook_below_background_activity_row",
+        ),
+    ] {
+        let frames = Frames {
+            name,
+            labels: &["80 columns:", "120 columns:"],
+            named: true,
+        };
+        let started: Vec<String> = messages
+            .iter()
+            .enumerate()
+            .map(|(index, message)| hook_started(&format!("hook-{index}"), "preToolUse", Some(message)))
+            .collect();
+        let finished: Vec<String> = (0..messages.len())
+            .map(|index| {
+                hook_completed(&format!("hook-{index}"), "preToolUse", "completed", None, &[])
+            })
+            .collect();
+        for (render, width) in [(0, 80), (1, 120)] {
+            let mut s = Screen::build(Owner::UiPane).size(width, 24).live().open();
+            s.feed(BASE);
+            // a task with one background terminal, then the hooks
+            s.feed(&format!("{TURN}\n{BACKGROUND}\n{}", started.join("\n")));
+            s.wait(150);
+            frames.pane(&s, render);
+            // the batch finishes before the next frame: no hook row, no history
+            s.feed(&finished.join("\n"));
+            s.assert_contains("1 background terminal running");
+            s.assert_absent("Running hooks");
+            s.assert_absent("checking command policy");
+            s.assert_absent("Hook");
+        }
+    }
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5694 session_end_hook_has_standalone_activity_row kind=snap owner=ui-pane snap=session_end_hook_activity snap=session_end_hook_activity_without_message
@@ -970,14 +1062,15 @@ fn session_end_hook_has_standalone_activity_row() {
         let frames = Frames {
             name,
             labels: &["before reveal:", "running:", "completed:"],
+            named: false,
         };
         let mut s = chat();
         s.feed(&hook_started("session-end", "sessionEnd", message));
-        frames.pane(&s, 0, 2);
+        frames.pane(&s, 0);
         s.wait(150);
-        frames.pane(&s, 1, 4);
+        frames.pane(&s, 1);
         s.feed(&hook_completed("session-end", "sessionEnd", "completed", None, &[]));
-        frames.pane(&s, 2, 2);
+        frames.pane(&s, 2);
         // no history is written
         s.assert_absent("Hook");
     }
@@ -996,6 +1089,7 @@ fn overlapping_hook_live_cell_tracks_parallel_quiet_hooks() {
             "activity:",
             "history:",
         ],
+        named: false,
     };
     let pre = "pre-tool-use:0:/tmp/hooks.json";
     let post = "post-tool-use:1:/tmp/hooks.json";
@@ -1004,14 +1098,14 @@ fn overlapping_hook_live_cell_tracks_parallel_quiet_hooks() {
     s.feed(&format!("{TURN}\n{THINKING}"));
     s.feed(&hook_started(pre, "preToolUse", Some("checking command policy")));
     s.wait(150);
-    frames.pane(&s, 1, 4);
+    frames.pane(&s, 1);
     s.feed(&hook_started(post, "postToolUse", Some("checking output policy")));
     s.wait(150);
-    frames.pane(&s, 4, 4);
+    frames.pane(&s, 4);
     s.feed(&hook_completed(pre, "preToolUse", "completed", None, &[]));
-    frames.pane(&s, 7, 4);
+    frames.pane(&s, 7);
     s.feed(&hook_completed(post, "postToolUse", "completed", None, &[]));
-    frames.pane(&s, 10, 4);
+    frames.pane(&s, 10);
     // nothing is written to history
     s.assert_absent("Hook");
 }
@@ -1019,13 +1113,34 @@ fn overlapping_hook_live_cell_tracks_parallel_quiet_hooks() {
 // ORACLE chatwidget/tests/status_and_layout.rs:5806 running_hook_does_not_displace_active_exec_cell kind=snap owner=ui-pane snap=hook_runs_while_exec_active_snapshot
 #[test]
 fn running_hook_does_not_displace_active_exec_cell() {
-    kit::pending(
-        Owner::UiPane,
-        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items); the exec and status layout of the chat is not built (the skeleton has no status row, footer or exec cell)",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: an active exec cell, then a running hook started and completed
-    s.assert_snap("hook_runs_while_exec_active_snapshot");
+    let frames = Frames {
+        name: "hook_runs_while_exec_active_snapshot",
+        labels: &[
+            "exec running:",
+            "exec and hook running:",
+            "history after exec:",
+            "hook running after exec:",
+            "quiet hook completed:",
+        ],
+        named: false,
+    };
+    let id = "post-tool-use:0:/tmp/hooks.json";
+    let mut s = chat();
+    s.feed(&format!("{TURN}\n{EXEC_BEGIN}"));
+    frames.history(&s, 0, "• Running echo done");
+    let exec_row = row_of(&s, "• Running echo done");
+    // the revealed hook is a row of the status area: the exec cell stays where it is
+    s.feed(&hook_started(id, "postToolUse", Some("checking output policy")));
+    s.wait(150);
+    assert_eq!(row_of(&s, "• Running echo done"), exec_row, "{}", s.text());
+    frames.pane_from(&s, 1, 3);
+    // the exec ends: its cell goes to history, the hook still runs
+    s.feed(EXEC_END);
+    frames.history(&s, 2, "• Ran echo done");
+    frames.pane(&s, 3);
+    s.feed(&hook_completed(id, "postToolUse", "completed", None, &[]));
+    frames.pane(&s, 4);
+    s.assert_absent("Hook");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5913 stopped_hook_hides_model_context_and_preserves_stop_reason_snapshot kind=snap owner=ui-pane snap=stopped_hook_hides_model_context_and_preserves_stop_reason
@@ -1034,6 +1149,7 @@ fn stopped_hook_hides_model_context_and_preserves_stop_reason_snapshot() {
     let frames = Frames {
         name: "stopped_hook_hides_model_context_and_preserves_stop_reason",
         labels: &[],
+        named: false,
     };
     let mut s = chat();
     s.feed(&hook_completed(
