@@ -495,23 +495,36 @@ fn legacy_search_shortcuts_navigate_in_both_directions_without_wrapping() {
 // ORACLE transcript_view/search_tests.rs:1066 find_expands_only_the_match_and_preserves_manual_disclosures kind=snap owner=chat-live snap=find_selective_expansion
 #[test]
 fn find_expands_only_the_match_and_preserves_manual_disclosures() {
-    kit::pending(
-        Owner::ChatLive,
-        "G-new-find-room-text: the oracle's hidden content is the output of a command cell (`ExecCell`) that its compact draw cuts to a tail, and Find expands only the cell of the match; the port's tool rows have no text (`Gap::Rows`), so Find reads no command or output and has nothing to reveal",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!("fixtures/transcript_view_4/find_exec.jsonl"))
+        .view_compact()
         .open();
+    // F4 focuses the last cell with a control, and Enter opens it: a disclosure of the reader's
     s.keys("f4");
     s.keys("enter");
+    s.assert_contains("hidden manual");
     s.keys("/");
     s.type_text("needle");
-    s.keys("ctrl+p");
-    // only the matching cells expand: `hidden` shows for the needle entries (the oracle's per-entry expansion)
+    // only the matching cell expands (the oracle's per-entry expansion): the newest match first,
+    // ctrl+p and ctrl+n swap which one
     s.assert_contains("hidden newer needle");
-    s.assert_snap("find_selective_expansion");
+    s.assert_absent("hidden older needle");
+    s.assert_absent("hidden unrelated");
+    s.keys("ctrl+p");
+    s.assert_contains("hidden older needle");
+    s.assert_absent("hidden newer needle");
+    s.keys("ctrl+n");
+    s.assert_contains("hidden newer needle");
+    s.assert_absent("hidden older needle");
+    s.assert_contains("hidden manual");
+    // the oracle's frame (`find_selective_expansion`) is of cells it builds itself: a command that
+    // is one quoted argument, `Running` with a finished output, no turn between them. The
+    // protocol gives none of that (a command is a script, a finished one `Ran`, each turn a
+    // `Worked for` row), so the frame is not compared; what it shows, the match's cell and the
+    // reader's open and the others shut, is what the assertions above read.
     s.keys("enter");
+    // Reading keeps the result and lets the normal activity controls open another block
     s.keys("f4");
     s.keys("home");
     s.keys("enter");
@@ -520,46 +533,65 @@ fn find_expands_only_the_match_and_preserves_manual_disclosures() {
     s.keys("f4");
     s.keys("end");
     s.keys("up");
-    s.keys("right");
-    s.assert_contains("hidden newer needle");
-    s.keys("left");
+    s.assert_contains("enter collapse");
+    for opens in [true, false, true, false] {
+        s.keys(if opens { "right" } else { "left" });
+        if opens {
+            s.assert_contains("hidden newer needle");
+        } else {
+            s.assert_absent("hidden newer needle");
+        }
+    }
     s.keys("esc");
+    // Find leaves: the match's own expansion goes, the reader's two stay
+    s.keys("esc");
+    s.assert_contains("hidden unrelated");
+    s.assert_contains("hidden manual");
+    s.assert_absent("hidden older needle");
+    s.assert_absent("hidden newer needle");
 }
 
 // ORACLE transcript_view/search_tests.rs:1202 find_searches_hidden_live_content_and_collapses_it_when_leaving_the_match kind=ui owner=chat-live
 #[test]
 fn find_searches_hidden_live_content_and_collapses_it_when_leaving_the_match() {
-    kit::pending(
-        Owner::ChatLive,
-        "G-new-find-room-text: the hidden live text is the output of a running command, which the port's tool row does not give Find as text (`Gap::Rows`); the live-tail hold itself is built (`live_match_stays_displayed_after_commit_and_a_fresh_query_searches_current_content`)",
-    );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(30, 4)
+        .size(30, 14)
         .script(include_str!("fixtures/transcript_view_4/hidden_live.jsonl"))
+        .view_compact()
         .open();
+    // the compact cell shows the last three lines of the running command's output
+    s.assert_contains("compact live");
+    s.assert_absent("hidden live needle");
     s.keys("/");
     s.type_text("needle");
-    // the oracle's first run has no compact live text; this is its second run (`compact live`), the first run is a fixture of its own
+    // the match is in the first line, which the compact cell cuts: the cell is open for it
     s.assert_contains("hidden live needle");
     s.keys("enter");
-    s.resize(20, 4);
-    s.assert_contains("hidden live needle");
+    // at 20 columns the line wraps under its branch
+    s.resize(20, 14);
+    s.assert_contains("hidden live");
+    // the command's output is replaced while the match is held: the match is shown as it was found
+    s.replace_exec_output("updated live needle\nl2\nl3\nupdated compact live");
+    s.assert_contains("hidden live");
+    s.assert_absent("updated");
     s.keys("ctrl+p");
-    s.assert_contains("compact live");
+    // the older match is in the answer: the cell that held the match is cut to its tail again
+    s.assert_contains("older needle");
+    s.assert_absent("hidden live");
+    // the tail is cut by the width (`updated c…` at 20 columns)
+    s.assert_contains("updated c");
     s.keys("ctrl+n");
-    s.assert_contains("updated live needle");
+    // the match is in the output as it is now
+    s.assert_contains("updated live");
 }
 
 // ORACLE transcript_view/search_tests.rs:1268 selected_hidden_live_match_keeps_its_revision_without_persisting_expansion kind=ui owner=chat-live
 #[test]
 fn selected_hidden_live_match_keeps_its_revision_without_persisting_expansion() {
-    kit::pending(
-        Owner::ChatLive,
-        "G-new-find-room-text: the selected match is in the hidden output of a running command, whose text the port's tool row does not give select or Find (`Gap::Rows`)",
-    );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(32, 6)
+        .size(32, 20)
         .script(include_str!("fixtures/transcript_view_4/hidden_live.jsonl"))
+        .view_compact()
         .open();
     s.keys("/");
     s.type_text("needle");
@@ -567,12 +599,20 @@ fn selected_hidden_live_match_keeps_its_revision_without_persisting_expansion() 
     s.click_text("hidden live needle");
     s.click_text("hidden live needle");
     s.click_text("hidden live needle");
-    // the live answer updates (`updated compact live`, `updated live needle`) under the selection: those are kit steps not written yet
-    s.assert_contains("hidden live needle");
+    // the live output is replaced twice and the room narrows under the selection: the match is
+    // still the revision that was found
+    s.replace_exec_output("updated live needle\nl2\nl3\nupdated compact live");
+    s.replace_exec_output("updated live needle\nl2\nl3\nupdated compact live");
+    s.resize(14, 20);
+    s.assert_contains("hidden");
+    s.assert_absent("updated");
     s.keys("ctrl+p");
-    s.assert_contains("updated compact live");
+    s.assert_contains("updated c");
+    s.assert_absent("hidden");
     s.keys("ctrl+n");
-    s.assert_contains("updated live needle");
+    // the match is in the output as it is now: its cell is open again (one word a row at 14 columns)
+    s.assert_contains("Hide");
+    s.assert_absent("hidden");
 }
 
 // ORACLE transcript_view/search_tests.rs:1343 find_reveals_hidden_command_output_and_restores_compact_presentation kind=ui owner=chat-live
@@ -580,14 +620,17 @@ fn selected_hidden_live_match_keeps_its_revision_without_persisting_expansion() 
 fn find_reveals_hidden_command_output_and_restores_compact_presentation() {
     kit::pending(
         Owner::ChatLive,
-        "G-new-find-room-text: the hidden `needle` is in command output the compact cell cuts; the port's tool row has no text for Find (`Gap::Rows`), so nothing is revealed or restored",
+        "G-new-sel-reveal: Find reads the command's whole output and opens its cell for the match (the same test at 80x50, and `find_tool_text::a_matched_command_shows_its_hidden_output_and_the_compact_rows_come_back`, pass), but the match is the 22nd of 41 lines of the open cell and the window is 4 rows: a reverse list shows an item taller than its window by its end (`ensure_index_visible`), so the match line is scrolled out; the oracle scrolls to the line",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 4)
         .script(include_str!(
             "fixtures/transcript_view_4/find_command.jsonl"
         ))
+        .view_compact()
         .open();
+    // the compact cell cuts the output to its last three lines
+    s.assert_absent("hidden needle");
     s.keys("/");
     s.type_text("hidden needle");
     let found = s.shot();
@@ -597,10 +640,12 @@ fn find_reveals_hidden_command_output_and_restores_compact_presentation() {
     s.keys("enter");
     s.assert_same_rows(&found);
     s.keys("esc");
+    s.assert_absent("hidden needle");
     let compact = s.shot();
     s.keys("/");
     s.keys("esc");
-    // the oracle replaces the group under the match and cancels: the compact rows come back unchanged
+    // the oracle also replaces the group under the match before it cancels; the port's rows are
+    // items by key, so the compact rows come back by themselves
     s.assert_same_rows(&compact);
 }
 

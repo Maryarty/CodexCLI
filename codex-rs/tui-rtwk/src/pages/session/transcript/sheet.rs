@@ -13,7 +13,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use rtwk::focus::{Focus, KeyEventResult};
+use rtwk::focus::{Focus, FocusNode, KeyEventResult};
 use rtwk::foundation::{Listenable, ListenableBuilder, VoidCallback};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, SizedBox};
 use rtwk::navigation::Navigator;
@@ -23,13 +23,14 @@ use rtwk::text::{Text, TextOverflow, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::app::facts::TuiSettings;
-use codex_tui_core::keymap::actions::{GLOBAL_FIND_TRANSCRIPT, PAGER_FIND};
+use codex_tui_core::keymap::actions::{GLOBAL_FIND_TRANSCRIPT, GLOBAL_FOCUS_ACTIVITY, PAGER_FIND};
 use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::backtrack::{EscStep, Targets};
 use codex_tui_core::screens::{ScreenThreadIntent, chat};
 use codex_tui_core::threads::{HistoryState, ThreadModel};
 
 use super::TranscriptMode;
+use super::activity_focus::{self, Step as ActivityStep};
 use super::copy::{self, CopyJob};
 use super::find;
 use super::find_footer;
@@ -43,7 +44,7 @@ use crate::app::debug::{DebugEntry, EntryOpen};
 use crate::app::view::Hs;
 use crate::pages::session::backtrack;
 use crate::pages::session::transcript_pane::Pane;
-use crate::widgets::finder::Finder;
+use crate::widgets::finder::{Finder, Mode as FindMode};
 use crate::widgets::thread_ui::{Follow, Input, Modes, TextSelection};
 
 /// What the sheet draws around the transcript (the person's decision on the
@@ -114,6 +115,9 @@ pub enum Msg {
     Pager(pager::Msg),
     /// F3 (`/`): Find opens on the sheet's transcript (`begin_search`).
     Find,
+    /// F4 (`focus_activity`): the focus on the folds and the cells that disclose begins or ends
+    /// (`handle_disclosure_key`). The compact view's only: the detailed transcript has all open.
+    Activity,
     /// A copy key or Esc while the reader's selection pauses Find (`handle_selection_key`).
     Selection(selection::Key),
     /// `select_transcript` (`leader [`): select mode begins (`begin_select_mode`).
@@ -177,7 +181,18 @@ impl State for SheetState {
         let thread = read::<ThreadModel, _>(cx);
         let targets = Targets::of(thread.transcript(), thread.can_load_history());
         match msg {
-            Msg::Find => w.find.begin(&w.follow, &w.selection),
+            Msg::Find => {
+                // a search lets go of the stop in focus (`begin_search`)
+                activity_focus::of(&w.find).leave();
+                w.find.begin(&w.follow, &w.selection);
+            }
+            Msg::Activity => {
+                let activity = activity_focus::of(&w.find);
+                if !activity.focused() {
+                    w.selection.controller().clear();
+                }
+                activity.begin();
+            }
             Msg::Select => {
                 select::of(&w.find).begin(&w.follow);
                 w.modes.hold(Input::Select);
@@ -352,8 +367,11 @@ impl State for SheetState {
             w.selection.clone(),
             self.leader.clone(),
         );
+        // the focus on the folds and the cells: the compact view's, which keeps what a cell hides
+        let activity = (w.chrome == Chrome::Compact).then(|| activity_focus::of(&w.find));
         let keymap = crate::keymap::keymap(cx);
         let held = keymap.clone();
+        let back: Rc<RefCell<Option<FocusNode>>> = Rc::default();
         self.listen_select(&caret, send.clone());
         let mut focus = Focus::new(column)
             .autofocus()
@@ -363,8 +381,21 @@ impl State for SheetState {
             // (`handle_search_key`); select mode's keys come before Find's chords and the
             // sheet's own (`handle_select_mode_key`), its chord begins it where neither Find nor
             // the mode asks (`select_transcript`)
-            .on_key_event(move |_, key| {
-                if reading.paused()
+            .can_request_focus(true)
+            .on_key_event(move |node, key| {
+                // the stops take the keys the list's own scroll would take first (Home, Up, the
+                // pages): while they have the focus the sheet's node is the primary one, and the
+                // node that was gives it back when they let go
+                let focusing = activity.is_some()
+                    && crate::keymap::pressed(&held, GLOBAL_FOCUS_ACTIVITY, &key);
+                if !focusing && stops_let_go(node, activity.as_ref()) {
+                    FocusNode::give_back(back.borrow().as_ref(), None);
+                }
+                if focusing && !node.has_primary_focus() {
+                    *back.borrow_mut() = node.manager().and_then(|manager| manager.primary_focus());
+                    node.request_focus();
+                }
+                let result = if reading.paused()
                     && let Some(step) = selection::key(&key)
                 {
                     send(Msg::Selection(step));
@@ -379,6 +410,17 @@ impl State for SheetState {
                     Step::Moved | Step::Find => {}
                 }) {
                     KeyEventResult::Handled
+                } else if reading.mode() != FindMode::Editing
+                    && let Some(step) = activity
+                        .as_ref()
+                        .and_then(|activity| activity.key(&held, &key))
+                {
+                    // the keys of a list while a stop has the focus, before Find's own while a
+                    // match is read (`handle_disclosure_key`); any other key lets go and goes on
+                    match step {
+                        ActivityStep::Taken => KeyEventResult::Handled,
+                        ActivityStep::Left => KeyEventResult::Ignored,
+                    }
                 } else if !reading.active()
                     && !caret.active()
                     && let Some(chord) = select::chord(&held, &leader, &key)
@@ -394,7 +436,11 @@ impl State for SheetState {
                     KeyEventResult::Handled
                 } else {
                     KeyEventResult::Ignored
+                };
+                if !focusing && stops_let_go(node, activity.as_ref()) {
+                    FocusNode::give_back(back.borrow().as_ref(), None);
                 }
+                result
             });
         for (key, msg) in pager::bindings(&keymap, false) {
             focus = focus.bind(key, cx.send(Msg::Pager(msg)));
@@ -405,7 +451,13 @@ impl State for SheetState {
                 .map(|key| (key, msg.clone()))
                 .collect::<Vec<_>>()
         };
+        let focusing = if w.chrome == Chrome::Compact {
+            step(GLOBAL_FOCUS_ACTIVITY, Msg::Activity)
+        } else {
+            Vec::new()
+        };
         for (key, msg) in [
+            focusing,
             step(PAGER_FIND, Msg::Find),
             step(GLOBAL_FIND_TRANSCRIPT, Msg::Find),
             step(fixed::DISMISS, Msg::Esc),
@@ -432,9 +484,18 @@ fn bare_bottom(cx: &mut Cx<'_, SheetState>, find: &Finder) -> AnyWidget {
     let nothing = || -> AnyWidget { SizedBox::new(None, Some(0), None).into() };
     let seen = find_footer::slot_in(cx, find, nothing(), 0);
     let unseen = find_footer::unseen_query(cx, find);
-    let (caret, copier) = (select::of(find), copy::mode_of(find));
-    ListenableBuilder::new(caret.listenable(), move |_, _| {
-        if caret.active() || copier.active() {
+    let (caret, copier, activity) = (
+        select::of(find),
+        copy::mode_of(find),
+        activity_focus::of(find),
+    );
+    // the footer shows while select mode, copy mode or the focus on a stop has something to say
+    let listenable = <dyn Listenable>::merge([
+        Some(caret.listenable() as Rc<dyn Listenable>),
+        Some(activity.listenable() as Rc<dyn Listenable>),
+    ]);
+    ListenableBuilder::new(Rc::new(listenable), move |_, _| {
+        if caret.active() || copier.active() || activity.focused() {
             seen.clone()
         } else {
             unseen.clone()
@@ -621,4 +682,9 @@ impl TranscriptMode for Mode {
             },
         ]
     }
+}
+
+/// The sheet's node has the primary focus though no stop has the focus any more.
+fn stops_let_go(node: &FocusNode, activity: Option<&activity_focus::Activity>) -> bool {
+    node.has_primary_focus() && activity.is_some_and(|activity| !activity.focused())
 }

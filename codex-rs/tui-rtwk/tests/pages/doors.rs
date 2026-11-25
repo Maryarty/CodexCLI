@@ -884,6 +884,7 @@ mod disclosed_cells {
     use codex_tui_core::ids::{ItemId, TurnId};
     use codex_tui_core::threads::ItemKey;
     use codex_tui_rtwk::pages::session::cells::disclosure::{disclosing, expanded, tile};
+    use codex_tui_rtwk::pages::session::transcript::activity_focus::{self, Activity};
     use codex_tui_rtwk::widgets::thread_ui::ThreadUi;
 
     /// A cell of the kind the transcript has (`ToolRowState`): its flag, its summary, its body
@@ -935,6 +936,11 @@ mod disclosed_cells {
         }
     }
 
+    /// The activity of the thread `ui` is: the controller a row's `tile` holds.
+    fn activity(ui: &ThreadUi) -> Activity {
+        activity_focus::of(&ui.find)
+    }
+
     fn mount(cell: impl Into<AnyWidget>) -> Tester {
         let mut t = Tester::with(Options::new().size(24, 6));
         t.pump_widget(cell);
@@ -946,7 +952,7 @@ mod disclosed_cells {
     #[test]
     fn the_controller_opens_and_closes_a_cell_under_a_tile() {
         let ui = ThreadUi::default();
-        let mut t = mount(tile(&ui.disclosed(), key(), Cell.into()));
+        let mut t = mount(tile(&activity(&ui), key(), Cell.into()));
         assert!(t.screen().contains("Show details"), "{}", t.screen());
         assert!(!t.screen().contains("the body"));
         ui.disclosed().set(&key(), true);
@@ -963,7 +969,7 @@ mod disclosed_cells {
     #[test]
     fn a_tap_on_the_control_is_the_controllers() {
         let ui = ThreadUi::default();
-        let mut t = mount(tile(&ui.disclosed(), key(), Cell.into()));
+        let mut t = mount(tile(&activity(&ui), key(), Cell.into()));
         assert!(ui.disclosed().known().contains(&key()));
         assert!(!ui.disclosed().is_open(&key()));
         // the control stands a quarter of the width in, on the row below the summary

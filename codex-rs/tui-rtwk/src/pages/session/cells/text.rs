@@ -26,8 +26,8 @@ use crate::pages::session::strings::Strings as Chat;
 
 use super::strings::Strings;
 use super::{
-    collab, deprecation, error, generated_image, hook, note, notice, plan_update, session_info,
-    user, viewed_image, warning, web,
+    collab, deprecation, error, exec, generated_image, hook, note, notice, plan_update,
+    session_info, user, viewed_image, warning, web,
 };
 
 /// What the texts are read with: the tables, and the two things of the
@@ -90,9 +90,9 @@ pub enum Gap {
     /// gives no function of the source (rtwk-gaps G-new, "text of a Markdown
     /// document that is not mounted").
     Markdown,
-    /// The cell's rows are not written down: a tool call's rows are a run's (an
-    /// exploration shares them, a call's spelling follows the room), a patch's
-    /// body is a rtwk diff view, a status card's rows are the host's facts.
+    /// The cell's rows are not written down: a tool call's compact rows follow the room (a
+    /// shell call has text in its detailed and expanded forms, `exec::texts`), a patch's body is a
+    /// rtwk diff view, a status card's rows are the host's facts.
     Rows,
 }
 
@@ -178,10 +178,13 @@ pub fn texts(item: &Item, env: &Env<'_>) -> Texts {
             cells,
         )),
         Item::Collab(event) => Texts::Exact(collab::texts(event, cells)),
-        Item::Tool(_)
-        | Item::Patch(_)
-        | Item::Status { .. }
-        | Item::Decision(_)
-        | Item::Review(_) => Texts::Gap(Gap::Rows),
+        // a shell call has text in the two forms that do not follow the room (the detailed
+        // transcript's and the expanded one); the compact rows are cut by it
+        Item::Tool(tool) => {
+            exec::texts(&[tool.as_ref()], env).map_or(Texts::Gap(Gap::Rows), Texts::Exact)
+        }
+        Item::Patch(_) | Item::Status { .. } | Item::Decision(_) | Item::Review(_) => {
+            Texts::Gap(Gap::Rows)
+        }
     }
 }

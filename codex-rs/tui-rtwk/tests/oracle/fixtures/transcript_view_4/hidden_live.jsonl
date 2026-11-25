@@ -1,7 +1,4 @@
-# Oracle search_tests.rs find_searches_hidden_live_content_and_collapses_it_when_leaving_the_match and selected_hidden_live_match_keeps_its_revision_without_persisting_expansion: one finished entry, then a live answer streaming the compact live text (the oracle's hidden live match and its updates come by more steps the kit does not have yet).
+# Oracle search_tests.rs find_searches_hidden_live_content_and_collapses_it_when_leaving_the_match and selected_hidden_live_match_keeps_its_revision_without_persisting_expansion: one finished entry, then an open turn with a running command whose output (`hidden live needle`, two lines, `compact live`) the compact cell cuts to its last three lines; the tests replace the output (`replace_exec_output`).
 {"step":"seed","seed":"session","thread":"thread-1"}
-{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
-{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-1","delta":"older needle"}}}
-{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"summary","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
-{"step": "notify", "message": {"method": "turn/started", "params": {"threadId": "thread-1", "turn": {"id": "turn-2", "rootTurnId": null, "items": [], "itemsView": "full", "status": "inProgress", "error": null, "startedAt": null, "completedAt": null, "durationMs": null}}}}
-{"step": "notify", "message": {"method": "item/agentMessage/delta", "params": {"threadId": "thread-1", "turnId": "turn-2", "itemId": "msg-2", "delta": "compact live"}}}
+{"step":"entry","kind":"agent","turn":"turn-1","item":"msg-1","text":"older needle"}
+{"step":"entry","kind":"exec","turn":"turn-2","item":"cmd-live","command":"echo","output":"hidden live needle\nl2\nl3\ncompact live","running":true,"end":false}

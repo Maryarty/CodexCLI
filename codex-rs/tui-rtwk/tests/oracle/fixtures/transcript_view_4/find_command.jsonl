@@ -1,5 +1,3 @@
-# Oracle search_tests.rs find_reveals_hidden_command_output_and_restores_compact_presentation: one command cell whose output (20 head lines, hidden needle, 20 tail lines) is hidden in compact view; a stand-in agent message until the chat draws command cells from a commandExecution item.
+# Oracle search_tests.rs find_reveals_hidden_command_output_and_restores_compact_presentation: one finished command whose output (20 head lines, hidden needle, 20 tail lines) the compact cell cuts to its last three lines.
 {"step":"seed","seed":"session","thread":"thread-1"}
-{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
-{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-1","delta":"hidden needle"}}}
-{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"summary","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"entry","kind":"exec","command":"echo","output":"head\nhead\nhead\nhead\nhead\nhead\nhead\nhead\nhead\nhead\nhead\nhead\nhead\nhead\nhead\nhead\nhead\nhead\nhead\nhead\nhidden needle\ntail\ntail\ntail\ntail\ntail\ntail\ntail\ntail\ntail\ntail\ntail\ntail\ntail\ntail\ntail\ntail\ntail\ntail\ntail\ntail\n","exit":0}

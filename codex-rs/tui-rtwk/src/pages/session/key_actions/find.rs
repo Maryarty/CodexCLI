@@ -9,7 +9,7 @@ use codex_tui_core::keymap::actions::GLOBAL_FIND_TRANSCRIPT;
 
 use super::{KeyAction, Keyed};
 use crate::pages::session::session_page::ChatState;
-use crate::pages::session::transcript::find;
+use crate::pages::session::transcript::{activity_focus, find};
 
 pub struct Find;
 
@@ -17,6 +17,9 @@ impl KeyAction for Find {
     const ID: ActionId = GLOBAL_FIND_TRANSCRIPT;
 
     fn run(_: &mut Cx<'_, ChatState>, keyed: &Keyed<'_>) {
-        find::finder(keyed.ui).begin(&keyed.ui.follow, &keyed.ui.selection);
+        // a search lets go of the stop in focus (`begin_search`)
+        let finder = find::finder(keyed.ui);
+        activity_focus::of(&finder).leave();
+        finder.begin(&keyed.ui.follow, &keyed.ui.selection);
     }
 }

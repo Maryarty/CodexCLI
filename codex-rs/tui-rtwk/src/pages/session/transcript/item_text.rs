@@ -12,13 +12,14 @@
 //! an item that is not selectable.
 
 use codex_tui_core::app::facts::Rendering;
-use codex_tui_core::threads::{Item, Notice};
+use codex_tui_core::threads::{Item, Notice, ToolActivity, Transcript};
 use rtwk_rich::markdown::{Block, MarkdownView};
 
 use super::markdown_text;
+use super::turn_details::{Kind, Row};
 use crate::pages::session::cells::citation::blocks_of;
 use crate::pages::session::cells::text::{Env, Gap, Part, Texts, texts};
-use crate::pages::session::cells::{raw, session_info};
+use crate::pages::session::cells::{exec, raw, session_info};
 
 /// What the texts are read with: the cells' own `Env`, and what the cells that hold Markdown draw
 /// it with (the session's directory, the user's `tui.rendering`, raw output mode, raw reasoning).
@@ -32,6 +33,10 @@ pub struct Reading<'a> {
     pub raw: bool,
     /// `show_raw_agent_reasoning`: a reasoning block also draws the raw reasoning.
     pub raw_reasoning: bool,
+    /// Find reads what a matched cell shows, not what its room cuts (oracle `search_layout`: the
+    /// full content): a shell call is its expanded form. Select mode and copy mode keep the rows
+    /// as the list draws them.
+    pub revealed: bool,
 }
 
 impl<'a> Reading<'a> {
@@ -44,6 +49,7 @@ impl<'a> Reading<'a> {
             rendering: Rendering::default(),
             raw: false,
             raw_reasoning: false,
+            revealed: false,
         }
     }
 }
@@ -108,6 +114,39 @@ pub fn mounted_text(item: &Item, reading: &Reading<'_>) -> Option<String> {
     })
 }
 
+/// The same reading with every disclosure open.
+fn opened_env<'a>(env: &Env<'a>) -> Env<'a> {
+    Env {
+        cells: env.cells,
+        chat: env.chat,
+        detailed: env.detailed,
+        expanded: true,
+    }
+}
+
+/// The parts of the list row `row` of `transcript`, what [`mounted_parts`] says of its first item
+/// and, for a run of tool calls, of all of them (the row draws them together: an exploration, a
+/// computer group). A row that is a fold of a turn's calls draws that fold, whose text is not the
+/// item's: no parts.
+pub fn row_parts(transcript: &Transcript, row: &Row, reading: &Reading<'_>) -> Option<Vec<Part>> {
+    let (_, item) = transcript.get(row.range.start)?;
+    if reading.revealed && matches!(item, Item::Tool(_)) {
+        if matches!(row.kind, Kind::Tools(_)) {
+            return None;
+        }
+        let calls: Vec<&ToolActivity> = row
+            .range
+            .clone()
+            .filter_map(|at| match transcript.get(at) {
+                Some((_, Item::Tool(tool))) => Some(tool.as_ref()),
+                _ => None,
+            })
+            .collect();
+        return exec::texts(&calls, &opened_env(reading.env));
+    }
+    mounted_parts(item, reading)
+}
+
 /// The parts of [`mounted_text`], each with whether it is a gutter: what the select mode reads
 /// (a caret never stops on a gutter, a copy leaves it out). A Markdown body is a part for each
 /// of its `Text`s.
@@ -135,6 +174,13 @@ pub fn mounted_pieces(item: &Item, reading: &Reading<'_>) -> Option<Vec<Piece>> 
                 .collect(),
         );
     }
+    let opened;
+    let env = if reading.revealed && matches!(item, Item::Tool(_)) {
+        opened = opened_env(env);
+        &opened
+    } else {
+        env
+    };
     match texts(item, env) {
         Texts::Exact(parts) => Some(parts.into_iter().map(Piece::line).collect()),
         Texts::Gap(Gap::Markdown) => markdown_pieces(item, reading),

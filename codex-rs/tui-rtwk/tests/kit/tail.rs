@@ -10,7 +10,7 @@ use codex_tui_core::app::{AppEv, Intent};
 use codex_tui_core::features::recap::Note as Recap;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::{ScreenIntent, chat};
-use codex_tui_core::threads::{Note, NoteKey};
+use codex_tui_core::threads::{Item, Note, NoteKey, ToolKind, ToolStatus};
 use codex_tui_rtwk::app::UiApp;
 
 use super::Screen;
@@ -122,6 +122,46 @@ impl Screen {
             "step": "entry", "kind": "agent", "thread": thread, "turn": turn,
             "item": tail_item(&turn), "text": text, "start": false, "end": false,
             "replace": true,
+        });
+        self.feed(&line.to_string())
+    }
+
+    /// The running command's output is now `text`, in place of what it had (the oracle's live
+    /// cell holds the whole text each time). The command is the turn's last running shell call; the
+    /// turn goes on running.
+    pub fn replace_exec_output(&mut self, text: &str) -> &mut Screen {
+        let slot = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let grab = slot.clone();
+        self.h.t.update_app(move |app: &mut UiApp, _| {
+            let thread = app
+                .core
+                .session()
+                .active
+                .as_ref()
+                .map(|id| id.as_str().to_owned());
+            let call = app
+                .core
+                .active_thread()
+                .transcript()
+                .iter()
+                .filter_map(|(key, item)| match item {
+                    Item::Tool(tool) if tool.status == ToolStatus::Running => match &tool.kind {
+                        ToolKind::Shell { command, .. } => Some((key.clone(), command.clone())),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .last();
+            *grab.borrow_mut() = thread.zip(call);
+        });
+        let (thread, (key, command)) = slot
+            .borrow_mut()
+            .take()
+            .expect("a running command to replace the output of");
+        let line = serde_json::json!({
+            "step": "entry", "kind": "exec", "thread": thread, "turn": key.turn.as_str(),
+            "item": key.item.as_str(), "command": command, "output": text, "running": true,
+            "start": false, "end": false, "replace": true,
         });
         self.feed(&line.to_string())
     }

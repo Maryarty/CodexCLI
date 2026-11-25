@@ -287,6 +287,45 @@ pub fn command_started(
     )
 }
 
+/// `item/commandExecution/outputDelta`: more of a running command's output.
+pub fn command_output(
+    thread: &str,
+    turn_id: &str,
+    item: &str,
+    delta: &str,
+) -> Result<BackendEv, String> {
+    wire(
+        "item/commandExecution/outputDelta",
+        serde_json::json!({
+            "threadId": thread, "turnId": turn_id, "itemId": item, "delta": delta,
+        }),
+    )
+}
+
+/// `item/completed` of a command that still runs (`inProgress`) with `output` as the output it has
+/// now: the server's way to say the whole text of a running command's output, in place of what it
+/// had (`item/started` of an item the transcript has does nothing; an upsert replaces it).
+pub fn command_progress(
+    thread: &str,
+    turn_id: &str,
+    item: &str,
+    command: &str,
+    output: &str,
+) -> Result<BackendEv, String> {
+    wire(
+        "item/completed",
+        serde_json::json!({
+            "item": {
+                "type": "commandExecution", "id": item, "command": command, "cwd": "/workspace",
+                "processId": null, "source": "agent", "status": "inProgress",
+                "commandActions": [], "aggregatedOutput": output, "exitCode": null,
+                "durationMs": null,
+            },
+            "threadId": thread, "turnId": turn_id, "completedAtMs": 0,
+        }),
+    )
+}
+
 /// `item/completed` of a command: its `output` (stdout and stderr as one text) and its exit code.
 pub fn command_completed(
     thread: &str,

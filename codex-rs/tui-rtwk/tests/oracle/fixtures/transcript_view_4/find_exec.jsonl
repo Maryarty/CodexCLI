@@ -1,14 +1,6 @@
-# Oracle search_tests.rs find_expands_only_the_match_and_preserves_manual_disclosures: four entries, the oracle's exec cells (visible and hidden output). Here the cells are stand-in agent messages until the chat draws command cells from a commandExecution item.
+# Oracle search_tests.rs find_expands_only_the_match_and_preserves_manual_disclosures: four finished commands (`echo visible`, then a hidden second line that names the entry), no output.
 {"step":"seed","seed":"session","thread":"thread-1"}
-{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
-{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-1","delta":"unrelated"}}}
-{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"summary","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
-{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-2","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
-{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-2","itemId":"msg-2","delta":"older needle"}}}
-{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-2","rootTurnId":null,"items":[],"itemsView":"summary","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
-{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-3","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
-{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-3","itemId":"msg-3","delta":"newer needle"}}}
-{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-3","rootTurnId":null,"items":[],"itemsView":"summary","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
-{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-4","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
-{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-4","itemId":"msg-4","delta":"manual"}}}
-{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-4","rootTurnId":null,"items":[],"itemsView":"summary","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"entry","kind":"exec","turn":"turn-1","item":"cmd-1","command":"echo visible\necho hidden unrelated","output":"","exit":0}
+{"step":"entry","kind":"exec","turn":"turn-2","item":"cmd-2","command":"echo visible\necho hidden older needle","output":"","exit":0}
+{"step":"entry","kind":"exec","turn":"turn-3","item":"cmd-3","command":"echo visible\necho hidden newer needle","output":"","exit":0}
+{"step":"entry","kind":"exec","turn":"turn-4","item":"cmd-4","command":"echo visible\necho hidden manual","output":"","exit":0}
