@@ -174,7 +174,8 @@ impl State for RequestDialogState {
         };
         let tone = |tone: Tone| match tone {
             Tone::Plain => Style::new(),
-            Tone::Dim => tokens.dim(),
+            // the oracle's `.dim()`: the terminal's dim attribute
+            Tone::Dim => Style::new().attrs(Attrs::DIM),
             Tone::Bold => tokens.bold(),
             Tone::Italic => Style::new().attrs(Attrs::ITALIC),
             Tone::Accent => tokens.accent(),

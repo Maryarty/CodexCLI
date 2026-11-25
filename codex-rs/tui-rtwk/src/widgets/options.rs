@@ -21,7 +21,7 @@ use std::rc::Rc;
 use rtwk::controls::SelectionController;
 use rtwk::foundation::ListenableBuilder;
 use rtwk::gestures::{GestureDetector, PointerEvent};
-use rtwk::layout::SizedBox;
+use rtwk::layout::{BoxWidget, SizedBox};
 use rtwk::layout::{
     Column, CrossAxisAlignment, EdgeInsets, Flexible, Grid, GridPlacement, GridTrack, MainAxisSize,
     Padding,
@@ -502,7 +502,7 @@ impl Options {
                             if !hung {
                                 spans.extend(label.iter().cloned());
                             }
-                            Text::rich(spans).style(style).into()
+                            cursor_fill(on, &style, Text::rich(spans).style(style.clone()).into())
                         })
                     };
                     let column = if hang { 1 } else { 0 };
@@ -511,24 +511,34 @@ impl Options {
                         let (watch, st, label) = (watch.clone(), st.clone(), label.clone());
                         let label =
                             ListenableBuilder::new(watch.clone().listenable(), move |_, _| {
-                                let style = if watch.cursor() == Some(index) {
+                                let on = watch.cursor() == Some(index);
+                                let style = if on {
                                     st.cursor.clone()
                                 } else {
                                     st.label.clone()
                                 };
-                                Text::rich(label.clone()).style(style).into()
+                                cursor_fill(
+                                    on,
+                                    &style,
+                                    Text::rich(label.clone()).style(style.clone()).into(),
+                                )
                             });
                         grid = grid.child(GridPlacement::new(me.tap(index, label)).at(at, 1));
                     }
                     let (watch, st) = (watch, st);
                     let description: AnyWidget =
                         ListenableBuilder::new(watch.clone().listenable(), move |_, _| {
-                            let style = if watch.cursor() == Some(index) {
+                            let on = watch.cursor() == Some(index);
+                            let style = if on {
                                 st.cursor.clone()
                             } else {
                                 st.description.clone()
                             };
-                            Text::new(text.clone()).style(style).into()
+                            cursor_fill(
+                                on,
+                                &style,
+                                Text::new(text.clone()).style(style.clone()).into(),
+                            )
                         })
                         .into();
                     // After the label column, `2` cells off it.
@@ -555,6 +565,16 @@ impl Options {
             }),
         )
         .into()
+    }
+}
+
+/// The cursor row's cell filled edge to edge in the cursor style (the oracle
+/// reverses the whole row, blanks included).
+fn cursor_fill(on: bool, style: &Style, cell: AnyWidget) -> AnyWidget {
+    if on {
+        BoxWidget::new().style(style.clone()).child(cell).into()
+    } else {
+        cell
     }
 }
 

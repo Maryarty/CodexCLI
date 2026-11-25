@@ -570,13 +570,7 @@ fn exec_prompt(params: &serde_json::Value) -> ExecPrompt {
     let amendment = params
         .get("proposedExecpolicyAmendment")
         .and_then(|a| a.as_array())
-        .map(|words| {
-            words
-                .iter()
-                .filter_map(|w| w.as_str())
-                .collect::<Vec<_>>()
-                .join(" ")
-        });
+        .map(|words| escape_command(words.iter().filter_map(|w| w.as_str())));
     let permission_rule = rule_of(params.get("additionalPermissions"));
     let has_permissions = params
         .get("additionalPermissions")
@@ -687,9 +681,9 @@ fn decision_of(value: &serde_json::Value) -> Option<Decision> {
     let words = prefix
         .as_array()
         .or_else(|| prefix.get("command")?.as_array())?;
-    Some(Decision::AcceptWithPrefix(
-        words.iter().filter_map(|w| w.as_str()).collect::<Vec<_>>().join(" "),
-    ))
+    Some(Decision::AcceptWithPrefix(escape_command(
+        words.iter().filter_map(|w| w.as_str()),
+    )))
 }
 
 fn rule_of(permissions: Option<&serde_json::Value>) -> Vec<Rule> {
@@ -759,6 +753,41 @@ fn question_of(value: &serde_json::Value) -> Question {
             })
             .unwrap_or_default(),
     }
+}
+
+/// A command's words as one line a shell reads back (`escape_command` of the oracle's
+/// `exec_command.rs:8`, shlex's `try_join`): a word with a character the shell reads as its own
+/// is quoted, as `'hello world'`; a word that holds a quote goes between double quotes.
+pub fn escape_command<'a>(words: impl IntoIterator<Item = &'a str>) -> String {
+    const SAFE: &str = "%+,-./:=@_^";
+    let quote = |word: &str| -> String {
+        if word.is_empty() {
+            return "''".to_string();
+        }
+        if word
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || SAFE.contains(c))
+        {
+            return word.to_string();
+        }
+        if !word.contains('\'') {
+            return format!("'{word}'");
+        }
+        let mut quoted = String::from("\"");
+        for c in word.chars() {
+            if matches!(c, '$' | '`' | '"' | '\\') {
+                quoted.push('\\');
+            }
+            quoted.push(c);
+        }
+        quoted.push('"');
+        quoted
+    };
+    words
+        .into_iter()
+        .map(quote)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// `strip_bash_lc_and_escape` of the oracle (`tui/src/exec_command.rs:17`),
