@@ -41,9 +41,9 @@ use super::suggest::Suggest;
 use super::vim;
 use crate::keymap::{
     c0_ctrl_h, combo_of, holds_command_mod, holds_ctrl_or_alt, holds_shift_or_alt, only_shift,
-    press_for, pressed, unmodified,
+    press_for, pressed, stroke_label, unmodified,
 };
-use crate::widgets::composer_draft::ComposerDraft;
+use crate::widgets::composer_draft::{ComposerDraft, KEY_CHORD_TIMEOUT};
 use crate::widgets::composer_sparkle::{Key as SparkleKey, SparkleController};
 
 /// What the handler reads besides the controller: the draft of the same
@@ -197,6 +197,13 @@ fn take_key_inner(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> 
     }
     // a `$skill` completion's space lasts for the next key only
     let skill_space = data.draft.take_skill_space();
+    // an editor chord's keys are no typing, whatever the burst detector or a popup would make of
+    // the second (Normal mode's own chords are Vim's)
+    if !mode.normal
+        && let Some(took) = chord_key(data, c, key, skill_space)
+    {
+        return took;
+    }
     // a restricted composer only edits: no popup, burst, history, search or
     // submit of its own (`handle_input_basic`)
     let free = data.restricted.is_none();
@@ -598,33 +605,168 @@ fn edit_key(
     match resolve(&data.keymap, key) {
         Resolved::None => edit_arms(data, c, key, skill_space),
         Resolved::Nothing => true,
-        Resolved::Edit {
-            edit: Edit::Newline,
-            ..
-        } => {
+        Resolved::Edit { edit, via } => {
             // Shift+Enter and Alt+Enter are the field's own line break;
             // any other key of the action (Enter, once submit is
             // elsewhere) breaks the line here
-            if pressed(&data.keymap, ENTER, key) && holds_shift_or_alt(key) {
+            if edit == Edit::Newline && pressed(&data.keymap, ENTER, key) && holds_shift_or_alt(key)
+            {
                 return false;
             }
+            carry_edit(data, c, edit, via, key, skill_space)
+        }
+    }
+}
+
+/// Carries `edit` out: the line break and the kill of a line are the composer's, the rest run as
+/// the key `via` (the field's own for the action) or, with none, as `key`.
+fn carry_edit(
+    data: &KeyData,
+    c: &TextEditingController,
+    edit: Edit,
+    via: Option<KeyPress>,
+    key: &KeyPress,
+    skill_space: Option<usize>,
+) -> bool {
+    match edit {
+        Edit::Newline => {
             c.insert("\n");
             true
         }
-        Resolved::Edit {
-            edit: Edit::KillWholeLine,
-            ..
-        } => {
+        Edit::KillWholeLine => {
             kill_whole_line(&data.draft, c);
             true
         }
-        Resolved::Edit { via: None, .. } => edit_arms(data, c, key, skill_space),
-        Resolved::Edit { via: Some(via), .. } => {
-            edit_arms(data, c, &via, skill_space) || {
-                field_edit(&data.keymap, c, &via);
-                true
+        _ => match via {
+            None => edit_arms(data, c, key, skill_space),
+            Some(via) => {
+                edit_arms(data, c, &via, skill_space) || {
+                    field_edit(&data.keymap, c, &via);
+                    true
+                }
+            }
+        },
+    }
+}
+
+/// What a key is to the editor chords of the user's bindings (`KeyChordMatcher::advance`).
+enum ChordStep {
+    /// The key begins a chord: it is held and nothing else happens.
+    Hold,
+    /// The key completes the chord the held key began.
+    Done(Edit),
+    /// Esc with a chord held: the chord is gone and Esc is spent on it.
+    Cancel,
+    /// Not part of a chord: an ordinary key (a held key that nothing completed is dropped).
+    Fresh,
+}
+
+/// The chords `(prefix, completion)` of an editing action as the keymap resolved them.
+fn chords_of(keymap: &Keymap, id: ActionId) -> Vec<(KeyCombo, KeyCombo)> {
+    keymap
+        .bindings(id)
+        .into_iter()
+        .filter_map(|binding| match binding {
+            Binding::Chord { prefix, completion } => {
+                Some((combo_of(&prefix)?, combo_of(&completion)?))
+            }
+            Binding::Single(_) => None,
+        })
+        .collect()
+}
+
+/// What `key` is to the editor chords, when `first` is the key held (a chord's first key the user
+/// pressed and nothing has ended yet). The held key's age is the caller's: an expired one is
+/// not passed.
+fn chord_step(keymap: &Keymap, first: Option<&KeyPress>, key: &KeyPress) -> ChordStep {
+    if let Some(first) = first {
+        if pressed(keymap, DISMISS, key) && unmodified(key) {
+            return ChordStep::Cancel;
+        }
+        if let Some((edit, _)) = EDITS.iter().find(|(_, id)| {
+            chords_of(keymap, *id)
+                .iter()
+                .any(|(prefix, done)| prefix.accepts_press(first) && done.accepts_press(key))
+        }) {
+            return ChordStep::Done(*edit);
+        }
+    }
+    let begins = EDITS.iter().any(|(_, id)| {
+        chords_of(keymap, *id)
+            .iter()
+            .any(|(prefix, _)| prefix.accepts_press(key))
+    });
+    if begins {
+        ChordStep::Hold
+    } else {
+        ChordStep::Fresh
+    }
+}
+
+/// One guide row per action: the action and the labels of the keys that complete it.
+pub(crate) type ChordRows = Vec<(ActionId, Vec<String>)>;
+
+/// The completions of the editor chords `first` begins, as the guide lists them: the prefix as
+/// the keymap spells it, and each action with the keys that complete it (`PendingChord::actions`).
+/// `None`: `first` begins none.
+pub(crate) fn chord_rows(keymap: &Keymap, first: &KeyPress) -> Option<(String, ChordRows)> {
+    let mut title = None;
+    let mut rows: ChordRows = Vec::new();
+    for (_, id) in EDITS {
+        for binding in keymap.bindings(id) {
+            let Binding::Chord { prefix, completion } = binding else {
+                continue;
+            };
+            if !combo_of(&prefix).is_some_and(|combo| combo.accepts_press(first)) {
+                continue;
+            }
+            title.get_or_insert_with(|| stroke_label(&prefix));
+            let label = stroke_label(&completion);
+            match rows.iter_mut().find(|(row, _)| *row == id) {
+                Some((_, keys)) => keys.push(label),
+                None => rows.push((id, vec![label])),
             }
         }
+    }
+    Some((title?, rows))
+}
+
+/// The editor chords of the composer: the first key is held (`ComposerDraft::chord`) and the
+/// second completes it, Esc cancels it, anything else is an ordinary key; one that nothing
+/// followed for a second is gone (`KEY_CHORD_TIMEOUT`). `None`: the key goes on as an ordinary one.
+fn chord_key(
+    data: &KeyData,
+    c: &TextEditingController,
+    key: &KeyPress,
+    skill_space: Option<usize>,
+) -> Option<bool> {
+    let draft = &data.draft;
+    let now = data
+        .burst
+        .as_ref()
+        .map(|env| (env.now)())
+        .unwrap_or_default();
+    let before = draft.chord();
+    let held = before
+        .clone()
+        .filter(|(_, since)| now.saturating_sub(*since) < KEY_CHORD_TIMEOUT);
+    let step = chord_step(&data.keymap, held.as_ref().map(|(first, _)| first), key);
+    match step {
+        ChordStep::Hold => draft.set_chord(Some((key.clone(), now))),
+        _ if before.is_some() => draft.set_chord(None),
+        _ => {}
+    }
+    match step {
+        ChordStep::Hold | ChordStep::Cancel => Some(true),
+        ChordStep::Done(edit) => Some(carry_edit(
+            data,
+            c,
+            edit,
+            edit.canonical(),
+            key,
+            skill_space,
+        )),
+        ChordStep::Fresh => None,
     }
 }
 
@@ -638,40 +780,23 @@ pub(crate) fn edit_query(
     key: &KeyPress,
     held: &RefCell<Option<KeyPress>>,
 ) -> bool {
-    let chords = |id: ActionId| -> Vec<(KeyCombo, KeyCombo)> {
-        keymap
-            .bindings(id)
-            .into_iter()
-            .filter_map(|binding| match binding {
-                Binding::Chord { prefix, completion } => {
-                    Some((combo_of(&prefix)?, combo_of(&completion)?))
-                }
-                Binding::Single(_) => None,
-            })
-            .collect()
-    };
     let carried = |edit: Edit| {
         if let Some(via) = edit.canonical() {
             field_edit(keymap, c, &via);
         }
     };
-    if let Some(first) = held.borrow_mut().take()
-        && let Some((edit, _)) = EDITS.iter().find(|(_, id)| {
-            chords(*id)
-                .iter()
-                .any(|(prefix, done)| prefix.accepts_press(&first) && done.accepts_press(key))
-        })
-    {
-        carried(*edit);
-        return true;
-    }
-    if EDITS.iter().any(|(_, id)| {
-        chords(*id)
-            .iter()
-            .any(|(prefix, _)| prefix.accepts_press(key))
-    }) {
-        *held.borrow_mut() = Some(key.clone());
-        return true;
+    // (Esc with a chord held is the field's: Find closes on it)
+    let first = held.borrow_mut().take();
+    match chord_step(keymap, first.as_ref(), key) {
+        ChordStep::Done(edit) => {
+            carried(edit);
+            return true;
+        }
+        ChordStep::Hold => {
+            *held.borrow_mut() = Some(key.clone());
+            return true;
+        }
+        ChordStep::Cancel | ChordStep::Fresh => {}
     }
     match resolve(keymap, key) {
         Resolved::Nothing => true,

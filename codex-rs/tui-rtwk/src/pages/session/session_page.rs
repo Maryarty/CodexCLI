@@ -58,6 +58,8 @@ use super::banners::BannerGate;
 
 #[path = "session/bottom.rs"]
 mod bottom;
+#[path = "session/chord_guide.rs"]
+mod chord_guide;
 #[path = "session/edges.rs"]
 mod edges;
 #[path = "session/escape.rs"]
@@ -390,7 +392,8 @@ impl State for ChatState {
         let slot = slot::slot(self, w, cx, &frame);
         let body = bottom::body(self, w, cx, &frame, slot);
         let body = bottom::with_titles(&frame, body, title::titles(cx, &frame));
-        let page = overlay::page(transcript, body, inline_draft);
+        let guide = chord_guide::guide(w.ui.draft.clone(), frame.keymap.clone());
+        let page = overlay::page(transcript, body, inline_draft, guide);
         let focus = input::focus(self, cx, &frame, page);
         // The listener stands outside the keyed focus: a key that changes in the same flush as a
         // directive (the continue key ends the lock and gives the words in one step) would end its
