@@ -1,0 +1,4 @@
+# `consumer_chats_keep_missing_rows_and_only_offer_known_metrics` (consumer_refresh_tests.rs): a Plus account's
+# Chats report as the test opens it: three chats, only the balance known (the one metric), before the test adds a percent and a plan-covered chat.
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step":"screen","dir":"usage","ev":{"account":{"plan":"plus","today":"2026-09-02","hour24":true,"plan_enabled":false},"section":"chats","tasks":{"ready":{"rows":[{"title":"Private title from another account"},{"title":"Unverified backend row","task":{"status":"unavailable"}},{"title":"Refunded task","task":{"status":"partial","amounts":{"balance":"-0.000004"},"groups":[{"product":"codex","model":"gpt-5.5","effort":"high","speed":"fast","amounts":{"balance":"-0.000004"}}]}}]}}}}

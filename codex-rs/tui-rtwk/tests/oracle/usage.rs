@@ -4,7 +4,24 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
-use crate::kit::{self, Owner, Screen};
+use crate::kit::{self, Owner, Screen, snap_rows};
+
+/// The plan body under the page's heading and tabs: the rows of ours that start at the row
+/// beginning `from`, the page's one-cell inset cut (the oracle's snapshot is the body alone).
+fn plan_body(s: &Screen, from: &str, rows: usize) -> Vec<String> {
+    let screen = s.rows();
+    let at = screen
+        .iter()
+        .position(|row| row.trim_start().starts_with(from))
+        .unwrap_or_else(|| panic!("no `{from}` on\n{}", s.text()));
+    screen
+        .iter()
+        .skip(at)
+        .take(rows)
+        .map(|row| row.strip_prefix(' ').unwrap_or(row).trim_end().to_owned())
+        .collect()
+}
+
 
 // ---- oracle: analytics/account_layout_tests.rs (1 screen-level tests here; 11 state tests left to routes-lists)
 // ORACLE analytics/account_layout_tests.rs:423 navigation_keeps_its_row_when_sections_change kind=ui owner=routes-lists
@@ -67,18 +84,38 @@ fn cumulative_graph_snapshot_renders_running_total_bar_chart_and_caption() {
 // ORACLE analytics/chat_panel_tests.rs:55 chats_breakdown_ranks_nonzero_groups_and_reflows kind=snap owner=routes-lists
 #[test]
 fn chats_breakdown_ranks_nonzero_groups_and_reflows() {
-    kit::pending(
-        Owner::RoutesLists,
-        "the oracle snapshot is the chats body at the test's width with its own listing; no entry has that listing",
-    );
+    // an Enterprise account's first chat open: its groups ranked by credits (the zero one hidden,
+    // the one without a speed `Not reported`, the refund exact) as a table at 110 cells, two rows
+    // a group at 58, then with the zero-credit group shown by `a`; the oracle's snapshot joins the
+    // three screens (32 rows each) with a blank row
+    let name = "chats_breakdown_ranks_nonzero_groups_and_reflows";
+    let mut s = Screen::build(Owner::RoutesLists)
+        .size(110, 32)
+        .entry("usage", "chats")
+        .open();
+    s.keys("enter");
+    s.assert_snap_state_rows(name, 0, 32);
+    s.resize(58, 32);
+    s.assert_snap_state_rows(name, 33, 32);
+    s.resize(110, 32);
+    s.keys("a");
+    s.assert_snap_state_rows(name, 66, 32);
 }
 
 // ORACLE analytics/chat_panel_tests.rs:109 chats_long_title_keeps_detail_indent_and_counts_missing_estimates kind=snap owner=routes-lists
 #[test]
 fn chats_long_title_keeps_detail_indent_and_counts_missing_estimates() {
-    kit::pending(
-        Owner::RoutesLists,
-        "the oracle snapshot is the chats body at the test's width with its own listing; no entry has that listing",
+    // a title the row cuts is written whole under the rule, and the chats without an estimate
+    // are counted
+    let mut s = Screen::build(Owner::RoutesLists)
+        .size(110, 30)
+        .entry("usage", "chats_long")
+        .open();
+    s.keys("enter");
+    s.assert_snap_state_rows(
+        "chats_long_title_keeps_detail_indent_and_counts_missing_estimates",
+        0,
+        30,
     );
 }
 
@@ -116,10 +153,33 @@ fn account_lookup_failure_recovers_on_refresh_with_the_server_plan() {
 // ORACLE analytics/consumer_refresh_tests.rs:9 consumer_chats_keep_missing_rows_and_only_offer_known_metrics kind=snap owner=routes-lists
 #[test]
 fn consumer_chats_keep_missing_rows_and_only_offer_known_metrics() {
-    kit::pending(
-        Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the consumer chats listing of the test",
-    );
+    // the chats as the test opens them (`chats_balance`): the refund first (it is the one with a
+    // balance), the rows without usage after it with their titles hidden (`Chat usage
+    // unavailable`), and their details never open; the final
+    // snapshot is the same report with all three metrics (`tasks`, 110x30). The test's amount
+    // formatting table is a state test (`task_panel::amount`), not a screen's.
+    let mut s = Screen::build(Owner::RoutesLists)
+        .size(90, 30)
+        .entry("usage", "chats_balance")
+        .open();
+    s.assert_in_order(&["Refunded task", "Chat usage unavailable", "Chat usage unavailable"]);
+    s.assert_text_count("Chat usage unavailable", 2);
+    s.assert_absent("Private title");
+    s.assert_absent("Unverified backend row");
+    s.keys("down enter");
+    s.assert_absent("Model / effort / speed");
+    s.assert_absent("Private title");
+    s.keys("up enter");
+    s.assert_contains("Model / effort / speed");
+    s.assert_contains("-0.000004");
+    let mut s = Screen::build(Owner::RoutesLists)
+        .size(110, 30)
+        .entry("usage", "tasks")
+        .open();
+    s.keys("enter");
+    s.assert_snap_state_rows("consumer_chat_all_metrics", 0, 30);
+    s.keys("s");
+    s.assert_contains("s sort: 5-hour %");
 }
 
 // ---- oracle: analytics/dashboard_tests.rs (1 screen-level tests here; 2 state tests left to routes-lists)
@@ -157,53 +217,116 @@ fn horizontal_aliases_ignore_modifiers_and_release_but_accept_repeat() {
 fn resize_keeps_visible_weekly_selection_and_respects_manual_scroll() {
     kit::pending(
         Owner::RoutesLists,
-        "the oracle snapshot is the plan body lines at the test's width, not a screen with chrome; no entry holds the test's history",
+        "the Plan report does not follow its cursor row (G-new-usage-1: no ensure_visible of a row from a State, tests/pages/usage.rs `the_plan_report_follows_the_cursor_row` is its ignored page test): the test's resize and scroll steps keep the selected weekly row in view, which a 24-row page cannot do; the entry `plan_many` holds the history",
     );
 }
 
 // ORACLE analytics/plan_tests.rs:120 period_navigation_preserves_unknowns_and_resets_on_new_snapshot kind=snap owner=routes-lists snap=period_navigation_preserves_unknowns_and_resets_on_new_snapshot
 #[test]
 fn period_navigation_preserves_unknowns_and_resets_on_new_snapshot() {
-    kit::pending(
-        Owner::RoutesLists,
-        "the oracle snapshot is the plan body lines at the test's width, not a screen with chrome; no entry holds the test's history",
-    );
+    // the Plan report in front, both tables open to their first period (a 5-hour period with an
+    // incomplete day and its breakdown, a weekly one without): the oracle's snapshot joins the
+    // 120x30 screen and the 58x30 one with a blank row
+    let name = "period_navigation_preserves_unknowns_and_resets_on_new_snapshot";
+    let mut s = Screen::build(Owner::RoutesLists)
+        .size(120, 30)
+        .entry("usage", "plan")
+        .open();
+    s.keys("enter right enter");
+    s.assert_snap_state_rows(name, 0, 30);
+    s.resize(58, 30);
+    s.assert_snap_state_rows(name, 31, 30);
 }
 
 // ORACLE analytics/plan_tests.rs:156 unavailable_empty_and_zero_history_are_distinct kind=snap owner=routes-lists snap=unavailable_empty_and_zero_history_are_distinct
 #[test]
 fn unavailable_empty_and_zero_history_are_distinct() {
-    kit::pending(
-        Owner::RoutesLists,
-        "the oracle snapshot is the plan body lines at the test's width, not a screen with chrome; no entry holds the test's history",
-    );
+    // the history is not loaded, has no periods, used nothing, or the period has not started:
+    // four bodies at 100 cells, one under the other in the oracle's snapshot
+    let name = "unavailable_empty_and_zero_history_are_distinct";
+    let mut states: Vec<Vec<String>> = Vec::new();
+    for row in snap_rows(name, "") {
+        if row.starts_with("\u{203a} 5-hour limits") {
+            states.push(Vec::new());
+        }
+        if let Some(state) = states.last_mut() {
+            state.push(row);
+        }
+    }
+    assert_eq!(states.len(), 4);
+    for (mut want, entry) in states
+        .into_iter()
+        .zip(["plan_unavailable", "plan_empty", "plan_zero", "plan_future"])
+    {
+        while want.last().is_some_and(|row| row.trim().is_empty()) {
+            want.pop();
+        }
+        let s = Screen::build(Owner::RoutesLists)
+            .size(102, 30)
+            .entry("usage", entry)
+            .open();
+        let got = plan_body(&s, "\u{203a} 5-hour limits", want.len());
+        let want: Vec<String> = want.iter().map(|row| row.trim_end().to_owned()).collect();
+        assert_eq!(got, want, "{entry}:\n{}", s.text());
+    }
 }
 
 // ORACLE analytics/plan_tests.rs:277 plan_escape_collapses_details_before_closing kind=ui owner=routes-lists
 #[test]
 fn plan_escape_collapses_details_before_closing() {
-    kit::pending(
-        Owner::RoutesLists,
-        "the oracle snapshot is the plan body lines at the test's width, not a screen with chrome; no entry holds the test's history",
-    );
+    // Esc closes the open period's details first (`Tasks` is in them), then the page
+    let mut s = Screen::build(Owner::RoutesLists)
+        .size(120, 30)
+        .entry("usage", "plan")
+        .open();
+    s.keys("enter");
+    s.assert_contains("Tasks");
+    s.keys("esc");
+    s.assert_absent("Tasks");
+    s.assert_contains("5-hour limits");
+    s.keys("esc");
+    s.assert_absent("5-hour limits");
 }
 
 // ORACLE analytics/plan_tests.rs:291 moving_period_selection_collapses_its_previous_details kind=ui owner=routes-lists
 #[test]
 fn moving_period_selection_collapses_its_previous_details() {
-    kit::pending(
-        Owner::RoutesLists,
-        "the oracle snapshot is the plan body lines at the test's width, not a screen with chrome; no entry holds the test's history",
-    );
+    // moving to another period closes the open one; the other table's key moves to its table and
+    // leaves the cursor of this one where it was; Tab leaves the report and Shift+Tab comes back
+    let mut s = Screen::build(Owner::RoutesLists)
+        .size(120, 30)
+        .entry("usage", "plan_many")
+        .open();
+    s.keys("enter");
+    s.assert_contains("Tasks");
+    s.keys("down");
+    s.assert_absent("Tasks");
+    s.assert_contains("\u{203a} Sep 2 05:00");
+    s.keys("right");
+    s.assert_contains("\u{203a} Weekly limits");
+    s.assert_absent("  \u{203a} 5-hour limits");
+    s.keys("tab");
+    s.assert_absent("5-hour limits");
+    s.keys("shift+tab");
+    s.assert_contains("\u{203a} Weekly limits");
+    s.assert_contains("\u{203a} Sep 2 05:00");
 }
 
 // ORACLE analytics/plan_tests.rs:348 plan_clocks_follow_preference_and_keep_utc kind=snap owner=routes-lists snap=plan_clocks_twelve_hour
 #[test]
 fn plan_clocks_follow_preference_and_keep_utc() {
-    kit::pending(
-        Owner::RoutesLists,
-        "the oracle snapshot is the plan body lines at the test's width, not a screen with chrome; no entry holds the test's history",
-    );
+    // times follow the clock preference (12-hour here) and stay UTC: a body 80 cells wide
+    let name = "plan_clocks_twelve_hour";
+    let s = Screen::build(Owner::RoutesLists)
+        .size(82, 30)
+        .entry("usage", "plan_twelve_hour")
+        .open();
+    let want: Vec<String> = snap_rows(name, "")
+        .iter()
+        .map(|row| row.trim_end().to_owned())
+        .collect();
+    let got = plan_body(&s, "\u{203a} 5-hour limits", want.len());
+    assert_eq!(got, want, "{name}:\n{}", s.text());
 }
 
 // ---- oracle: analytics/plot_tests.rs (10 screen-level tests here; 4 state tests left to routes-lists)
