@@ -453,10 +453,10 @@ fn overlay_not_shown_above_approval_modal() {
         .open();
     s.assert_contains("Would you like to run the following command?");
     // The oracle checks row 0 only.
-    assert!(
-        !s.rows()[0].contains("Working"),
-        "overlay should not render above modal: {:?}",
-        s.rows()[0]
+    kit::assert_same(
+        s.rows()[0].contains("Working"),
+        false,
+        &format!("overlay should not render above modal: {:?}", s.rows()[0]),
     );
 }
 
@@ -498,18 +498,11 @@ fn delayed_approval_shortcut_works_after_idle_deadline() {
     s.assert_contains("Would you like to run the following command?");
     s.keys("y");
     s.assert_absent("Would you like to run the following command?");
-    let accepted: Vec<_> = s
-        .commands()
-        .into_iter()
-        .filter_map(|command| match command {
-            codex_tui_core::app::Command::ResolveRequest { result, .. } => Some(result),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(
+    let accepted = s.resolved_requests();
+    kit::assert_same(
         accepted,
         vec![serde_json::json!({"decision": "accept"})],
-        "the shortcut answered the request with accept"
+        "the shortcut answered the request with accept",
     );
 }
 
@@ -558,9 +551,10 @@ fn composer_shown_after_denied_while_task_running() {
         .find(|row| !row.trim().is_empty())
         .cloned()
         .unwrap_or_default();
-    assert!(
+    kit::assert_same(
         top.contains("Working"),
-        "expected Working header after denial on the pane's first row: {top:?}"
+        true,
+        &format!("expected Working header after denial on the pane's first row: {top:?}"),
     );
     s.assert_contains("Ask Codex");
     s.assert_absent("Would you like to run the following command?");

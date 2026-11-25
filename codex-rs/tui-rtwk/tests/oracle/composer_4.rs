@@ -1095,20 +1095,20 @@ fn composer_handoff_preserves_only_the_live_rich_register() {
     // attachment's, `rich_paste_renders_unique_image_and_paste_labels`)
     s.keys("enter");
     let turns = s.turns();
-    assert_eq!(turns.len(), 1, "one turn");
-    assert!(
-        turns[0].mentions.iter().any(|m| matches!(
-            m,
-            codex_tui_core::data::mention::ToolMention::Skill { name, path }
-                if name == "figma" && path == "/tmp/user/figma/SKILL.md"
-        )),
-        "the skill the register carried is bound: {:?}",
-        turns[0].mentions
+    kit::assert_same(turns.len(), 1, "one turn");
+    kit::assert_same(
+        s.turn_skills(0)
+            .contains(&("figma".to_owned(), "/tmp/user/figma/SKILL.md".to_owned())),
+        true,
+        "the skill the register carried is bound",
     );
-    assert!(
+    kit::assert_same(
         turns[0].images.iter().any(|image| image.path == photo),
-        "the image the register carried is attached: {:?}",
-        turns[0].images
+        true,
+        &format!(
+            "the image the register carried is attached: {:?}",
+            turns[0].images
+        ),
     );
 }
 
@@ -1309,10 +1309,10 @@ fn backspace_cancels_empty_vim_search() {
             s.keys("backspace");
             // no operator waits, Normal mode, the draft and the caret as they were
             s.assert_same_rows(&before);
-            assert_eq!(
+            kit::assert_same(
                 s.grid().cursor,
                 cursor,
-                "the caret after `{prefix}` Backspace"
+                &format!("the caret after `{prefix}` Backspace"),
             );
         }
     }

@@ -57,9 +57,6 @@ fn slash_copy_reports_when_no_agent_response_exists() {
 // ORACLE chatwidget/tests/slash_commands.rs:2400 slash_export_opens_destination_picker kind=snap owner=chat-nav-pane snap=slash_export_completion_message snap=slash_export_destination_picker snap=slash_export_filename_prompt
 #[test]
 fn slash_export_opens_destination_picker() {
-    use codex_tui_core::app::Command;
-    use codex_tui_core::app::effects::{Ask, CopyStatus, Done};
-
     let screen = |height: u16| {
         Screen::build(Owner::ChatNavPane)
             .size(100, height)
@@ -79,18 +76,6 @@ fn slash_export_opens_destination_picker() {
             .position(|row| row.trim() == title)
             .unwrap_or(usize::MAX)
     };
-    // The host's answer to the latest effect of the kind `pick` names.
-    let answer = |s: &mut Screen, pick: fn(&Ask) -> bool, done: Done| {
-        let command = s
-            .commands()
-            .into_iter()
-            .rev()
-            .find(|c| matches!(c, Command::Effect { ask, .. } if pick(ask)))
-            .expect("the effect was asked");
-        s.answer_effect(&command, done);
-    };
-    let copy: fn(&Ask) -> bool = |ask| matches!(ask, Ask::Copy { .. });
-    let export: fn(&Ask) -> bool = |ask| matches!(ask, Ask::Export { .. });
 
     let mut s = screen(14);
     s.type_text("/export");
@@ -109,36 +94,24 @@ fn slash_export_opens_destination_picker() {
     );
     // The host answers the write that failed, then a write that went through.
     s.keys("enter");
-    answer(
-        &mut s,
-        export,
-        Done::Export(Err("missing parent".to_owned())),
-    );
+    s.answer_export(Err("missing parent"));
     s.assert_contains("■ Export failed: missing parent");
     s.type_text("/export");
     s.keys("enter");
     s.keys("down enter");
     s.keys("enter");
-    answer(
-        &mut s,
-        export,
-        Done::Export(Ok("conversation.md".to_owned())),
-    );
+    s.answer_export(Ok("conversation.md"));
     s.assert_contains("• Saved conversation to conversation.md");
     // The copy, confirmed, and refused.
     s.type_text("/export");
     s.keys("enter");
     s.keys("enter");
-    answer(&mut s, copy, Done::Copy(Ok(CopyStatus::Confirmed)));
+    s.answer_copy(Ok(()));
     s.assert_contains("• Copied conversation to clipboard");
     s.type_text("/export");
     s.keys("enter");
     s.keys("enter");
-    answer(
-        &mut s,
-        copy,
-        Done::Copy(Err("clipboard unavailable".to_owned())),
-    );
+    s.answer_copy(Err("clipboard unavailable"));
     s.assert_contains("■ Copy failed: clipboard unavailable");
 }
 

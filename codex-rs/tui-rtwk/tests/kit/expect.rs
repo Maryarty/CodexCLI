@@ -624,6 +624,57 @@ impl Screen {
         .next()
     }
 
+    /// The host's answer to the latest export write `/export` asked for: `Ok(path)` saved,
+    /// `Err(why)` failed.
+    pub fn answer_export(&mut self, result: Result<&str, &str>) {
+        let done = Done::Export(result.map(str::to_owned).map_err(str::to_owned));
+        self.answer_latest_effect(|ask| matches!(ask, Effect::Export { .. }), done);
+    }
+
+    /// The host's answer to the latest clipboard copy asked for: `Ok(())` confirmed,
+    /// `Err(why)` refused.
+    pub fn answer_copy(&mut self, result: Result<(), &str>) {
+        let done = Done::Copy(
+            result
+                .map(|()| codex_tui_core::app::effects::CopyStatus::Confirmed)
+                .map_err(str::to_owned),
+        );
+        self.answer_latest_effect(|ask| matches!(ask, Effect::Copy { .. }), done);
+    }
+
+    fn answer_latest_effect(&mut self, pick: impl Fn(&Effect) -> bool, done: Done) {
+        let command = self
+            .commands()
+            .into_iter()
+            .rev()
+            .find(|c| matches!(c, Command::Effect { ask, .. } if pick(ask)))
+            .expect("the effect was asked");
+        self.answer_effect(&command, done);
+    }
+
+    /// The skills (`name`, `path`) turn `n` binds, its other mentions left out.
+    pub fn turn_skills(&self, n: usize) -> Vec<(String, String)> {
+        self.turns()[n]
+            .mentions
+            .iter()
+            .filter_map(|m| match m {
+                ToolMention::Skill { name, path } => Some((name.clone(), path.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The results the app answered server requests with, oldest first.
+    pub fn resolved_requests(&self) -> Vec<serde_json::Value> {
+        self.commands()
+            .into_iter()
+            .filter_map(|c| match c {
+                Command::ResolveRequest { result, .. } => Some(result),
+                _ => None,
+            })
+            .collect()
+    }
+
     fn asked_of(&self, which: impl Fn(&Command) -> bool) -> Vec<Ask> {
         self.commands().into_iter().filter(|c| which(c)).collect()
     }
