@@ -815,7 +815,7 @@ fn entry_starts_on_the_last_selectable_visible_line() {
     // transcript, wherever the reader is (the list does not tell which rows are in view)
     kit::pending(
         Owner::ChatLive,
-        "G-new-sel-visible-start: select mode starts on the last selectable line of the transcript and scrolls to it, not on the last selectable line in view (`h` with the reader two rows up) or the last grapheme of the text where no line in view has text (`c`): rtwk's list does not say which items are in view",
+        "G-new-sel-reveal (visible start): select mode starts on the last selectable line of the transcript and scrolls to it, not on the last selectable line in view (`h` with the reader two rows up) or the last grapheme of the text where no line in view has text (`c`): rtwk's list does not say which items are in view",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(32, 2)
@@ -1323,7 +1323,7 @@ fn select_mode_renders_cursor_and_scannable_footer_hints() {
     s.assert_contains("y/⌃c copy · enter copy & latest · esc clear · q close");
     kit::pending(
         Owner::ChatLive,
-        "G-new-sel-active-end: the selection area paints one style over its one selection: the cursor's cell inside a marked range (bold underlined reversed on the active end, the rest reversed) and the cursor shown beside the match Find reads (the snapshot's `find` frame keeps it bold underlined at column 5 while `beta` is reversed) are not drawn as the oracle draws them",
+        "needs f-sel-caret-span (port feature: the cell draws the caret grapheme as its own bold-underlined span under the selection area's reversed style): today the cursor's cell inside a marked range (bold underlined reversed on the active end, the rest reversed) and the cursor shown beside the match Find reads (the snapshot's `find` frame keeps it bold underlined at column 5 while `beta` is reversed) are not drawn as the oracle draws them",
     );
     s.assert_style_in("alpha beta", 5, "bold underlined reversed");
     // find: esc, / then `beta`, advance: the match `beta` is reversed from column 6, the cursor
