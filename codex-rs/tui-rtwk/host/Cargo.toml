@@ -35,6 +35,7 @@ codex-state = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/state"
 codex-terminal-detection = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/terminal-detection" }
 codex-utils-absolute-path = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/utils/absolute-path" }
 codex-utils-path-uri = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/utils/path-uri" }
+codex-utils-oss = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/utils/oss" }
 codex-utils-cli = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/utils/cli" }
 codex-model-provider = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/model-provider" }
 codex-model-provider-info = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/model-provider-info" }
@@ -69,3 +70,4 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = ["s
 libc = "0.2"
 
 [dev-dependencies]
+codex-ollama = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/ollama" }
