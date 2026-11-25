@@ -24,6 +24,7 @@ use super::activity_focus::{self, Activity};
 use super::copy;
 use super::find::{self, Finder, Mode};
 use super::select;
+use super::selection;
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
 pub use crate::widgets::finder::{Progress, Status};
@@ -521,6 +522,11 @@ impl State for QueryState {
         let caret = select::of(&finder);
         let field = EditingKeys::new(
             move |_, key, _| {
+                // what the reader selected comes first: its copy keys and Esc are the selection's
+                // (`handle_selection_key`), the page takes them
+                if keys.paused() && selection::key(key).is_some() {
+                    return false;
+                }
                 let Some(taken) = find::key(keys.mode(), key) else {
                     return false;
                 };

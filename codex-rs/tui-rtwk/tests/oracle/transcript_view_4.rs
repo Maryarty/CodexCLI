@@ -104,28 +104,40 @@ fn find_reduces_context_to_keep_a_tall_match_visible() {
 // ORACLE transcript_view/search_tests.rs:211 selection_pauses_find_and_normalized_navigation_resumes_the_same_query kind=snap owner=chat-live snap=selection_owns_find_highlight
 #[test]
 fn selection_pauses_find_and_normalized_navigation_resumes_the_same_query() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no find and no mouse selection of a transcript row; a selection cannot pause a find",
-    );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(32, 4)
+        .size(32, 8)
         .script(include_str!(
             "fixtures/transcript_view_4/find_selection.jsonl"
         ))
+        .view_only()
         .open();
     s.keys("/");
     s.type_text("needle");
     s.keys("ctrl+p");
-    // three clicks on row 1 select its line while the previous-match scan is pending
-    s.click(0, 1);
-    s.click(0, 1);
-    s.click(0, 1);
-    s.assert_snap("selection_owns_find_highlight");
+    // the match is the older entry's `needle` (row 1); the port scans in the frame the key came
+    // in, so no scan is pending while the reader selects (the oracle holds one back)
+    s.assert_style(8, 1, "reversed");
+    // the reader selects the newer entry's line (the oracle's three clicks; while Find is open the
+    // port's rows are one text model that joins the bullet and the text by a line break, so a
+    // triple click takes the bullet alone: a drag over the text is the line): the selection owns
+    // the highlight
+    s.drag(2, 5, 13, 5);
+    s.assert_style(2, 5, "reversed");
+    s.assert_style(13, 5, "reversed");
+    s.assert_style(8, 1, "!reversed");
+    s.assert_find_query("needle");
+    // Esc lets the selection go and Find goes on: the match is drawn again, the query kept
     s.keys("esc");
+    s.assert_find_query("needle");
+    s.assert_style(8, 1, "reversed");
+    s.assert_style(8, 5, "!reversed");
     s.keys("ctrl+n");
-    s.assert_contains("newer needle");
+    s.assert_style(8, 5, "reversed");
+    s.assert_style(8, 1, "!reversed");
+    s.assert_find_query("needle");
     s.keys("ctrl+c");
+    s.assert_find_query("");
+    s.assert_style(8, 5, "!reversed");
 }
 
 // ORACLE transcript_view/search_tests.rs:259 paging_away_from_a_live_match_does_not_restart_find kind=ui owner=chat-live
@@ -155,20 +167,42 @@ fn paging_away_from_a_live_match_does_not_restart_find() {
 // ORACLE transcript_view/search_tests.rs:303 reading_without_a_match_searches_from_the_visible_entry_in_each_direction kind=ui owner=chat-live
 #[test]
 fn reading_without_a_match_searches_from_the_visible_entry_in_each_direction() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no find and no reading position to search from: the screen cannot jump to an entry and search from it",
-    );
+    // the find reads the match it found (Enter), and the two keys go on from it
     for (key, expected) in [("ctrl+p", "older needle"), ("ctrl+n", "newer needle")] {
         let mut s = Screen::build(Owner::ChatLive)
-            .size(30, 1)
+            .size(30, 4)
             .script(include_str!(
                 "fixtures/transcript_view_4/find_reading.jsonl"
             ))
+            .view_only()
             .open();
-        // the oracle reads entry 1 (`context`) first: the jump is not a kit step yet
         s.keys("/");
         s.type_text("needle");
+        s.keys("enter");
+        s.assert_find_footer(80, "Find · ctrl+p older · ctrl+n newer · esc latest");
+        s.keys(key);
+        s.assert_contains(expected);
+    }
+    kit::pending(
+        Owner::ChatLive,
+        "G-new-sel-reveal: with no match (the oracle's `restart_search` after it jumped to entry 1, `context`) Ctrl+P and Ctrl+N go on from the entry the reader sees; the port scans a restarted query from the newest row, and the list tells no item extent, so the pane cannot tell which entry is first in view",
+    );
+    for (key, expected) in [("ctrl+p", "older needle"), ("ctrl+n", "newer needle")] {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(30, 4)
+            .script(include_str!(
+                "fixtures/transcript_view_4/find_reading.jsonl"
+            ))
+            .view_only()
+            .open();
+        s.keys("/");
+        s.type_text("needle");
+        s.keys("enter");
+        // the oracle reads entry 1 (`context`) in the one row it has, with no match
+        s.keys("pageup");
+        s.keys("/");
+        s.keys("backspace");
+        s.type_text("e");
         s.keys("enter");
         s.keys(key);
         s.assert_contains(expected);
@@ -178,28 +212,41 @@ fn reading_without_a_match_searches_from_the_visible_entry_in_each_direction() {
 // ORACLE transcript_view/search_tests.rs:337 resizing_a_read_find_result_preserves_relative_navigation kind=snap owner=chat-live snap=find_context_after_resize
 #[test]
 fn resizing_a_read_find_result_preserves_relative_navigation() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no find and no read result to re-wrap: the screen has no find state to keep across a resize",
-    );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(30, 3)
+        .size(30, 6)
         .script(include_str!("fixtures/transcript_view_4/find_resize.jsonl"))
+        .view_only()
         .open();
     s.keys("/");
     s.type_text("needle");
     s.keys("enter");
     // the oracle re-wraps at width 20 with its area kept at 30 by prepare_width; the kit resize changes the terminal width too
-    s.resize(20, 3);
-    s.assert_snap("find_context_after_resize");
+    s.resize(20, 6);
+    // the match read stays the newer entry's, and the keys go on from it
+    s.assert_text_style("needle", "reversed");
+    s.assert_contains("newer explanation");
     s.keys("ctrl+p");
     s.assert_contains("older explanation");
     s.keys("ctrl+n");
     s.assert_contains("newer explanation");
     s.keys("ctrl+n");
-    s.resize(25, 3);
+    s.resize(25, 6);
     s.keys("ctrl+p");
     s.assert_contains("older explanation");
+    kit::pending(
+        Owner::ChatLive,
+        "G-new-sel-reveal: the oracle keeps `height / 3` display rows above the read match after the resize (snapshot `find_context_after_resize`, three rows at width 20); the port's list takes no `rows` of a jump in a reverse list and tells no item extent, so the match is shown by the least scroll",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(30, 3)
+        .script(include_str!("fixtures/transcript_view_4/find_resize.jsonl"))
+        .view_only()
+        .open();
+    s.keys("/");
+    s.type_text("needle");
+    s.keys("enter");
+    s.resize(20, 3);
+    s.assert_snap("find_context_after_resize");
 }
 
 // ORACLE transcript_view/search_tests.rs:389 reading_a_find_result_loads_older_context kind=ui owner=chat-live
@@ -608,24 +655,35 @@ fn leaving_a_regrouped_search_match_restarts_from_current_history() {
 // ORACLE transcript_view/search_tests.rs:1721 refining_a_query_restores_the_reading_position_while_history_loads kind=ui owner=chat-live
 #[test]
 fn refining_a_query_restores_the_reading_position_while_history_loads() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no transcript find and no history load under a query: the screen cannot show a loading search with the reading position held",
-    );
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(30, 6)
-        .script(include_str!(
-            "fixtures/transcript_view_4/refine_history.jsonl"
-        ))
-        .open();
-    s.keys("/");
-    let before = s.shot();
-    s.type_text("F");
-    s.assert_contains("Fixture link");
-    s.type_text("IRST ANSWER");
-    // the query needs older history to find `First answer`: the loading search draws the same rows as before the query was typed
-    s.assert_same_rows(&before);
-    s.keys("ctrl+c");
+    // the oracle's two positions: the latest row, and a reading position at the first entry
+    for top in [false, true] {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(30, 6)
+            .replay(Vec::new())
+            .view_only()
+            .open();
+        s.partial_history_of(&[
+            "Earlier context",
+            "Middle context",
+            "Last answer",
+            "Fixture link",
+        ]);
+        if top {
+            s.wheel_up(0, 0, 100);
+        }
+        s.keys("/");
+        let before = s.shot();
+        s.type_text("F");
+        s.assert_contains("Fixture link");
+        s.type_text("IRST ANSWER");
+        // the query needs older history to find `First answer`: the loading search draws the same rows as before the query was typed
+        s.assert_find_footer(
+            80,
+            "Searching earlier history… · full transcript · esc cancel",
+        );
+        s.assert_same_rows(&before);
+        s.keys("ctrl+c");
+    }
 }
 
 // ORACLE transcript_view/search_tests.rs:1772 bounded_query_paste_keeps_the_suffix_and_whole_graphemes kind=snap owner=chat-live
@@ -672,12 +730,18 @@ fn selection_keys_precede_find_and_typing_returns_to_query() {
         .open();
     s.keys("/");
     s.type_text("needle");
-    // the selection keys go to the selection (ctrl+c copies it), then typing returns to the query
-    s.keys("ctrl+space");
-    s.keys("right");
+    // the oracle selects with Ctrl+Space and Right: the port has no keyboard selection, the reader
+    // selects the entry's text with the mouse (a drag over it)
+    s.drag(2, 2, 7, 2);
+    // the selection keys go to the selection (ctrl+c copies it), Find stays open
     s.keys("ctrl+c");
+    s.assert_copy_asked("needle");
+    s.assert_find_query("needle");
+    // typing returns to the query and ends the selection
     s.type_text("x");
     s.assert_find_query("needlex");
+    s.assert_style(2, 2, "!reversed");
+    s.assert_style(7, 2, "!reversed");
 }
 
 // ---- oracle: transcript_view/select_mode_tests.rs (19 screen-level tests here; 0 state tests left to chat-live)

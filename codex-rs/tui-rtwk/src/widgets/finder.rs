@@ -104,6 +104,19 @@ pub trait Rows {
     fn text(&self, row: usize) -> Cow<'_, str>;
 }
 
+/// What the thread's history holds beyond the rows the scan reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum More {
+    /// Nothing older: the first row is the thread's.
+    None,
+    /// Older rows are on the server and not asked for.
+    Loadable,
+    /// An older page is on its way.
+    Loading,
+    /// The older page was refused.
+    Failed,
+}
+
 /// What the reader asked of the scan since it last ran.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Want {
@@ -132,6 +145,13 @@ struct Data {
     unshown: bool,
     /// The selection area holds the match.
     selected: bool,
+    /// The reader pressed the mouse over the transcript since Find last selected a match: what
+    /// is selected is theirs, and Find waits for it to go.
+    reader: bool,
+    /// The scan read the `n` rows there were and waits for older history to join them.
+    awaiting: Option<usize>,
+    /// The pane is to ask for the older page.
+    load: bool,
     truncated: bool,
     history_failed: bool,
     saved: Option<Saved>,
@@ -193,6 +213,9 @@ impl Finder {
                 current: None,
                 unshown: false,
                 selected: false,
+                reader: false,
+                awaiting: None,
+                load: false,
                 truncated: false,
                 history_failed: false,
                 saved: None,
@@ -296,6 +319,7 @@ impl Finder {
             data.restore = None;
             data.follow = Some(follow.clone());
             data.selection = Some(selection.clone());
+            data.reader = false;
             if !reading || data.current.is_none() {
                 data.want = Want::Restart;
                 data.progress = Progress::Restart;
@@ -337,6 +361,14 @@ impl Finder {
             text
         };
         *self.0.seen.borrow_mut() = text.to_string();
+        // typing ends the selection the reader made (`handle_search_key` drops it)
+        let reader = {
+            let data = self.0.data.borrow();
+            reader_selection(&data).then(|| data.selection.clone()).flatten()
+        };
+        if let Some(selection) = reader {
+            selection.controller().clear();
+        }
         {
             let mut data = self.0.data.borrow_mut();
             data.folded = fold(&text);
@@ -344,6 +376,8 @@ impl Finder {
             data.unshown = false;
             data.want = Want::Restart;
             data.progress = Progress::Restart;
+            data.awaiting = None;
+            data.history_failed = false;
             data.truncated = false;
         }
         self.notify();
@@ -464,7 +498,10 @@ impl Finder {
             data.unshown = false;
             data.truncated = false;
             data.history_failed = false;
+            data.awaiting = None;
+            data.load = false;
             data.saved = None;
+            data.reader = false;
             let held = std::mem::take(&mut data.selected);
             data.selection.take().filter(|_| held)
         };
@@ -475,28 +512,95 @@ impl Finder {
         self.notify();
     }
 
+    /// The reader selected something while Find is open: the selection's keys (copy, Esc) are
+    /// theirs before Find's, and the scan waits (`advance_search` returns while a selection
+    /// stands).
+    pub fn paused(&self) -> bool {
+        let data = self.0.data.borrow();
+        data.mode != Mode::Closed && reader_selection(&data)
+    }
+
+    /// The reader pressed the mouse over the transcript: what they select is theirs, not the
+    /// match's.
+    pub fn pressed(&self) {
+        let mut data = self.0.data.borrow_mut();
+        if data.mode != Mode::Closed {
+            data.reader = true;
+        }
+    }
+
+    /// Where the reader's selection leaves the match: shown again once the selection is gone.
+    /// Tells whether the scan is to wait.
+    fn waiting(&self) -> bool {
+        let mut data = self.0.data.borrow_mut();
+        if data.mode == Mode::Closed {
+            return false;
+        }
+        if reader_selection(&data) {
+            data.selected = false;
+            return true;
+        }
+        if !data.selected
+            && data.current.is_some()
+            && data.want == Want::Nothing
+            && data
+                .selection
+                .as_ref()
+                .is_some_and(|selection| !selection.controller().has_selection())
+        {
+            data.unshown = true;
+        }
+        false
+    }
+
     /// Runs the scan the reader asked for over `rows`, and tells the match it found, once: the
-    /// pane scrolls to it and selects it. A scan that finds none leaves the status saying so.
-    pub fn advance(&self, rows: &dyn Rows) -> Option<Hit> {
+    /// pane scrolls to it and selects it. A scan that finds none leaves the status saying so; one
+    /// that reaches the oldest row while `more` says older history is to come waits for it
+    /// (`take_load` asks the page), and goes on over the page that joins.
+    pub fn advance(&self, rows: &dyn Rows, more: More) -> Option<Hit> {
+        if self.waiting() {
+            return None;
+        }
         let asked = {
             let data = self.0.data.borrow();
-            (data.mode != Mode::Closed && data.want != Want::Nothing).then(|| {
+            let asked = data.want != Want::Nothing || data.awaiting.is_some();
+            (data.mode != Mode::Closed && asked).then(|| {
                 (
                     data.want,
                     data.folded.clone(),
                     data.current.clone(),
                     data.follow.clone(),
                     data.saved,
+                    data.awaiting,
+                    data.history_failed,
                 )
             })
         };
-        let Some((want, folded, current, follow, saved)) = asked else {
+        let Some((want, folded, current, follow, saved, awaiting, failed)) = asked else {
             return self.take_unshown();
         };
         let count = rows.count();
-        let found = match want {
-            Want::Nothing => return None,
-            Want::Restart => {
+        let older;
+        let mut retry = false;
+        let found = match (want, awaiting) {
+            (Want::Nothing, None) => return None,
+            // the scan waits for older history: the rows that joined come before the ones read,
+            // and are read from their end
+            (Want::Nothing, Some(loaded)) => {
+                older = true;
+                if count > loaded {
+                    let added = count - loaded;
+                    if let Some(hit) = self.0.data.borrow_mut().current.as_mut() {
+                        hit.row += added;
+                    }
+                    search(rows, &folded, (added - 1, usize::MAX), Direction::Older)
+                } else if matches!(more, More::Loadable | More::Loading) || (failed && more == More::Failed) {
+                    return None;
+                } else {
+                    None
+                }
+            }
+            (Want::Restart, _) => {
                 // a refined query leaves no old match at the top: the reader goes back first
                 if let (Some(follow), Some(saved)) = (&follow, saved) {
                     put_back(follow, saved);
@@ -506,10 +610,12 @@ impl Finder {
                     data.want = Want::Nothing;
                     data.progress = Progress::Idle;
                     data.selected = false;
+                    data.awaiting = None;
                     drop(data);
                     self.notify();
                     return None;
                 }
+                older = true;
                 search(
                     rows,
                     &folded,
@@ -517,13 +623,16 @@ impl Finder {
                     Direction::Older,
                 )
             }
-            Want::Step(direction) => {
+            (Want::Step(direction), _) => {
                 let from = match (&current, direction) {
                     (Some(hit), Direction::Older) => (hit.row, hit.range.start),
                     (Some(hit), Direction::Newer) => (hit.row, hit.range.end),
                     (None, Direction::Older) => (count.saturating_sub(1), usize::MAX),
                     (None, Direction::Newer) => (0, 0),
                 };
+                older = direction == Direction::Older;
+                // Ctrl+P again once loading older history failed asks for the page again
+                retry = older && failed;
                 search(rows, &folded, from, direction)
             }
         };
@@ -535,9 +644,22 @@ impl Finder {
                     data.current = Some(hit);
                     data.progress = Progress::Found;
                     data.unshown = true;
+                    data.awaiting = None;
+                    data.history_failed = false;
+                }
+                None if older && more != More::None => {
+                    data.progress = Progress::AwaitingHistory;
+                    data.awaiting = Some(count);
+                    data.history_failed = more == More::Failed && !retry;
+                    data.load = more == More::Loadable || (more == More::Failed && retry);
+                    if want == Want::Restart {
+                        data.current = None;
+                    }
                 }
                 None => {
                     data.progress = Progress::Exhausted;
+                    data.awaiting = None;
+                    data.history_failed = false;
                     if want == Want::Restart {
                         data.current = None;
                     }
@@ -548,15 +670,31 @@ impl Finder {
         self.take_unshown()
     }
 
+    /// The scan reached the oldest row and older history is to be had: the pane asks for the
+    /// page, once.
+    pub fn take_load(&self) -> bool {
+        std::mem::take(&mut self.0.data.borrow_mut().load)
+    }
+
     fn take_unshown(&self) -> Option<Hit> {
         let mut data = self.0.data.borrow_mut();
         if std::mem::take(&mut data.unshown) {
             data.selected = true;
+            data.reader = false;
             data.current.clone()
         } else {
             None
         }
     }
+}
+
+/// What the area holds is the reader's own: they pressed the mouse since Find selected its match.
+fn reader_selection(data: &Data) -> bool {
+    data.reader
+        && data
+            .selection
+            .as_ref()
+            .is_some_and(|selection| selection.controller().has_selection())
 }
 
 /// Where the reader is now.

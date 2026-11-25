@@ -2,11 +2,13 @@
 //! `view.footer(width, Reduced)` apart from the buffer (the bare view draws no footer), read the
 //! editor's text (`search.editor.text()`) and set the query by `paste_search`.
 
+use codex_tui_core::app::Command;
+use codex_tui_core::app::effects::Ask as Effect;
 use codex_tui_rtwk::pages::session::transcript::find;
 use codex_tui_rtwk::pages::session::transcript::find_footer;
 use codex_tui_rtwk::pages::session::transcript::strings::EN;
 
-use super::{Screen, assert_same, snap_rows};
+use super::{Screen, agent_turn, assert_same, snap_rows};
 
 impl Screen {
     /// The status row Find says at `width` columns: the first of its spellings that fits (the
@@ -88,5 +90,40 @@ impl Screen {
             .find(|row| !row.is_empty())
             .unwrap_or("");
         assert_same(got, want, &format!("{name}, line {at}:\n{}", self.text()));
+    }
+
+    /// The oracle's `ViewAction::Copy(text)`: the latest copy the app asked of the host is `want`.
+    pub fn assert_copy_asked(&self, want: &str) {
+        let asked = self.commands().into_iter().rev().find_map(|c| match c {
+            Command::Effect {
+                ask: Effect::Copy { text, .. },
+                ..
+            } => Some(text),
+            _ => None,
+        });
+        assert_same(
+            asked.as_deref(),
+            Some(want),
+            &format!("the copy asked of the host:\n{}", self.text()),
+        );
+    }
+
+    /// The oracle sets `TranscriptHistoryState::Partial` by hand over `rows` (oldest first, one
+    /// turn each): the server's first page is those turns and has older ones behind a cursor.
+    /// For `Open::replay(Vec::new())`.
+    pub fn partial_history_of(&mut self, rows: &[&str]) -> &mut Screen {
+        for _ in 0..20 {
+            if self.pages_waiting() > 0 {
+                break;
+            }
+            self.wait(100);
+        }
+        let turns = rows
+            .iter()
+            .enumerate()
+            .rev()
+            .map(|(n, row)| agent_turn(&format!("turn-{n:02}"), &[row]))
+            .collect();
+        self.history_page(turns, Some("cursor-1"))
     }
 }
