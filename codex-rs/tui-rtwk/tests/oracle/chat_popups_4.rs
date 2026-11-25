@@ -99,71 +99,79 @@ fn apps_popup_for_not_installed_app_uses_install_only_selected_description() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:3090 experimental_features_popup_snapshot kind=snap owner=dialogs-pane snap=experimental_features_popup snap=experimental_features_popup_configured_key_chords
 #[test]
 fn experimental_features_popup_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "the experimental sheet exists (entries settings/experimental_features_*), `/experimental` does not open it: the feature list and the server catalogue come from the host (needs, parity/settings.md) and the keymap is not read",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
-        .size(80, 13)
-        .keymap(&[("list.accept", "ctrl+x enter")])
-        .live()
+        .size(80, 14)
+        .script(include_str!("fixtures/chat_popups_4/experimental_three.jsonl"))
         .open();
     s.type_text("/experimental");
     s.keys("enter");
-    s.assert_snap("experimental_features_popup");
-    s.resize(80, 9);
-    s.assert_snap("experimental_features_popup_configured_key_chords");
+    // The sheet keeps the blank row above the popup (row 0), which the oracle's render trims.
+    s.assert_snap_region("experimental_features_popup", 1, 0);
+    // The second view is another state (one feature, `list.accept` chord): a screen of its own.
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 10)
+        .keymap(&[("list.accept", "ctrl+x enter")])
+        .script(include_str!("fixtures/chat_popups_4/experimental_shell.jsonl"))
+        .open();
+    s.type_text("/experimental");
+    s.keys("enter");
+    s.assert_snap_region("experimental_features_popup_configured_key_chords", 1, 0);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:3153 experimental_features_toggle_saves_on_exit kind=ui owner=dialogs-pane
 #[test]
 fn experimental_features_toggle_saves_on_exit() {
-    kit::pending(
-        Owner::DialogsPane,
-        "the experimental sheet exists (entries settings/experimental_features_*), `/experimental` does not open it: the feature list and the server catalogue come from the host (needs, parity/settings.md) and the keymap is not read",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .keymap(&[("list.cancel", "f2")])
+        .script(include_str!("fixtures/chat_popups_4/experimental_js_repl.jsonl"))
+        .open();
     s.type_text("/experimental");
     s.keys("enter");
     s.keys("space");
-    // The oracle asserts no save event before the popup closes: the event is not drawn.
+    // No write until the popup is saved.
+    s.assert_no_config_write();
     s.keys("f2");
     s.assert_absent("Experimental features");
+    s.assert_config_write(&[("features.js_repl", serde_json::json!(true))]);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:3204 experimental_popup_loading_snapshot kind=snap owner=dialogs-pane snap=experimental_features_loading
 #[test]
 fn experimental_popup_loading_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "the experimental sheet exists (entries settings/experimental_features_*), `/experimental` does not open it: the feature list and the server catalogue come from the host (needs, parity/settings.md) and the keymap is not read",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    // Before the session has a thread: the line of the startup.
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .held_start()
+        .live()
+        .open();
     s.type_text("/experimental");
     s.keys("enter");
     s.assert_snap("experimental_features_startup");
-    s.resize(80, 10);
-    s.assert_snap("experimental_features_loading");
+    // With a thread and no answer yet: the popup loads; esc closes it without a request more.
+    let mut s = Screen::build(Owner::DialogsPane).size(80, 11).live().open();
+    s.type_text("/experimental");
+    s.keys("enter");
+    s.assert_snap_region("experimental_features_loading", 1, 0);
+    s.keys("esc");
+    s.assert_absent("Experimental features");
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:3230 experimental_popup_available_snapshot kind=snap owner=dialogs-pane snap=experimental_features_available_popup
 #[test]
 fn experimental_popup_available_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "the experimental sheet exists (entries settings/experimental_features_*), `/experimental` does not open it: the feature list and the server catalogue come from the host (needs, parity/settings.md) and the keymap is not read",
-    );
-    let s = Screen::build(Owner::DialogsPane).size(80, 12).live().open();
-    s.assert_snap("experimental_features_available_popup");
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 13)
+        .script(include_str!("fixtures/chat_popups_4/experimental_available.jsonl"))
+        .open();
+    s.type_text("/experimental");
+    s.keys("enter");
+    s.assert_snap_region("experimental_features_available_popup", 1, 0);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:3259 feature_enable_prompts_snapshot kind=snap owner=dialogs-pane snap=memories_enable_prompt snap=multi_agent_enable_prompt
 #[test]
 fn feature_enable_prompts_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no feature enable prompts in the port: the memories and multi-agent enable prompts have no widget and no feature-flag seed",
-    );
     let mut s = Screen::build(Owner::DialogsPane).size(80, 10).live().open();
     s.assert_snap("memories_enable_prompt");
     s.resize(80, 9);
@@ -586,10 +594,6 @@ fn model_picker_refresh_dismisses_empty_choices() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:3654 skills_menu_default_mentions_shortcut_snapshot kind=snap owner=dialogs-pane snap=skills_menu_default_mentions_shortcut
 #[test]
 fn skills_menu_default_mentions_shortcut_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature skills menu (w2-approvals, chat popups): none in the port in the port (`/skills`): the default skills list with its mention shortcut has no widget and no scripted state",
-    );
     let mut s = Screen::build(Owner::DialogsPane).size(80, 8).live().open();
     s.type_text("/skills");
     s.keys("enter");
@@ -1538,10 +1542,6 @@ fn provider_switch_blocks_cached_choices_in_old_and_new_chats() {
 // ORACLE chatwidget/tests/skills_summary_tests.rs:8 manage_skills_summary_snapshot kind=snap owner=dialogs-pane snap=manage_skills_summary
 #[test]
 fn manage_skills_summary_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature manage-skills summary (w2-approvals, chat popups): none in the port in the port: the one-line skill summaries of the fixture skills have no widget and no scripted state",
-    );
     let s = Screen::build(Owner::DialogsPane).size(80, 4).live().open();
     s.assert_snap("manage_skills_summary");
 }

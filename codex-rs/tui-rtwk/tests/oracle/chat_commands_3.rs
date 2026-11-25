@@ -6,6 +6,8 @@
 
 use crate::kit::{self, Owner, Screen};
 
+/// The memory tool on: the host's facts of the config (`set_feature_enabled(MemoryTool, true)`).
+const MEMORY_TOOL: &str = include_str!("fixtures/chat_commands_3/memory_tool.jsonl");
 /// A running turn (the oracle's `handle_turn_started`).
 const RUNNING: &str = include_str!("fixtures/chat_commands_2/running.jsonl");
 /// The live chat with a side conversation active (`set_side_conversation_active`).
@@ -51,10 +53,6 @@ fn slash_copy_reports_when_no_agent_response_exists() {
 // ORACLE chatwidget/tests/slash_commands.rs:2400 slash_export_opens_destination_picker kind=snap owner=chat-nav-pane snap=slash_export_completion_message snap=slash_export_destination_picker snap=slash_export_filename_prompt
 #[test]
 fn slash_export_opens_destination_picker() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the /export destination picker, the filename prompt and the export completion messages are not built; a thread id and a running turn cannot be seeded",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/export");
     s.keys("tab");
@@ -96,10 +94,6 @@ fn slash_keymap_capture_can_capture_app_shortcuts() {
 // ORACLE chatwidget/tests/slash_commands.rs:2515 slash_keymap_debug_opens_keypress_inspector kind=ui owner=chat-nav-pane
 #[test]
 fn slash_keymap_debug_opens_keypress_inspector() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the keypress inspector is built (settings/keymap_inspector) but `/keymap debug` does not open it: `features::open_settings(cx, command)` drops the command's arguments (Args::inspecting() is ready; `session/actions.rs` has `opened.args`), and the live app has no keymap facts for the picker",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/keymap debug");
     s.keys("enter");
@@ -114,10 +108,6 @@ fn slash_keymap_debug_opens_keypress_inspector() {
 // ORACLE chatwidget/tests/slash_commands.rs:2534 slash_keymap_debug_can_inspect_app_shortcuts kind=ui owner=chat-nav-pane
 #[test]
 fn slash_keymap_debug_can_inspect_app_shortcuts() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the keypress inspector is built (settings/keymap_inspector) but `/keymap debug` does not open it: `features::open_settings(cx, command)` drops the command's arguments (Args::inspecting() is ready; `session/actions.rs` has `opened.args`), and the live app has no keymap facts for the picker",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(100, 24)
         .live()
@@ -359,11 +349,10 @@ fn slash_mcp_invalid_args_show_usage() {
 // ORACLE chatwidget/tests/slash_commands.rs:3061 slash_memories_opens_memory_menu kind=ui owner=chat-nav-pane
 #[test]
 fn slash_memories_opens_memory_menu() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the memory menu (Use memories) is not built, and the MemoryTool feature seed is not registered",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(MEMORY_TOOL)
+        .open();
     s.type_text("/memories");
     s.keys("enter");
     s.assert_contains("Use memories");

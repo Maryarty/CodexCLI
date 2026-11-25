@@ -1,0 +1,3 @@
+# The server lists one beta feature, on (the second view of experimental_features_popup_snapshot).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"respond","method":"experimentalFeature/list","result":{"data":[{"name": "shell_tool", "stage": "beta", "displayName": "Shell tool", "description": "Allow the model to run shell commands.", "announcement": null, "enabled": true, "defaultEnabled": false}],"nextCursor":null}}

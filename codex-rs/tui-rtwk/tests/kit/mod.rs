@@ -25,6 +25,7 @@ mod handles;
 mod hold;
 mod input;
 mod labels;
+mod lists;
 mod markdown_gutter;
 mod palette;
 mod probe;

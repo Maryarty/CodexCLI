@@ -1,0 +1,3 @@
+# The server lists two beta features, both off (experimental_popup_available_snapshot).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"respond","method":"experimentalFeature/list","result":{"data":[{"name": "network_proxy", "stage": "beta", "displayName": "Network proxy", "description": "Apply network proxy restrictions to sandboxed sessions that already have network access.", "announcement": null, "enabled": false, "defaultEnabled": false},{"name": "prevent_idle_sleep", "stage": "beta", "displayName": "Prevent sleep while running", "description": "Keep your computer awake while Codex is running a thread.", "announcement": null, "enabled": false, "defaultEnabled": false}],"nextCursor":null}}

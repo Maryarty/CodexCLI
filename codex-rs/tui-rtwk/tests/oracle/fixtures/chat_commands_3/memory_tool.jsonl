@@ -1,0 +1,3 @@
+# The live chat with the memory tool on (the oracle's set_feature_enabled(Feature::MemoryTool, true)): the host's facts of the config.
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "fact", "feature": "settings", "fact": {"kind": "facts", "memories": {"use_memories": true, "generate_memories": true}}}
