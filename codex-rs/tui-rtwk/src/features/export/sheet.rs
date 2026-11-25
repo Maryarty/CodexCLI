@@ -129,13 +129,13 @@ impl State for FilePromptState {
     }
 
     fn build(&self, w: &FilePrompt, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        TextPrompt {
-            title: strings::PROMPT_TITLE.to_owned(),
-            placeholder: strings::PROMPT_PLACEHOLDER.to_owned(),
-            initial: filename(w.thread.as_ref()),
-            suggest: Suggest::Off,
-            on_submit: cx.map(FileMsg::Submit),
-        }
+        TextPrompt::new(
+            strings::PROMPT_TITLE,
+            strings::PROMPT_PLACEHOLDER,
+            filename(w.thread.as_ref()),
+            Suggest::Off,
+            cx.map(FileMsg::Submit),
+        )
         .into()
     }
 }

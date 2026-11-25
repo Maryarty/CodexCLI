@@ -6,6 +6,7 @@
 //! (`/feedback` is `features/feedback`.)
 
 mod dialog;
+mod prompt_entries;
 mod shortcuts;
 mod warnings;
 
@@ -56,7 +57,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             include_str!("fixtures/warnings_long.jsonl"),
         ),
     ];
-    entries
+    let mut all: Vec<DebugEntry> = entries
         .into_iter()
         .map(|(name, description, script)| DebugEntry {
             name,
@@ -68,7 +69,9 @@ pub fn debug_entries() -> Vec<DebugEntry> {
                 _ => |_| dialog::SmallDialog::of(Page::Shortcuts).into(),
             }),
         })
-        .collect()
+        .collect();
+    all.extend(prompt_entries::entries());
+    all
 }
 
 /// Opens the dialog of `page` from the widget that asks (`show_dialog`); what the user decides

@@ -56,6 +56,8 @@ pub struct Look {
     pub placeholder: Option<&'static str>,
     pub prompt: Option<Style>,
     pub keys: Option<TakeKey>,
+    /// The most rows the field grows to (the chat's six when none).
+    pub max_lines: Option<usize>,
 }
 
 impl Default for Look {
@@ -65,6 +67,7 @@ impl Default for Look {
             placeholder: None,
             prompt: None,
             keys: None,
+            max_lines: None,
         }
     }
 }
@@ -74,6 +77,7 @@ impl PartialEq for Look {
         self.autofocus == other.autofocus
             && self.placeholder == other.placeholder
             && self.prompt == other.prompt
+            && self.max_lines == other.max_lines
             && match (&self.keys, &other.keys) {
                 (Some(a), Some(b)) => Rc::ptr_eq(a, b),
                 (None, None) => true,
@@ -119,6 +123,16 @@ impl Composer {
     pub fn prompt_style(mut self, style: Style) -> Composer {
         if let Some(look) = &mut self.plain {
             look.prompt = Some(style);
+        }
+        self
+    }
+
+    /// The most rows the field grows to (a plain-text composer): the text prompt's eight, or all
+    /// the room its owner gives it.
+    #[must_use]
+    pub fn max_lines(mut self, rows: usize) -> Composer {
+        if let Some(look) = &mut self.plain {
+            look.max_lines = Some(rows);
         }
         self
     }

@@ -1064,7 +1064,12 @@ impl State for ComposerState {
         let composer_words = table;
         let mut area = area
             .placeholder_style(tokens.dim().attrs(Attrs::DIM))
-            .max_lines(6);
+            .max_lines(
+                w.plain
+                    .as_ref()
+                    .and_then(|look| look.max_lines)
+                    .unwrap_or(6),
+            );
         // shell mode shows its `!` and no placeholder
         if !w.ui.draft.shell() {
             area = area.placeholder(
