@@ -715,19 +715,17 @@ fn tool_suggestion_install_url_is_validated_before_opening() {
             // oracle: a valid https link is offered, and enter opens it in the browser.
             s.assert_contains("Test Connector");
             s.assert_contains("Install on ChatGPT");
-            assert!(s.opened_urls().is_empty());
-            assert!(s.resolved_requests().is_empty());
+            s.assert_opened_urls(&[]);
+            s.assert_no_resolved_requests();
             s.keys("enter");
-            assert_eq!(s.opened_urls(), [install_url]);
+            s.assert_opened_urls(&[install_url]);
             continue;
         }
         // oracle: an invalid link is declined at once; the popup is the initial one and the decline is sent.
         s.assert_same_rows(&initial);
         s.assert_snap_rows_at("declined_tool_suggestion", 2);
-        assert!(s.opened_urls().is_empty());
-        let declined = s.resolved_requests();
-        assert_eq!(declined.len(), 1, "{install_url}: {declined:?}");
-        assert_eq!(declined[0]["action"], "decline", "{install_url}");
+        s.assert_opened_urls(&[]);
+        s.assert_resolved_actions(&["decline"]);
     }
 }
 

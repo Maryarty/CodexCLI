@@ -4,8 +4,6 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
-use codex_tui_core::app::Command;
-
 use crate::kit::{self, Owner, Screen};
 
 /// The first row of the banner of the threads that wait for an approval.
@@ -772,14 +770,6 @@ fn halfwidth_sound_marks_are_truncated_and_rendered_at_a_grapheme_boundary() {
     s.assert_snap("request_user_input_halfwidth_sound_marks_truncation");
 }
 
-/// How many device verifications the app asked for.
-fn verifications(s: &Screen) -> usize {
-    s.commands()
-        .iter()
-        .filter(|command| matches!(command, Command::VerifyUser { .. }))
-        .count()
-}
-
 // ---- oracle: bottom_pane/user_verification_tests.rs (7 screen-level tests here; 1 state tests left to dialogs-pane)
 // ORACLE bottom_pane/user_verification_tests.rs:58 prompt_snapshot kind=snap owner=dialogs-pane snap=user_verification_prompt
 #[test]
@@ -810,9 +800,9 @@ fn waiting_snapshot_and_duplicate_approval_suppression() {
     s.assert_snap("user_verification_waiting");
     // the second Enter starts nothing: one verification is asked of the device
     s.keys("enter");
-    assert_eq!(verifications(&s), 1);
+    s.assert_commands_named("VerifyUser", 1);
     // and the prompt is not complete: no answer was sent, the request is open
-    assert!(s.resolved_requests().is_empty());
+    s.assert_no_resolved_requests();
     s.assert_contains("Waiting for verification");
 }
 

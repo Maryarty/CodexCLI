@@ -4,9 +4,6 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
-use codex_tui_core::app::Command;
-use codex_tui_core::screens::{ScreenCommand, select};
-
 use crate::kit::{self, Owner, Screen};
 
 /// The live app, the request of `fixture` delivered and its dialog open.
@@ -14,30 +11,6 @@ fn live(fixture: &str) -> Screen {
     let mut s = Screen::build(Owner::DialogsPane).live().open();
     s.feed(fixture);
     s
-}
-
-/// What the app answered its server requests with, as the elicitation actions.
-fn actions(s: &Screen) -> Vec<String> {
-    s.resolved_requests()
-        .iter()
-        .map(|result| result["action"].as_str().unwrap_or_default().to_owned())
-        .collect()
-}
-
-/// How many times the app asked for the directory of apps.
-fn directory_reads(s: &Screen) -> usize {
-    s.commands()
-        .iter()
-        .filter(|command| {
-            matches!(
-                command,
-                Command::Screen {
-                    command: ScreenCommand::Select(select::Command::Apps { .. }),
-                    ..
-                }
-            )
-        })
-        .count()
 }
 
 // ---- oracle: bottom_pane/app_link_view.rs (14 screen-level tests here; 9 state tests left to dialogs-pane)
@@ -92,13 +65,13 @@ fn generic_url_elicitation_resolves_without_connector_refresh() {
     s.assert_contains("Action required");
     s.keys("enter");
     s.assert_contains("Finish in Browser");
-    assert_eq!(s.opened_urls(), ["https://payments.example/checkout/123"]);
-    assert!(s.resolved_requests().is_empty());
+    s.assert_opened_urls(&["https://payments.example/checkout/123"]);
+    s.assert_no_resolved_requests();
     s.keys("enter");
     s.assert_absent("payments.example");
     // accepted, with no content; a server that is not the apps server reads no directory
-    assert_eq!(actions(&s), ["accept"]);
-    assert_eq!(directory_reads(&s), 0);
+    s.assert_resolved_actions(&["accept"]);
+    s.assert_directory_reads(0);
 }
 
 // ORACLE bottom_pane/app_link_view.rs:1306 install_confirmation_does_not_split_long_url_like_token_without_scheme kind=ui owner=dialogs-pane
@@ -133,11 +106,11 @@ fn install_tool_suggestion_resolves_elicitation_after_confirmation() {
         "fixtures/small_dialogs_1/app_link_install.jsonl"
     ));
     s.keys("enter");
-    assert_eq!(s.opened_urls(), ["https://example.test/google-calendar"]);
+    s.assert_opened_urls(&["https://example.test/google-calendar"]);
     s.keys("enter");
     // the apps server asked: the directory is read again, then the request is accepted
-    assert_eq!(directory_reads(&s), 1);
-    assert_eq!(actions(&s), ["accept"]);
+    s.assert_directory_reads(1);
+    s.assert_resolved_actions(&["accept"]);
     s.assert_absent("Google Calendar");
 }
 
@@ -148,8 +121,8 @@ fn declined_tool_suggestion_resolves_elicitation_decline() {
         "fixtures/small_dialogs_1/app_link_install.jsonl"
     ));
     s.keys("2");
-    assert!(s.opened_urls().is_empty());
-    assert_eq!(actions(&s), ["decline"]);
+    s.assert_opened_urls(&[]);
+    s.assert_resolved_actions(&["decline"]);
     s.assert_absent("Google Calendar");
 }
 
@@ -161,21 +134,8 @@ fn enable_tool_suggestion_resolves_elicitation_after_enable() {
     ));
     s.keys("2");
     // the switch is written first (`SetApp`), then the request accepted
-    let asked = s.commands();
-    let written = asked.iter().position(|command| {
-        matches!(
-            command,
-            Command::Screen {
-                command: ScreenCommand::Select(select::Command::SetApp { id, enabled: true }),
-                ..
-            } if id == "connector_google_calendar"
-        )
-    });
-    let accepted = asked
-        .iter()
-        .position(|command| matches!(command, Command::ResolveRequest { .. }));
-    assert!(written.is_some() && written < accepted, "{asked:?}");
-    assert_eq!(actions(&s), ["accept"]);
+    s.assert_app_enabled_then_resolved("connector_google_calendar");
+    s.assert_resolved_actions(&["accept"]);
     s.assert_absent("Google Calendar");
 }
 
