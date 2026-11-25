@@ -176,6 +176,15 @@ pub enum Ask {
     /// (`notice.hide_gov_cloud_guidance`); not answered, a failed write is
     /// only logged.
     AcknowledgeGovCloud,
+    /// The background-server recovery menu was answered (`daemon_recovery.rs`): Cancel (also
+    /// Ctrl-C) ends the launch with the compatibility error, Run without starts the embedded
+    /// server with a warning, Restart restarts the managed server with the settings asked, checks
+    /// once more and ends the launch with the error when it still differs. The mismatch itself
+    /// is the host's (it read it); not answered, the launch goes on with the server it ends up
+    /// with, or ends.
+    DaemonChoice {
+        choice: super::startup::DaemonChoice,
+    },
     /// The gateway `provider_id` was selected: read the configuration again,
     /// check it selects that gateway and start the embedded server with it
     /// (`lib.rs`' `selected_gateway`), answered with `Ev::GatewayStarted`. A

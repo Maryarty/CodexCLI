@@ -512,6 +512,10 @@ impl StartupPageState {
         if self.asking || model.awaits_launch() {
             return Some(Step::Prompts);
         }
+        // The recovery menu was cancelled: the host ends the launch with the error it read.
+        if screens.daemon_ended {
+            return Some(Step::Prompts);
+        }
         let first = model.prompts.first()?.clone();
         self.asking = true;
         let hs = read::<Hs, _>(cx);
@@ -531,6 +535,8 @@ impl StartupPageState {
 struct Slice {
     onboarding: core::Model,
     prompt_asked: bool,
+    /// The recovery menu was cancelled (the app ends on the host's error).
+    daemon_ended: bool,
     import_phase: ImportPhase,
     import_generation: u64,
 }
@@ -539,20 +545,28 @@ fn slice(cx: &mut Cx<'_, StartupPageState>) -> Slice {
     select::<ScreenStates, Slice, _>(cx, |states| Slice {
         onboarding: states.onboarding.clone(),
         prompt_asked: states.startup.asked.is_some(),
+        daemon_ended: states.startup.answers.iter().any(|a| {
+            matches!(
+                a,
+                codex_tui_core::screens::startup::Answer::Daemon(
+                    codex_tui_core::screens::startup::DaemonChoice::Cancel
+                ) | codex_tui_core::screens::startup::Answer::DaemonQuit
+            )
+        }),
         import_phase: states.import.phase,
         import_generation: states.import.generation(),
     })
 }
 
 /// Whether a startup prompt's answer ends the app (Ctrl-C on a prompt, the
-/// migration's exit, the unarchive prompt's quit).
+/// migration's exit, the unarchive prompt's quit). The recovery menu's Cancel and Ctrl-C end
+/// it too, but with the host's error text (`Ask::DaemonChoice`): the page waits for it.
 fn exits(answer: codex_tui_core::screens::startup::Answer) -> bool {
     use codex_tui_core::screens::startup::{Answer, MigrationOutcome, UnarchiveChoice};
     matches!(
         answer,
         Answer::CwdExit
             | Answer::OssCancelled
-            | Answer::DaemonQuit
             | Answer::Migration(MigrationOutcome::Exit)
             | Answer::Unarchive(UnarchiveChoice::Quit)
     )

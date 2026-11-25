@@ -9,13 +9,14 @@ use codex_app_server_protocol::RequestId;
 
 use crate::app::AppFx;
 use crate::app::Command as AppCommand;
-use crate::screens::onboarding;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::screens::Kind;
+use crate::screens::onboarding;
 use crate::threads::ThreadFx;
 
 pub mod cwd;
+pub mod daemon;
 pub mod launch;
 
 pub const NAME: &str = "startup";
@@ -537,6 +538,17 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                     ask: onboarding::Ask::AcknowledgeGovCloud,
                 });
             }
+            // The recovery menu's answer is the host's to carry out (Ctrl-C is Cancel).
+            let daemon = match answer {
+                Answer::Daemon(choice) => Some(choice),
+                Answer::DaemonQuit => Some(DaemonChoice::Cancel),
+                _ => None,
+            };
+            if let Some(choice) = daemon {
+                fx.commands.push(AppCommand::Startup {
+                    ask: onboarding::Ask::DaemonChoice { choice },
+                });
+            }
             // The migration's answer is saved (`PersistModelMigrationPromptAcknowledged`,
             // accepted: `PersistModelSelection` too); an exit saves nothing.
             if let (Prompt::Migration(m), Answer::Migration(outcome)) = (prompt, answer)
@@ -708,7 +720,10 @@ mod tests {
             Some(Prompt::Hooks(HooksPrompt {
                 count: 2,
                 trust: Trust::Failed("boom".into()),
-                updates: vec![HookTrust { key: "k".into(), hash: "h".into() }],
+                updates: vec![HookTrust {
+                    key: "k".into(),
+                    hash: "h".into()
+                }],
             }))
         );
     }
@@ -810,6 +825,61 @@ mod tests {
         );
     }
 
+    fn daemon_menu(managed: bool) -> Model {
+        Model {
+            asked: Some(Prompt::Daemon(DaemonPrompt {
+                reason: "r".into(),
+                restart_features: Some(vec![("a".into(), true)]),
+                managed,
+            })),
+            ..Model::default()
+        }
+    }
+
+    // daemon_recovery.rs: each answer of the recovery menu is the host's to carry out; Ctrl-C
+    // is the same as Cancel (the launch ends with the compatibility error).
+    #[test]
+    fn a_daemon_answer_asks_the_host_to_carry_it_out() {
+        let ask = |choice| [onboarding::Ask::DaemonChoice { choice }];
+        for (answer, choice) in [
+            (Answer::Daemon(DaemonChoice::Restart), DaemonChoice::Restart),
+            (
+                Answer::Daemon(DaemonChoice::RunWithout),
+                DaemonChoice::RunWithout,
+            ),
+            (Answer::Daemon(DaemonChoice::Cancel), DaemonChoice::Cancel),
+            (Answer::DaemonQuit, DaemonChoice::Cancel),
+        ] {
+            let mut model = daemon_menu(true);
+            assert_eq!(asks_of(&mut model, Intent::Answer(answer)), ask(choice));
+            assert_eq!(model.answers, vec![answer]);
+        }
+    }
+
+    // A menu that is not asked takes no answer; the disabled restart row has no answer.
+    #[test]
+    fn the_disabled_restart_row_is_never_answered() {
+        let unmanaged = daemon_menu(false).asked.unwrap();
+        // The cursor skips it, and no number reaches it: `2` is the row after it.
+        assert_eq!(unmanaged.step(2, -1), Reaction::Cursor(0));
+        assert_eq!(
+            unmanaged.number(1),
+            Reaction::Answer(Answer::Daemon(DaemonChoice::RunWithout))
+        );
+        assert_eq!(
+            unmanaged.number(2),
+            Reaction::Answer(Answer::Daemon(DaemonChoice::Cancel))
+        );
+        let mut model = Model::default();
+        assert_eq!(
+            asks_of(
+                &mut model,
+                Intent::Answer(Answer::Daemon(DaemonChoice::Cancel))
+            ),
+            []
+        );
+    }
+
     // run_ratatui_app: the GovCloud guidance's acknowledgment is written
     // once, when it is dismissed (`acknowledge_gov_cloud`).
     #[test]
@@ -833,9 +903,15 @@ mod tests {
     #[test]
     fn an_answer_of_another_prompt_is_ignored() {
         let mut model = hooks(Trust::Idle);
-        fx_apply(&mut model, Intent::Answer(Answer::Unarchive(UnarchiveChoice::Cancel)));
+        fx_apply(
+            &mut model,
+            Intent::Answer(Answer::Unarchive(UnarchiveChoice::Cancel)),
+        );
         assert!(model.asked.is_some() && model.answers.is_empty());
-        fx_apply(&mut model, Intent::Answer(Answer::Hooks(HooksChoice::Review)));
+        fx_apply(
+            &mut model,
+            Intent::Answer(Answer::Hooks(HooksChoice::Review)),
+        );
         assert_eq!(model.asked, None);
         assert_eq!(model.answers, vec![Answer::Hooks(HooksChoice::Review)]);
     }

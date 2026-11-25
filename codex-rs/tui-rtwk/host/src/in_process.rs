@@ -228,7 +228,7 @@ async fn run(
 ) {
     let InProcess {
         arg0_paths,
-        mode,
+        mut mode,
         done,
         model,
         cwd,
@@ -254,6 +254,12 @@ async fn run(
     {
         Ok(overrides) => overrides,
         Err(error) => return fail(format!("Error parsing -c overrides: {error}")),
+    };
+    // What the command line asks of the shared server, checked once it is connected.
+    let daemon_features = if matches!(mode, Mode::Daemon) {
+        crate::daemon::requested_features(&cli_overrides)
+    } else {
+        Default::default()
     };
     // Loaded here, after the first frame: config, state DB, environment manager.
     let startup_cwd = cwd.clone();
@@ -334,7 +340,9 @@ async fn run(
     let workspace: Arc<dyn Workspace> = Arc::new(Local::new(config.codex_home.to_path_buf()));
     // The startup page's asks: the trust is a local folder's question.
     let (restart, mut restarts) = tokio::sync::mpsc::unbounded_channel::<crate::startup::Restart>();
-    let startup = crate::startup::Startup {
+    let mut startup = crate::startup::Startup {
+        daemon_features,
+        daemon: Default::default(),
         current: Arc::new(tokio::sync::RwLock::new(config.clone())),
         restart,
         config: config.clone(),
@@ -422,7 +430,7 @@ async fn run(
     for ev in crate::viewer::events(&config) {
         emit(&ingress, epoch, ev);
     }
-    let daemon = matches!(mode, Mode::Daemon | Mode::Remote { daemon: true, .. });
+    let mut daemon = matches!(mode, Mode::Daemon | Mode::Remote { daemon: true, .. });
     let mut version_shown = None;
     if show_version && let Some(client) = held.get() {
         emit_version(&ingress, epoch, client, daemon, &mut version_shown);
@@ -483,7 +491,7 @@ async fn run(
     // The history search's debounce: the oracle waits 180 ms and a newer
     // search drops the pending one.
     let mut latest = Latest::default();
-    let endpoint = reconnect_endpoint(&mode);
+    let mut endpoint = reconnect_endpoint(&mode);
     let mut request_epoch = epoch;
     // The history file and the mention usage are read once, when the first thread is asked.
     let mut thread_asked = false;
@@ -592,8 +600,36 @@ async fn run(
                 }
             }
         }
-        if let Some(crate::startup::Restart { config, done }) = restart.take() {
-            match connect_first(&mode, &config, arg0_paths.clone()).await {
+        // The app moved to another server (the recovery menu's answer): what a reconnect tells
+        // the app follows, the lost connection being the old one.
+        let mut moved = false;
+        if let Some(crate::startup::Restart {
+            config,
+            done,
+            switch,
+        }) = restart.take()
+        {
+            use crate::startup::Switch;
+            // A launch that ends: the text is for `main`, once the terminal is restored.
+            let end = |startup: &crate::startup::Startup, text: String| {
+                if let Ok(mut slot) = startup.failure.lock() {
+                    *slot = Some(text.clone());
+                }
+                emit(&ingress, epoch, AppEv::StartFailed(text));
+            };
+            if let Some(Switch::Daemon { features }) = &switch
+                && let Err(text) = crate::daemon::restart_with(features).await
+            {
+                end(&startup, text);
+                continue;
+            }
+            let embedded = matches!(switch, Some(Switch::Embedded { .. }));
+            let next = if embedded {
+                Mode::Embedded
+            } else {
+                mode.clone()
+            };
+            match connect_first(&next, &config, arg0_paths.clone()).await {
                 Ok((restarted, _)) => {
                     handle = restarted.request_handle();
                     if let Some(old) = held.replace(restarted) {
@@ -604,29 +640,67 @@ async fn run(
                         let _ = done.send(());
                     }
                 }
-                Err(error) => emit(&ingress, epoch, AppEv::StartFailed(format!("{error:#}"))),
+                Err(error) => {
+                    end(&startup, format!("{error:#}"));
+                    continue;
+                }
             }
-            continue;
+            let Some(switch) = switch else {
+                continue;
+            };
+            if let Switch::Embedded { warning } = switch {
+                mode = next;
+                endpoint = None;
+                daemon = false;
+                startup.target = crate::startup::Target::Embedded;
+                startup.connected = false;
+                // The card and the banner say the server is this process; the warning is the
+                // launch's own (as `startup_warning`).
+                emit(
+                    &ingress,
+                    epoch,
+                    AppEv::Screen(ScreenEv::Status(StatusEv::Connection(None))),
+                );
+                emit(
+                    &ingress,
+                    epoch,
+                    AppEv::Screen(ScreenEv::Agents(AgentsEv::ServerVersion(None))),
+                );
+                emit(
+                    &ingress,
+                    epoch,
+                    AppEv::Screen(ScreenEv::Dialogs(DialogsEv::Retained(vec![Warning {
+                        source: "Startup".to_string(),
+                        details: warning,
+                    }]))),
+                );
+            }
+            // What the old connection was asked will never answer.
+            inflight = FuturesUnordered::new();
+            request_epoch = request_epoch.next();
+            moved = true;
         }
-        if !lost {
-            continue;
+        if !moved {
+            if !lost {
+                continue;
+            }
+            let Some(endpoint) = endpoint.clone() else {
+                // The embedded server has no connection to restore.
+                emit(&ingress, epoch, AppEv::Disconnected);
+                break;
+            };
+            // What the lost connection was asked will never answer.
+            inflight = FuturesUnordered::new();
+            let restored =
+                reconnect::restore(|| connect_remote(endpoint.clone()), &ingress, epoch).await;
+            let Some(restored) = restored else {
+                // The notice stays; the app is closed with its commands.
+                while commands.recv().await.is_some() {}
+                break;
+            };
+            request_epoch = request_epoch.next();
+            held.set(restored);
         }
-        let Some(endpoint) = endpoint.clone() else {
-            // The embedded server has no connection to restore.
-            emit(&ingress, epoch, AppEv::Disconnected);
-            break;
-        };
-        // What the lost connection was asked will never answer.
-        inflight = FuturesUnordered::new();
-        let restored =
-            reconnect::restore(|| connect_remote(endpoint.clone()), &ingress, epoch).await;
-        let Some(restored) = restored else {
-            // The notice stays; the app is closed with its commands.
-            while commands.recv().await.is_some() {}
-            break;
-        };
-        request_epoch = request_epoch.next();
-        held.set(restored);
         let Some(client) = held.get() else {
             break;
         };
@@ -651,7 +725,7 @@ async fn run(
             epoch,
             &mut inflight,
         );
-        emit_connection(&ingress, epoch, client, Some(endpoint.clone()), daemon);
+        emit_connection(&ingress, epoch, client, endpoint.clone(), daemon);
         deliver(
             connection_feed(
                 client,
@@ -814,7 +888,7 @@ fn asks_thread(command: &Command) -> bool {
 
 /// The endpoint a lost connection is restored through; `None` for the
 /// embedded server.
-fn reconnect_endpoint(mode: &Mode) -> Option<RemoteAppServerEndpoint> {
+pub(crate) fn reconnect_endpoint(mode: &Mode) -> Option<RemoteAppServerEndpoint> {
     match mode {
         Mode::Embedded => None,
         Mode::Remote { endpoint, .. } => Some(endpoint.clone()),
@@ -854,16 +928,12 @@ async fn connect_first(
             let started =
                 codex_app_server_daemon::start_with_features_classified(&Default::default())
                     .await
-                    .map_err(|failure| {
-                        anyhow::anyhow!("{:#}\n{DAEMON_FAILURE_HINT}", failure.error)
-                    })?;
+                    .map_err(|failure| daemon_failure(&format!("{:#}", failure.error)))?;
             let socket_path = AbsolutePathBuf::from_absolute_path_checked(started.socket_path)
                 .map_err(|error| anyhow::anyhow!(error.to_string()))?;
             let client = connect_remote(RemoteAppServerEndpoint::UnixSocket { socket_path })
                 .await
-                .ok_or_else(|| {
-                    anyhow::anyhow!("failed to connect to the local daemon\n{DAEMON_FAILURE_HINT}")
-                })?;
+                .ok_or_else(|| daemon_failure("failed to connect to the local daemon"))?;
             Ok((client, true))
         }
         Mode::Remote { endpoint, daemon } => {
@@ -875,13 +945,16 @@ async fn connect_first(
     }
 }
 
-/// `daemon_startup.rs::FAILURE_HINT`.
-const DAEMON_FAILURE_HINT: &str = "To work without the background server, rerun the same command with --no-daemon (including resume or fork and its arguments).";
+/// A daemon that cannot be started or reached ends the launch with `detail` and the way to
+/// work without it (`daemon_startup.rs::FAILURE_HINT`).
+fn daemon_failure(detail: &str) -> anyhow::Error {
+    anyhow::anyhow!("{detail}\n{}", crate::daemon::FAILURE_HINT)
+}
 
 /// One connection to a server at `endpoint` (oracle:
 /// `connect_remote_app_server`); a failure is `None`, whose text the oracle
 /// never shows.
-async fn connect_remote(endpoint: RemoteAppServerEndpoint) -> Option<AppServerClient> {
+pub(crate) async fn connect_remote(endpoint: RemoteAppServerEndpoint) -> Option<AppServerClient> {
     RemoteAppServerClient::connect(RemoteAppServerConnectArgs {
         required_human_approval: true,
         endpoint,
@@ -1063,6 +1136,18 @@ pub(crate) async fn resolve(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // `daemon_startup_falls_back_only_for_implicit_endpoints`, the port's half: the daemon is a
+    // required attachment, so a failed start or connection says how to work without it.
+    #[test]
+    fn a_daemon_that_cannot_be_reached_names_the_way_to_work_without_it() {
+        let message = daemon_failure("failed to connect to the local daemon").to_string();
+        assert!(message.starts_with("failed to connect to the local daemon\n"));
+        assert!(
+            message.contains("rerun the same command with --no-daemon"),
+            "{message}"
+        );
+    }
 
     #[test]
     fn a_dropped_guard_hands_its_value_back() {
