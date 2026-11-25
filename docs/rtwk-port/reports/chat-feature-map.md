@@ -312,7 +312,7 @@
 | Feedback (диалог) | 🟡 | ab78ae687: шаг feedback — состояние sheet; с батча 9 из чата достижим командой `/feedback` (страница Feedback); снимки consent/diagnostics ждут | 3/30 (не вкл. 1) | chunk-popups-feedback (устарела: R15_NOT_YET, AppCtx::Dialogs) |
 | Pets (диалог выбора) | 🟡 | ab78ae687: курсор и превью — состояние sheet; глаголы LoadPreview, ReleasePreview; ambient-часть и тесты не включены | 2/13 (не вкл. 4) | pets |
 | Voice (диалог, F8) | ❌ | — | 0/5 | voice (устарела: src/screens/*) |
-| Trust on open (запрос доверия к каталогу) | ? | в startup-шарде 29/32 зелёные; из чата не вызывается | 10/11 | trust-on-open |
+| Trust on open (запрос доверия к каталогу) | ? | в startup-шарде 29/32 зелёные; из чата: /cd да (f-startup-trust); остальные вызовы (resume, новая задача из центра, смена backend, fresh) — f-startup-trust-callers | 10/11 | trust-on-open |
 | Model provider switch (блокирует кэш выбора) | ❌ | provider_switch_* | 0/1 | задачи нет (chunk-popups-picker-rest завершена) |
 | Debug menu F12 | ✅ | — | 0/2 | — |
 | Список выбора (SelectionList): тап по строке | 🟡 | gap (2f68c2c75): тап по строке только двигает курсор, как у rtwk-виджета; выбор строки — клавишей | — | small-dialogs (устарела: src/screens/*) |

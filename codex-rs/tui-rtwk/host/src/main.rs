@@ -117,6 +117,7 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
         .with_start_agents(cli.agents)
         .with_start_resume(cli.resume)
         .with_awaited_facts(true)
+        .with_folder_consent(true)
         .with_lang(cli.lang(&rtwk::l10n::requested()));
     if let Some(start) = cli.session.clone() {
         app = app.with_start_session(start);

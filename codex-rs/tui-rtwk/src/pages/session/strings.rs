@@ -93,6 +93,8 @@ pub struct Strings {
     pub cd_not_started: &'static str,
     pub cd_not_idle: &'static str,
     pub cd_history_not_saved: &'static str,
+    /// `resume_config.rs`: the folder's trust could not be read.
+    pub cd_trust_check: Msg<1>,
     /// `event_dispatch.rs` `archive_current_thread`, `delete_current_thread`:
     /// why the thread was not removed (the failure carries the oracle's context
     /// message, `thread_archive`, `thread_delete`).
@@ -285,6 +287,7 @@ pub const EN: Strings = Strings {
     cd_not_started: "The session must start before you can change its working directory.",
     cd_not_idle: "Changing directories requires an idle primary session without queued input.",
     cd_history_not_saved: "Conversation history is not saved.",
+    cd_trust_check: msg!("Unable to check folder trust: {0}"),
     archive_not_started: "A thread must start before it can be archived.",
     delete_not_started: "A thread must start before it can be deleted.",
     archive_side: "'/archive' is unavailable in side conversations. Press Ctrl+C to return to the main thread first.",
@@ -651,6 +654,7 @@ impl Strings {
             NoteKey::CdRefused(CdRefusal::NotStarted) => self.cd_not_started.to_string(),
             NoteKey::CdRefused(CdRefusal::NotIdle) => self.cd_not_idle.to_string(),
             NoteKey::CdRefused(CdRefusal::HistoryNotSaved) => self.cd_history_not_saved.to_string(),
+            NoteKey::CdRefused(CdRefusal::TrustCheck(error)) => text(self.cd_trust_check, error),
             NoteKey::Remove(Action::Archive, RemoveNote::NotStarted) => {
                 self.archive_not_started.to_string()
             }

@@ -151,6 +151,9 @@ pub enum Step {
     /// The launch's startup prompts (S05), asked one after the other once
     /// the steps above are over: the page shows the open one.
     Prompts,
+    /// The folder trust of a `/cd`, asked over the chat after the launch (not a step of the
+    /// launch: the model's `consent` holds it).
+    Consent,
 }
 
 impl Step {
@@ -165,6 +168,7 @@ impl Step {
             Step::Import => 5,
             Step::Device => 6,
             Step::Prompts => 7,
+            Step::Consent => 8,
         }
     }
 
@@ -175,7 +179,7 @@ impl Step {
             Step::SignIn => Some(core::Stage::SignIn),
             Step::Provider => Some(core::Stage::Provider),
             Step::Trust => Some(core::Stage::Trust),
-            Step::Migration | Step::Import | Step::Device | Step::Prompts => None,
+            Step::Migration | Step::Import | Step::Device | Step::Prompts | Step::Consent => None,
         }
     }
 
@@ -321,6 +325,8 @@ impl State for StartupPageState {
                     && screens.import_generation > self.import_from;
                 (!done).then_some(Step::Import)
             }
+            // the question of a `/cd` is asked while the model holds it open
+            Step::Consent => core::consent::open(&screens.onboarding).map(|_| Step::Consent),
             Step::Device | Step::Prompts => self.after_steps(&screens, cx),
             _ => match current(at, &screens.onboarding) {
                 Some(step) => Some(step),
@@ -342,6 +348,12 @@ impl State for StartupPageState {
                 let screens = read::<ScreenStates, _>(cx);
                 let model = &screens.onboarding;
                 let answers = screens.startup.answers.get(self.answers_from..);
+                // The question of a `/cd` only leaves: the launch's own outcome (a quit, the
+                // command center) is not its.
+                if w.step == Step::Consent {
+                    Navigator::maybe_pop(cx);
+                    return Rebuild::No;
+                }
                 let quit = quits(model) || answers.is_some_and(|a| a.iter().any(|a| exits(*a)));
                 // A quit leaves from the page: no frame of what lies under it.
                 if quit {
@@ -388,6 +400,10 @@ impl State for StartupPageState {
                     }
                     .into();
                 }
+                None => AnyWidget::default(),
+            },
+            Some(Step::Consent) => match core::consent::open(model) {
+                Some(ask) => trust::Trust { ask: ask.clone() }.into(),
                 None => AnyWidget::default(),
             },
             Some(Step::Trust) => match &model.trust {
