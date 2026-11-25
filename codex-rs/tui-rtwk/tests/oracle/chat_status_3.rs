@@ -6,6 +6,57 @@
 
 use crate::kit::{self, Owner, Screen};
 
+/// The live seed's session (thread `thread-1`) with a running turn `turn-1`.
+const RUNNING: &str = include_str!("fixtures/chat_status_1/running_turn.jsonl");
+
+/// A server notification `method` of the thread `thread-1` (`params` as JSON).
+fn notify(method: &str, params: serde_json::Value) -> String {
+    serde_json::json!({"step": "notify", "message": {"method": method, "params": params}})
+        .to_string()
+}
+
+/// `item/agentMessage/delta` of the answer `msg-1`.
+fn answer_delta(delta: &str) -> String {
+    notify(
+        "item/agentMessage/delta",
+        serde_json::json!({"threadId": "thread-1", "turnId": "turn-1", "itemId": "msg-1", "delta": delta}),
+    )
+}
+
+/// `item/started` and `item/completed` of `item` of the turn `turn-1`.
+fn item_run(item: &serde_json::Value) -> String {
+    let started = notify(
+        "item/started",
+        serde_json::json!({"threadId": "thread-1", "turnId": "turn-1", "item": item, "startedAtMs": 0}),
+    );
+    let completed = notify(
+        "item/completed",
+        serde_json::json!({"threadId": "thread-1", "turnId": "turn-1", "item": item, "startedAtMs": null, "completedAtMs": 0}),
+    );
+    format!("{started}\n{completed}")
+}
+
+/// The completed subagent `/root/stack_tip` of the oracle.
+fn subagent_completed() -> serde_json::Value {
+    serde_json::json!({"type": "subAgentActivity", "id": "activity-1", "model": null,
+        "reasoningEffort": null, "kind": "completed",
+        "agentThreadId": "00000000-0000-0000-0000-000000000001", "agentPath": "/root/stack_tip"})
+}
+
+/// `turn/completed` of `turn-1` as `status`.
+fn turn_over(status: &str) -> String {
+    notify(
+        "turn/completed",
+        serde_json::json!({"threadId": "thread-1", "turn": {"id": "turn-1", "rootTurnId": null,
+            "items": [], "itemsView": "full", "status": status, "error": null, "startedAt": null,
+            "completedAt": null, "durationMs": null}}),
+    )
+}
+
+/// The oracle's answer, in two parts (the first ends a paragraph).
+const PREFIX: &str = "The top is PR #42.\n\n";
+const SUFFIX: &str = "Branch: feature/rollout.";
+
 /// A bottom popup of the live chat at 100 columns. The oracle renders the popup
 /// alone, so its rows are the last rows of our screen (the bottom pane).
 fn bottom_popup(script: &'static str, command: &str, snap: &str) -> Screen {
@@ -245,30 +296,53 @@ fn terminal_title_setup_popup_thread_usage_snapshot() {
 // ORACLE chatwidget/tests/subagent_activity_tests.rs:81 subagent_completion_preserves_stream_and_authoritative_answer kind=snap owner=ui-pane
 #[test]
 fn subagent_completion_preserves_stream_and_authoritative_answer() {
-    kit::pending(
-        Owner::UiPane,
-        "no subagent activity in the live chat: the turn deltas, the subagent completion and the authoritative answer have no script yet",
-    );
     // The oracle loops over three orders of deltas and activity (answer before activity;
     // activity between the deltas; a dropped final delta). Each ends with the same finalized
     // transcript rows, its inline snapshot; the events and the stream and interrupt fields are state.
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    s.assert_contains("• The top is PR #42.");
-    s.assert_contains("  Branch: feature/rollout.");
-    s.assert_contains("• Completed `/root/stack_tip`");
+    let answer = format!("{PREFIX}{SUFFIX}");
+    for (before, after) in [(answer.as_str(), ""), (PREFIX, SUFFIX), (PREFIX, "")] {
+        let mut s = Screen::build(Owner::UiPane)
+            .size(80, 24)
+            .script(RUNNING)
+            .open();
+        s.feed(&answer_delta(before));
+        s.feed(&item_run(&subagent_completed()));
+        if !after.is_empty() {
+            s.feed(&answer_delta(after));
+        }
+        let done = serde_json::json!({"type": "agentMessage", "id": "msg-1", "text": answer,
+            "phase": "final_answer", "memoryCitation": null});
+        s.feed(&notify(
+            "item/completed",
+            serde_json::json!({"threadId": "thread-1", "turnId": "turn-1", "item": done,
+                "startedAtMs": null, "completedAtMs": 0}),
+        ));
+        s.feed(&turn_over("completed"));
+        s.assert_in_order(&[
+            "• The top is PR #42.",
+            "  Branch: feature/rollout.",
+            "• Completed `/root/stack_tip`",
+        ]);
+    }
 }
 
 // ORACLE chatwidget/tests/subagent_activity_tests.rs:136 interrupted_answer_flushes_queued_subagent_activity kind=ui owner=ui-pane
 #[test]
 fn interrupted_answer_flushes_queued_subagent_activity() {
-    kit::pending(
-        Owner::UiPane,
-        "no subagent activity and no turn interrupt in the live chat: the seed has no script yet",
-    );
     // The visible part: the interruption notice after the answer and the subagent activity.
     // The event order and the stream and interrupt fields are state, not rows.
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    s.assert_contains("■ Conversation interrupted");
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .script(RUNNING)
+        .open();
+    s.feed(&answer_delta(PREFIX));
+    s.feed(&item_run(&subagent_completed()));
+    s.feed(&turn_over("interrupted"));
+    s.assert_in_order(&[
+        "• The top is PR #42.",
+        "• Completed `/root/stack_tip`",
+        "■ Conversation interrupted",
+    ]);
 }
 
 // ---- oracle: chatwidget/tests/terminal_program_status.rs (2 screen-level tests here; 0 state tests left to ui-pane)
@@ -389,20 +463,52 @@ fn thread_identity_renders_names_and_fallbacks_on_both_surfaces() {
 fn image_result_live_and_replay_render_in_the_owning_call() {
     kit::pending(
         Owner::UiPane,
-        "feature image result of an MCP tool call (w2-cells): the chat has none, live or replayed: no scripted state script for either path",
+        "the oracle's snapshot is the inline `display_lines` of the call (`• Inspect screenshot`, a code-mode call with a title has no verb); the chat draws the owned transcript's `compact_hyperlink_lines` (`• Called Inspect screenshot`, the oracle's own owned-mode spelling, mcp_tests.rs:458); the result rows under it equal the snapshot, live and replayed",
     );
     // The oracle renders the one call's cell live and by replay; both equal the same snapshot.
     // The cell's row on the transcript is set by ui-pane with the seed.
-    let live = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    let item = |done: bool| {
+        serde_json::json!({
+            "type": "mcpToolCall", "id": "image", "server": "node_repl", "tool": "js",
+            "status": if done { "completed" } else { "inProgress" },
+            "arguments": {"title": "Inspect screenshot", "code": "showImage()"},
+            "appContext": null, "mcpAppUi": null, "pluginId": null, "readOnlyHint": null,
+            "result": done.then(|| serde_json::json!({"content": [
+                {"type": "text", "text": "Screenshot captured"},
+                {"type": "image", "mimeType": "image/png", "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="}
+            ], "structuredContent": null, "_meta": null, "isError": false})),
+            "error": null, "durationMs": done.then_some(5)
+        })
+    };
+    let at = |s: &Screen| {
+        s.rows()
+            .iter()
+            .position(|row| row.starts_with("• Called Inspect screenshot"))
+            .unwrap_or_else(|| panic!("no call cell:\n{}", s.text()))
+    };
+    let mut live = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .script(RUNNING)
+        .open();
+    let started = item_run(&item(false));
+    live.feed(started.split('\n').next().unwrap_or_default());
+    let completed = item_run(&item(true));
+    live.feed(completed.split('\n').nth(1).unwrap_or_default());
     live.assert_snap_region(
         "image_result_live_and_replay_render_in_the_owning_call",
-        0,
+        at(&live),
         0,
     );
-    let replay = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    let replay = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .replay(vec![kit::replay_turn(
+            "turn-1",
+            serde_json::json!([item(true)]),
+        )])
+        .open();
     replay.assert_snap_region(
         "image_result_live_and_replay_render_in_the_owning_call",
-        0,
+        at(&replay),
         0,
     );
 }

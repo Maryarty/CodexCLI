@@ -9,6 +9,24 @@ use crate::kit::{self, Owner, Screen};
 /// The turn of the unified-exec fixtures ends.
 const TURN_COMPLETED: &str = r#"{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}"#;
 
+/// A running turn `turn-1` of the live seed's thread `thread-1`.
+const RUNNING_TURN: &str = include_str!("fixtures/chat_status_1/running_turn.jsonl");
+
+/// `item/completed` of `item` in the turn `turn-1`.
+fn completed_item(item: &serde_json::Value) -> String {
+    serde_json::json!({"step": "notify", "message": {"method": "item/completed", "params": {
+        "threadId": "thread-1", "turnId": "turn-1", "item": item, "completedAtMs": 0}}})
+    .to_string()
+}
+
+/// The screen row a cell starts at (the oracle's snapshot is the bare cell).
+fn cell_at(s: &Screen, head: &str) -> usize {
+    s.rows()
+        .iter()
+        .position(|row| row.starts_with(head))
+        .unwrap_or_else(|| panic!("no `{head}` row:\n{}", s.text()))
+}
+
 /// The screen row of the status line (`• Working`, `• Waiting for background terminal`): the
 /// oracle's snapshots of the bottom pane start there.
 fn status_row(s: &Screen) -> usize {
@@ -581,41 +599,61 @@ fn unified_exec_non_empty_then_empty_snapshots() {
 // ORACLE chatwidget/tests/exec_flow.rs:1112 view_image_tool_call_adds_history_cell kind=ui owner=dialogs-pane
 #[test]
 fn view_image_tool_call_adds_history_cell() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no 'Viewed image' history cell on the chat screen for a view-image tool call",
-    );
     // oracle: one history cell, exactly "• Viewed image example.png".
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: view-image tool call call-image with the path <cwd>/example.png
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(RUNNING_TURN)
+        .open();
+    s.feed(&completed_item(
+        &serde_json::json!({"type": "imageView", "id": "call-image", "path": "/work/example.png"}),
+    ));
     s.assert_has_row("• Viewed image example.png");
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:1125 view_image_tool_call_preserves_foreign_path kind=ui owner=dialogs-pane
 #[test]
 fn view_image_tool_call_preserves_foreign_path() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no 'Viewed image' history cell on the chat screen for a foreign (Windows) path",
-    );
     // oracle: the path C:\workspace\assets\example.png shows as "example.png".
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: view-image tool call call-image with the path C:\workspace\assets\example.png
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(RUNNING_TURN)
+        .open();
+    s.feed(&completed_item(
+        &serde_json::json!({"type": "imageView", "id": "call-image",
+        "path": "C:\\workspace\\assets\\example.png"}),
+    ));
     s.assert_has_row("• Viewed image example.png");
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:1152 image_generation_call_adds_history_cell kind=snap owner=dialogs-pane snap=failed_image_generation_call_history_snapshot snap=image_generation_call_history_snapshot
 #[test]
 fn image_generation_call_adds_history_cell() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no image-generation history cell (completed and failed) on the chat screen",
-    );
     // oracle: a completed generation cell (saved to file:///tmp/ig-1.png), then a failed one.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: image generation end call-image-generation (completed, saved /tmp/ig-1.png), then call-image-generation-failed (failed)
-    s.assert_snap("image_generation_call_history_snapshot");
-    s.assert_snap("failed_image_generation_call_history_snapshot");
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(RUNNING_TURN)
+        .open();
+    let generation = |id: &str, status: &str, saved: serde_json::Value| {
+        completed_item(
+            &serde_json::json!({"type": "imageGeneration", "id": id, "status": status,
+            "revisedPrompt": "A tiny blue square", "failure": null, "savedPath": saved,
+            "generationId": null, "result": ""}),
+        )
+    };
+    s.feed(&generation(
+        "call-image-generation",
+        "completed",
+        serde_json::json!("/tmp/ig-1.png"),
+    ));
+    let at = cell_at(&s, "• Generated Image:");
+    s.assert_snap_region("image_generation_call_history_snapshot", at, 0);
+    s.feed(&generation(
+        "call-image-generation-failed",
+        "failed",
+        serde_json::Value::Null,
+    ));
+    let at = cell_at(&s, "✗ Image generation failed");
+    s.assert_snap_region("failed_image_generation_call_history_snapshot", at, 0);
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:1189 exec_history_extends_previous_when_consecutive kind=snap owner=dialogs-pane snap=exploring_step1_start_ls snap=exploring_step2_finish_ls snap=exploring_step3_start_cat_foo snap=exploring_step4_finish_cat_foo snap=exploring_step6_finish_cat_bar
