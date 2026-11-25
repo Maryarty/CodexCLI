@@ -68,11 +68,6 @@ fn row_of(s: &Screen, text: &str) -> usize {
         .unwrap_or_else(|| panic!("no `{text}` row:\n{}", s.text()))
 }
 
-/// How many rows of the screen say `text`.
-fn rows_with(s: &Screen, text: &str) -> usize {
-    s.rows().iter().filter(|row| row.contains(text)).count()
-}
-
 /// The chat of the oracle's `make_chatwidget_manual`: agents navigation off, the status line of
 /// its footer (the model and the directory).
 const BASE: &str = r#"{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}
@@ -238,13 +233,14 @@ impl Frames {
         let got: Vec<String> = (0..want.len())
             .map(|at| steady(ours.get(top + at).map_or("", String::as_str)))
             .collect();
-        assert!(
-            got.iter()
-                .map(String::as_str)
-                .eq(want.iter().map(String::as_str)),
-            "{} / render {k}: ours (left) differs from the oracle's (right):\n{}\n{got:#?}\n{want:#?}",
-            self.name,
-            s.text()
+        kit::assert_same(
+            got,
+            want,
+            &format!(
+                "{} / render {k}: ours (left) differs from the oracle's (right):\n{}",
+                self.name,
+                s.text()
+            ),
         );
     }
 
@@ -867,13 +863,8 @@ fn hook_events_render_consistently() {
         s.assert_absent("Hook");
         s.assert_absent(message);
         s.wait(150);
-        assert!(
-            s.rows()
-                .iter()
-                .any(|row| row.contains("Working") && row.contains(message)),
-            "the hook start renders its status in the activity row:\n{}",
-            s.text()
-        );
+        // the hook start renders its status in the activity row
+        s.assert_row_of("Working", &[message], &[]);
         s.assert_absent("Hook");
         let mut entries = vec![("warning", "Heads up from the hook")];
         if event != "interrupt" {
@@ -889,7 +880,7 @@ fn hook_events_render_consistently() {
         // the output for the user is the one history row; the context is the model's
         s.assert_has_row_trimmed("↳ Hook · Heads up from the hook");
         s.assert_absent("startup checklist");
-        assert_eq!(rows_with(&s, "Hook"), 1, "{}", s.text());
+        s.assert_rows_with("Hook", 1);
     }
 }
 
@@ -1204,7 +1195,7 @@ fn running_hook_does_not_displace_active_exec_cell() {
         Some("checking output policy"),
     ));
     s.wait(150);
-    assert_eq!(row_of(&s, "• Running echo done"), exec_row, "{}", s.text());
+    kit::assert_same(row_of(&s, "• Running echo done"), exec_row, &s.text());
     frames.pane_from(&s, 1, 3);
     // the exec ends: its cell goes to history, the hook still runs
     s.feed(EXEC_END);
