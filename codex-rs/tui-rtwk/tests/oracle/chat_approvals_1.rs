@@ -600,8 +600,13 @@ fn unified_exec_non_empty_then_empty_snapshots() {
 #[test]
 fn view_image_tool_call_adds_history_cell() {
     // oracle: one history cell, exactly "• Viewed image example.png".
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).script(RUNNING_TURN).open();
-    s.feed(&completed_item(&serde_json::json!({"type": "imageView", "id": "call-image", "path": "/work/example.png"})));
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(RUNNING_TURN)
+        .open();
+    s.feed(&completed_item(
+        &serde_json::json!({"type": "imageView", "id": "call-image", "path": "/work/example.png"}),
+    ));
     s.assert_has_row("• Viewed image example.png");
 }
 
@@ -609,9 +614,14 @@ fn view_image_tool_call_adds_history_cell() {
 #[test]
 fn view_image_tool_call_preserves_foreign_path() {
     // oracle: the path C:\workspace\assets\example.png shows as "example.png".
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).script(RUNNING_TURN).open();
-    s.feed(&completed_item(&serde_json::json!({"type": "imageView", "id": "call-image",
-        "path": "C:\\workspace\\assets\\example.png"})));
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(RUNNING_TURN)
+        .open();
+    s.feed(&completed_item(
+        &serde_json::json!({"type": "imageView", "id": "call-image",
+        "path": "C:\\workspace\\assets\\example.png"}),
+    ));
     s.assert_has_row("• Viewed image example.png");
 }
 
@@ -619,16 +629,29 @@ fn view_image_tool_call_preserves_foreign_path() {
 #[test]
 fn image_generation_call_adds_history_cell() {
     // oracle: a completed generation cell (saved to file:///tmp/ig-1.png), then a failed one.
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).script(RUNNING_TURN).open();
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(RUNNING_TURN)
+        .open();
     let generation = |id: &str, status: &str, saved: serde_json::Value| {
-        completed_item(&serde_json::json!({"type": "imageGeneration", "id": id, "status": status,
+        completed_item(
+            &serde_json::json!({"type": "imageGeneration", "id": id, "status": status,
             "revisedPrompt": "A tiny blue square", "failure": null, "savedPath": saved,
-            "generationId": null, "result": ""}))
+            "generationId": null, "result": ""}),
+        )
     };
-    s.feed(&generation("call-image-generation", "completed", serde_json::json!("/tmp/ig-1.png")));
+    s.feed(&generation(
+        "call-image-generation",
+        "completed",
+        serde_json::json!("/tmp/ig-1.png"),
+    ));
     let at = cell_at(&s, "• Generated Image:");
     s.assert_snap_region("image_generation_call_history_snapshot", at, 0);
-    s.feed(&generation("call-image-generation-failed", "failed", serde_json::Value::Null));
+    s.feed(&generation(
+        "call-image-generation-failed",
+        "failed",
+        serde_json::Value::Null,
+    ));
     let at = cell_at(&s, "✗ Image generation failed");
     s.assert_snap_region("failed_image_generation_call_history_snapshot", at, 0);
 }

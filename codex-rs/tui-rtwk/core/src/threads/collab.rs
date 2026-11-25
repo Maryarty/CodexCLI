@@ -96,6 +96,40 @@ pub enum CollabEvent {
     },
 }
 
+impl CollabEvent {
+    /// The event with each agent's nickname and role filled in by `lookup`
+    /// (thread id -> nickname, role): the oracle's `AgentMetadata`, which a
+    /// row reads when it is made.
+    pub fn named(&self, lookup: &dyn Fn(&str) -> (Option<String>, Option<String>)) -> CollabEvent {
+        let name = |agent: &AgentRef| {
+            let (nickname, role) = lookup(&agent.id);
+            AgentRef {
+                id: agent.id.clone(),
+                nickname,
+                role,
+            }
+        };
+        let mut event = self.clone();
+        match &mut event {
+            CollabEvent::Spawned { agent, .. }
+            | CollabEvent::SentInput { agent, .. }
+            | CollabEvent::Closed { agent }
+            | CollabEvent::Resuming { agent }
+            | CollabEvent::Resumed { agent, .. } => *agent = name(agent),
+            CollabEvent::Waiting { agents } => {
+                agents.iter_mut().for_each(|agent| *agent = name(agent));
+            }
+            CollabEvent::FinishedWaiting { agents } => {
+                agents
+                    .iter_mut()
+                    .for_each(|(agent, _)| *agent = name(agent));
+            }
+            CollabEvent::SpawnFailed { .. } | CollabEvent::Activity { .. } => {}
+        }
+        event
+    }
+}
+
 /// The prompt preview length (oracle `COLLAB_PROMPT_PREVIEW_GRAPHEMES`).
 const PROMPT_PREVIEW: usize = 160;
 /// The error preview length (oracle `COLLAB_AGENT_ERROR_PREVIEW_GRAPHEMES`).
@@ -211,6 +245,27 @@ pub(super) fn entry(payload: &ThreadItemPayload) -> Option<(ItemId, super::Item)
     Some((
         ItemId::new(&key),
         super::Item::Collab(std::sync::Arc::new(event)),
+    ))
+}
+
+/// The model and effort a spawn in progress asked for, with its call id: the oracle keeps them
+/// (`pending_collab_spawn_requests`) for the row its completion makes, which the server's
+/// completed item may not carry.
+pub fn requested_spawn(payload: &ThreadItemPayload) -> Option<(String, SpawnRequest)> {
+    let ThreadItemPayload::CollabAgentToolCall {
+        id,
+        tool: CollabAgentTool::SpawnAgent,
+        status: CollabAgentToolCallStatus::InProgress,
+        model,
+        reasoning_effort,
+        ..
+    } = payload
+    else {
+        return None;
+    };
+    Some((
+        id.clone(),
+        spawn_request(model.as_deref(), reasoning_effort.as_ref())?,
     ))
 }
 

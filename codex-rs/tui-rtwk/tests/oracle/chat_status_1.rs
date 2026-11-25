@@ -88,7 +88,11 @@ fn reasoning_item(summary: &str) -> serde_json::Value {
 
 /// `item/started` (`done` false) or `item/completed` of `item` in the turn `turn-1`.
 fn lifecycle(item: &serde_json::Value, done: bool) -> String {
-    let (method, at) = if done { ("item/completed", "completedAtMs") } else { ("item/started", "startedAtMs") };
+    let (method, at) = if done {
+        ("item/completed", "completedAtMs")
+    } else {
+        ("item/started", "startedAtMs")
+    };
     serde_json::json!({"step": "notify", "message": {"method": method, "params": {
         "threadId": "thread-1", "turnId": "turn-1", "item": item, at: 0}}})
     .to_string()
@@ -160,10 +164,19 @@ fn computer_activity_live_and_replay_group_identically() {
     );
     // oracle: four completed cua_repl calls live (started + completed) and replayed (ThreadSnapshot) draw one group;
     // the live and the replayed outputs are equal, and the group is the snapshot.
-    let mut live = Screen::build(Owner::UiPane).size(80, 24).script(RUNNING).open();
+    let mut live = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .script(RUNNING)
+        .open();
     for id in ["1", "2", "3", "4"] {
-        live.feed(&lifecycle(&computer_item(id, "cua_repl", "inProgress"), false));
-        live.feed(&lifecycle(&computer_item(id, "cua_repl", "completed"), true));
+        live.feed(&lifecycle(
+            &computer_item(id, "cua_repl", "inProgress"),
+            false,
+        ));
+        live.feed(&lifecycle(
+            &computer_item(id, "cua_repl", "completed"),
+            true,
+        ));
     }
     let items = (1..=4)
         .map(|id| computer_item(&id.to_string(), "cua_repl", "completed"))
@@ -172,8 +185,16 @@ fn computer_activity_live_and_replay_group_identically() {
         .size(80, 24)
         .replay(vec![kit::replay_turn("turn-1", serde_json::json!(items))])
         .open();
-    live.assert_snap_region("computer_activity_replayed", cell_row(&live, "• Used computer"), 0);
-    replayed.assert_snap_region("computer_activity_replayed", cell_row(&replayed, "• Used computer"), 0);
+    live.assert_snap_region(
+        "computer_activity_replayed",
+        cell_row(&live, "• Used computer"),
+        0,
+    );
+    replayed.assert_snap_region(
+        "computer_activity_replayed",
+        cell_row(&replayed, "• Used computer"),
+        0,
+    );
 }
 
 // ORACLE chatwidget/tests/computer_activity_tests.rs:63 computer_activity_keeps_reasoning_in_order_live_and_replayed kind=snap owner=ui-pane
@@ -185,12 +206,21 @@ fn computer_activity_keeps_reasoning_in_order_live_and_replayed() {
     );
     // oracle: computer calls 1 and 2 interleaved with reasoning summaries "Inspecting action N" and "Checking action N",
     // live and replayed, in the same order.
-    let mut live = Screen::build(Owner::UiPane).size(80, 40).script(RUNNING).open();
+    let mut live = Screen::build(Owner::UiPane)
+        .size(80, 40)
+        .script(RUNNING)
+        .open();
     let mut recorded = Vec::new();
     for id in ["1", "2"] {
-        live.feed(&lifecycle(&computer_item(id, "cua_repl", "inProgress"), false));
+        live.feed(&lifecycle(
+            &computer_item(id, "cua_repl", "inProgress"),
+            false,
+        ));
         if id == "1" {
-            live.feed(&lifecycle(&computer_item(id, "cua_repl", "completed"), true));
+            live.feed(&lifecycle(
+                &computer_item(id, "cua_repl", "completed"),
+                true,
+            ));
         }
         recorded.push(computer_item(id, "cua_repl", "completed"));
         for part in ["Inspecting", "Checking"] {
@@ -199,15 +229,25 @@ fn computer_activity_keeps_reasoning_in_order_live_and_replayed() {
             recorded.push(summary);
         }
         if id == "2" {
-            live.feed(&lifecycle(&computer_item(id, "cua_repl", "completed"), true));
+            live.feed(&lifecycle(
+                &computer_item(id, "cua_repl", "completed"),
+                true,
+            ));
         }
     }
     let mut replayed = Screen::build(Owner::UiPane)
         .size(80, 40)
-        .replay(vec![kit::replay_turn("turn-1", serde_json::json!(recorded))])
+        .replay(vec![kit::replay_turn(
+            "turn-1",
+            serde_json::json!(recorded),
+        )])
         .open();
     for s in [&mut live, &mut replayed] {
-        s.assert_in_order(&["• Used computer · 2 actions", "├ Inspect page 1", "└ Inspect page 2"]);
+        s.assert_in_order(&[
+            "• Used computer · 2 actions",
+            "├ Inspect page 1",
+            "└ Inspect page 2",
+        ]);
         s.keys("ctrl+t");
         s.assert_in_order(&[
             "• Called cua_repl.js({\"title\":\"Inspect page 1\",\"code\":\"await cua.getState()\"})",
@@ -227,14 +267,29 @@ fn computer_activity_keeps_reasoning_in_order_live_and_replayed() {
 fn computer_activity_preserves_boundaries_and_expanded_output() {
     // oracle: computer call 1 completes -> "Used computer · 1 action"; a call from another server starts its own group
     // (its name shows); call 3 is the active cell whose expanded transcript holds the output and the code.
-    let mut s = Screen::build(Owner::UiPane).size(80, 40).script(RUNNING).open();
-    s.feed(&lifecycle(&computer_item("1", "cua_repl", "completed"), true));
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 40)
+        .script(RUNNING)
+        .open();
+    s.feed(&lifecycle(
+        &computer_item("1", "cua_repl", "completed"),
+        true,
+    ));
     s.feed(&agent_message("Between"));
     s.assert_contains("Used computer · 1 action");
-    s.feed(&lifecycle(&computer_item("2", "cua_repl", "completed"), true));
-    s.feed(&lifecycle(&computer_item("other", "another_server", "completed"), true));
+    s.feed(&lifecycle(
+        &computer_item("2", "cua_repl", "completed"),
+        true,
+    ));
+    s.feed(&lifecycle(
+        &computer_item("other", "another_server", "completed"),
+        true,
+    ));
     s.assert_contains("another_server");
-    s.feed(&lifecycle(&computer_item("3", "cua_repl", "completed"), true));
+    s.feed(&lifecycle(
+        &computer_item("3", "cua_repl", "completed"),
+        true,
+    ));
     s.keys("ctrl+t");
     s.assert_contains("Full output for 3");
     s.assert_contains("await cua.getState()");
@@ -245,10 +300,22 @@ fn computer_activity_preserves_boundaries_and_expanded_output() {
 fn computer_activity_out_of_order_completion_and_interruption() {
     // oracle: calls 1 and 2 start, 2 completes out of order; the active cell says "Using computer"; the turn is
     // finalized as interrupted and one history cell is inserted.
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).script(RUNNING).open();
-    s.feed(&lifecycle(&computer_item("1", "cua_repl", "inProgress"), false));
-    s.feed(&lifecycle(&computer_item("2", "cua_repl", "inProgress"), false));
-    s.feed(&lifecycle(&computer_item("2", "cua_repl", "completed"), true));
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .script(RUNNING)
+        .open();
+    s.feed(&lifecycle(
+        &computer_item("1", "cua_repl", "inProgress"),
+        false,
+    ));
+    s.feed(&lifecycle(
+        &computer_item("2", "cua_repl", "inProgress"),
+        false,
+    ));
+    s.feed(&lifecycle(
+        &computer_item("2", "cua_repl", "completed"),
+        true,
+    ));
     s.assert_contains("Using computer");
     s.feed(&turn_over("interrupted"));
     s.assert_snap_region(
@@ -264,7 +331,10 @@ fn computer_activity_out_of_order_completion_and_interruption() {
 fn terminal_dynamic_activity_retains_calls_across_both_fallbacks() {
     // oracle: the same two calls on the terminal-transcript fallback (alt screen always) and on the owned fallback
     // (fullscreen transcript on, alt screen never) draw the same rows.
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).script(RUNNING).open();
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .script(RUNNING)
+        .open();
     for id in ["call-1", "call-2"] {
         s.feed(&lifecycle(&dynamic_item(id, "inProgress"), false));
     }
@@ -283,7 +353,10 @@ fn terminal_dynamic_activity_retains_calls_across_both_fallbacks() {
 fn owned_dynamic_activity_updates_the_retained_row_after_config_refresh() {
     // oracle: owned transcript mode; the call row reads "Calling test.lookup", then after completion it reads
     // "Called test.lookup · 25ms" with "Result for call-1" beneath it, and no live call remains.
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).script(RUNNING).open();
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .script(RUNNING)
+        .open();
     s.feed(&lifecycle(&dynamic_item("call-1", "inProgress"), false));
     s.assert_contains("• Calling test.lookup");
     s.feed(&lifecycle(&dynamic_item("call-1", "completed"), true));
@@ -302,14 +375,16 @@ fn turn_finalization_drains_lifecycle_queue_before_interrupting_remaining_calls(
         .color_depth(ColorDepth::Ansi16)
         .script(RUNNING)
         .open();
-    s.feed(&serde_json::json!({"step": "request", "message": {
+    s.feed(
+        &serde_json::json!({"step": "request", "message": {
         "method": "item/tool/requestUserInput", "id": 1, "params": {
             "threadId": "thread-1", "turnId": "turn-1", "itemId": "question-1",
             "isBlocking": true, "autoResolutionMs": null,
             "questions": [{"id": "scope", "header": "Scope",
                 "question": "Which change should I review?",
                 "isOther": false, "isSecret": false, "options": null}]}}})
-    .to_string());
+        .to_string(),
+    );
     s.feed(&lifecycle(&dynamic_item("completed", "inProgress"), false));
     s.feed(&lifecycle(&dynamic_item("completed", "completed"), true));
     s.feed(&lifecycle(&dynamic_item("unfinished", "inProgress"), false));
@@ -380,11 +455,17 @@ fn completed_reasoning_stays_in_expanded_transcript_for_live_and_replay() {
         "**Tracing terminal components**\n\nThe playback clock preserves elapsed time.",
     ];
     let items = ["first", "second", "third"].map(|id| {
-        let at = ["first", "second", "third"].iter().position(|name| *name == id).unwrap_or(0);
+        let at = ["first", "second", "third"]
+            .iter()
+            .position(|name| *name == id)
+            .unwrap_or(0);
         serde_json::json!({"type": "reasoning", "id": id, "summary": [summaries[at]],
             "content": ["private reasoning"]})
     });
-    let mut live = Screen::build(Owner::UiPane).size(80, 24).script(RUNNING).open();
+    let mut live = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .script(RUNNING)
+        .open();
     for item in &items {
         live.feed(&lifecycle(item, true));
     }

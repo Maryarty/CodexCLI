@@ -11,7 +11,8 @@ const RUNNING: &str = include_str!("fixtures/chat_status_1/running_turn.jsonl");
 
 /// A server notification `method` of the thread `thread-1` (`params` as JSON).
 fn notify(method: &str, params: serde_json::Value) -> String {
-    serde_json::json!({"step": "notify", "message": {"method": method, "params": params}}).to_string()
+    serde_json::json!({"step": "notify", "message": {"method": method, "params": params}})
+        .to_string()
 }
 
 /// `item/agentMessage/delta` of the answer `msg-1`.
@@ -300,7 +301,10 @@ fn subagent_completion_preserves_stream_and_authoritative_answer() {
     // transcript rows, its inline snapshot; the events and the stream and interrupt fields are state.
     let answer = format!("{PREFIX}{SUFFIX}");
     for (before, after) in [(answer.as_str(), ""), (PREFIX, SUFFIX), (PREFIX, "")] {
-        let mut s = Screen::build(Owner::UiPane).size(80, 24).script(RUNNING).open();
+        let mut s = Screen::build(Owner::UiPane)
+            .size(80, 24)
+            .script(RUNNING)
+            .open();
         s.feed(&answer_delta(before));
         s.feed(&item_run(&subagent_completed()));
         if !after.is_empty() {
@@ -327,7 +331,10 @@ fn subagent_completion_preserves_stream_and_authoritative_answer() {
 fn interrupted_answer_flushes_queued_subagent_activity() {
     // The visible part: the interruption notice after the answer and the subagent activity.
     // The event order and the stream and interrupt fields are state, not rows.
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).script(RUNNING).open();
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .script(RUNNING)
+        .open();
     s.feed(&answer_delta(PREFIX));
     s.feed(&item_run(&subagent_completed()));
     s.feed(&turn_over("interrupted"));
@@ -479,9 +486,24 @@ fn image_result_live_and_replay_render_in_the_owning_call() {
             .position(|row| row.starts_with("• Called Inspect screenshot"))
             .unwrap_or_else(|| panic!("no call cell:\n{}", s.text()))
     };
-    let mut live = Screen::build(Owner::UiPane).size(80, 24).script(RUNNING).open();
-    live.feed(&item_run(&item(false)).split('\n').next().unwrap_or_default().to_owned());
-    live.feed(&item_run(&item(true)).split('\n').nth(1).unwrap_or_default().to_owned());
+    let mut live = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .script(RUNNING)
+        .open();
+    live.feed(
+        &item_run(&item(false))
+            .split('\n')
+            .next()
+            .unwrap_or_default()
+            .to_owned(),
+    );
+    live.feed(
+        &item_run(&item(true))
+            .split('\n')
+            .nth(1)
+            .unwrap_or_default()
+            .to_owned(),
+    );
     live.assert_snap_region(
         "image_result_live_and_replay_render_in_the_owning_call",
         at(&live),
@@ -489,7 +511,10 @@ fn image_result_live_and_replay_render_in_the_owning_call() {
     );
     let replay = Screen::build(Owner::UiPane)
         .size(80, 24)
-        .replay(vec![kit::replay_turn("turn-1", serde_json::json!([item(true)]))])
+        .replay(vec![kit::replay_turn(
+            "turn-1",
+            serde_json::json!([item(true)]),
+        )])
         .open();
     replay.assert_snap_region(
         "image_result_live_and_replay_render_in_the_owning_call",

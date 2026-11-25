@@ -702,6 +702,9 @@ pub struct CodexApp {
     queued_submits: Vec<BeforeThread>,
     /// Notifications may be delivered before the reply to the operation attaching the writer.
     attaching_events: VecDeque<(BackendId, ThreadId, ThreadEv)>,
+    /// What the spawns in progress asked for (thread, call id): the row of the completed call
+    /// shows it when the completed item has none.
+    spawn_requests: std::collections::HashMap<(String, String), threads::SpawnRequest>,
     /// When the first thread starts.
     first_thread: FirstThread,
     /// The first thread's start waits for the startup steps to end
@@ -788,6 +791,7 @@ impl CodexApp {
             structured: structured::Runs::default(),
             queued_submits: Vec::new(),
             attaching_events: VecDeque::new(),
+            spawn_requests: std::collections::HashMap::new(),
             first_thread: FirstThread::OnConnect,
             start_held: false,
             keymap: Rc::new(Keymap::defaults()),
@@ -1581,8 +1585,15 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             {
                 apply_thread(app, &thread, ev, fx);
             }
+            if let ServerNotification::ItemStarted(started) = &*notification
+                && let Some((call, request)) = threads::requested_spawn(&started.item.payload)
+            {
+                app.spawn_requests
+                    .insert((started.thread_id.clone(), call), request);
+            }
             if let Some((thread, ev)) = threads::project(&notification) {
                 let ev = reworded(app, &thread, ev);
+                let ev = named(app, &thread, ev);
                 if app.threads.contains(&thread) {
                     let reverted = matches!(ev, ThreadEv::Reverted);
                     // a user message of a thread with no name (`automatic_title_user_message`)
@@ -2546,6 +2557,50 @@ fn finish_status_cells(
 
 /// A failed turn's error in the words a feature says for it, when one does
 /// (`Feature::fault_words`); the server's own words stand otherwise.
+/// A multi-agent row names its agents as the app knows them when the row is made (oracle
+/// `AgentMetadata`): the nickname and role of the thread, read from the agents' list.
+fn named(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv) -> ThreadEv {
+    let requested = match &ev {
+        ThreadEv::ItemUpsert { key, .. } => app
+            .spawn_requests
+            .remove(&(thread.as_str().to_owned(), key.item.as_str().to_owned())),
+        _ => None,
+    };
+    let lookup = |id: &str| {
+        app.screens
+            .agents
+            .threads
+            .iter()
+            .find(|thread| thread.id == id)
+            .map_or((None, None), |thread| {
+                (thread.agent_nickname.clone(), thread.agent_role.clone())
+            })
+    };
+    let rename = |item: threads::Item| match item {
+        threads::Item::Collab(event) => {
+            let mut event = event.named(&lookup);
+            if let threads::CollabEvent::Spawned { request, .. } = &mut event
+                && request.is_none()
+            {
+                *request = requested.clone();
+            }
+            threads::Item::Collab(std::sync::Arc::new(event))
+        }
+        item => item,
+    };
+    match ev {
+        ThreadEv::ItemUpsert { key, item } => ThreadEv::ItemUpsert {
+            key,
+            item: rename(item),
+        },
+        ThreadEv::ItemStarted { key, item } => ThreadEv::ItemStarted {
+            key,
+            item: rename(item),
+        },
+        ev => ev,
+    }
+}
+
 fn reworded(app: &CodexApp, thread: &ThreadId, ev: ThreadEv) -> ThreadEv {
     let ThreadEv::TurnError {
         turn,
