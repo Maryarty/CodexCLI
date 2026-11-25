@@ -235,6 +235,7 @@ pub fn dynamic(call: &DynamicCall, env: &Env<'_>) -> Parts {
         ToolStatus::Failed | ToolStatus::Declined => tokens.error().attrs(Attrs::BOLD),
     };
     let verb = match call.status {
+        _ if call.interrupted => strings.interrupted_tool,
         ToolStatus::Running => strings.calling_tool,
         ToolStatus::Completed => strings.called_tool,
         ToolStatus::Failed | ToolStatus::Declined => strings.failed_tool,

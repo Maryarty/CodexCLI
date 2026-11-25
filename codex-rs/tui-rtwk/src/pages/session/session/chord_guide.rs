@@ -2,7 +2,9 @@
 //! `bottom_pane/shortcut_hud.rs` `render_overlay`): once the composer has held the first key of a
 //! chord for the reveal delay (350 ms) a block at the bottom right of the page names the key
 //! and lists what each second key does, and it goes with the chord, completed, cancelled with
-//! Esc or one second old (`KEY_CHORD_TIMEOUT`).
+//! Esc or one second old (`KEY_CHORD_TIMEOUT`). The prefix of the page's leader (`ctrl+x`,
+//! `global.leader`) is held in the same place and shows the same guide, with the leader's own
+//! chords after the editor's; it never gets old (`persistent`).
 //!
 //! In Flutter this is an `Align` over the page in a `Stack`, a `Material` panel of a title row
 //! and the rows of `Text.rich`, shown by a `Timer` for the reveal and hidden by another for the
@@ -23,9 +25,14 @@ use rtwk::style::{Span, Style};
 use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::keymap::Keymap;
+use codex_tui_core::keymap::actions::{
+    CHAT_OPEN_PRESETS, GLOBAL_CHANGE_HOST, GLOBAL_SELECT_TRANSCRIPT,
+};
+use codex_tui_core::keymap::{ActionId, Binding, Keymap};
+use rtwk::focus::KeyPress;
 
 use crate::app::theme::Tokens;
+use crate::keymap::{combo_of, stroke_label};
 use crate::pages::session::composer::editing::chord_rows;
 use crate::pages::session::strings::{self, Strings};
 use crate::widgets::composer_draft::{CHORD_REVEAL_DELAY, ComposerDraft, KEY_CHORD_TIMEOUT};
@@ -142,6 +149,7 @@ impl State for GuideState {
             self.timer.borrow_mut().take();
             self.armed.set(None);
             if let Some((_, since)) = w.draft.chord()
+                && !w.draft.chord_is_leader()
                 && let Some(binding) = AppBinding::maybe_of(cx)
                 && binding.clock().now().saturating_sub(since) >= KEY_CHORD_TIMEOUT
             {
@@ -161,25 +169,36 @@ impl State for GuideState {
             return nothing();
         };
         let elapsed = binding.clock().now().saturating_sub(since);
-        if elapsed >= KEY_CHORD_TIMEOUT {
+        // (a leader's prefix waits for ever)
+        let leader = w.draft.chord_is_leader();
+        if !leader && elapsed >= KEY_CHORD_TIMEOUT {
             self.cancel_timer();
             return nothing();
         }
         // the guide shows after the reveal delay (`visible_pending`) and the chord ends with the
         // timeout: one timer for the next of the two
-        let (wait, shown) = if elapsed < CHORD_REVEAL_DELAY {
-            (CHORD_REVEAL_DELAY, false)
-        } else {
-            (KEY_CHORD_TIMEOUT, true)
-        };
-        let due = cx.map(|()| Msg::Tick);
-        self.schedule(since + wait, wait - elapsed, due, &binding);
-        if !shown {
+        if elapsed < CHORD_REVEAL_DELAY {
+            let due = cx.map(|()| Msg::Tick);
+            self.schedule(
+                since + CHORD_REVEAL_DELAY,
+                CHORD_REVEAL_DELAY - elapsed,
+                due,
+                &binding,
+            );
             return nothing();
         }
-        let Some((title, rows)) =
-            chord_rows(&w.keymap, &first).filter(|(_, rows)| !rows.is_empty())
-        else {
+        if leader {
+            self.cancel_timer();
+        } else {
+            let due = cx.map(|()| Msg::Tick);
+            self.schedule(
+                since + KEY_CHORD_TIMEOUT,
+                KEY_CHORD_TIMEOUT - elapsed,
+                due,
+                &binding,
+            );
+        }
+        let Some((title, rows)) = guide_rows(&w.keymap, &first, leader) else {
             return nothing();
         };
         let words = strings::of(cx);
@@ -189,7 +208,7 @@ impl State for GuideState {
             title,
             rows: rows
                 .into_iter()
-                .map(|(id, keys)| (keys.join(words.hud_key_separator), action_title(id.name)))
+                .map(|(keys, label)| (keys.join(words.hud_key_separator), label))
                 .collect(),
             words,
             tokens,
@@ -327,6 +346,58 @@ impl Guide {
             .child(column)
             .into()
     }
+}
+
+/// The leader chords the guide lists, in the order the oracle registers them
+/// (`leader_defaults::register`); the side-pane ones are not ported.
+const LEADER_ACTIONS: [ActionId; 3] = [
+    GLOBAL_CHANGE_HOST,
+    GLOBAL_SELECT_TRANSCRIPT,
+    CHAT_OPEN_PRESETS,
+];
+
+/// `change_host` is labelled for what it does in the keymap setup (`action_label`).
+const CHANGE_HOST_LABEL: &str = "Change Where to Run";
+
+/// The rows of the block: the keys and the action's label.
+type GuideRows = Vec<(Vec<String>, String)>;
+
+/// The block's title and its rows (the keys, the action's label) for the held `first`: the
+/// editor chords it begins, then (a leader's prefix) the leader's chords, which the oracle lists
+/// whether or not they can act now. `None`: `first` begins nothing to list.
+fn guide_rows(keymap: &Keymap, first: &KeyPress, leader: bool) -> Option<(String, GuideRows)> {
+    let (mut title, mut rows) = match chord_rows(keymap, first) {
+        Some((title, rows)) => (
+            Some(title),
+            rows.into_iter()
+                .map(|(id, keys)| (keys, action_title(id.name)))
+                .collect(),
+        ),
+        None => (None, Vec::new()),
+    };
+    if leader {
+        for id in LEADER_ACTIONS {
+            let mut keys = Vec::new();
+            for binding in keymap.bindings(id) {
+                let Binding::Chord { prefix, completion } = binding else {
+                    continue;
+                };
+                if combo_of(&prefix).is_some_and(|combo| combo.accepts_press(first)) {
+                    title.get_or_insert_with(|| stroke_label(&prefix));
+                    keys.push(stroke_label(&completion));
+                }
+            }
+            if !keys.is_empty() {
+                let label = if id == GLOBAL_CHANGE_HOST {
+                    CHANGE_HOST_LABEL.to_string()
+                } else {
+                    action_title(id.name)
+                };
+                rows.push((keys, label));
+            }
+        }
+    }
+    (!rows.is_empty()).then(|| (title.unwrap_or_default(), rows))
 }
 
 /// An action's name as the guide titles it: `move_line_end` as `Move Line End`.

@@ -307,6 +307,39 @@ pub struct DynamicCall {
     /// One entry per content item.
     pub output: Option<Vec<DynamicOutput>>,
     pub duration_ms: Option<i64>,
+    /// The turn ended before the call returned (oracle `mark_interrupted`): the header says
+    /// `Interrupted`, the output says why.
+    pub interrupted: bool,
+}
+
+/// What a dynamic call that never returned says (oracle `DynamicToolCallData::mark_interrupted`).
+pub const DYNAMIC_INTERRUPTED: &str = "Interrupted before this tool returned a result.";
+
+impl ToolActivity {
+    /// The turn ended while the call still ran (oracle `finalize_turn`: `mark_failed` of a computer
+    /// or MCP call, `mark_interrupted` of a dynamic one). A shell command is the transcript's own.
+    pub(super) fn interrupt(&mut self) -> bool {
+        if self.status != ToolStatus::Running {
+            return false;
+        }
+        match &mut self.kind {
+            ToolKind::Mcp(call) if call.result.is_none() => {
+                call.result = Some(Err("interrupted".to_owned()));
+            }
+            ToolKind::Dynamic(call) => {
+                call.interrupted = true;
+                call.output
+                    .get_or_insert_with(Vec::new)
+                    .push(DynamicOutput::Text(DYNAMIC_INTERRUPTED.to_owned()));
+            }
+            _ => return false,
+        }
+        self.status = ToolStatus::Failed;
+        if let ToolKind::Dynamic(call) = &mut self.kind {
+            call.status = ToolStatus::Failed;
+        }
+        true
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -476,6 +509,7 @@ pub(super) fn tool(payload: &ThreadItemPayload) -> Option<(ItemId, ToolActivity)
                             .collect()
                     }),
                     duration_ms: *duration_ms,
+                    interrupted: false,
                 }),
                 status,
                 None,

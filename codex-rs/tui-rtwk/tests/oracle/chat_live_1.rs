@@ -20,7 +20,6 @@ const SAFETY_HEADER: &str = "Giving this request a little extra thought";
 
 // Reasons shared by several tests (what the chat screen does not have yet).
 const SAFETY_PENDING: &str = "no safety-buffering state on the chat screen: model/safetyBuffering/updated is not applied, so no retry prompt, learn-more link or retry confirmation is drawn";
-const COLLAB_PENDING: &str = "no collab-agent item on the chat screen: the chat model keeps only user and agent message items (core/src/threads.rs item_upsert), and the agent names come from set_collab_agent_metadata, which has no feed step";
 
 /// Frame size of an oracle snapshot: its width as the oracle test sets it, its rows as stored.
 fn oracle_size(name: &str, width: u16) -> (u16, u16) {
@@ -156,6 +155,17 @@ fn collab_item(
 ) -> String {
     format!(
         r#"{{"type":"collabAgentToolCall","id":"{id}","tool":"{tool}","status":"{status}","senderThreadId":"thread-sender","receiverThreadIds":{receivers},"agentsStates":{states},{extra}}}"#
+    )
+}
+
+/// `thread/started` of the spawned agent `id`, as the server tells its nickname and role (the
+/// oracle's `set_collab_agent_metadata`).
+fn agent_started(id: &str, nickname: &str, role: &str) -> String {
+    notify(
+        "thread/started",
+        &format!(
+            r#"{{"thread":{{"id":"{id}","environments":null,"extra":null,"sessionId":"{id}","forkedFromId":null,"attachedToThreadId":null,"parentThreadId":"thread-1","preview":"","ephemeral":false,"section":null,"sectionEnteredAt":null,"projectId":null,"historyMode":"legacy","modelProvider":"openai","model":null,"reasoningEffort":null,"createdAt":0,"updatedAt":0,"recencyAt":0,"status":{{"type":"idle"}},"path":null,"cwd":"/tmp/project","cliVersion":"0.0.0","originator":null,"source":"cli","canAcceptDirectInput":false,"threadSource":null,"agentNickname":"{nickname}","agentRole":"{role}","gitInfo":null,"name":null,"daybreakEnabled":null,"turns":[]}}}}"#
+        ),
     )
 }
 
@@ -746,8 +756,12 @@ fn thread_settings_updated_updates_visible_state_without_transcript() {
 // ORACLE chatwidget/tests/app_server.rs:790 collab_spawn_end_shows_requested_model_and_effort kind=ui owner=chat-live
 #[test]
 fn collab_spawn_end_shows_requested_model_and_effort() {
-    kit::pending(Owner::ChatLive, COLLAB_PENDING);
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    s.feed(&agent_started(
+        "019cff70-2599-75e2-af72-b91781b41a8e",
+        "Robie",
+        "explorer",
+    ));
     s.feed(&item_started(&collab_item(
         "call-spawn",
         "spawnAgent",
@@ -760,8 +774,8 @@ fn collab_spawn_end_shows_requested_model_and_effort() {
         "call-spawn",
         "spawnAgent",
         "completed",
-        r#"["thread-spawned"]"#,
-        r#"{"thread-spawned":{"status":"pendingInit","message":null}}"#,
+        r#"["019cff70-2599-75e2-af72-b91781b41a8e"]"#,
+        r#"{"019cff70-2599-75e2-af72-b91781b41a8e":{"status":"pendingInit","message":null}}"#,
         r#""prompt":"Explore the repo","model":null,"reasoningEffort":null"#,
     )));
     // oracle: the spawn line names the agent (Robie, role explorer) with the requested model and effort.
@@ -1024,23 +1038,32 @@ fn live_app_server_command_output_delta_transcript_snapshot() {
 // ORACLE chatwidget/tests/app_server.rs:1466 live_app_server_sub_agent_activity_renders_once kind=snap owner=chat-live snap=app_server_sub_agent_activity_renders_once
 #[test]
 fn live_app_server_sub_agent_activity_renders_once() {
-    kit::pending(
-        Owner::ChatLive,
-        "no sub-agent activity cell on the chat screen: the chat model keeps only user and agent message items (core/src/threads.rs item_upsert), so the activity line is not drawn",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     let activity = r#"{"type":"subAgentActivity","id":"activity-1","kind":"completed","agentThreadId":"thread-agent","agentPath":"/root/researcher","model":null,"reasoningEffort":null}"#;
     s.feed(&item_started(activity));
     s.feed(&item_completed(activity));
     // oracle: the completed activity renders once, from its started and its completed item.
-    s.assert_snap_region("app_server_sub_agent_activity_renders_once", 0, 0);
+    s.assert_snap_region(
+        "app_server_sub_agent_activity_renders_once",
+        row_of(&s, "• Completed"),
+        0,
+    );
 }
 
 // ORACLE chatwidget/tests/app_server.rs:1504 live_app_server_collab_wait_items_render_history kind=snap owner=chat-live snap=app_server_collab_wait_items_render_history
 #[test]
 fn live_app_server_collab_wait_items_render_history() {
-    kit::pending(Owner::ChatLive, COLLAB_PENDING);
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    s.feed(&agent_started(
+        "019cff70-2599-75e2-af72-b958ce5dc1cc",
+        "Robie",
+        "explorer",
+    ));
+    s.feed(&agent_started(
+        "019cff70-2599-75e2-af72-b96db334332d",
+        "Ada",
+        "reviewer",
+    ));
     let receivers =
         r#"["019cff70-2599-75e2-af72-b958ce5dc1cc","019cff70-2599-75e2-af72-b96db334332d"]"#;
     s.feed(&item_started(&collab_item(
@@ -1060,13 +1083,23 @@ fn live_app_server_collab_wait_items_render_history() {
         r#""prompt":null,"model":null,"reasoningEffort":null"#,
     )));
     // oracle: the wait line lists both agents, one done and one still running.
-    s.assert_snap_region("app_server_collab_wait_items_render_history", 0, 0);
+    // The oracle's snapshot joins the two cells, each ended by a blank row; the port's rows have
+    // one separator, so each cell is compared where it is drawn.
+    s.assert_snap_rows_from(
+        "app_server_collab_wait_items_render_history",
+        row_of(&s, "• Waiting for"),
+        3,
+        false,
+    );
+    let done = row_of(&s, "• Finished waiting");
+    s.assert_row(done, "• Finished waiting");
+    s.assert_row(done + 1, "  └ Robie [explorer]: Completed - Done");
+    s.assert_row(done + 2, "    Ada [reviewer]: Running");
 }
 
 // ORACLE chatwidget/tests/app_server.rs:1594 live_app_server_collab_spawn_completed_renders_requested_model_and_effort kind=snap owner=chat-live snap=app_server_collab_spawn_completed_renders_requested_model_and_effort
 #[test]
 fn live_app_server_collab_spawn_completed_renders_requested_model_and_effort() {
-    kit::pending(Owner::ChatLive, COLLAB_PENDING);
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&item_started(&collab_item(
         "spawn-1",
@@ -1087,7 +1120,7 @@ fn live_app_server_collab_spawn_completed_renders_requested_model_and_effort() {
     // oracle: the spawn line carries the requested model and effort.
     s.assert_snap_region(
         "app_server_collab_spawn_completed_renders_requested_model_and_effort",
-        0,
+        row_of(&s, "• Spawned"),
         0,
     );
 }

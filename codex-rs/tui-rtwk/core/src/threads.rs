@@ -45,7 +45,9 @@ pub use cells::{
     WebActivity,
 };
 pub use codex_protocol::models::MessagePhase;
-pub use collab::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind};
+pub use collab::{
+    AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind, requested_spawn,
+};
 pub use decision::ReviewLine;
 pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
 pub use message::{LocalImage, TaskRef, ToolMention, UserMessage};

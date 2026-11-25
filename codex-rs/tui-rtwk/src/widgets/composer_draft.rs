@@ -133,6 +133,8 @@ struct Inner {
 /// draws its guide (a `ChangeNotifier` in Flutter).
 struct Chord {
     held: Option<(KeyPress, std::time::Duration)>,
+    /// The held key is the page's leader prefix (`PendingChord::persistent`): it never expires.
+    leader: bool,
     ticks: Rc<ValueNotifier<u32>>,
 }
 
@@ -140,6 +142,7 @@ impl Default for Chord {
     fn default() -> Chord {
         Chord {
             held: None,
+            leader: false,
             ticks: Rc::new(ValueNotifier::new(0)),
         }
     }
@@ -255,12 +258,30 @@ impl ComposerDraft {
     /// The composer holds `held` as the first key of a chord (none: it holds nothing now). The
     /// guide hears of a change.
     pub fn set_chord(&self, held: Option<(KeyPress, std::time::Duration)>) {
+        self.hold(held, false);
+    }
+
+    /// The page holds `held` as the prefix of a leader chord: like `set_chord`, but the key never
+    /// expires (`PendingChord::persistent`).
+    pub fn set_leader_chord(&self, held: Option<(KeyPress, std::time::Duration)>) {
+        let leader = held.is_some();
+        self.hold(held, leader);
+    }
+
+    /// Whether the held key is a leader's prefix (it waits for ever).
+    pub fn chord_is_leader(&self) -> bool {
+        let inner = self.0.borrow();
+        inner.chord.leader && inner.chord.held.is_some()
+    }
+
+    fn hold(&self, held: Option<(KeyPress, std::time::Duration)>, leader: bool) {
         let ticks = {
             let mut inner = self.0.borrow_mut();
-            if inner.chord.held == held {
+            if inner.chord.held == held && inner.chord.leader == leader {
                 return;
             }
             inner.chord.held = held;
+            inner.chord.leader = leader;
             inner.chord.ticks.clone()
         };
         ticks.set_value(ticks.value().wrapping_add(1));

@@ -139,9 +139,6 @@ pub struct ChatState {
     /// The composer's focus node: the page sees `?` and `←` before the field
     /// does (`FocusNode::on_key_event`, the primary focus gets a key first).
     node: FocusNode,
-    /// `Ctrl+X` was pressed: the next key completes the chord (the leader
-    /// chords of `keymap/chords/leader_defaults.rs`).
-    leader: Rc<Cell<bool>>,
     /// The backend control is visible, so its chord (`change_host`, `Ctrl+X
     /// b`) is live; read by the key handler.
     control: Rc<Cell<bool>>,
@@ -199,7 +196,6 @@ impl StatefulWidget for Chat {
             draft_shell: self.ui.draft.shell(),
             draft_vim: self.ui.draft.vim_label(),
             node: FocusNode::new(),
-            leader: Rc::new(Cell::new(false)),
             control: Rc::new(Cell::new(false)),
             banner: BannerGate::new(),
             banner_blocked: Rc::new(Cell::new(BannerBlocked::default())),
@@ -279,7 +275,10 @@ impl State for ChatState {
             // the thread under the page changed: what it had open closes, and the fork it waited
             // on is another thread's
             old.ui.modes.close();
-            self.leader.set(false);
+            // a leader's prefix the old draft held goes with it
+            if old.ui.draft.chord_is_leader() {
+                old.ui.draft.set_chord(None);
+            }
             self.banner.quick_menu.set(false);
             self.forking = None;
         }
