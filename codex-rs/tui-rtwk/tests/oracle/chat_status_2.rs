@@ -966,19 +966,44 @@ fn status_command_drops_stale_usd_when_updated_usage_has_only_credits() {
 // ORACLE chatwidget/tests/status_surface_command_tests.rs:29 inline_status_surface_commands_are_session_only_and_atomic kind=snap owner=ui-pane
 #[test]
 fn inline_status_surface_commands_are_session_only_and_atomic() {
-    kit::pending(
-        Owner::UiPane,
-        "the inline `/title` and `/statusline` args (core/src/features/settings/args.rs, outside w2-status) resolve exact item ids only: the `model-name` alias and the rate-limit names of the oracle's `parse_item` (`monthly-limit` to `five-hour-limit` or `weekly-limit` by the window the snapshot has, `Ambiguous status-line item 'monthly-limit'. Use 'five-hour-limit' or 'weekly-limit'.` when both match) need the account's rate-limit snapshot in the parse; the probe says `Unknown status-line item 'monthly-limit'`",
+    // The oracle's `cache_rate_limit_snapshot`: a 30-day window 35% used and a 7-day one 50% used.
+    let mut s = Screen::build(Owner::UiPane)
+        .size(100, 24)
+        .script(include_str!("fixtures/chat_status_3/rate_limits.jsonl"))
+        .open();
+    // `model-name` is the oracle's alias of `model`, `monthly-limit` is the item of the window
+    // the snapshot has (the 30-day one, `five-hour-limit`); the title is set atomically
+    s.type_text("/title model-name monthly-limit");
+    s.keys("enter");
+    s.assert_title_has("monthly 65% left");
+    s.assert_absent("Unknown");
+    s.type_text("/statusline monthly-limit weekly-limit --no-colors");
+    s.keys("enter");
+    s.assert_contains("monthly 65% left · weekly 50% left");
+    // both are the chat's own: nothing went to the config
+    s.assert_no_request("config/batchWrite");
+    s.assert_no_request("config/value/write");
+    // the snapshot's second window turns monthly: `monthly-limit` is ambiguous, and the refusal
+    // changes nothing
+    s.feed(
+        r#"{"step":"notify","message":{"method":"account/rateLimits/updated","params":{"rateLimits":{"limitId":null,"limitName":null,"normalModelSlug":null,"primary":{"usedPercent":35,"windowDurationMins":43200,"resetsAt":null},"secondary":{"usedPercent":50,"windowDurationMins":43200,"resetsAt":null},"credits":null,"individualLimit":null,"spendControlReached":null,"planType":null,"rateLimitReachedType":null}}}}"#,
     );
-    let mut s = Screen::build(Owner::UiPane).live().open();
-    // seed: /title and /statusline run inline in the chat (session-only, atomic)
     s.type_text("/statusline monthly-limit");
     s.keys("enter");
-    // an ambiguous item is refused with a warning line in the transcript
     s.assert_contains(
         "Ambiguous status-line item 'monthly-limit'. Use 'five-hour-limit' or 'weekly-limit'.",
     );
-    s.type_text("/statusline --colors --no-colors");
+    s.type_text("/statusline model reasoning");
+    s.keys("enter");
+    s.type_text("/statusline current-dir --colors --no-colors");
     s.keys("enter");
     s.assert_contains("Specify only one of --colors or --no-colors.");
+    s.type_text("/statusline --colors");
+    s.keys("enter");
+    s.type_text("/title --clear");
+    s.keys("enter");
+    s.type_text("/statusline --clear --no-colors");
+    s.keys("enter");
+    s.assert_no_request("config/batchWrite");
+    s.assert_no_request("config/value/write");
 }
