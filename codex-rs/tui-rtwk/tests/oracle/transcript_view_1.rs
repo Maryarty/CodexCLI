@@ -779,7 +779,7 @@ fn double_escape_browses_prompts_without_reverting_and_explains_editing() {
 fn find_refreshes_live_details_before_searching_the_first_query() {
     kit::pending(
         Owner::ChatLive,
-        "no live command in the chat (an in-progress command 'printf visible' whose output holds 'printf needle'): no seed in the fixture set, no collapse_turn_details setting, and no activity focus (F4, ctrl+x c) on the owned transcript; the compact overlay (ctrl+t) finding the hidden live text is the target of the snapshot compact_overlay_finds_hidden_live_text",
+        "G-new-find-room-text: the live command's output (`printf needle`) is hidden by the compact overlay and read by Find after a refresh of the live details; the port's tool row has no text (`Gap::Rows`) and the fixture set has no live command seed",
     );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.assert_absent("needle");

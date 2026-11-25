@@ -416,6 +416,9 @@ impl Modes {
 pub struct Follow {
     scroll: ListController,
     unseen: Rc<ValueNotifier<bool>>,
+    /// How many times the reader moved the view by a key (a page, a jump), also where the view
+    /// stays (a page at the last row).
+    moved: Rc<ValueNotifier<u64>>,
 }
 
 impl Default for Follow {
@@ -423,13 +426,16 @@ impl Default for Follow {
         Follow {
             scroll: ListController::new(),
             unseen: Rc::new(ValueNotifier::new(false)),
+            moved: Rc::new(ValueNotifier::new(0)),
         }
     }
 }
 
 impl PartialEq for Follow {
     fn eq(&self, other: &Follow) -> bool {
-        self.scroll == other.scroll && Rc::ptr_eq(&self.unseen, &other.unseen)
+        self.scroll == other.scroll
+            && Rc::ptr_eq(&self.unseen, &other.unseen)
+            && Rc::ptr_eq(&self.moved, &other.moved)
     }
 }
 
@@ -446,6 +452,20 @@ impl Follow {
     /// The controller of the transcript's list.
     pub fn scroll(&self) -> ListController {
         self.scroll.clone()
+    }
+
+    /// How many times the reader moved the view by a key.
+    pub fn moves(&self) -> u64 {
+        self.moved.value()
+    }
+
+    /// Notifies when the reader moves the view by a key.
+    pub fn moves_listenable(&self) -> Rc<dyn Listenable> {
+        self.moved.clone()
+    }
+
+    fn moving(&self) {
+        self.moved.set_value(self.moved.value() + 1);
     }
 
     /// The last row is in view (a list not laid out yet, or with no row of
@@ -488,6 +508,7 @@ impl Follow {
 
     /// Back to the last row.
     pub fn jump_to_latest(&self) {
+        self.moving();
         let controller = self.scroll.as_scroll_controller();
         let reverse = controller
             .try_position()
@@ -499,6 +520,7 @@ impl Follow {
 
     /// To the first row (`jump_top`).
     pub fn jump_to_first(&self) {
+        self.moving();
         let controller = self.scroll.as_scroll_controller();
         let reverse = controller
             .try_position()
@@ -519,6 +541,7 @@ impl Follow {
 
     /// `rows` towards the last row (a negative count towards the first).
     pub fn scroll_by(&self, rows: i64) {
+        self.moving();
         let controller = self.scroll.as_scroll_controller();
         let Ok(position) = controller.try_position() else {
             return;
@@ -541,7 +564,8 @@ impl Follow {
     pub fn listenable(&self) -> Rc<dyn Listenable> {
         let scroll: Rc<dyn Listenable> = Rc::new(self.scroll.as_scroll_controller().clone());
         let unseen: Rc<dyn Listenable> = self.unseen.clone();
-        <dyn Listenable>::merge([Some(scroll), Some(unseen)])
+        let moved: Rc<dyn Listenable> = self.moved.clone();
+        <dyn Listenable>::merge([Some(scroll), Some(unseen), Some(moved)])
     }
 }
 

@@ -44,7 +44,8 @@
 //!   `turn` names it, else `entry-<line>`); `"end":false` leaves the turn open, so an `agent`
 //!   entry is the live tail, and `"start":false` adds to the open turn `turn` names. `item` names
 //!   the item, so a second `agent` entry of it adds to its text. `text` is the text as the model
-//!   said it, a tab and Markdown included. `thread` is `thread-1` unless the step says. A recap
+//!   said it, a tab and Markdown included. `"replace":true` makes an `agent` entry of a named
+//!   `item` the item's whole text instead of more of it. `thread` is `thread-1` unless the step says. A recap
 //!   is not a shape: it is a feature's note (`Screen::recap` of the test kit).
 //! - `commit`: the end of an open turn (`{"step":"commit","turn":"turn-2"}`): the live tail is
 //!   committed to the transcript (`turn/completed`).
@@ -216,6 +217,10 @@ pub struct Entry {
     /// The turn ends with this entry (`turn/completed`): false leaves the live tail open.
     #[serde(default = "yes")]
     pub end: bool,
+    /// An `agent` entry of an item that has text says the text is now this one, in place of the
+    /// text it had (the item completes with it, `item/completed`) instead of adding to it.
+    #[serde(default)]
+    pub replace: bool,
     #[serde(flatten)]
     pub shape: Shape,
 }
@@ -265,6 +270,11 @@ impl Entry {
             events.push(backend(builders::turn_started(thread, &turn)));
         }
         match &self.shape {
+            Shape::Agent { text } if self.replace => {
+                events.push(backend(builders::agent_completed(
+                    thread, &turn, &item, text,
+                )));
+            }
             Shape::Agent { text } => {
                 events.push(backend(builders::agent_delta(thread, &turn, &item, text)));
             }

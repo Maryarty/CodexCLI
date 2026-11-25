@@ -20,7 +20,7 @@ use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::backtrack::nth_user;
-use codex_tui_core::threads::{HistoryState, Item, ItemKey, ThreadModel};
+use codex_tui_core::threads::{HistoryState, Item, ItemKey, ThreadModel, TurnState};
 
 use crate::app::theme;
 use crate::app::view::Hs;
@@ -35,7 +35,7 @@ use super::cells::{CellEnv, Place, cell};
 use super::strings as chat_strings;
 use super::transcript::activity_focus::{self, Activity};
 use super::transcript::copy::{self as copying, Targets};
-use super::transcript::find::{Finder, RowTexts};
+use super::transcript::find::{Finder, Held, RowTexts};
 use super::transcript::item_text::{Reading, body_nodes, mounted_parts};
 use super::transcript::markdown_copy::{self, Marks};
 use super::transcript::select::{self, Pos, Select};
@@ -62,6 +62,16 @@ pub(super) struct Pane {
 /// How many frames after a swap of the list the reader is put back again (the first lands on
 /// estimates of the rows not laid out yet).
 const KEEPS: u8 = 3;
+
+/// A row the list was put at the top for (`ListController::jump_to_index_rows`), and where the
+/// list settled with it, to tell that the reader has not moved since.
+#[derive(Clone, Copy)]
+struct Placed {
+    index: usize,
+    blank: usize,
+    moves: u64,
+    pixels: Option<i64>,
+}
 
 pub(super) struct ViewportState {
     layout: RefCell<Option<RowLayout>>,
@@ -91,6 +101,9 @@ pub(super) struct ViewportState {
     /// The selection of the thread shown, and its listener: the list builds again when something
     /// comes to be selected, to read the Markdown of the rows the selection is copied with.
     watching: RefCell<Option<(TextSelection, VoidCallback)>>,
+    /// The reader of the thread shown, and its listener: the list builds again when the reader
+    /// moves the view by a key (a match held in the live tail is let go).
+    moving: RefCell<Option<(Follow, VoidCallback)>>,
     /// The thread and the revision of its rows whose Markdown `Marks` holds.
     marked: RefCell<Option<(ThreadId, u64)>>,
     /// The texts of the rows Find reads, kept while they are the same so that what the selection
@@ -99,6 +112,18 @@ pub(super) struct ViewportState {
     /// The list was built as one that reads its rows as text: another widget than the plain list,
     /// so a list that comes in its place starts at the end.
     texted: Cell<bool>,
+    /// The number of rows the list was last built with: a list takes the count of its items when
+    /// it is updated, so a jump to an item asked for while the count changes names the wrong
+    /// child (the reverse list counts its children from the top).
+    counted: Cell<usize>,
+    /// The rows before the transcript's own that the list was last built with (the session
+    /// header): Find counts them as rows.
+    led: Cell<usize>,
+    /// The row the list was last put at its top for, when older rows joined above the reader at
+    /// the start of the transcript: kept while the reader does not move, to put the list there
+    /// again where a pixel offset is no longer the place (another list is built with other
+    /// extents of the rows above).
+    anchor: Cell<Option<Placed>>,
     /// What copy mode can copy of those rows, kept while the rows are the same ones (it parses the
     /// messages' Markdown).
     targets: RefCell<Option<(Rc<RowTexts>, Rc<Targets>)>>,
@@ -170,6 +195,14 @@ pub(super) enum Msg {
     /// list starts at the end, and the reader goes back to where they were. The rows it has not
     /// measured yet are estimates, so the move is made again (the count) once they are.
     Keep(i64, u8),
+    /// The match Find found is scrolled to once the list has the rows it was found in: the index
+    /// of its row in the list (`ListController`'s, a reverse list counts from its bottom).
+    Reveal(usize),
+    /// The list settled at the row `keep_first` put it at.
+    Anchored,
+    /// The list is put at its anchor again, as many more times as the count says (the rows above
+    /// it are measured as they are built).
+    KeepRow(usize, usize, u8),
 }
 
 impl ViewportState {
@@ -291,6 +324,21 @@ impl ViewportState {
         let listener: VoidCallback = Rc::new(move || send(Msg::Find));
         select.listenable().add_listener(listener.clone());
         *held = Some((select.clone(), listener));
+    }
+
+    /// The list builds again when the reader moves the view by a key: one listener, on the reader
+    /// of the thread shown.
+    fn listen_moves(&self, follow: &Follow, send: Rc<dyn Fn(Msg)>) {
+        let mut held = self.moving.borrow_mut();
+        if held.as_ref().is_some_and(|(held, _)| held == follow) {
+            return;
+        }
+        if let Some((old, listener)) = held.take() {
+            old.moves_listenable().remove_listener(&listener);
+        }
+        let listener: VoidCallback = Rc::new(move || send(Msg::Find));
+        follow.moves_listenable().add_listener(listener.clone());
+        *held = Some((follow.clone(), listener));
     }
 
     /// The list builds again when something comes to be selected or nothing is any more: one
@@ -478,18 +526,39 @@ impl ViewportState {
         lead: usize,
         reverse: bool,
         widget: &Pane,
-    ) {
+    ) -> bool {
         let transcript = thread.transcript();
         let first = rows
             .first()
             .and_then(|row| transcript.get(row.range.start))
             .map(|(key, _)| (thread.id().clone(), key.clone()));
         let before = self.first.replace(first.clone());
+        let led = self.led.replace(lead);
         let (Some(before), Some(now)) = (before, first) else {
-            return;
+            return false;
         };
-        if reverse || before.0 != now.0 || before.1 == now.1 || !widget.follow.away() {
-            return;
+        if before.0 != now.0 || before.1 == now.1 {
+            return false;
+        }
+        let moved = rows.iter().position(|row| {
+            transcript
+                .get(row.range.start)
+                .is_some_and(|(key, _)| *key == before.1)
+        });
+        if widget.find.active() {
+            if !reverse {
+                widget.find.forget_place();
+            }
+            // the match is the row it was, the rows that joined further on
+            if let Some(added) = moved
+                .map(|moved| (moved + lead).saturating_sub(led))
+                .filter(|added| *added > 0)
+            {
+                widget.find.rows_joined(added);
+            }
+        }
+        if reverse || !widget.follow.away() {
+            return false;
         }
         let at_start = widget
             .follow
@@ -497,11 +566,6 @@ impl ViewportState {
             .as_scroll_controller()
             .try_position()
             .is_ok_and(|position| position.pixels() <= 0);
-        let moved = rows.iter().position(|row| {
-            transcript
-                .get(row.range.start)
-                .is_some_and(|(key, _)| *key == before.1)
-        });
         if let (true, Some(row)) = (at_start, moved) {
             // the cell has a blank row above it now that something comes before it (`cell`'s
             // `below`), which the reader never saw: the list starts under it
@@ -515,7 +579,15 @@ impl ViewportState {
             let user = matches!(transcript.get(index), Some((_, Item::User(_))));
             let blank = usize::from(!(user && joins));
             widget.follow.scroll().jump_to_index_rows(row + lead, blank);
+            self.anchor.set(Some(Placed {
+                index: row + lead,
+                blank,
+                moves: widget.follow.moves(),
+                pixels: None,
+            }));
+            return true;
         }
+        false
     }
 }
 
@@ -523,6 +595,12 @@ impl ViewportState {
 /// transcript (oracle `UnifiedExecInteractionCell` has no display lines).
 fn is_terminal_interaction(item: &Item) -> bool {
     matches!(item, Item::Notice(notice) if notice.detailed_only())
+}
+
+/// The item of `key` is of the turn that is running: the live tail (oracle `EntryKey::Live`, the
+/// active cell).
+fn in_running_turn(thread: &ThreadModel, key: &ItemKey) -> bool {
+    matches!(thread.turn(), TurnState::Running(running) if running.turn == key.turn)
 }
 
 /// A hash of what the row shows, to tell that it changed (`Item` has no
@@ -572,9 +650,13 @@ impl StatefulWidget for Pane {
             folding: RefCell::default(),
             selecting: RefCell::default(),
             watching: RefCell::default(),
+            moving: RefCell::default(),
             marked: RefCell::default(),
             texts: RefCell::default(),
             texted: Cell::new(false),
+            counted: Cell::new(0),
+            led: Cell::new(0),
+            anchor: Cell::new(None),
             targets: RefCell::default(),
         }
     }
@@ -621,6 +703,9 @@ impl State for ViewportState {
         }
         if let Some((select, listener)) = self.selecting.get_mut().take() {
             select.listenable().remove_listener(&listener);
+        }
+        if let Some((follow, listener)) = self.moving.get_mut().take() {
+            follow.moves_listenable().remove_listener(&listener);
         }
         if let Some((activity, listener)) = self.folding.get_mut().take() {
             activity.listenable().remove_listener(&listener);
@@ -676,6 +761,35 @@ impl State for ViewportState {
                 }
                 Rebuild::No
             }
+            Msg::Anchored => {
+                let pixels = widget
+                    .follow
+                    .scroll()
+                    .as_scroll_controller()
+                    .try_position()
+                    .map(|position| position.pixels())
+                    .ok();
+                if let Some(mut anchor) = self.anchor.get() {
+                    anchor.pixels = pixels;
+                    self.anchor.set(Some(anchor));
+                }
+                Rebuild::No
+            }
+            Msg::KeepRow(index, blank, again) => {
+                widget.follow.scroll().jump_to_index_rows(index, blank);
+                if again > 0
+                    && let Some(binding) = AppBinding::maybe_of(cx)
+                {
+                    binding.add_post_frame_callback(
+                        cx.map(move |_: Duration| Msg::KeepRow(index, blank, again - 1)),
+                    );
+                }
+                Rebuild::No
+            }
+            Msg::Reveal(index) => {
+                widget.follow.scroll().ensure_index_visible(index);
+                Rebuild::No
+            }
             Msg::Keep(pixels, again) => {
                 let controller = widget.follow.scroll().as_scroll_controller().clone();
                 let moved = controller
@@ -698,6 +812,13 @@ impl State for ViewportState {
 
     fn build(&self, widget: &Pane, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let thread = watch::<ThreadModel, _>(cx);
+        // while Find holds a match in the live tail the list draws the thread as it was found
+        // there, until the reader steps, refines the query or Find closes
+        let held = Held::of(&widget.find);
+        if !widget.find.active() || widget.find.asked() || held.moved(widget.follow.moves()) {
+            held.clear();
+        }
+        let thread = held.thread().unwrap_or(thread);
         let strings = l10n::of(cx);
         let tokens = theme::Tokens::of(cx);
         let prompt_surface = tokens.prompt_surface(cx, true);
@@ -733,6 +854,7 @@ impl State for ViewportState {
         let reverse = !thread.read_only() && header.is_none();
         let header = header.filter(|_| !can_load);
         let count = rows.len() + usize::from(header.is_some());
+        let grew = self.counted.replace(count) != count;
         self.listen_folds(&activity, cx.local_sender());
         // the folds the chat's own list has, for the keys that walk them (F4); the Ctrl+T
         // transcript has none, and leaves the chat's alone
@@ -758,17 +880,22 @@ impl State for ViewportState {
             .and_then(|nth| nth_user(thread.transcript(), nth))
             .map(|(key, _)| key.clone());
         self.show(&marked, &thread, &rows, header.is_some(), reverse, widget);
-        self.keep_first(
+        if self.keep_first(
             &thread,
             &rows,
             usize::from(header.is_some()),
             reverse,
             widget,
-        );
+        ) && let Some(binding) = AppBinding::maybe_of(cx)
+        {
+            binding.add_post_frame_callback(cx.map(|_: Duration| Msg::Anchored));
+        }
         let cells = cells_strings::of(cx);
         let folds = transcript_strings::of(cx);
         let search = widget.find.clone();
         self.listen(&search, cx.local_sender());
+        self.listen_moves(&widget.follow, cx.local_sender());
+
         let caret = select::of(&search);
         let copier = copying::mode_of(&search);
         // The list reads its rows as text while Find is open, select mode is on or copy mode is:
@@ -784,7 +911,19 @@ impl State for ViewportState {
             && let Some(binding) = AppBinding::maybe_of(cx)
         {
             let pixels = position.pixels();
-            binding.add_post_frame_callback(cx.map(move |_: Duration| Msg::Keep(pixels, KEEPS)));
+            match self.anchor.take() {
+                // the reader is where the list was put for a row: the list that takes the place
+                // is put at the row again, not at the offset the other list measured
+                Some(anchor)
+                    if anchor.pixels == Some(pixels) && anchor.moves == widget.follow.moves() =>
+                {
+                    binding.add_post_frame_callback(
+                        cx.map(move |_: Duration| Msg::KeepRow(anchor.index, anchor.blank, KEEPS)),
+                    );
+                }
+                _ => binding
+                    .add_post_frame_callback(cx.map(move |_: Duration| Msg::Keep(pixels, KEEPS))),
+            }
         }
         // Find closed: the list builds again and takes no move made in the frame that does, so the
         // reader is put back after it
@@ -863,12 +1002,29 @@ impl State for ViewportState {
                     load(Msg::Load(thread.id().clone()));
                 }
                 if let Some(hit) = hit {
+                    // a match in the live tail stays displayed as it was found (`Held`)
+                    let live = hit
+                        .row
+                        .checked_sub(usize::from(header.is_some()))
+                        .and_then(|row| rows.get(row))
+                        .and_then(|row| thread.transcript().get(row.range.start))
+                        .is_some_and(|(key, _)| in_running_turn(&thread, key));
+                    if live {
+                        held.set(thread.clone(), widget.follow.moves());
+                    }
                     // the controller counts a reverse list's items from its bottom; the selection
                     // area's model counts the rows of the render list, from the top
-                    widget
-                        .follow
-                        .scroll()
-                        .ensure_index_visible(texts.index_of(hit.row));
+                    if search.scrolls() {
+                        let index = texts.index_of(hit.row);
+                        match AppBinding::maybe_of(cx) {
+                            // rows came or went since the list was laid out (the live tail grew,
+                            // a turn committed): the list knows them after this frame
+                            Some(binding) if grew => binding.add_post_frame_callback(
+                                cx.map(move |_: Duration| Msg::Reveal(index)),
+                            ),
+                            _ => widget.follow.scroll().ensure_index_visible(index),
+                        }
+                    }
                     widget.selection.controller().select(
                         SelectionTarget::of(texts),
                         hit.row,

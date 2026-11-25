@@ -432,18 +432,10 @@ fn absorbing_older_history_excludes_only_the_hydration_revision_from_new_activit
 // ORACLE transcript_view/mutations_tests.rs:360 folding_a_reasoning_only_page_retains_its_find_and_copy_revision kind=ui owner=chat-live
 #[test]
 fn folding_a_reasoning_only_page_retains_its_find_and_copy_revision() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "the chat draws no reasoning-only page (an MCP call and reasoning items are not cells on the S11 transcript) and the transcript find has no kit key yet",
+        "the oracle's `replace_group` folds a joined MCP call and the reasoning page into one cell that stands in place of two entries, and the view keeps the revision it found and copied in; the port's rows are the thread's items by key (a joined page adds rows above, nothing is replaced under the reader), so there is no revision to retain: the rows, the match and the copy do not move when an older page joins under Find (`transcript_view_4::empty_find_preserves_reading_inside_a_joined_group`, `pages::find_live_kit`)",
     );
-    let s = Screen::build(Owner::ChatLive)
-        .size(30, 8)
-        .script(include_str!("fixtures/transcript_view_3/page_join.jsonl"))
-        .open();
-    // the find of the oracle (begin, paste `needle`, advance) has no kit call on the chat yet
-    s.assert_contains("enter accept");
-    let before = s.shot();
-    s.assert_same_rows(&before);
 }
 
 // ---- oracle: transcript_view/prompt_header_tests.rs (5 screen-level tests here; 0 state tests left to chat-live)

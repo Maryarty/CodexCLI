@@ -148,6 +148,10 @@ struct Data {
     /// The reader pressed the mouse over the transcript since Find last selected a match: what
     /// is selected is theirs, and Find waits for it to go.
     reader: bool,
+    /// The match is shown again where the reader is (their selection went), not scrolled to.
+    reshown: bool,
+    /// The match the pane was last told of is to be scrolled to.
+    scroll: bool,
     /// The scan read the `n` rows there were and waits for older history to join them.
     awaiting: Option<usize>,
     /// The pane is to ask for the older page.
@@ -217,6 +221,8 @@ impl Finder {
                 unshown: false,
                 selected: false,
                 reader: false,
+                reshown: false,
+                scroll: true,
                 awaiting: None,
                 load: false,
                 retrying: false,
@@ -305,6 +311,47 @@ impl Finder {
         }
     }
 
+    /// The reader asked the scan for something (a refined query, a step) that has not run yet.
+    pub fn asked(&self) -> bool {
+        let data = self.0.data.borrow();
+        data.mode != Mode::Closed && data.want != Want::Nothing
+    }
+
+    /// The match the scan told last is to be scrolled to: a match found is, a match shown again
+    /// after the reader's selection went stays where the reader is.
+    pub fn scrolls(&self) -> bool {
+        self.0.data.borrow().scroll
+    }
+
+    /// Rows came in above the reader (an older page joined) while Find was open: where they stood
+    /// is counted from the top, which is another place now, so a refined query or Esc leaves
+    /// them where they are (a reader at the last row goes back to it still).
+    pub fn forget_place(&self) {
+        let mut data = self.0.data.borrow_mut();
+        if data.saved.is_some_and(|saved| !saved.at_tail) {
+            data.saved = None;
+        }
+    }
+
+    /// `added` rows came in above the rows Find reads (an older page joined): the match is the
+    /// same row, `added` rows further on, and is selected again where the reader is. A scan that
+    /// waits for the page counts the rows itself.
+    pub fn rows_joined(&self, added: usize) {
+        {
+            let mut data = self.0.data.borrow_mut();
+            if data.mode == Mode::Closed || data.awaiting.is_some() {
+                return;
+            }
+            let Some(hit) = data.current.as_mut() else {
+                return;
+            };
+            hit.row += added;
+            data.unshown = true;
+            data.reshown = true;
+        }
+        self.notify();
+    }
+
     /// The match, if there is one.
     pub fn current(&self) -> Option<Hit> {
         self.0.data.borrow().current.clone()
@@ -315,6 +362,21 @@ impl Finder {
     pub fn begin(&self, follow: &Follow, selection: &TextSelection) {
         if self.mode() == Mode::Editing {
             return;
+        }
+        // what the reader selected while the match was read goes: the match is shown again
+        // (`begin_search` drops the selection)
+        let reader = {
+            let mut data = self.0.data.borrow_mut();
+            let reader = reader_selection(&data)
+                .then(|| data.selection.clone())
+                .flatten();
+            if reader.is_some() {
+                data.selected = false;
+            }
+            reader
+        };
+        if let Some(selection) = reader {
+            selection.controller().clear();
         }
         {
             let mut data = self.0.data.borrow_mut();
@@ -559,6 +621,7 @@ impl Finder {
                 .is_some_and(|selection| !selection.controller().has_selection())
         {
             data.unshown = true;
+            data.reshown = true;
         }
         false
     }
@@ -659,6 +722,7 @@ impl Finder {
                     data.current = Some(hit);
                     data.progress = Progress::Found;
                     data.unshown = true;
+                    data.reshown = false;
                     data.awaiting = None;
                     data.history_failed = false;
                 }
@@ -711,6 +775,7 @@ impl Finder {
         if std::mem::take(&mut data.unshown) {
             data.selected = true;
             data.reader = false;
+            data.scroll = !std::mem::take(&mut data.reshown);
             data.current.clone()
         } else {
             None

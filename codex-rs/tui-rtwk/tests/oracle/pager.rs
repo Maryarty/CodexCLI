@@ -123,7 +123,7 @@ fn focus_loss_stops_edge_drag_and_preserves_selection_after_focus_returns() {
 fn opening_find_retains_the_selected_mutable_revision() {
     kit::missing(
         Owner::ChatLive,
-        "the selection, find and copy of a sheet are made over the texts the rows show (rtwk `ListView::item_text`, one line per transcript row equal to what it renders, the items drawing their part through `ListView::selection_of`); the texts are chunk-cells' and are not wired on the list yet (w2-transcript wires find, select and copy on it; transcript chunk steps 4-7)",
+        "G-new-find-room-text: the selected cell is an in-progress dynamic tool call whose revision the sheet keeps while the call is interrupted; a tool row has no text (`Gap::Rows`), so select mode cannot take it and Find has no revision of it to retain",
     );
 }
 

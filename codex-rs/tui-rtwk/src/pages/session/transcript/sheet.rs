@@ -54,6 +54,9 @@ pub enum Chrome {
     /// The transcript alone, the chat's own footer speaks (the owned
     /// full-screen Ctrl+T and backtrack draw no pager chrome).
     Bare,
+    /// The transcript alone as the chat draws it, not as the Ctrl+T sheet does (compact: what a
+    /// cell hides stays hidden): the view the oracle's find tests over hidden content drive.
+    Compact,
 }
 
 /// The sheet over the transcript of the thread below it.
@@ -75,6 +78,12 @@ pub fn seeded(seeded: &Seeded<'_>) -> AnyWidget {
 /// The same sheet without chrome, as the owned full-screen Ctrl+T shows it.
 pub fn seeded_bare(seeded: &Seeded<'_>) -> AnyWidget {
     seeded_with(seeded, Chrome::Bare)
+}
+
+/// The bare sheet over the compact transcript (`Pane::detailed` false), the chat's own rows
+/// without its composer.
+pub fn seeded_bare_compact(seeded: &Seeded<'_>) -> AnyWidget {
+    seeded_with(seeded, Chrome::Compact)
 }
 
 fn seeded_with(seeded: &Seeded<'_>, chrome: Chrome) -> AnyWidget {
@@ -199,12 +208,13 @@ impl State for SheetState {
         let marked = {
             let (follow, modes) = (w.follow.clone(), w.modes.clone());
             let (selection, find) = (w.selection.clone(), w.find.clone());
+            let detailed = w.chrome != Chrome::Compact;
             ListenableBuilder::new(modes.listenable(), move |_, _| {
                 Pane {
                     follow: follow.clone(),
                     selection: selection.clone(),
                     find: find.clone(),
-                    detailed: true,
+                    detailed,
                     mark: modes.selected(),
                 }
                 .into()
