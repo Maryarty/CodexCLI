@@ -205,6 +205,12 @@ mod tests {
     use codex_utils_absolute_path::test_support::PathExt;
     use tempfile::TempDir;
 
+    /// A file with `contents` (`std::fs::write` is the shell's: R12).
+    fn write_file(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> std::io::Result<()> {
+        use std::io::Write as _;
+        std::fs::File::create(path)?.write_all(contents.as_ref())
+    }
+
     async fn build_config(temp_dir: &TempDir) -> std::io::Result<Config> {
         ConfigBuilder::default()
             .codex_home(temp_dir.path().to_path_buf())
@@ -221,7 +227,7 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let mut config = build_config(&temp_dir).await?;
         let occupied_sqlite_home = temp_dir.path().join("sqlite-home");
-        std::fs::write(&occupied_sqlite_home, "occupied")?;
+        write_file(&occupied_sqlite_home, "occupied")?;
         let sqlite =
             codex_state::SqliteConfig::new_for_testing(occupied_sqlite_home.as_path().abs());
         config.sqlite = sqlite.clone();
@@ -254,7 +260,7 @@ mod tests {
         std::fs::create_dir_all(&sqlite_home)?;
         let sqlite = codex_state::SqliteConfig::new_for_testing(sqlite_home.as_path().abs());
         let logs_db_path = sqlite.logs_db_path();
-        std::fs::write(&logs_db_path, "not a sqlite database")?;
+        write_file(&logs_db_path, "not a sqlite database")?;
         config.sqlite = sqlite;
 
         let Err(startup_error) = init(&config).await else {
@@ -277,8 +283,8 @@ mod tests {
         let sqlite = codex_state::SqliteConfig::new_for_testing(temp_dir.path().abs());
         let state_path = sqlite.state_db_path();
         let failed_db_path = sqlite.logs_db_path();
-        std::fs::write(state_path.as_path(), b"state")?;
-        std::fs::write(failed_db_path.as_path(), b"logs")?;
+        write_file(state_path.as_path(), b"state")?;
+        write_file(failed_db_path.as_path(), b"logs")?;
 
         let startup_error =
             StateDbStartupError::new(failed_db_path.clone(), anyhow::anyhow!("corrupt"));
@@ -301,7 +307,7 @@ mod tests {
     async fn backup_replaces_blocking_sqlite_home_file() -> std::io::Result<()> {
         let temp_dir = TempDir::new()?;
         let sqlite_home = temp_dir.path().join("sqlite-home");
-        std::fs::write(sqlite_home.as_path(), b"not-a-directory")?;
+        write_file(sqlite_home.as_path(), b"not-a-directory")?;
         let sqlite = codex_state::SqliteConfig::new_for_testing(sqlite_home.as_path().abs());
         let startup_error =
             StateDbStartupError::new(sqlite.state_db_path(), anyhow::anyhow!("File exists"));
@@ -326,7 +332,7 @@ mod tests {
         std::fs::create_dir_all(&sqlite_home)?;
         let sqlite = codex_state::SqliteConfig::new_for_testing(sqlite_home.as_path().abs());
         let logs_db_path = sqlite.logs_db_path();
-        std::fs::write(&logs_db_path, "not a sqlite database")?;
+        write_file(&logs_db_path, "not a sqlite database")?;
         config.sqlite = sqlite;
         let Err(startup_error) = init(&config).await else {
             panic!("embedded startup should surface state db init failures");
