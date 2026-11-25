@@ -236,6 +236,19 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
                 return KeyEventResult::Handled;
             }
         }
+        // the edit-queued key goes to the questions or the queue before the field's own keys
+        // (`handle_question_key`, the queue's pop)
+        if blocked.get().edit
+            && !draft.borrow().in_burst()
+            && crate::keymap::pressed(
+                &keymap.borrow(),
+                codex_tui_core::keymap::actions::CHAT_EDIT_QUEUED_MESSAGE,
+                &key,
+            )
+        {
+            send(ChatMsg::EditQueued);
+            return KeyEventResult::Handled;
+        }
         // Ctrl+D on an empty composer quits (`on_ctrl_d`); the field would take it for
         // delete-forward, which is nothing here
         if composer.borrow().text().is_empty()
@@ -261,6 +274,12 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
             send(ChatMsg::Shortcuts);
         } else if pressed_fixed(fixed::OPEN_AGENTS_FROM_LEFT, &key)
             && vim::agents_key_available(&draft.borrow(), &keymap.borrow())
+            // Shift+Left is the chat's own key first (`edit_queued_message`)
+            && !crate::keymap::pressed(
+                &keymap.borrow(),
+                codex_tui_core::keymap::actions::CHAT_EDIT_QUEUED_MESSAGE,
+                &key,
+            )
         {
             send(ChatMsg::Agents);
         } else {
@@ -331,15 +350,14 @@ pub(super) fn focus(
 pub(super) fn hints(cx: &mut Cx<'_, ChatState>, frame: &Frame, focus: AnyWidget) -> AnyWidget {
     use codex_tui_core::screens::select::reasoning::Direction;
     let (keymap, pages) = (&frame.keymap, frame.strings.pages);
-    let mut keys = vec![
-        ("left".to_string(), cx.send(ChatMsg::Agents)),
-        (pages.key_shortcuts.to_string(), cx.send(ChatMsg::Shortcuts)),
-    ];
-    keys.extend(crate::keymap::bindings(
+    // Shift+Left is the edit-queued key before it is Left's agents (the chat's own keys first)
+    let mut keys = crate::keymap::bindings(
         keymap,
         codex_tui_core::keymap::actions::CHAT_EDIT_QUEUED_MESSAGE,
         &cx.send(ChatMsg::EditQueued),
-    ));
+    );
+    keys.push(("left".to_string(), cx.send(ChatMsg::Agents)));
+    keys.push((pages.key_shortcuts.to_string(), cx.send(ChatMsg::Shortcuts)));
     keys.extend(crate::keymap::bindings(
         keymap,
         codex_tui_core::keymap::actions::CHAT_DECREASE_REASONING_EFFORT,

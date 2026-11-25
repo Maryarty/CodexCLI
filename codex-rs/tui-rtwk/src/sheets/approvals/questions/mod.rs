@@ -5,9 +5,9 @@
 //! under it. The rows each part gets are the oracle's `layout_sections` ([`layout`]), decided from
 //! the measured rows ([`measure`]); the parts are composed in boxes of those heights (Flutter: a
 //! `Column` of `SizedBox`es under a `LayoutBuilder`). What the user has typed and chosen is the
-//! state's (a `TextEditingController` for each question, so moving between questions keeps each
-//! draft); what the question asks is the widget's, and what the user decides leaves as an
-//! [`Outcome`].
+//! state's (the controllers of a plain-text composer for each question, so moving between questions
+//! keeps each draft, its Vim state and its history walk); what the question asks is the widget's,
+//! and what the user decides leaves as an [`Outcome`].
 
 mod entries;
 mod layout;
@@ -19,11 +19,10 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use rtwk::binding::{AppBinding, Timer};
-use rtwk::editing::{EditingKeys, TextArea, TextEditingController};
 use rtwk::focus::{Focus, FocusNode, KeyEventResult, KeyPress};
 use rtwk::layout::{
-    Alignment, BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize,
-    OverflowBox, Padding, Row, SizedBox, SizedOverflowBox,
+    Alignment, BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisAlignment,
+    MainAxisSize, OverflowBox, Padding, Row, SizedBox, SizedOverflowBox,
 };
 use rtwk::provider::read;
 use rtwk::style::{Span, Style};
@@ -44,9 +43,14 @@ pub use entries::debug_entries;
 
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
-use crate::keymap::{label, only_shift, pressed, unmodified};
+use crate::keymap::{only_shift, pressed, primary_label as label, unmodified};
+use crate::pages::session::composer::{
+    Composer, burst, plain, search, strings as composer_strings,
+};
+use crate::pages::session::footer::strings as footer_strings;
 use crate::widgets::markdown;
 use crate::widgets::measure::Measure;
+use crate::widgets::thread_ui::ThreadUi;
 
 /// The longest a choice may be (bytes): what the oracle bounds the model's suggestions to.
 pub const MAX_OPTION_BYTES: usize = 512;
@@ -83,7 +87,49 @@ pub struct Seed {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Kept {
     pub current: Option<String>,
-    pub kept: BTreeMap<String, (Option<usize>, String)>,
+    kept: BTreeMap<String, Slot>,
+}
+
+/// What one question keeps while the editor is closed: the row of its cursor and the controllers
+/// of its answer (the text, the draft with its Vim state, its history walk).
+#[derive(Clone)]
+struct Slot {
+    selected: Option<usize>,
+    ui: Rc<ThreadUi>,
+    /// How many of the chat's remembered messages this answer has copied for its recall.
+    learned: Rc<Cell<usize>>,
+}
+
+impl std::fmt::Debug for Slot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Slot")
+            .field("selected", &self.selected)
+            .field("text", &self.ui.composer.text())
+            .finish()
+    }
+}
+
+impl PartialEq for Slot {
+    fn eq(&self, other: &Slot) -> bool {
+        self.selected == other.selected && Rc::ptr_eq(&self.ui, &other.ui)
+    }
+}
+
+/// The chat's own controllers: whether Vim is on and what its composer remembers (an answer is
+/// edited the way the chat is, and recalls what the chat sent).
+#[derive(Clone)]
+pub struct Host(pub Rc<ThreadUi>);
+
+impl std::fmt::Debug for Host {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Host").finish_non_exhaustive()
+    }
+}
+
+impl PartialEq for Host {
+    fn eq(&self, other: &Host) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
 }
 
 /// What the user decided; the parent applies it (a reply, a skip, a move out of the editor).
@@ -101,6 +147,9 @@ pub enum Outcome {
     Edge { forward: bool },
     /// The chat's interrupt key.
     Interrupt,
+    /// The editor is in front of the questions (it opened, a question came in while it is
+    /// open): their countdown stops.
+    Seen,
 }
 
 /// The editor over the questions `questions`.
@@ -118,6 +167,8 @@ pub struct AsyncQuestions {
     pub fit: bool,
     /// Where the editor leaves its drafts when it closes, and where it starts from.
     pub saved: Option<Rc<RefCell<Kept>>>,
+    /// The chat's controllers (none: a debug entry, Vim off, no history).
+    pub host: Option<Host>,
     pub on_outcome: Option<Handler<Outcome>>,
 }
 
@@ -128,7 +179,8 @@ struct QState {
     selected: Option<usize>,
     /// The first row of the choices that shows (kept between frames, as the oracle's scroll).
     scroll_top: Rc<Cell<usize>>,
-    draft: TextEditingController,
+    ui: Rc<ThreadUi>,
+    learned: Rc<Cell<usize>>,
     node: FocusNode,
 }
 
@@ -143,6 +195,8 @@ pub struct AsyncState {
     node: FocusNode,
     keymap: Rc<Keymap>,
     saved: Option<Rc<RefCell<Kept>>>,
+    /// The editor has not told the parent that it is in front of the questions.
+    unseen: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -150,21 +204,57 @@ pub enum Msg {
     Press(KeyPress),
     /// Enter in the input.
     Submitted(Rc<str>),
+    /// The answer changed (text, mode, search).
+    Edited,
     /// The frame that built the input is done: it takes the keys.
     FocusInput,
     /// A second of a flash passed.
     Tick,
 }
 
-fn qstate(question: &AQuestion, selected: Option<Option<usize>>, draft: &str) -> QState {
-    let controller = TextEditingController::new(draft);
-    controller.move_caret(draft.len(), false);
-    QState {
+/// The controllers of an answer that starts with `text`.
+fn field(text: &str) -> Rc<ThreadUi> {
+    let ui = plain::ui();
+    if !text.is_empty() {
+        ui.composer.reset(text);
+        ui.composer.move_caret(text.len(), false);
+    }
+    ui
+}
+
+/// What a question's state takes over: its choice, its field and what the field has learned.
+type Parts = (Option<Option<usize>>, Rc<ThreadUi>, Rc<Cell<usize>>);
+
+fn qstate(question: &AQuestion, parts: Parts, host: Option<&Host>) -> QState {
+    let (selected, ui, learned) = parts;
+    let q = QState {
         id: question.id.clone(),
         selected: selected.unwrap_or_else(|| (!question.options.is_empty()).then_some(0)),
         scroll_top: Rc::new(Cell::new(0)),
-        draft: controller,
+        ui,
+        learned,
         node: FocusNode::new(),
+    };
+    follow(&q.ui, &q.learned, host);
+    q
+}
+
+/// An answer is edited the way the chat is (Vim on or off) and recalls what the chat's composer
+/// remembers (`copy_history_for_key`: the messages it learned since the last time).
+fn follow(ui: &ThreadUi, learned: &Cell<usize>, host: Option<&Host>) {
+    let Some(Host(chat)) = host else {
+        return;
+    };
+    let on = chat.draft.vim_enabled();
+    if ui.draft.vim_enabled() != on {
+        ui.draft.set_vim_enabled(on);
+    }
+    let known = chat.draft.local_history();
+    if known.len() > learned.get() {
+        for entry in known.iter().skip(learned.get()) {
+            ui.draft.replayed(entry.clone());
+        }
+        learned.set(known.len());
     }
 }
 
@@ -179,12 +269,19 @@ impl StatefulWidget for AsyncQuestions {
             .enumerate()
             .map(
                 |(at, question)| match saved.as_ref().and_then(|s| s.kept.get(&question.id)) {
-                    Some((selected, draft)) => qstate(question, Some(*selected), draft),
-                    None => qstate(
-                        question,
-                        self.seed.selected.get(at).copied(),
-                        self.seed.drafts.get(at).map_or("", String::as_str),
-                    ),
+                    Some(slot) => {
+                        let parts = (Some(slot.selected), slot.ui.clone(), slot.learned.clone());
+                        qstate(question, parts, self.host.as_ref())
+                    }
+                    None => {
+                        let text = self.seed.drafts.get(at).map_or("", String::as_str);
+                        let parts = (
+                            self.seed.selected.get(at).copied(),
+                            field(text),
+                            Rc::default(),
+                        );
+                        qstate(question, parts, self.host.as_ref())
+                    }
                 },
             )
             .collect();
@@ -203,6 +300,7 @@ impl StatefulWidget for AsyncQuestions {
             node: FocusNode::new(),
             keymap: Rc::new(Keymap::defaults()),
             saved: self.saved.clone(),
+            unseen: true,
         }
     }
 }
@@ -304,11 +402,26 @@ impl AsyncState {
         };
         match next.filter(|at| *at < w.questions.len()) {
             Some(at) => {
+                self.leave_field(cx);
                 self.current = at;
                 self.visible.set((0, 0));
                 self.after_select(w);
             }
             None => self.emit(w, Outcome::Edge { forward }, cx),
+        }
+    }
+
+    /// Another answer takes the field: what typing ahead the paste detector holds goes into this
+    /// one first (`flush_pending_input`), and its history walk and search start over when it is
+    /// shown again (`restore_inline_draft`).
+    fn leave_field(&self, cx: &mut Cx<'_, Self>) {
+        let Some(q) = self.questions.get(self.current) else {
+            return;
+        };
+        flush(&q.ui, cx);
+        q.ui.draft.forget_walk();
+        if q.ui.draft.searching() {
+            q.ui.draft.search_cancel(&q.ui.composer);
         }
     }
 
@@ -348,7 +461,7 @@ impl AsyncState {
             return;
         }
         let text = if input {
-            state.draft.text().to_string()
+            state.ui.draft.expanded(&state.ui.composer)
         } else {
             question.options.get(at).cloned().unwrap_or_default()
         };
@@ -468,7 +581,8 @@ impl AsyncState {
                     let other = self.options(w).len();
                     self.select(w, other);
                     if let Some(state) = self.questions.get(self.current) {
-                        state.draft.insert(&text);
+                        state.ui.composer.insert(&text);
+                        state.ui.draft.sync(&state.ui.composer);
                     }
                 }
             }
@@ -507,20 +621,39 @@ impl State for AsyncState {
         &mut self,
         _old: &AsyncQuestions,
         w: &AsyncQuestions,
-        _cx: &mut Cx<'_, Self>,
+        cx: &mut Cx<'_, Self>,
     ) {
         // The parent drops a question that was answered or skipped: the state follows by id.
         let mut next = Vec::new();
+        let mut arrived = false;
+        let before = self.questions.get(self.current).map(|q| q.id.clone());
         for question in w.questions.iter() {
             match self.questions.iter().position(|q| q.id == question.id) {
                 Some(at) => next.push(self.questions.remove(at)),
-                None => next.push(qstate(question, None, "")),
+                None => {
+                    arrived = true;
+                    let parts = (None, field(""), Rc::default());
+                    next.push(qstate(question, parts, w.host.as_ref()));
+                }
             }
         }
-        let shown = self.questions.get(self.current).map(|q| q.id.clone());
-        let _ = shown;
         self.questions = next;
         self.current = self.current.min(w.questions.len().saturating_sub(1));
+        for q in &self.questions {
+            follow(&q.ui, &q.learned, w.host.as_ref());
+        }
+        // a question that came in while the editor is open is seen at once
+        if arrived {
+            self.unseen = true;
+        }
+        // the answer on show was answered or skipped: the field that takes its place is a new
+        // one and takes the focus once the frame has put it in the tree
+        let now = self.questions.get(self.current).map(|q| q.id.clone());
+        if (arrived || before != now)
+            && let Some(binding) = AppBinding::maybe_of(cx)
+        {
+            binding.add_post_frame_callback(cx.map(|_: Duration| Msg::FocusInput));
+        }
     }
 
     fn dispose(&mut self) {
@@ -530,7 +663,16 @@ impl State for AsyncState {
                 kept: self
                     .questions
                     .iter()
-                    .map(|q| (q.id.clone(), (q.selected, q.draft.text().to_string())))
+                    .map(|q| {
+                        (
+                            q.id.clone(),
+                            Slot {
+                                selected: q.selected,
+                                ui: q.ui.clone(),
+                                learned: q.learned.clone(),
+                            },
+                        )
+                    })
                     .collect(),
             };
         }
@@ -538,9 +680,6 @@ impl State for AsyncState {
             timer.cancel();
         }
         self.node.set_on_key_event(None);
-        for q in &self.questions {
-            q.draft.dispose();
-        }
     }
 
     fn update(&mut self, msg: Msg, w: &AsyncQuestions, cx: &mut Cx<'_, Self>) -> Rebuild {
@@ -552,7 +691,20 @@ impl State for AsyncState {
                 }
                 self.submit(w, false, cx);
             }
+            Msg::Edited => {
+                // the chat's idle clock hears of what is typed here, as the oracle's pane notes
+                // the activity of the composer it hands the keys to
+                if let (Some(Host(chat)), Some(state)) = (&w.host, self.questions.get(self.current))
+                    && let Some(at) = state.ui.draft.last_keyed()
+                {
+                    chat.draft.keyed(at);
+                }
+            }
             Msg::FocusInput => {
+                if self.unseen {
+                    self.unseen = false;
+                    self.emit(w, Outcome::Seen, cx);
+                }
                 if self.focus_is_input(w)
                     && let Some(q) = self.questions.get(self.current)
                 {
@@ -597,7 +749,8 @@ impl State for AsyncState {
             selected: state.selected,
             at: self.current,
             total: w.questions.len(),
-            draft: state.draft.clone(),
+            key: question.id.clone(),
+            ui: state.ui.clone(),
             scroll_top: Rc::clone(&state.scroll_top),
             visible: Rc::clone(&self.visible),
             node: state.node.clone(),
@@ -610,9 +763,17 @@ impl State for AsyncState {
             keymap: Rc::clone(&keymap),
             markdown: tokens.transcript_markdown(cx),
             on_submit: cx.map(Msg::Submitted),
+            on_edit: cx.map(|_: Rc<str>| Msg::Edited),
             take: {
                 let keymap = Rc::clone(&keymap);
+                let (ui, learned, host) = (state.ui.clone(), state.learned.clone(), w.host.clone());
                 Rc::new(move |key: &KeyPress| {
+                    // the chat may have sent a message since: a recall starting now has it
+                    follow(&ui, &learned, host.as_ref());
+                    // a search, a pending Vim command or a query owns the keys
+                    if modal_keys(&ui.draft) {
+                        return false;
+                    }
                     if input_takes(&keymap, key, other) {
                         send(Msg::Press(key.clone()));
                         true
@@ -650,7 +811,9 @@ struct View {
     selected: Option<usize>,
     at: usize,
     total: usize,
-    draft: TextEditingController,
+    /// What keys the answer's composer.
+    key: String,
+    ui: Rc<ThreadUi>,
     scroll_top: Rc<Cell<usize>>,
     visible: Rc<Cell<(usize, usize)>>,
     node: FocusNode,
@@ -663,7 +826,30 @@ struct View {
     keymap: Rc<Keymap>,
     markdown: rtwk_rich::markdown::MarkdownTheme,
     on_submit: Handler<Rc<str>>,
+    on_edit: Handler<Rc<str>>,
     take: Rc<dyn Fn(&KeyPress) -> bool>,
+}
+
+/// Whether the answer's composer holds the keys: the history search is open, Vim types a `/`
+/// query or waits for the rest of a command (`handles_key_as_editing`).
+fn modal_keys(draft: &crate::widgets::composer_draft::ComposerDraft) -> bool {
+    draft.searching()
+        || draft.with_vim(|v| {
+            v.searching().is_some()
+                || !matches!(v.pending(), codex_tui_core::kit::vim::VimPending::None)
+        })
+}
+
+/// What typing ahead the paste detector holds goes into `ui`'s text now.
+fn flush(ui: &ThreadUi, cx: &mut Cx<'_, AsyncState>) {
+    let table = composer_strings::of(cx);
+    burst::flush_pending(
+        &ui.draft,
+        &ui.composer,
+        move |chars| table.pasted(chars),
+        move |n| table.image(n),
+    );
+    ui.draft.sync(&ui.composer);
 }
 
 fn rows_u16(n: usize) -> u16 {
@@ -687,9 +873,14 @@ impl View {
         !self.has_options() || self.other_selected()
     }
 
+    /// Whether a row under the text shows a history search or a Vim query.
+    fn query_open(&self) -> bool {
+        self.ui.draft.searching() || self.ui.draft.with_vim(|v| v.searching().is_some())
+    }
+
     /// The label Other shows while it is not the row on: what was typed, cut, else its name.
     fn other_label(&self) -> String {
-        let typed = self.draft.text();
+        let typed = self.ui.composer.text();
         let typed = typed.trim();
         if self.other_selected() || typed.is_empty() {
             return self.other_placeholder().to_owned();
@@ -777,7 +968,9 @@ impl View {
     fn input_rows(&self, seg: Measure, width: usize) -> u16 {
         // the flash of a refused answer takes a row under the input (`inline_input_height`)
         let flash = u16::from(self.flash.is_some() && !self.has_options());
-        (rows_u16(measure::rows(seg, &self.draft.text(), width.max(1))) + flash)
+        // the row of a history search or of the Vim query under the text
+        let query = u16::from(self.query_open());
+        (rows_u16(measure::rows(seg, &self.ui.composer.text(), width.max(1))) + query + flash)
             .clamp(1, MAX_INPUT_ROWS)
     }
 
@@ -885,7 +1078,7 @@ impl View {
             rows_u16(usize::try_from(height).unwrap_or(0)),
         );
         if self.options_only {
-            return self.options_widget(seg, width, h16);
+            return self.options_widget(cx, seg, width, h16);
         }
         let facts = layout::Facts {
             has_options: self.has_options(),
@@ -950,16 +1143,23 @@ impl View {
             column = column.child(blank(sections.spacer_after_question));
         }
         if sections.options > 0 {
-            column = column.child(self.options_widget(seg, width, sections.options));
+            column = column.child(self.options_widget(cx, seg, width, sections.options));
         }
+        // the Vim mode stands right-aligned in the last spacer row above the footer, while the
+        // input holds the focus and there is a row between them (`vim_mode_indicator_span`)
+        let mode = self.focus_is_input().then(|| self.mode_label(cx)).flatten();
+        let mode_in_options = sections.spacer_after_input == 0;
         if sections.spacer_after_options > 0 {
-            column = column.child(blank(sections.spacer_after_options));
+            let mode = mode
+                .clone()
+                .filter(|_| mode_in_options && self.other_selected());
+            column = column.child(self.spacer(sections.spacer_after_options, mode));
         }
         if sections.notes > 0 {
-            column = column.child(self.input_widget(sections.notes, self.placeholder()));
+            column = column.child(self.input_widget(cx, sections.notes, self.placeholder()));
         }
         if sections.spacer_after_input > 0 {
-            column = column.child(blank(sections.spacer_after_input));
+            column = column.child(self.spacer(sections.spacer_after_input, mode));
         }
         if sections.footer > 0 {
             let lines = self.footer(seg, w16, sections.show_option_tip);
@@ -976,45 +1176,83 @@ impl View {
         column.into()
     }
 
-    /// The input of a freeform answer or of Other, `rows` high.
-    fn input_widget(&self, rows: u16, placeholder: &'static str) -> AnyWidget {
-        // under the input, the flash of a refused answer (`render_inline_input`)
-        if let Some(flash) = self.flash.filter(|_| !self.has_options() && rows > 1) {
-            let input = self.input_widget_rows(rows - 1, placeholder);
-            let line = SizedBox::new(
-                None,
-                Some(px(1)),
-                Some(AnyWidget::from(Text::new(flash).wrap(TextWrap::None))),
-            );
-            return Column::new()
-                .main_axis_size(MainAxisSize::Min)
-                .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                .child(input)
-                .child(line)
-                .into();
+    /// The words of the Vim mode (`Vim: Normal`) in the colour of the chat's footer; none with
+    /// Vim off.
+    fn mode_label(&self, cx: &mut Cx<'_>) -> Option<Span> {
+        let mode = self.ui.draft.vim_label()?;
+        let table = footer_strings::of(cx);
+        let (text, style) = match mode {
+            "Normal" => (table.vim_normal, self.tokens.accent()),
+            "Replace" => (table.vim_replace, self.tokens.info()),
+            _ => (table.vim_insert, self.tokens.success()),
+        };
+        Some(Span::styled(text, style))
+    }
+
+    /// `rows` blank rows; the Vim mode, when there is one, ends the last of them.
+    fn spacer(&self, rows: u16, mode: Option<Span>) -> AnyWidget {
+        let Some(mode) = mode else {
+            return SizedBox::new(None, Some(px(rows)), None::<AnyWidget>).into();
+        };
+        let label = Row::new()
+            .main_axis_alignment(MainAxisAlignment::End)
+            .child(Text::rich_line(vec![mode]).wrap(TextWrap::None));
+        let whole = Column::new()
+            .main_axis_size(MainAxisSize::Max)
+            .main_axis_alignment(MainAxisAlignment::End)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(label);
+        SizedBox::new(None, Some(px(rows)), Some(AnyWidget::from(whole))).into()
+    }
+
+    /// The input of a freeform answer or of Other, `rows` high: the text, under it the row of a
+    /// history search or of the Vim query, and under that the flash of a refused answer
+    /// (`render_inline_input`).
+    fn input_widget(&self, cx: &mut Cx<'_>, rows: u16, placeholder: &'static str) -> AnyWidget {
+        let flash = self.flash.filter(|_| !self.has_options());
+        let query: Option<AnyWidget> = match self.ui.draft.search_state() {
+            Some((query, status)) => Some(search::line(cx, query, status)),
+            None => search::query_line(cx, &self.ui.draft),
+        };
+        let below = u16::from(query.is_some()) + u16::from(flash.is_some());
+        if below == 0 || rows <= below {
+            return self.input_widget_rows(rows, placeholder);
         }
-        self.input_widget_rows(rows, placeholder)
+        let row = |child: AnyWidget| -> AnyWidget {
+            SizedBox::new(None, Some(px(1)), Some(child)).into()
+        };
+        let mut column = Column::new()
+            .main_axis_size(MainAxisSize::Min)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(self.input_widget_rows(rows - below, placeholder));
+        if let Some(query) = query {
+            column = column.child(row(query));
+        }
+        if let Some(flash) = flash {
+            column = column.child(row(Text::new(flash).wrap(TextWrap::None).into()));
+        }
+        column.into()
     }
 
     fn input_widget_rows(&self, rows: u16, placeholder: &'static str) -> AnyWidget {
-        let lines = usize::from(rows.max(1));
         let take = Rc::clone(&self.take);
-        let area = TextArea::new()
-            .controller(self.draft.clone())
+        let composer = Composer::plain(self.ui.clone(), self.node.clone())
             .placeholder(placeholder)
-            .placeholder_style(self.tokens.dim())
-            .min_lines(lines)
-            .max_lines(lines)
-            .focus_node(self.node.clone())
+            .unprompted()
             .autofocus(true)
-            .on_submitted(self.on_submit.clone());
-        let keyed =
-            EditingKeys::new(move |_, key, _| take(key), area).controller(self.draft.clone());
-        SizedBox::new(None, Some(px(rows)), Some(AnyWidget::from(keyed))).into()
+            .on_keys(move |_, key, _| take(key))
+            .on_submitted(self.on_submit.clone())
+            .on_changed(self.on_edit.clone());
+        SizedBox::new(
+            None,
+            Some(px(rows)),
+            Some(AnyWidget::from(composer).with_key(self.key.clone())),
+        )
+        .into()
     }
 
     /// The choices (and Other) in the `rows` the layout gave them.
-    fn options_widget(&self, seg: Measure, width: i32, rows: u16) -> AnyWidget {
+    fn options_widget(&self, cx: &mut Cx<'_>, seg: Measure, width: i32, rows: u16) -> AnyWidget {
         let w16 = rows_u16(usize::try_from(width).unwrap_or(0));
         let available = usize::from(rows);
         let choice = self.choice_rows(seg, usize::from(w16));
@@ -1060,7 +1298,7 @@ impl View {
                 ))
                 .child(Expanded::new(
                     1,
-                    self.input_widget(input_rows, self.placeholder()),
+                    self.input_widget(cx, input_rows, self.placeholder()),
                 ));
             let mut whole = Column::new()
                 .main_axis_size(MainAxisSize::Min)

@@ -432,22 +432,45 @@ fn replay_preserves_drafts_and_does_not_reopen_handled_questions() {
 // ORACLE bottom_pane/async_questions/state_tests.rs:95 arrival_preserves_vim_undo_and_navigation_flushes_buffered_input kind=ui owner=dialogs-pane
 #[test]
 fn arrival_preserves_vim_undo_and_navigation_flushes_buffered_input() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no vim mode in the question prompt, and the arrival of a question while a draft is typed needs a live feed (Screen::feed does not reach an entry screen); the paste burst is internal; the discard of typed-ahead keys when a request arrives is G8 (rtwk has no input discard)",
-    );
+    // oracle: vim on, `i` + paste "draft" + Esc; a question arrives; `u` leaves "" and ctrl+r "draft" again (the arrival kept
+    // the undo history); vim off, "buffered" typed at once is held by the paste burst and leaving the question and coming back
+    // flushes it into the draft; "skipped" is held, ctrl+] skips: the second question is open with an empty answer.
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
-        .entry("approvals", "user_input_two_questions")
+        .script(include_str!(
+            "fixtures/chat_approvals_2/q_first_second.jsonl"
+        ))
         .open();
+    s.type_text("/vim");
+    s.keys("enter");
+    s.keys("alt+up");
     s.keys("i");
     s.paste("draft");
     s.keys("esc");
+    s.feed(include_str!("fixtures/chat_approvals_2/q_new.jsonl"));
+    s.assert_contains("1 of 3");
     s.keys("u");
     s.assert_absent("draft");
     s.keys("ctrl+r");
     s.assert_contains("draft");
-    // The oracle's buffered input and the final `Second` question with an empty composer are checked once the arrival can be fed.
+    // `set_vim_enabled(false)`: the chat's `/vim` again
+    s.keys("alt+down");
+    s.type_text("/vim");
+    s.keys("enter");
+    s.keys("alt+up");
+    s.assert_contains("draft");
+    s.keys("end");
+    s.type_burst("buffered");
+    s.keys("alt+up");
+    s.keys("alt+down");
+    s.assert_contains("draftbuffered");
+    s.type_burst("skipped");
+    s.keys("ctrl+]");
+    s.wait(500);
+    s.assert_contains("1 of 2");
+    s.assert_contains("Second");
+    s.assert_absent("draftbuffered");
+    s.assert_absent("skipped");
 }
 
 // ORACLE bottom_pane/async_questions/state_tests.rs:133 long_prompt_keeps_the_active_input_visible kind=snap owner=dialogs-pane snap=long_prompt_active_input
@@ -529,18 +552,20 @@ fn question_choice_remaps_paging_and_inline_feedback() {
 // ORACLE bottom_pane/async_questions/state_tests.rs:329 question_inline_history_search kind=snap owner=dialogs-pane snap=question_inline_history_search
 #[test]
 fn question_inline_history_search() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (the composer, not the request overlay): the oracle snapshot is the AsyncQuestions inline editor (`bottom_pane/async_questions`: its `2 of 2` header, its `⇧→ prev question` footer, drafts, vim), which the port has no widget for; the entry would be: the sheet entry with twelve options Option 1 .. Option 12, a replayed history entry earlier answer and a pasted original answer (the slice registers it as approvals/user_input_history)",
-    );
+    // oracle: the second of two questions with twelve choices, Other selected, history "earlier answer", "original answer"
+    // pasted; ctrl+r then `e` shows the match in the answer (the snapshot) and the draft is what it was after the search.
     let mut s = Screen::build(Owner::DialogsPane)
         .size(50, 12)
-        .entry("approvals", "user_input_history")
+        .script(include_str!("fixtures/chat_approvals_2/q_history.jsonl"))
+        .message_history(&["earlier answer"])
         .open();
+    s.keys("alt+up");
+    s.keys("alt+up");
+    s.keys("end");
+    s.paste("original answer");
     s.keys("ctrl+r");
     s.keys("e");
-    s.assert_snap("question_inline_history_search");
-    // The oracle's REVERSED cell of the match is not written yet (no cell position in the snapshot).
+    s.assert_snap_region("question_inline_history_search", 1, 0);
 }
 
 // ORACLE bottom_pane/async_questions/state_tests.rs:356 question_other_remains_visible_at_nine_columns_and_distinguishes_named_other kind=snap owner=dialogs-pane snap=question_named_other snap=question_narrow_other
@@ -650,19 +675,23 @@ fn existing_cross_context_keymaps_load_without_misleading_submit_hints() {
 // ORACLE bottom_pane/async_questions/state_tests.rs:567 question_navigation_resets_history_recall kind=ui owner=dialogs-pane
 #[test]
 fn question_navigation_resets_history_recall() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature composer history in the question prompt (w2-approvals): was: no scripted state for the composer history (older, newer replayed user messages) on a question prompt (the slice registers it as approvals/user_input_history_recall)",
-    );
+    // oracle: history "older", "newer"; Up recalls "newer"; leaving the question and coming back, Up shows "newer" again
+    // (the walk starts over).
     let mut s = Screen::build(Owner::DialogsPane)
-        .entry("approvals", "user_input_history_recall")
+        .size(80, 24)
+        .script(include_str!("fixtures/chat_approvals_2/q_two.jsonl"))
+        .message_history(&["older", "newer"])
         .open();
+    s.keys("alt+up");
     s.keys("up");
     s.assert_contains("newer");
-    s.keys("ctrl+]");
-    s.keys("shift+tab");
+    s.keys("alt+up");
+    s.keys("alt+down");
     s.keys("up");
     s.assert_contains("newer");
+    // the walk started over: a second Up does not go on to "older"
+    s.keys("up");
+    s.assert_absent("older");
 }
 
 // ORACLE bottom_pane/async_questions/state_tests.rs:583 named_choices_share_selection_while_other_keeps_its_inline_cursor kind=ui owner=dialogs-pane

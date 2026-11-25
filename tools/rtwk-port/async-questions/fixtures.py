@@ -96,3 +96,20 @@ MARKDOWN = [
     ("See the [guide](https://example.test/guide)?", None),
 ]
 write("q_markdown", SEED, asks("ask", MARKDOWN), note="questions_tests.rs:1068 titles with Markdown")
+# state_tests.rs `editor()`: First (no choices), Second; an arrival while the first is typed
+write("q_first_second", SEED, asks("message", [("First", None), ("Second", ["Named"])]),
+      note="state_tests.rs:11 editor(): First, Second with one choice")
+write("q_new", asks("new", [("New", None)]), note="state_tests.rs:95 append(new, [New])")
+write("q_history", SEED, asks("message", [("First", None), ("Second", [f"Option {i}" for i in range(1, 13)])]),
+      note="state_tests.rs:329 Second with twelve choices")
+write("q_next", asks("next", [("Which way?", None)]), note="questions_tests.rs:7 push_async_questions(next)")
+# questions_tests.rs:647 open_questions(): First?, Second? with one choice, a turn running (the queue)
+REVIEW = [("First?", None), ("Second?", ["Next"])]
+write("q_review_running", SEED, turn_started(), asks("review", REVIEW),
+      note="questions_tests.rs:647 open_questions(), turn running so that messages queue")
+write("q_review", SEED, asks("review", REVIEW), note="questions_tests.rs:647 open_questions()")
+write("q_buffered", asks("buffered", [("Buffered?", None)]), note="questions_tests.rs:793 the replayed question that arrives live")
+# questions_tests.rs:889 a turn that runs (messages queue), the questions that arrive after the queue is on screen
+write("q_run", SEED, turn_started(), note="questions_tests.rs:889 a running turn, no questions yet")
+write("q_ask_two", asks("message", TWO), note="questions_tests.rs:889 add_async_questions(message)")
+write("q_remapped", asks("remapped", TWO), note="questions_tests.rs:889 add_async_questions(remapped)")

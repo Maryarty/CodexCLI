@@ -38,6 +38,8 @@ pub struct Strings {
     /// `  ↳ `, the hanging indent under it, and the clipped-rows mark.
     pub item_prefix: &'static str,
     pub item_hang: &'static str,
+    /// ` · 15s`: the countdown of the questions that wait.
+    pub countdown: Msg<1>,
     pub ellipsis: &'static str,
     /// `N background terminal(s) running · /ps to view · /stop to close`.
     pub terminals_one: Msg<1>,
@@ -55,6 +57,11 @@ impl Strings {
             self.questions_many
         };
         Fmt::new(table, [Arg::Text(&count.to_string())], &self.num).to_string()
+    }
+
+    /// ` · 15s` after the count of the questions that wait.
+    pub fn countdown(&self, seconds: u64) -> String {
+        Fmt::new(self.countdown, [Arg::Text(&seconds.to_string())], &self.num).to_string()
     }
 
     /// The summary of `count` background terminals (`UnifiedExecFooter::summary_text`).
@@ -89,6 +96,7 @@ pub const EN: Strings = Strings {
     answer_rest: " to answer",
     item_prefix: "  \u{21b3} ",
     item_hang: "    ",
+    countdown: msg!(" \u{b7} {0}s"),
     ellipsis: "\u{2026}",
     terminals_one: msg!("{0} background terminal running \u{b7} /ps to view \u{b7} /stop to close"),
     terminals_many: msg!(

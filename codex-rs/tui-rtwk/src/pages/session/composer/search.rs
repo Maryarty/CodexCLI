@@ -126,6 +126,16 @@ pub fn paste(data: &KeyData, c: &TextEditingController, text: &str) {
 /// stands: nothing, `searching`, the two actions of a match (keys bold,
 /// words dim) or `no match` in red; two cells in, as every footer row.
 pub fn footer<S>(cx: &mut Cx<'_, S>, query: String, status: SearchStatus) -> AnyWidget {
+    Row::new()
+        .child(SizedBox::new(Some(2), None, None))
+        // one row, clipped at the edge (a long query is not wrapped)
+        .child(Expanded::new(1, line(cx, query, status)))
+        .into()
+}
+
+/// The row of [`footer`] without its two cells of indent: where the owner of the field draws it
+/// under the field's own text (the inline editor of the async questions).
+pub fn line<S>(cx: &mut Cx<'_, S>, query: String, status: SearchStatus) -> AnyWidget {
     let tokens = theme::Tokens::of(cx);
     let strings = strings::of(cx);
     let dim = tokens.dim().attrs(Attrs::DIM);
@@ -146,13 +156,8 @@ pub fn footer<S>(cx: &mut Cx<'_, S>, query: String, status: SearchStatus) -> Any
         ]),
         SearchStatus::NoMatch => spans.push(Span::styled(strings.search_no_match, tokens.error())),
     }
-    Row::new()
-        .child(SizedBox::new(Some(2), None, None))
-        // one row, clipped at the edge (a long query is not wrapped)
-        .child(Expanded::new(
-            1,
-            Text::rich_line(spans).overflow(rtwk_core::unicode::TextOverflow::Clip),
-        ))
+    Text::rich_line(spans)
+        .overflow(rtwk_core::unicode::TextOverflow::Clip)
         .into()
 }
 
@@ -160,6 +165,17 @@ pub fn footer<S>(cx: &mut Cx<'_, S>, query: String, status: SearchStatus) -> Any
 /// direction's mark in cyan, then the typed text, in the footer's place; `None` with no query
 /// open.
 pub fn query_footer<S>(cx: &mut Cx<'_, S>, draft: &ComposerDraft) -> Option<AnyWidget> {
+    let line = query_line(cx, draft)?;
+    Some(
+        Row::new()
+            .child(SizedBox::new(Some(2), None, None))
+            .child(Expanded::new(1, line))
+            .into(),
+    )
+}
+
+/// The row of [`query_footer`] without its two cells of indent.
+pub fn query_line<S>(cx: &mut Cx<'_, S>, draft: &ComposerDraft) -> Option<AnyWidget> {
     let direction = draft.with_vim(|v| v.searching())?;
     let tokens = theme::Tokens::of(cx);
     let mark = match direction {
@@ -171,12 +187,8 @@ pub fn query_footer<S>(cx: &mut Cx<'_, S>, draft: &ComposerDraft) -> Option<AnyW
         Span::styled(draft.vim_query().text().to_string(), Style::default()),
     ];
     Some(
-        Row::new()
-            .child(SizedBox::new(Some(2), None, None))
-            .child(Expanded::new(
-                1,
-                Text::rich_line(spans).overflow(rtwk_core::unicode::TextOverflow::Clip),
-            ))
+        Text::rich_line(spans)
+            .overflow(rtwk_core::unicode::TextOverflow::Clip)
             .into(),
     )
 }

@@ -230,7 +230,7 @@ pub(super) fn run(
                 record(cx);
                 let message = queue::message(line, w, cx, &states);
                 // (the queue key and the drain left before dispatch)
-                cx.emit(&hs.submit, message);
+                queue::send(cx, hs, message, session.active.clone());
             }
         }
         // A feature's own sheet (`/plugins`, a bare `/export`): its UI half opens it with the

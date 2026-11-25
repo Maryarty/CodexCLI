@@ -87,7 +87,7 @@ impl StatelessWidget for PendingInput {
         let strings = strings::of(cx);
         let keymap = crate::keymap::keymap(cx);
         let interrupt = crate::keymap::label(&keymap, CHAT_INTERRUPT_TURN);
-        let edit = crate::keymap::label(&keymap, CHAT_EDIT_QUEUED_MESSAGE);
+        let edit = crate::keymap::primary_label(&keymap, CHAT_EDIT_QUEUED_MESSAGE);
         LayoutBuilder::new(move |cx, constraints| {
             // the oracle draws nothing under four columns
             if constraints.max_width < 4 {

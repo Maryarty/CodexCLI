@@ -21,7 +21,8 @@ use codex_tui_core::screens::{ScreenThreadIntent, chat};
 use codex_tui_core::threads::{Queued, ThreadModel, UserMessage};
 
 use crate::app::view::Hs;
-use crate::sheets::approvals::questions::{AQuestion, AsyncQuestions, Kept, Outcome, Seed};
+use crate::sheets::approvals::questions::{AQuestion, AsyncQuestions, Host, Kept, Outcome, Seed};
+use crate::widgets::thread_ui::ThreadUi;
 
 use super::{ChatMsg, ChatState, send};
 
@@ -63,6 +64,14 @@ pub(super) fn count(cx: &mut Cx<'_, ChatState>, thread: &ThreadId) -> usize {
     })
 }
 
+/// The seconds left of the countdown of the summary (`· 15s`), in its last twenty.
+pub(super) fn countdown(cx: &mut Cx<'_, ChatState>, thread: &ThreadId) -> Option<u64> {
+    let thread = thread.clone();
+    select::<FeatureStates, Option<u64>, _>(cx, move |features| {
+        features.async_questions.countdown(&thread)
+    })
+}
+
 impl ChatState {
     /// Whether the editor shows: it is open and a question waits.
     pub(super) fn editing(&self, asked: usize) -> bool {
@@ -77,6 +86,7 @@ impl ChatState {
         &self,
         cx: &mut Cx<'_, ChatState>,
         thread: &ThreadModel,
+        ui: &Rc<ThreadUi>,
     ) -> Option<AnyWidget> {
         let questions = waiting(cx, thread.id());
         if !self.editing(questions.len()) {
@@ -89,6 +99,7 @@ impl ChatState {
             options_only: false,
             fit: true,
             saved: Some(self.asking.saved.clone()),
+            host: Some(Host(ui.clone())),
             on_outcome: Some(cx.map(ChatMsg::Question)),
         };
         Some(AnyWidget::from(editor).with_key(Key::value("questions")))
@@ -160,6 +171,12 @@ impl ChatState {
                     self.asking.open.set(false);
                     send::edit_queued(cx, hs);
                 }
+            }
+            // the editor is in front of the questions: their countdown stops
+            Outcome::Seen => {
+                let thread = thread.id().clone();
+                crate::features::verb(cx, Intent::Snooze { thread });
+                return Rebuild::No;
             }
             Outcome::Interrupt => {
                 if thread.can_interrupt() {

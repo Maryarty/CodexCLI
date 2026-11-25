@@ -1,0 +1,2 @@
+# questions_tests.rs:793 the replayed question that arrives live (tools/rtwk-port/async-questions/fixtures.py)
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"agentMessage","moderation":null,"id":"buffered","text":"Buffered?","phase":"final_answer","memoryCitation":null,"delivery":null,"questions":[{"title":"Buffered?","options":null}],"startedAtMs":null,"completedAtMs":null},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}

@@ -167,6 +167,9 @@ struct BannerBlocked {
     running: bool,
     /// The shortcut overlay is open: Esc closes it.
     overlay: bool,
+    /// Questions wait (the editor is closed) or messages are queued: the edit-queued key is the
+    /// chat's before it is the field's (`Shift+Left` would select).
+    edit: bool,
 }
 
 impl StatefulWidget for Chat {

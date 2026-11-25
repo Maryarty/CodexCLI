@@ -25,7 +25,7 @@ mod sparkle;
 pub use sparkle::Sparkle;
 mod status_rows;
 pub use status_rows::StatusRows;
-mod strings;
+pub(crate) mod strings;
 
 use std::rc::Rc;
 

@@ -79,7 +79,10 @@ pub(super) fn body(
         .child(StatusSlot)
         // `  ? N questions`: the questions that wait while the editor is closed
         .child(if run.asking > 0 && !editing {
-            AnyWidget::from(QuestionSummary { count: run.asking })
+            AnyWidget::from(QuestionSummary {
+                count: run.asking,
+                countdown: super::questions::countdown(cx, thread.id()),
+            })
         } else {
             SizedBox::shrink().into()
         })
@@ -133,6 +136,12 @@ pub(super) fn body(
     state.banner_blocked.set(BannerBlocked {
         running,
         overlay: state.shortcuts,
+        edit: !editing
+            && !menu
+            && !state.shortcuts
+            && (run.asking > 0
+                || !thread.queue().is_empty()
+                || !thread.rejected_steers().is_empty()),
     });
     // the threads that wait for an approval, right above the composer (`bottom_pane`)
     let body = body.child(PendingThreadsBanner);
