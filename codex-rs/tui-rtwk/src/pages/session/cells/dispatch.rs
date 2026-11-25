@@ -19,6 +19,7 @@ use codex_tui_core::threads::{Item, ToolActivity};
 use crate::app::theme::Tokens;
 use crate::pages::session::strings::Strings as Chat;
 
+use crate::pages::session::transcript::copy::Fill;
 use super::raw;
 use super::strings::Strings;
 
@@ -51,6 +52,9 @@ pub struct Place {
     pub joins_prompt: bool,
     /// The prompt a browsing sheet marks.
     pub highlighted: bool,
+    /// What the copy mode's target in this item fills (the rows of a block, the surface of a
+    /// prompt), where it fills.
+    pub fill: Option<Fill>,
     /// The agent message is still being written.
     pub streaming: bool,
     /// The calls of the run an exploration or computer call row shares,

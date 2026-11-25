@@ -15,7 +15,8 @@
 use rtwk::app::AppCx;
 
 use codex_tui_core::app::{AppEv, Intent};
-use codex_tui_core::features::Scope;
+use codex_tui_core::features::copy::{Intent as CopyIntent, Wish as CopyWish};
+use codex_tui_core::features::{FeatureIntent, FeatureWish, Scope};
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::select::Intent as SelectIntent;
 use codex_tui_core::screens::transcript::Intent as TranscriptIntent;
@@ -128,11 +129,21 @@ fn present_wishes(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
         // holds the keys (`FeatureView::in_place`)
         if app.core.tui().transcript_owned
             && let Scope::Thread(thread) = &scope
-            && crate::features::in_place(&wish, &app.ui.thread_ui.get(Some(thread)))
         {
-            app.ui.presenters.taken = seq;
-            app.send(AppEv::Intent(Intent::WishShown(seq)));
-            continue;
+            let began = crate::features::in_place(&wish, &app.ui.thread_ui.get(Some(thread)));
+            let mode = matches!(&wish, FeatureWish::Copier(CopyWish::Mode { .. }));
+            if began || mode {
+                app.ui.presenters.taken = seq;
+                app.send(AppEv::Intent(Intent::WishShown(seq)));
+                if !began {
+                    // Find or another mode holds the keys: the oracle's `Nothing to copy`
+                    let thread = thread.clone();
+                    app.send(AppEv::Intent(Intent::Feature(FeatureIntent::Copier(
+                        CopyIntent::Nothing { thread },
+                    ))));
+                }
+                continue;
+            }
         }
         if let Some(shown) = shown
             && shown

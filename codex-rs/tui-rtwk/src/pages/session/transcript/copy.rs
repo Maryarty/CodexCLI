@@ -236,12 +236,25 @@ impl CopyLog {
 // The oracle finds the blocks in the rendered layout; this reads them from the blocks the cell
 // draws (`markdown_text::found`) and from a prompt's source lines.
 
+/// What a cell fills for the copy target it holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fill {
+    /// A prompt as a whole: its surface, padding rows included.
+    Row,
+    /// The top-level block `n` of a message.
+    Block(usize),
+}
+
 /// One piece the reader can copy: a range of a row's text, what it is called, and what is copied
 /// when it is not what is drawn there.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Target {
     /// The row of the list, oldest first.
     pub row: usize,
+    /// What the cell of the row fills while the piece is the target (the oracle paints every cell
+    /// of the rows of a block, blank ones too), where the cell can: none for the rest, whose
+    /// glyphs the selection reverses.
+    pub fill: Option<Fill>,
     /// The bytes of the row's text (gutters included, as the area counts them).
     pub range: Range<usize>,
     pub label: &'static str,
@@ -270,23 +283,29 @@ impl Targets {
         table: &'static Strings,
         cutter: &Cutter,
     ) {
-        let Some((first, last)) = extent(parts) else {
-            return;
-        };
         let text = parts
             .iter()
             .map(|part| part.text.as_str())
             .collect::<Vec<_>>()
             .join("\n");
-        if text[first..last].trim().is_empty() {
+        // what is drawn decides, except for a prompt: it is kept where what it says is not blank
+        // though what is drawn of it is (`8.`, a list marker with nothing after it: the Markdown
+        // draws no text for it), and its range is then the row's whole text (oracle
+        // `user_source`, copy_mode.rs)
+        let drawn = extent(parts).filter(|&(first, last)| !text[first..last].trim().is_empty());
+        let said = matches!(item, Item::User(prompt) if !prompt.shown().text.trim().is_empty());
+        let Some((first, last)) = drawn.or_else(|| {
+            said.then(|| extent(parts).unwrap_or((0, text.len())))
+        }) else {
             return;
-        }
+        };
         let mut found = Vec::new();
         match item {
             Item::User(prompt) => {
                 let shown = prompt.shown();
                 found.push(Target {
                     row,
+                    fill: Some(Fill::Row),
                     range: first..last,
                     label: table.copy_user,
                     payload: (!shown.text.is_empty()).then(|| shown.text.to_string()),
@@ -305,6 +324,7 @@ impl Targets {
                 if let Some(markdown) = (cutter.whole)(source, cwd) {
                     self.response = Some(Target {
                         row,
+                        fill: None,
                         range: first..last,
                         label: table.copy_whole,
                         payload: Some(markdown),
@@ -419,23 +439,54 @@ fn rendered_blocks(
     let (mut codes, mut quotes) = sources(cutter, source);
     markdown_text::found(&blocks)
         .into_iter()
-        .map(|block| {
-            let (label, pool, drawn) = match block.kind {
-                Kind::Code => (table.copy_code, &mut codes, block.text.clone()),
-                Kind::Quote => (table.copy_quote, &mut quotes, unquoted(&block.text)),
+        .filter_map(|block| {
+            let (label, payload) = match block.kind {
+                Kind::Code => (
+                    table.copy_code,
+                    take_source(&mut codes, &block.text, normalized),
+                ),
+                Kind::Quote => (
+                    table.copy_quote,
+                    take_source(&mut quotes, &unquoted(&block.text), normalized),
+                ),
+                // a table is a block of its own where a fenced block of Markdown held it: the
+                // fence is gone from the drawing, its body is the payload; a table of the prose
+                // is no block
+                Kind::Table => (
+                    table.copy_code,
+                    Some(take_source(&mut codes, &block.text, cells_of)?),
+                ),
             };
-            let payload = pool
-                .iter()
-                .position(|source| normalized(source) == normalized(&drawn))
-                .map(|at| pool.remove(at));
-            Target {
+            Some(Target {
                 row,
+                fill: block.top.map(Fill::Block),
                 range: starts[first + block.nodes.start]..end_of(block.nodes.end - 1),
                 label,
                 payload,
-            }
+            })
         })
         .collect()
+}
+
+/// The source in `pool` that reads as `drawn` by `key`, taken out of it.
+fn take_source(pool: &mut Vec<String>, drawn: &str, key: fn(&str) -> String) -> Option<String> {
+    let want = key(drawn);
+    let at = pool.iter().position(|source| key(source) == want)?;
+    Some(pool.remove(at))
+}
+
+/// The words of the cells of a table, drawn or written (`| A | B |`, its delimiter row left
+/// out): what a drawn table and its source are compared by.
+fn cells_of(text: &str) -> String {
+    text.lines()
+        .filter(|line| {
+            let rest = line.replace(['|', ':', '-', ' ', '\t'], "");
+            !(rest.is_empty() && line.contains('-'))
+        })
+        .flat_map(|line| line.split(|c: char| c == '|' || c.is_whitespace()))
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The code blocks and quotes written in a prompt, which is drawn as its source: found in its
@@ -460,6 +511,7 @@ fn literal_blocks(
                 if let Some(at) = text[cursor..last].find(content).map(|at| at + cursor) {
                     found.push(Target {
                         row,
+                        fill: None,
                         range: at..at + content.len(),
                         label: table.copy_code,
                         payload: Some(content.to_owned()),
@@ -499,6 +551,7 @@ fn literal_blocks(
                 let end = text[..end].trim_end_matches('\n').len().max(start);
                 found.push(Target {
                     row,
+                    fill: None,
                     range: start..end,
                     label: table.copy_quote,
                     payload: Some(copied),
@@ -709,6 +762,17 @@ impl CopyMode {
             None => data.targets.response.clone(),
             Some(at) => data.targets.list.get(at).cloned(),
         }
+    }
+
+    /// What the cell of `row` of the list fills while the mode holds a piece of it as the target
+    /// (the oracle paints all the cells of the target's rows, blank ones included).
+    pub fn fill_of(&self, row: usize) -> Option<Fill> {
+        if !self.active() {
+            return None;
+        }
+        self.current()
+            .filter(|target| target.row == row)
+            .and_then(|target| target.fill)
     }
 
     /// What the footer's first row calls the target held (`code block`), once the mode is on; none

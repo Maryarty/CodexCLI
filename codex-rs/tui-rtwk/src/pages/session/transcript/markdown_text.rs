@@ -80,6 +80,9 @@ pub fn drawn(blocks: &[Block]) -> Option<String> {
 pub enum Kind {
     Code,
     Quote,
+    /// A table: only a table the author wrote in a fenced block of Markdown is a block to copy,
+    /// the view draws it as a table and the fence is gone; the caller matches it with its source.
+    Table,
 }
 
 /// A block the copy mode can select: the nodes it is (a code block is one, a quote the nodes of its
@@ -91,6 +94,9 @@ pub struct Found {
     /// last.
     pub nodes: Range<usize>,
     pub text: String,
+    /// The index of the block among the top-level blocks when it is one of them (not inside a
+    /// quote or a list item): the view can draw that block apart from the rest, as a fill.
+    pub top: Option<usize>,
 }
 
 /// The code blocks and the top-level quotes of drawn `blocks` (a quote's own code blocks too, a
@@ -104,6 +110,8 @@ struct Walk {
     nodes: Vec<Node>,
     found: Vec<Found>,
     marked: bool,
+    /// The top-level block being walked.
+    top: usize,
     /// The quotes and list items around the block being walked, outermost first.
     frames: Vec<Frame>,
 }
@@ -141,6 +149,7 @@ impl Walk {
             nodes: Vec::new(),
             found: Vec::new(),
             marked,
+            top: 0,
             frames: Vec::new(),
         };
         walk.blocks(blocks, "\n\n")?;
@@ -197,6 +206,9 @@ impl Walk {
     fn blocks(&mut self, blocks: &[Block], sep: &'static str) -> Option<()> {
         for (at, block) in blocks.iter().enumerate() {
             let start = self.nodes.len();
+            if self.frames.is_empty() {
+                self.top = at;
+            }
             self.block(block)?;
             if at > 0
                 && let Some(first) = self.nodes.get_mut(start)
@@ -233,12 +245,14 @@ impl Walk {
                         kind: Kind::Code,
                         nodes: at..at + 1,
                         text: text.clone(),
+                        top: self.frames.is_empty().then_some(self.top),
                     });
                 }
                 self.leaf(text, Line::code());
             }
             MdBlock::BlockQuote(children) => {
                 let (start, at) = (self.nodes.len(), self.found.len());
+                let top = self.frames.is_empty().then_some(self.top);
                 self.frames.push(Frame::Quote);
                 self.blocks(children, "\n\n")?;
                 self.frames.pop();
@@ -251,6 +265,7 @@ impl Walk {
                             kind: Kind::Quote,
                             nodes: start..self.nodes.len(),
                             text,
+                            top,
                         },
                     );
                 }
@@ -287,6 +302,8 @@ impl Walk {
             }
             MdBlock::Table(table) => {
                 // the header's cells, a blank row, then the cells of the rows: a node a cell
+                let first_node = self.nodes.len();
+                let top = self.frames.is_empty().then_some(self.top);
                 for (at, cell) in table.header.iter().enumerate() {
                     let start = self.nodes.len();
                     self.leaf(inline_text(cell)?, Line::cell());
@@ -300,6 +317,14 @@ impl Walk {
                     self.leaf(inline_text(cell)?, Line::cell());
                     self.nodes[start].before = if first { "\n\n" } else { "\n" };
                     first = false;
+                }
+                if self.nodes.len() > first_node {
+                    self.found.push(Found {
+                        kind: Kind::Table,
+                        nodes: first_node..self.nodes.len(),
+                        text: copied(&self.nodes[first_node..]),
+                        top,
+                    });
                 }
             }
             MdBlock::ThematicBreak => return None,

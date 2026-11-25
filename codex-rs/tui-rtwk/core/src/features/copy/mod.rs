@@ -39,6 +39,9 @@ pub enum Intent {
     /// `/copy`, typed in the thread `source`: the picker is asked of the surface; where there
     /// is no response to copy it is the error line.
     Command { source: Option<ThreadId> },
+    /// Copy mode could not begin over the owned transcript of `thread` (Find or another mode of
+    /// input holds the keys): the view says so, the oracle's `Nothing to copy`.
+    Nothing { thread: ThreadId },
     /// Ctrl+O: the whole last response, copied as Markdown (label `last message`).
     Last,
     /// A row of the picker (oracle `AppEvent::CopySelection`): `text` goes to the clipboard in
@@ -64,6 +67,10 @@ pub enum Wish {
         thread: ThreadId,
         response: Response,
     },
+    /// Copy mode over the chat's own transcript (`show_copy_picker` where the transcript is
+    /// owned and no status is copyable): there is no sheet, and no response is needed, a user
+    /// message is a target too.
+    Mode { thread: ThreadId },
 }
 
 /// What `/copy` says in the transcript.
@@ -71,6 +78,8 @@ pub enum Wish {
 pub enum Note {
     /// `No agent response to copy` (an error line).
     NoResponse,
+    /// `Nothing to copy` (an info line): copy mode could not begin.
+    NothingToCopy,
     /// How the copy of `label` went: the delivery status, or the clipboard's failure
     /// (`show_copy_result`: `Copied {label} to clipboard`, `Copy failed: {error}`).
     Copied {
@@ -146,11 +155,16 @@ feature! {
                         let Some(thread) = source.filter(|id| cx.view().thread(id).is_some()) else {
                             return cx.note(None, Note::NoResponse);
                         };
+                        // the oracle's owned transcript begins copy mode whatever it holds
+                        if cx.view().facts().tui().transcript_owned {
+                            return cx.wish(thread.clone(), Wish::Mode { thread });
+                        }
                         match last_response(&cx.view(), &thread) {
                             Some(response) => cx.wish(thread.clone(), Wish::Picker { thread, response }),
                             None => cx.note(Some(thread), Note::NoResponse),
                         }
                     }
+                    Intent::Nothing { thread } => cx.note(Some(thread), Note::NothingToCopy),
                     Intent::Last => {
                         let thread = cx.view().active().cloned();
                         let response = thread
@@ -190,7 +204,7 @@ feature! {
             fn note_tone(note: &Note) -> Tone {
                 match note {
                     Note::NoResponse | Note::Copied { result: Err(_), .. } => Tone::Error,
-                    Note::Copied { result: Ok(_), .. } => Tone::Info,
+                    Note::NothingToCopy | Note::Copied { result: Ok(_), .. } => Tone::Info,
                 }
             }
         }

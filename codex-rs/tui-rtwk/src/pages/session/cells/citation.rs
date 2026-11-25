@@ -16,7 +16,13 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
+use rtwk::gestures::ExcludeSelection;
+use rtwk::layout::{
+    BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row, SizedBox,
+};
 use rtwk::provider::Provider;
+use rtwk::style::{Attrs, Style};
+use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 use rtwk_rich::markdown::{
     Block, Definitions, MarkdownStream, MarkdownTheme, MarkdownView, MdBlock, MdCodeBlock,
@@ -61,12 +67,44 @@ pub fn cited(
         cwd: cwd.map(str::to_owned),
         strings,
         theme,
+        filled: None,
     }
     .into()
 }
 
+/// `cited` with the top-level block `filled.block` drawn apart, filled: the copy mode's target
+/// (oracle: every cell of the block's rows is the selection's). The widget draws the message's
+/// rows whole, `filled.bullet` in front of the first, for the fill reaches the gutter too.
+pub fn cited_filled(
+    source: &str,
+    live: bool,
+    cwd: Option<&str>,
+    strings: &'static Strings,
+    theme: MarkdownTheme,
+    filled: Filled,
+) -> AnyWidget {
+    Cited {
+        source: source.to_owned(),
+        live,
+        cwd: cwd.map(str::to_owned),
+        strings,
+        theme,
+        filled: Some(filled),
+    }
+    .into()
+}
+
+/// The block of a message that is drawn filled, and the message's bullet.
+#[derive(Clone, PartialEq)]
+pub struct Filled {
+    pub block: usize,
+    pub bullet: String,
+    pub bullet_style: Style,
+}
+
 #[derive(Clone)]
 struct Cited {
+    filled: Option<Filled>,
     source: String,
     live: bool,
     cwd: Option<String>,
@@ -82,6 +120,7 @@ impl PartialEq for Cited {
             && self.cwd == other.cwd
             && std::ptr::eq(self.strings, other.strings)
             && self.theme == other.theme
+            && self.filled == other.filled
     }
 }
 
@@ -105,17 +144,82 @@ impl State for CitedState {
         // a tree with no app above it (a widget on its own) has the config's defaults
         let rendering = Provider::<TuiSettings>::maybe_of(cx, true)
             .map_or_else(Rendering::default, |settings| settings.rendering);
-        crate::widgets::markdown::themed(
-            view_with(
-                &widget.source,
-                widget.live,
-                widget.cwd.as_deref(),
-                widget.strings,
-                rendering,
-            ),
-            widget.theme.clone(),
-        )
-        .into()
+        let view = view_with(
+            &widget.source,
+            widget.live,
+            widget.cwd.as_deref(),
+            widget.strings,
+            rendering,
+        );
+        if let Some(filled) = &widget.filled
+            && let Some(blocks) = view.blocks.clone()
+            && filled.block < blocks.len()
+        {
+            return self.filled(widget, filled, &blocks, &view);
+        }
+        crate::widgets::markdown::themed(view, widget.theme.clone()).into()
+    }
+}
+
+impl CitedState {
+    /// The message as its rows: the blocks before the filled one, the filled one in a box of the
+    /// full width, the blocks after; the blank row between two blocks of a document is one
+    /// `SizedBox` between them, so the rows are those of the whole view.
+    fn filled(
+        &self,
+        widget: &Cited,
+        filled: &Filled,
+        blocks: &[Block],
+        view: &MarkdownView,
+    ) -> AnyWidget {
+        let at = filled.block;
+        let mut column = Column::new()
+            .main_axis_size(MainAxisSize::Min)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch);
+        let mut first = true;
+        for (range, fill) in [
+            (0..at, false),
+            (at..at + 1, true),
+            (at + 1..blocks.len(), false),
+        ] {
+            if range.is_empty() {
+                continue;
+            }
+            if !first {
+                column = column.child(SizedBox::new(None, Some(1), None));
+            }
+            let part = crate::widgets::markdown::themed(
+                MarkdownView::blocks(blocks[range].to_vec(), view.definitions.clone()),
+                widget.theme.clone(),
+            );
+            let gutter: AnyWidget = if first {
+                Text::new(filled.bullet.clone())
+                    .style(filled.bullet_style.clone())
+                    .into()
+            } else {
+                Text::new(" ".repeat(filled.bullet.chars().count())).into()
+            };
+            let row = Row::new()
+                .cross_axis_alignment(CrossAxisAlignment::Start)
+                .spacing(1)
+                .overflow_intended(true)
+                .child(ExcludeSelection::new(gutter))
+                .child(Expanded::new(
+                    1,
+                    Padding::new(EdgeInsets::only(0, 0, 1, 0), part),
+                ));
+            column = column.child(if fill {
+                AnyWidget::from(
+                    BoxWidget::new()
+                        .style(Style::new().attrs(Attrs::REVERSE))
+                        .child(row),
+                )
+            } else {
+                row.into()
+            });
+            first = false;
+        }
+        column.into()
     }
 }
 

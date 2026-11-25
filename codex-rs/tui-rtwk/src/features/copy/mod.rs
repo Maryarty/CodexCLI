@@ -62,9 +62,12 @@ impl FeatureView for Copier {
     }
 
     /// The picker opens once for the wish, at the bottom of the chat; nothing keeps a scope's sheet
-    /// open for it.
+    /// open for it. `Wish::Mode` has no sheet: the mode began in place or the presenter says it
+    /// could not (`Intent::Nothing`).
     fn shown(wish: &Wish, _scope: &Scope) -> Option<Shown> {
-        let Wish::Picker { response, .. } = wish.clone();
+        let Wish::Picker { response, .. } = wish.clone() else {
+            return None;
+        };
         Some(Shown {
             held_by: None,
             open: Rc::new(move || -> AnyWidget {
