@@ -526,6 +526,16 @@ impl Finder {
         self.notify();
     }
 
+    /// Enter while select mode is on: Find closes and the reader stays where the match was shown,
+    /// the caret goes to it (`accept_search_into_select_mode` leaves the position as the search
+    /// scrolled it).
+    pub fn accepted(&self) {
+        if self.0.data.borrow().mode == Mode::Closed {
+            return;
+        }
+        self.close();
+    }
+
     /// The reader goes where the closed Find leaves them, once: asked after the frame that built
     /// the list again, which takes no move made before it. The answer is the pixels of a reader
     /// put away from the last row, whose jump lands on estimated extents until the rows are laid

@@ -996,7 +996,7 @@ impl State for ViewportState {
                         &search.query().text(),
                     );
                 }
-                search.cancel();
+                search.accepted();
             }
             if search.active() {
                 let hit = search.advance(&**texts, more);

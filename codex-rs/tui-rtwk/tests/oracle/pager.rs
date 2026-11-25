@@ -59,19 +59,53 @@ fn fallback_handles_offsets_near_maximum_height() {
 // ORACLE pager_overlay/transcript_tests.rs:32 empty_pending_select_mode_closes_instead_of_retaining_overlay_focus kind=ui owner=chat-live
 #[test]
 fn empty_pending_select_mode_closes_instead_of_retaining_overlay_focus() {
-    kit::missing(
-        Owner::ChatLive,
-        "select mode (transcript chunk step 6): it moves a caret over the texts the rows show, which need the text of each item (`ListView::item_text`: one line per item, `cells::text`; chunk-cells); an empty sheet closes instead of holding it",
-    );
+    // the oracle begins select mode on an overlay of no cells and the next render closes it; here
+    // the select chord asks for it on a sheet over a thread with no entries
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(40, 8)
+        .entry("transcript", "sheet_empty")
+        .open();
+    s.assert_contains("T R A N S C R I P T");
+    s.keys("leader [");
+    s.assert_absent("T R A N S C R I P T");
+    s.assert_contains("debug screens");
 }
 
 // ORACLE pager_overlay/transcript_tests.rs:45 select_enter_closes_and_remapped_action_marks_in_the_inline_overlay kind=ui owner=chat-live
 #[test]
 fn select_enter_closes_and_remapped_action_marks_in_the_inline_overlay() {
-    kit::missing(
-        Owner::ChatLive,
-        "select and copy modes (transcript chunk steps 6-7) over the text of each item (`ListView::item_text`, one line per item; chunk-cells), and a remapped `find_transcript` (the sheet's keys are the defaults until the keymap reaches the pager)",
-    );
+    fn sheet(keymap: &'static [(&'static str, &'static str)]) -> Screen {
+        let s = Screen::build(Owner::ChatLive)
+            .size(40, 8)
+            .keymap(keymap)
+            .entry("transcript", "sheet_copy_me")
+            .open();
+        s.assert_contains("T R A N S C R I P T");
+        s
+    }
+    // `find_transcript` remapped to `v`: select mode, begun, keeps `v` for its mark (the `c` of `copy me`)
+    let mut s = sheet(&[("global.find_transcript", "v")]);
+    s.keys("leader [");
+    s.keys("v");
+    s.assert_style_in("copy me", 0, "reversed");
+    s.assert_style_in("copy me", 1, "!reversed");
+    // the same key outside select mode begins Find: the next `v` is its query, and no select mode begins
+    let mut s = sheet(&[("global.find_transcript", "v")]);
+    s.keys("v");
+    s.assert_contains("Find:");
+    s.keys("v");
+    s.assert_contains("Find: v");
+    s.assert_absent("v mark");
+    // the pager's own find key remapped to Enter: Enter in select mode (nothing marked) closes the sheet
+    let mut s = sheet(&[("global.find_transcript", "v"), ("pager.find", "enter")]);
+    s.keys("leader [");
+    s.assert_contains("v mark");
+    s.keys("enter");
+    s.assert_absent("T R A N S C R I P T");
+    // the oracle's last case begins copy mode on an ordinary answer (`begin_copy_mode`) and copies
+    // with Enter, which closes the overlay once the copy is delivered: copy mode is begun by
+    // `/copy` over the chat's own transcript and has no key on a sheet yet, so that case is
+    // f-copy-mode's (the sheet's `Step::CopyAndFollow` here closes it the same way for select mode)
 }
 
 // ORACLE pager_overlay/transcript_tests.rs:113 scrolling_prepend_and_resize_preserve_reading_content kind=ui owner=chat-live
