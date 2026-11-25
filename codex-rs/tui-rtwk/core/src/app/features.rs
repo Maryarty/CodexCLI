@@ -171,6 +171,7 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
         Out::Lifecycle(lifecycle) => super::lifecycle::carry(app, lifecycle, fx),
         Out::Chat(facts) => chat_facts(app, facts, fx),
         Out::Verb(verb) => super::verbs::carry(app, verb, fx),
+        Out::End => fx.ends = true,
         Out::Settled { thread } => {
             let intent = FeatureThreadIntent::Settled;
             apply_thread(app, &thread, ThreadEv::FeatureIntent(intent), fx);
