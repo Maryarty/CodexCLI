@@ -84,7 +84,7 @@ pub fn client_request(
             request_id,
             params: TurnStartParams {
                 thread_id: thread.to_string(),
-                input: turn_input(message),
+                input: turn_input_in(message, Some(thread.as_str())),
                 responsesapi_client_metadata: misalignment_override.map(|timestamp| {
                     std::collections::HashMap::from([(
                         "misalignment_override".to_owned(),
@@ -327,8 +327,13 @@ pub fn dismissal() -> JSONRPCErrorError {
 }
 
 /// The input of a turn (`input_submission.rs`): the remote images first, then the local ones,
-/// then the text with a text element for each local image's placeholder.
-pub(crate) fn turn_input(message: &UserMessage) -> Vec<UserInput> {
+/// then the text with a text element for each local image's placeholder. The tasks the text
+/// names add their context to the text sent.
+///
+/// `current` is the thread the turn goes to: its own task mention is no reference
+/// (`apply_task_references`). Task mentions are always on: the oracle turns them off only for a
+/// thread resumed from a directory without the capability file, a state this port has not.
+pub(crate) fn turn_input_in(message: &UserMessage, current: Option<&str>) -> Vec<UserInput> {
     let mut input: Vec<UserInput> = message
         .remote_images
         .iter()
@@ -342,23 +347,60 @@ pub(crate) fn turn_input(message: &UserMessage) -> Vec<UserInput> {
         detail: None,
     }));
     if !message.text.is_empty() {
+        let image_ranges: Vec<_> = message
+            .images
+            .iter()
+            .map(|image| image.range.clone())
+            .collect();
+        let context = crate::kit::mentions::with_task_context(
+            &message.text,
+            &message.tasks,
+            current,
+            &image_ranges,
+        );
+        let element = |range: std::ops::Range<usize>, text: &str| {
+            let placeholder = text.get(range.clone())?;
+            Some(TextElement::new(
+                ByteRange {
+                    start: range.start,
+                    end: range.end,
+                },
+                Some(placeholder.to_string()),
+            ))
+        };
         let mut elements: Vec<TextElement> = message
             .images
             .iter()
             .filter_map(|image| {
-                let placeholder = message.text.get(image.range.clone())?;
-                Some(TextElement::new(
-                    ByteRange {
-                        start: image.range.start,
-                        end: image.range.end,
-                    },
-                    Some(placeholder.to_string()),
-                ))
+                let range = match &context {
+                    Some(context) => context.map(image.range.clone()),
+                    None => image.range.clone(),
+                };
+                element(range, context.as_ref().map_or(&message.text, |c| &c.text))
             })
             .collect();
+        // a task mention is an element too: its link in the text sent (else `@title` as typed),
+        // `@title` its placeholder
+        let sent = context
+            .as_ref()
+            .map_or(message.text.as_str(), |c| c.text.as_str());
+        for (index, task) in message.tasks.iter().enumerate() {
+            let range = context
+                .as_ref()
+                .map_or_else(|| task.range.clone(), |c| c.tasks[index].clone());
+            if sent.get(range.clone()).is_some() {
+                elements.push(TextElement::new(
+                    ByteRange {
+                        start: range.start,
+                        end: range.end,
+                    },
+                    Some(format!("@{}", task.title)),
+                ));
+            }
+        }
         elements.sort_by_key(|element| element.byte_range.start);
         input.push(UserInput::Text {
-            text: message.text.clone(),
+            text: context.map_or_else(|| message.text.clone(), |context| context.text),
             text_elements: elements,
         });
     }

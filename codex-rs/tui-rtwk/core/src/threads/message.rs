@@ -7,7 +7,7 @@
 use std::ops::Range;
 use std::path::PathBuf;
 
-pub use crate::data::mention::ToolMention;
+pub use crate::data::mention::{TaskRef, ToolMention};
 
 /// An image file attached to a message, the placeholder it stands for in the
 /// text being `range`.
@@ -26,6 +26,9 @@ pub struct UserMessage {
     /// them in the text, the turn sends them before the local ones.
     pub remote_images: Vec<String>,
     pub mentions: Vec<ToolMention>,
+    /// The tasks its `@` mentions name (`@title` in the text): the turn adds their context and
+    /// writes them as links (`kit::mentions::with_task_context`); the visible text keeps the title.
+    pub tasks: Box<[TaskRef]>,
 }
 
 impl UserMessage {
@@ -35,6 +38,7 @@ impl UserMessage {
             images: Vec::new(),
             remote_images: Vec::new(),
             mentions: Vec::new(),
+            tasks: Box::default(),
         }
     }
 
@@ -54,11 +58,20 @@ impl UserMessage {
                 })
             })
             .collect();
+        let tasks = self
+            .tasks
+            .into_iter()
+            .filter_map(|task| {
+                let range = task.range.start.checked_sub(start)?..task.range.end - start;
+                (range.end <= text.len()).then_some(TaskRef { range, ..task })
+            })
+            .collect();
         Self {
             text,
             images,
             remote_images: self.remote_images,
             mentions: self.mentions,
+            tasks,
         }
     }
 
@@ -89,6 +102,23 @@ mod tests {
         let message = message.trimmed();
         assert_eq!(message.text, "[Image #1] hi");
         assert_eq!(message.images, vec![image(0, 10)]);
+    }
+
+    #[test]
+    fn trimming_moves_the_task_ranges_too() {
+        let message = UserMessage {
+            text: "  see @Fix it\n".into(),
+            tasks: vec![TaskRef {
+                range: 6..13,
+                title: "Fix it".into(),
+                thread: crate::ids::ThreadId::new("t1"),
+            }]
+            .into(),
+            ..UserMessage::default()
+        };
+        let message = message.trimmed();
+        assert_eq!(message.text, "see @Fix it");
+        assert_eq!(message.tasks[0].range, 4..11);
     }
 
     #[test]

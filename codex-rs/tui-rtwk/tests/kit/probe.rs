@@ -81,6 +81,40 @@ impl Screen {
         self.assert_turn_texts(&[]);
     }
 
+    /// The text the last turn goes out with holds every part of `holds` and ends with `ends`
+    /// (the oracle's `UserInput::Text` of a task-mention submission): the message the app
+    /// started the turn with, its task mentions given their context as `turn_input` does.
+    pub fn assert_last_turn_text(&self, holds: &[&str], ends: &str) {
+        let (thread, message) = self
+            .h
+            .fake
+            .commands()
+            .into_iter()
+            .filter_map(|c| match c {
+                Command::StartTurn {
+                    thread, message, ..
+                } => Some((thread, message)),
+                _ => None,
+            })
+            .next_back()
+            .expect("no turn was started");
+        let images: Vec<_> = message.images.iter().map(|i| i.range.clone()).collect();
+        let text = codex_tui_core::kit::mentions::with_task_context(
+            &message.text,
+            &message.tasks,
+            Some(thread.as_str()),
+            &images,
+        )
+        .map_or(message.text.clone(), |context| context.text);
+        for part in holds {
+            assert!(text.contains(part), "the turn text lacks {part:?}: {text}");
+        }
+        assert!(
+            text.ends_with(ends),
+            "the turn text does not end with {ends:?}: {text}"
+        );
+    }
+
     /// `n` interrupts have gone out.
     pub fn assert_interrupts(&self, n: usize) {
         assert_eq!(self.interrupts(), n, "interrupts sent\n{}", self.text());

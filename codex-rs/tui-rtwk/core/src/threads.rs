@@ -46,7 +46,7 @@ pub use codex_protocol::models::MessagePhase;
 pub use collab::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind};
 pub use decision::ReviewLine;
 pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
-pub use message::{LocalImage, ToolMention, UserMessage};
+pub use message::{LocalImage, TaskRef, ToolMention, UserMessage};
 pub use note::{CdRefusal, ModeNote, Note, NoteKey, RemoveNote, Stub, Toggle, Tone};
 pub use processes::{Terminal, WaitStreak};
 pub use queue::{DueCommand, Queued, Ran};
@@ -1902,7 +1902,7 @@ impl ThreadAsk {
                 request_id,
                 params: codex_app_server_protocol::TurnSteerParams {
                     thread_id: thread.clone(),
-                    input: crate::protocol::turn_input(message),
+                    input: crate::protocol::turn_input_in(message, Some(thread.as_str())),
                     expected_turn_id: turn.clone(),
                     ..Default::default()
                 },
@@ -3686,9 +3686,12 @@ fn merge_messages(messages: Vec<UserMessage>) -> UserMessage {
                 merged.mentions.push(mention);
             }
         }
+        let base = merged.text.len();
         let mut images = message.images;
         images.sort_by_key(|image| image.range.start);
         let mut cursor = 0;
+        // (end in the message's text, bytes the renumbering added) of each image taken
+        let mut grown: Vec<(usize, isize)> = Vec::new();
         for image in images {
             let range = image.range;
             if range.start < cursor || range.end > message.text.len() {
@@ -3704,9 +3707,29 @@ fn merge_messages(messages: Vec<UserMessage>) -> UserMessage {
                 path: image.path,
                 range: start..merged.text.len(),
             });
+            grown.push((
+                range.end,
+                (merged.text.len() - start) as isize - range.len() as isize,
+            ));
             cursor = range.end;
         }
         merged.text.push_str(&message.text[cursor..]);
+        // the tasks' ranges move with the text before them
+        let mut tasks = std::mem::take(&mut merged.tasks).into_vec();
+        tasks.extend(message.tasks.into_vec().into_iter().map(|task| {
+            let delta: isize = grown
+                .iter()
+                .filter(|(end, _)| *end <= task.range.start)
+                .map(|(_, delta)| *delta)
+                .sum();
+            let start = (base + task.range.start).saturating_add_signed(delta);
+            let end = start + task.range.len();
+            TaskRef {
+                range: start..end,
+                ..task
+            }
+        }));
+        merged.tasks = tasks.into();
     }
     merged
 }

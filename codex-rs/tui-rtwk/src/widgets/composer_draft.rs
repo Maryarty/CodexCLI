@@ -24,6 +24,7 @@ use rtwk::editing::{TextBuffer, TextEditingController, TextSelection};
 use codex_tui_core::data::history::{Lookup, Store};
 use codex_tui_core::data::mention::Mention;
 use codex_tui_core::data::task::valid_thread_path;
+use codex_tui_core::ids::ThreadId;
 use codex_tui_core::kit::history::{
     HistoryEntry, MentionBinding, PromptWalk as Prompts, TextElement,
 };
@@ -32,7 +33,7 @@ use codex_tui_core::kit::mentions::session::ComposerBinding;
 use codex_tui_core::kit::mentions::tool_mentions;
 use codex_tui_core::kit::paste as paste_rules;
 use codex_tui_core::kit::paste_burst::PasteBurst;
-use codex_tui_core::threads::{LocalImage, UserMessage};
+use codex_tui_core::threads::{LocalImage, TaskRef, UserMessage};
 
 use crate::services::images;
 
@@ -331,6 +332,12 @@ impl ComposerDraft {
         true
     }
 
+    /// Puts `text` at the caret, as if typed (`insert_str`): what a sheet hands over.
+    pub fn insert_text(&self, c: &TextEditingController, text: &str) {
+        self.sync(c);
+        c.insert(text);
+    }
+
     /// Puts an element showing `label` for `payload` in place of the
     /// selection, the caret after it.
     pub fn insert_element(&self, c: &TextEditingController, label: &str, payload: &str) {
@@ -525,6 +532,19 @@ impl ComposerDraft {
             .iter()
             .filter_map(|(_, e)| e.binding.clone())
             .collect();
+        // the `@title` elements bound to a `thread://` path name a task
+        let tasks: Vec<TaskRef> = placed
+            .iter()
+            .filter_map(|(range, e)| {
+                let binding = e.binding.as_ref()?;
+                let thread = binding.path.strip_prefix("thread://")?;
+                Some(TaskRef {
+                    range: range.clone(),
+                    title: binding.mention.clone(),
+                    thread: ThreadId::new(thread),
+                })
+            })
+            .collect();
         let mut images: Vec<(u64, LocalImage)> = placed
             .into_iter()
             .filter_map(|(range, e)| {
@@ -544,6 +564,7 @@ impl ComposerDraft {
             images: images.into_iter().map(|(_, image)| image).collect(),
             remote_images: self.remote_images(),
             mentions: tool_mentions(&bindings, catalog),
+            tasks: tasks.into(),
         }
     }
 

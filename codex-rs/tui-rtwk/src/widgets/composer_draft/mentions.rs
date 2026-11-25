@@ -17,6 +17,7 @@ use rtwk::foundation::ChangeNotifier;
 use rtwk::scroll::ListController;
 
 use codex_tui_core::data::files::FileSearchAsk;
+use codex_tui_core::data::task::{MAX_REFERENCED_TASKS, TaskMention, valid_thread_path};
 use codex_tui_core::kit::mentions::search_mode::SearchMode;
 use codex_tui_core::kit::mentions::session::{
     Active, MentionPick, MentionSession, PickAction, Separator, Sources, completion_separator,
@@ -289,7 +290,46 @@ impl ComposerDraft {
             return mentions.close();
         }
         let now = self.mention_doc(c);
-        mentions.sync(&now.doc(), src)
+        let tasks = self.unmentioned_tasks(c, src.tasks);
+        mentions.sync(
+            &now.doc(),
+            &Sources {
+                tasks: tasks.as_deref().unwrap_or(src.tasks),
+                ..*src
+            },
+        )
+    }
+
+    /// The tasks the search found that the draft does not mention yet, none at all once it
+    /// mentions as many as a prompt may reference (`on_task_search_result`); `None` when nothing
+    /// is held back.
+    fn unmentioned_tasks(
+        &self,
+        c: &TextEditingController,
+        found: &[TaskMention],
+    ) -> Option<Vec<TaskMention>> {
+        if found.is_empty() {
+            return None;
+        }
+        let mentioned: std::collections::HashSet<String> = self
+            .elements(c)
+            .iter()
+            .filter_map(|e| {
+                let binding = e.binding.as_ref()?;
+                valid_thread_path(&binding.path).map(str::to_string)
+            })
+            .collect();
+        if mentioned.is_empty() {
+            return None;
+        }
+        let full = mentioned.len() >= MAX_REFERENCED_TASKS;
+        Some(
+            found
+                .iter()
+                .filter(|task| !full && !mentioned.contains(task.thread_id.as_str()))
+                .cloned()
+                .collect(),
+        )
     }
 
     /// Esc on a popup: closed for this very token.

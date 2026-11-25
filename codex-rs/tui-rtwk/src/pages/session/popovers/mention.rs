@@ -430,35 +430,103 @@ impl Part {
     /// The hint line: each key bold and its word dim, `left` and `right`
     /// cells in. One `Text` per key and per word: the text layout gives a
     /// blank between two styled spans the style of the span before it, and the
-    /// oracle's blank after a key is dim. The last word is cut at the end.
-    fn hint(&self, parts: &[(&'static str, &'static str)], left: i32, right: i32) -> AnyWidget {
-        let mut row = Row::new();
-        let last = parts.len().saturating_sub(1);
-        for (at, (keys, word)) in parts.iter().enumerate() {
-            row = row.child(Text::line(*keys).style(self.look.bold.clone()));
-            let word = Text::line(*word).style(self.look.dim.clone());
-            row = if at == last {
-                row.child(Flexible {
-                    flex: 1,
-                    fit: FlexFit::Loose,
-                    child: word.into(),
-                })
-            } else {
-                row.child(word)
-            };
-        }
+    /// oracle's blank after a key is dim. The last word is cut at the end;
+    /// with `dots`, a line that does not fit is cut with a `…` on its last cell
+    /// (`mentions_v2/footer.rs`), measured under a `LayoutBuilder`.
+    fn hint(
+        &self,
+        parts: &[(&'static str, &'static str)],
+        left: i32,
+        right: i32,
+        dots: bool,
+    ) -> AnyWidget {
+        let (bold, dim) = (self.look.bold.clone(), self.look.dim.clone());
+        let parts = parts.to_vec();
+        let line: AnyWidget = if dots {
+            LayoutBuilder::new(move |cx, constraints| {
+                let seg = segmenter_of(cx);
+                let room = usize::try_from(constraints.max_width).unwrap_or(0);
+                let mut pieces: Vec<(String, Style)> = Vec::new();
+                for (keys, word) in &parts {
+                    pieces.push(((*keys).to_string(), bold.clone()));
+                    pieces.push(((*word).to_string(), dim.clone()));
+                }
+                let total: usize = pieces.iter().map(|(text, _)| seg.width(text)).sum();
+                if total > room {
+                    pieces = cut_pieces(pieces, room, |text| seg.width(text));
+                }
+                let mut row = Row::new();
+                for (text, style) in pieces {
+                    row = row.child(Text::line(text).style(style));
+                }
+                row.into()
+            })
+            .into()
+        } else {
+            let mut row = Row::new();
+            let last = parts.len().saturating_sub(1);
+            for (at, (keys, word)) in parts.iter().enumerate() {
+                row = row.child(Text::line(*keys).style(bold.clone()));
+                let word = Text::line(*word).style(dim.clone());
+                row = if at == last {
+                    row.child(Flexible {
+                        flex: 1,
+                        fit: FlexFit::Loose,
+                        child: word.into(),
+                    })
+                } else {
+                    row.child(word)
+                };
+            }
+            row.into()
+        };
         SizedBox::new(
             None,
             Some(1),
             Some(
                 BoxWidget::new()
                     .padding(EdgeInsets::only(left, 0, right, 0))
-                    .child(row)
+                    .child(line)
                     .into(),
             ),
         )
         .into()
     }
+}
+
+/// `pieces` cut to `room` cells with a `…` on the last cell, in the style of the piece it cuts.
+fn cut_pieces(
+    pieces: Vec<(String, Style)>,
+    room: usize,
+    width: impl Fn(&str) -> usize,
+) -> Vec<(String, Style)> {
+    let mut left = room.saturating_sub(1);
+    let mut out = Vec::new();
+    let mut style = Style::default();
+    for (text, piece_style) in pieces {
+        style = piece_style.clone();
+        let mut kept = String::new();
+        let mut cut = false;
+        for ch in text.chars() {
+            let cells = width(&ch.to_string());
+            if cells > left {
+                cut = true;
+                break;
+            }
+            left -= cells;
+            kept.push(ch);
+        }
+        if !kept.is_empty() {
+            out.push((kept, piece_style));
+        }
+        if cut {
+            break;
+        }
+    }
+    if room > 0 {
+        out.push(("\u{2026}".to_string(), style));
+    }
+    out
 }
 
 // ---- the unified `@` popup ---------------------------------------------------
@@ -553,7 +621,12 @@ fn unified(at: Rc<At>, part: Part, tab_taps: Vec<Handler<PointerEvent>>) -> AnyW
             SizedBox::new(
                 None,
                 Some(1),
-                Some(inset(Text::line(text).style(style.clone()).into())),
+                Some(inset(
+                    Text::line(text)
+                        .style(style.clone())
+                        .overflow(TextOverflow::Clip)
+                        .into(),
+                )),
             )
             .into()
         };
@@ -617,7 +690,7 @@ fn unified(at: Rc<At>, part: Part, tab_taps: Vec<Handler<PointerEvent>>) -> AnyW
             (table.hint_select_keys, table.hint_select),
             (table.hint_filter_keys, table.hint_filter),
         ];
-        column.child(part.hint(&keys, 2, 2)).into()
+        column.child(part.hint(&keys, 2, 2, true)).into()
     })
     .into()
 }
@@ -871,7 +944,7 @@ fn dollar(rows: Rc<[DollarRow]>, part: Part) -> AnyWidget {
                 (table.skill_hint_insert_key, table.hint_insert),
                 (table.hint_close_key, table.skill_hint_close),
             ];
-            column = column.child(part.hint(&keys, 2, 0));
+            column = column.child(part.hint(&keys, 2, 0, false));
         } else {
             column = column.child(body(height));
         }

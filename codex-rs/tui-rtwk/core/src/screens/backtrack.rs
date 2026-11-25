@@ -36,10 +36,10 @@ use crate::ids::TurnId;
 use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ItemKey;
+use crate::threads::LocalImage;
 use crate::threads::ThreadAsk;
 use crate::threads::ThreadFx;
 use crate::threads::Transcript;
-use crate::threads::LocalImage;
 use crate::threads::UserMessage;
 use crate::threads::UserPrompt;
 
@@ -50,7 +50,9 @@ use crate::threads::Item;
 /// (a prompt of control characters only is hidden unless it has elements or
 /// images).
 pub fn is_visible(prompt: &UserPrompt) -> bool {
-    !crate::kit::paste::sanitize_paste(&prompt.text).trim().is_empty()
+    !crate::kit::paste::sanitize_paste(&prompt.text)
+        .trim()
+        .is_empty()
         || !prompt.elements.is_empty()
         || !prompt.images.is_empty()
 }
@@ -105,7 +107,10 @@ impl Selection {
     /// shows it (what goes back to the composer if the edit fails).
     pub fn edit(&self, transcript: &Transcript) -> Option<Edit> {
         let (key, prompt) = nth_user(transcript, self.nth)?;
-        Some(Edit { key: key.clone(), shown: prompt.clone() })
+        Some(Edit {
+            key: key.clone(),
+            shown: prompt.clone(),
+        })
     }
 }
 
@@ -189,7 +194,11 @@ impl Prompt {
         let mut prompt = Self::default();
         for input in content {
             match input {
-                UserInput::Text { text, text_elements, .. } => {
+                UserInput::Text {
+                    text,
+                    text_elements,
+                    ..
+                } => {
                     let offset = prompt.text.len();
                     prompt.text.push_str(text);
                     prompt.elements.extend(text_elements.iter().map(|element| {
@@ -203,9 +212,10 @@ impl Prompt {
                         }
                     }));
                 }
-                UserInput::Image { image: ImageReference::Inline { url }, .. } => {
-                    prompt.remote_images.push(url.clone())
-                }
+                UserInput::Image {
+                    image: ImageReference::Inline { url },
+                    ..
+                } => prompt.remote_images.push(url.clone()),
                 UserInput::LocalImage { path, .. } => prompt.local_images.push(path.clone()),
                 UserInput::Skill { name, path } => prompt.mentions.push(Mention {
                     skill: true,
@@ -234,7 +244,9 @@ pub fn revert_before_turn(turns: &[Turn], key: &ItemKey) -> Result<(TurnId, Prom
         .ok_or(RevertError::NotFound)?;
     let mut earlier_prompts = 0;
     for payload in turn.item_payloads() {
-        let ThreadItemPayload::UserMessage { id, content, .. } = payload else { continue };
+        let ThreadItemPayload::UserMessage { id, content, .. } = payload else {
+            continue;
+        };
         if id != key.item.as_str() {
             earlier_prompts += 1;
             continue;
@@ -296,6 +308,7 @@ impl Draft {
                         .collect(),
                     remote_images: prompt.remote_images.clone(),
                     mentions: Vec::new(),
+                    tasks: Box::default(),
                 }
             }
         }
@@ -314,7 +327,10 @@ pub struct DraftRestore {
 enum Stage {
     Reading,
     /// `thread/revert` is out; `confirmed` = `ThreadReverted` came before its answer.
-    Reverting { prompt: Prompt, confirmed: bool },
+    Reverting {
+        prompt: Prompt,
+        confirmed: bool,
+    },
     /// Reverted; waiting for the server's `ThreadReverted` (10 s; the edit's key guards the expiry).
     Awaiting(Ticket),
 }
@@ -349,7 +365,10 @@ impl ThreadPart {
 
     fn give(&mut self, draft: Draft) {
         self.seq += 1;
-        self.restore = Some(DraftRestore { seq: self.seq, draft });
+        self.restore = Some(DraftRestore {
+            seq: self.seq,
+            draft,
+        });
     }
 
     /// The edit failed before the server changed anything: the prompt goes back
@@ -367,7 +386,10 @@ impl ThreadPart {
         match found {
             Ok((turn, prompt)) => {
                 let (_, stage) = self.edit.as_mut()?;
-                *stage = Stage::Reverting { prompt, confirmed: false };
+                *stage = Stage::Reverting {
+                    prompt,
+                    confirmed: false,
+                };
                 Some(turn)
             }
             Err(error) => {
@@ -380,7 +402,9 @@ impl ThreadPart {
     /// The server reverted: the persisted prompt goes to the composer now (the
     /// oracle does not wait for the notification) and the edit waits for it.
     fn reverted(&mut self, ticket: Ticket) {
-        let Some((edit, stage)) = self.edit.take() else { return };
+        let Some((edit, stage)) = self.edit.take() else {
+            return;
+        };
         let Stage::Reverting { prompt, confirmed } = stage else {
             self.edit = Some((edit, stage));
             return;

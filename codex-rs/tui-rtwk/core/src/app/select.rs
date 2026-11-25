@@ -293,6 +293,13 @@ pub(super) fn event(app: &mut CodexApp, ev: select::Ev, fx: &mut AppFx) {
     drain(app, fx);
 }
 
+/// The directory of apps is read (not forced): a surface that lists the apps without `/apps`.
+pub(super) fn refresh_apps(app: &mut CodexApp, fx: &mut AppFx) {
+    let before = app.screens.select.apps.pending;
+    Rc::make_mut(&mut app.screens).select.apps.refresh(false);
+    asked_apps(app, before, fx);
+}
+
 /// The `app/list` the screen left pending since `before`, asked for.
 fn asked_apps(app: &mut CodexApp, before: Option<apps::Request>, fx: &mut AppFx) {
     let Some(pending) = app

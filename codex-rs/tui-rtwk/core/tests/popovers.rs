@@ -6,6 +6,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
 
 use codex_tui_core::data::history::{Lookup, Store};
+use codex_tui_core::ids::ThreadId;
 use codex_tui_core::kit::history::{
     HistorySearch, PromptWalk, SearchPreview, SearchStatus, WalkDirection,
 };
@@ -486,4 +487,59 @@ mod live {
         poke(&mut app);
         assert_eq!(names(&app), vec![(MentionKind::Skill, "Seeded".into())]);
     }
+}
+
+fn found(id: &str, cwd: &str) -> Found {
+    Found {
+        id: ThreadId::new(id),
+        title: id.to_uppercase(),
+        cwd: cwd.into(),
+        snippet: String::new(),
+        hidden: false,
+    }
+}
+
+#[test]
+fn task_search_lists_the_search_then_the_titles_it_lacks_but_not_the_current_thread() {
+    let current = ThreadId::new("cur");
+    let search = vec![found("a", "/x"), found("cur", "/x")];
+    let titles = vec![found("a", "/x"), found("b", "/x")];
+    let tasks = merge_tasks(Some(search), Some(titles), &current, "/work").expect("one half is in");
+    let ids: Vec<_> = tasks
+        .iter()
+        .map(|task| task.thread_id.to_string())
+        .collect();
+    assert_eq!(ids, ["a", "b"]);
+}
+
+#[test]
+fn task_search_hides_ephemeral_threads_and_sorts_those_under_the_directory_first() {
+    let current = ThreadId::new("cur");
+    let mut ghost = found("ghost", "/work");
+    ghost.hidden = true;
+    let list = vec![
+        found("far", "/other"),
+        ghost,
+        found("near", "/work/sub"),
+        found("close", "/workshop"),
+        found("same", "/work"),
+    ];
+    let tasks = merge_tasks(Some(list), None, &current, "/work").unwrap();
+    let ids: Vec<_> = tasks
+        .iter()
+        .map(|task| task.thread_id.to_string())
+        .collect();
+    assert_eq!(ids, ["near", "same", "far", "close"]);
+}
+
+#[test]
+fn a_failed_half_is_covered_by_the_other_and_two_failures_list_nothing() {
+    let current = ThreadId::new("cur");
+    assert_eq!(
+        merge_tasks(None, Some(vec![found("b", "/")]), &current, "/")
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(merge_tasks(None, None, &current, "/").is_none());
 }

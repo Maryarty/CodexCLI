@@ -35,6 +35,7 @@ ratchet holes_core_prose core/src/threads.rs 1
 ratchet holes_core_prose core/src/threads/activity.rs 1
 exempt holes_core_prose core/src/features/side/policy.rs a model prompt (the words are the model's, not the user's)
 exempt holes_core_prose core/src/features/rename/title.rs a model prompt (the words are the model's, not the user's)
+exempt holes_core_prose core/src/kit/mentions/task_refs.rs a model prompt (the context block of a task mention: the words are the model's, not the user's)
 
 # holes_string_ids: `thread`/`turn`/`parent` as String in core (any struct, enum variant or parameter), and sets and maps of String in the screens, as `file:field` (core-review-c R4). The non-id sets and maps are the exempt lines.
 ratchet holes_string_ids core/src/app/structured.rs:thread 1

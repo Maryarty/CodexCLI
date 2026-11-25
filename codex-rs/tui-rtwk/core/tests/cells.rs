@@ -276,7 +276,10 @@ fn a_completed_context_compaction_is_a_notice_made_on_completion() {
         .filter(|(_, item)| matches!(item, Item::Notice(_)))
         .map(|(_, item)| item.clone())
         .collect();
-    assert_eq!(notices, [Item::Notice(Notice::ContextCompacted { took: None })]);
+    assert_eq!(
+        notices,
+        [Item::Notice(Notice::ContextCompacted { took: None })]
+    );
 }
 
 /// The app with its thread `thread-1` started, as after `Connected` and the reply.
@@ -1523,7 +1526,7 @@ mod user_prompt_shown {
         let prompt = prompt("abc def", elements);
         let shown = prompt.shown();
         assert!(matches!(shown.text, std::borrow::Cow::Borrowed(_)));
-        assert_eq!(bounds(shown.elements), [(0, 3)]);
+        assert_eq!(bounds(&shown.elements), [(0, 3)]);
     }
 
     #[test]
