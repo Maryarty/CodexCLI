@@ -96,11 +96,14 @@ pub enum CollabEvent {
     },
 }
 
+/// An agent's nickname and role.
+pub type AgentName = (Option<String>, Option<String>);
+
 impl CollabEvent {
     /// The event with each agent's nickname and role filled in by `lookup`
     /// (thread id -> nickname, role): the oracle's `AgentMetadata`, which a
     /// row reads when it is made.
-    pub fn named(&self, lookup: &dyn Fn(&str) -> (Option<String>, Option<String>)) -> CollabEvent {
+    pub fn named(&self, lookup: &dyn Fn(&str) -> AgentName) -> CollabEvent {
         let name = |agent: &AgentRef| {
             let (nickname, role) = lookup(&agent.id);
             AgentRef {

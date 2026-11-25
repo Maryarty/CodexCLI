@@ -490,20 +490,10 @@ fn image_result_live_and_replay_render_in_the_owning_call() {
         .size(80, 24)
         .script(RUNNING)
         .open();
-    live.feed(
-        &item_run(&item(false))
-            .split('\n')
-            .next()
-            .unwrap_or_default()
-            .to_owned(),
-    );
-    live.feed(
-        &item_run(&item(true))
-            .split('\n')
-            .nth(1)
-            .unwrap_or_default()
-            .to_owned(),
-    );
+    let started = item_run(&item(false));
+    live.feed(started.split('\n').next().unwrap_or_default());
+    let completed = item_run(&item(true));
+    live.feed(completed.split('\n').nth(1).unwrap_or_default());
     live.assert_snap_region(
         "image_result_live_and_replay_render_in_the_owning_call",
         at(&live),
