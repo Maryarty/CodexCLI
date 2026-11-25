@@ -290,6 +290,8 @@ pub struct DispatchCx {
     pub side_conversation: bool,
     /// Code review is running.
     pub review_mode: bool,
+    /// A steer was rejected or a message waits in the queue (`/review` is refused then).
+    pub queued_follow_up: bool,
     /// The thread exists (the session is configured).
     pub thread_started: bool,
     /// Signed in with a ChatGPT backend (`/usage`).
@@ -399,11 +401,14 @@ pub fn dispatch_command(command: SlashCommand, args: &str, cx: &DispatchCx) -> O
     if cx.review_mode && matches!(command, SlashCommand::Side | SlashCommand::Btw) {
         return Outcome::Notice(Notice::UnavailableInReview(command));
     }
-    // `slash_dispatch.rs:163-165`: `/resume` and `/cd` are also blocked while
-    // a turn runs or is about to start. (`task_running` is both facts.)
-    if cx.task_running
-        && (!command.available_during_task()
-            || matches!(command, SlashCommand::Resume | SlashCommand::Cd))
+    // `slash_dispatch.rs:150-167`, the validation gate: a command that is not
+    // available during a task is refused while a turn runs, a start is in
+    // flight (`task_running` is both) or a review runs. `/resume` and `/cd`
+    // are refused by the first two only; `/review` also with a queued follow-up.
+    let blocked = cx.task_running || cx.review_mode;
+    if (!command.available_during_task() && blocked)
+        || (cx.task_running && matches!(command, SlashCommand::Resume | SlashCommand::Cd))
+        || (command == SlashCommand::Review && cx.queued_follow_up)
     {
         return Outcome::Notice(Notice::DisabledDuringTask(command));
     }
