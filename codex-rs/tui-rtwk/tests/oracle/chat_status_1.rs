@@ -4,7 +4,7 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
-use crate::kit::{self, Owner, Screen};
+use crate::kit::{self, ColorDepth, Owner, Screen};
 
 /// The status facts that make the app read the account's limits (a ChatGPT login and the
 /// `account_usage` fact).
@@ -52,6 +52,75 @@ fn limit_snapshot(used: i32, reached: Option<&str>) -> serde_json::Value {
         "primary": {"usedPercent": used, "windowDurationMins": 300, "resetsAt": null}})
 }
 
+/// The live seed's session (thread `thread-1`) with a running turn `turn-1`.
+const RUNNING: &str = include_str!("fixtures/chat_status_1/running_turn.jsonl");
+
+/// An item of the turn `turn-1` as the server sends it for a `cua_repl` computer call.
+fn computer_item(id: &str, server: &str, status: &str) -> serde_json::Value {
+    let done = status != "inProgress";
+    serde_json::json!({
+        "type": "mcpToolCall", "id": id, "server": server, "tool": "js", "status": status,
+        "arguments": {"title": format!("Inspect page {id}"), "code": "await cua.getState()"},
+        "appContext": null, "mcpAppUi": null, "pluginId": null, "readOnlyHint": null,
+        "result": done.then(|| serde_json::json!({
+            "content": [{"type": "text", "text": format!("Full output for {id}")}],
+            "structuredContent": null, "_meta": null, "isError": false
+        })),
+        "error": null, "durationMs": done.then_some(5)
+    })
+}
+
+/// A `dynamicToolCall` item of `test.lookup`.
+fn dynamic_item(id: &str, status: &str) -> serde_json::Value {
+    let done = status != "inProgress";
+    serde_json::json!({
+        "type": "dynamicToolCall", "id": id, "namespace": "test", "tool": "lookup",
+        "arguments": {"id": id}, "status": status,
+        "contentItems": done.then(|| serde_json::json!([{"type": "inputText", "text": format!("Result for {id}")}])),
+        "success": null, "durationMs": done.then_some(25)
+    })
+}
+
+/// A reasoning item with one summary line.
+fn reasoning_item(summary: &str) -> serde_json::Value {
+    serde_json::json!({"type": "reasoning", "id": summary, "summary": [summary], "content": []})
+}
+
+/// `item/started` (`done` false) or `item/completed` of `item` in the turn `turn-1`.
+fn lifecycle(item: &serde_json::Value, done: bool) -> String {
+    let (method, at) = if done { ("item/completed", "completedAtMs") } else { ("item/started", "startedAtMs") };
+    serde_json::json!({"step": "notify", "message": {"method": method, "params": {
+        "threadId": "thread-1", "turnId": "turn-1", "item": item, at: 0}}})
+    .to_string()
+}
+
+/// `turn/completed` of `turn-1` as `status` (`interrupted` for the oracle's `finalize_turn`).
+fn turn_over(status: &str) -> String {
+    serde_json::json!({"step": "notify", "message": {"method": "turn/completed", "params": {
+        "threadId": "thread-1", "turn": {"id": "turn-1", "rootTurnId": null, "items": [],
+        "itemsView": "full", "status": status, "error": null, "startedAt": null,
+        "completedAt": null, "durationMs": null}}}})
+    .to_string()
+}
+
+/// `item/completed` of an agent message `text` in the turn `turn-1`.
+fn agent_message(text: &str) -> String {
+    lifecycle(
+        &serde_json::json!({"type": "agentMessage", "id": "msg-1", "text": text,
+            "phase": "final_answer", "memoryCitation": null}),
+        true,
+    )
+}
+
+/// The row a cell starts at: the oracle's snapshot is the bare cell, the chat draws the
+/// transcript around it.
+fn cell_row(s: &Screen, head: &str) -> usize {
+    s.rows()
+        .iter()
+        .position(|row| row.starts_with(head))
+        .unwrap_or_else(|| panic!("no `{head}` row:\n{}", s.text()))
+}
+
 /// `turn/completed` of the live seed's thread.
 const TURN_ENDED: &str = r#"{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}"#;
 
@@ -87,16 +156,24 @@ const WARNING: &str = "Heads up, you have less than";
 fn computer_activity_live_and_replay_group_identically() {
     kit::pending(
         Owner::UiPane,
-        "no MCP computer-activity group cell on the chat screen: tool calls are not drawn yet",
+        "the oracle's snapshot is the inline `display_lines` of the group (its `└ 2 more · ⌃t` row); the chat draws the owned transcript's `compact_hyperlink_lines` (the oracle's own owned-mode spelling: the last row is dropped for the shared `+ Show details` control)",
     );
     // oracle: four completed cua_repl calls live (started + completed) and replayed (ThreadSnapshot) draw one group;
     // the live and the replayed outputs are equal, and the group is the snapshot.
-    let live = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: mcpToolCall item/started InProgress + item/completed for ids 1..4 (live screen)
-    let replayed = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: ids 1..4 as completed ThreadSnapshot items (replayed screen)
-    live.assert_snap("computer_activity_replayed");
-    replayed.assert_snap("computer_activity_replayed");
+    let mut live = Screen::build(Owner::UiPane).size(80, 24).script(RUNNING).open();
+    for id in ["1", "2", "3", "4"] {
+        live.feed(&lifecycle(&computer_item(id, "cua_repl", "inProgress"), false));
+        live.feed(&lifecycle(&computer_item(id, "cua_repl", "completed"), true));
+    }
+    let items = (1..=4)
+        .map(|id| computer_item(&id.to_string(), "cua_repl", "completed"))
+        .collect::<Vec<_>>();
+    let replayed = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .replay(vec![kit::replay_turn("turn-1", serde_json::json!(items))])
+        .open();
+    live.assert_snap_region("computer_activity_replayed", cell_row(&live, "• Used computer"), 0);
+    replayed.assert_snap_region("computer_activity_replayed", cell_row(&replayed, "• Used computer"), 0);
 }
 
 // ORACLE chatwidget/tests/computer_activity_tests.rs:63 computer_activity_keeps_reasoning_in_order_live_and_replayed kind=snap owner=ui-pane
@@ -104,28 +181,61 @@ fn computer_activity_live_and_replay_group_identically() {
 fn computer_activity_keeps_reasoning_in_order_live_and_replayed() {
     kit::pending(
         Owner::UiPane,
-        "no computer-activity group nor reasoning summary rows interleaved on the chat screen",
+        "the oracle's snapshot joins the compact rows, the group's transcript_lines and raw_lines (copy text); the detailed transcript draws a blank row between the reasoning and the next call that the group's transcript_lines does not, and the copy text of a group is not projected",
     );
     // oracle: computer calls 1 and 2 interleaved with reasoning summaries "Inspecting action N" and "Checking action N",
     // live and replayed, in the same order.
-    let live = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: the live events of the oracle (mcpToolCall started/completed, agent reasoning delta + final)
-    live.assert_snap("computer_activity_keeps_reasoning_in_order_live_and_replayed");
+    let mut live = Screen::build(Owner::UiPane).size(80, 40).script(RUNNING).open();
+    let mut recorded = Vec::new();
+    for id in ["1", "2"] {
+        live.feed(&lifecycle(&computer_item(id, "cua_repl", "inProgress"), false));
+        if id == "1" {
+            live.feed(&lifecycle(&computer_item(id, "cua_repl", "completed"), true));
+        }
+        recorded.push(computer_item(id, "cua_repl", "completed"));
+        for part in ["Inspecting", "Checking"] {
+            let summary = reasoning_item(&format!("{part} action {id}"));
+            live.feed(&lifecycle(&summary, true));
+            recorded.push(summary);
+        }
+        if id == "2" {
+            live.feed(&lifecycle(&computer_item(id, "cua_repl", "completed"), true));
+        }
+    }
+    let mut replayed = Screen::build(Owner::UiPane)
+        .size(80, 40)
+        .replay(vec![kit::replay_turn("turn-1", serde_json::json!(recorded))])
+        .open();
+    for s in [&mut live, &mut replayed] {
+        s.assert_in_order(&["• Used computer · 2 actions", "├ Inspect page 1", "└ Inspect page 2"]);
+        s.keys("ctrl+t");
+        s.assert_in_order(&[
+            "• Called cua_repl.js({\"title\":\"Inspect page 1\",\"code\":\"await cua.getState()\"})",
+            "└ Full output for 1",
+            "• Inspecting action 1",
+            "• Checking action 1",
+            "• Called cua_repl.js({\"title\":\"Inspect page 2\",\"code\":\"await cua.getState()\"})",
+            "└ Full output for 2",
+            "• Inspecting action 2",
+            "• Checking action 2",
+        ]);
+    }
 }
 
 // ORACLE chatwidget/tests/computer_activity_tests.rs:127 computer_activity_preserves_boundaries_and_expanded_output kind=ui owner=ui-pane
 #[test]
 fn computer_activity_preserves_boundaries_and_expanded_output() {
-    kit::pending(
-        Owner::UiPane,
-        "no 'Used computer' tool-activity cell or expanded transcript of tool output on the chat screen",
-    );
     // oracle: computer call 1 completes -> "Used computer · 1 action"; a call from another server starts its own group
     // (its name shows); call 3 is the active cell whose expanded transcript holds the output and the code.
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: the four oracle completions (ids 1, 2, other server, 3)
+    let mut s = Screen::build(Owner::UiPane).size(80, 40).script(RUNNING).open();
+    s.feed(&lifecycle(&computer_item("1", "cua_repl", "completed"), true));
+    s.feed(&agent_message("Between"));
     s.assert_contains("Used computer · 1 action");
+    s.feed(&lifecycle(&computer_item("2", "cua_repl", "completed"), true));
+    s.feed(&lifecycle(&computer_item("other", "another_server", "completed"), true));
     s.assert_contains("another_server");
+    s.feed(&lifecycle(&computer_item("3", "cua_repl", "completed"), true));
+    s.keys("ctrl+t");
     s.assert_contains("Full output for 3");
     s.assert_contains("await cua.getState()");
 }
@@ -133,30 +243,33 @@ fn computer_activity_preserves_boundaries_and_expanded_output() {
 // ORACLE chatwidget/tests/computer_activity_tests.rs:151 computer_activity_out_of_order_completion_and_interruption kind=snap owner=ui-pane
 #[test]
 fn computer_activity_out_of_order_completion_and_interruption() {
-    kit::pending(
-        Owner::UiPane,
-        "no 'Using computer' active row or interrupted tool-activity cell on the chat screen",
-    );
     // oracle: calls 1 and 2 start, 2 completes out of order; the active cell says "Using computer"; the turn is
     // finalized as interrupted and one history cell is inserted.
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: started 1, started 2, completed 2, then finalize (interrupt)
+    let mut s = Screen::build(Owner::UiPane).size(80, 24).script(RUNNING).open();
+    s.feed(&lifecycle(&computer_item("1", "cua_repl", "inProgress"), false));
+    s.feed(&lifecycle(&computer_item("2", "cua_repl", "inProgress"), false));
+    s.feed(&lifecycle(&computer_item("2", "cua_repl", "completed"), true));
     s.assert_contains("Using computer");
-    s.assert_snap("computer_activity_partial_interruption");
+    s.feed(&turn_over("interrupted"));
+    s.assert_snap_region(
+        "computer_activity_partial_interruption",
+        cell_row(&s, "• Used computer"),
+        0,
+    );
 }
 
 // ---- oracle: chatwidget/tests/dynamic_activity_tests.rs (3 screen-level tests here; 0 state tests left to ui-pane)
 // ORACLE chatwidget/tests/dynamic_activity_tests.rs:34 terminal_dynamic_activity_retains_calls_across_both_fallbacks kind=snap owner=ui-pane
 #[test]
 fn terminal_dynamic_activity_retains_calls_across_both_fallbacks() {
-    kit::pending(
-        Owner::UiPane,
-        "no dynamic tool-call cells (Calling / Called test.lookup) on the chat screen",
-    );
     // oracle: the same two calls on the terminal-transcript fallback (alt screen always) and on the owned fallback
     // (fullscreen transcript on, alt screen never) draw the same rows.
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: dynamicToolCall started call-1, call-2; then call-2 completed, call-1 failed
+    let mut s = Screen::build(Owner::UiPane).size(80, 24).script(RUNNING).open();
+    for id in ["call-1", "call-2"] {
+        s.feed(&lifecycle(&dynamic_item(id, "inProgress"), false));
+    }
+    s.feed(&lifecycle(&dynamic_item("call-2", "completed"), true));
+    s.feed(&lifecycle(&dynamic_item("call-1", "failed"), true));
     s.assert_in_order(&[
         "Failed test.lookup · 25ms",
         "Result for call-1",
@@ -168,15 +281,13 @@ fn terminal_dynamic_activity_retains_calls_across_both_fallbacks() {
 // ORACLE chatwidget/tests/dynamic_activity_tests.rs:85 owned_dynamic_activity_updates_the_retained_row_after_config_refresh kind=ui owner=ui-pane
 #[test]
 fn owned_dynamic_activity_updates_the_retained_row_after_config_refresh() {
-    kit::pending(
-        Owner::UiPane,
-        "no retained dynamic-call row that updates in place after the call completes",
-    );
     // oracle: owned transcript mode; the call row reads "Calling test.lookup", then after completion it reads
     // "Called test.lookup · 25ms" with "Result for call-1" beneath it, and no live call remains.
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: dynamicToolCall call-1 started, then completed
+    let mut s = Screen::build(Owner::UiPane).size(80, 24).script(RUNNING).open();
+    s.feed(&lifecycle(&dynamic_item("call-1", "inProgress"), false));
     s.assert_contains("• Calling test.lookup");
+    s.feed(&lifecycle(&dynamic_item("call-1", "completed"), true));
+    s.assert_absent("Calling test.lookup");
     s.assert_contains("• Called test.lookup · 25ms");
     s.assert_contains("Result for call-1");
 }
@@ -184,17 +295,35 @@ fn owned_dynamic_activity_updates_the_retained_row_after_config_refresh() {
 // ORACLE chatwidget/tests/dynamic_activity_tests.rs:114 turn_finalization_drains_lifecycle_queue_before_interrupting_remaining_calls kind=snap owner=ui-pane
 #[test]
 fn turn_finalization_drains_lifecycle_queue_before_interrupting_remaining_calls() {
-    kit::pending(
-        Owner::UiPane,
-        "no interrupt queue (a pending user-input question and unfinished tool calls) on the chat screen",
-    );
     // oracle: a blocking user-input question is queued, a completed call and an unfinished call are queued; on finalize
     // the queue drains and the unfinished call is reported as interrupted; the cell is a 64-wide buffer.
-    let s = Screen::build(Owner::UiPane).size(64, 24).live().open();
-    // needs feed: request_user_input (scope), dynamicToolCall completed + started unfinished, then finalize
+    let mut s = Screen::build(Owner::UiPane)
+        .size(64, 24)
+        .color_depth(ColorDepth::Ansi16)
+        .script(RUNNING)
+        .open();
+    s.feed(&serde_json::json!({"step": "request", "message": {
+        "method": "item/tool/requestUserInput", "id": 1, "params": {
+            "threadId": "thread-1", "turnId": "turn-1", "itemId": "question-1",
+            "isBlocking": true, "autoResolutionMs": null,
+            "questions": [{"id": "scope", "header": "Scope",
+                "question": "Which change should I review?",
+                "isOther": false, "isSecret": false, "options": null}]}}})
+    .to_string());
+    s.feed(&lifecycle(&dynamic_item("completed", "inProgress"), false));
+    s.feed(&lifecycle(&dynamic_item("completed", "completed"), true));
+    s.feed(&lifecycle(&dynamic_item("unfinished", "inProgress"), false));
+    s.feed(&turn_over("interrupted"));
     s.assert_contains("Result for completed");
     s.assert_contains("Interrupted before this tool returned a result.");
-    s.assert_snap("interrupted_dynamic_activity");
+    // The snapshot is a `Buffer` dump: its rows (the cell styles of its blank cells, and the accent
+    // of a test terminal with no colours, are not what a real terminal's cells say) and its styles
+    // by the marks that show: a red bold bullet, the verb bold, the output row dim.
+    let at = cell_row(&s, "• Interrupted test.lookup");
+    s.assert_snap_rows_from("interrupted_dynamic_activity", at, 2, false);
+    s.assert_style(0, at, "fg=Red bold");
+    s.assert_text_style("Interrupted", "bold");
+    s.assert_text_style("Interrupted before this tool returned a result.", "dim");
 }
 
 // ---- oracle: chatwidget/tests/program_status.rs (1 screen-level tests here; 1 state tests left to ui-pane)
@@ -241,17 +370,38 @@ fn reasoning_status_tracks_items_and_restores_after_tool_activity() {
 fn completed_reasoning_stays_in_expanded_transcript_for_live_and_replay() {
     kit::pending(
         Owner::UiPane,
-        "no transcript expand (the expanded view of completed reasoning items) on the chat screen",
+        "the status row's header does not follow the reasoning summary (oracle `Live status: The playback clock preserves elapsed time.`): the chat's status header is the retry or MCP startup text only, the same missing feature as reasoning_status_accepts_bold_text_with_a_plain_suffix and reasoning_status_tracks_items_and_restores_after_tool_activity",
     );
     // oracle: three reasoning items, live and replayed, give the same compact and expanded history; the expanded
     // transcript keeps every summary line; the third item's heading is the live status.
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: reasoning items first/second/third (live), then the same as ThreadSnapshot items (replay)
-    s.assert_in_order(&[
-        "• Inspecting repository structure",
-        "• Mapping the app structure",
-        "• The playback clock preserves elapsed time.",
-    ]);
+    let summaries = [
+        "**Inspecting repository structure**",
+        "Mapping the app structure",
+        "**Tracing terminal components**\n\nThe playback clock preserves elapsed time.",
+    ];
+    let items = ["first", "second", "third"].map(|id| {
+        let at = ["first", "second", "third"].iter().position(|name| *name == id).unwrap_or(0);
+        serde_json::json!({"type": "reasoning", "id": id, "summary": [summaries[at]],
+            "content": ["private reasoning"]})
+    });
+    let mut live = Screen::build(Owner::UiPane).size(80, 24).script(RUNNING).open();
+    for item in &items {
+        live.feed(&lifecycle(item, true));
+    }
+    let mut replayed = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .replay(vec![kit::replay_turn("turn-1", serde_json::json!(items))])
+        .open();
+    live.assert_contains("The playback clock preserves elapsed time.");
+    for s in [&mut live, &mut replayed] {
+        s.assert_absent("Inspecting repository structure");
+        s.keys("ctrl+t");
+        s.assert_in_order(&[
+            "• Inspecting repository structure",
+            "• Mapping the app structure",
+            "• The playback clock preserves elapsed time.",
+        ]);
+    }
 }
 
 // ---- oracle: chatwidget/tests/status_and_layout.rs (47 screen-level tests here; 40 state tests left to ui-pane)

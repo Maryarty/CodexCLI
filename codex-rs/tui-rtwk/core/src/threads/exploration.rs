@@ -168,7 +168,7 @@ impl Transcript {
             .filter(|key| {
                 matches!(self.item(key), Some(Item::Tool(tool))
                     if tool.status == ToolStatus::Running
-                        && matches!(&tool.kind, ToolKind::Shell { unified_exec: false, .. }))
+                        && !matches!(&tool.kind, ToolKind::Shell { unified_exec: true, .. }))
             })
             .cloned()
             .collect();
@@ -180,6 +180,9 @@ impl Transcript {
                 continue;
             };
             let tool = Arc::make_mut(tool);
+            if tool.interrupt() {
+                continue;
+            }
             tool.status = ToolStatus::Failed;
             if let ToolKind::Shell { exit_code, .. } = &mut tool.kind {
                 *exit_code = Some(exit_code.filter(|code| *code != 0).unwrap_or(1));
