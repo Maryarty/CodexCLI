@@ -387,6 +387,7 @@ impl StatefulWidget for Composer {
             suggest: Rc::default(),
             restricted: Cell::new(false),
             edited: Cell::new(None),
+            query: Cell::new(false),
         }
     }
 }
@@ -405,6 +406,9 @@ pub struct ComposerState {
     /// The number of the text the external editor left that this composer took last (each is
     /// applied once).
     edited: Cell<Option<u64>>,
+    /// Whether the `/` query was open at the last redraw: its row is the page's footer, which
+    /// hears of the query opening, changing and closing.
+    query: Cell<bool>,
 }
 
 /// What the composer's own children tell it.
@@ -791,6 +795,13 @@ impl State for ComposerState {
                 // a Vim `/` query may have opened: no mention popup meanwhile
                 let states = read::<ScreenStates, _>(cx);
                 mentions::sync(w, &states, cx);
+                let open = w.ui.draft.with_vim(|v| v.searching().is_some());
+                if (open || self.query.replace(open))
+                    && let Some(h) = &w.on_changed
+                {
+                    cx.emit(h, w.ui.composer.text());
+                }
+                self.query.set(open);
                 return rtwk::Rebuild::Yes;
             }
             ComposerMsg::Searched => {

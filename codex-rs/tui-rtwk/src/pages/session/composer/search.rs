@@ -6,7 +6,7 @@
 use rtwk::editing::{StoredStops, TextEditingController, editing_key};
 use rtwk::focus::KeyPress;
 use rtwk::layout::{Expanded, Row, SizedBox};
-use rtwk::style::{Attrs, Span};
+use rtwk::style::{Attrs, Span, Style};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx};
 
@@ -15,6 +15,7 @@ use codex_tui_core::keymap::actions::{
     COMPOSER_HISTORY_SEARCH_NEXT, COMPOSER_HISTORY_SEARCH_PREVIOUS,
 };
 use codex_tui_core::kit::history::{SearchStatus, WalkDirection};
+use codex_tui_core::kit::vim::VimDirection;
 use codex_tui_core::screens::composer::sanitize_paste;
 
 use super::ComposerMsg;
@@ -22,6 +23,7 @@ use super::editing::KeyData;
 use super::strings;
 use crate::app::theme;
 use crate::keymap::{press_for, pressed, unmodified};
+use crate::widgets::composer_draft::ComposerDraft;
 use codex_tui_core::keymap::fixed::{
     DEBUG_KEY, HISTORY_NEXT, HISTORY_PREVIOUS, SEARCH_ACCEPT, SEARCH_CANCEL, SEARCH_CANCEL_BYTE,
     SEARCH_CLEAR, SEARCH_ERASE,
@@ -152,4 +154,29 @@ pub fn footer<S>(cx: &mut Cx<'_, S>, query: String, status: SearchStatus) -> Any
             Text::rich_line(spans).overflow(rtwk_core::unicode::TextOverflow::Clip),
         ))
         .into()
+}
+
+/// The row of the `/` or `?` query while Normal mode types one (`SearchInput::render`): the
+/// direction's mark in cyan, then the typed text, in the footer's place; `None` with no query
+/// open.
+pub fn query_footer<S>(cx: &mut Cx<'_, S>, draft: &ComposerDraft) -> Option<AnyWidget> {
+    let direction = draft.with_vim(|v| v.searching())?;
+    let tokens = theme::Tokens::of(cx);
+    let mark = match direction {
+        VimDirection::Forward => "/",
+        VimDirection::Backward => "?",
+    };
+    let spans = vec![
+        Span::styled(mark, tokens.info()),
+        Span::styled(draft.vim_query().text().to_string(), Style::default()),
+    ];
+    Some(
+        Row::new()
+            .child(SizedBox::new(Some(2), None, None))
+            .child(Expanded::new(
+                1,
+                Text::rich_line(spans).overflow(rtwk_core::unicode::TextOverflow::Clip),
+            ))
+            .into(),
+    )
 }

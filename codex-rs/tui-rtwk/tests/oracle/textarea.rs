@@ -78,15 +78,22 @@ fn delete_backward_removes_thai_marks_one_at_a_time() {
 // ORACLE bottom_pane/textarea.rs:3077 vim_e_advances_from_each_word_end kind=snap owner=chat-live snap=vim_e_advances_from_each_word_end
 #[test]
 fn vim_e_advances_from_each_word_end() {
-    kit::pending(
-        Owner::ChatLive,
-        "the oracle's snapshot joins the three states, each followed by a caret row (`^`); the kit compares one screen without caret rows, so the snapshot cannot equal ours (the three `e` presses are driven and pass in the page test `composer_vim`)",
-    );
-    // oracle: "alpha beta gamma" with the caret after "alph" (byte 4) in vim normal mode, three `e` presses, one state each. The oracle joins the three states in one snapshot; the kit compares one screen, so the last state is compared here.
+    // "alpha beta gamma" with the caret after "alph" (byte 4) in Normal mode, three `e` presses,
+    // one state each: the oracle's snapshot joins the three states, each with a caret row; the
+    // kit takes the caret from the screen's cursor
     let mut s = vim_draft(80, 24, "alpha beta gamma");
     step(&mut s, 0, 4);
-    s.keys("e e e");
-    s.assert_snap("vim_e_advances_from_each_word_end");
+    let row = s
+        .rows()
+        .iter()
+        .position(|row| row.starts_with("alpha beta gamma"))
+        .expect("the draft's row");
+    // `e` from the last cell of a word goes to the end of the next one and stays at the end
+    for caret in [9, 15, 15] {
+        s.keys("e");
+        s.assert_row(row, "alpha beta gamma");
+        s.assert_cursor(caret, row);
+    }
 }
 
 // ORACLE bottom_pane/textarea.rs:3149 vim_linewise_yank_pastes_below_current_line kind=ui owner=chat-live

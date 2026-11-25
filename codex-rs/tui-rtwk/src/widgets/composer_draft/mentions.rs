@@ -337,6 +337,19 @@ impl ComposerDraft {
         image: impl Fn(usize) -> String,
         skill: bool,
     ) {
+        // a completion is an edit no key made: a step of undo of its own in Vim, and
+        // what Replace mode overwrote is not what Backspace could put back
+        self.with_vim(codex_tui_core::kit::vim::Vim::forget_recovery);
+        self.vim_direct(c, || self.pick_into(c, pick, image, skill));
+    }
+
+    fn pick_into(
+        &self,
+        c: &TextEditingController,
+        pick: &MentionPick,
+        image: impl Fn(usize) -> String,
+        skill: bool,
+    ) {
         let mut range = pick.range.clone();
         let before = self.mention_doc(c);
         if starts_after_element(&before.doc(), &range) {

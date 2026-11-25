@@ -16,6 +16,24 @@ fn chat(w: u16, h: u16) -> Screen {
         .open()
 }
 
+/// The composer alone with its footer (the oracle's `snapshot_composer_state_with_width`), Vim
+/// off; `global.toggle_vim_mode` is bound to F9, which turns Vim on in Normal mode.
+fn vim_alone(w: u16, h: u16) -> Screen {
+    Screen::build(Owner::ChatLive)
+        .size(w, h)
+        .keymap(&[("global.toggle_vim_mode", "f9")])
+        .entry("composer", "alone")
+        .open()
+}
+
+/// The oracle's `set_text_content(text)` then `set_vim_enabled(true)` on a composer whose Vim is on:
+/// Vim goes off for the typing and on again, in Normal mode with a fresh history.
+fn reset_vim_text(s: &mut Screen, text: &str) {
+    s.keys("f9 ctrl+u");
+    type_lines(s, text);
+    s.keys("f9");
+}
+
 /// A chat whose connection is lost (`Reconnecting`): the composer only edits, and Enter runs
 /// only what needs no connection (`RestrictedInputMode::Disconnected`).
 fn offline(w: u16, h: u16) -> Screen {
@@ -268,14 +286,16 @@ fn plain_text_composer_keeps_command_prefixes_literal() {
 // ORACLE bottom_pane/chat_composer/embedded_input_tests.rs:32 buffered_typing_survives_vim_changes_and_cancellation kind=ui owner=chat-live
 #[test]
 fn buffered_typing_survives_vim_changes_and_cancellation() {
-    kit::pending(
-        Owner::ChatLive,
-        "the kit toggles Vim with a bound key (F9) but this body is not written for it (the Vim on/off change is not a kit call yet): the typed `x` and `y` are drawn, the Ctrl+C clear and the Up recall are the visible half",
-    );
     let mut s = chat(100, 24);
     s.type_text("x");
+    // Vim on: the typed `x` is in the draft
+    s.keys("f9");
+    s.assert_row(prompt(&s), "› x");
+    // Vim off, the draft goes on from its end
+    s.keys("f9");
     s.type_text("y");
     s.assert_row(prompt(&s), "› xy");
+    // Ctrl+C clears the draft whole and nothing is held back; Up recalls it
     s.keys("ctrl+c");
     s.assert_row(prompt(&s), PLACEHOLDER);
     s.keys("up");
@@ -647,20 +667,10 @@ fn draft_and_voice_composer_snapshots() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:83 recovered_answers_undo_as_one_vim_edit kind=snap owner=chat-live snap=recovered_answer_cancels_vim_search
 #[test]
 fn recovered_answers_undo_as_one_vim_edit() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body and no recovered-answer append (append_recovered_drafts has no seed): the answer after a failed turn is not joined to the draft",
+        "state test of ChatComposer::append_recovered_drafts, which only the question sheet's turn-end recovery calls (BottomPane::append_question_drafts); the port's twin is ComposerDraft::append_recovered_drafts, covered in tests/pages/composer_vim.rs (recovered::*: one undo step, `.` untouched, placeholder, command-prefix escape, query cancelled, stored draft under a history search); no screen path reaches it yet (Need: the question sheet calls it when the turn ends)",
     );
-    let mut s = chat(40, 9);
-    vim_draft(&mut s, "abc");
-    s.type_text("iX");
-    s.keys("esc");
-    s.assert_row(prompt(&s), "› Xabc");
-    let mut s = chat(40, 9);
-    vim_draft(&mut s, "existing draft");
-    s.type_text("d/draft");
-    // append_recovered_drafts("answer"): no kit call yet
-    s.assert_snap("recovered_answer_cancels_vim_search");
 }
 
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:209 undo_and_redo_preserve_confirmed_vim_search kind=ui owner=chat-live
@@ -726,32 +736,28 @@ fn deleting_a_selected_remote_image_is_one_undoable_vim_edit() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:322 direct_edits_join_the_active_vim_insert_transaction kind=ui owner=chat-live
 #[test]
 fn direct_edits_join_the_active_vim_insert_transaction() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body (enable_vim_in_insert_mode has no kit call) and no kit seed for remote image URLs (the page draws the rows, tests/pages/composer_images.rs)",
-    );
     let mut s = chat(100, 24);
+    // `vim_composer("abc")`: Normal mode on the first cell; `enable_vim_in_insert_mode`
     vim_draft(&mut s, "abc");
+    s.keys("i");
     s.paste("ABC");
-    // attach_image(example.png): no kit call yet
+    s.attach_image("example.png");
     s.type_text("D");
     s.keys("esc");
     let p = prompt(&s);
-    s.assert_row(p, "› ABCDabc");
+    s.assert_row(p, "› ABC[Image #1]Dabc");
+    // one transaction: a single `u` takes the paste, the image and the typing back, and Ctrl+R
+    // puts them all back
     s.type_text("u");
     s.assert_row(p, "› abc");
     s.assert_absent("[Image #1]");
     s.keys("ctrl+r");
-    s.assert_row(p, "› ABCDabc");
+    s.assert_row(p, "› ABC[Image #1]Dabc");
 }
 
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:339 vim_search_query_paste_does_not_invalidate_draft_redo kind=ui owner=chat-live
 #[test]
 fn vim_search_query_paste_does_not_invalidate_draft_redo() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body, and no Vim search prompt on the chat composer: `/` opens no query line, a paste into it is not drawn, and redo is not seeded",
-    );
     let mut s = chat(100, 24);
     vim_draft(&mut s, "alpha beta alpha");
     s.type_text("xu/");
@@ -767,16 +773,21 @@ fn vim_search_query_paste_does_not_invalidate_draft_redo() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:356 vim_redo_keeps_its_binding_when_history_is_empty kind=snap owner=chat-live snap=vim_empty_redo_stays_normal
 #[test]
 fn vim_redo_keeps_its_binding_when_history_is_empty() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body: Ctrl+R on an empty history does nothing, and the Normal mode after redo is not drawn; the snapshot is the composer alone at 60 columns",
-    );
-    let mut s = chat(60, 9);
-    vim_draft(&mut s, "abc");
+    let mut s = vim_alone(60, 9);
+    type_lines(&mut s, "abc");
+    s.keys("f9 g g");
+    let before = s.shot();
+    // no history to search: Ctrl+R is redo, which has nothing to redo
     s.keys("ctrl+r");
+    s.assert_same_rows(&before);
     s.type_text("xu");
+    s.assert_row(prompt(&s), "› abc");
     s.keys("ctrl+r");
+    s.assert_row(prompt(&s), "› bc");
+    let after = s.shot();
     s.keys("ctrl+r");
+    s.assert_same_rows(&after);
+    s.assert_text_style("Vim: Normal", "fg=Magenta");
     s.assert_snap("vim_empty_redo_stays_normal");
 }
 
@@ -798,10 +809,6 @@ fn removing_the_shell_prefix_is_its_own_undoable_edit() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:451 canceled_history_preview_preserves_active_vim_commands kind=ui owner=chat-live
 #[test]
 fn canceled_history_preview_preserves_active_vim_commands() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body, and no reverse history search (Ctrl+R) on the chat composer: the preview and its cancel are not drawn",
-    );
     for query in ["", "archive", "missing"] {
         for (command, edited) in [
             ("iX", "XYalpha beta"),
@@ -986,18 +993,18 @@ fn vim_replace_paste_bursts_preserve_overwritten_text_and_repeat() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:765 vim_replace_completion_preserves_suffix kind=snap owner=chat-live snap=vim_replace_completion_suffix
 #[test]
 fn vim_replace_completion_preserves_suffix() {
-    kit::pending(
+    // Replace mode: `R@ma` over `abc next`, then the path `ma` completes the token and Backspace
+    // takes the separator the completion added (the Vim state of the draft is checked here)
+    let mut s = vim_alone(100, 9);
+    type_lines(&mut s, "abc next");
+    s.keys("f9 g g");
+    s.type_text("R@ma");
+    s.assert_row(prompt(&s), "› @ma next");
+    s.assert_contains("Vim: Replace");
+    kit::na(
         Owner::ChatLive,
-        "no Vim Replace mode and no file-path completion on the chat composer (insert_selected_file_path has no kit seed); the snapshot is the composer alone at 100 columns",
+        "the oracle calls insert_selected_file_path(0..3, \"ma\") itself; the port's picks come from the `@` popup, whose file results come from an in-process search over the session's directory that no screen test can seed, so the snapshot's `› ma next` cannot be reached from the keys. The same steps (Replace over `abc next`, a pick of `ma` or `src/main.rs`, Backspace restoring nothing) run on ComposerDraft::apply_pick in tests/pages/composer_vim.rs (completion::a_path_in_replace_mode_keeps_the_suffix_and_what_backspace_could_restore)",
     );
-    let mut s = chat(100, 9);
-    s.type_text("abc next");
-    s.keys("esc");
-    s.type_text("0R@ma");
-    // the completion of `@ma` to the path `ma` (insert_selected_file_path): no kit call yet
-    s.keys("backspace");
-    s.assert_row(prompt(&s), "› ma next");
-    s.assert_snap("vim_replace_completion_suffix");
 }
 
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:797 external_editor_import_preserves_replace_backspace_recovery kind=ui owner=chat-live
@@ -1037,30 +1044,72 @@ fn cancelled_history_search_preserves_literal_bang_draft() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:851 editor_actions_insert_shell_prefixes kind=ui owner=chat-live
 #[test]
 fn editor_actions_insert_shell_prefixes() {
-    kit::pending(
-        Owner::ChatLive,
-        "the Vim part (`r!`, `lr!0.`) needs Vim mode; the body holds only the non-Vim half (a yank of `!` at the start is shell mode), which passes",
-    );
     let mut s = chat(100, 24);
     s.type_text("x!echo hi");
     s.keys("home right ctrl+k backspace ctrl+y");
     // the yank at the start enters shell mode: `!` is the prompt
     s.assert_row(prompt(&s), "! echo hi");
+    // Vim: `r!` and `.` put a `!` at the start of the draft, which is shell mode too
+    for (commands, expected) in [("r!", "! xecho hi"), ("lr!0.", "! !echo hi")] {
+        let mut s = chat(100, 24);
+        vim_draft(&mut s, "xxecho hi");
+        s.type_text(commands);
+        s.assert_row(prompt(&s), expected);
+    }
 }
 
 // ---- oracle: bottom_pane/chat_composer/vim_register_tests.rs (11 screen-level tests here; 4 state tests left to chat-live)
 // ORACLE bottom_pane/chat_composer/vim_register_tests.rs:97 composer_handoff_preserves_only_the_live_rich_register kind=ui owner=chat-live
 #[test]
 fn composer_handoff_preserves_only_the_live_rich_register() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body, no mention, image or paste payload on the chat composer (no kit seeds): the rich register and the handoff of the live one are not drawn",
-    );
-    let mut s = chat(100, 24);
-    s.type_text("new");
+    // the oracle's `rich_composer()`: a `$figma` skill mention, an attached image, a 1001-character
+    // paste, in Normal mode
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .keymap(&[("global.toggle_vim_mode", "f9")])
+        .script(include_str!("fixtures/composer_3/skill_figma.jsonl"))
+        .open();
+    s.keys("f9 i");
+    s.type_text("$figma").keys("tab");
+    let photo = s.attach_image("photo.png");
+    s.paste(&"z".repeat(1001));
     s.keys("esc");
+    s.type_text("0y$A");
+    // Ctrl+Y puts the yank in once more; `yy` then takes the whole line, rich objects and all
+    s.keys("ctrl+y esc");
+    s.type_text("yy");
+    // a new session's composer starts from the old one's register
+    // (`restore_kill_buffer_snapshot`); the old draft is cleared by a selection, not a kill
+    s.keys("f9 home shift+end delete");
+    s.assert_row(prompt(&s), PLACEHOLDER);
+    s.type_text("/new").keys("enter");
+    s.keys("f9 i");
+    s.type_text("new").keys("esc");
+    // nothing to undo or repeat in the fresh composer
+    s.type_text("u.");
+    s.assert_row(prompt(&s), "› new");
     s.type_text("p");
-    s.assert_in_order(&["new", "$skill", "[Image #1]", "[Pasted Content 1001 chars]"]);
+    s.assert_in_order(&["new", "$figma", "[Image #1]", "[Pasted Content 1001 chars]"]);
+    // the pasted line carries its objects over: the submission binds the skill and takes the
+    // image (the oracle counts two of each: fresh numbering of a repeated object is the image
+    // attachment's, `rich_paste_renders_unique_image_and_paste_labels`)
+    s.keys("enter");
+    let turns = s.turns();
+    assert_eq!(turns.len(), 1, "one turn");
+    assert!(
+        turns[0].mentions.iter().any(|m| matches!(
+            m,
+            codex_tui_core::data::mention::ToolMention::Skill { name, path }
+                if name == "figma" && path == "/tmp/user/figma/SKILL.md"
+        )),
+        "the skill the register carried is bound: {:?}",
+        turns[0].mentions
+    );
+    assert!(
+        turns[0].images.iter().any(|image| image.path == photo),
+        "the image the register carried is attached: {:?}",
+        turns[0].images
+    );
 }
 
 // ORACLE bottom_pane/chat_composer/vim_register_tests.rs:137 insert_yank_and_dot_preserve_rich_payloads kind=ui owner=chat-live
@@ -1214,20 +1263,24 @@ fn internal_snapshot_restores_exact_mention_identity() {
 // ORACLE bottom_pane/chat_composer/vim_search_tests.rs:16 fresh_vim_draft_records_typing_after_submission kind=snap owner=chat-live snap=vim_fresh_draft
 #[test]
 fn fresh_vim_draft_records_typing_after_submission() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body (the Insert label after a submit is not drawn); the snapshot is the composer alone at 40 columns",
-    );
-    let mut s = chat(40, 9);
+    let mut s = vim_alone(40, 9);
     for entry in ["i", "esc"] {
-        s.type_text("sent");
+        // `set_text_content("sent")`, `set_vim_enabled(true)`
+        if entry == "i" {
+            s.type_text("sent");
+            s.keys("f9");
+        } else {
+            reset_vim_text(&mut s, "sent");
+        }
         s.keys(entry);
         s.keys("enter");
+        // the submitted draft is gone and Vim is in Insert mode again
+        s.assert_row(prompt(&s), PLACEHOLDER);
+        s.assert_text_style("Vim: Insert", "fg=Green");
         s.type_text("x");
         s.keys("esc");
         s.type_text(".");
         s.assert_row(prompt(&s), "› xx");
-        s.keys("ctrl+u");
     }
     s.keys("enter");
     s.assert_snap("vim_fresh_draft");
@@ -1236,40 +1289,58 @@ fn fresh_vim_draft_records_typing_after_submission() {
 // ORACLE bottom_pane/chat_composer/vim_search_tests.rs:41 backspace_cancels_empty_vim_search kind=snap owner=chat-live snap=vim_search_cancelled
 #[test]
 fn backspace_cancels_empty_vim_search() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body, and no Vim search prompt on the chat composer: `/`, `?`, `d/` and the others open no query line for Backspace to cancel; the snapshot is the composer alone at 40 columns",
-    );
-    let mut s = chat(40, 9);
-    s.type_text("draft");
-    s.keys("esc");
-    let p = prompt(&s);
-    for prefix in ["/", "?", "d/", "d?", "c/", "c?", "y/", "y?"] {
-        s.type_text(prefix);
-        s.keys("backspace");
-        s.assert_row(p, "› draft");
+    let mut s = vim_alone(40, 9);
+    s.keys("f9");
+    for text in ["", "draft"] {
+        if !text.is_empty() {
+            reset_vim_text(&mut s, text);
+        }
+        let before = s.shot();
+        let cursor = s.grid().cursor;
+        for prefix in ["/", "?", "d/", "d?", "c/", "c?", "y/", "y?"] {
+            // `/` on an empty draft types the slash (the next test)
+            if text.is_empty() && prefix == "/" {
+                continue;
+            }
+            s.type_text(prefix);
+            // the query line stands in the footer's place, led by the search key
+            let query = prefix.chars().last().map(String::from).unwrap_or_default();
+            s.assert_row(8, &format!("  {query}"));
+            s.keys("backspace");
+            // no operator waits, Normal mode, the draft and the caret as they were
+            s.assert_same_rows(&before);
+            assert_eq!(
+                s.grid().cursor,
+                cursor,
+                "the caret after `{prefix}` Backspace"
+            );
+        }
     }
-    s.assert_snap("vim_search_cancelled");
+    s.snap("vim_search_cancelled").assert();
 }
 
 // ORACLE bottom_pane/chat_composer/vim_search_tests.rs:74 vim_search_query_edits_and_paste_preserve_the_draft kind=snap owner=chat-live snap=vim_composer_search
 #[test]
 fn vim_search_query_edits_and_paste_preserve_the_draft() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body, no `[vim_search]` keymap (forward = `g s`) and no search query line on the chat composer; the snapshot is the composer alone at 40 columns",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(40, 9)
-        .live()
-        .keymap(&[("vim_search.forward", "g s")])
+        .keymap(&[
+            ("global.toggle_vim_mode", "f9"),
+            ("vim_search.forward", "g s"),
+        ])
+        .entry("composer", "alone")
         .open();
-    vim_draft(&mut s, "a g\u{301}g b हि gg");
+    vim_draft(&mut s, "a g\u{301}g b \u{939}\u{93f} gg");
     s.type_text("dgse\u{301}");
     s.keys("backspace");
     s.type_text("gg");
     s.paste("photo.png");
     s.assert_contains("ggphoto.png");
+    // the draft is whole and no image was attached
+    s.assert_row(prompt(&s), "› a g\u{301}g b \u{939}\u{93f} gg");
+    s.keys("esc");
+    s.type_text("?");
+    s.paste("\u{939}");
     s.assert_snap("vim_composer_search");
 }
 
@@ -1277,12 +1348,14 @@ fn vim_search_query_edits_and_paste_preserve_the_draft() {
 #[test]
 fn empty_vim_normal_slash_opens_commands() {
     kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body: `/` in Normal mode is the slash command's draft in Insert; the snapshot is the composer alone at 60 columns",
+        Owner::ChatNavPane,
+        "G68: the command popup is the Popover rows (a `▎` bar, right-aligned details, one row per command) and not the oracle's `› /model` table with wrapped descriptions over the draft's three rows; Normal-mode `/` itself opens Insert with the popup (asserted below)",
     );
-    let mut s = chat(60, 9);
+    let mut s = vim_alone(60, 9);
+    s.keys("f9");
     s.type_text("/");
     s.assert_row(prompt(&s), "› /");
+    s.assert_text_style("Vim: Insert", "fg=Green");
     s.assert_snap("vim_empty_normal_slash");
 }
 
@@ -1290,13 +1363,13 @@ fn empty_vim_normal_slash_opens_commands() {
 // ORACLE bottom_pane/chat_composer_enter_tests.rs:61 plain_enter_submits_expired_vim_insert_input kind=snap owner=chat-live snap=vim_enter_after_expired_paste
 #[test]
 fn plain_enter_submits_expired_vim_insert_input() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim Insert mode is built but the kit seeds no Vim state for this body: Enter submits the typed `x` in the oracle's insert mode; the snapshot is the composer alone at 60 columns",
-    );
-    let mut s = chat(60, 9);
+    let mut s = vim_alone(60, 9);
+    s.keys("f9 i");
+    // the `x` is typed a moment before Enter: no paste is in the making
     s.type_text("x");
+    s.wait(1000);
     s.keys("enter");
+    s.assert_row(prompt(&s), PLACEHOLDER);
     s.assert_snap("vim_enter_after_expired_paste");
 }
 

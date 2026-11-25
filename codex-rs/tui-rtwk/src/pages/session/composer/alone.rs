@@ -4,6 +4,7 @@
 //! a `ChatComposer` rendered over `footer_height + 8` rows). The page's
 //! bottom pane is the same two widgets under a transcript and a status row.
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use rtwk::focus::{FocusNode, KeyEventResult};
@@ -11,7 +12,7 @@ use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, 
 use rtwk::provider::read;
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::keymap::fixed;
+use codex_tui_core::keymap::{Keymap, fixed};
 use codex_tui_core::threads::ThreadModel;
 
 use crate::app::theme;
@@ -21,7 +22,7 @@ use crate::pages::session::popovers::mention;
 use crate::sheets::dialogs::shortcut_panel;
 use crate::widgets::thread_ui::ThreadUi;
 
-use super::{Composer, search};
+use super::{Composer, clear_sent, search, vim};
 
 /// The footer's row (`FooterMode::Passive`), kept clear of the popup.
 const FOOTER_ROWS: i32 = 1;
@@ -73,6 +74,8 @@ impl_widget!(stateful eq Alone);
 /// What the footer reads of the draft, kept by the state as the page keeps it.
 pub struct AloneState {
     node: FocusNode,
+    /// The keymap the build last saw, for the key handler.
+    keymap: Rc<RefCell<Rc<Keymap>>>,
     draft_empty: bool,
     draft_shell: bool,
     /// The shortcut overlay is open above the composer (`FooterMode::ShortcutOverlay`).
@@ -86,6 +89,8 @@ pub enum Msg {
     Changed,
     /// `?` on an empty draft.
     Shortcuts,
+    /// Enter: the oracle's harness composer clears with what it submitted.
+    Submitted,
 }
 
 impl StatefulWidget for Alone {
@@ -94,6 +99,7 @@ impl StatefulWidget for Alone {
     fn create_state(&self) -> AloneState {
         AloneState {
             node: FocusNode::new(),
+            keymap: Rc::new(RefCell::new(Rc::new(Keymap::defaults()))),
             draft_empty: self.ui.composer.text().is_empty(),
             draft_shell: self.ui.draft.shell(),
             shortcuts: false,
@@ -110,8 +116,13 @@ impl State for AloneState {
         // as in `Chat`); with text, a paste or a modifier it goes to the field.
         let send = cx.local_sender();
         let ui = w.ui.clone();
+        let keymap = self.keymap.clone();
         self.node.set_on_key_event(Some(Rc::new(move |_, key| {
             if !ui.composer.text().is_empty() || ui.draft.in_burst() || !types_text(&key) {
+                return KeyEventResult::Ignored;
+            }
+            // Normal mode's search keys come first: `?` searches backward there
+            if vim::wants_search_key(&ui.draft, &keymap.borrow(), &key) {
                 return KeyEventResult::Ignored;
             }
             if !pressed_fixed(fixed::OPEN_SHORTCUTS, &key) {
@@ -134,16 +145,25 @@ impl State for AloneState {
             // any other edit puts the overlay away
             Msg::Changed if !self.draft_empty => self.shortcuts = false,
             Msg::Changed => {}
+            Msg::Submitted => {
+                clear_sent(&w.ui);
+                self.draft_shell = false;
+                self.draft_empty = true;
+            }
         }
         Rebuild::Yes
     }
 
     fn build(&self, w: &Alone, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let tokens = theme::Tokens::of(cx);
-        let composer =
-            Composer::new(w.ui.clone(), self.node.clone()).on_changed(cx.map(|_| Msg::Changed));
+        *self.keymap.borrow_mut() = crate::keymap::keymap(cx);
+        let composer = Composer::new(w.ui.clone(), self.node.clone())
+            .on_changed(cx.map(|_| Msg::Changed))
+            .on_submitted(cx.map(|_| Msg::Submitted));
         let footer: AnyWidget = if let Some((query, status)) = w.ui.draft.search_state() {
             search::footer(cx, query, status)
+        } else if let Some(row) = search::query_footer(cx, &w.ui.draft) {
+            row
         } else {
             Timed {
                 footer: Footer {

@@ -9,6 +9,7 @@ use codex_tui_core::app::AppEv;
 use codex_tui_core::app::CodexApp;
 use codex_tui_core::app::FirstThread;
 use codex_tui_core::app::Ingress;
+use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::chat::DesktopNotice;
 use rtwk::GlobalKey;
 use rtwk::app::AppCx;
@@ -56,6 +57,9 @@ pub struct UiState {
     pub presenters: presenters::Presenters,
     /// How many backend switches the composers followed.
     pub switches_seen: u32,
+    /// The thread the composers followed last: a thread new to them starts with its register
+    /// (`restore_kill_buffer_snapshot` on a new chat widget).
+    pub followed: Option<ThreadId>,
     /// The copies the reader asked of the transcript and what came of them (the gap above the
     /// composer words it): the UI's follower of the answers core keeps.
     pub copies: CopyLog,
@@ -93,6 +97,7 @@ impl UiApp {
                 presenter: Presenter::new(),
                 presenters: presenters::Presenters::default(),
                 switches_seen: 0,
+                followed: None,
                 copies: CopyLog::default(),
                 desktop_notice: None,
             },
@@ -191,7 +196,22 @@ impl UiApp {
         self.ui.copies.take_in(self.core.latest_effect());
         if let Some(active) = self.core.session().active.clone() {
             let vim_default = self.core.tui().vim_mode_default;
+            // a thread with no controllers yet is the blank ones' twin
+            let known = !Rc::ptr_eq(
+                &self.ui.thread_ui.get(Some(&active)),
+                &self.ui.thread_ui.get(None),
+            );
             self.ui.thread_ui.ensure(&active, vim_default);
+            // a new chat widget takes the kill ring and the register of the one before it
+            let from = self.ui.followed.replace(active.clone());
+            if !known && let Some(from) = from.filter(|from| *from != active) {
+                let held = self.ui.thread_ui.get(Some(&from)).draft.take_register();
+                self.ui
+                    .thread_ui
+                    .get(Some(&active))
+                    .draft
+                    .restore_register(held);
+            }
             // An empty conversation moved to another backend: its draft goes
             // with it (oracle: `NewBackendSession::CarryDraft`).
             let switches = self.core.session().switches;
