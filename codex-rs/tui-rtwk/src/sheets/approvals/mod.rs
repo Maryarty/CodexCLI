@@ -32,7 +32,7 @@ use crate::app::debug::seeded::Seeded;
 pub mod strings;
 
 pub use auto_review::{menu as auto_review_menu, open as open_auto_review};
-pub use banner::PendingThreadApprovals;
+pub use banner::{PendingThreadApprovals, PendingThreadsBanner};
 pub use decision_cell::{DecisionCell, ReviewLineCell};
 pub use guardian::{ReviewStatus, review_status, summary as review_summary};
 

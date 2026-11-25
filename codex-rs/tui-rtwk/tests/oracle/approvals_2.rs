@@ -6,6 +6,14 @@
 
 use crate::kit::{self, Owner, Screen};
 
+/// The first row of the banner of the threads that wait for an approval.
+fn banner_row(s: &Screen) -> usize {
+    s.rows()
+        .iter()
+        .position(|row| row.contains("Approval needed in"))
+        .unwrap_or_else(|| panic!("no banner on the screen:\n{}", s.text()))
+}
+
 // ---- oracle: bottom_pane/pending_thread_approvals.rs (3 screen-level tests here; 0 state tests left to dialogs-pane)
 // ORACLE bottom_pane/pending_thread_approvals.rs:109 desired_height_empty kind=ui owner=dialogs-pane
 #[test]
@@ -19,27 +27,31 @@ fn desired_height_empty() {
 // ORACLE bottom_pane/pending_thread_approvals.rs:115 render_single_thread_snapshot kind=snap owner=dialogs-pane
 #[test]
 fn render_single_thread_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "the banner's widget and its list exist (`sheets::approvals::PendingThreadApprovals`, core `pending_threads`; sheet tests `approvals::banner::*` hold the oracle's rows), but the session page's bottom pane that hosts it is not in this slice: the live chat draws no banner (handover: the page puts the widget above the composer, fed by `pending_threads(requests, threads, active)`)",
-    );
-    let s = Screen::build(Owner::DialogsPane).size(40, 2).live().open();
-    s.assert_row(0, "  ! Approval needed in Robie [explorer]");
-    s.assert_row(1, "    /subagents to review requests");
+    // The typing delay keeps the dialog from covering the pane: the banner is what shows.
+    let mut s = Screen::build(Owner::DialogsPane).size(40, 14).live().open();
+    s.type_text("a");
+    s.feed(include_str!("fixtures/approvals_2/pending_single.jsonl"));
+    let at = banner_row(&s);
+    s.assert_row(at, "  ! Approval needed in Robie [explorer]");
+    s.assert_row(at + 1, "    /subagents to review requests");
+    // the delayed dialog comes up: no timer is left pending
+    s.wait(1_000);
 }
 
 // ORACLE bottom_pane/pending_thread_approvals.rs:129 render_multiple_threads_snapshot kind=snap owner=dialogs-pane
 #[test]
 fn render_multiple_threads_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "the banner's widget and its list exist (`sheets::approvals::PendingThreadApprovals`, core `pending_threads`; sheet tests `approvals::banner::*` hold the oracle's rows), but the session page's bottom pane that hosts it is not in this slice: the live chat draws no banner (handover: the page puts the widget above the composer, fed by `pending_threads(requests, threads, active)`)",
-    );
-    let s = Screen::build(Owner::DialogsPane).size(44, 5).live().open();
-    s.assert_row(0, "  ! Approval needed in Main [default]");
-    s.assert_row(1, "  ! Approval needed in Robie [explorer]");
-    s.assert_row(2, "  ! Approval needed in Inspector");
-    s.assert_row(4, "    /subagents to review requests");
+    let mut s = Screen::build(Owner::DialogsPane).size(44, 16).live().open();
+    s.type_text("a");
+    s.feed(include_str!(
+        "fixtures/approvals_2/pending_multiple.jsonl"
+    ));
+    let at = banner_row(&s);
+    s.assert_row(at, "  ! Approval needed in Main [default]");
+    s.assert_row(at + 1, "  ! Approval needed in Robie [explorer]");
+    s.assert_row(at + 2, "  ! Approval needed in Inspector");
+    s.assert_row(at + 4, "    /subagents to review requests");
+    s.wait(1_000);
 }
 
 // ---- oracle: bottom_pane/questions_tests.rs (1 screen-level tests here; 0 state tests left to dialogs-pane)

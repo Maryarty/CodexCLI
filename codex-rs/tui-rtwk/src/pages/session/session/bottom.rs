@@ -25,6 +25,7 @@ use crate::pages::session::live::limits;
 use crate::pages::session::popovers::mention;
 use crate::pages::session::status_surfaces::{line_interests, raise};
 use crate::pages::session::transcript;
+use crate::sheets::approvals::PendingThreadsBanner;
 use crate::sheets::dialogs::shortcut_panel;
 use crate::sheets::select::hud;
 use crate::widgets::status_line::{SEPARATOR, status_spans, thread_color};
@@ -122,6 +123,8 @@ pub(super) fn body(
         running,
         overlay: state.shortcuts,
     });
+    // the threads that wait for an approval, right above the composer (`bottom_pane`)
+    let body = body.child(PendingThreadsBanner);
     let body = body.child(BackendBanners {
         gate: state.banner.clone(),
         dismissed: state.banner.dismissed.get(),

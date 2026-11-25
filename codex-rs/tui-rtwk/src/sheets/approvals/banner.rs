@@ -5,9 +5,15 @@
 //! `Text` (the text wraps under itself, not under the icon).
 
 use rtwk::layout::{Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row};
+use rtwk::provider::select;
 use rtwk::style::{Attrs, Span};
 use rtwk::text::{Text, TextWrap};
 use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
+
+use codex_tui_core::app::{RequestQueue, SessionSlice};
+use codex_tui_core::ids::ThreadId;
+use codex_tui_core::screens::ScreenStates;
+use codex_tui_core::screens::approvals::{labels_of, waiting_threads};
 
 use super::strings;
 use crate::app::theme::Tokens;
@@ -68,5 +74,29 @@ impl StatelessWidget for PendingThreadApprovals {
                 ]),
             ))
             .into()
+    }
+}
+
+/// The banner over the composer of the chat: the threads other than the one shown that wait for
+/// an approval (the oracle's `App::refresh_pending_thread_approvals`), read from the request
+/// queue, the command center's thread list and the shown thread.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PendingThreadsBanner;
+
+impl_widget!(stateless eq PendingThreadsBanner);
+
+impl StatelessWidget for PendingThreadsBanner {
+    fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
+        let waiting = select::<RequestQueue, Vec<ThreadId>, _>(cx, waiting_threads);
+        let active =
+            select::<SessionSlice, Option<ThreadId>, _>(cx, |session| session.active.clone());
+        let threads =
+            select::<ScreenStates, Vec<codex_app_server_protocol::Thread>, _>(cx, |states| {
+                states.agents.threads.clone()
+            });
+        PendingThreadApprovals {
+            threads: labels_of(&waiting, &threads, active.as_ref()),
+        }
+        .into()
     }
 }

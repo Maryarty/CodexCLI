@@ -472,13 +472,30 @@ pub fn pending_threads(
     threads: &[codex_app_server_protocol::Thread],
     active: Option<&ThreadId>,
 ) -> Vec<String> {
+    labels_of(&waiting_threads(queue), threads, active)
+}
+
+/// The thread of each request that waits for an approval, in the order the requests came (a
+/// request for user input is not one).
+pub fn waiting_threads(queue: &crate::app::RequestQueue) -> Vec<ThreadId> {
+    queue
+        .entries
+        .iter()
+        .filter(|entry| !matches!(entry.prompt.as_deref(), Some(Prompt::UserInput(_))))
+        .map(|entry| entry.key.thread.clone())
+        .collect()
+}
+
+/// The labels of `waiting`, one per thread (the first request fixes its place), the shown
+/// thread left out.
+pub fn labels_of(
+    waiting: &[ThreadId],
+    threads: &[codex_app_server_protocol::Thread],
+    active: Option<&ThreadId>,
+) -> Vec<String> {
     let mut seen: Vec<&ThreadId> = Vec::new();
     let mut labels = Vec::new();
-    for entry in &queue.entries {
-        if matches!(entry.prompt.as_deref(), Some(Prompt::UserInput(_))) {
-            continue;
-        }
-        let thread = &entry.key.thread;
+    for thread in waiting {
         if seen.contains(&thread) {
             continue;
         }

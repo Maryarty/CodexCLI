@@ -39,8 +39,8 @@ use super::search;
 use super::suggest::Suggest;
 use super::vim;
 use crate::keymap::{
-    c0_ctrl_h, holds_command_mod, holds_ctrl_or_alt, holds_shift_or_alt, only_shift, press_for, pressed,
-    unmodified,
+    c0_ctrl_h, holds_command_mod, holds_ctrl_or_alt, holds_shift_or_alt, only_shift, press_for,
+    pressed, unmodified,
 };
 use crate::widgets::composer_draft::ComposerDraft;
 use crate::widgets::composer_sparkle::{Key as SparkleKey, SparkleController};

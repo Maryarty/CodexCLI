@@ -53,7 +53,11 @@ impl Delay {
     fn arm(&self, left: Duration) {
         let (binding, due) = (self.binding.borrow(), self.due.borrow());
         if let (Some(binding), Some(due)) = (binding.as_ref(), due.as_ref()) {
-            if let Some(old) = self.timer.borrow_mut().replace(binding.start_timer(left, due.clone())) {
+            if let Some(old) = self
+                .timer
+                .borrow_mut()
+                .replace(binding.start_timer(left, due.clone()))
+            {
                 old.cancel();
             }
         }
