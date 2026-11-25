@@ -125,7 +125,11 @@ fn a_local_switch_has_no_cloud_switch_state() {
     assert_eq!(backend, LOCAL);
     assert_eq!(app.session().cloud_switch, None);
     run(&mut app, AppEv::Reply(ticket, Reply::failed("unavailable")));
-    assert_eq!(app.session().cloud_switch, None, "a local refusal says nothing");
+    assert_eq!(
+        app.session().cloud_switch,
+        None,
+        "a local refusal says nothing"
+    );
 }
 
 #[test]

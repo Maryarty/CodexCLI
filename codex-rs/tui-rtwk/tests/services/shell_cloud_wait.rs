@@ -17,10 +17,10 @@
 
 use std::time::Duration;
 
+use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::app::{AppEv, Command};
 use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
-use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_rtwk::app::UiApp;
 use codex_tui_rtwk::app::run::{localized, root};
 use codex_tui_rtwk::l10n::Lang;
@@ -49,14 +49,20 @@ fn settle(t: &mut Tester) {
     }
 }
 
-/// An app on two scripted servers whose Cloud leaves its start unanswered, settled on the empty
-/// conversation, with `draft` typed (and the typing burst flushed). `vim`: the config's
-/// `tui.vim_mode_default` is on, told before the first conversation starts.
-fn with_wait(
-    draft: &str,
+/// What the app is started with.
+#[derive(Clone, Copy, Default)]
+struct Setup {
+    /// The config's `tui.vim_mode_default` is on, told before the first conversation starts.
     vim: bool,
-    test: impl FnOnce(&mut Tester, &FakeHandle, &FakeHandle),
-) {
+    /// On `pump_app`, which gives the app the frame loop's handle: only there does a quit end
+    /// the loop.
+    quittable: bool,
+}
+
+/// An app on two scripted servers whose Cloud leaves its start unanswered, settled on the empty
+/// conversation, with `draft` typed (and the typing burst flushed).
+fn with_wait(draft: &str, setup: Setup, test: impl FnOnce(&mut Tester, &FakeHandle, &FakeHandle)) {
+    let vim = setup.vim;
     let _guard = rtwk_tokio::enter(runtime());
     let (first, local) = FakeServer::new();
     let (second, cloud) = FakeServer::new();
@@ -74,10 +80,14 @@ fn with_wait(
     };
     let app = UiApp::new(backend);
     let mut t = Tester::with(Options::new().size(100, 30).kitty_keyboard(true));
-    t.pump_widget(localized(
-        root(codex_tui_rtwk::app::run::app_view(app)),
-        Lang::En,
-    ));
+    if setup.quittable {
+        t.pump_app(codex_tui_rtwk::app::run::app_view(app));
+    } else {
+        t.pump_widget(localized(
+            root(codex_tui_rtwk::app::run::app_view(app)),
+            Lang::En,
+        ));
+    }
     settle(&mut t);
     if vim {
         local.inject(
@@ -147,7 +157,7 @@ fn line(t: &Tester, needle: &str) -> Option<String> {
 /// leaves the footer saying `Connecting to Cloud…` until Cloud answers.
 #[test]
 fn cloud_wait_displays_pending_submission_hint() {
-    with_wait("", false, |t, _, cloud| {
+    with_wait("", Setup::default(), |t, _, cloud| {
         assert!(line(t, "Connecting to Cloud").is_none(), "{}", t.screen());
         cycle(t);
         settle(t);
@@ -171,46 +181,66 @@ fn cloud_wait_displays_pending_submission_hint() {
 /// and keeps the draft, which is the user's again.
 #[test]
 fn cloud_wait_keeps_draft_editable_without_submitting_to_local() {
-    with_wait("/review first draft", false, |t, local, cloud| {
-        let before = turns(local);
-        cycle(t);
-        settle(t);
-        assert_eq!(starts(cloud).len(), 1);
-        t.press("enter");
-        t.press("tab");
-        // the chord during the wait starts nothing and types nothing
-        cycle(t);
-        t.paste(" more");
-        t.press("shift+enter");
-        t.type_text("aa");
-        t.pump_for(Duration::from_millis(50));
-        settle(t);
-        assert_eq!(starts(cloud).len(), 1, "a second chord starts nothing");
-        assert!(t.screen().contains("/review first draft more"), "{}", t.screen());
-        assert!(line(t, "aa").is_some_and(|row| row.ends_with("aa")), "{}", t.screen());
-        assert_eq!(turns(local), before);
-        assert_eq!(turns(cloud), 0);
+    with_wait(
+        "/review first draft",
+        Setup::default(),
+        |t, local, cloud| {
+            let before = turns(local);
+            cycle(t);
+            settle(t);
+            assert_eq!(starts(cloud).len(), 1);
+            t.press("enter");
+            t.press("tab");
+            // the chord during the wait starts nothing and types nothing
+            cycle(t);
+            t.paste(" more");
+            t.press("shift+enter");
+            t.type_text("aa");
+            t.pump_for(Duration::from_millis(50));
+            settle(t);
+            assert_eq!(starts(cloud).len(), 1, "a second chord starts nothing");
+            assert!(
+                t.screen().contains("/review first draft more"),
+                "{}",
+                t.screen()
+            );
+            assert!(
+                line(t, "aa").is_some_and(|row| row.ends_with("aa")),
+                "{}",
+                t.screen()
+            );
+            assert_eq!(turns(local), before);
+            assert_eq!(turns(cloud), 0);
 
-        answer(cloud, Reply::failed("Cloud unavailable"));
-        // the frame that heard the refusal says it (the oracle's failure frame)
-        t.pump_for(Duration::from_millis(20));
-        assert!(
-            line(t, "Cloud conversation did not open")
-                .is_some_and(|row| row.contains("Cloud conversation did not open draft kept")),
-            "{}",
-            t.screen()
-        );
-        assert!(line(t, "Connecting to Cloud").is_none(), "{}", t.screen());
-        // the draft is kept and the user's again: it takes keys, and Enter is no longer swallowed
-        t.type_text("cc");
-        t.pump_for(Duration::from_millis(50));
-        assert!(line(t, "aacc").is_some(), "{}", t.screen());
-        // the next apply (the wake the app declared) takes the hint away
-        std::thread::sleep(Duration::from_millis(1200));
-        settle(t);
-        assert!(line(t, "Cloud conversation did not open").is_none(), "{}", t.screen());
-        assert!(t.screen().contains("/review first draft more"), "{}", t.screen());
-    });
+            answer(cloud, Reply::failed("Cloud unavailable"));
+            // the frame that heard the refusal says it (the oracle's failure frame)
+            t.pump_for(Duration::from_millis(20));
+            assert!(
+                line(t, "Cloud conversation did not open")
+                    .is_some_and(|row| row.contains("Cloud conversation did not open draft kept")),
+                "{}",
+                t.screen()
+            );
+            assert!(line(t, "Connecting to Cloud").is_none(), "{}", t.screen());
+            // the draft is kept and the user's again: it takes keys, and Enter is no longer swallowed
+            t.type_text("cc");
+            t.pump_for(Duration::from_millis(50));
+            assert!(line(t, "aacc").is_some(), "{}", t.screen());
+            // the next apply (the wake the app declared) takes the hint away
+            std::thread::sleep(Duration::from_millis(1200));
+            settle(t);
+            assert!(
+                line(t, "Cloud conversation did not open").is_none(),
+                "{}",
+                t.screen()
+            );
+            assert!(
+                t.screen().contains("/review first draft more"),
+                "{}",
+                t.screen()
+            );
+        },
+    );
 }
 
 /// `cloud_switch_wait_routes_ctrl_d_to_the_draft_or_queues_shutdown`: Ctrl+D with text in the
@@ -218,26 +248,33 @@ fn cloud_wait_keeps_draft_editable_without_submitting_to_local() {
 /// never adopted (the app has ended).
 #[test]
 fn cloud_wait_routes_ctrl_d_to_the_draft_or_quits() {
-    with_wait("", false, |t, _, cloud| {
-        cycle(t);
-        settle(t);
-        assert_eq!(starts(cloud).len(), 1);
-        t.type_text("a");
-        // buffered typing counts as draft content
-        t.press("ctrl+d");
-        assert!(t.is_running(), "ctrl+d with typing held ends nothing");
-        t.pump_for(Duration::from_millis(50));
-        t.press("home");
-        // the draft's only character is deleted forward
-        t.press("ctrl+d");
-        t.pump_for(Duration::from_millis(50));
-        assert!(t.is_running(), "{}", t.screen());
-        assert!(!t.screen().contains("› a"), "{}", t.screen());
-        // the draft is empty now: quit
-        t.press("ctrl+d");
-        t.pump_for(Duration::from_millis(50));
-        assert!(!t.is_running());
-    });
+    with_wait(
+        "",
+        Setup {
+            quittable: true,
+            ..Setup::default()
+        },
+        |t, _, cloud| {
+            cycle(t);
+            settle(t);
+            assert_eq!(starts(cloud).len(), 1);
+            t.type_text("a");
+            // buffered typing counts as draft content
+            t.press("ctrl+d");
+            assert!(t.is_running(), "ctrl+d with typing held ends nothing");
+            t.pump_for(Duration::from_millis(50));
+            t.press("home");
+            // the draft's only character is deleted forward
+            t.press("ctrl+d");
+            t.pump_for(Duration::from_millis(50));
+            assert!(t.is_running(), "{}", t.screen());
+            assert!(!t.screen().contains("› a"), "{}", t.screen());
+            // the draft is empty now: quit
+            t.press("ctrl+d");
+            t.pump_for(Duration::from_millis(200));
+            assert!(!t.is_running());
+        },
+    );
 }
 
 /// `cloud_switch_wait_preserves_legacy_vim_escape_and_search_acceptance` (its Vim half): the
@@ -246,24 +283,35 @@ fn cloud_wait_routes_ctrl_d_to_the_draft_or_quits() {
 /// mode would have undone the Escape).
 #[test]
 fn cloud_wait_keeps_vim_normal_mode_into_the_cloud_conversation() {
-    with_wait("", true, |t, _, cloud| {
-        // Vim on and a new draft in Insert mode (`tui.vim_mode_default`)
-        t.type_text("alpha beta");
-        t.pump_for(Duration::from_millis(50));
-        cycle(t);
-        settle(t);
-        assert_eq!(starts(cloud).len(), 1);
-        // the Escape of the wait is accepted by the draft
-        t.press("escape");
-        settle(t);
-        assert!(t.screen().contains("Vim: Normal"), "{}", t.screen());
-        answer(cloud, Reply::thread_started(ThreadId::new("cloud-1")));
-        settle(t);
-        assert!(line(t, "Cloud  ").is_some(), "{}", t.screen());
-        assert!(t.screen().contains("Vim: Normal"), "{}", t.screen());
-        t.press("x");
-        settle(t);
-        assert!(line(t, "alpha bet").is_some_and(|row| row.contains("› alpha bet")), "{}", t.screen());
-        assert!(!t.screen().contains("alpha betx"), "{}", t.screen());
-    });
+    with_wait(
+        "",
+        Setup {
+            vim: true,
+            ..Setup::default()
+        },
+        |t, _, cloud| {
+            // Vim on and a new draft in Insert mode (`tui.vim_mode_default`)
+            t.type_text("alpha beta");
+            t.pump_for(Duration::from_millis(50));
+            cycle(t);
+            settle(t);
+            assert_eq!(starts(cloud).len(), 1);
+            // the Escape of the wait is accepted by the draft
+            t.press("escape");
+            settle(t);
+            assert!(t.screen().contains("Vim: Normal"), "{}", t.screen());
+            answer(cloud, Reply::thread_started(ThreadId::new("cloud-1")));
+            settle(t);
+            assert!(line(t, "Cloud  ").is_some(), "{}", t.screen());
+            assert!(t.screen().contains("Vim: Normal"), "{}", t.screen());
+            t.press("x");
+            settle(t);
+            assert!(
+                line(t, "alpha bet").is_some_and(|row| row.contains("› alpha bet")),
+                "{}",
+                t.screen()
+            );
+            assert!(!t.screen().contains("alpha betx"), "{}", t.screen());
+        },
+    );
 }

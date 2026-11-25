@@ -2005,8 +2005,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                     (Some(backend), Answer::Failed(error)) => {
                         // The oracle shows the error and stays where it was.
                         if app.screens.agents.is_cloud(backend) {
-                            Rc::make_mut(&mut app.session).cloud_switch =
-                                Some(CloudSwitch::Failed);
+                            Rc::make_mut(&mut app.session).cloud_switch = Some(CloudSwitch::Failed);
                         }
                         if let Some(active) = app.session.active.clone() {
                             apply_thread(app, &active, ThreadEv::Failure(Failure::from(error)), fx);
