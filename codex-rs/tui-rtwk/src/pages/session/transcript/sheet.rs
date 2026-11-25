@@ -10,10 +10,11 @@
 //! so the reader's place survives the sheet; the mode is the thread's `Modes`
 //! controller; the document is the thread model's, read through the provider.
 
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use rtwk::focus::{Focus, KeyEventResult};
-use rtwk::foundation::{Listenable, ListenableBuilder};
+use rtwk::foundation::{Listenable, ListenableBuilder, VoidCallback};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, SizedBox};
 use rtwk::navigation::Navigator;
 use rtwk::provider::{read, select};
@@ -34,6 +35,7 @@ use super::find;
 use super::find_footer;
 use super::history;
 use super::pager;
+use super::select::{self, Chord, Step};
 use super::selection;
 use super::strings::{self, Strings};
 use crate::app::debug::seeded::Seeded;
@@ -42,7 +44,7 @@ use crate::app::view::Hs;
 use crate::pages::session::backtrack;
 use crate::pages::session::transcript_pane::Pane;
 use crate::widgets::finder::Finder;
-use crate::widgets::thread_ui::{Follow, Modes, TextSelection};
+use crate::widgets::thread_ui::{Follow, Input, Modes, TextSelection};
 
 /// What the sheet draws around the transcript (the person's decision on the
 /// pager chrome: as the oracle has it).
@@ -98,9 +100,14 @@ fn seeded_with(seeded: &Seeded<'_>, chrome: Chrome) -> AnyWidget {
     .into()
 }
 
-/// Widget state: none (R14); the scroll is the `Follow` controller's, the
-/// mode the `Modes` controller's.
-pub struct SheetState;
+/// Widget state: only what the keys carry between two presses (R14); the scroll is the `Follow`
+/// controller's, the mode the `Modes` controller's, select mode the thread's `Select`.
+pub struct SheetState {
+    /// The leader of `select_transcript` was pressed: the next key may complete the chord.
+    leader: Rc<Cell<bool>>,
+    /// The listener on select mode that closes the sheet when the mode is refused.
+    selecting: RefCell<Option<(select::Select, VoidCallback)>>,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Msg {
@@ -109,6 +116,11 @@ pub enum Msg {
     Find,
     /// A copy key or Esc while the reader's selection pauses Find (`handle_selection_key`).
     Selection(selection::Key),
+    /// `select_transcript` (`leader [`): select mode begins (`begin_select_mode`).
+    Select,
+    /// Select mode ended by Exit or by Enter's copy, or was refused (nothing to select): the
+    /// sheet closes with it (`ExitSelectMode`, `finish_select_follow`, `pending_select_mode`).
+    Left,
     Esc,
     Older,
     Newer,
@@ -119,21 +131,62 @@ impl StatefulWidget for TranscriptSheet {
     type State = SheetState;
 
     fn create_state(&self) -> SheetState {
-        SheetState
+        SheetState {
+            leader: Rc::default(),
+            selecting: RefCell::new(None),
+        }
     }
 }
 
 impl_widget!(stateful eq TranscriptSheet);
 
+impl SheetState {
+    /// The pane ends select mode where nothing is selectable (`begin_select_mode` refused): the
+    /// sheet closes with it, as the overlay that finds nothing to select is done. One listener, on
+    /// the select mode of the thread shown.
+    fn listen_select(&self, select: &select::Select, send: Rc<dyn Fn(Msg)>) {
+        let mut held = self.selecting.borrow_mut();
+        if held.as_ref().is_some_and(|(held, _)| held == select) {
+            return;
+        }
+        if let Some((old, listener)) = held.take() {
+            old.listenable().remove_listener(&listener);
+        }
+        let refused = select.clone();
+        let listener: VoidCallback = Rc::new(move || {
+            if refused.refused() {
+                send(Msg::Left);
+            }
+        });
+        select.listenable().add_listener(listener.clone());
+        *held = Some((select.clone(), listener));
+    }
+}
+
 impl State for SheetState {
     type Widget = TranscriptSheet;
     type Msg = Msg;
+
+    fn dispose(&mut self) {
+        if let Some((select, listener)) = self.selecting.get_mut().take() {
+            select.listenable().remove_listener(&listener);
+        }
+    }
 
     fn update(&mut self, msg: Msg, w: &TranscriptSheet, cx: &mut Cx<'_, Self>) -> Rebuild {
         let thread = read::<ThreadModel, _>(cx);
         let targets = Targets::of(thread.transcript(), thread.can_load_history());
         match msg {
             Msg::Find => w.find.begin(&w.follow, &w.selection),
+            Msg::Select => {
+                select::of(&w.find).begin(&w.follow);
+                w.modes.hold(Input::Select);
+            }
+            Msg::Left => {
+                // the mode has ended already (`Select::take`, or refused by the pane)
+                w.modes.hold(Input::Plain);
+                Navigator::maybe_pop(cx);
+            }
             Msg::Selection(key) => {
                 let held = w.selection.controller();
                 let text = held.text();
@@ -163,6 +216,8 @@ impl State for SheetState {
             Msg::Pager(pager::Msg::Bottom) => w.follow.jump_to_latest(),
             // closing is the sheet's; what the opener does with it is the opener's
             Msg::Pager(pager::Msg::Close | pager::Msg::Action) => {
+                select::of(&w.find).end(&w.selection);
+                w.modes.hold(Input::Plain);
                 w.modes.reset();
                 Navigator::maybe_pop(cx);
             }
@@ -280,8 +335,7 @@ impl State for SheetState {
         // hints (`footer_with_navigation`), from the first column
         let bottom = match bottom {
             Some(rows) => Some(find_footer::slot_in(cx, &find, rows.into(), 0)),
-            // the bare view draws no footer: Find's query is edited all the same
-            None => Some(find_footer::unseen_query(cx, &find)),
+            None => Some(bare_bottom(cx, &find)),
         };
         let mut column = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
         if w.chrome == Chrome::Overlay {
@@ -293,17 +347,45 @@ impl State for SheetState {
         }
         let reading = w.find.clone();
         let send = cx.local_sender();
+        let (caret, selection, leader) = (
+            select::of(&w.find),
+            w.selection.clone(),
+            self.leader.clone(),
+        );
+        let keymap = crate::keymap::keymap(cx);
+        let held = keymap.clone();
+        self.listen_select(&caret, send.clone());
         let mut focus = Focus::new(column)
             .autofocus()
             // what the reader selected while Find is open: its copy keys and Esc come first
             // (`handle_selection_key`); a match being read (Find accepted): `Ctrl+P`, `Ctrl+N`,
             // Enter (swallowed), Esc and `Ctrl+C` are Find's, before the sheet's own
-            // (`handle_search_key`)
+            // (`handle_search_key`); select mode's keys come before Find's chords and the
+            // sheet's own (`handle_select_mode_key`), its chord begins it where neither Find nor
+            // the mode asks (`select_transcript`)
             .on_key_event(move |_, key| {
                 if reading.paused()
                     && let Some(step) = selection::key(&key)
                 {
                     send(Msg::Selection(step));
+                    KeyEventResult::Handled
+                } else if caret.take(&held, &key, &selection, &reading, &|step| match step {
+                    Step::Copy => send(Msg::Selection(selection::Key::Copy)),
+                    Step::CopyAndFollow => {
+                        send(Msg::Selection(selection::Key::CopyAndFollow));
+                        send(Msg::Left);
+                    }
+                    Step::Exit => send(Msg::Left),
+                    Step::Moved | Step::Find => {}
+                }) {
+                    KeyEventResult::Handled
+                } else if !reading.active()
+                    && !caret.active()
+                    && let Some(chord) = select::chord(&held, &leader, &key)
+                {
+                    if chord == Chord::Begin {
+                        send(Msg::Select);
+                    }
                     KeyEventResult::Handled
                 } else if reading.reading()
                     && let Some(taken) = find::key(reading.mode(), &key)
@@ -314,7 +396,6 @@ impl State for SheetState {
                     KeyEventResult::Ignored
                 }
             });
-        let keymap = crate::keymap::keymap(cx);
         for (key, msg) in pager::bindings(&keymap, false) {
             focus = focus.bind(key, cx.send(Msg::Pager(msg)));
         }
@@ -341,6 +422,25 @@ impl State for SheetState {
         }
         focus.into()
     }
+}
+
+/// The footer of the bare views: none while the transcript is only read, as the oracle's view
+/// alone has no bottom pane (Find's query is edited all the same, in a field that draws nothing).
+/// While select mode (or copy mode) is on the rows of the footer show and take the list's last
+/// rows, as they do under the oracle's app: its hints, and Find's query and status over them.
+fn bare_bottom(cx: &mut Cx<'_, SheetState>, find: &Finder) -> AnyWidget {
+    let nothing = || -> AnyWidget { SizedBox::new(None, Some(0), None).into() };
+    let seen = find_footer::slot_in(cx, find, nothing(), 0);
+    let unseen = find_footer::unseen_query(cx, find);
+    let (caret, copier) = (select::of(find), copy::mode_of(find));
+    ListenableBuilder::new(caret.listenable(), move |_, _| {
+        if caret.active() || copier.active() {
+            seen.clone()
+        } else {
+            unseen.clone()
+        }
+    })
+    .into()
 }
 
 /// The second hint row: close, find, browse, and with a prompt marked the
@@ -499,6 +599,18 @@ impl TranscriptMode for Mode {
                 name: "sheet_link",
                 description: "the transcript sheet over an answer that is a web link",
                 script: include_str!("fixtures/sheet_link.jsonl"),
+                open: EntryOpen::Route(seeded),
+            },
+            DebugEntry {
+                name: "sheet_empty",
+                description: "the transcript sheet over a thread with no entries (select mode is refused and closes it)",
+                script: include_str!("fixtures/sheet_empty.jsonl"),
+                open: EntryOpen::Route(seeded),
+            },
+            DebugEntry {
+                name: "sheet_copy_me",
+                description: "the transcript sheet over one short answer, `copy me`",
+                script: include_str!("fixtures/sheet_copy_me.jsonl"),
                 open: EntryOpen::Route(seeded),
             },
             DebugEntry {
