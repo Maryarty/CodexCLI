@@ -647,7 +647,7 @@
 | Feedback (диалог) | 🟡 | ab78ae687: шаг feedback — состояние sheet; с батча 9 из чата достижим командой `/feedback` (страница Feedback); снимки consent/diagnostics ждут | bottom_pane/feedback_view.rs, app/feedback_upload.rs | src/sheets/dialogs/feedback.rs | ядро: fw1-c1, fw1-c2, fw1-c8, fw1-c4, fw1-c9 (влито); `w2-commands` |
 | Pets (диалог выбора) | 🟡 | ab78ae687: курсор и превью — состояние sheet; глаголы LoadPreview, ReleasePreview; ambient-часть и тесты не включены | pets/picker.rs | src/sheets/pets/ | `pets-ambient` |
 | Voice (диалог, F8) | ❌ | — | chatwidget/realtime_settings.rs | src/sheets/voice/ | `voice` |
-| Trust on open (запрос доверия к каталогу) | ? | в startup-шарде 29/32 зелёные; из чата не вызывается | onboarding/trust_directory.rs | src/pages/startup/ | `startup-rest` |
+| Trust on open (запрос доверия к каталогу) | ? | в startup-шарде 29/32 зелёные; из чата: /cd да (f-startup-trust); остальные вызовы (resume, новая задача из центра, смена backend, fresh) — f-startup-trust-callers | onboarding/trust_directory.rs | src/pages/startup/ | `startup-rest` |
 | Model provider switch (блокирует кэш выбора) | ❌ | provider_switch_* | app/provider/, chatwidget/model_popups.rs | core/src/screens/select/model.rs | ядро: fw1-c1, fw1-c2, fw1-c8, fw1-c4, fw1-c9 (влито); `w2-commands` |
 | Debug menu F12 | ✅ | — | bottom_pane/*_view.rs | src/sheets/dialogs/ | — |
 | Список выбора (SelectionList): тап по строке | 🟡 | gap (2f68c2c75): тап по строке только двигает курсор, как у rtwk-виджета; выбор строки — клавишей | bottom_pane/warnings_view.rs, shortcut_overlay.rs, user_verification.rs, list_selection_view.rs | src/sheets/dialogs/ | ядро: fw1-c9 (влито); `w2-approvals` |
