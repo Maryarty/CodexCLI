@@ -493,3 +493,40 @@ fn the_composer_keeps_its_draft_through_the_ignition() {
     }
     s.assert_text_style("»", "bold");
 }
+
+/// A turn that polls a background terminal with empty stdin (the oracle's
+/// `unified_exec_wait_status_renders_command_in_single_details_row_snapshot` script).
+const WAITING: &str = include_str!(
+    "../oracle/fixtures/chat_approvals_1/unified_exec_wait_status_renders_command_in_single_details_row_snapshot.jsonl"
+);
+
+/// The model polls a background terminal with empty stdin: the status row says what the turn
+/// waits for and the command runs under it (oracle `on_terminal_interaction`).
+#[test]
+fn the_status_row_waits_for_the_background_terminal_and_names_its_command() {
+    let s = Screen::build(Owner::UiPane)
+        .size(80, 12)
+        .script(WAITING)
+        .open();
+    s.assert_in_order(&[
+        "• Waiting for background terminal",
+        "└ cargo test -p codex-core -- --exact some::very::long::test::name",
+    ]);
+    s.assert_absent("• Working");
+}
+
+/// The next thing the turn does ends the wait: an agent delta writes the streak and the row
+/// reads `Working` again, with no command under it.
+#[test]
+fn an_agent_delta_ends_the_wait_and_the_row_reads_working_again() {
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 12)
+        .script(WAITING)
+        .open();
+    s.feed(
+        r#"{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-1","delta":"Done waiting\n"}}}"#,
+    );
+    s.assert_contains("• Working");
+    s.assert_absent("Waiting for background terminal");
+    s.assert_absent("cargo test -p codex-core");
+}

@@ -321,11 +321,14 @@ fn image_generation_call_renders_saved_path() {
 // ORACLE history_cell/tests.rs:650 unified_exec_interaction_cell_retains_detailed_input kind=snap owner=chat-live
 #[test]
 fn unified_exec_interaction_cell_retains_detailed_input() {
-    kit::pending(
-        Owner::ChatLive,
-        "the cell is built (cells::interaction, rows equal in tests/pages/cells.rs notice_cells); need: threads.rs Item::is_detailed_only asks Notice::detailed_only, and the unified-exec flow appends Notice::TerminalInteraction (ThreadEv::Appended), which the kit cannot seed",
-    );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    // oracle: the interaction cell keeps all 16 lines of the input in the detailed transcript.
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_3/unified_exec_interaction_cell_retains_detailed_input.jsonl"
+        ))
+        .open();
+    s.keys("ctrl+t");
     s.assert_in_order(&[
         "↳ Interacted with background terminal · cat",
         "└ line 1",
@@ -350,11 +353,14 @@ fn unified_exec_interaction_cell_retains_detailed_input() {
 // ORACLE history_cell/tests.rs:676 unified_exec_interaction_cell_retains_detailed_wait kind=ui owner=chat-live
 #[test]
 fn unified_exec_interaction_cell_retains_detailed_wait() {
-    kit::pending(
-        Owner::ChatLive,
-        "the cell is built (cells::interaction, rows equal in tests/pages/cells.rs notice_cells); need: threads.rs Item::is_detailed_only asks Notice::detailed_only, and the unified-exec flow appends Notice::TerminalInteraction (ThreadEv::Appended), which the kit cannot seed",
-    );
-    let s = Screen::build(Owner::ChatLive).size(80, 6).live().open();
+    // oracle: a wait with no command is `Waited for background terminal` in the detailed transcript.
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 10)
+        .script(include_str!(
+            "fixtures/cells_3/unified_exec_interaction_cell_retains_detailed_wait.jsonl"
+        ))
+        .open();
+    s.keys("ctrl+t");
     s.assert_contains("• Waited for background terminal");
 }
 

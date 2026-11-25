@@ -3220,7 +3220,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             note_review(model, &item);
             if !model.finished_turns.contains(&key.turn) && model.transcript.item(&key).is_none() {
                 let echo = steer_echoed(model, &item);
-                if !review_prompt(model, &item, echo) {
+                if !review_prompt(model, &item, echo) && !processes::draws_nothing(&item, false) {
                     model.transcript.upsert(key, item);
                 }
             }
@@ -3228,7 +3228,10 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::ItemUpsert { key, item } => {
             processes::track(model, &key, &item);
             note_review(model, &item);
-            if !model.authoritative_turns.contains(&key.turn) {
+            let turn_finished = model.finished_turns.contains(&key.turn);
+            if !model.authoritative_turns.contains(&key.turn)
+                && !processes::draws_nothing(&item, turn_finished)
+            {
                 let echo = model.transcript.item(&key).is_none() && steer_echoed(model, &item);
                 if review_prompt(model, &item, echo) {
                     return;

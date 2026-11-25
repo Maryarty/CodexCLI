@@ -158,6 +158,64 @@ fn the_terminal_is_gone_when_its_command_ends_and_stays_over_an_interrupt() {
     assert_eq!(interrupted.app().active_thread().terminals().len(), 1);
 }
 
+/// The transcript's tool entries (what the screen draws as `Ran` / `Explored` cells).
+fn tools(sandbox: &Sandbox) -> usize {
+    sandbox
+        .app()
+        .active_thread()
+        .transcript()
+        .iter()
+        .filter(|(_, item)| matches!(item, Item::Tool(_)))
+        .count()
+}
+
+/// A startup command whose command line parses to a known action (`cat file`).
+fn parsed_terminal(id: &str, process: &str, status: &str) -> Value {
+    let mut item = terminal(id, process, status);
+    item["command"] = json!("cat notes.txt");
+    item["commandActions"] = json!([{"type": "read", "command": "cat notes.txt", "name": "notes.txt", "path": "/tmp/notes.txt"}]);
+    item
+}
+
+#[test]
+fn a_running_startup_command_draws_no_entry_and_its_end_in_the_turn_draws_one() {
+    // oracle `on_command_execution_started`: a unified-exec startup command that parses to no
+    // known action draws nothing while it runs (the footer and `/ps` say it); its end in a
+    // running turn is the one `Ran` entry (`on_command_execution_completed`).
+    let running = play(&[started(), begin(terminal("c1", "p1", "inProgress"))]);
+    assert_eq!(tools(&running), 0);
+    assert_eq!(running.app().active_thread().terminals().len(), 1);
+
+    let done = play(&[
+        started(),
+        begin(terminal("c1", "p1", "inProgress")),
+        end(terminal("c1", "p1", "completed")),
+    ]);
+    assert_eq!(tools(&done), 1);
+    assert!(done.app().active_thread().terminals().is_empty());
+}
+
+#[test]
+fn the_end_of_a_startup_command_after_its_turn_draws_no_entry() {
+    // oracle `on_command_execution_completed`: the task is not running, so the late end only
+    // settles the process.
+    let sandbox = play(&[
+        started(),
+        begin(terminal("c1", "p1", "inProgress")),
+        ended("completed"),
+        end(terminal("c1", "p1", "completed")),
+    ]);
+    assert_eq!(tools(&sandbox), 0);
+    assert!(sandbox.app().active_thread().terminals().is_empty());
+}
+
+#[test]
+fn a_startup_command_that_parses_to_an_action_still_draws() {
+    let sandbox = play(&[started(), begin(parsed_terminal("c1", "p1", "inProgress"))]);
+    assert_eq!(tools(&sandbox), 1);
+    assert_eq!(sandbox.app().active_thread().terminals().len(), 1);
+}
+
 #[test]
 fn empty_polls_of_one_process_are_one_streak_that_a_completed_turn_writes() {
     let mut script = vec![started(), begin(terminal("c1", "p1", "inProgress"))];

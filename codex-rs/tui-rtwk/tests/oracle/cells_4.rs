@@ -104,7 +104,7 @@ fn prefixed_wrapped_history_cell_does_not_split_url_like_token() {
 fn unified_exec_interaction_details_do_not_split_url_like_stdin_token() {
     kit::pending(
         Owner::ChatLive,
-        "the cell is built (cells::interaction); the row would hold the token whole only at a width past 81, and at the oracle's 24 TextWrap::Word breaks it at the hyphens and slashes (pending(G-urltoken), tests/pages/cells.rs a_url_like_stdin_token_stays_whole); need: Notice::TerminalInteraction appended by the host",
+        "G-urltoken: the row `  └ <77-char token>` is 81 columns and wraps at a hyphen or a slash (TextWrap::Word); the oracle keeps a URL-like token whole (adaptive_wrap_hyperlink_lines); tests/pages/cells.rs a_url_like_stdin_token_stays_whole is the ignored twin",
     );
     let s = Screen::build(Owner::ChatLive).size(80, 8).live().open();
     s.assert_contains(URL_LIKE);
@@ -141,11 +141,16 @@ fn prefixed_wrapped_history_cell_height_matches_wrapped_rendering() {
 // ORACLE history_cell/tests.rs:1348 unified_exec_interaction_details_wrap_long_input kind=ui owner=chat-live
 #[test]
 fn unified_exec_interaction_details_wrap_long_input() {
-    kit::pending(
-        Owner::ChatLive,
-        "the cell is built (cells::interaction, the wrapped input under its branch is tests/pages/cells.rs a_long_stdin_line_wraps_under_its_branch); need: Notice::TerminalInteraction appended by the host, which the kit cannot seed",
-    );
-    let s = Screen::build(Owner::ChatLive).size(24, 12).live().open();
+    // oracle: the input wraps under its branch and the first row keeps the header (the wrapped
+    // height is a value, not drawn; the wrapped rows are tests/pages/cells.rs
+    // a_long_stdin_line_wraps_under_its_branch).
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(24, 24)
+        .script(include_str!(
+            "fixtures/cells_4/unified_exec_interaction_details_wrap_long_input.jsonl"
+        ))
+        .open();
+    s.keys("ctrl+t");
     s.assert_contains("Interacted with");
 }
 
