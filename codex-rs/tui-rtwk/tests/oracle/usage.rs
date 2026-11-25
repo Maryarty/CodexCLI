@@ -6,6 +6,19 @@
 
 use crate::kit::{self, Owner, Screen, snap_rows};
 
+/// The page's body is the oracle's `panel(section, 54, chart_rows)` when the screen is 56 cells
+/// wide (the page insets the report by a cell on each side) and the body (the screen less 6 rows
+/// above it and 2 hint rows below) is as tall as the panel: the page gives the chart the rows the
+/// body leaves, as the oracle does.
+fn panel_screen(entry: &'static str, keys: &str, rows: usize) -> Screen {
+    let mut s = Screen::build(Owner::RoutesLists)
+        .size(56, (rows + 8) as u16)
+        .entry("usage", entry)
+        .open();
+    s.keys(keys);
+    s
+}
+
 // ---- oracle: analytics/account_layout_tests.rs (1 screen-level tests here; 11 state tests left to routes-lists)
 // ORACLE analytics/account_layout_tests.rs:423 navigation_keeps_its_row_when_sections_change kind=ui owner=routes-lists
 #[test]
@@ -781,32 +794,55 @@ fn analytics_loading_errors_and_empty_reports_stay_independent() {
 // ORACLE analytics_tests.rs:169 analytics_preserves_full_denominators_and_signed_small_credits kind=snap owner=routes-lists snap=analytics_preserves_full_denominators_and_signed_small_credits
 #[test]
 fn analytics_preserves_full_denominators_and_signed_small_credits() {
-    kit::pending(
-        Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's data",
-    );
+    // a day of 100 units with 30 goals keeps its denominator (`30.0%`, `Sep 2 · 100 usage units`)
+    // and a refund of -0.000004 credits keeps its sign: the oracle's two panels, one under the
+    // other in its snapshot (14 rows, then 15). The Credits panel is a body of 15 rows; the Usage
+    // one has a two-row plot, which no body draws (under 15 rows the plot is hidden), so its lead
+    // and its table are compared on a body of 15 rows and its chart is the core test
+    // `a_day_of_one_hundred_units_keeps_its_denominator_in_a_two_row_chart`.
+    let name = "analytics_preserves_full_denominators_and_signed_small_credits";
+    let mut task_rows = snap_rows(name, "");
+    let credits_rows = task_rows.split_off(14);
+    let task = panel_screen("denominators", "", 15);
+    task.assert_body_from("Total usage", &task_rows[..3], name);
+    task.assert_body_from("Sep 2 \u{b7} 100 usage units", &task_rows[11..], name);
+    task.assert_contains("Goals");
+    task.assert_contains("30.0%");
+    let credits = panel_screen("denominators_credits", "", 15);
+    credits.assert_body_from("-0.000004 credits", &credits_rows, name);
 }
 
 // ORACLE analytics_tests.rs:267 analytics_dates_distinguish_zero_missing_and_exact_details kind=snap owner=routes-lists snap=analytics_dates_distinguish_zero_missing_and_exact_details
 #[test]
 fn analytics_dates_distinguish_zero_missing_and_exact_details() {
-    kit::pending(
-        Owner::RoutesLists,
-        "the oracle's snapshot is five `panel(Section, 54, 3)` bodies joined (a function of the model, \
-         no screen of the page draws one: the chart is not at that size), and its last two panels \
-         are the same report emptied by a test's own edit; the three `contains` of the first \
-         three panels are ported below",
-    );
-    let mut s = Screen::build(Owner::RoutesLists)
-        .size(100, 38)
-        .entry("usage", "credits_exact")
-        .open();
-    s.keys("home");
+    // the oracle's snapshot is five `panel(Section::Credits, 54, 3)` bodies: the first day (zero,
+    // `No activity (0)`), the next with its exact detail (`12746.441206 credits`), the day with
+    // no row (`Not reported`), then the report with every day at zero and the one without a
+    // day; the page draws each as its body on a 58-cell screen
+    let name = "analytics_dates_distinguish_zero_missing_and_exact_details";
+    let bodies = kit::snap_states(name, &[16, 16, 16, 2, 5]);
+    for (body, keys) in [(0, "home"), (1, "home right enter"), (2, "home right enter right")] {
+        let s = panel_screen("credits_exact", keys, 16);
+        s.assert_body_from("13.1K credits", &bodies[body], name);
+    }
+    let s = panel_screen("credits_exact", "home", 16);
     s.assert_contains("No activity (0)");
-    s.keys("right enter");
+    let s = panel_screen("credits_exact", "home right enter", 16);
     s.assert_contains("12746.441206 credits");
-    s.keys("right");
-    s.assert_contains("Aug 29 · Not reported");
+    let s = panel_screen("credits_exact", "home right enter right", 16);
+    s.assert_contains("Aug 29 \u{b7} Not reported");
+    let zero = panel_screen("credits_zero", "", 16);
+    zero.assert_body_from("0.00 credits", &bodies[3], name);
+    // the fifth panel is the report emptied under the cursor the test left on Aug 29: it keeps the
+    // day's detail head over an empty table, a state no key or load reaches (a history of no day
+    // arrives with the cursor on the first); the report that has no day says the same message
+    let empty = panel_screen("credits_empty", "", 16);
+    empty.assert_contains("No data reported for this range.");
+    kit::assert_same(
+        bodies[4].last().map(String::as_str),
+        Some("No data reported for this range."),
+        "the oracle's last row",
+    );
 }
 
 // ORACLE analytics_tests.rs:345 analytics_maximized_refunds_leave_room_for_both_bands kind=snap owner=routes-lists snap=analytics_maximized_refunds_leave_room_for_both_bands
@@ -883,8 +919,57 @@ fn analytics_day_navigation_keeps_geometry_and_legend() {
 // ORACLE analytics_tests.rs:419 analytics_series_rank_by_range_and_keep_calendar_ticks_stable kind=snap owner=routes-lists snap=analytics_series_rank_by_range_and_keep_calendar_ticks_stable
 #[test]
 fn analytics_series_rank_by_range_and_keep_calendar_ticks_stable() {
-    kit::pending(
-        Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's data",
+    // a Plus account's 30-day Usage report by model with 500 more units of `Other` a day: the
+    // legend ranks the series by the range (`Other`, `GPT-5.6-Sol`, `GPT-5.6-Terra`) in the
+    // series colours (cyan, magenta, green), the calendar ticks (the row under the `▲` row) are
+    // the same wherever the cursor stands, and one row holds the `▲`. The oracle's crowded
+    // 54x10 chart is the core test `the_crowded_month_chart_keeps_its_ranked_series_and_stable_ticks`
+    // (no screen draws a plot of that size).
+    let mut s = Screen::build(Owner::RoutesLists)
+        .size(98, 38)
+        .entry("usage", "usage_month_other")
+        .open();
+    s.assert_in_order(&["\u{25cf} Other", "\u{25cf} GPT-5.6-Sol", "\u{25cf} GPT-5.6-Terra"]);
+    let grid = s.grid();
+    let rows = s.rows();
+    let marks: Vec<String> = ["Other", "GPT-5.6-Sol", "GPT-5.6-Terra"]
+        .into_iter()
+        .map(|label| {
+            let want = format!("\u{25cf} {label}");
+            let (y, row) = rows
+                .iter()
+                .enumerate()
+                .find(|(_, row)| row.contains(&want))
+                .unwrap_or_else(|| panic!("no `{want}` row:\n{}", s.text()));
+            let x = row[..row.find(&want).unwrap()].chars().count();
+            grid.style(x, y).fg.clone()
+        })
+        .collect();
+    kit::assert_same(
+        marks,
+        ["Cyan", "Magenta", "Green"].map(String::from).to_vec(),
+        "the series colours of the legend",
     );
+    let mut ticks: Option<String> = None;
+    let mut at = 0;
+    s.keys("home");
+    for cursor in [0, 7, 8, 25, 29] {
+        for _ in at..cursor {
+            s.keys("right");
+        }
+        at = cursor;
+        let rows = s.rows();
+        let marked: Vec<usize> = rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| row.contains('\u{25b2}'))
+            .map(|(y, _)| y)
+            .collect();
+        kit::assert_same(marked.len(), 1, "the rows holding `▲`");
+        let labels = rows[marked[0] + 1].trim_end().to_string();
+        if let Some(ticks) = &ticks {
+            s.assert_same_frame(&labels, ticks, &format!("the ticks at cursor {cursor}"));
+        }
+        ticks = Some(labels);
+    }
 }
