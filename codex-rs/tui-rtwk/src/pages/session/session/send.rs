@@ -79,8 +79,8 @@ impl ChatState {
         if text.starts_with('/') {
             // `/clear` picked in the popup is not kept for recall
             // (`stage_selected_slash_command_history`): it clears the line first, so the
-            // command finds nothing to record
-            if &**text == "/clear" {
+            // command finds nothing to record; refused while a task runs, the line stays
+            if &**text == "/clear" && !read::<ThreadModel, _>(cx).task_running() {
                 w.ui.composer.clear();
             }
             run_line(text, w, cx, hs, Delivery::Submit);
