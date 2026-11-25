@@ -1,4 +1,3 @@
-use codex_tui_core::protocol::*;
 use codex_app_server_protocol::AddCreditsNudgeCreditType;
 use codex_app_server_protocol::AddCreditsNudgeEmailStatus;
 use codex_app_server_protocol::ByteRange;
@@ -16,10 +15,11 @@ use codex_app_server_protocol::TurnInterruptResponse;
 use codex_app_server_protocol::TurnStartParams;
 use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::UserInput;
+use codex_tui_core::protocol::*;
+use codex_tui_core::threads::LocalImage;
 use codex_tui_core::threads::ToolMention;
 use codex_tui_core::threads::UserMessage;
 use std::path::PathBuf;
-use codex_tui_core::threads::LocalImage;
 
 #[test]
 fn the_images_go_first_and_the_text_names_their_placeholders() {
@@ -135,7 +135,7 @@ fn a_task_mention_adds_its_context_to_the_text_sent_and_keeps_its_element() {
         tasks: vec![TaskRef {
             range: 8..18,
             title: "Review it".into(),
-            thread: "task-123".into(),
+            thread: codex_tui_core::ids::ThreadId::new("task-123"),
         }],
         ..UserMessage::default()
     };
@@ -150,7 +150,10 @@ fn a_task_mention_adds_its_context_to_the_text_sent_and_keeps_its_element() {
     assert!(text.contains("\"threadId\":\"task-123\""));
     assert!(text.ends_with("Inspect [@Review it](thread://task-123)"));
     let range = &text_elements[0].byte_range;
-    assert_eq!(&text[range.start..range.end], "[@Review it](thread://task-123)");
+    assert_eq!(
+        &text[range.start..range.end],
+        "[@Review it](thread://task-123)"
+    );
     // the task of the thread itself is no reference
     let own = turn_input_in(&message, Some("task-123"));
     assert!(matches!(&own[0], UserInput::Text { text, .. } if text == "Inspect @Review it"));

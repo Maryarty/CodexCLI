@@ -63,11 +63,16 @@ fn commands(slash: &Slash, strings: &Strings, before: &str) -> Vec<Suggestion> {
             if row.unavailable {
                 let [before, after] = strings.command_reason;
                 return Suggestion::new(name.clone())
-                    .label(format!("{name}{}", strings.command_disabled))
-                    .detail(format!(
-                        "{description}{before}{}{after}",
-                        strings.command_unavailable
-                    ))
+                    .label([name.as_str(), strings.command_disabled].concat())
+                    .detail(
+                        [
+                            description.as_str(),
+                            before,
+                            strings.command_unavailable,
+                            after,
+                        ]
+                        .concat(),
+                    )
                     .enabled(false);
             }
             Suggestion::new(name.clone())

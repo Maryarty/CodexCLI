@@ -347,7 +347,11 @@ pub(crate) fn turn_input_in(message: &UserMessage, current: Option<&str>) -> Vec
         detail: None,
     }));
     if !message.text.is_empty() {
-        let image_ranges: Vec<_> = message.images.iter().map(|image| image.range.clone()).collect();
+        let image_ranges: Vec<_> = message
+            .images
+            .iter()
+            .map(|image| image.range.clone())
+            .collect();
         let context = crate::kit::mentions::with_task_context(
             &message.text,
             &message.tasks,
@@ -377,7 +381,9 @@ pub(crate) fn turn_input_in(message: &UserMessage, current: Option<&str>) -> Vec
             .collect();
         // a task mention is an element too: its link in the text sent (else `@title` as typed),
         // `@title` its placeholder
-        let sent = context.as_ref().map_or(message.text.as_str(), |c| c.text.as_str());
+        let sent = context
+            .as_ref()
+            .map_or(message.text.as_str(), |c| c.text.as_str());
         for (index, task) in message.tasks.iter().enumerate() {
             let range = context
                 .as_ref()

@@ -288,7 +288,9 @@ mod popup {
 fn side() -> Screen {
     Screen::build(Owner::ChatNavPane)
         .size(120, 24)
-        .script(include_str!("../oracle/fixtures/chat_commands_3/side.jsonl"))
+        .script(include_str!(
+            "../oracle/fixtures/chat_commands_3/side.jsonl"
+        ))
         .open()
 }
 

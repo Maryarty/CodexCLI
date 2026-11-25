@@ -24,6 +24,7 @@ use rtwk::editing::{TextBuffer, TextEditingController, TextSelection};
 use codex_tui_core::data::history::{Lookup, Store};
 use codex_tui_core::data::mention::Mention;
 use codex_tui_core::data::task::valid_thread_path;
+use codex_tui_core::ids::ThreadId;
 use codex_tui_core::kit::history::{
     HistoryEntry, MentionBinding, PromptWalk as Prompts, TextElement,
 };
@@ -540,7 +541,7 @@ impl ComposerDraft {
                 Some(TaskRef {
                     range: range.clone(),
                     title: binding.mention.clone(),
-                    thread: thread.to_string(),
+                    thread: ThreadId::new(thread),
                 })
             })
             .collect();
@@ -563,7 +564,7 @@ impl ComposerDraft {
             images: images.into_iter().map(|(_, image)| image).collect(),
             remote_images: self.remote_images(),
             mentions: tool_mentions(&bindings, catalog),
-            tasks,
+            tasks: tasks.into(),
         }
     }
 

@@ -17,7 +17,6 @@ pub(crate) mod seed;
 // bodies are the oracle's steps and visible assertions, written in full.
 // assert_snap compares the whole screen; the oracle's popup snapshots hold the
 // bottom popup only, so the popup slice sets the region (assert_snap_region).
-const APPS: &str = "/apps is live and the kit answers a request with an error (`Screen::answer_error`, a `respond` step with `error`); this test needs a partial directory snapshot: the oracle injects `on_connectors_loaded(.., is_final: false)` and no protocol message carries `is_final: false`";
 const MENTIONS: &str = "/apps is live and `app/list/updated` drops the uncallable apps from the mentions (core/tests/apps_directory.rs); this test also needs the oracle's separate installed-mentions fetch (`FetchInstalledConnectorMentions`, `connectors_for_mentions` keeps only enabled installed apps), a directory partial snapshot (`is_final: false`, no protocol message carries it), the submitted `app://` mention of `$` and the plugin authentication step's `Already installed in this session` (the install flow of /plugins reading the installed ids): the mention source and the plugin flow are other owners'";
 
 /// The first row that contains `text`; past the screen when none does (the kit then names the row it looked for).

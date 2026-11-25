@@ -1275,7 +1275,7 @@ fn restored_messages_merge_with_renumbered_image_placeholders() {
         images: vec![image(0, 10)],
         remote_images: Vec::new(),
         mentions: Vec::new(),
-        tasks: Vec::new(),
+        tasks: Box::default(),
     };
     chat_intent(
         &mut app,

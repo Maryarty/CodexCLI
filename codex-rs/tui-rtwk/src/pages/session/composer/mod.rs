@@ -1004,13 +1004,10 @@ impl State for ComposerState {
         }
         if !w.bare
             && w.plain.is_none()
-            && let Some(insert) = &popovers.insert
-            && self.inserted.replace(Some(insert.seq)) != Some(insert.seq)
+            && let Some((number, text)) = popovers.handed_text()
+            && self.inserted.replace(Some(number)) != Some(number)
         {
-            cx.local_sender()(ComposerMsg::Inserted {
-                number: insert.seq,
-                text: insert.text.clone(),
-            });
+            cx.local_sender()(ComposerMsg::Inserted { number, text });
         }
         let restricted = self.mode(w, cx);
         if self.restricted.replace(restricted.is_some()) != restricted.is_some()

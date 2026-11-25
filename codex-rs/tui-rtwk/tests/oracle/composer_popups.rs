@@ -518,7 +518,7 @@ fn fallback_completions_keep_the_draft_cursor_and_footer_anchored() {
 fn skill_completion_attaches_typed_punctuation_snapshot() {
     kit::pending(
         Owner::ChatNavPane,
-        "footer modes (pane-footer): the row `› 请用 $rustdoc》` matches; the oracle's footer of a non-empty draft is `100% context left` at the right, ours the page's key hints",
+        "f-footer-hints: the row `› 请用 $rustdoc》` matches; the oracle's footer of a non-empty draft is `100% context left` at the right, ours the page's key hints",
     );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(100, 9)

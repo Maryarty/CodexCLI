@@ -493,6 +493,7 @@ const THREAD_RPCS: &[(&str, &[&str])] = &[
     // read-only lists
     ("ThreadList", READ_ONLY),
     ("ThreadLoadedList", READ_ONLY),
+    ("ThreadSearch", READ_ONLY),
 ];
 
 fn is_thread_rpc_name(name: &str) -> bool {

@@ -19,20 +19,20 @@ use codex_app_server_protocol::ThreadSortKey;
 use codex_app_server_protocol::ThreadSource;
 
 use crate::app::AppFx;
+use crate::data::files::{FileMatch, FileMatches, FileSearchAsk, MatchType};
+use crate::data::history::{Lookup, Store};
+use crate::data::mention::Capability;
+pub use crate::data::mention::{Mention, MentionKind};
+use crate::data::task::TaskMention;
+use crate::data::usage::MentionUsage;
 use crate::ids::ThreadId;
+use crate::kit::mentions::session::Sources;
 use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::screens::Shared;
 use crate::screens::composer::clipboard::Pasted;
-use crate::data::history::{Lookup, Store};
-use crate::data::mention::Capability;
-use crate::data::files::{FileMatch, FileMatches, FileSearchAsk, MatchType};
-use crate::kit::mentions::session::Sources;
 use crate::screens::composer::mentions::sources;
-use crate::data::task::TaskMention;
-use crate::data::usage::MentionUsage;
 use crate::screens::select::apps::App;
-pub use crate::data::mention::{Mention, MentionKind};
 use crate::threads::ThreadFx;
 
 pub const NAME: &str = "popovers";
@@ -158,7 +158,10 @@ pub enum Ev {
         tasks: Vec<TaskMention>,
     },
     /// The file search answered `query`.
-    FileMatches { query: String, matches: Vec<FileMatch> },
+    FileMatches {
+        query: String,
+        matches: Vec<FileMatch>,
+    },
     /// The recent `$` picks the usage file held, oldest first.
     MentionUsage(Vec<String>),
     /// The clipboard's image was written to this file (`Ask::ClipboardImage`).
@@ -168,7 +171,10 @@ pub enum Ev {
     History(Vec<String>),
     /// The file was opened: its log id and entry count
     /// (`history_metadata`).
-    HistoryMetadata { log_id: u64, entry_count: usize },
+    HistoryMetadata {
+        log_id: u64,
+        entry_count: usize,
+    },
     /// One entry read, `None` when the row could not be read.
     HistoryEntry {
         log_id: u64,
@@ -184,7 +190,10 @@ pub enum Ev {
         next_older: Option<usize>,
     },
     /// A batch read failed.
-    HistoryBatchFailed { log_id: u64, end_offset: usize },
+    HistoryBatchFailed {
+        log_id: u64,
+        end_offset: usize,
+    },
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
@@ -222,6 +231,16 @@ pub enum Intent {
 pub struct Insert {
     pub seq: u64,
     pub text: String,
+}
+
+impl Model {
+    /// The text waiting for the composer's caret and its number (`Intent::InsertText`), until the
+    /// composer answered `Intent::Inserted`.
+    pub fn handed_text(&self) -> Option<(u64, String)> {
+        self.insert
+            .as_ref()
+            .map(|insert| (insert.seq, insert.text.clone()))
+    }
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -294,7 +313,11 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             });
         }
         Intent::Inserted(seq) => {
-            if model.insert.as_ref().is_some_and(|insert| insert.seq == seq) {
+            if model
+                .insert
+                .as_ref()
+                .is_some_and(|insert| insert.seq == seq)
+            {
                 model.insert = None;
             }
         }
@@ -405,9 +428,13 @@ pub enum Ctx {
     Skills,
     Plugins,
     /// The `thread/search` of the task search `generation`.
-    TaskSearch { generation: u64 },
+    TaskSearch {
+        generation: u64,
+    },
     /// The `thread/list` of the task search `generation`.
-    TaskTitles { generation: u64 },
+    TaskTitles {
+        generation: u64,
+    },
 }
 
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
@@ -528,7 +555,11 @@ fn threads(reply: Reply) -> Option<Vec<Found>> {
 /// One of the two answers of the search `generation`; the second one merges them. A search
 /// that is not the last is dropped.
 fn task_reply(part: &mut ThreadPart, generation: u64, search: bool, found: Option<Vec<Found>>) {
-    let Some(ask) = part.tasks_ask.as_mut().filter(|ask| ask.generation == generation) else {
+    let Some(ask) = part
+        .tasks_ask
+        .as_mut()
+        .filter(|ask| ask.generation == generation)
+    else {
         return;
     };
     if search {
@@ -539,7 +570,10 @@ fn task_reply(part: &mut ThreadPart, generation: u64, search: bool, found: Optio
     if ask.search.is_none() || ask.titles.is_none() {
         return;
     }
-    let ask = part.tasks_ask.take().unwrap_or_else(|| unreachable!("checked above"));
+    let ask = part
+        .tasks_ask
+        .take()
+        .unwrap_or_else(|| unreachable!("checked above"));
     // both failed: the list stays as it was
     if let Some(tasks) = merge_tasks(
         ask.search.flatten(),
@@ -858,11 +892,23 @@ mod tests {
         search(&mut part, "fi");
         search(&mut part, "fix");
         // the first search answers late: dropped
-        answer(&mut part, Ctx::TaskSearch { generation: 1 }, Some(vec![found("old")]));
+        answer(
+            &mut part,
+            Ctx::TaskSearch { generation: 1 },
+            Some(vec![found("old")]),
+        );
         assert!(part.found.is_none());
-        answer(&mut part, Ctx::TaskSearch { generation: 2 }, Some(vec![found("a")]));
+        answer(
+            &mut part,
+            Ctx::TaskSearch { generation: 2 },
+            Some(vec![found("a")]),
+        );
         assert!(part.found.is_none(), "one half is not the answer");
-        answer(&mut part, Ctx::TaskTitles { generation: 2 }, Some(vec![found("b")]));
+        answer(
+            &mut part,
+            Ctx::TaskTitles { generation: 2 },
+            Some(vec![found("b")]),
+        );
         let found = part.found.expect("both are in");
         assert_eq!((found.generation, found.query.as_str()), (2, "fix"));
         assert_eq!(found.tasks.len(), 2);

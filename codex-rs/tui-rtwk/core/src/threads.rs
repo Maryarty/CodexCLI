@@ -3685,7 +3685,8 @@ fn merge_messages(messages: Vec<UserMessage>) -> UserMessage {
         }
         merged.text.push_str(&message.text[cursor..]);
         // the tasks' ranges move with the text before them
-        merged.tasks.extend(message.tasks.into_iter().map(|task| {
+        let mut tasks = std::mem::take(&mut merged.tasks).into_vec();
+        tasks.extend(message.tasks.into_vec().into_iter().map(|task| {
             let delta: isize = grown
                 .iter()
                 .filter(|(end, _)| *end <= task.range.start)
@@ -3698,6 +3699,7 @@ fn merge_messages(messages: Vec<UserMessage>) -> UserMessage {
                 ..task
             }
         }));
+        merged.tasks = tasks.into();
     }
     merged
 }

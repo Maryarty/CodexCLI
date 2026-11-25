@@ -28,13 +28,7 @@ fn lowercase_expansion_keeps_the_oracles_order_and_marks() {
         skill("aİx"),
         skill("ai\u{0307}x"),
     ];
-    let rows = filtered_candidates(
-        &candidates,
-        &[],
-        "\u{0307}x",
-        SearchMode::Results,
-        false,
-    );
+    let rows = filtered_candidates(&candidates, &[], "\u{0307}x", SearchMode::Results, false);
     // each pair lowercases alike: the dot starts a contiguous match, not a prefix, even when it
     // comes from the expansion of `İ`; the oracle lists the candidates 3, 2, 1, 0 with these marks
     let got: Vec<(&str, Option<Vec<usize>>, i32)> = rows

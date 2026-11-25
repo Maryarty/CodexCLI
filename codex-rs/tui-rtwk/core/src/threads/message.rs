@@ -7,8 +7,7 @@
 use std::ops::Range;
 use std::path::PathBuf;
 
-pub use crate::data::mention::ToolMention;
-pub use crate::kit::mentions::TaskRef;
+pub use crate::data::mention::{TaskRef, ToolMention};
 
 /// An image file attached to a message, the placeholder it stands for in the
 /// text being `range`.
@@ -29,7 +28,7 @@ pub struct UserMessage {
     pub mentions: Vec<ToolMention>,
     /// The tasks its `@` mentions name (`@title` in the text): the turn adds their context and
     /// writes them as links (`kit::mentions::with_task_context`); the visible text keeps the title.
-    pub tasks: Vec<TaskRef>,
+    pub tasks: Box<[TaskRef]>,
 }
 
 impl UserMessage {
@@ -39,7 +38,7 @@ impl UserMessage {
             images: Vec::new(),
             remote_images: Vec::new(),
             mentions: Vec::new(),
-            tasks: Vec::new(),
+            tasks: Box::default(),
         }
     }
 
@@ -112,8 +111,9 @@ mod tests {
             tasks: vec![TaskRef {
                 range: 6..13,
                 title: "Fix it".into(),
-                thread: "t1".into(),
-            }],
+                thread: crate::ids::ThreadId::new("t1"),
+            }]
+            .into(),
             ..UserMessage::default()
         };
         let message = message.trimmed();

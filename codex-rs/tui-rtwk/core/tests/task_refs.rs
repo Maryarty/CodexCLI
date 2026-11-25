@@ -3,15 +3,18 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
+use codex_tui_core::ids::ThreadId;
 use codex_tui_core::kit::mentions::{TaskRef, decode_task_links, with_task_context};
 use pretty_assertions::assert_eq;
 
 fn task(text: &str, title: &str, thread: &str) -> TaskRef {
-    let at = text.find(&format!("@{title}")).expect("the mention is in the text");
+    let at = text
+        .find(&format!("@{title}"))
+        .expect("the mention is in the text");
     TaskRef {
         range: at..at + title.len() + 1,
         title: title.into(),
-        thread: thread.into(),
+        thread: ThreadId::new(thread),
     }
 }
 
@@ -50,20 +53,25 @@ fn the_current_thread_and_repeats_are_not_references() {
         TaskRef {
             range: 6..8,
             title: "A".into(),
-            thread: "t-1".into(),
+            thread: ThreadId::new("t-1"),
         },
     ];
     let sent = with_task_context(text, &tasks, Some("cur"), &[]).expect("a reference");
     assert_eq!(sent.text.matches("threadId").count(), 1);
     // the current thread's mention stays as typed, the others become links
-    assert!(sent.text.ends_with("[@A](thread://t-1) @B [@A](thread://t-1)"));
+    assert!(
+        sent.text
+            .ends_with("[@A](thread://t-1) @B [@A](thread://t-1)")
+    );
     assert!(with_task_context("@B", &tasks[1..2], Some("cur"), &[]).is_none());
 }
 
 #[test]
 fn at_most_sixteen_threads_are_referenced() {
     let text: String = (0..20).map(|n| format!("@T{n} ")).collect();
-    let tasks: Vec<_> = (0..20).map(|n| task(&text, &format!("T{n}"), &format!("t{n}"))).collect();
+    let tasks: Vec<_> = (0..20)
+        .map(|n| task(&text, &format!("T{n}"), &format!("t{n}")))
+        .collect();
     let sent = with_task_context(&text, &tasks, None, &[]).expect("references");
     assert_eq!(sent.text.matches("threadId").count(), 16);
     assert!(sent.text.contains("[@T15](thread://t15)"));
