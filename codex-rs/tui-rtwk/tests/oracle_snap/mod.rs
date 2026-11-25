@@ -119,7 +119,8 @@ pub fn parse_row(row: &str) -> (String, Vec<usize>) {
                 );
             }
             '\\' => match chars.next() {
-                Some((_, 'n')) => text.push('\n'),
+                // a buffer row holds no line break: `\n` is the two characters the text says
+                Some((_, 'n')) => text.push_str("\\n"),
                 Some((_, 't')) => text.push('\t'),
                 Some((_, 'u')) => {
                     let mut hex = String::new();

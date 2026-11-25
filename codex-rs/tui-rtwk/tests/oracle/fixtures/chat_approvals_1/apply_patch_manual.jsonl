@@ -1,0 +1,6 @@
+# Oracle data: chatwidget/tests/exec_flow.rs:1736, :1778 apply_patch_manual_*: the approval of foo.txt ("hello"), reason Manual review required, and the apply begin of call c1
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-c1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"request","message":{"method":"item/fileChange/requestApproval","id":1,"params":{"itemId":"c1","threadId":"thread-1","turnId":"turn-c1","reason":"Manual review required","startedAtMs":0}}}
+{"step":"notify","message":{"method":"item/started","params":{"item":{"type":"fileChange","id":"c1","changes":[{"path":"foo.txt","kind":{"type":"add"},"diff":"hello\n"}],"status":"inProgress"},"threadId":"thread-1","turnId":"turn-c1","startedAtMs":0}}}
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"fileChange","id":"c1","changes":[{"path":"foo.txt","kind":{"type":"add"},"diff":"hello\n"}],"status":"completed"},"threadId":"thread-1","turnId":"turn-c1","completedAtMs":0}}}

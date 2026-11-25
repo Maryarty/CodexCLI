@@ -40,7 +40,7 @@ fn app_server_exec_approval_request_splits_shell_wrapped_command() {
 fn app_server_write_stdin_approval_renders_terminal_input() {
     kit::pending(
         Owner::DialogsPane,
-        "the title (`send input to terminal 42`) and the `Input:` row are the oracle's; the harness's snapshot reader (tests/oracle_snap/mod.rs `parse_row`) turns the buffer's literal `\\n` in `Input: \"confirm\\n\"` into a line break (TestBackend rows are not escaped, as its own comment says): a Need on tests/oracle_snap",
+        "G54: title, `Input:` row and text equal the oracle (the snapshot reader keeps the literal `\\n`); only the hint row's styles differ: the dialog is drawn over the composer's footer and a Text with no colour keeps the fg (245) of the footer cell under it, where the oracle's overlay replaces the pane (fg Reset); rtwk has no explicit reset colour",
     );
     // oracle: the write_stdin request shows the modal at 80x11; the desktop notification text is not drawn and is not asserted.
     let s = Screen::build(Owner::DialogsPane)
@@ -771,41 +771,49 @@ fn turn_complete_keeps_unified_exec_processes() {
 // ORACLE chatwidget/tests/exec_flow.rs:1657 apply_patch_events_emit_history_cells kind=snap owner=dialogs-pane
 #[test]
 fn apply_patch_events_emit_history_cells() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no apply block cell for foo.txt (+16 -0) on the chat screen; the approval adds no cell before apply",
-    );
     // oracle: the approval adds no history cell; the apply begin draws the block "Added foo.txt (+16 -0)" with lines 1..16;
     // the apply end adds no cell.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: apply_patch approval call-c1 (foo.txt, 16 lines), patch apply begin call-c1, patch apply end call-c1 (completed)
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 30)
+        .script(include_str!("fixtures/chat_approvals_1/apply_patch_16.jsonl"))
+        .open();
+    s.keys("y");
+    // The oracle draws the whole block (`create_diff_summary`): the detailed transcript.
+    s.keys("ctrl+t");
     s.assert_in_order(&["• Added foo.txt (+16 -0)", "1 +line 1", "16 +line 16"]);
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:1736 apply_patch_manual_approval_adjusts_header kind=ui owner=dialogs-pane
 #[test]
 fn apply_patch_manual_approval_adjusts_header() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no apply block header 'Added foo.txt' on the chat screen after a manually approved patch",
-    );
     // oracle: the apply block of the approved manual patch has the header "Added foo.txt" (or "Edited foo.txt").
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: apply_patch approval call-c1 (foo.txt add "hello"), patch apply begin call-c1
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/chat_approvals_1/apply_patch_manual.jsonl"
+        ))
+        .open();
+    s.keys("y");
     s.assert_contains("Added foo.txt");
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:1778 apply_patch_manual_flow_snapshot kind=snap owner=dialogs-pane snap=apply_patch_manual_flow_history_approved
 #[test]
 fn apply_patch_manual_flow_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no approved apply cell on the chat screen after the manual review approval (the approval modal defers its history)",
-    );
     // oracle: the approval modal emits no history; the apply begin emits the approved cell.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: apply_patch approval call-c1 (foo.txt add, reason "Manual review required"), patch apply begin call-c1
-    s.assert_snap("apply_patch_manual_flow_history_approved");
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/chat_approvals_1/apply_patch_manual.jsonl"
+        ))
+        .open();
+    s.keys("y");
+    let at = s
+        .rows()
+        .iter()
+        .position(|row| row.starts_with("• Added foo.txt"))
+        .expect("the approved patch cell");
+    s.assert_snap_region("apply_patch_manual_flow_history_approved", at, 0);
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:1824 apply_patch_approval_sends_op_with_call_id kind=ui owner=dialogs-pane
