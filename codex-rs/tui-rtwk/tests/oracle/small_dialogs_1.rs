@@ -4,7 +4,41 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
+use codex_tui_core::app::Command;
+use codex_tui_core::screens::{ScreenCommand, select};
+
 use crate::kit::{self, Owner, Screen};
+
+/// The live app, the request of `fixture` delivered and its dialog open.
+fn live(fixture: &str) -> Screen {
+    let mut s = Screen::build(Owner::DialogsPane).live().open();
+    s.feed(fixture);
+    s
+}
+
+/// What the app answered its server requests with, as the elicitation actions.
+fn actions(s: &Screen) -> Vec<String> {
+    s.resolved_requests()
+        .iter()
+        .map(|result| result["action"].as_str().unwrap_or_default().to_owned())
+        .collect()
+}
+
+/// How many times the app asked for the directory of apps.
+fn directory_reads(s: &Screen) -> usize {
+    s.commands()
+        .iter()
+        .filter(|command| {
+            matches!(
+                command,
+                Command::Screen {
+                    command: ScreenCommand::Select(select::Command::Apps { .. }),
+                    ..
+                }
+            )
+        })
+        .count()
+}
 
 // ---- oracle: bottom_pane/app_link_view.rs (14 screen-level tests here; 9 state tests left to dialogs-pane)
 // ORACLE bottom_pane/app_link_view.rs:1149 horizontal_list_keys_move_action_selection kind=ui owner=dialogs-pane
@@ -54,18 +88,17 @@ fn toggle_action_sends_set_app_enabled_and_updates_label() {
 // ORACLE bottom_pane/app_link_view.rs:1254 generic_url_elicitation_resolves_without_connector_refresh kind=ui owner=dialogs-pane
 #[test]
 fn generic_url_elicitation_resolves_without_connector_refresh() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built for a generic URL elicitation: entry `app_link_url` missing (payments URL, codex_apps not used)",
-    );
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(72, 13)
-        .entry("dialogs", "app_link_url")
-        .open();
+    let mut s = live(include_str!("fixtures/small_dialogs_1/app_link_url.jsonl"));
+    s.assert_contains("Action required");
     s.keys("enter");
-    s.assert_snap("app_link_view_generic_url_elicitation_confirmation");
+    s.assert_contains("Finish in Browser");
+    assert_eq!(s.opened_urls(), ["https://payments.example/checkout/123"]);
+    assert!(s.resolved_requests().is_empty());
     s.keys("enter");
     s.assert_absent("payments.example");
+    // accepted, with no content; a server that is not the apps server reads no directory
+    assert_eq!(actions(&s), ["accept"]);
+    assert_eq!(directory_reads(&s), 0);
 }
 
 // ORACLE bottom_pane/app_link_view.rs:1306 install_confirmation_does_not_split_long_url_like_token_without_scheme kind=ui owner=dialogs-pane
@@ -96,56 +129,56 @@ fn install_confirmation_render_keeps_url_tail_visible_when_narrow() {
 // ORACLE bottom_pane/app_link_view.rs:1403 install_tool_suggestion_resolves_elicitation_after_confirmation kind=ui owner=dialogs-pane
 #[test]
 fn install_tool_suggestion_resolves_elicitation_after_confirmation() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built for a Google Calendar install suggestion: entry `app_link_install` missing",
-    );
-    let mut s = Screen::build(Owner::DialogsPane)
-        .entry("dialogs", "app_link_install")
-        .open();
+    let mut s = live(include_str!("fixtures/small_dialogs_1/app_link_install.jsonl"));
     s.keys("enter");
+    assert_eq!(s.opened_urls(), ["https://example.test/google-calendar"]);
     s.keys("enter");
+    // the apps server asked: the directory is read again, then the request is accepted
+    assert_eq!(directory_reads(&s), 1);
+    assert_eq!(actions(&s), ["accept"]);
     s.assert_absent("Google Calendar");
 }
 
 // ORACLE bottom_pane/app_link_view.rs:1461 declined_tool_suggestion_resolves_elicitation_decline kind=ui owner=dialogs-pane
 #[test]
 fn declined_tool_suggestion_resolves_elicitation_decline() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built for a Google Calendar install suggestion: entry `app_link_install` missing",
-    );
-    let mut s = Screen::build(Owner::DialogsPane)
-        .entry("dialogs", "app_link_install")
-        .open();
+    let mut s = live(include_str!("fixtures/small_dialogs_1/app_link_install.jsonl"));
     s.keys("2");
+    assert!(s.opened_urls().is_empty());
+    assert_eq!(actions(&s), ["decline"]);
     s.assert_absent("Google Calendar");
 }
 
 // ORACLE bottom_pane/app_link_view.rs:1503 enable_tool_suggestion_resolves_elicitation_after_enable kind=ui owner=dialogs-pane
 #[test]
 fn enable_tool_suggestion_resolves_elicitation_after_enable() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built for a Google Calendar enable suggestion: entry `app_link_enable` missing",
-    );
-    let mut s = Screen::build(Owner::DialogsPane)
-        .entry("dialogs", "app_link_enable")
-        .open();
+    let mut s = live(include_str!("fixtures/small_dialogs_1/app_link_enable.jsonl"));
     s.keys("2");
+    // the switch is written first (`SetApp`), then the request accepted
+    let asked = s.commands();
+    let written = asked.iter().position(|command| {
+        matches!(
+            command,
+            Command::Screen {
+                command: ScreenCommand::Select(select::Command::SetApp { id, enabled: true }),
+                ..
+            } if id == "connector_google_calendar"
+        )
+    });
+    let accepted = asked
+        .iter()
+        .position(|command| matches!(command, Command::ResolveRequest { .. }));
+    assert!(written.is_some() && written < accepted, "{asked:?}");
+    assert_eq!(actions(&s), ["accept"]);
     s.assert_absent("Google Calendar");
 }
 
 // ORACLE bottom_pane/app_link_view.rs:1611 install_suggestion_with_reason_snapshot kind=snap owner=dialogs-pane snap=app_link_view_install_suggestion_with_reason
 #[test]
 fn install_suggestion_with_reason_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built: entry `app_link_install` missing (Google Calendar install suggestion with its reason, 72 columns)",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(72, 14)
-        .entry("dialogs", "app_link_install")
+        .entry("approvals", "app_link_install")
         .open();
     s.assert_snap("app_link_view_install_suggestion_with_reason");
 }
@@ -153,13 +186,9 @@ fn install_suggestion_with_reason_snapshot() {
 // ORACLE bottom_pane/app_link_view.rs:1640 enable_suggestion_with_reason_snapshot kind=snap owner=dialogs-pane snap=app_link_view_enable_suggestion_with_reason
 #[test]
 fn enable_suggestion_with_reason_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built: entry `app_link_enable` missing (Google Calendar enable suggestion with its reason, 72 columns)",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(72, 16)
-        .entry("dialogs", "app_link_enable")
+        .entry("approvals", "app_link_enable")
         .open();
     s.assert_snap("app_link_view_enable_suggestion_with_reason");
 }
@@ -167,13 +196,9 @@ fn enable_suggestion_with_reason_snapshot() {
 // ORACLE bottom_pane/app_link_view.rs:1669 auth_suggestion_with_reason_snapshot kind=snap owner=dialogs-pane snap=app_link_view_auth_suggestion_with_reason
 #[test]
 fn auth_suggestion_with_reason_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built: entry `app_link_auth` missing (Google Calendar sign-in suggestion with its reason, 72 columns)",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(72, 14)
-        .entry("dialogs", "app_link_auth")
+        .entry("approvals", "app_link_auth")
         .open();
     s.assert_snap("app_link_view_auth_suggestion_with_reason");
 }
@@ -181,13 +206,9 @@ fn auth_suggestion_with_reason_snapshot() {
 // ORACLE bottom_pane/app_link_view.rs:1699 generic_url_elicitation_snapshot kind=snap owner=dialogs-pane snap=app_link_view_generic_url_elicitation
 #[test]
 fn generic_url_elicitation_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built for a generic URL elicitation: entry `app_link_url` missing (72 columns)",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(72, 15)
-        .entry("dialogs", "app_link_url")
+        .entry("approvals", "app_link_url")
         .open();
     s.assert_snap("app_link_view_generic_url_elicitation");
 }
@@ -195,13 +216,9 @@ fn generic_url_elicitation_snapshot() {
 // ORACLE bottom_pane/app_link_view.rs:1728 generic_url_elicitation_confirmation_snapshot kind=snap owner=dialogs-pane snap=app_link_view_generic_url_elicitation_confirmation
 #[test]
 fn generic_url_elicitation_confirmation_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature app-link dialog (w2-approvals, dialogs screen): the dialog is not built for a generic URL elicitation: entry `app_link_url` missing; the confirmation is reached by Enter (72 columns)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(72, 13)
-        .entry("dialogs", "app_link_url")
+        .entry("approvals", "app_link_url")
         .open();
     s.keys("enter");
     s.assert_snap("app_link_view_generic_url_elicitation_confirmation");

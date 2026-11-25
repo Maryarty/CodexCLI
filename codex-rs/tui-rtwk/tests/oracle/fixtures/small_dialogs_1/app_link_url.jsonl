@@ -1,0 +1,3 @@
+# oracle: the request of the test `generic_url_elicitation_resolves_without_connector_refresh`, delivered to the live app (a debug entry drops its answers)
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "request", "message": {"method": "mcpServer/elicitation/request", "id": 24, "params": {"threadId": "thread-1", "turnId": "turn-1", "serverName": "payments", "mode": "url", "_meta": null, "message": "Review the payment details to continue.", "url": "https://payments.example/checkout/123", "elicitationId": "payment-123"}}}
