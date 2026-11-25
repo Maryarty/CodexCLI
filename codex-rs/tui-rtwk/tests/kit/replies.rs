@@ -45,6 +45,14 @@ impl Screen {
     }
 
     fn answer_page(&mut self, result: Result<serde_json::Value, String>) -> &mut Screen {
+        // a page the app has not asked for yet (a thread just opened, a key just pressed) is
+        // waited for a little
+        for _ in 0..20 {
+            if self.pages_waiting() > 0 {
+                break;
+            }
+            self.h.advance(100);
+        }
         let asked = pages(&self.h.fake.commands());
         let nth = self.answered_pages;
         let (command, _) = asked

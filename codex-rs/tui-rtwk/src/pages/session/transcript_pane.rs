@@ -12,7 +12,9 @@ use rtwk::foundation::{Listenable, VoidCallback};
 use rtwk::gestures::SelectionTarget;
 use rtwk::layout::{Column, CrossAxisAlignment, MainAxisSize};
 use rtwk::provider::{read, select, watch};
-use rtwk::scroll::{ItemTexts, ListView, ScrollController, ScrollNotification};
+use rtwk::scroll::{
+    ItemTexts, ListView, OverscrollNotification, ScrollController, ScrollNotification,
+};
 use rtwk::style::{Attrs, Style};
 use rtwk::{AnyWidget, Cx, Key, NotificationListener, Rebuild, State, StatefulWidget, impl_widget};
 
@@ -543,6 +545,9 @@ impl ViewportState {
         };
         if before.0 != now.0 || before.1 == now.1 {
             return false;
+        }
+        if !reverse {
+            widget.follow.shifted();
         }
         let moved = rows.iter().position(|row| {
             transcript
@@ -1332,10 +1337,20 @@ impl State for ViewportState {
                 if can_load && scroll.depth() == 0 && distance <= 3 {
                     send(Msg::Load(loading.clone()));
                 }
+                // the wheel: a move nobody asked for supersedes the wait for the first row
+                follow.moved_to(metrics.pixels);
                 // back at the last row: the news is seen
                 if follow.at_tail() {
                     follow.clear_unseen();
                 }
+                false
+            })
+            .into();
+        // the wheel at an end moves nothing, and still is the reader's
+        let wheel = widget.follow.clone();
+        let list: AnyWidget = NotificationListener::<OverscrollNotification>::new(list)
+            .on_notification(move |_| {
+                wheel.cancel_beginning();
                 false
             })
             .into();

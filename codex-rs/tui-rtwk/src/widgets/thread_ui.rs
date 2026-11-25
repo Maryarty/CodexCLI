@@ -454,6 +454,12 @@ pub struct Follow {
     /// arrives asks for the next, and the last takes the reader to the first row. Any other
     /// move of the view, or the way back to the latest row, ends the wait.
     beginning: Rc<ValueNotifier<bool>>,
+    /// Where the list stood when the wait began, or after the move the wait expected: a notice
+    /// of another place is the reader's wheel.
+    settled: Rc<Cell<Option<i64>>>,
+    /// The next move of the list is the rows of a page that joined above it keeping the
+    /// reader's row in place: not the reader's.
+    shifting: Rc<Cell<bool>>,
 }
 
 impl Default for Follow {
@@ -463,6 +469,8 @@ impl Default for Follow {
             unseen: Rc::new(ValueNotifier::new(false)),
             moved: Rc::new(ValueNotifier::new(0)),
             beginning: Rc::new(ValueNotifier::new(false)),
+            settled: Rc::new(Cell::new(None)),
+            shifting: Rc::new(Cell::new(false)),
         }
     }
 }
@@ -473,6 +481,8 @@ impl PartialEq for Follow {
             && Rc::ptr_eq(&self.unseen, &other.unseen)
             && Rc::ptr_eq(&self.moved, &other.moved)
             && Rc::ptr_eq(&self.beginning, &other.beginning)
+            && Rc::ptr_eq(&self.settled, &other.settled)
+            && Rc::ptr_eq(&self.shifting, &other.shifting)
     }
 }
 
@@ -539,7 +549,38 @@ impl Follow {
 
     /// The reader asks for the first row while older pages are still to come: the view holds.
     pub fn begin(&self) {
+        self.settled.set(self.pixels());
+        self.shifting.set(false);
         self.beginning.set_value(true);
+    }
+
+    fn pixels(&self) -> Option<i64> {
+        self.scroll
+            .as_scroll_controller()
+            .try_position()
+            .ok()
+            .map(|position| position.pixels())
+    }
+
+    /// Rows joined above the reader's row and the list moves to keep it in place: that move is
+    /// not the reader's (a wait for the first row goes on through it).
+    pub fn shifted(&self) {
+        if self.beginning() {
+            self.shifting.set(true);
+        }
+    }
+
+    /// The list moved to `pixels`: any move the wait did not expect is the reader's wheel, and
+    /// supersedes the wait for the first row.
+    pub fn moved_to(&self, pixels: i64) {
+        if !self.beginning() || self.settled.get() == Some(pixels) {
+            return;
+        }
+        if self.shifting.replace(false) {
+            self.settled.set(Some(pixels));
+        } else {
+            self.cancel_beginning();
+        }
     }
 
     /// Another move of the view supersedes the wait for the first row; what the pages brought
