@@ -131,7 +131,8 @@ fn a_started_hook_is_under_way_until_it_completes() {
     started(&mut app, "pre-tool-use:0", Some("checking command policy"));
     started(&mut app, "post-tool-use:1", None);
     assert_eq!(running(&app), ["pre-tool-use:0", "post-tool-use:1"]);
-    let runs = app.active_thread().running_hooks();
+    let thread = app.active_thread();
+    let runs = thread.running_hooks();
     assert_eq!(runs[0].message.as_deref(), Some("checking command policy"));
     assert_eq!(runs[1].message, None);
 
@@ -149,7 +150,8 @@ fn a_restart_of_the_same_id_is_one_run_with_a_new_seq() {
     started(&mut app, "stop:0", Some("checking stop condition"));
     let first = app.active_thread().running_hooks()[0].seq;
     started(&mut app, "stop:0", Some("checking stop condition"));
-    let runs = app.active_thread().running_hooks();
+    let thread = app.active_thread();
+    let runs = thread.running_hooks();
     assert_eq!(runs.len(), 1);
     assert_ne!(runs[0].seq, first);
 
