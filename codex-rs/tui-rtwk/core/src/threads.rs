@@ -1552,6 +1552,13 @@ impl ThreadModel {
         self.has_writer() && (self.is_running() || self.outgoing.any(is_start_turn))
     }
 
+    /// A turn runs, its start is in flight, or a compaction was asked for and its turn has not
+    /// begun (the oracle's `is_task_running` from the dispatch of `/compact`): a message waits
+    /// in the queue then, a command that needs an idle thread is disabled.
+    pub fn busy(&self) -> bool {
+        self.core.busy() || self.slots.chat.is_compacting()
+    }
+
     /// A user turn is running or its start is in flight, or a review runs (oracle
     /// `is_user_turn_pending_or_running`).
     pub fn user_turn_in_flight(&self) -> bool {
@@ -2729,7 +2736,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::StreamRestored { read } => {
             model.core.stream_lost = false;
             model.core.history_may_be_incomplete = !read;
-            if !model.is_running() && !model.outgoing.any(is_start_turn) {
+            if !model.busy() {
                 send_next(model, fx);
             }
         }
@@ -2903,7 +2910,10 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             // MCP servers still starting hold the message (oracle
             // `maybe_send_next_queued_input`).
             let behind = !model.queue.is_empty() && !model.recovered;
-            if starting || model.slots.chat.mcp.is_starting() || behind {
+            // a compaction asked for holds the thread as a running turn does, before its turn
+            // begins (the oracle queues the message: `is_task_running`)
+            let compacting = model.slots.chat.is_compacting();
+            if starting || compacting || model.slots.chat.mcp.is_starting() || behind {
                 enqueue(model, Queued::Message(message), fx);
                 return;
             }
@@ -3809,10 +3819,7 @@ fn add_startup_warnings(
     for warning in warnings {
         apply_appended(model, None, Item::StartupWarning(warning));
     }
-    if !model.slots.chat.mcp.is_starting()
-        && !model.is_running()
-        && !model.outgoing.any(is_start_turn)
-    {
+    if !model.slots.chat.mcp.is_starting() && !model.busy() {
         send_next(model, fx);
     }
 }

@@ -317,9 +317,10 @@ impl<'a> ThreadView<'a> {
         self.core.is_running()
     }
 
-    /// A turn runs or is about to (its start is in flight, or was said earlier in this step).
+    /// A turn runs or is about to (its start is in flight, or was said earlier in this step, or
+    /// a compaction was asked for and its turn has not begun).
     pub fn busy(&self) -> bool {
-        self.start_said || self.core.busy()
+        self.start_said || self.core.busy() || self.slots.chat.is_compacting()
     }
 
     /// This process writes the thread and the server has not refused it for its model

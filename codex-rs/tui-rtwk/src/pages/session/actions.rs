@@ -188,7 +188,7 @@ pub(super) fn run(
         return;
     }
     // (Tab behind a running turn: a command or a shell line is parsed when its turn comes)
-    if send == Delivery::Queue {
+    if send.queues(line, thread.busy(), w.ui.draft.shell()) {
         queue::keep(line, w, cx, hs, thread.id(), &states);
         return;
     }

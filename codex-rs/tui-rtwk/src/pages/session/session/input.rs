@@ -273,8 +273,10 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
         if pressed_fixed(fixed::OPEN_SHORTCUTS, &key) {
             send(ChatMsg::Shortcuts);
         } else if pressed_fixed(fixed::OPEN_AGENTS_FROM_LEFT, &key)
+            // the plain Left only (`key_hint::plain(KeyCode::Left)`): Shift+Left is the edit-queued
+            // key when it is bound, and nothing when it is not
+            && unmodified(&key)
             && vim::agents_key_available(&draft.borrow(), &keymap.borrow())
-            // Shift+Left is the chat's own key first (`edit_queued_message`)
             && !crate::keymap::pressed(
                 &keymap.borrow(),
                 codex_tui_core::keymap::actions::CHAT_EDIT_QUEUED_MESSAGE,

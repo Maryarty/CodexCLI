@@ -46,13 +46,20 @@ impl ChatState {
         }
     }
 
-    /// Tab: queues behind a running turn and submits otherwise.
+    /// Tab or the queue key (`composer.queue`): queues behind a running turn and submits
+    /// otherwise.
     pub(super) fn queue_draft(&mut self, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs) {
+        // a compaction asked for holds the thread as a running turn does (`is_task_running`)
+        let running = read::<ThreadModel, _>(cx).busy();
+        // the queue key leaves a shell command alone while nothing runs
+        // (`queue_keys` in `handle_key_event_without_popup`)
+        if !running && w.ui.draft.shell() {
+            return;
+        }
         self.composer_sends();
         self.startup_confirm = None;
         let draft = submission(&w.ui);
         if !draft.is_empty() || w.ui.draft.remote_count() > 0 {
-            let running = read::<ThreadModel, _>(cx).is_running();
             let send = if running {
                 Delivery::Queue
             } else {

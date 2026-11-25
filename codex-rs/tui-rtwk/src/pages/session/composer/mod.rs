@@ -196,6 +196,8 @@ pub struct Composer {
     on_picked: Option<Handler<Rc<str>>>,
     /// Told the queue key (`composer.queue`) when it is not Tab.
     on_queue: Option<Handler<()>>,
+    /// A turn runs: Tab on a command typed in full queues the line (`Suggest::set_queueing`).
+    queueing: bool,
     /// The text area alone: no prompt, no placeholder, no suggestions.
     bare: bool,
     /// The plain-text composer (`ChatComposerConfig::plain_text`) of the
@@ -254,6 +256,7 @@ impl PartialEq for Composer {
             && self.on_submitted == other.on_submitted
             && self.on_picked == other.on_picked
             && self.on_queue == other.on_queue
+            && self.queueing == other.queueing
             && self.bare == other.bare
             && self.plain == other.plain
             && self.on_too_long == other.on_too_long
@@ -275,6 +278,7 @@ impl Composer {
             on_submitted: None,
             on_picked: None,
             on_queue: None,
+            queueing: false,
             bare: false,
             plain: None,
             on_too_long: None,
@@ -294,6 +298,7 @@ impl Composer {
             on_submitted: None,
             on_picked: None,
             on_queue: None,
+            queueing: false,
             bare: true,
             plain: None,
             on_too_long: None,
@@ -352,6 +357,14 @@ impl Composer {
     #[must_use]
     pub fn on_queue(mut self, h: Handler<()>) -> Composer {
         self.on_queue = Some(h);
+        self
+    }
+
+    /// Whether a turn runs: Tab on a command typed in full queues the line instead of completing
+    /// it (`slash_input.rs`: `if self.is_task_running { handle_submission(true) }`).
+    #[must_use]
+    pub fn queueing(mut self, running: bool) -> Composer {
+        self.queueing = running;
         self
     }
 }
@@ -1026,6 +1039,7 @@ impl State for ComposerState {
             popovers: popovers.clone(),
             sparkle: w.ui.sparkle.clone(),
         };
+        self.suggest.set_queueing(w.queueing);
         let env = data.burst.clone();
         let searching = data.clone();
         // a plain-text composer's owner reads its keys first

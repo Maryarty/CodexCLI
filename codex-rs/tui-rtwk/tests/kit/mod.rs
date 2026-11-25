@@ -207,6 +207,28 @@ impl Screen {
         self.h.fake.commands()
     }
 
+    /// The terminal reports that its window lost the focus (`CSI O`): the app notifies from now
+    /// on (the oracle's `pending_notification` is sent when the terminal is not focused).
+    pub fn focus_out(&mut self) -> &mut Screen {
+        self.h.t.input(b"\x1b[O");
+        self
+    }
+
+    /// The notifications the app asked the terminal to show (OSC 9: `title: body`), oldest
+    /// first; the terminal needs `Open::notifications`.
+    pub fn notifications(&self) -> Vec<String> {
+        self.h
+            .t
+            .written()
+            .split("\u{1b}]9;")
+            .skip(1)
+            .filter_map(|rest| {
+                let end = rest.find(['\u{7}', '\u{1b}'])?;
+                Some(rest[..end].to_owned())
+            })
+            .collect()
+    }
+
     /// The pages the app asked the browser to open (`AppEvent::OpenUrlInBrowser`), oldest first:
     /// the app's own `Command::OpenUrl` and a feature's `Ask::OpenUrl` effect.
     pub fn opened_urls(&self) -> Vec<String> {
@@ -698,6 +720,44 @@ impl Screen {
                 self.text()
             );
         }
+    }
+
+    /// The oracle drew the chat widget alone (no history, no gap row under the transcript): its
+    /// snapshot `name` starts at the working line, and its rows, blanks aside, are the app's
+    /// bottom rows from that line on. The spinner glyph and the seconds of the first row follow
+    /// the clock.
+    pub fn assert_snap_rows_blanks_aside(&self, name: &str) {
+        let glyph: &[char] = &['•', '◦'];
+        let kept = |rows: Vec<String>| -> Vec<String> {
+            rows.iter()
+                .map(|row| row.trim_end().to_string())
+                .filter(|row| !row.is_empty())
+                .collect()
+        };
+        let head = |row: &str| {
+            let row = row.trim_start_matches(glyph);
+            row.split_once(" (")
+                .map_or(row, |(head, _)| head)
+                .to_string()
+        };
+        let (want, ours) = (kept(snap_rows(name, "")), kept(self.rows()));
+        let first = head(&want[0]);
+        let from = ours
+            .iter()
+            .position(|row| head(row) == first)
+            .unwrap_or_else(|| panic!("{name}: no `{first}` row:\n{}", self.text()));
+        let got = &ours[from..(from + want.len()).min(ours.len())];
+        let timeless = |rows: &[String]| -> Vec<String> {
+            rows.iter()
+                .enumerate()
+                .map(|(at, row)| if at == 0 { head(row) } else { row.clone() })
+                .collect()
+        };
+        let want = timeless(&want);
+        assert_rows_are(
+            &timeless(got),
+            &want.iter().map(String::as_str).collect::<Vec<_>>(),
+        );
     }
 
     /// As `assert_snap_rows_from` for the rows `rows` of the screen against the same rows of the

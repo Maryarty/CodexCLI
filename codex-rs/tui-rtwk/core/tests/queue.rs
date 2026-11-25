@@ -256,7 +256,7 @@ fn a_shell_line_runs_and_the_turn_it_makes_holds_the_rest() {
 fn a_bang_the_user_did_not_type_in_shell_mode_is_a_message() {
     let mut app = running();
     tab(&mut app, " !echo hi", false);
-    assert!(matches!(thread(&app).queue()[0], Queued::Literal(_)));
+    assert!(matches!(thread(&app).queue()[0], Queued::Literal(..)));
     let fx = notify(&mut app, turn_completed(T, "turn-1"));
     assert_eq!(started_texts(&fx), ["!echo hi"]);
     assert!(shells(&fx).is_empty());
@@ -414,6 +414,83 @@ fn a_held_queue_sends_nothing_at_the_turn_end_and_goes_on_when_the_user_sends() 
     // the user sends: the line goes behind nothing, the held one stays for the next end
     let fx = submit(&mut app, "now");
     assert_eq!(started_texts(&fx), ["now"]);
+}
+
+/// The ticket of the compaction a `/compact` asked for.
+fn compact_ticket(fx: &AppFx) -> Ticket {
+    fx.commands()
+        .iter()
+        .find_map(|c| match c {
+            Command::Screen {
+                ticket,
+                command: ScreenCommand::Chat(chat::Command::Compact),
+                ..
+            } => Some(*ticket),
+            _ => None,
+        })
+        .expect("the compaction was asked for")
+}
+
+/// A compaction asked for holds the thread as a running turn does, from the dispatch of
+/// `/compact` (`is_task_running`): a message typed before its turn begins waits behind it.
+#[test]
+fn a_message_typed_after_compact_was_asked_for_waits_for_its_turn() {
+    let mut app = ready();
+    let ticket = compact_ticket(&intent(&mut app, chat::ThreadIntent::Compact));
+    assert!(thread(&app).busy());
+    // the server took the request, and no turn runs yet
+    run(
+        &mut app,
+        AppEv::Reply(ticket, Reply::screen(ScreenReply::Chat(chat::Reply::Ack))),
+    );
+    assert!(thread(&app).busy());
+    let fx = submit(&mut app, "after compact");
+    assert!(started_texts(&fx).is_empty(), "queued, not sent");
+    assert_eq!(queued(&app), ["after compact"]);
+    // its turn begins, and the end of it sends the message
+    notify(&mut app, turn_started(T, "turn-2"));
+    assert!(thread(&app).busy());
+    let fx = notify(&mut app, turn_completed(T, "turn-2"));
+    assert_eq!(started_texts(&fx), ["after compact"]);
+}
+
+/// A compaction nothing accepted does not hold the thread: the refusal and the lost connection let
+/// it go.
+#[test]
+fn a_refused_compaction_lets_the_thread_go() {
+    let mut app = ready();
+    let ticket = compact_ticket(&intent(&mut app, chat::ThreadIntent::Compact));
+    assert!(thread(&app).busy());
+    run(
+        &mut app,
+        AppEv::Reply(ticket, Reply::failed("compact failed")),
+    );
+    assert!(!thread(&app).busy());
+    let fx = submit(&mut app, "after the refusal");
+    assert_eq!(started_texts(&fx), ["after the refusal"]);
+}
+
+#[test]
+fn a_lost_connection_lets_a_compaction_that_never_began_go() {
+    let mut app = ready();
+    intent(&mut app, chat::ThreadIntent::Compact);
+    assert!(thread(&app).busy());
+    run(&mut app, AppEv::Disconnected);
+    assert!(!thread(&app).busy());
+}
+
+#[test]
+fn a_command_waits_while_a_compaction_is_asked_for_and_drains_when_it_ends() {
+    let mut app = ready();
+    intent(&mut app, chat::ThreadIntent::Compact);
+    // Tab on a command while the compaction is asked for: queued, not sent
+    let fx = tab(&mut app, "/status", false);
+    assert!(fx.commands().is_empty());
+    assert_eq!(queued(&app), ["/status"]);
+    notify(&mut app, turn_started(T, "turn-2"));
+    notify(&mut app, turn_completed(T, "turn-2"));
+    assert!(queued(&app).is_empty());
+    assert!(thread(&app).due_command().is_some(), "handed to the screen");
 }
 
 // The lost stream of a thread (a Cloud backend's `ThreadStreamDisconnected` and

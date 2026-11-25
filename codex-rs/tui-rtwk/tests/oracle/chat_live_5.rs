@@ -256,16 +256,22 @@ fn steer_enter_uses_pending_steers_while_final_answer_stream_is_active() {
 // ORACLE chatwidget/tests/review_mode.rs:592 failed_pending_steer_submit_does_not_add_pending_preview kind=ui owner=chat-live
 #[test]
 fn failed_pending_steer_submit_does_not_add_pending_preview() {
-    kit::pending(
-        Owner::ChatLive,
-        "kit has no step that makes the backend refuse a submit (the oracle drops the op channel); the refused steer must not stay as a pending preview",
-    );
+    // The oracle drops the op channel, so the submit fails at once; the port's counterpart is a
+    // steer the server refuses (`turn/steer` answers an error).
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
+    s.server_refuses("turn/steer", Some(-32000), "boom");
     s.type_text("queued while streaming");
     s.keys("enter");
-    // oracle: no pending steer, no queued message and no history cell remain after the refused submit.
-    // Not written: the oracle does not say where the draft goes after a refused submit, so no row is asserted.
+    // oracle: no pending steer and no queued message remain after the refused submit.
+    s.assert_absent("Messages to be submitted after next tool call");
+    s.assert_absent("Messages to be submitted at end of turn");
+    s.assert_absent("Queued follow-up inputs");
+    s.assert_absent("↳");
+    // The message is no history cell: it stands once, in the composer it came back to (the
+    // oracle says nothing of the composer, and its channel drop draws no error line where an
+    // RPC refusal draws one: the port's own rows, not asserted).
+    s.assert_text_count("queued while streaming", 1);
 }
 
 // ORACLE chatwidget/tests/review_mode.rs:611 item_completed_only_pops_front_pending_steer kind=ui owner=chat-live
@@ -641,7 +647,10 @@ fn review_queues_user_messages_snapshot() {
         .iter()
         .map(|row| row.trim_start_matches(glyph).to_string())
         .collect();
-    let want: Vec<&str> = want.iter().map(|row| row.trim_start_matches(glyph)).collect();
+    let want: Vec<&str> = want
+        .iter()
+        .map(|row| row.trim_start_matches(glyph))
+        .collect();
     kit::assert_rows_are(&got, &want);
     s.assert_absent("cannot steer a review turn");
 }

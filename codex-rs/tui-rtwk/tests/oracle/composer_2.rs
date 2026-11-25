@@ -540,10 +540,6 @@ fn enter_queues_when_queue_submissions_is_enabled() {
 // ORACLE bottom_pane/chat_composer.rs:9772 tab_queues_slash_led_prompts_while_task_running_without_validation kind=ui owner=chat-live
 #[test]
 fn tab_queues_slash_led_prompts_while_task_running_without_validation() {
-    kit::pending(
-        Owner::ChatLive,
-        "no draft-without-popup seed: a pasted slash-led draft opens the command popup in the port, so Tab completes instead of queueing; the queue row and the empty composer are not reachable through the kit yet",
-    );
     for input in [
         "/compact",
         "/review check regressions",

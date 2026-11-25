@@ -11,11 +11,11 @@ pub mod plan_mode;
 
 use std::rc::Rc;
 
-pub use facts::{Ev as FactEv, Facts, Footer, Probe};
 pub use banner::{
-    AutomaticSwitch, Banner, BannerAction, BannerCta, BannerOccurrence, Nudge, NudgeOutcome, Reserve,
-    SwitchReason,
+    AutomaticSwitch, Banner, BannerAction, BannerCta, BannerOccurrence, Nudge, NudgeOutcome,
+    Reserve, SwitchReason,
 };
+pub use facts::{Ev as FactEv, Facts, Footer, Probe};
 pub use mcp::{McpHeader, McpStartup, McpStatus, McpWarning};
 
 use codex_app_server_protocol::ClientRequest;
@@ -65,7 +65,8 @@ pub struct Model {
 
 /// The oracle's default list (`DEFAULT_STATUS_LINE_ITEMS`) when the config
 /// names none.
-pub const DEFAULT_STATUS_LINE_ITEMS: [&str; 3] = ["model-with-reasoning", "current-dir", "thread-name"];
+pub const DEFAULT_STATUS_LINE_ITEMS: [&str; 3] =
+    ["model-with-reasoning", "current-dir", "thread-name"];
 
 /// `LUNA_RESERVE_MODEL` (`model_catalog.rs`).
 const LUNA_RESERVE_MODEL: &str = "gpt-reserve";
@@ -175,7 +176,11 @@ pub struct NotificationPolicy {
 
 impl NotificationPolicy {
     pub fn allows(&self, kind: &str) -> bool {
-        self.enabled && self.kinds.as_ref().is_none_or(|kinds| kinds.iter().any(|name| name == kind))
+        self.enabled
+            && self
+                .kinds
+                .as_ref()
+                .is_none_or(|kinds| kinds.iter().any(|name| name == kind))
     }
 }
 
@@ -298,13 +303,22 @@ pub enum Ev {
     Facts(FactEv),
     /// The details under `thread`'s status row, set as a fixture does (the
     /// app routes it to the thread, which owns the fact).
-    Details { thread: String, details: Option<StatusDetails> },
+    Details {
+        thread: String,
+        details: Option<StatusDetails>,
+    },
     /// What `thread` holds of the user's input during a turn, set as a fixture
     /// does (the app routes it to the thread, which owns the lists).
-    Pending { thread: String, pending: PendingTexts },
+    Pending {
+        thread: String,
+        pending: PendingTexts,
+    },
     /// `thread` is refused for its model provider, set as a fixture does (the
     /// app routes it to the thread, which owns the fact).
-    ProviderError { thread: String, error: codex_app_server_protocol::ModelProviderError },
+    ProviderError {
+        thread: String,
+        error: codex_app_server_protocol::ModelProviderError,
+    },
 }
 
 /// The three lists the pending-input preview shows, as texts.
@@ -395,7 +409,9 @@ pub fn wake_at(model: &Model) -> Option<crate::app::Now> {
         return None;
     }
     let due = model.facts.headline_due_at()?;
-    Some(crate::app::Now::at_secs(i64::try_from(due).unwrap_or(i64::MAX)))
+    Some(crate::app::Now::at_secs(
+        i64::try_from(due).unwrap_or(i64::MAX),
+    ))
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -510,12 +526,18 @@ impl StatusDetails {
             Some(first) => first.to_uppercase().chain(chars).collect(),
             None => String::new(),
         };
-        Self { text, max_lines: max_lines.max(1) }
+        Self {
+            text,
+            max_lines: max_lines.max(1),
+        }
     }
 
     /// Keeps the case as given (`Preserve`).
     pub fn preserved(text: &str, max_lines: usize) -> Self {
-        Self { text: text.trim_start().to_string(), max_lines: max_lines.max(1) }
+        Self {
+            text: text.trim_start().to_string(),
+            max_lines: max_lines.max(1),
+        }
     }
 }
 
@@ -550,12 +572,16 @@ impl ThreadPart {
         self.details = None;
         self.progress = None;
         self.activity = ActivityPhase::Working;
+        // the turn the compact request asked for has started: it holds the thread busy now
+        self.compact_pending = false;
         self.live_compaction = false;
         self.step = None;
     }
 
     pub(crate) fn end_turn(&mut self) {
         self.details = None;
+        // a compaction the server never turned into a turn must not hold the thread for good
+        self.compact_pending = false;
         self.live_compaction = false;
         self.retry_header = None;
     }
@@ -668,6 +694,8 @@ impl ThreadPart {
         change
     }
 
+    /// A compaction was asked for or runs: the thread is busy from the dispatch of `/compact`
+    /// (`is_task_running`), though no turn runs yet.
     pub fn is_compacting(&self) -> bool {
         self.compact_pending || self.live_compaction
     }
@@ -756,18 +784,33 @@ pub enum ThreadEv {
         service_tier: Option<String>,
         mode: codex_protocol::config_types::ModeKind,
     },
-    Phase { turn: TurnId, phase: ActivityPhase },
-    Compaction { turn: TurnId, running: bool },
+    Phase {
+        turn: TurnId,
+        phase: ActivityPhase,
+    },
+    Compaction {
+        turn: TurnId,
+        running: bool,
+    },
     /// The thread's own facts of a context compaction (`threads/compaction.rs`): `threads::apply`
     /// takes it before the screen sees it, the screen keeps nothing of it.
     Compacting(crate::threads::compaction::CompactionEv),
     /// The thread's safety facts (`threads/safety.rs`), taken by `threads::apply` the same way.
     Safety(crate::threads::safety::SafetyEv),
     Name(Option<String>),
-    Plan { turn: TurnId, completed: usize, total: usize, step: Option<String> },
+    Plan {
+        turn: TurnId,
+        completed: usize,
+        total: usize,
+        step: Option<String>,
+    },
     /// The server retries the turn's request: the header says so, and the
     /// error's own details sit under it.
-    Retry { turn: TurnId, retry: Retry, details: Option<String> },
+    Retry {
+        turn: TurnId,
+        retry: Retry,
+        details: Option<String>,
+    },
     /// What the status row says under its header (oracle `set_status`'s
     /// `details`); `None` clears it.
     Details(Option<StatusDetails>),
@@ -776,7 +819,9 @@ pub enum ThreadEv {
     ProviderError(codex_app_server_protocol::ModelProviderError),
     /// The thread's goal reached its token budget during `turn`
     /// (`on_thread_goal_updated` with `BudgetLimited`).
-    BudgetLimited { turn: TurnId },
+    BudgetLimited {
+        turn: TurnId,
+    },
 }
 
 impl ThreadEv {
@@ -816,7 +861,10 @@ pub(crate) fn blocks_direct_input(thread: &codex_app_server_protocol::Thread) ->
         || {
             matches!(
                 &thread.source,
-                SessionSource::SubAgent(SubAgentSource::ThreadSpawn { agent_path: Some(_), .. })
+                SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
+                    agent_path: Some(_),
+                    ..
+                })
             )
         },
         |can_accept| !can_accept,
@@ -839,7 +887,10 @@ pub(crate) fn metadata(thread: &codex_app_server_protocol::Thread) -> ThreadEv {
         parent_owned: blocks_direct_input(thread),
         ephemeral: thread.ephemeral,
         model: thread.model.clone(),
-        effort: thread.reasoning_effort.as_ref().map(|effort| effort.as_str().to_string()),
+        effort: thread
+            .reasoning_effort
+            .as_ref()
+            .map(|effort| effort.as_str().to_string()),
         provider: thread.model_provider.clone(),
         daybreak: thread.daybreak_enabled,
         resumed: !thread.turns.is_empty(),
@@ -849,36 +900,57 @@ pub(crate) fn metadata(thread: &codex_app_server_protocol::Thread) -> ThreadEv {
     }
 }
 
-pub(crate) fn project(notification: &codex_app_server_protocol::ServerNotification) -> Option<(ThreadId, ThreadEv)> {
+pub(crate) fn project(
+    notification: &codex_app_server_protocol::ServerNotification,
+) -> Option<(ThreadId, ThreadEv)> {
     use codex_app_server_protocol::{ServerNotification, ThreadItemPayload};
     let (id, event) = match notification {
         ServerNotification::ThreadStarted(note) => (&note.thread.id, metadata(&note.thread)),
-        ServerNotification::ThreadNameUpdated(note) => (&note.thread_id, ThreadEv::Name(note.thread_name.clone())),
+        ServerNotification::ThreadNameUpdated(note) => {
+            (&note.thread_id, ThreadEv::Name(note.thread_name.clone()))
+        }
         ServerNotification::ThreadSettingsUpdated(note) => {
             let settings = &note.thread_settings;
-            (&note.thread_id, ThreadEv::Settings {
-                cwd: settings.cwd.display().to_string(),
-                model: settings.model.clone(),
-                effort: settings.effort.as_ref().map(|effort| effort.as_str().to_string()),
-                provider: settings.model_provider.clone(),
-                service_tier: settings.service_tier.clone(),
-                mode: settings.collaboration_mode.mode,
-            })
+            (
+                &note.thread_id,
+                ThreadEv::Settings {
+                    cwd: settings.cwd.display().to_string(),
+                    model: settings.model.clone(),
+                    effort: settings
+                        .effort
+                        .as_ref()
+                        .map(|effort| effort.as_str().to_string()),
+                    provider: settings.model_provider.clone(),
+                    service_tier: settings.service_tier.clone(),
+                    mode: settings.collaboration_mode.mode,
+                },
+            )
         }
         ServerNotification::Error(note) if note.will_retry => {
             // `Reconnecting... 2/5` after a 429 reads as the server being busy.
             let busy = matches!(
                 note.error.codex_error_info,
-                Some(codex_app_server_protocol::CodexErrorInfo::ResponseStreamDisconnected {
-                    http_status_code: Some(429)
-                })
+                Some(
+                    codex_app_server_protocol::CodexErrorInfo::ResponseStreamDisconnected {
+                        http_status_code: Some(429)
+                    }
+                )
             );
             let retry = match note.error.message.strip_prefix("Reconnecting... ") {
-                Some(attempt) if busy => Retry::Busy { attempt: attempt.to_string() },
+                Some(attempt) if busy => Retry::Busy {
+                    attempt: attempt.to_string(),
+                },
                 _ => Retry::Server(note.error.message.clone()),
             };
             let details = note.error.additional_details.clone();
-            (&note.thread_id, ThreadEv::Retry { turn: TurnId::new(&note.turn_id), retry, details })
+            (
+                &note.thread_id,
+                ThreadEv::Retry {
+                    turn: TurnId::new(&note.turn_id),
+                    retry,
+                    details,
+                },
+            )
         }
         ServerNotification::ThreadGoalUpdated(note)
             if note.goal.status == codex_app_server_protocol::ThreadGoalStatus::BudgetLimited =>
@@ -886,18 +958,38 @@ pub(crate) fn project(notification: &codex_app_server_protocol::ServerNotificati
             let turn = TurnId::new(note.turn_id.as_deref()?);
             (&note.thread_id, ThreadEv::BudgetLimited { turn })
         }
-        ServerNotification::ReasoningSummaryPartAdded(note) => (&note.thread_id, ThreadEv::Phase {
-            turn: TurnId::new(&note.turn_id),
-            phase: ActivityPhase::Thinking,
-        }),
-        ServerNotification::ItemStarted(note) if matches!(note.item.payload, ThreadItemPayload::ContextCompaction { .. }) => {
-            (&note.thread_id, ThreadEv::Compaction { turn: TurnId::new(&note.turn_id), running: true })
+        ServerNotification::ReasoningSummaryPartAdded(note) => (
+            &note.thread_id,
+            ThreadEv::Phase {
+                turn: TurnId::new(&note.turn_id),
+                phase: ActivityPhase::Thinking,
+            },
+        ),
+        ServerNotification::ItemStarted(note)
+            if matches!(
+                note.item.payload,
+                ThreadItemPayload::ContextCompaction { .. }
+            ) =>
+        {
+            (
+                &note.thread_id,
+                ThreadEv::Compaction {
+                    turn: TurnId::new(&note.turn_id),
+                    running: true,
+                },
+            )
         }
         ServerNotification::ItemCompleted(note) => {
             let turn = TurnId::new(&note.turn_id);
             let event = match &note.item.payload {
-                ThreadItemPayload::ContextCompaction { .. } => ThreadEv::Compaction { turn, running: false },
-                ThreadItemPayload::Reasoning { .. } => ThreadEv::Phase { turn, phase: ActivityPhase::Working },
+                ThreadItemPayload::ContextCompaction { .. } => ThreadEv::Compaction {
+                    turn,
+                    running: false,
+                },
+                ThreadItemPayload::Reasoning { .. } => ThreadEv::Phase {
+                    turn,
+                    phase: ActivityPhase::Working,
+                },
                 _ => return None,
             };
             (&note.thread_id, event)
@@ -987,7 +1079,20 @@ pub fn apply_thread_intent(
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     let _ = fx;
     match ev {
-        ThreadEv::Metadata { name, forked_from, cwd, path, parent_owned, ephemeral, model, effort, provider, daybreak, resumed, fresh } => {
+        ThreadEv::Metadata {
+            name,
+            forked_from,
+            cwd,
+            path,
+            parent_owned,
+            ephemeral,
+            model,
+            effort,
+            provider,
+            daybreak,
+            resumed,
+            fresh,
+        } => {
             part.name = name;
             part.forked_from = forked_from;
             part.daybreak = daybreak;
@@ -1006,7 +1111,14 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
             // a later `thread/started` of a thread that ran a turn does not make it fresh again
             part.fresh = fresh && !part.ran_turn;
         }
-        ThreadEv::Settings { cwd, model, effort, provider, service_tier, mode } => {
+        ThreadEv::Settings {
+            cwd,
+            model,
+            effort,
+            provider,
+            service_tier,
+            mode,
+        } => {
             part.mode = mode;
             if mode == codex_protocol::config_types::ModeKind::Default {
                 part.base = collaboration::Base::of(Some(&model), effort.as_deref());
@@ -1032,7 +1144,12 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
                 part.budget_limited.push(turn);
             }
         }
-        ThreadEv::Plan { completed, total, step, .. } => {
+        ThreadEv::Plan {
+            completed,
+            total,
+            step,
+            ..
+        } => {
             part.progress = (total > 0).then_some((completed, total));
             part.step = step;
         }
@@ -1046,7 +1163,9 @@ pub fn apply_reply(
     fx: &mut ThreadFx<'_>,
 ) {
     let _ = fx;
-    if matches!(ctx, Ctx::Compact) {
+    // the request is the thread's busy until the turn it starts begins (`begin_turn`): an
+    // answer that is no refusal keeps it, so a message typed in between queues
+    if matches!(ctx, Ctx::Compact) && result.is_err() {
         part.compact_pending = false;
     }
     // a steer's reply is read by `threads::apply`, never here
@@ -1057,8 +1176,12 @@ pub fn apply_reply(
 
 pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
     let ask = match command {
-        Command::Compact => crate::threads::ThreadAsk::Compact { thread: thread.to_string() },
-        Command::CleanTerminals => crate::threads::ThreadAsk::CleanTerminals { thread: thread.to_string() },
+        Command::Compact => crate::threads::ThreadAsk::Compact {
+            thread: thread.to_string(),
+        },
+        Command::CleanTerminals => crate::threads::ThreadAsk::CleanTerminals {
+            thread: thread.to_string(),
+        },
         Command::Review(target) => crate::threads::ThreadAsk::Review {
             thread: thread.to_string(),
             target: target.clone(),
@@ -1093,15 +1216,24 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
         ThreadPrepareApprovedPlanResponse, ThreadShellCommandResponse, TurnSteerResponse,
     };
     let decoded = match command {
-        Command::Compact => serde_json::from_value::<ThreadCompactStartResponse>(result).map(|_| Reply::Ack),
-        Command::CleanTerminals => {
-            serde_json::from_value::<ThreadBackgroundTerminalsCleanResponse>(result).map(|_| Reply::Ack)
+        Command::Compact => {
+            serde_json::from_value::<ThreadCompactStartResponse>(result).map(|_| Reply::Ack)
         }
-        Command::Review(_) => serde_json::from_value::<ReviewStartResponse>(result).map(|_| Reply::Ack),
-        Command::Shell(_) => serde_json::from_value::<ThreadShellCommandResponse>(result).map(|_| Reply::Ack),
+        Command::CleanTerminals => {
+            serde_json::from_value::<ThreadBackgroundTerminalsCleanResponse>(result)
+                .map(|_| Reply::Ack)
+        }
+        Command::Review(_) => {
+            serde_json::from_value::<ReviewStartResponse>(result).map(|_| Reply::Ack)
+        }
+        Command::Shell(_) => {
+            serde_json::from_value::<ThreadShellCommandResponse>(result).map(|_| Reply::Ack)
+        }
         Command::Mode(_) => Ok(Reply::Ack),
-        Command::ApprovePlan(_) => serde_json::from_value::<ThreadPrepareApprovedPlanResponse>(result)
-            .map(|response| Reply::Prepared(response.prompt)),
+        Command::ApprovePlan(_) => {
+            serde_json::from_value::<ThreadPrepareApprovedPlanResponse>(result)
+                .map(|response| Reply::Prepared(response.prompt))
+        }
         Command::Steer { .. } => serde_json::from_value::<TurnSteerResponse>(result)
             .map(|response| Reply::Steered(TurnId::new(response.turn_id))),
     };
@@ -1121,8 +1253,15 @@ enum SeedEv {
     Status(Box<StatusFacts>),
     Facts(FactEv),
     Details(SeedDetails),
-    Pending { thread: String, #[serde(flatten)] pending: PendingTexts },
-    ProviderError { thread: String, error: codex_app_server_protocol::ModelProviderError },
+    Pending {
+        thread: String,
+        #[serde(flatten)]
+        pending: PendingTexts,
+    },
+    ProviderError {
+        thread: String,
+        error: codex_app_server_protocol::ModelProviderError,
+    },
 }
 
 /// `{"details":{"thread":"thread-1","text":"a\nb","max_lines":3,"preserve":true}}`

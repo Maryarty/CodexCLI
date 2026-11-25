@@ -76,7 +76,10 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
         let mut composer = Composer::new(w.ui.clone(), state.node.clone())
             .on_changed(cx.map(ChatMsg::Changed))
             .on_submitted(cx.map(ChatMsg::Submit))
-            .on_picked(cx.map(ChatMsg::Picked));
+            .on_picked(cx.map(ChatMsg::Picked))
+            // the queue key when it is not Tab (`composer.queue`): Tab is the page's
+            .on_queue(cx.send(ChatMsg::QueueDraft))
+            .queueing(frame.run.running());
         let closing = select::<ScreenStates, bool, _>(cx, |states| states.chat.facts.shutting_down);
         let held = composer_state(thread, closing);
         match held {
