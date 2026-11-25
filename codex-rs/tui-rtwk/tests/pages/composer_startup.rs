@@ -105,7 +105,8 @@ fn a_shell_command_sent_before_the_thread_starts_runs_when_it_starts() {
     let mut h = starting();
     h.t.type_text("!ls -la");
     h.press("enter");
-    assert!(!h.t.screen().contains("ls -la"), "{}", h.t.screen());
+    // it waits on the queue, drawn as a queued row (`queued_user_message_texts`)
+    assert!(h.t.screen().contains("↳ !ls -la"), "{}", h.t.screen());
     assert!(sent(&h).is_empty());
     start_thread(&mut h);
     common::wait::wait_until(&mut h, "the shell command", |h| !sent(h).is_empty());
