@@ -449,6 +449,11 @@ pub struct Follow {
     /// How many times the reader moved the view by a key (a page, a jump), also where the view
     /// stays (a page at the last row).
     moved: Rc<ValueNotifier<u64>>,
+    /// The reader asked for the first row while older pages are still to come (oracle
+    /// `TranscriptHistoryState::LoadingBeginning`): the view holds where it is, each page that
+    /// arrives asks for the next, and the last takes the reader to the first row. Any other
+    /// move of the view, or the way back to the latest row, ends the wait.
+    beginning: Rc<ValueNotifier<bool>>,
 }
 
 impl Default for Follow {
@@ -457,6 +462,7 @@ impl Default for Follow {
             scroll: ListController::new(),
             unseen: Rc::new(ValueNotifier::new(false)),
             moved: Rc::new(ValueNotifier::new(0)),
+            beginning: Rc::new(ValueNotifier::new(false)),
         }
     }
 }
@@ -466,6 +472,7 @@ impl PartialEq for Follow {
         self.scroll == other.scroll
             && Rc::ptr_eq(&self.unseen, &other.unseen)
             && Rc::ptr_eq(&self.moved, &other.moved)
+            && Rc::ptr_eq(&self.beginning, &other.beginning)
     }
 }
 
@@ -519,6 +526,34 @@ impl Follow {
         !self.at_tail()
     }
 
+    /// The reader is away from the last row, or waits for the first one to arrive: the way back
+    /// to the latest is offered (`can_return_to_latest`).
+    pub fn reading(&self) -> bool {
+        self.away() || self.beginning()
+    }
+
+    /// The reader waits for the older pages to bring the first row.
+    pub fn beginning(&self) -> bool {
+        self.beginning.value()
+    }
+
+    /// The reader asks for the first row while older pages are still to come: the view holds.
+    pub fn begin(&self) {
+        self.beginning.set_value(true);
+    }
+
+    /// Another move of the view supersedes the wait for the first row; what the pages brought
+    /// stays.
+    pub fn cancel_beginning(&self) {
+        self.beginning.set_value(false);
+    }
+
+    /// The last page came: to the first row.
+    pub fn finish_beginning(&self) {
+        self.cancel_beginning();
+        self.jump_to_first();
+    }
+
     /// The transcript changed at its end while the reader was away.
     pub fn unseen(&self) -> bool {
         self.unseen.value() && self.away()
@@ -538,6 +573,7 @@ impl Follow {
 
     /// Back to the last row.
     pub fn jump_to_latest(&self) {
+        self.cancel_beginning();
         self.moving();
         let controller = self.scroll.as_scroll_controller();
         let reverse = controller
@@ -550,6 +586,7 @@ impl Follow {
 
     /// To the first row (`jump_top`).
     pub fn jump_to_first(&self) {
+        self.cancel_beginning();
         self.moving();
         let controller = self.scroll.as_scroll_controller();
         let reverse = controller
@@ -571,6 +608,7 @@ impl Follow {
 
     /// `rows` towards the last row (a negative count towards the first).
     pub fn scroll_by(&self, rows: i64) {
+        self.cancel_beginning();
         self.moving();
         let controller = self.scroll.as_scroll_controller();
         let Ok(position) = controller.try_position() else {
@@ -595,7 +633,8 @@ impl Follow {
         let scroll: Rc<dyn Listenable> = Rc::new(self.scroll.as_scroll_controller().clone());
         let unseen: Rc<dyn Listenable> = self.unseen.clone();
         let moved: Rc<dyn Listenable> = self.moved.clone();
-        <dyn Listenable>::merge([Some(scroll), Some(unseen), Some(moved)])
+        let beginning: Rc<dyn Listenable> = self.beginning.clone();
+        <dyn Listenable>::merge([Some(scroll), Some(unseen), Some(moved), Some(beginning)])
     }
 }
 

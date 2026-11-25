@@ -118,6 +118,15 @@ pub fn agent_turn(id: &str, rows: &[&str]) -> serde_json::Value {
     super::replay_turn(id, serde_json::Value::Array(items))
 }
 
+/// A page of one-row turns `{word} {n}` for each `n` of `range`, newest first as the server
+/// sends it.
+pub fn turns_of(word: &str, range: std::ops::Range<usize>) -> Vec<serde_json::Value> {
+    range
+        .rev()
+        .map(|n| agent_turn(&format!("turn-{word}-{n}"), &[&format!("{word} {n}")]))
+        .collect()
+}
+
 /// The page requests among `commands`, with the cursor each asks for.
 fn pages(commands: &[Command]) -> Vec<(Command, Option<String>)> {
     commands

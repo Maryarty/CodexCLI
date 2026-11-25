@@ -189,6 +189,10 @@ struct Shown {
 /// What the list's state is told: older history is wanted, or a fold was tapped.
 pub(super) enum Msg {
     Load(ThreadId),
+    /// The reader waits for the first row (`Follow::beginning`) and the history is now in this
+    /// state: the next page is asked for, the last one takes the reader to the first row, a
+    /// refused one ends the wait.
+    Beginning(ThreadId, HistoryState),
     Toggle(Vec<ItemKey>),
     /// Find moved: its footer and its match are drawn from the list's build.
     Find,
@@ -779,6 +783,20 @@ impl State for ViewportState {
                 cx.emit(&handlers.load_history, thread);
                 Rebuild::No
             }
+            Msg::Beginning(thread, state) => {
+                if widget.follow.beginning() {
+                    match state {
+                        HistoryState::Partial => {
+                            let handlers = read::<Hs, _>(cx);
+                            cx.emit(&handlers.load_history, thread);
+                        }
+                        HistoryState::Complete => widget.follow.finish_beginning(),
+                        HistoryState::Failed => widget.follow.cancel_beginning(),
+                        HistoryState::Loading => {}
+                    }
+                }
+                Rebuild::No
+            }
             Msg::Toggle(ids) => {
                 activity_focus::of(&widget.find).toggle(&ids);
                 Rebuild::Yes
@@ -1007,6 +1025,9 @@ impl State for ViewportState {
             HistoryState::Complete => More::None,
         };
         let load = cx.local_sender();
+        if widget.follow.beginning() {
+            load(Msg::Beginning(thread.id().clone(), thread.history_state()));
+        }
         let (texts, targets) = if reads {
             let texts = self.row_texts(&thread, &rows, header.is_some(), reverse, &reading);
             let targets = copier.cutter().filter(|_| copier.active()).map(|cutter| {

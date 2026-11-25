@@ -129,6 +129,10 @@ pub enum Msg {
     Older,
     Newer,
     Confirm,
+    /// Home, Ctrl+Home, Alt+<: to the first row, once every older page is there.
+    Beginning,
+    /// Ctrl+End, Alt+>: back to the last row.
+    Latest,
 }
 
 impl StatefulWidget for TranscriptSheet {
@@ -227,8 +231,20 @@ impl State for SheetState {
             Msg::Pager(pager::Msg::Rows(rows)) => w.follow.scroll_by(rows),
             Msg::Pager(pager::Msg::Pages(pages)) => w.follow.page(pages),
             Msg::Pager(pager::Msg::HalfPages(pages)) => w.follow.half_page(pages),
-            Msg::Pager(pager::Msg::Top) => w.follow.jump_to_first(),
-            Msg::Pager(pager::Msg::Bottom) => w.follow.jump_to_latest(),
+            Msg::Pager(pager::Msg::Top) | Msg::Beginning => {
+                // the first row, or, with older pages to come, the wait for it: the view holds
+                // while each page asks for the next (`jump_to_beginning`)
+                match thread.history_state() {
+                    HistoryState::Complete => w.follow.jump_to_first(),
+                    HistoryState::Loading => w.follow.begin(),
+                    HistoryState::Partial | HistoryState::Failed => {
+                        w.follow.begin();
+                        let hs = read::<Hs, _>(cx);
+                        cx.emit(&hs.load_history, thread.id().clone());
+                    }
+                }
+            }
+            Msg::Pager(pager::Msg::Bottom) | Msg::Latest => w.follow.jump_to_latest(),
             // closing is the sheet's; what the opener does with it is the opener's
             Msg::Pager(pager::Msg::Close | pager::Msg::Action) => {
                 select::of(&w.find).end(&w.selection);
@@ -319,11 +335,12 @@ impl State for SheetState {
                             dim.clone(),
                         ))
                         .child(pager::hint_row(&hints, table, dim.clone()));
-                } else if follow.away() {
-                    // the reader is away: one status row, the hints give way to it
-                    // (`footer_with_navigation`)
+                } else if follow.reading() || history::pending(state) {
+                    // the reader is away or a page is on its way or refused: one status row, the
+                    // hints give way to it (`footer_with_navigation`)
                     rows = rows
                         .child(status(
+                            follow.reading(),
                             true,
                             follow.unseen(),
                             state,
@@ -332,16 +349,20 @@ impl State for SheetState {
                             &accent,
                             &dim,
                         ))
-                        .child(SizedBox::new(None, Some(2), None));
+                        // the hints' two rows and the blank one under them stay (`chrome_height` 5)
+                        .child(SizedBox::new(None, Some(3), None));
                 } else {
                     rows = rows
-                        .child(status(false, false, state, table, &bold, &accent, &dim))
+                        .child(status(
+                            false, false, false, state, table, &bold, &accent, &dim,
+                        ))
                         .child(pager::hint_row(
                             &pager::navigation(table),
                             table,
                             dim.clone(),
                         ))
-                        .child(pager::hint_row(&hints, table, dim.clone()));
+                        .child(pager::hint_row(&hints, table, dim.clone()))
+                        .child(SizedBox::new(None, Some(1), None));
                 }
                 rows.into()
             })
@@ -466,6 +487,10 @@ impl State for SheetState {
             step(fixed::BROWSE_NEWER, Msg::Newer),
             step(fixed::BROWSE_NEWER_VIM, Msg::Newer),
             step(fixed::ENTER, Msg::Confirm),
+            step(fixed::TRANSCRIPT_TOP, Msg::Beginning),
+            step(fixed::TRANSCRIPT_TOP_ALT, Msg::Beginning),
+            step(fixed::TRANSCRIPT_LATEST, Msg::Latest),
+            step(fixed::TRANSCRIPT_LATEST_ALT, Msg::Latest),
         ]
         .into_iter()
         .flatten()
@@ -521,11 +546,13 @@ fn second(highlight: bool, table: &'static Strings) -> Vec<pager::Pair> {
 
 /// The status row (`status_line_with_navigation`): the news the reader has not seen, what the
 /// thread's history is doing or can do (`history`), then the key that goes on from here: the way
-/// back to the latest while the reader is away (`away`, the passive row of
-/// `footer_with_navigation`), the select key otherwise. When the row is too wide the news shortens,
+/// back to the latest while the reader is away (`away`), nothing while only the history speaks
+/// (`passive` without `away`: the footer row of `footer_with_navigation`), the select key
+/// otherwise. When the row is too wide the news shortens,
 /// then goes, then the history text (the oracle's fallbacks and `first_fitting_line`).
 fn status(
     away: bool,
+    passive: bool,
     news: bool,
     history: HistoryState,
     table: &'static Strings,
@@ -541,15 +568,19 @@ fn status(
     let (key, dim) = (key.clone(), dim.clone());
     LayoutBuilder::new(move |cx, constraints| {
         let segmenter = segmenter_of(cx);
-        let (keys, action) = if away {
-            (table.key_end, table.latest_action)
+        let navigation = if away {
+            vec![
+                Span::styled(table.key_end, key.clone()),
+                Span::styled(table.latest_action, dim.clone()),
+            ]
+        } else if passive {
+            Vec::new()
         } else {
-            (table.status_select_key, table.status_select_action)
+            vec![
+                Span::styled(table.status_select_key, key.clone()),
+                Span::styled(table.status_select_action, dim.clone()),
+            ]
         };
-        let navigation = vec![
-            Span::styled(keys, key.clone()),
-            Span::styled(action, dim.clone()),
-        ];
         let fits = |spans: &[Span]| {
             let cells: usize = spans.iter().map(|span| segmenter.width(&span.text)).sum();
             i32::try_from(cells).unwrap_or(i32::MAX) <= constraints.max_width
@@ -560,7 +591,7 @@ fn status(
             navigation: &navigation,
             selected: false,
         };
-        let chosen = if away {
+        let chosen = if passive {
             history::candidates(table, &look, &say, &fits)
                 .into_iter()
                 .find(|spans| fits(spans))

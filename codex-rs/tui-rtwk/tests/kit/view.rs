@@ -40,7 +40,7 @@ use crate::kit::Screen;
 /// Puts the transcript alone in place of the harness app's home. The app (its core, its
 /// controllers, its backend link) is the one running; the spare given to `AppView` is dropped
 /// unused, as its state is only the initial one.
-pub(super) fn mount(h: &mut Harness, compact: bool) {
+pub(super) fn mount(h: &mut Harness, compact: bool, overlay: bool) {
     // The page the app showed goes first, and is let go of in a frame of its own: a controller the
     // new transcript shares with it (the thread's selection) is detached by the old area's disposal,
     // which Flutter runs at the end of the frame that inflated the new one, and no Find match could
@@ -57,7 +57,13 @@ pub(super) fn mount(h: &mut Harness, compact: bool) {
     h.t.pump_widget(localized(
         root(AppView::new(
             spare,
-            if compact { compact_view } else { view },
+            if overlay {
+                overlay_view
+            } else if compact {
+                compact_view
+            } else {
+                view
+            },
         )),
         Lang::En,
     ));
@@ -66,6 +72,11 @@ pub(super) fn mount(h: &mut Harness, compact: bool) {
 
 fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
     home(app, cx, sheet::seeded_bare)
+}
+
+/// The sheet with the pager's chrome (`Chrome::Overlay`).
+fn overlay_view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
+    home(app, cx, sheet::seeded)
 }
 
 /// The same with the compact transcript (`Chrome::Compact`).

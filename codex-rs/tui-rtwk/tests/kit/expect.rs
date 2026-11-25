@@ -234,6 +234,25 @@ impl Screen {
         );
     }
 
+    /// The rows of frame `frame` of the oracle snapshot `name` (`assert_snap_section`'s header)
+    /// equal ours, trailing blanks cut, but for the rows in `except` (the port's own words: a
+    /// row of the oracle's test cell the thread's items spell otherwise).
+    pub fn assert_snap_frame_except(&self, name: &str, frame: &str, except: &[usize]) {
+        let ours = self.rows();
+        for (at, want) in super::snap_rows(name, frame).iter().enumerate() {
+            if except.contains(&at) {
+                continue;
+            }
+            let got = ours.get(at).map_or("", |row| row.trim_end());
+            pretty_assertions::assert_eq!(
+                got,
+                want.trim_end(),
+                "{name} / {frame}: row {at}\n{}",
+                self.text()
+            );
+        }
+    }
+
     /// The rows of the oracle snapshot `name` equal ours from screen row `row`, trailing blanks
     /// cut (no cell style is checked).
     pub fn assert_snap_rows_at(&self, name: &str, row: usize) {
