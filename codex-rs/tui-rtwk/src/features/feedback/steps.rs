@@ -4,6 +4,7 @@
 
 use std::rc::Rc;
 
+use rtwk::LayoutBuilder;
 use rtwk::controls::SelectionList;
 use rtwk::focus::Focus;
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
@@ -21,6 +22,7 @@ use super::sheet::{Msg, SheetState};
 use crate::app::theme::Tokens;
 use crate::sheets::dialogs::strings::Strings;
 use crate::keymap::bind_fixed;
+use crate::widgets::measure;
 
 /// A step of the feedback flow: drawn state of the sheet.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -107,7 +109,10 @@ pub(super) fn build(
                     }
                 }
             }
+            // two blank rows between the files and the list, as the oracle's header and its list
+            // leave them
             let column = column
+                .child(Text::new(String::new()))
                 .child(Text::new(String::new()))
                 .child(list(rows, cx, |index| Msg::Consent(index == 0)))
                 .child(Text::new(String::new()))
@@ -177,33 +182,49 @@ fn list(
         .unwrap_or(0);
     let count = labels.len();
     let labels = Rc::new(labels);
-    SizedBox::new(
-        None,
-        Some(i32::try_from(count * 3).unwrap_or(i32::MAX)),
-        Some(
-            SelectionList::new(
-                count,
-                |index| index,
-                move |index| match labels.get(index) {
-                    Some((label, description)) => Row::new()
-                        .cross_axis_alignment(CrossAxisAlignment::Start)
-                        .child(SizedBox::new(
-                            Some(i32::try_from(name_width + 2).unwrap_or(i32::MAX)),
-                            None,
-                            Some(Text::new(label.clone()).into()),
-                        ))
-                        .child(Expanded::new(
-                            1,
-                            Text::new(description.clone()).style(dim.clone()),
-                        ))
-                        .into(),
-                    None => AnyWidget::default(),
-                },
-            )
-            .on_submitted(cx.map(msg))
-            .autofocus(true)
-            .into(),
-        ),
-    )
+    let on_submitted = cx.map(msg);
+    // as tall as its rows are: a description that wraps is more than one (the oracle's rows are
+    // as tall as their text), so the hint under the list follows it
+    LayoutBuilder::new(move |cx, constraints| {
+        let seg = segmenter_of(cx);
+        let room = usize::try_from(constraints.max_width)
+            .unwrap_or(1)
+            .saturating_sub(1 + name_width + 2)
+            .max(1);
+        let height: usize = labels
+            .iter()
+            .map(|(_, description)| measure::rows(seg, description, room).len().max(1))
+            .sum();
+        let (labels, dim) = (labels.clone(), dim.clone());
+        SizedBox::new(
+            None,
+            Some(i32::try_from(height).unwrap_or(i32::MAX)),
+            Some(
+                SelectionList::new(
+                    count,
+                    |index| index,
+                    move |index| match labels.get(index) {
+                        Some((label, description)) => Row::new()
+                            .cross_axis_alignment(CrossAxisAlignment::Start)
+                            .child(SizedBox::new(
+                                Some(i32::try_from(name_width + 2).unwrap_or(i32::MAX)),
+                                None,
+                                Some(Text::new(label.clone()).into()),
+                            ))
+                            .child(Expanded::new(
+                                1,
+                                Text::new(description.clone()).style(dim.clone()),
+                            ))
+                            .into(),
+                        None => AnyWidget::default(),
+                    },
+                )
+                .on_submitted(on_submitted.clone())
+                .autofocus(true)
+                .into(),
+            ),
+        )
+        .into()
+    })
     .into()
 }
