@@ -153,7 +153,10 @@ fn copy_action_reports_when_no_agent_response_exists() {
 // ORACLE chatwidget/tests/slash_commands.rs:2450 keymap_capture_can_capture_current_copy_shortcut kind=ui owner=chat-nav-pane
 #[test]
 fn keymap_capture_can_capture_current_copy_shortcut() {
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(KEYMAP_DEFAULT)
+        .open();
     s.type_text("/keymap");
     s.keys("enter");
     s.keys("ctrl+o");

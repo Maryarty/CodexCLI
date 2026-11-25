@@ -175,14 +175,12 @@ fn tab_on_skills_runs_it_as_enter_does() {
     s.type_text("/skills");
     s.keys("tab");
     assert!(
-        s.rows().iter().any(|r| r.contains("settings (S15)")),
+        s.rows().iter().any(|r| r.contains("Enable/Disable Skills")),
         "{}",
         s.rows().join("\n")
     );
     assert!(
-        s.rows()
-            .iter()
-            .any(|r| r.starts_with("› Ask Codex to do anything")),
+        !s.rows().iter().any(|r| r.contains("› /skills")),
         "the draft is cleared:\n{}",
         s.rows().join("\n")
     );

@@ -113,7 +113,7 @@ fn experimental_features_popup_snapshot() {
     s.assert_snap_region("experimental_features_popup", 1, 0);
     // The second view is another state (one feature, `list.accept` chord): a screen of its own.
     let mut s = Screen::build(Owner::DialogsPane)
-        .size(80, 10)
+        .size(80, 11)
         .keymap(&[("list.accept", "ctrl+x enter")])
         .script(include_str!(
             "fixtures/chat_popups_4/experimental_shell.jsonl"
@@ -121,7 +121,9 @@ fn experimental_features_popup_snapshot() {
         .open();
     s.type_text("/experimental");
     s.keys("enter");
-    s.assert_snap_region("experimental_features_popup_configured_key_chords", 1, 0);
+    // (the loading state of the sheet is a row taller than the list: one row of room)
+    let top = popup_row(&s, "Experimental features");
+    s.assert_snap_region("experimental_features_popup_configured_key_chords", top, 0);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:3153 experimental_features_toggle_saves_on_exit kind=ui owner=dialogs-pane
@@ -1621,7 +1623,6 @@ fn manage_skills_summary_snapshot() {
         let mut s = Screen::build(Owner::DialogsPane)
             .size(80, 24)
             .script(include_str!("fixtures/chat_popups_4/skills_three.jsonl"))
-            .live()
             .open();
         s.type_text("/skills");
         s.keys("enter");
