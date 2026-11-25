@@ -4,6 +4,7 @@
 
 use std::rc::Rc;
 
+use rtwk::binding::AppBinding;
 use rtwk::focus::{Focus, KeyBindings, KeyEventResult};
 use rtwk::layout::Stack;
 use rtwk::{AnyWidget, Cx, Key};
@@ -14,6 +15,7 @@ use codex_tui_core::keymap::actions::{
 use codex_tui_core::keymap::fixed;
 
 use crate::keymap::{chords_of, holds_ctrl_or_alt, pressed_fixed, unmodified};
+use crate::pages::session::composer::editing::completes_editor_chord;
 use crate::pages::session::composer::vim;
 use crate::pages::session::keys;
 use crate::pages::session::live::browse::{self, Browse};
@@ -40,7 +42,8 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
     let modes = state.modes.clone();
     let selection = state.selection.clone();
     let finder = state.find.clone();
-    let (leader, control) = (state.leader.clone(), state.control.clone());
+    let control = state.control.clone();
+    let clock = AppBinding::maybe_of(cx).map(|binding| binding.clock());
     let (banner, blocked) = (state.banner.clone(), state.banner_blocked.clone());
     let keymap = state.keymap.clone();
     state.node.set_on_key_event(Some(Rc::new(move |_, key| {
@@ -162,26 +165,60 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
                 chords_of(&keymap, GLOBAL_SELECT_TRANSCRIPT),
             )
         };
-        if leader.replace(false) {
+        // The prefix of a leader chord is held in the draft, as the editor chords' first key is
+        // (one `KeyChordMatcher::pending`), and never expires (`persistent`). What comes with it
+        // held (`KeyChordMatcher::advance`): a completion of the leader's, Esc or the prefix again
+        // cancels, a completion of an editor chord of that prefix is the field's, any other key
+        // is an ordinary one.
+        let now = clock.as_ref().map(|clock| clock.now()).unwrap_or_default();
+        let draft_now = draft.borrow().clone();
+        let held = if draft_now.chord_is_leader() {
+            draft_now.chord().map(|(first, _)| first)
+        } else {
+            None
+        };
+        if let Some(first) = held {
             if hosts.iter().any(|(_, done)| done.accepts_press(&key)) {
+                draft_now.set_chord(None);
                 send(ChatMsg::Cycle);
                 return KeyEventResult::Handled;
             }
             if presets.iter().any(|(_, done)| done.accepts_press(&key)) {
+                draft_now.set_chord(None);
                 send(ChatMsg::Presets(PresetStep::Open));
                 return KeyEventResult::Handled;
             }
             if selects.iter().any(|(_, done)| done.accepts_press(&key)) {
+                draft_now.set_chord(None);
                 send(ChatMsg::Action(keys::Action::Select));
                 return KeyEventResult::Handled;
             }
-        } else if hosts
+            let again = hosts
+                .iter()
+                .chain(&presets)
+                .chain(&selects)
+                .any(|(prefix, _)| prefix.accepts_press(&first) && prefix.accepts_press(&key));
+            if again || (unmodified(&key) && pressed_fixed(fixed::DISMISS, &key)) {
+                draft_now.set_chord(None);
+                return KeyEventResult::Handled;
+            }
+            // Normal mode and a search in the field read their own keys, not the editor chords
+            let own = vim::mode(&draft_now);
+            if !own.normal
+                && !own.searching
+                && completes_editor_chord(&keymap.borrow(), &first, &key)
+            {
+                return KeyEventResult::Ignored;
+            }
+            draft_now.set_chord(None);
+        }
+        if hosts
             .iter()
             .chain(&presets)
             .chain(&selects)
             .any(|(prefix, _)| prefix.accepts_press(&key))
         {
-            leader.set(true);
+            draft_now.set_leader_chord(Some((key, now)));
             return KeyEventResult::Handled;
         }
         if let Some(pages) = transcript::follow::pager_key(&key, &composer.borrow()) {
