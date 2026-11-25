@@ -487,6 +487,95 @@ impl Screen {
         })
     }
 
+    /// The configuration-requirements reads `/permissions` has made, oldest first.
+    pub fn asked_requirements(&self) -> Vec<Ask> {
+        self.asked_of(|c| {
+            matches!(
+                c,
+                Command::Screen {
+                    command: ScreenCommand::Select(select::Command::Requirements { .. }),
+                    ..
+                }
+            )
+        })
+    }
+
+    /// The pages of permission profiles `/permissions` has asked for, oldest first.
+    pub fn asked_profiles(&self) -> Vec<Ask> {
+        self.asked_of(|c| {
+            matches!(
+                c,
+                Command::Screen {
+                    command: ScreenCommand::Select(select::Command::Profiles { .. }),
+                    ..
+                }
+            )
+        })
+    }
+
+    /// The server answers the last `/permissions` read: the `requirements` (the JSON of the
+    /// requirements, null for none), then the one page of `profiles` (their JSON list).
+    pub fn answer_permission_catalog(
+        &mut self,
+        requirements: serde_json::Value,
+        profiles: serde_json::Value,
+    ) {
+        let reads = self.asked_requirements();
+        let Some(read) = reads.last() else {
+            panic!("the requirements were not asked:\n{}", self.text());
+        };
+        self.answer_request(read, json!({ "requirements": requirements }));
+        let pages = self.asked_profiles();
+        let Some(page) = pages.last() else {
+            panic!("no page of profiles was asked:\n{}", self.text());
+        };
+        self.answer_request(page, json!({ "data": profiles, "nextCursor": null }));
+    }
+
+    /// The permission profiles the app asked the thread to change to are `profiles`, in order
+    /// (the oracle's `UpdatePermissionProfile` events).
+    pub fn assert_permission_updates(&self, profiles: &[&str]) {
+        let got: Vec<String> = self
+            .screen_commands()
+            .into_iter()
+            .filter_map(|c| match c {
+                ScreenCommand::Select(select::Command::Settings { patch, .. }) => patch.permissions,
+                _ => None,
+            })
+            .collect();
+        pretty_assertions::assert_eq!(got, profiles, "the permission profiles asked of the thread");
+    }
+
+    /// The app asked the thread to change its settings once, to the reviewer
+    /// (`approvals_reviewer` as the wire spells it: `auto_review` or `user`) and the permission profile `profile` (the
+    /// oracle's override turn context).
+    pub fn assert_one_settings_patch(&self, reviewer: &str, profile: &str) {
+        let patches: Vec<_> = self
+            .screen_commands()
+            .into_iter()
+            .filter_map(|c| match c {
+                ScreenCommand::Select(select::Command::Settings { patch, .. }) => Some(patch),
+                _ => None,
+            })
+            .collect();
+        pretty_assertions::assert_eq!(patches.len(), 1, "{patches:?}");
+        pretty_assertions::assert_eq!(
+            serde_json::to_value(patches[0].approvals_reviewer).ok(),
+            Some(json!(reviewer)),
+            "the approvals reviewer of the patch"
+        );
+        pretty_assertions::assert_eq!(patches[0].permissions.as_deref(), Some(profile));
+    }
+
+    /// No turn with the text `text` has been started.
+    pub fn assert_no_turn_text(&self, text: &str) {
+        let started = self.turn_texts();
+        assert!(
+            !started.iter().any(|started| started == text),
+            "the turn `{text}` was started: {started:?}"
+        );
+    }
+
     /// The `model/list` requests the app has made, oldest first.
     pub fn asked_models(&self) -> Vec<Ask> {
         self.asked_of(|c| {

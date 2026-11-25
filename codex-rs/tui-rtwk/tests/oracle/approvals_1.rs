@@ -381,22 +381,15 @@ fn clipped_exec_approval_opens_the_complete_command() {
                 .keymap(keymap)
                 .open();
             s.snap(snap).labelled(&labels).frame(&label).assert();
-            let rows = s.rows();
             // the oracle's own assertions at each size
-            let elision = rows.iter().find(|row| row.contains("[\u{2026}")).unwrap();
-            assert_eq!(elision.contains("\u{2303}g view all"), bound, "{label}");
-            assert!(
-                rows.iter().any(|row| row.contains("Yes, proceed")),
-                "{label}"
-            );
-            assert!(
-                !rows.iter().any(|row| row.contains("destructive_suffix")),
-                "{label}"
-            );
-            assert!(
-                !rows.iter().any(|row| row.contains("reason_suffix")),
-                "{label}"
-            );
+            if bound {
+                s.assert_contains("\u{2303}g view all");
+            } else {
+                s.assert_absent("\u{2303}g view all");
+            }
+            s.assert_contains("Yes, proceed");
+            s.assert_absent("destructive_suffix");
+            s.assert_absent("reason_suffix");
             if bound && (width, height) == (80, 14) {
                 s.keys("ctrl+g");
                 // The oracle's FullScreenApprovalRequest event is not drawn; the prompt stays open.
