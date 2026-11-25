@@ -7,6 +7,11 @@
 //! screens is shown, the cursor of its actions and its own copy of the switch (the oracle's view
 //! keeps its own too: `toggle_enabled`); what an action asks of the app is a verb to the model
 //! (ADR-013: `OpenAppPage`, `SetApp`, `RefreshApps`), and the dialog closes the sheet itself.
+//!
+//! The same dialog is the oracle's view of a server's request (`suggest.rs`: a tool suggestion to
+//! install or enable an app, a sign-in, a URL to visit). Its target is then the request the queue
+//! holds, its actions ask `approvals::Intent` verbs (`OpenLink`, `LinkDone`, `LinkEnable`, a
+//! decline), and it closes with the request: the request dialog around it watches the queue.
 
 use std::rc::Rc;
 
@@ -16,7 +21,7 @@ use rtwk::layout::{
 };
 use rtwk::overlay::{Dialog, close_dialog};
 use rtwk::provider::read;
-use rtwk::style::{Span, Style};
+use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextWrap};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
@@ -25,6 +30,7 @@ use codex_tui_core::keymap::actions::{
 };
 use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::ScreenIntent;
+use codex_tui_core::screens::approvals::{self, Decision};
 use codex_tui_core::screens::select::Intent;
 use codex_tui_core::screens::select::apps::Link;
 
@@ -33,42 +39,24 @@ use crate::app::view::Hs;
 use crate::keymap::{bind_fixed, bindings, first_of_each, fixed_presses, keymap, label};
 use crate::widgets::options::{OptionStyles, Options, RichRow};
 
+mod suggest;
 pub mod strings;
+
+pub use suggest::Target;
+use suggest::{Action, Screen};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AppLinkView {
-    /// The app's page the dialog was opened for.
-    pub link: Link,
+    /// What the dialog was opened for: an app's page, or a request of a server.
+    pub target: Target,
 }
 
-/// Which screen of the dialog is shown.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Screen {
-    Link,
-    Confirm,
-}
-
-/// What an action row of a screen does.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Action {
-    /// Open the page of the app in the browser.
-    Open,
-    /// Switch the app on or off.
-    Switch,
-    /// Close the dialog.
-    Close,
-    /// The page was visited: read the directory again and close.
-    Done,
-    /// Back to the link screen.
-    Back,
-}
-
-/// The actions of a screen, in order (the oracle's `action_labels`).
-fn actions(screen: Screen, installed: bool) -> &'static [Action] {
-    match (screen, installed) {
-        (Screen::Link, true) => &[Action::Open, Action::Switch, Action::Close],
-        (Screen::Link, false) => &[Action::Open, Action::Close],
-        (Screen::Confirm, _) => &[Action::Done, Action::Back],
+impl AppLinkView {
+    /// The dialog of the app picked in `/apps`.
+    pub fn apps(link: Link) -> AppLinkView {
+        AppLinkView {
+            target: Target::Apps(link),
+        }
     }
 }
 
@@ -100,7 +88,7 @@ impl StatefulWidget for AppLinkView {
     fn create_state(&self) -> AppLinkState {
         AppLinkState {
             screen: Screen::Link,
-            enabled: self.link.enabled,
+            enabled: self.target.enabled(),
             options: Options::new(),
             node: FocusNode::new(),
         }
@@ -109,10 +97,31 @@ impl StatefulWidget for AppLinkView {
 
 impl_widget!(stateful eq AppLinkView);
 
-/// Says a verb to the model.
+/// Says a verb of `/apps` to the model.
 fn say(cx: &mut Cx<'_, AppLinkState>, intent: Intent) {
     let hs = read::<Hs, _>(cx);
     cx.emit(&hs.screen, ScreenIntent::Select(intent));
+}
+
+/// Says a verb of the request to the model.
+fn ask(cx: &mut Cx<'_, AppLinkState>, intent: approvals::Intent) {
+    let hs = read::<Hs, _>(cx);
+    cx.emit(&hs.screen, ScreenIntent::Approvals(intent));
+}
+
+/// Ends the dialog: `/apps` closes it, a request is declined and goes from the queue, and the
+/// request dialog around the view closes with it.
+fn close(cx: &mut Cx<'_, AppLinkState>, target: &Target) {
+    match target {
+        Target::Apps(_) => close_dialog::<_, ()>(cx, None),
+        Target::Request(key, _) => ask(
+            cx,
+            approvals::Intent::Answer {
+                key: key.clone(),
+                decision: Decision::Decline,
+            },
+        ),
+    }
 }
 
 impl State for AppLinkState {
@@ -124,7 +133,8 @@ impl State for AppLinkState {
     }
 
     fn update(&mut self, msg: Msg, w: &AppLinkView, cx: &mut Cx<'_, Self>) -> Rebuild {
-        let rows = actions(self.screen, w.link.installed);
+        let flavor = w.target.flavor();
+        let rows = flavor.actions(self.screen, w.target.installed());
         let row = match msg {
             Msg::Move(delta) => {
                 let last = i64::try_from(rows.len().saturating_sub(1)).unwrap_or(0);
@@ -134,7 +144,7 @@ impl State for AppLinkState {
                 return Rebuild::No;
             }
             Msg::Cancel => {
-                close_dialog::<_, ()>(cx, None);
+                close(cx, &w.target);
                 return Rebuild::No;
             }
             Msg::Enter => self.options.cursor(),
@@ -151,35 +161,52 @@ impl State for AppLinkState {
         };
         match action {
             Action::Open => {
-                say(cx, Intent::OpenAppPage(w.link.id.clone()));
+                match &w.target {
+                    Target::Apps(link) => say(cx, Intent::OpenAppPage(link.id.clone())),
+                    Target::Request(key, _) => {
+                        ask(cx, approvals::Intent::OpenLink { key: key.clone() });
+                    }
+                }
                 // An installed app's page is its management page: the dialog stays.
-                if w.link.installed {
+                if !flavor.goes_on(w.target.installed()) {
                     return Rebuild::No;
                 }
                 self.screen = Screen::Confirm;
                 self.options.set(0);
                 Rebuild::Yes
             }
-            Action::Switch => {
-                self.enabled = !self.enabled;
-                say(
-                    cx,
-                    Intent::SetApp {
-                        id: w.link.id.clone(),
-                        enabled: self.enabled,
-                    },
-                );
-                Rebuild::Yes
-            }
+            Action::Switch => match &w.target {
+                Target::Apps(link) => {
+                    self.enabled = !self.enabled;
+                    say(
+                        cx,
+                        Intent::SetApp {
+                            id: link.id.clone(),
+                            enabled: self.enabled,
+                        },
+                    );
+                    Rebuild::Yes
+                }
+                // `toggle_enabled` of a suggestion: the switch is written and the request accepted.
+                Target::Request(key, _) => {
+                    ask(cx, approvals::Intent::LinkEnable { key: key.clone() });
+                    Rebuild::No
+                }
+            },
             Action::Close => {
-                close_dialog::<_, ()>(cx, None);
+                close(cx, &w.target);
                 Rebuild::No
             }
             // `complete_external_flow_and_close`: the page was visited, the directory is read
-            // again and the dialog closes.
+            // again (when the apps are what it was about) and the dialog closes.
             Action::Done => {
-                say(cx, Intent::RefreshApps);
-                close_dialog::<_, ()>(cx, None);
+                match &w.target {
+                    Target::Apps(_) => {
+                        say(cx, Intent::RefreshApps);
+                        close_dialog::<_, ()>(cx, None);
+                    }
+                    Target::Request(key, _) => ask(cx, approvals::Intent::LinkDone { key: key.clone() }),
+                }
                 Rebuild::No
             }
             Action::Back => {
@@ -194,11 +221,17 @@ impl State for AppLinkState {
         let tokens = Tokens::of(cx);
         let words = strings::of(cx);
         let keys = keymap(cx);
-        let link = &w.link;
-        let rows = actions(self.screen, link.installed);
+        let target = &w.target;
+        let flavor = target.flavor();
+        let installed = target.installed();
+        let url = target.url().to_owned();
+        let rows = flavor.actions(self.screen, installed);
 
-        let text = |text: &'static str, style: Style| -> AnyWidget {
-            Text::new(text).style(style).wrap(TextWrap::Word).into()
+        let text = |text: &str, style: Style| -> AnyWidget {
+            Text::new(text.to_owned())
+                .style(style)
+                .wrap(TextWrap::Word)
+                .into()
         };
         let gap = || -> AnyWidget { SizedBox::new(None, Some(1), None).into() };
         let sides = |child: AnyWidget| -> AnyWidget {
@@ -211,52 +244,59 @@ impl State for AppLinkState {
             .cross_axis_alignment(CrossAxisAlignment::Stretch);
         match self.screen {
             Screen::Link => {
-                content = content.child(
-                    Text::new(link.name.clone())
-                        .style(tokens.bold())
-                        .wrap(TextWrap::Word),
-                );
-                if let Some(description) = &link.description {
-                    content = content.child(
-                        Text::new(description.clone())
-                            .style(tokens.dim())
-                            .wrap(TextWrap::Word),
-                    );
+                content = content.child(text(target.title(words), tokens.bold()));
+                if let Some(description) = target
+                    .description(words)
+                    .filter(|description| !description.trim().is_empty())
+                {
+                    content = content.child(text(description.trim(), tokens.dim()));
                 }
                 content = content.child(gap());
-                if link.installed {
+                if let Some(reason) = target.reason().filter(|reason| !reason.trim().is_empty()) {
+                    content = content
+                        .child(text(reason.trim(), Style::new().attrs(Attrs::ITALIC)))
+                        .child(gap());
+                }
+                if installed && !flavor.browser() {
                     content = content
                         .child(text(words.use_mention, Style::new()))
                         .child(gap());
                 }
-                content = content
-                    .child(text(
-                        if link.installed {
-                            words.instructions_manage
-                        } else {
-                            words.instructions_install
-                        },
-                        Style::new(),
-                    ))
-                    .child(text(words.appears_later, Style::new()));
-                if !link.installed {
-                    content = content.child(text(words.use_after_install, Style::new()));
+                if flavor.browser() {
+                    content = content
+                        .child(text(words.url_label, tokens.dim()))
+                        .child(
+                            Text::rich(vec![Span::new(url.clone()).link(url.clone())])
+                                .wrap(TextWrap::Word),
+                        )
+                        .child(gap());
                 }
-                content = content.child(gap());
+                let instructions = flavor.instructions(installed, words);
+                if !instructions.trim().is_empty() {
+                    content = content.child(text(instructions.trim(), Style::new()));
+                    if !flavor.browser() {
+                        content = content.child(text(words.appears_later, Style::new()));
+                        if !installed {
+                            content = content.child(text(words.use_after_install, Style::new()));
+                        }
+                    }
+                    content = content.child(gap());
+                }
             }
             Screen::Confirm => {
+                let finish = flavor.finish(words);
                 content = content
-                    .child(text(words.finish_title, tokens.bold()))
+                    .child(text(finish.title, tokens.bold()))
                     .child(gap())
-                    .child(text(words.finish_open, Style::new()))
-                    .child(text(words.finish_then, Style::new()))
+                    .child(text(finish.open, Style::new()))
+                    .child(text(finish.then, Style::new()))
                     .child(gap())
-                    .child(text(words.setup_url, tokens.dim()))
+                    .child(text(finish.url, tokens.dim()))
                     .child(
                         Text::rich(vec![
-                            Span::styled(link.url.clone(), tokens.accent())
+                            Span::styled(url.clone(), tokens.accent())
                                 .underline()
-                                .link(link.url.clone()),
+                                .link(url.clone()),
                         ])
                         // a URL is not broken at a hyphen or a slash: it runs on to the line's end
                         // (the oracle's pane does not split a URL-like token either)
@@ -272,14 +312,11 @@ impl State for AppLinkState {
             .enumerate()
             .map(|(index, action)| RichRow {
                 prefix: format!("{}. ", index + 1),
-                label: vec![Span::new(match action {
-                    Action::Open if link.installed => words.manage,
-                    Action::Open => words.install,
-                    Action::Switch if self.enabled => words.disable,
-                    Action::Switch => words.enable,
-                    Action::Close | Action::Back => words.back,
-                    Action::Done => words.installed_it,
-                })],
+                label: vec![Span::new(
+                    flavor
+                        .label(*action, installed, self.enabled, words)
+                        .to_owned(),
+                )],
                 description: None,
             })
             .collect();

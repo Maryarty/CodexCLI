@@ -3,7 +3,8 @@
 //! holds for the request. Enter, the digits and each option's shortcut answer
 //! it; Esc cancels (the oracle's `cancel_current_request`); `o` opens the
 //! thread a request of another thread came from. A request whose prompt the
-//! model does not hold gets the skeleton's dismiss dialog.
+//! model does not hold gets the skeleton's dismiss dialog; a link to open is the app link dialog
+//! of the select sheets.
 
 use std::rc::Rc;
 
@@ -32,6 +33,7 @@ use super::user_input::UserInputView;
 use crate::app::theme;
 use crate::app::view::Hs;
 use crate::keymap::bind_fixed;
+use crate::sheets::select::app_link::{AppLinkView, Target};
 use crate::widgets::options::{OptionStyles, Options, RichRow};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -154,6 +156,14 @@ impl State for RequestDialogState {
             return FormView {
                 key: w.key.clone(),
                 prompt,
+            }
+            .into();
+        }
+        // A link to open (a tool suggestion, a sign-in, a URL) is the app link dialog; it closes
+        // with the request, which this dialog watches (`did_change_dependencies`).
+        if let Prompt::AppLink(link) = &*prompt {
+            return AppLinkView {
+                target: Target::Request(w.key.clone(), link.clone()),
             }
             .into();
         }

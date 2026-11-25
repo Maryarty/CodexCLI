@@ -293,7 +293,8 @@ fn build(prompt: &Prompt, s: &Strings) -> Option<Body> {
                 flat: false,
             }
         }
-        Prompt::UserInput(_) => return None,
+        // The link to open is the dialog of `select::app_link`, as the questions are their own.
+        Prompt::UserInput(_) | Prompt::AppLink(_) => return None,
         Prompt::UserVerification(verification) => {
             // The oracle's own view (`bottom_pane/user_verification.rs`): the title in bold,
             // the thread, the server and the description; no thread key, no digits-only list.

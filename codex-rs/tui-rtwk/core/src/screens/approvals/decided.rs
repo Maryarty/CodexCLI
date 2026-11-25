@@ -110,7 +110,8 @@ impl Decided {
             Prompt::Patch(_)
             | Prompt::Elicitation(_)
             | Prompt::UserInput(_)
-            | Prompt::UserVerification(_) => None,
+            | Prompt::UserVerification(_)
+            | Prompt::AppLink(_) => None,
         }
     }
 }

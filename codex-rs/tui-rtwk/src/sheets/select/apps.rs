@@ -46,7 +46,7 @@ pub fn sheet() -> AnyWidget {
 /// dialog: a link given, not picked).
 pub fn link_sheet(link: Link) -> AnyWidget {
     Navigator::new()
-        .home(bottom(AppLinkView { link }))
+        .home(bottom(AppLinkView::apps(link)))
         .back_key(None)
         .into()
 }
@@ -61,7 +61,7 @@ pub fn options() -> DialogOptions {
 }
 
 fn route(link: Link) -> PageRoute<()> {
-    PageRoute::new(move |_| bottom(AppLinkView { link: link.clone() }))
+    PageRoute::new(move |_| bottom(AppLinkView::apps(link.clone())))
 }
 
 /// The home page: the directory of apps the model holds.

@@ -18,6 +18,7 @@ pub mod decided;
 pub mod form;
 pub mod guardian;
 pub mod input;
+pub mod link;
 pub mod order;
 pub mod verify;
 
@@ -176,6 +177,9 @@ pub enum Prompt {
     Elicitation(ElicitationPrompt),
     UserInput(UserInputPrompt),
     UserVerification(UserVerificationPrompt),
+    /// A link to open in the browser (a tool suggestion, a sign-in, a URL elicitation): the app
+    /// link dialog (`link`).
+    AppLink(link::AppLinkPrompt),
 }
 
 impl Prompt {
@@ -188,6 +192,8 @@ impl Prompt {
             Prompt::Elicitation(p) => p.thread_label.as_deref(),
             Prompt::UserInput(_) => None,
             Prompt::UserVerification(p) => p.thread_label.as_deref(),
+            // The oracle's link dialog does not name the thread.
+            Prompt::AppLink(_) => None,
         }
     }
 
@@ -200,6 +206,7 @@ impl Prompt {
             Prompt::Elicitation(p) => p.thread_label = label,
             Prompt::UserInput(_) => {}
             Prompt::UserVerification(p) => p.thread_label = label,
+            Prompt::AppLink(_) => {}
         }
         self
     }
@@ -221,7 +228,20 @@ impl Prompt {
             // The prompt asks to verify or to cancel; once verification runs, only cancel is left.
             Prompt::UserVerification(p) if p.waiting => vec![Decision::Cancel],
             Prompt::UserVerification(_) => vec![Decision::Verify, Decision::Cancel],
+            // The dialog's own rows (the page, then done; the app's switch) lead to one of these.
+            Prompt::AppLink(_) => vec![Decision::Accept, Decision::Decline],
         }
+    }
+
+    /// What Ctrl+C on the dialog of this prompt answers: its cancelling decision (the oracle's
+    /// `ApprovalOverlay::cancel_current_request`, an app link's `on_ctrl_c`: a decline).
+    pub fn cancel_decision(&self) -> Option<Decision> {
+        if matches!(self, Prompt::AppLink(_)) {
+            return Some(Decision::Decline);
+        }
+        self.decisions().into_iter().rev().find(|decision| {
+            matches!(decision, Decision::Cancel | Decision::DenyPermissions)
+        })
     }
 }
 
@@ -255,6 +275,15 @@ pub enum Intent {
     /// pending request like `Answer`; one that does not fit, or for a request no longer queued,
     /// is dropped.
     Respond { key: RequestKey, answer: RequestAnswer },
+    /// The page of an app link request is opened in the browser (`AppEvent::OpenUrlInBrowser`):
+    /// the URL the prompt holds, validated when the request came.
+    OpenLink { key: RequestKey },
+    /// The page of an app link request was visited (`complete_external_flow_and_close`): the
+    /// directory of apps is read again when the apps server asked, and the request is accepted.
+    LinkDone { key: RequestKey },
+    /// The app of an enable suggestion is switched on (`toggle_enabled`), and the request is
+    /// accepted.
+    LinkEnable { key: RequestKey },
 }
 
 /// The app takes a presented request into its queue (`CodexApp.requests`); the model has no copy.
@@ -269,7 +298,11 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = (model, fx);
     match intent {
-        Intent::Answer { .. } | Intent::Respond { .. } => {}
+        Intent::Answer { .. }
+        | Intent::Respond { .. }
+        | Intent::OpenLink { .. }
+        | Intent::LinkDone { .. }
+        | Intent::LinkEnable { .. } => {}
     }
 }
 
@@ -407,6 +440,10 @@ enum SeedEv {
         /// A user verification whose device proof the controller waits for.
         #[serde(default)]
         waiting: bool,
+        /// What an app link's app is: the oracle's tests give the view a description, the wire
+        /// of a request carries none.
+        #[serde(default)]
+        description: Option<String>,
     },
 }
 
@@ -419,6 +456,7 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
         label,
         destinations,
         waiting,
+        description,
     } = seed;
     let mut entry = prompt_of(&request).ok_or_else(|| {
         crate::screens::SeedError::Bad("not a request this screen presents".into())
@@ -428,6 +466,9 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
     }
     if let Prompt::UserVerification(verification) = &mut entry.prompt {
         verification.waiting = waiting;
+    }
+    if let Prompt::AppLink(link) = &mut entry.prompt {
+        link.description = description;
     }
     entry.prompt = entry.prompt.with_thread_label(label);
     Ok(Ev::Presented(entry))
@@ -542,6 +583,21 @@ pub fn prompt_of(request: &ServerRequest) -> Option<Entry> {
             rule: rule_of(params.get("permissions")),
         }),
         "mcpServer/elicitation/request" => {
+            // A link request is the app link dialog; one whose link the oracle refuses has no prompt
+            // at all (the app declines it as it arrives, `link::rejected`).
+            if let ServerRequest::McpServerElicitationRequest { params: typed, .. } = request {
+                match link::parse(typed) {
+                    link::Parsed::Link(link) => {
+                        return Some(Entry {
+                            thread,
+                            id: ServerRequestId::new(id),
+                            prompt: Prompt::AppLink(link),
+                        });
+                    }
+                    link::Parsed::Reject => return None,
+                    link::Parsed::NotALink => {}
+                }
+            }
             if params.get("mode").and_then(|m| m.as_str()) == Some("openai/userVerification") {
                 return Some(Entry {
                     thread,
