@@ -20,7 +20,7 @@ use codex_tui_core::features::windows_sandbox::{Choice, Page, Prompt};
 const ELEVATED: &str = "windows-sandbox.elevated";
 const LEGACY: &str = "windows-sandbox.legacy";
 const QUIT: &str = "windows-sandbox.quit";
-const LEARN_MORE: &str = "Learn more <https://developers.openai.com/codex/windows>";
+const HELP_URL: &str = "https://developers.openai.com/codex/windows";
 
 /// The id of a row.
 pub fn id_of(choice: Choice) -> &'static str {
@@ -58,16 +58,27 @@ fn paragraph(text: &str, role: Role) -> Vec<Span> {
     }]
 }
 
+/// `lead` and then `Learn more <url>`: the address alone is the hyperlink (the oracle's bottom
+/// pane links the url it finds, not its brackets), so it names the whole address over the rows
+/// it wraps to.
+fn learn_more(lead: &str) -> Vec<Span> {
+    vec![
+        Span::new(format!("{lead}Learn more <"), Role::Plain),
+        Span::new(HELP_URL, Role::Plain).linked(HELP_URL),
+        Span::new(">", Role::Plain),
+    ]
+}
+
 /// The header paragraphs of a prompt.
 fn header(page: &Page) -> Vec<Vec<Span>> {
     let plain = |text: &str| paragraph(text, Role::Plain);
     match (page.prompt, page.required_by_organization) {
-        (Prompt::Enable, false) => vec![plain(&format!(
-            "Set up the Codex agent sandbox to protect your files and control network access. {LEARN_MORE}"
-        ))],
+        (Prompt::Enable, false) => vec![learn_more(
+            "Set up the Codex agent sandbox to protect your files and control network access. ",
+        )],
         (Prompt::Enable, true) => vec![
             plain("Your organization requires the default Codex agent sandbox to continue. Set it up to protect your files and control network access."),
-            plain(LEARN_MORE),
+            learn_more(""),
         ],
         (Prompt::Fallback, required) => vec![
             paragraph(
@@ -80,7 +91,7 @@ fn header(page: &Page) -> Vec<Vec<Span>> {
             } else {
                 "You can still use Codex in a non-admin sandbox. It carries greater risk if prompt injected."
             }),
-            plain(LEARN_MORE),
+            learn_more(""),
         ],
     }
 }

@@ -26,8 +26,6 @@ fn row_starting(s: &Screen, text: &str) -> usize {
 }
 
 const NO_DISCOVERY: &str = "the discovery menus (loading, the server's catalog, failure with Retry, empty) are built (core `select::permissions`, entries `permission_discovery_*`, the 30 state tests of core/tests/permissions.rs, the sheet tests) but `/permissions` does not open them: the opener (src/pages/session) and the app's `permissionProfile/list` + `configRequirements/read` routing are other owners' files (parity/popups.md, Needs); the wait behind a covering modal is the app's hold, not the picker's";
-const NO_AUTO_PICK: &str = "the Ask for approval pick does not lead to the Windows enable prompt: a pick, the prompt, then the preset applied once the setup ends (`Pending::preset`) is not wired between the /permissions sheet and the windows_sandbox slice";
-const NO_HEADER_LINK: &str = "the Learn more url is plain text: a Picker header run is a `Span { text, role }` with no hyperlink (the oracle writes the `<url>` as an OSC 8 link over its wrapped lines); a `link` on `picker::list::Span` is another owner's brick (src/widgets/picker, Needs)";
 const NO_HISTORY: &str = "the oracle's chat has no thread, so its legacy list says `Permissions updated to X` at once (the row the config has too); the port's `/permissions` runs on a thread and says `Permission selection requested: X` once the server took the update, and nothing for the row the thread already has";
 const NO_AUTO_REVIEW: &str = "the Approve for me row, its feature gate and its (current) marker are built (core `select::permissions`, `Current.guardian`/`reviewer`, entry `permissions_unnamed_server_profile`) but `/permissions` does not open the menu: the opener (src/pages/session) reads the thread's policy and the feature gate (parity/popups.md, Needs)";
 /// The server's answers to a `/permissions` read and a pick: no requirements, the three built-in
@@ -324,12 +322,18 @@ fn full_access_confirmation_popup_snapshot() {
 // ORACLE chatwidget/tests/permissions.rs:907 windows_auto_mode_prompt_requests_enabling_sandbox_feature kind=ui owner=dialogs-pane
 #[test]
 fn windows_auto_mode_prompt_requests_enabling_sandbox_feature() {
-    kit::pending(Owner::DialogsPane, NO_AUTO_PICK);
+    // a Windows host with no sandbox set up (the folder's trust is not read, so no startup prompt)
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 24)
         .live()
+        .script(
+            r#"{"step":"fact","feature":"windows_sandbox","fact":{"kind":"environment","mode":null,"host":"local"}}"#,
+        )
         .open();
     s.type_text("/permissions").keys("enter");
+    s.assert_absent("requires Administrator permissions");
+    // the Default pick (Auto, approvals to the user) leads to the enable prompt
+    s.keys("enter");
     s.assert_contains("requires Administrator permissions");
     s.assert_contains("Use non-admin sandbox");
 }
@@ -368,7 +372,6 @@ fn startup_windows_sandbox_prompt_blocks_disallowed_unelevated_fallback() {
 // ORACLE chatwidget/tests/permissions.rs:1011 windows_sandbox_help_links_keep_complete_wrapped_destinations kind=snap owner=dialogs-pane
 #[test]
 fn windows_sandbox_help_links_keep_complete_wrapped_destinations() {
-    kit::pending(Owner::DialogsPane, NO_HEADER_LINK);
     let s = Screen::build(Owner::DialogsPane)
         .size(40, 24)
         .script(include_str!("fixtures/chat_popups_2/windows_enable.jsonl"))
