@@ -580,17 +580,11 @@ fn feedback_view_safety_check() {
 // ORACLE bottom_pane/feedback_note_view_tests.rs:79 feedback_disclosure_matches_audience_at_normal_and_narrow_widths kind=snap owner=dialogs-pane snap=feedback_disclosures
 #[test]
 fn feedback_disclosure_matches_audience_at_normal_and_narrow_widths() {
-    // KIT GAP: the snapshot joins its states under `external (80 columns)`-style
-    // headers, which oracle_snap::header does not take as frames.
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 16)
         .entry("feedback", "feedback_note_bug_external")
         .open();
     s.assert_link("Learnmore", "https://help.openai.com/en/articles/5722486-how-your-data-is-used-to-improve-model-performance");
-    kit::pending(
-        Owner::DialogsPane,
-        "oracle_snap::header takes no `external (80 columns)`-style frame headers (KIT GAP)",
-    );
     s.assert_snap_section("feedback_disclosures", "external (80 columns)");
     s.resize(40, 16);
     s.assert_link("Learnmore", "https://help.openai.com/en/articles/5722486-how-your-data-is-used-to-improve-model-performance");
@@ -614,8 +608,7 @@ fn feedback_disclosure_matches_audience_at_normal_and_narrow_widths() {
 // ORACLE bottom_pane/feedback_note_view_tests.rs:130 feedback_disclosure_scrolls_without_hiding_input_in_short_panes kind=snap owner=dialogs-pane snap=feedback_disclosure_short_panes
 #[test]
 fn feedback_disclosure_scrolls_without_hiding_input_in_short_panes() {
-    // The snapshot's states are headed `40x12 initial`-style, which
-    // oracle_snap::header does not take as frames (KIT GAP): the rest is checked by hand.
+    // the snapshot's states are headed `40x12 initial`-style
     for (entry, width, height) in [
         ("feedback_note_employee_40x12", 40, 12),
         ("feedback_note_employee_80x8", 80, 8),
@@ -632,10 +625,6 @@ fn feedback_disclosure_scrolls_without_hiding_input_in_short_panes() {
         s.keys("pageup");
         s.assert_contains("A visible note.");
     }
-    kit::pending(
-        Owner::DialogsPane,
-        "oracle_snap::header takes no `40x12 initial`-style frame headers (KIT GAP)",
-    );
     for (entry, width, height) in [
         ("feedback_note_employee_40x12", 40, 12),
         ("feedback_note_employee_80x8", 80, 8),
