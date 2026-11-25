@@ -700,10 +700,60 @@ fn reports_keep_tabs_fixed_and_expose_data_on_small_screens() {
 // ORACLE analytics/redesign_tests.rs:25 keyboard_tabs_and_help_preserve_report_reading_position kind=snap owner=routes-lists
 #[test]
 fn keyboard_tabs_and_help_preserve_report_reading_position() {
-    kit::pending(
-        Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's report; the help snapshot is not an entry",
+    // the Tokens report with its day's details open, read one page down: Shift+Tab and Tab come
+    // back to the same reading position and detail; the help (`?`) has its own position (the top),
+    // Esc closes it to the report where it was; the dashboard (`z`) keeps its own and `Enter`
+    // focuses the report again at its position with its detail. The position is what the screen
+    // shows: the same rows. At 40x16 the help is the oracle's `narrow_help`.
+    let mut s = Screen::build(Owner::RoutesLists)
+        .size(80, 16)
+        .entry("usage", "business_tokens")
+        .open();
+    s.keys("enter");
+    s.keys("pagedown");
+    let read = s.rows();
+    s.keys("shift+tab");
+    s.assert_contains("credits");
+    s.keys("pagedown");
+    s.keys("tab");
+    s.assert_same_frame(&s.rows(), &read, "the report's position after Shift+Tab and Tab");
+    s.resize(40, 16);
+    s.keys("?");
+    s.assert_contains("Usage shortcuts");
+    let rows = s.rows();
+    assert!(
+        rows[rows.len() - 2].contains("scroll"),
+        "no scroll hint in the help's second last row:\n{}",
+        s.text()
     );
+    s.assert_absent("tab report");
+    s.assert_snap("narrow_help");
+    let help_top = s.rows();
+    s.keys("pagedown");
+    assert_ne!(s.rows(), help_top, "a page down scrolls the help");
+    s.keys("esc");
+    s.assert_absent("Usage shortcuts");
+    s.resize(80, 16);
+    s.assert_same_frame(&s.rows(), &read, "the report after the help closes");
+    // the help opens at its top, closing it again gives the report back
+    s.keys("?");
+    let fresh = Screen::build(Owner::RoutesLists)
+        .size(80, 16)
+        .entry("usage", "business_tokens")
+        .open();
+    let mut fresh = fresh;
+    fresh.keys("?");
+    s.assert_same_frame(&s.rows(), &fresh.rows(), "the help at its top");
+    s.keys("?");
+    s.assert_same_frame(&s.rows(), &read, "the report after `?` twice");
+    s.keys("z");
+    s.assert_contains("Dashboard \u{b7}");
+    let dashboard = s.rows();
+    s.keys("? esc");
+    s.assert_same_frame(&s.rows(), &dashboard, "the dashboard after the help");
+    s.keys("enter");
+    s.assert_absent("Dashboard \u{b7}");
+    s.assert_same_frame(&s.rows(), &read, "the report focused again, its detail open");
 }
 
 // ---- oracle: analytics/styles_tests.rs (2 screen-level tests here; 0 state tests left to routes-lists)
