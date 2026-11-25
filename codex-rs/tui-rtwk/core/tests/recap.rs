@@ -304,3 +304,47 @@ fn an_answer_for_a_conversation_that_moved_on_is_dropped() {
     );
     assert_eq!(notes(&app), vec![]);
 }
+
+#[test]
+fn a_conversation_that_moved_on_before_the_turn_starts_gets_no_model_call() {
+    use codex_tui_core::screens::agents;
+
+    let mut app = app(&[("a", "b")]);
+    let fx = recap(&mut app);
+    let (ticket, _) = the_ask(&fx);
+    let fx = crate::structured_turn::answer(
+        &mut app,
+        ticket,
+        agents::Reply::McpServers(Default::default()),
+    );
+    let (ticket, _) = the_ask(&fx);
+    // the conversation moves while the temporary thread starts
+    stream(
+        &mut app,
+        json!({"method": "item/completed",
+            "params": {"threadId": T, "turnId": "turn-2", "completedAtMs": 0,
+            "startedAtMs": 0, "item": {"type": "agentMessage", "id": "late", "text": "more",
+            "phase": null}}}),
+    );
+    let fx = crate::structured_turn::answer(
+        &mut app,
+        ticket,
+        agents::Reply::Temporary {
+            thread: TEMP.to_owned(),
+            as_asked: true,
+        },
+    );
+    assert_eq!(
+        thread_asks(&fx)
+            .into_iter()
+            .map(|(_, ask)| ask)
+            .filter(|ask| matches!(ask, ThreadAsk::StructuredTurn { .. }))
+            .count(),
+        0,
+        "no turn is started for an answer that would be dropped"
+    );
+    assert_eq!(unsubscribes(&fx), [TEMP], "the temporary thread is let go");
+    assert_eq!(notes(&app), vec![], "and nothing is said");
+    // the request is over: another can be made
+    assert!(asked(&recap(&mut app)));
+}

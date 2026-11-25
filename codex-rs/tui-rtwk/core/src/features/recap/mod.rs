@@ -21,7 +21,9 @@ mod prompt;
 
 use serde_json::{Value, json};
 
-use super::{AppCx, Slash, StructuredFailure, StructuredKind, StructuredTurn, ThreadView};
+use super::{
+    AppCx, AppView, Slash, StructuredFailure, StructuredKind, StructuredTurn, ThreadView,
+};
 use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::threads::{Item, Tone};
@@ -153,13 +155,21 @@ pub fn conversation(thread: ThreadView<'_>) -> Vec<Message> {
 }
 
 /// The messages the recap reads (`UserHistoryCell`, `AgentMarkdownCell`, `AgentMessageCell`).
-fn excerpt(cx: &AppCx<'_>, thread: &ThreadId) -> String {
-    let messages = cx
-        .view()
-        .thread(thread)
-        .map(conversation)
-        .unwrap_or_default();
+fn excerpt(view: &AppView<'_>, thread: &ThreadId) -> String {
+    let messages = view.thread(thread).map(conversation).unwrap_or_default();
     recap_history(&messages)
+}
+
+impl InFlight {
+    /// The request is fresh while the conversation is where it was asked: the thread is in use,
+    /// no turn runs, and the visible exchanges still yield the excerpt (the oracle's
+    /// `request_is_fresh`: displayed thread, no user turn pending or running, completed turns and
+    /// turn revision unchanged).
+    fn fresh(&self, view: &AppView<'_>) -> bool {
+        view.active() == Some(&self.thread)
+            && view.thread(&self.thread).is_some_and(|thread| !thread.busy())
+            && excerpt(view, &self.thread) == self.history
+    }
 }
 
 /// `request_recap` for a manual recap: a conversation of a cloud backend is refused first (the
@@ -179,7 +189,7 @@ fn request(state: &mut State, source: Option<ThreadId>, cx: &mut AppCx<'_>) {
     let Some(thread) = source.filter(|id| cx.view().thread(id).is_some()) else {
         return cx.note(None, Note::EmptyHistory);
     };
-    let history = excerpt(cx, &thread);
+    let history = excerpt(&cx.view(), &thread);
     if history.is_empty() {
         return cx.note(None, Note::EmptyHistory);
     }
@@ -239,13 +249,9 @@ feature! {
                 let Some(request) = state.in_flight.take_if(|request| request.at == ctx.0) else {
                     return;
                 };
-                let view = cx.view();
-                let fresh = view.active() == Some(&request.thread)
-                    && view
-                        .thread(&request.thread)
-                        .is_some_and(|thread| !thread.busy())
-                    && excerpt(cx, &request.thread) == request.history;
-                if !fresh {
+                // an unwanted run was dropped before its turn (`structured_wanted`), a stale
+                // answer is dropped without a word
+                if result == Err(StructuredFailure::Unwanted) || !request.fresh(&cx.view()) {
                     return;
                 }
                 let note = match result.ok().as_deref().and_then(parse_recap) {
@@ -256,6 +262,16 @@ feature! {
                     None => Note::Failed,
                 };
                 cx.note(Some(request.thread), note);
+            }
+
+            /// `handle_recap_started`: the ephemeral thread has started; its turn is made only
+            /// while the request is the current one and still fresh, else no model call is made for
+            /// an answer that would be dropped.
+            fn structured_wanted(state: &State, ctx: &Ctx, view: &AppView<'_>) -> bool {
+                state
+                    .in_flight
+                    .as_ref()
+                    .is_some_and(|request| request.at == ctx.0 && request.fresh(view))
             }
 
             fn note_tone(note: &Note) -> Tone {
