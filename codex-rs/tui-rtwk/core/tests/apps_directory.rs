@@ -39,6 +39,20 @@ fn listed(apps: &[(&str, bool)]) -> String {
     )
 }
 
+fn listed_enabled(apps: &[(&str, bool)]) -> String {
+    let data: Vec<_> = apps
+        .iter()
+        .map(|(id, enabled)| {
+            json!({"id": id, "name": id, "isAccessible": true, "isEnabled": enabled,
+                   "pluginDisplayNames": []})
+        })
+        .collect();
+    format!(
+        r#"{{"step":"notify","message":{}}}"#,
+        json!({"method": "app/list/updated", "params": {"data": data}})
+    )
+}
+
 fn names(sandbox: &Sandbox) -> Vec<String> {
     sandbox
         .app()
@@ -56,6 +70,18 @@ fn a_directory_notification_drops_the_apps_a_user_cannot_call_from_the_mentions(
         SESSION.to_string(),
         mentions(),
         listed(&[("notion", true), ("linear", false)]),
+    ]
+    .join("\n");
+    let sandbox = Sandbox::play(&script).expect("plays");
+    assert_eq!(names(&sandbox), vec!["Skill", "Notion"]);
+}
+
+#[test]
+fn a_directory_notification_drops_an_accessible_but_disabled_app_from_the_mentions() {
+    let script = [
+        SESSION.to_string(),
+        mentions(),
+        listed_enabled(&[("notion", true), ("linear", false)]),
     ]
     .join("\n");
     let sandbox = Sandbox::play(&script).expect("plays");

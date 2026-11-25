@@ -13,12 +13,6 @@ mod mouse;
 #[path = "fixtures/chat_popups_3/seed.rs"]
 pub(crate) mod seed;
 
-// What these tests need is not in the port yet (each reason says which); the
-// bodies are the oracle's steps and visible assertions, written in full.
-// assert_snap compares the whole screen; the oracle's popup snapshots hold the
-// bottom popup only, so the popup slice sets the region (assert_snap_region).
-const MENTIONS: &str = "/apps is live and `app/list/updated` drops the uncallable apps from the mentions (core/tests/apps_directory.rs); this test also needs the oracle's separate installed-mentions fetch (`FetchInstalledConnectorMentions`, `connectors_for_mentions` keeps only enabled installed apps), a directory partial snapshot (`is_final: false`, no protocol message carries it), the submitted `app://` mention of `$` and the plugin authentication step's `Already installed in this session` (the install flow of /plugins reading the installed ids): the mention source and the plugin flow are other owners'";
-
 /// The first row that contains `text`; past the screen when none does (the kit then names the row it looked for).
 pub(crate) fn row_of(s: &Screen, text: &str) -> usize {
     s.rows()
@@ -1257,23 +1251,76 @@ fn apps_popup_stays_loading_until_final_snapshot_updates() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:2251 apps_notification_update_excludes_inaccessible_apps_from_mentions kind=snap owner=dialogs-pane snap=apps_mentions_only_callable_installed
 #[test]
 fn apps_notification_update_excludes_inaccessible_apps_from_mentions() {
-    kit::pending(Owner::DialogsPane, MENTIONS);
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    let app = |id: &str, name: &str, description: &str, enabled: bool| {
+        json!({
+            "id": id, "name": name, "description": description,
+            "installUrl": format!("https://example.test/{id}"),
+            "isAccessible": true, "isEnabled": enabled, "pluginDisplayNames": [],
+        })
+    };
+    let apps = vec![
+        app("google_drive", "Google Drive", "Connected files", true),
+        app("arabica_uae", "% Arabica UAE", "Directory-only app", false),
+    ];
+    let linear = seed::set(
+        seed::remote_summary(
+            "plugins~Plugin_linear",
+            "plugin",
+            Some("Plugin"),
+            Some("Issue tracking."),
+            false,
+        ),
+        &[("installPolicy", json!("INSTALLED_BY_DEFAULT"))],
+    );
+    let shelf = seed::shelf(Vec::new());
+    seed::with(&shelf, |held| {
+        held.remote = vec![seed::marketplace(
+            "workspace-shared-with-me-private",
+            None,
+            Some("Shared with me"),
+            vec![linear.clone()],
+        )];
+        held.details.insert(
+            "plugins~Plugin_linear".to_string(),
+            seed::remote_detail("workspace-shared-with-me-private", linear, None),
+        );
+        held.replies
+            .insert("app/list", Ok(json!({ "data": apps.clone() })));
+        held.replies.insert(
+            "plugin/install",
+            Ok(json!({
+                "authPolicy": "ON_INSTALL",
+                "appsNeedingAuth": [{ "id": "arabica_uae", "name": "% Arabica UAE" }],
+            })),
+        );
+    });
+    let mut s = seed::start(80, 24, seed::config(), &shelf);
+    // the directory notification: the server's own list of what the account holds
+    s.feed(
+        &json!({
+            "step": "notify",
+            "message": { "method": "app/list/updated", "params": { "data": apps } },
+        })
+        .to_string(),
+    );
     s.type_text("$");
-    // the directory notification (Google Drive, % Arabica UAE) arrives from the app server: a script line
     s.assert_contains("Google Drive");
     s.assert_absent("% Arabica UAE");
     s.keys("enter");
     s.type_text("$arabica-uae ");
     s.keys("enter");
-    // the submitted mention (app://google_drive) is an op: not on screen
-    // the plugin authentication popup comes from the install result: a script line
+    // the submitted mention is the callable app's only
+    s.assert_sole_turn(kit::Turn::any().mentions(&[("Google Drive", "app://google_drive")]));
+    // the install of a plugin that needs this app's setup: it is installed in this session
+    s.type_text("/plugins").keys("enter");
+    s.keys("enter");
+    s.keys("down enter");
     s.assert_contains("Already installed");
     s.assert_contains("Continue");
-    s.assert_snap_section(
-        "apps_mentions_only_callable_installed",
-        "plugin authentication",
-    );
+    s.snap("apps_mentions_only_callable_installed")
+        .frame("plugin authentication")
+        .at(row_of(&s, "Plugins"), 0)
+        .assert();
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:2440 apps_refresh_failure_keeps_existing_full_snapshot kind=ui owner=dialogs-pane
