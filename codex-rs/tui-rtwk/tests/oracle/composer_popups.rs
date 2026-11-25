@@ -630,10 +630,10 @@ fn default_unified_mention_popup_snapshot() {
 // ORACLE bottom_pane/command_popup.rs:337 unavailable_side_conversation_command_is_shown_only_when_searched kind=snap owner=chat-nav-pane snap=side_conversation_unavailable_command
 #[test]
 fn unavailable_side_conversation_command_is_shown_only_when_searched() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "feature disabled commands in the side-conversation popup (w2-commands): the port's popup leaves a command a side conversation cannot run out of the list, the oracle lists it as `/archive (disabled)` once searched, with `(disabled: not available in a side conversation)` as its description (the seed is fixtures/chat_commands_3/side.jsonl)",
-    );
+    // The disabled row is listed (`/archive (disabled)` and the reason, no pick: tests/pages), but
+    // the OptionList lays the detail out at the row's right end in one line, so the long reason
+    // takes the label's room (`…`), where the oracle wraps it under the description column.
+    kit::pending(Owner::ChatNavPane, POPUP_ROWS);
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(76, 24)
         .script(include_str!("fixtures/chat_commands_3/side.jsonl"))

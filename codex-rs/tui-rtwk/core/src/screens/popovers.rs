@@ -55,6 +55,8 @@ pub struct Model {
     /// Which answer of a thread's task search `tasks` came from (`Ev::TasksFound`), so the app
     /// takes each answer once.
     pub tasks_from: Option<(ThreadId, u64)>,
+    /// `tasks` is a seed (`Ev::Tasks`): an empty search answer leaves it.
+    pub tasks_seeded: bool,
     /// What the file search last answered: the query and its matches.
     pub file_matches: FileMatches,
     /// The window of recent `$` picks.
@@ -213,10 +215,17 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             model.listed = listed;
             model.mentions = mentions;
         }
-        Ev::Tasks(tasks) => model.tasks = tasks,
+        // a seeded list stays until a search finds something (as `listed` does for a seed)
+        Ev::Tasks(tasks) => {
+            model.tasks_seeded = !tasks.is_empty();
+            model.tasks = tasks;
+        }
         Ev::TasksFound { thread, seq, tasks } => {
             model.tasks_from = Some((thread, seq));
-            model.tasks = tasks;
+            if !(model.tasks_seeded && tasks.is_empty()) {
+                model.tasks_seeded = false;
+                model.tasks = tasks;
+            }
         }
         Ev::FileMatches { query, matches } => model.file_matches = FileMatches { query, matches },
         Ev::MentionUsage(recent) => model.usage = MentionUsage::from_recent(recent),

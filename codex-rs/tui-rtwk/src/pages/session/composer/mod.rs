@@ -595,7 +595,9 @@ impl ComposerState {
                     let marks = fuzzy_match(&shown.query, label)
                         .map(|m| m.positions)
                         .unwrap_or_default();
-                    let row = OptionItem::new(label.clone()).marks(marks);
+                    let row = OptionItem::new(label.clone())
+                        .marks(marks)
+                        .enabled(s.enabled);
                     match &s.detail {
                         Some(detail) => row.detail(detail.clone()),
                         None => row,

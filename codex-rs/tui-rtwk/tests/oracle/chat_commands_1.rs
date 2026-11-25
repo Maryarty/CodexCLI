@@ -10,6 +10,13 @@ const SESSION: &str = include_str!("fixtures/chat_commands_2/session.jsonl");
 const RUNNING: &str = include_str!("fixtures/chat_commands_2/running.jsonl");
 const INTERRUPTED: &str = include_str!("fixtures/chat_commands_2/interrupted.jsonl");
 const COMPLETED: &str = include_str!("fixtures/chat_commands_1/completed.jsonl");
+/// The live chat with one task the `@` search found (`task_mentions_enabled`).
+const TASK_SEED: &str = concat!(
+    r#"{"step":"seed","seed":"session","thread":"thread-1"}"#,
+    "\n",
+    r#"{"step":"screen","dir":"popovers","ev":{"tasks":[{"thread":"task-123","title":"Review database migration","cwd":"/workspace/project"}]}}"#,
+    "\n",
+);
 /// A thread its parent controls: the server says it takes no direct input (`set_parent_owned_thread`).
 const PARENT_OWNED: &str = include_str!("fixtures/chat_commands_3/parent_owned.jsonl");
 
@@ -697,18 +704,27 @@ fn user_message_display_from_inputs_hides_prompt_context() {
 // ORACLE chatwidget/tests/composer_submission.rs:2564 task_mention_submission_and_transcript_preserve_the_visible_title kind=snap owner=chat-nav-pane snap=task_mention_transcript
 #[test]
 fn task_mention_submission_and_transcript_preserve_the_visible_title() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no seed for a task mention (@ a task title, thread://task-123) with task mentions enabled; the transcript snapshot is the submitted turn's rows",
+    // The oracle submits a message holding the task binding (its `enabled = false` half is a
+    // thread resumed from a directory without the capability file: a state the port cannot
+    // have, every thread is a task-mentions thread here). The port picks the task from the `@`
+    // popup, as the user does.
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(TASK_SEED)
+        .open();
+    s.type_text("Inspect @Review");
+    s.keys("enter");
+    s.keys("enter");
+    s.assert_last_turn_text(
+        &["MUST call `read_thread`", "\"threadId\":\"task-123\""],
+        "Inspect [@Review database migration](thread://task-123)",
     );
-    for enabled in [false, true] {
-        let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-        s.type_text("Inspect @Review database migration");
-        s.keys("enter");
-        if enabled {
-            s.assert_snap("task_mention_transcript");
-        }
-    }
+    let row = s
+        .rows()
+        .iter()
+        .position(|row| row.starts_with("› Inspect"))
+        .unwrap_or(usize::MAX);
+    s.assert_snap_region("task_mention_transcript", row, 0);
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:2617 committed_user_message_with_hidden_prompt_context_renders_local_images kind=ui owner=chat-nav-pane
