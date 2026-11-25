@@ -55,6 +55,7 @@ use crate::widgets::thread_ui::{Modes, TextSelection, ThreadUi};
 
 use super::actions::reasoning_shortcut;
 use super::banners::BannerGate;
+use super::hook_reveal;
 
 #[path = "session/bottom.rs"]
 mod bottom;
@@ -166,6 +167,8 @@ pub struct ChatState {
     selection: Rc<RefCell<TextSelection>>,
     /// Its Find: the keys of a match being read are Find's.
     find: Rc<RefCell<Finder>>,
+    /// The hook runs the status row holds back until they have run 300 ms.
+    hooks: hook_reveal::Reveal,
 }
 
 /// What keeps the banner's keys from the banner (`handle_inline_banner_key`).
@@ -206,6 +209,7 @@ impl StatefulWidget for Chat {
             modes: Rc::new(RefCell::new(self.ui.modes.clone())),
             selection: Rc::new(RefCell::new(self.ui.selection.clone())),
             find: Rc::new(RefCell::new(self.ui.find.clone())),
+            hooks: hook_reveal::Reveal::default(),
         }
     }
 }
@@ -284,12 +288,17 @@ impl State for ChatState {
     fn dispose(&mut self) {
         self.node.set_on_key_event(None);
         self.banner.options.dispose();
+        self.hooks.dispose();
     }
 
     fn update(&mut self, msg: ChatMsg, w: &Chat, cx: &mut Cx<'_, Self>) -> Rebuild {
         // the model's one-shots are no input: no gate of the keys applies to them
         if let ChatMsg::Edge(edge) = msg {
             return self.edge(edge, w, cx);
+        }
+        // the build shows the run whose delay passed
+        if msg == ChatMsg::HookRevealed {
+            return Rebuild::Yes;
         }
         let hs = read::<Hs, _>(cx);
         let modes = &w.ui.modes;
@@ -347,7 +356,7 @@ impl State for ChatState {
                     }
                 }
             }
-            ChatMsg::Edge(_) => {}
+            ChatMsg::Edge(_) | ChatMsg::HookRevealed => {}
             ChatMsg::Changed(text) => {
                 self.sync_draft(w);
                 self.startup_edited(w);

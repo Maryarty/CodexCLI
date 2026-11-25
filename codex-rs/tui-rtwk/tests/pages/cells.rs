@@ -2841,7 +2841,7 @@ mod tool_cells_in_transcript {
     }
 
     #[test]
-    fn a_run_of_computer_calls_is_one_group_a_tap_on_its_header_reveals_each_call() {
+    fn a_run_of_computer_calls_is_one_group_a_tap_on_its_control_reveals_each_call() {
         let titled =
             |id: &str, title: &str| mcp(id, "cua_repl", json!({"title": title}), &["done"]);
         let mut h = show(
@@ -2857,7 +2857,8 @@ mod tool_cells_in_transcript {
             screen.contains("├ Inspect page 1") && screen.contains("└ Inspect page 2"),
             "{screen}"
         );
-        let (x, y) = row_of(&h, "Used computer");
+        // the control's row opens it (oracle `toggle_disclosure_at`), not the header's
+        let (x, y) = row_of(&h, "+ Show details");
         h.t.click(x as u16, y as u16);
         h.wait_for("each call", |s| s.contains("− Hide details"));
         let screen = h.t.screen();
@@ -3071,14 +3072,14 @@ mod text_contract {
     use codex_tui_core::screens::cells::Daybreak;
     use codex_tui_core::screens::chat::{McpWarning, Nudge, NudgeOutcome};
     use codex_tui_core::threads::{
-        GeneratedImage, HookEntry, HookEntryKind, HookRun, HookStatus, Item, Notice, UserPrompt,
-        WebAction, WebActivity,
+        ExplorationAction, GeneratedImage, HookEntry, HookEntryKind, HookRun, HookStatus, Item,
+        Notice, ToolActivity, ToolKind, ToolStatus, UserPrompt, WebAction, WebActivity,
     };
     use codex_tui_rtwk::pages::session::cells::strings::EN as CELLS;
-    use codex_tui_rtwk::pages::session::cells::text::{Env, Gap, Texts, texts};
+    use codex_tui_rtwk::pages::session::cells::text::{Env, Gap, Part, Texts, texts};
     use codex_tui_rtwk::pages::session::cells::{
-        CellEnv, Place, agent, deprecation, error, generated_image, hook, note, notice, user,
-        viewed_image, warning, web,
+        CellEnv, Place, agent, cell, deprecation, error, exec, generated_image, hook, note, notice,
+        user, viewed_image, warning, web,
     };
     use codex_tui_rtwk::pages::session::strings::EN as CHAT;
     use rtwk::AnyWidget;
@@ -3237,6 +3238,225 @@ mod text_contract {
                 })
                 .collect(),
         })
+    }
+
+    fn shell(command: &str, output: &str, exit: Option<i32>, millis: Option<u64>) -> Item {
+        Item::Tool(Arc::new(ToolActivity {
+            kind: ToolKind::Shell {
+                command: command.into(),
+                actions: Vec::new(),
+                compound: false,
+                exit_code: exit,
+                duration_ms: millis,
+                user_shell: false,
+                process_id: None,
+                unified_exec: false,
+            },
+            status: match exit {
+                None => ToolStatus::Running,
+                Some(0) => ToolStatus::Completed,
+                Some(_) => ToolStatus::Failed,
+            },
+            output: (!output.is_empty()).then(|| output.to_owned()),
+        }))
+    }
+
+    /// A call of an exploration (`cat`, read as `src/lib.rs`).
+    fn exploring(output: &str) -> Item {
+        Item::Tool(Arc::new(ToolActivity {
+            kind: ToolKind::Shell {
+                command: "cat src/lib.rs".into(),
+                actions: vec![ExplorationAction::Read(vec!["src/lib.rs".into()])],
+                compound: false,
+                exit_code: Some(0),
+                duration_ms: None,
+                user_shell: false,
+                process_id: None,
+                unified_exec: false,
+            },
+            status: ToolStatus::Completed,
+            output: (!output.is_empty()).then(|| output.to_owned()),
+        }))
+    }
+
+    fn tools(items: &[Item]) -> Vec<Arc<ToolActivity>> {
+        items
+            .iter()
+            .map(|item| match item {
+                Item::Tool(tool) => tool.clone(),
+                other => panic!("not a call: {other:?}"),
+            })
+            .collect()
+    }
+
+    /// The row of the run `items` as the transcript builds it: the first item is the row's,
+    /// the others the run's later calls (`Place::rest`).
+    fn run_cell(items: &[Item], detailed: bool) -> AnyWidget {
+        let tokens =
+            codex_tui_rtwk::app::theme::Tokens::new(Rc::new(rtwk::prelude::ThemeData::DARK));
+        let theme = MarkdownTheme::default();
+        cell(
+            &items[0],
+            &CellEnv {
+                tokens: &tokens,
+                markdown: &theme,
+                prompt_surface: &Style::new(),
+                chat: &CHAT,
+                cells: &CELLS,
+                bullet: "• ",
+                bullet_style: &Style::new(),
+                cwd: None,
+                detailed,
+                raw: false,
+                show_raw_reasoning: false,
+            },
+            &Place {
+                rest: tools(&items[1..]),
+                ..Place::default()
+            },
+        )
+    }
+
+    /// What a drag over the whole run selects, once its control opened it (the detailed
+    /// transcript's has none).
+    fn run_selected(items: &[Item], width: u16, detailed: bool) -> String {
+        let selection = SelectionAreaController::new();
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(width, 60));
+        t.pump_widget(
+            SelectionArea::new(run_cell(items, detailed))
+                .trim_trailing_blanks(false)
+                .controller(selection.clone()),
+        );
+        if !detailed {
+            let row = t
+                .lines()
+                .iter()
+                .position(|line| line.contains("Show"))
+                .unwrap_or_else(|| panic!("no control: {:?}", t.lines()));
+            t.click(6, u16::try_from(row).unwrap_or_default());
+            t.pump();
+            assert!(
+                t.lines().iter().any(|line| line.contains("Hide")),
+                "{:?}",
+                t.lines()
+            );
+        }
+        t.mouse(MouseKind::Down, 0, 0, 0, Mods::NONE);
+        t.mouse(MouseKind::Drag, width - 1, 59, 0, Mods::NONE);
+        t.mouse(MouseKind::Up, width - 1, 59, 0, Mods::NONE);
+        t.pump();
+        selection.text()
+    }
+
+    fn run_parts(items: &[Item], detailed: bool, expanded: bool) -> Option<Vec<Part>> {
+        let tools = tools(items);
+        exec::texts(
+            &tools.iter().map(Arc::as_ref).collect::<Vec<_>>(),
+            &env(detailed, expanded),
+        )
+    }
+
+    fn pairs(parts: Vec<Part>) -> Vec<(String, bool)> {
+        parts
+            .into_iter()
+            .map(|part| (part.text, part.gutter))
+            .collect()
+    }
+
+    #[track_caller]
+    fn run_agrees(items: &[Item], width: u16, detailed: bool) {
+        let Some(parts) = run_parts(items, detailed, !detailed) else {
+            panic!("the form has texts: {items:?}");
+        };
+        let Some(want) = Texts::Exact(parts).as_mounted() else {
+            panic!("the texts are exact");
+        };
+        assert_eq!(want, run_selected(items, width, detailed), "{items:?}");
+    }
+
+    /// The expanded form (what Find reads of a cell it opens): the bullet, the header, the
+    /// command as written, the branch and the output with its colour codes taken out, the control.
+    #[test]
+    fn a_shell_call_expanded_agrees_with_its_widget() {
+        let item = [shell(
+            "echo one\necho two",
+            "a\n\u{1b}[31mb\u{1b}[0m\nc",
+            Some(0),
+            None,
+        )];
+        run_agrees(&item, 80, false);
+        assert_eq!(
+            pairs(run_parts(&item, false, true).unwrap()),
+            [
+                ("\u{2022}".to_owned(), true),
+                ("Ran echo one \u{2026}".to_owned(), false),
+                ("\u{2026}".to_owned(), true),
+                ("echo one\necho two".to_owned(), false),
+                ("\u{2514} ".to_owned(), true),
+                ("a\nb\nc".to_owned(), false),
+                ("\u{2212} Hide details".to_owned(), true),
+            ]
+        );
+        // no output: no branch
+        run_agrees(&[shell("echo one\necho two", "", Some(0), None)], 80, false);
+        // the compact form follows the room: no text
+        assert!(run_parts(&item, false, false).is_none());
+    }
+
+    #[test]
+    fn a_shell_call_in_the_detailed_transcript_agrees_with_its_widget() {
+        run_agrees(
+            &[shell("echo one\necho two", "a\nb", Some(0), Some(1500))],
+            80,
+            true,
+        );
+        let failed = [shell("make", "boom", Some(2), None)];
+        run_agrees(&failed, 80, true);
+        // a call that has not ended has no exit line, one with no output no output
+        run_agrees(&[shell("sleep 1", "", None, None)], 80, true);
+        assert_eq!(
+            pairs(run_parts(&failed, true, false).unwrap()),
+            [
+                ("$".to_owned(), false),
+                ("make".to_owned(), false),
+                ("boom".to_owned(), false),
+                ("\u{2717} (2)".to_owned(), false),
+            ]
+        );
+    }
+
+    /// A run of calls is one row: the texts of every call, the later ones from `Place::rest`.
+    #[test]
+    fn an_exploration_run_expanded_reads_every_call() {
+        let run = [exploring("fn one() {}"), exploring("fn two() {}")];
+        run_agrees(&run, 80, false);
+        let parts = pairs(run_parts(&run, false, true).unwrap());
+        assert!(parts[1].0.starts_with("Explored"), "{parts:?}");
+        assert!(parts.iter().any(|(text, _)| text == "fn one() {}"));
+        assert!(parts.iter().any(|(text, _)| text == "fn two() {}"));
+        // the detailed transcript's calls are one block each, a blank row between
+        run_agrees(
+            &[
+                shell("echo a", "a", Some(0), None),
+                shell("echo b", "b", Some(0), None),
+            ],
+            80,
+            true,
+        );
+    }
+
+    /// The header is cut by its room; what the area selects is what the texts say at any width.
+    #[test]
+    fn a_narrow_room_keeps_the_nodes_of_the_expanded_header() {
+        let item = [shell(
+            "echo a-rather-long-first-line\necho second",
+            "out",
+            Some(0),
+            None,
+        )];
+        for width in [80, 40, 20, 12] {
+            run_agrees(&item, width, false);
+        }
     }
 
     #[test]

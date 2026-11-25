@@ -77,6 +77,9 @@ pub struct Disclosed(Rc<Cells>);
 
 struct Cells {
     open: RefCell<BTreeSet<ItemKey>>,
+    /// The cell Find shows its match in: open while the match is there, and in no set of the
+    /// reader's (`ExpansionTileController.expand()` of the match, `collapse()` when Find leaves).
+    found: RefCell<Option<ItemKey>>,
     /// The cells that have a control, in the order they were first built.
     known: RefCell<Vec<ItemKey>>,
     ticks: Rc<ValueNotifier<u32>>,
@@ -86,6 +89,7 @@ impl Default for Disclosed {
     fn default() -> Disclosed {
         Disclosed(Rc::new(Cells {
             open: RefCell::default(),
+            found: RefCell::default(),
             known: RefCell::default(),
             ticks: Rc::new(ValueNotifier::new(0)),
         }))
@@ -99,21 +103,47 @@ impl PartialEq for Disclosed {
 }
 
 impl Disclosed {
-    /// Whether the cell of `key` is open.
+    /// Whether the cell of `key` is open: the reader opened it, or Find is showing its match there.
     pub fn is_open(&self, key: &ItemKey) -> bool {
-        self.0.open.borrow().contains(key)
+        self.0.open.borrow().contains(key) || self.0.found.borrow().as_ref() == Some(key)
     }
 
-    /// Opens or closes the cell of `key`; the cells hear it when it was not so.
+    /// Opens or closes the cell of `key`; the cells hear it when it was not so. A close is the
+    /// reader's and wins over what Find opened: the cell stays shut for the match it holds.
     pub fn set(&self, key: &ItemKey, open: bool) {
         let changed = if open {
             self.0.open.borrow_mut().insert(key.clone())
         } else {
-            self.0.open.borrow_mut().remove(key)
+            let was_open = self.0.open.borrow_mut().remove(key);
+            let was_found = {
+                let mut found = self.0.found.borrow_mut();
+                found.as_ref() == Some(key) && found.take().is_some()
+            };
+            was_open || was_found
         };
         if changed {
-            self.0.ticks.set_value(self.0.ticks.value().wrapping_add(1));
+            self.tick();
         }
+    }
+
+    /// The cell Find shows its match in.
+    pub fn found(&self) -> Option<ItemKey> {
+        self.0.found.borrow().clone()
+    }
+
+    /// Find shows its match in the cell of `key` (`None`: it shows none). The cell is open while it
+    /// does, and it is shut again when Find leaves it, the cells the reader opened apart; the
+    /// reader's own open and shut are not touched. The cells hear it when it changed.
+    pub fn set_found(&self, key: Option<ItemKey>) {
+        let changed = *self.0.found.borrow() != key;
+        if changed {
+            *self.0.found.borrow_mut() = key;
+            self.tick();
+        }
+    }
+
+    fn tick(&self) {
+        self.0.ticks.set_value(self.0.ticks.value().wrapping_add(1));
     }
 
     /// Opens a closed cell and closes an open one; whether it is open now.

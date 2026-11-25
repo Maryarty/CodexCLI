@@ -13,6 +13,7 @@ pub mod cells;
 pub mod composer;
 mod external_writer;
 pub(crate) mod footer;
+mod hook_reveal;
 mod key_actions;
 mod keys;
 mod live;

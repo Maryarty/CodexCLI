@@ -1,0 +1,3 @@
+# Oracle owned_transcript_tests.rs find_refreshes_live_details_before_searching_the_first_query: a running command whose `needle` is in the hidden second line of its command.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"entry","kind":"exec","turn":"turn-1","item":"cmd-live","command":"printf visible\nprintf needle","running":true,"end":false}

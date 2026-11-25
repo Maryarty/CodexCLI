@@ -197,15 +197,6 @@ pub fn slot_in<S: 'static>(
     let (dim, bold) = (tokens.dim(), tokens.bold());
     let finder = finder.clone();
     let keymap = crate::keymap::keymap(cx);
-    let normal = activity_hints(
-        table,
-        &activity_focus::of(&finder),
-        keymap,
-        normal,
-        bold.clone(),
-        dim.clone(),
-        margin,
-    );
     let normal = select_hints(
         table,
         &select::of(&finder),
@@ -223,7 +214,10 @@ pub fn slot_in<S: 'static>(
         dim.clone(),
         margin,
     );
-    ListenableBuilder::new(finder.listenable(), move |_, _| {
+    let (shown_key, shown_dim) = (bold.clone(), dim.clone());
+    let activity = activity_focus::of(&finder);
+    let shown: AnyWidget = ListenableBuilder::new(finder.listenable(), move |_, _| {
+        let (dim, bold) = (shown_dim.clone(), shown_key.clone());
         let mode = finder.mode();
         if mode == Mode::Closed {
             return normal.clone();
@@ -237,13 +231,12 @@ pub fn slot_in<S: 'static>(
                 QueryField::new(&finder, table, dim.clone()).into(),
             ));
         }
-        rows.child(row(
-            margin,
-            status_row(table, finder.status(), bold.clone(), dim.clone()),
-        ))
-        .into()
+        rows.child(row(margin, status_row(table, finder.status(), bold, dim)))
+            .into()
     })
-    .into()
+    .into();
+    // a stop in focus has the footer before Find's status row (`render_footer`)
+    activity_hints(table, &activity, keymap, shown, bold, dim, margin)
 }
 
 /// The query of Find on a transcript that draws no footer (the bare view: the oracle's view

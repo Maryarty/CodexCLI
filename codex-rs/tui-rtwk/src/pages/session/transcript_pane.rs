@@ -20,7 +20,7 @@ use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::backtrack::nth_user;
-use codex_tui_core::threads::{HistoryState, Item, ItemKey, ThreadModel, TurnState};
+use codex_tui_core::threads::{HistoryState, Item, ItemKey, ThreadModel, ToolActivity, TurnState};
 
 use crate::app::theme;
 use crate::app::view::Hs;
@@ -29,15 +29,16 @@ use crate::widgets::finder::More;
 use crate::widgets::thread_scope::thread_scope;
 use crate::widgets::thread_ui::{Follow, TextSelection};
 
+use super::cells::disclosure::tile;
 use super::cells::strings as cells_strings;
 use super::cells::text::Env;
 use super::cells::user;
 use super::cells::{CellEnv, Place, cell};
 use super::strings as chat_strings;
-use super::transcript::activity_focus::{self, Activity};
+use super::transcript::activity_focus::{self, Activity, Stop};
 use super::transcript::copy::{self as copying, Targets};
 use super::transcript::find::{Finder, Held, RowTexts};
-use super::transcript::item_text::{Reading, body_nodes, mounted_parts};
+use super::transcript::item_text::{Reading, body_nodes, mounted_parts, row_parts};
 use super::transcript::markdown_copy::{self, Marks};
 use super::transcript::select::{self, Pos, Select};
 use super::transcript::selection::SelectionHost;
@@ -45,6 +46,7 @@ use super::transcript::strings as transcript_strings;
 use super::transcript::turn_details::{
     Anchor, FoldRow, Kind, Plan, PromptFold, Row, Words, arrow, prompt_label,
 };
+use super::transcript_activity::has_control;
 
 /// The transcript with a prompt marked (Flutter: a `ListView` whose item
 /// `selected: true` is drawn highlighted and scrolled into view when it
@@ -441,10 +443,7 @@ impl ViewportState {
             gutters.push(vec![true]);
         }
         for row in rows {
-            let parts = transcript
-                .get(row.range.start)
-                .and_then(|(_, item)| mounted_parts(item, reading));
-            match parts {
+            match row_parts(transcript, row, reading) {
                 Some(parts) => {
                     texts.push(
                         parts
@@ -629,10 +628,43 @@ fn fold_of(row: &Row, transcript: &codex_tui_core::threads::Transcript) -> Optio
     }
 }
 
-/// The folds of the rows, oldest first.
-fn fold_ids(rows: &[Row], transcript: &codex_tui_core::threads::Transcript) -> Vec<Vec<ItemKey>> {
+/// The stop of F4 a row draws, if it draws one: its fold, or the cell of a call or a patch that
+/// has a control (`+ Show details`). The key of a cell is its row's first item, as `tile` has it.
+fn stop_of(
+    row: &Row,
+    transcript: &codex_tui_core::threads::Transcript,
+    strings: &'static cells_strings::Strings,
+) -> Option<Stop> {
+    if let Some(fold) = fold_of(row, transcript) {
+        return Some(Stop::fold(fold));
+    }
+    let (key, item) = transcript.get(row.range.start)?;
+    let has = match item {
+        Item::Patch(patch) => !patch.changes.is_empty(),
+        Item::Tool(_) => {
+            let calls: Vec<&ToolActivity> = row
+                .range
+                .clone()
+                .filter_map(|index| match transcript.get(index) {
+                    Some((_, Item::Tool(tool))) => Some(tool.as_ref()),
+                    _ => None,
+                })
+                .collect();
+            has_control(&calls, strings)
+        }
+        _ => false,
+    };
+    has.then(|| Stop::cell(key.clone()))
+}
+
+/// The stops of the rows, oldest first.
+fn stops(
+    rows: &[Row],
+    transcript: &codex_tui_core::threads::Transcript,
+    strings: &'static cells_strings::Strings,
+) -> Vec<Stop> {
     rows.iter()
-        .filter_map(|row| fold_of(row, transcript))
+        .filter_map(|row| stop_of(row, transcript, strings))
         .collect()
 }
 
@@ -852,21 +884,28 @@ impl State for ViewportState {
         let collapse = select::<TuiSettings, _, _>(cx, |settings| settings.collapse_turn_details);
         let rendering = select::<TuiSettings, _, _>(cx, |settings| settings.rendering);
         let activity = activity_focus::of(&widget.find);
+        let disclosed = activity.disclosed();
+        let cells = cells_strings::of(cx);
         let Shown { rows, plan } = self.rows(&thread, detailed, collapse, &activity);
         let reverse = !thread.read_only() && header.is_none();
         let header = header.filter(|_| !can_load);
         let count = rows.len() + usize::from(header.is_some());
         let grew = self.counted.replace(count) != count;
         self.listen_folds(&activity, cx.local_sender());
-        // the folds the chat's own list has, for the keys that walk them (F4); the Ctrl+T
-        // transcript has none, and leaves the chat's alone
+        // the folds and the cells with a control the chat's own list has, for the keys that walk
+        // them (F4); the Ctrl+T transcript has none, and leaves the chat's alone. A raw row has
+        // no control.
         if !detailed {
-            let folds = fold_ids(&rows, thread.transcript());
-            activity.set_folds(folds);
+            let walk = if raw {
+                Vec::new()
+            } else {
+                stops(&rows, thread.transcript(), cells)
+            };
+            activity.set_folds(walk);
             if let Some(ids) = activity.take_reveal()
                 && let Some(logical) = rows.iter().position(|row| {
-                    fold_of(row, thread.transcript())
-                        .is_some_and(|fold| fold.iter().any(|id| ids.contains(id)))
+                    stop_of(row, thread.transcript(), cells)
+                        .is_some_and(|stop| stop.ids.iter().any(|id| ids.contains(id)))
                 })
             {
                 let logical = logical + usize::from(header.is_some());
@@ -892,7 +931,6 @@ impl State for ViewportState {
         {
             binding.add_post_frame_callback(cx.map(|_: Duration| Msg::Anchored));
         }
-        let cells = cells_strings::of(cx);
         let folds = transcript_strings::of(cx);
         let search = widget.find.clone();
         self.listen(&search, cx.local_sender());
@@ -951,6 +989,7 @@ impl State for ViewportState {
             rendering,
             raw,
             raw_reasoning: show_raw_reasoning,
+            revealed: search.active(),
         };
         self.listen_selection(&widget.selection, cx.local_sender());
         self.mark(
@@ -999,11 +1038,28 @@ impl State for ViewportState {
                 search.accepted();
             }
             if search.active() {
+                // a new query leaves the cell its old match opened (the next match opens its own)
+                if search.asked() {
+                    disclosed.set_found(None);
+                }
                 let hit = search.advance(&**texts, more);
                 if search.take_load() {
                     load(Msg::Load(thread.id().clone()));
                 }
                 if let Some(hit) = hit {
+                    // the cell of the match is open while it is the current one (a shell call's
+                    // output is cut to a tail in the list), shut again when Find leaves it
+                    let before = disclosed.found();
+                    disclosed.set_found(
+                        hit.row
+                            .checked_sub(usize::from(header.is_some()))
+                            .and_then(|row| rows.get(row))
+                            .filter(|row| matches!(row.kind, Kind::Cell))
+                            .and_then(|row| thread.transcript().get(row.range.start))
+                            .filter(|(_, item)| matches!(item, Item::Tool(_) | Item::Patch(_)))
+                            .map(|(key, _)| key.clone()),
+                    );
+                    let opened = disclosed.found() != before;
                     // a match in the live tail stays displayed as it was found (`Held`)
                     let live = hit
                         .row
@@ -1021,7 +1077,7 @@ impl State for ViewportState {
                         match AppBinding::maybe_of(cx) {
                             // rows came or went since the list was laid out (the live tail grew,
                             // a turn committed): the list knows them after this frame
-                            Some(binding) if grew => binding.add_post_frame_callback(
+                            Some(binding) if grew || opened => binding.add_post_frame_callback(
                                 cx.map(move |_: Duration| Msg::Reveal(index)),
                             ),
                             _ => widget.follow.scroll().ensure_index_visible(index),
@@ -1035,6 +1091,7 @@ impl State for ViewportState {
                     );
                 }
             } else if copier.active() {
+                disclosed.set_found(None);
                 if let Some(targets) = &targets {
                     copier.read(targets);
                 }
@@ -1057,8 +1114,11 @@ impl State for ViewportState {
         } else {
             *self.texts.borrow_mut() = None;
         }
+        if !search.active() {
+            disclosed.set_found(None);
+        }
         let toggled = cx.map(Msg::Toggle);
-        let state = activity;
+        let state = activity.clone();
         let control = tokens.dim().attrs(Attrs::DIM);
         let focus = tokens.accent().attrs(Attrs::BOLD);
         let cwd = cwd.map(str::to_owned);
@@ -1158,23 +1218,32 @@ impl State for ViewportState {
             };
             let row_cell: AnyWidget = match fold {
                 Some(fold) => fold,
-                None => cell(
-                    item,
-                    &CellEnv {
-                        tokens: &tokens,
-                        markdown: &markdown,
-                        prompt_surface: &prompt_surface,
-                        chat: table,
-                        cells,
-                        bullet: &bullet,
-                        bullet_style: &agent_style,
-                        cwd: cwd.as_deref(),
-                        detailed,
-                        raw,
-                        show_raw_reasoning,
-                    },
-                    &place,
-                ),
+                None => {
+                    let drawn = cell(
+                        item,
+                        &CellEnv {
+                            tokens: &tokens,
+                            markdown: &markdown,
+                            prompt_surface: &prompt_surface,
+                            chat: table,
+                            cells,
+                            bullet: &bullet,
+                            bullet_style: &agent_style,
+                            cwd: cwd.as_deref(),
+                            detailed,
+                            raw,
+                            show_raw_reasoning,
+                        },
+                        &place,
+                    );
+                    // a cell with a control is the thread's controller's: a tap, a key and Find
+                    // open and shut it the same way
+                    if matches!(item, Item::Tool(_) | Item::Patch(_)) {
+                        tile(&activity, key.clone(), drawn)
+                    } else {
+                        drawn
+                    }
+                }
             };
             // The cell is always the first child of one column, so a timing row
             // arriving below it does not rebuild the cell's state (the patch

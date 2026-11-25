@@ -76,7 +76,9 @@ pub(super) fn body(
         } else {
             SizedBox::shrink().into()
         })
-        .child(StatusSlot)
+        .child(StatusSlot {
+            hook: run.hook.clone(),
+        })
         // `  ? N questions`: the questions that wait while the editor is closed
         .child(if run.asking > 0 && !editing {
             AnyWidget::from(QuestionSummary {

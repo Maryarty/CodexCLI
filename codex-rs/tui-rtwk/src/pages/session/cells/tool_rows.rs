@@ -51,10 +51,16 @@ pub struct Rows {
 /// The cells of the bullet and the blank after it (the row's gutter).
 pub const BULLET_COLUMNS: i32 = 2;
 
+/// The mark of a tool row (`ToolRow`'s first column).
+pub const BULLET: &str = "\u{2022}";
+
+/// The first row under a header (`branch_row`).
+pub const BRANCH: &str = "\u{2514} ";
+
 /// A row under a header: `└ ` first, a blank after (oracle `"  └ "` and
 /// `"    "`, two cells of them are the bullet's column).
 pub fn branch_row(index: usize, body: AnyWidget, marker: Style) -> AnyWidget {
-    glyph_row(if index == 0 { "└ " } else { "  " }, body, marker)
+    glyph_row(if index == 0 { BRANCH } else { "  " }, body, marker)
 }
 
 /// A row after `glyph` (`├ `, `└ ` or blanks).
@@ -113,6 +119,20 @@ pub fn ansi_row(index: usize, line: &str, tokens: &Tokens, wrap: bool, clip: usi
         },
         dim,
     )
+}
+
+/// What [`ansi_row`] shows of `line`, wrapped: its lines with the colour codes taken out.
+pub fn plain_text(line: &str) -> String {
+    rtwk::ansi::parse_ansi(line)
+        .into_iter()
+        .map(|spans| {
+            spans
+                .iter()
+                .map(|span| span.text.as_str())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join(LINE_BREAK)
 }
 
 /// The lines of a source text (oracle `raw_lines_from_source`): split at

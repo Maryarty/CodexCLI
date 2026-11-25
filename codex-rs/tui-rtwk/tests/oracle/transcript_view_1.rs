@@ -779,15 +779,25 @@ fn double_escape_browses_prompts_without_reverting_and_explains_editing() {
 fn find_refreshes_live_details_before_searching_the_first_query() {
     kit::pending(
         Owner::ChatLive,
-        "G-new-find-room-text: the live command's output (`printf needle`) is hidden by the compact overlay and read by Find after a refresh of the live details; the port's tool row has no text (`Gap::Rows`) and the fixture set has no live command seed",
+        "f-find-tool-text-2 (G-new-find-room-text, folded turn details): with `collapse_turn_details` the running command is the fold row `▸ Running printf visible …` (`FoldRow`, `turn_details.rs` `Kind::Tools`), whose nodes are not the item's, so Find gives no text for it and says `No matches` (the oracle reveals the folded call, `search_presentation.rs:104`); the footer `enter accept` and `printf needle` are the first half, the second half (the Ctrl+T overlay in the compact presentation with its own Find, snapshot `compact_overlay_finds_hidden_live_text`) needs the sheet over the compact presentation",
     );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/transcript_view_1/running_command.jsonl"
+        ))
+        .open();
+    s.assert_absent("needle");
+    s.collapse_turn_details();
+    s.assert_contains("Running");
+    s.assert_contains("printf visible");
     s.assert_absent("needle");
     s.keys("f4");
     s.keys("ctrl+x c");
     s.keys("f3");
     s.paste("needle");
     s.assert_contains("enter accept");
+    s.assert_contains("printf needle");
 }
 
 // ORACLE app/owned_transcript_tests.rs:1750 fullscreen_composer_mouse_copy_and_input_ownership kind=snap owner=chat-live snap=fullscreen_composer_right_click_copy
