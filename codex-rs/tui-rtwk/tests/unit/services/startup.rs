@@ -190,3 +190,101 @@ fn ready_version_rejects_missing_tarball_and_integrity() {
         .expect_err("a latest dist-tag is needed");
     assert!(error.contains("missing latest dist-tag"), "{error}");
 }
+
+// ------------------------------------------------ oracle `update_action.rs` tests
+
+#[test]
+fn standalone_windows_update_command_reruns_latest_installer() {
+    assert_eq!(
+        UpdateAction::StandaloneWindows.command_args(),
+        (
+            "powershell",
+            &[
+                "-ExecutionPolicy",
+                "Bypass",
+                "-c",
+                "$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/codex/install.ps1 | iex"
+            ][..],
+        )
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn standalone_unix_update_fails_when_installer_download_fails() {
+    let (command, args) = UpdateAction::StandaloneUnix.command_args();
+    let offline_command = args[1].replace("https://chatgpt.com", "file:///dev/null");
+    assert_ne!(offline_command, args[1], "installer URL must be replaced");
+    let output = std::process::Command::new(command)
+        .args([args[0], &offline_command])
+        .env_clear()
+        .env("HOME", "/dev/null")
+        .env("PATH", "/usr/bin:/bin")
+        .output()
+        .expect("run standalone Unix update command");
+
+    assert!(!output.status.success(), "{output:?}");
+}
+
+// `DaemonUpdateSource::command_args`: what the daemon update runs, and how the notice reads it.
+#[test]
+fn a_daemon_update_runs_the_app_server_daemon_command() {
+    use codex_tui_core::app::effects::DaemonSource as Source;
+    assert_eq!(
+        UpdateAction::Daemon(Source::PublicStable).command_args(),
+        ("codex", &["app-server", "daemon", "update"][..])
+    );
+    assert_eq!(
+        UpdateAction::Daemon(Source::ThisCli).command_args(),
+        (
+            "codex",
+            &["app-server", "daemon", "update", "--from-cli", "--yes"][..]
+        )
+    );
+    assert_eq!(
+        UpdateAction::Daemon(Source::ThisCli).command_str(),
+        "codex app-server daemon update --from-cli --yes"
+    );
+}
+
+// ------------------------------------------------ oracle `updates_cache_tests.rs`
+
+#[test]
+fn dismiss_version_creates_cache_file_when_missing() {
+    let dir = temp("dismiss-missing");
+    let file = dir.join("version.json");
+    dismiss_version(&file, "999.0.0").expect("dismiss version");
+    let info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&file).expect("the cache")).expect("json");
+    assert_eq!(
+        at(info["last_checked_at"].as_str().expect("a time")),
+        DateTime::<Utc>::UNIX_EPOCH
+    );
+    assert_eq!(
+        (
+            info["latest_version"].as_str(),
+            info["dismissed_version"].as_str()
+        ),
+        (Some("999.0.0"), Some("999.0.0"))
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ------------------------------------------ oracle `daemon_update_tests.rs`
+
+// The CLI's `run_update_action` runs a package update from `/`, outside the project: the
+// package manager sees none of its config.
+#[cfg(unix)]
+#[test]
+fn package_update_runs_outside_the_project() {
+    use std::os::unix::fs::PermissionsExt;
+    let bin = temp("package-update");
+    let pnpm = bin.join("pnpm");
+    std::fs::write(&pnpm, "#!/bin/sh\npwd -P > \"$0.cwd\"\n").expect("the script");
+    std::fs::set_permissions(&pnpm, std::fs::Permissions::from_mode(0o755)).expect("executable");
+    run_update_process("pnpm add -g @openai/codex", &pnpm, &[], Path::new("/"))
+        .expect("the update ran");
+    let cwd = std::fs::read_to_string(bin.join("pnpm.cwd")).expect("the script ran");
+    assert_eq!(cwd.trim_end(), "/");
+    let _ = std::fs::remove_dir_all(&bin);
+}

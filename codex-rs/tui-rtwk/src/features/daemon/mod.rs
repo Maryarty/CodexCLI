@@ -1,7 +1,8 @@
 //! The view half of `/daemon` (ADR-013): `/daemon` is `Target::Feature(Daemon)`, whose `open` says
 //! the verb `Verb::Open` (the probe, then the menu as a wish). The menu, its two confirmations
 //! and the rows' words are the sheet's (UI LEFT: P3 of the full-port map); it reads
-//! `daemon::State::page`, says `Verb`s, and the shell runs `State::update_wanted` after exit.
+//! `daemon::State::page`, says `Verb`s; `Update and exit` asks the host to keep the update and the app ends (the host runs it
+//! once the terminal is restored).
 
 pub mod sheet;
 pub mod strings;

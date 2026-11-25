@@ -88,6 +88,9 @@ pub struct Startup {
     /// `--cd` was given (a resumed or forked session then opens here:
     /// `effective_resume_cwd_mode`).
     pub cwd_override: bool,
+    /// The command line carries a prompt (`cli.prompt` non-empty): no update is offered
+    /// (lib.rs `skip_update_prompt`); the cache refresh and the banner still run.
+    pub launch_prompt: bool,
     pub update: UpdateSlot,
     /// A launch fact that could not be read ends the launch with its error
     /// (`get_login_status(..)?`, `check_directory_trust(..)?`).
@@ -504,8 +507,9 @@ where
     let updates = &startup.updates;
     let checks = updates.enabled
         && config.check_for_update_on_startup
-        && updates.version.trim() != SOURCE_BUILD;
-    let update = if checks {
+        && !wire::is_source_build_version(&updates.version);
+    // `skip_update_prompt`: a launch with a prompt offers none; the refresh below still runs.
+    let update = if checks && !startup.launch_prompt {
         let action = updates.action;
         let cache = read_version_cache(&version_file(config));
         wire::update_offer(
@@ -563,9 +567,6 @@ where
     })
 }
 
-/// `is_source_build_version`: no release is compared against a source build.
-const SOURCE_BUILD: &str = "0.0.0";
-
 /// `updates.rs::check_for_update`: fetches the latest version and writes the
 /// cache, keeping a dismissed version.
 async fn refresh_version_cache(
@@ -573,6 +574,10 @@ async fn refresh_version_cache(
     action: Option<UpdateAction>,
     fetch: &Fetch,
 ) -> Result<(), String> {
+    // `check_for_update`: a daemon update has no release to look for.
+    if matches!(action, Some(UpdateAction::Daemon(_))) {
+        return Ok(());
+    }
     let latest = fetch(action).await?;
     store_latest_version(file, &latest).map_err(|error| error.to_string())
 }
@@ -629,6 +634,7 @@ async fn fetch_latest(
             ensure_npm_version_ready(&package, &latest).map_err(anyhow::Error::msg)?;
             latest
         }
+        Some(UpdateAction::Daemon(_)) => anyhow::bail!("a daemon update has no release check"),
         Some(UpdateAction::StandaloneUnix | UpdateAction::StandaloneWindows) | None => {
             release().await?
         }
@@ -930,6 +936,7 @@ mod tests {
             check_trust: true,
             remote_cwd: None,
             cwd_override: false,
+            launch_prompt: false,
             update: UpdateSlot::default(),
             failure: FailureSlot::default(),
             reload: Arc::new(|| Box::pin(std::future::ready(Err("no reload".to_owned())))),
@@ -1191,10 +1198,21 @@ mod tests {
         cache: Cache,
         version: &str,
     ) -> (std::path::PathBuf, bool) {
+        let (file, facts) = launch_facts(startup, fetch, cache, version).await;
+        (file, facts.refresh_update)
+    }
+
+    /// The facts of a launch with the update check on, and the version file.
+    async fn launch_facts(
+        startup: &mut Startup,
+        fetch: Fetch,
+        cache: Cache,
+        version: &str,
+    ) -> (std::path::PathBuf, Facts) {
         startup.updates = Updates {
             enabled: true,
             version: version.to_owned(),
-            action: None,
+            action: startup.updates.action,
             fetch,
         };
         let file = version_file(&startup.config);
@@ -1213,7 +1231,7 @@ mod tests {
         let Some(AppEv::Screen(ScreenEv::Onboarding(Ev::Facts { facts, .. }))) = ev else {
             panic!("expected the facts, got {ev:?}");
         };
-        (file, facts.refresh_update)
+        (file, facts)
     }
 
     async fn refresh(startup: &Startup) -> Option<AppEv> {
@@ -1288,6 +1306,87 @@ mod tests {
         let fetch = fetching(&calls, Ok("2.1.0"));
         let (_, asked) = launch_with(&mut startup, fetch, Cache::Missing, "0.0.0").await;
         assert!(!asked);
+    }
+
+    // `update_action.rs::maps_install_context_to_update_action`.
+    #[test]
+    fn maps_install_context_to_update_action() {
+        let release_dir =
+            AbsolutePathBuf::from_absolute_path(std::env::temp_dir().join("native-release"))
+                .expect("temp dir path should be absolute");
+        let action = |method| {
+            update_action(&InstallContext {
+                method,
+                package_layout: None,
+            })
+        };
+        let standalone = |platform| InstallMethod::Standalone {
+            platform,
+            release_dir: release_dir.clone(),
+            resources_dir: Some(release_dir.join("codex-resources")),
+        };
+        assert_eq!(action(InstallMethod::Other), None);
+        assert_eq!(
+            action(InstallMethod::Npm),
+            Some(UpdateAction::NpmGlobalLatest)
+        );
+        assert_eq!(
+            action(InstallMethod::Bun),
+            Some(UpdateAction::BunGlobalLatest)
+        );
+        assert_eq!(
+            action(InstallMethod::VitePlus),
+            Some(UpdateAction::VitePlusGlobalLatest)
+        );
+        assert_eq!(
+            action(InstallMethod::Pnpm),
+            Some(UpdateAction::PnpmGlobalLatest)
+        );
+        assert_eq!(action(InstallMethod::Brew), Some(UpdateAction::BrewUpgrade));
+        assert_eq!(
+            action(standalone(StandalonePlatform::Unix)),
+            Some(UpdateAction::StandaloneUnix)
+        );
+        assert_eq!(
+            action(standalone(StandalonePlatform::Windows)),
+            Some(UpdateAction::StandaloneWindows)
+        );
+    }
+
+    // `skip_update_prompt` (lib.rs): a launch with a prompt offers no update, but
+    // `get_upgrade_version` still runs, so a stale cache is refreshed.
+    #[tokio::test]
+    async fn a_launch_prompt_skips_the_offer_but_keeps_the_refresh() {
+        let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        startup.updates.action = Some(UpdateAction::NpmGlobalLatest);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let (_, facts) = launch_facts(
+            &mut startup,
+            fetching(&calls, Ok("2.1.0")),
+            Cache::Fresh,
+            "1.0.0",
+        )
+        .await;
+        assert!(facts.update.is_some(), "no prompt: the offer is made");
+        startup.launch_prompt = true;
+        let (_, facts) = launch_facts(
+            &mut startup,
+            fetching(&calls, Ok("2.1.0")),
+            Cache::Fresh,
+            "1.0.0",
+        )
+        .await;
+        assert!(facts.update.is_none(), "a prompt: no offer");
+        assert!(!facts.refresh_update, "a fresh cache is not refreshed");
+        let (_, facts) = launch_facts(
+            &mut startup,
+            fetching(&calls, Ok("2.1.0")),
+            Cache::Old,
+            "1.0.0",
+        )
+        .await;
+        assert!(facts.update.is_none());
+        assert!(facts.refresh_update, "the refresh still runs");
     }
 
     // R-F1: the update chosen is stored before the answer that lets the page

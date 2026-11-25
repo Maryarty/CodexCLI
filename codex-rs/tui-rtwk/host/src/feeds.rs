@@ -29,6 +29,12 @@ pub(crate) enum Event<'a> {
     Startup,
     /// The connection came back after a loss.
     Reconnected,
+    /// A connection to a server other than the in-process one is up (at start, and again after a
+    /// reconnect): the version it reports and whether it is the local background server.
+    Connection {
+        server_version: Option<&'a str>,
+        local_daemon: bool,
+    },
     /// A write of the config file went through: `FeedCx::config` is the config as it is now.
     ConfigWritten,
     /// The server's notification, before the app takes it.
@@ -81,4 +87,5 @@ host_feed_list! {
     small_cmds;
     security_setup;
     windows_sandbox;
+    daemon;
 }

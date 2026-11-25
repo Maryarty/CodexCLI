@@ -476,14 +476,11 @@ pub fn update_offer(
     cache: Option<&VersionCache>,
     command: Option<String>,
 ) -> Option<UpdateOffer> {
-    if parse_version(current) == Some((0, 0, 0)) {
+    if is_source_build_version(current) {
         return None;
     }
     let cache = cache?;
-    let newer = matches!(
-        (parse_version(&cache.latest), parse_version(current)),
-        (Some(latest), Some(current)) if latest > current
-    );
+    let newer = is_newer(&cache.latest, current) == Some(true);
     if !newer || cache.dismissed.as_deref() == Some(cache.latest.as_str()) {
         return None;
     }
@@ -495,8 +492,24 @@ pub fn update_offer(
     })
 }
 
-/// `update_versions.rs::parse_version`.
-fn parse_version(version: &str) -> Option<(u64, u64, u64)> {
+/// `update_versions.rs::is_newer`: whether `latest` is a later release than `current`; `None`
+/// when either is not a plain `major.minor.patch` (a prerelease is not compared).
+pub fn is_newer(latest: &str, current: &str) -> Option<bool> {
+    match (parse_version(latest), parse_version(current)) {
+        (Some(latest), Some(current)) => Some(latest > current),
+        _ => None,
+    }
+}
+
+/// `update_versions.rs::is_source_build_version`: no release is compared against a source
+/// build (`0.0.0`).
+pub fn is_source_build_version(version: &str) -> bool {
+    parse_version(version) == Some((0, 0, 0))
+}
+
+/// `update_versions.rs::parse_version`: the first three dot-separated numbers, the rest of the
+/// text (a fourth component) is not read; surrounding whitespace is ignored.
+pub fn parse_version(version: &str) -> Option<(u64, u64, u64)> {
     let mut parts = version.trim().split('.');
     let major = parts.next()?.parse::<u64>().ok()?;
     let minor = parts.next()?.parse::<u64>().ok()?;

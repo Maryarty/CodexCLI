@@ -2,10 +2,11 @@
 //! `run_update_action` (and `resolve_windows_update_command_from_path`).
 
 use std::ffi::OsStr;
+use std::future::Future;
 use std::path::PathBuf;
 
 use codex_core::config::Config;
-use codex_tui_core::protocol::onboarding::VersionCache;
+use codex_tui_core::protocol::onboarding::{VersionCache, is_newer, is_source_build_version};
 use codex_tui_core::threads::Notice;
 use codex_tui_rtwk::services::agents::version::{Kind, kind};
 use codex_tui_rtwk::services::startup::UpdateAction;
@@ -109,23 +110,11 @@ pub fn upgrade_version(
     current: &str,
     cache: Option<&VersionCache>,
 ) -> Option<String> {
-    let current = parse_version(current).filter(|&version| version != (0, 0, 0))?;
-    if !(enabled && check) {
+    if is_source_build_version(current) || !(enabled && check) {
         return None;
     }
     let cache = cache?;
-    (parse_version(&cache.latest)? > current).then(|| cache.latest.clone())
-}
-
-/// `update_versions.rs::parse_version`: `major.minor.patch`, all numbers.
-fn parse_version(version: &str) -> Option<(u64, u64, u64)> {
-    let mut parts = version.trim().split('.');
-    let parsed = (
-        parts.next()?.parse().ok()?,
-        parts.next()?.parse().ok()?,
-        parts.next()?.parse().ok()?,
-    );
-    parts.next().is_none().then_some(parsed)
+    is_newer(&cache.latest, current)?.then(|| cache.latest.clone())
 }
 
 /// The notice the app opens its first conversation with (oracle `app/startup.rs`, before the loop:
@@ -160,6 +149,9 @@ pub fn server_version_message(client: &str, server: &str) -> Option<String> {
 /// The CLI's `run_update_action`: after the terminal is restored, the update
 /// runs where no project config steers it.
 pub fn run_update(action: UpdateAction) -> Result<(), String> {
+    if matches!(action, UpdateAction::Daemon(_)) {
+        return Err("a daemon update runs through `run_daemon_update`".to_owned());
+    }
     let command = action.command_str();
     let path_env = std::env::var_os("PATH");
     let plan = update_command(action, cfg!(windows), path_env.as_deref())?;
@@ -172,6 +164,24 @@ pub fn run_update(action: UpdateAction) -> Result<(), String> {
         .as_ref()
         .map_or(std::path::Path::new("/"), |dir| dir.path());
     run_update_process(&command, &plan.program, &plan.args, cwd)
+}
+
+/// The CLI's `run_update_action` for `UpdateAction::Daemon`: after the terminal is restored,
+/// the daemon is updated and the user is told to relaunch. `updated` is the daemon crate's call
+/// (`daemon::update_output`): the output line it prints (none when it was cancelled), or why
+/// it failed. A seam, so a test installs nothing.
+pub async fn run_daemon_update(
+    updated: impl Future<Output = Result<Option<String>, String>>,
+) -> Result<(), String> {
+    println!("Updating the local background server...");
+    let output = updated
+        .await
+        .map_err(|error| format!("Daemon update failed: {error}"))?;
+    if let Some(line) = output {
+        println!("{line}");
+    }
+    println!("Relaunch Codex to reconnect.");
+    Ok(())
 }
 
 #[cfg(test)]
@@ -193,6 +203,21 @@ mod tests {
             latest: latest.to_owned(),
             dismissed: None,
         }
+    }
+
+    // `daemon_update_tests.rs`: a daemon update that fails is an error that says so.
+    #[tokio::test]
+    async fn a_failed_daemon_update_reports_its_status() {
+        let failed = run_daemon_update(std::future::ready(Err("exit status 7".to_owned()))).await;
+        let error = failed.expect_err("a failed update");
+        assert!(error.contains("Daemon update failed"), "{error}");
+        assert!(error.contains("exit status 7"), "{error}");
+        let done = run_daemon_update(std::future::ready(Ok(Some("{}".to_owned())))).await;
+        assert_eq!(done, Ok(()));
+        assert_eq!(
+            run_daemon_update(std::future::ready(Ok(None))).await,
+            Ok(())
+        );
     }
 
     #[test]

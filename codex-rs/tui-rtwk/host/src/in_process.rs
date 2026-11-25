@@ -195,6 +195,8 @@ pub struct InProcess {
     pub failed: oneshot::Sender<String>,
     /// `codex agents`: the overview opens, no folder trust is asked.
     pub agents: bool,
+    /// The command line carries a prompt: no update is offered (`skip_update_prompt`).
+    pub launch_prompt: bool,
     /// Where the startup page leaves the update to run after the app ends.
     pub update: crate::startup::UpdateSlot,
     /// Where the startup page leaves the error of a launch it failed.
@@ -230,6 +232,7 @@ async fn run(
         startup_warning,
         failed,
         agents,
+        launch_prompt,
         update,
         startup_failure,
     } = spec;
@@ -325,7 +328,8 @@ async fn run(
             _ => None,
         },
         cwd_override: startup_cwd.is_some(),
-        update,
+        launch_prompt,
+        update: update.clone(),
         failure: startup_failure,
         browser: crate::startup::system_browser(),
         analytics: Default::default(),
@@ -343,6 +347,7 @@ async fn run(
     let effects = Arc::new(crate::effects::Effects::new(
         &config,
         crate::startup::system_browser(),
+        update,
         {
             let ingress = ingress.clone();
             Arc::new(move |ev| emit(&ingress, epoch, crate::effects::popover_ev(ev)))
@@ -434,6 +439,22 @@ async fn run(
     );
     if let Some(client) = held.get() {
         emit_connection(&ingress, epoch, client, reconnect_endpoint(&mode), daemon);
+        deliver(
+            connection_feed(
+                client,
+                daemon,
+                &crate::feeds::FeedCx {
+                    config: &config,
+                    target: startup.target,
+                    remote_workspace,
+                    ids: &ids,
+                    handle: &handle,
+                },
+            ),
+            &ingress,
+            epoch,
+            &mut inflight,
+        );
     }
     // And what words a refused cybersecurity request: the account's access and the catalog.
     let cyber = crate::facts::CyberPolicy::of(&config);
@@ -614,6 +635,22 @@ async fn run(
             &mut inflight,
         );
         emit_connection(&ingress, epoch, client, Some(endpoint.clone()), daemon);
+        deliver(
+            connection_feed(
+                client,
+                daemon,
+                &crate::feeds::FeedCx {
+                    config: &config,
+                    target: startup.target,
+                    remote_workspace,
+                    ids: &ids,
+                    handle: &handle,
+                },
+            ),
+            &ingress,
+            epoch,
+            &mut inflight,
+        );
         inflight.push(Box::pin(crate::facts::daybreak(
             cyber,
             ids.clone(),
@@ -675,6 +712,25 @@ pub(crate) async fn config_write(
         }
     }
     written.done
+}
+
+/// What the slices are told of the connection that is up (`Event::Connection`): nothing for the
+/// in-process server.
+fn connection_feed(
+    client: &AppServerClient,
+    local_daemon: bool,
+    cx: &crate::feeds::FeedCx<'_>,
+) -> Vec<crate::feeds::Feed> {
+    let AppServerClient::Remote(remote) = client else {
+        return Vec::new();
+    };
+    crate::feeds::run(
+        &crate::feeds::Event::Connection {
+            server_version: remote.server_version(),
+            local_daemon,
+        },
+        cx,
+    )
 }
 
 /// What the feeds told: the facts go to the app now, the jobs join the pump's work.

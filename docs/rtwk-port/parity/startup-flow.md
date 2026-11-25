@@ -88,6 +88,9 @@ Own tests:
   - The launch facts fail the launch when `account/read` or `config/read` cannot be read (`StartFailed`: the process ends with `Error: <message>` after the terminal is restored).
   - Remote workspaces: the trust of the `--cd` folder is read over the remote config (`read_remote_project_trust`).
   - Version cache: when missing or older than 20 h the facts carry `refresh_update`, the page asks `RefreshUpdateCache` and the shell runs it (the oracle's `check_for_update`; rule R1: the host spawns nothing).
+  - A launch with a prompt (`codex "text"`) offers no update (`skip_update_prompt`, `Startup.launch_prompt`); the cache refresh and the first conversation's banner still run.
+  - `/daemon` "Update and exit": `DaemonAsk::Update(source)` is kept as `UpdateAction::Daemon(source)` in the update slot, then answered `UpdateQueued`, on which the feature ends the app (`AppCx::end_app`); `main` runs `run_daemon_update` after the terminal is restored: the daemon crate is called in-process (`update` / `update_from_cli`, the sheet's confirmation is the `--yes`) where the oracle execs `codex app-server daemon update [--from-cli --yes]`; prints `Updating the local background server...`, the output line and `Relaunch Codex to reconnect.`, or `Daemon update failed: {error}`.
+  - `/daemon` facts feed (`host/src/feeds/daemon.rs`): at start the CLI (`current_exe`, canonical; `has_package` from its install context; the package's version else the build's), at each connection the server's version and whether it is the local daemon; `managed` is left to the probe `/daemon` runs when it opens, `offline` is not wired (no feed for a lost connection: the Restart row stays enabled while offline).
   - After the trust is saved the page asks `ReloadConfig`: the host rebuilds the config with the folder trusted.
   - The browser opens (`OpenBrowser`) only for the login attempt still awaited, on `spawn_blocking`, through a seam; the host offers no provider wizards (`WIZARDS_BUILT`).
   - The file IO lives in `src/services/startup.rs`: layers rule R12.
@@ -96,7 +99,7 @@ Own tests:
 ## Departures (no visual delta)
 
 - Provider facts are always false (task `onboarding`).
-- A source build (`CARGO_PKG_VERSION` 0.0.0) never offers or refreshes an update: `SOURCE_BUILD` (`host/src/startup.rs`) is that version, and the oracle's own source build has the same 0.0.0, so the update prompt does not show in either (the oracle's `updates.rs` is also compiled out of debug builds). Not a defect; the prompt is reached through the debug entry `update_prompt`.
+- A source build (`CARGO_PKG_VERSION` 0.0.0) never offers or refreshes an update: `is_source_build_version` (core `protocol::onboarding`, the one version rule with `is_newer` and `parse_version`: three numbers, a fourth component is not read) is that version, and the oracle's own source build has the same 0.0.0, so the update prompt does not show in either (the oracle's `updates.rs` is also compiled out of debug builds). Not a defect; the prompt is reached through the debug entry `update_prompt`.
 - Flex: a loose `Flexible` lays out as in Flutter (G51 below).
 
 ## rtwk gaps

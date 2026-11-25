@@ -83,6 +83,16 @@ pub struct ConfigEdit {
     pub value: serde_json::Value,
 }
 
+/// Where a daemon update comes from (`DaemonUpdateSource`): the choice of the `/daemon` menu, and
+/// what the update action runs after the exit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DaemonSource {
+    /// `Install latest public stable`.
+    PublicStable,
+    /// `Use this CLI build`.
+    ThisCli,
+}
+
 /// What `Ask::Daemon` asks of the local background server.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DaemonAsk {
@@ -92,6 +102,9 @@ pub enum DaemonAsk {
     /// Restarts the server (`LifecycleCommand::Restart`); the connection reconnects as it does
     /// after any loss.
     Restart,
+    /// `Update and exit`: the host keeps the update to run once Codex has exited
+    /// (`RunDaemonUpdate`: `pending_update_action = Daemon(source)`).
+    Update(DaemonSource),
 }
 
 /// The answer of a `DaemonAsk`.
@@ -101,6 +114,8 @@ pub enum DaemonDone {
     Managed(bool),
     /// The restart is over: nothing, or the failure text.
     Restarted(Result<(), String>),
+    /// The update is kept for the host to run after the exit: the app may end.
+    UpdateQueued,
 }
 
 host_capability_list! {

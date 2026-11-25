@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use chrono::DateTime;
 use chrono::Utc;
+use codex_tui_core::app::effects::DaemonSource as Source;
 use codex_tui_core::protocol::onboarding::VersionCache;
 
 /// Opens a URL in the user's browser (`webbrowser::open`); blocking.
@@ -180,10 +181,11 @@ pub fn run_update_process(
     Ok(())
 }
 
-/// `update_action.rs::UpdateAction` without the daemon's (the local daemon
-/// update is not part of this prompt).
+/// `update_action.rs::UpdateAction`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UpdateAction {
+    /// Replace the local daemon after restoring the terminal (`/daemon` "Update and exit").
+    Daemon(Source),
     NpmGlobalLatest,
     BunGlobalLatest,
     VitePlusGlobalLatest,
@@ -193,10 +195,19 @@ pub enum UpdateAction {
     StandaloneWindows,
 }
 
+/// `DaemonUpdateSource::command_args`: what `codex` runs to update the daemon from `source`.
+fn daemon_args(source: Source) -> &'static [&'static str] {
+    match source {
+        Source::PublicStable => &["app-server", "daemon", "update"],
+        Source::ThisCli => &["app-server", "daemon", "update", "--from-cli", "--yes"],
+    }
+}
+
 impl UpdateAction {
     /// `UpdateAction::command_args`.
     pub fn command_args(self) -> (&'static str, &'static [&'static str]) {
         match self {
+            UpdateAction::Daemon(source) => ("codex", daemon_args(source)),
             UpdateAction::NpmGlobalLatest => ("npm", &["install", "-g", "@openai/codex"]),
             UpdateAction::BunGlobalLatest => ("bun", &["install", "-g", "@openai/codex"]),
             UpdateAction::VitePlusGlobalLatest => ("vp", &["install", "-g", "@openai/codex"]),

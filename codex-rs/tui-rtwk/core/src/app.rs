@@ -500,8 +500,8 @@ pub enum Command {
 #[derive(Debug, Default, PartialEq)]
 pub struct AppFx {
     pub(crate) commands: Vec<Command>,
-    /// The app cannot go on: the connection did not start (the oracle ends
-    /// with the error, `run_main_inner` returning it).
+    /// The app ends: the connection did not start (the oracle ends with the error,
+    /// `run_main_inner` returning it), or a feature ended it (`AppCx::end_app`).
     pub(crate) ends: bool,
     pub(crate) desktop_notice: Option<chat::DesktopNotice>,
     /// The nearest moment the app wants the clock told (`AppEv::Clock`), as of the end of the
@@ -524,7 +524,7 @@ impl AppFx {
         self.commands
     }
 
-    /// Whether the app ends: its connection did not start.
+    /// Whether the app ends: its connection did not start, or a feature ended it.
     pub fn ends_app(&self) -> bool {
         self.ends
     }

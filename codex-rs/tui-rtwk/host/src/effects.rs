@@ -43,7 +43,7 @@ use codex_tui_rtwk::services::history::usage::MentionFile;
 use codex_tui_rtwk::services::shell::IngressTx;
 use codex_tui_rtwk::services::shell::WorkspaceExec;
 
-use crate::startup::Browser;
+use crate::startup::{Browser, UpdateSlot};
 
 /// Where the terminal's clipboard request goes: the owner of the terminal writes it.
 type Terminal = Arc<dyn Fn(&str) + Send + Sync>;
@@ -54,6 +54,9 @@ pub(crate) struct Effects {
     terminal: Terminal,
     /// The config the external editor's runner reads (the codex home, the sandbox policy).
     config: Option<Arc<Config>>,
+    /// Where `/daemon`'s "Update and exit" leaves the update for `main` to run once the
+    /// terminal is restored (the startup page's slot).
+    update: UpdateSlot,
 }
 
 /// Copy on release unless a direct terminal is known to forward its default copy shortcut
@@ -179,10 +182,11 @@ pub(crate) fn presets(config: &Config) -> Vec<Slot> {
 impl Effects {
     /// The services of `config`: the system clipboard, the history file and mention usage of its
     /// Codex home, the system browser, and the in-process file search over its working root,
-    /// whose matches go to `matches`.
+    /// whose matches go to `matches`; `update` is where a chosen daemon update is kept.
     pub(crate) fn new(
         config: &Config,
         browser: Browser,
+        update: UpdateSlot,
         matches: Arc<dyn Fn(popovers::Ev) + Send + Sync>,
     ) -> Self {
         let persist =
@@ -204,6 +208,7 @@ impl Effects {
             services,
             terminal: Arc::new(write_osc52),
             config: Some(Arc::new(config.clone())),
+            update,
         }
     }
 
@@ -214,6 +219,7 @@ impl Effects {
             services,
             terminal,
             config: None,
+            update: UpdateSlot::default(),
         }
     }
 
@@ -321,7 +327,7 @@ impl HostDoors for Own<'_> {
     }
 
     async fn background_server(&self, ask: DaemonAsk) -> Option<Self::Out> {
-        Some((crate::daemon::run(ask).await, None))
+        Some((crate::daemon::run(ask, &self.effects.update).await, None))
     }
 
     // The external editor is the host's own: it reads the config and runs a program.
