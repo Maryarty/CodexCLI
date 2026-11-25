@@ -177,7 +177,9 @@ impl Suggest {
         }
         let (at, naming) = {
             let inner = self.0.borrow();
-            let naming = !inner.items.is_empty()
+            // a muted row (a command a side conversation cannot run) is no completion: the `/`
+            // is typed
+            let naming = inner.items.get(inner.highlighted).is_some_and(|i| i.enabled)
                 && inner.query.starts_with('/')
                 && !inner.query.contains(char::is_whitespace);
             (inner.highlighted, naming)
