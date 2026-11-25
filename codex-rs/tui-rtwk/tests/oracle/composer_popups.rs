@@ -736,10 +736,14 @@ fn long_paths_keep_distinguishing_filenames_and_original_selection() {
 // ORACLE bottom_pane/mentions_v2/render_tests.rs:50 live_picker_frame_snapshots kind=snap owner=chat-nav-pane snap=narrow_scrolled snap=one_row snap=short snap=wide
 #[test]
 fn live_picker_frame_snapshots() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the 7-row and 1-row frames are the popup alone at that height: a chat screen sizes its popup and always holds the composer",
-    );
+    // The oracle renders `render_popup` alone on four canvases with twelve fixed rows (ten
+    // plugins, two files) and a chosen selection. The chat screen yields the wide frame as it
+    // is. The files of that list have no query to come from (the file search of an empty `@`
+    // lists none), so the narrow frame is checked on what the screen does produce of it: the
+    // header cut without a `…`, the tab strip at 40 columns (`›` for the tab out of room), the
+    // query line, the `↑` row of a scrolled list and the hint line cut with a `…` on its last
+    // cell; the 7-row and the 1-row canvases are the same popup at heights the chat gives it
+    // only as the room above its composer (the page test of the popup's reserve).
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .script(include_str!(
@@ -747,18 +751,22 @@ fn live_picker_frame_snapshots() {
         ))
         .open();
     s.type_text("@");
+    let top = row_starting(&s, "  Mentions");
     s.assert_snap_region(
         "codex_tui__bottom_pane__mentions_v2__render__tests__wide",
-        row_starting(&s, "  Mentions"),
+        top,
         0,
     );
     s.resize(40, 24);
+    // the selection moves to the last row of the list: the list scrolls and shows `↑`
     s.keys("up");
-    s.assert_snap_region(
+    s.assert_snap_rows_from(
         "codex_tui__bottom_pane__mentions_v2__render__tests__narrow_scrolled",
-        row_starting(&s, "  Mentions"),
-        0,
+        top,
+        7,
+        false,
     );
+    s.assert_row(top + 16, "  enter/tab insert · esc close · ↑/↓ …");
 }
 
 // ORACLE bottom_pane/mentions_v2/render_tests.rs:76 selection_covers_the_row_and_empty_filter_clears_previous_results kind=snap owner=chat-nav-pane snap=empty_filter
@@ -800,20 +808,41 @@ fn filesystem_columns_use_terminal_cell_widths() {
 // ORACLE bottom_pane/mentions_v2/render_tests.rs:166 long_mentions_leave_room_for_distinguishing_parent_paths kind=snap owner=chat-nav-pane snap=bounded_filesystem_columns_narrow snap=bounded_filesystem_columns_wide
 #[test]
 fn long_mentions_leave_room_for_distinguishing_parent_paths() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the snapshots are the popup alone at three rows: a chat screen sizes its popup itself, so the 3-row frame is not a screen state",
-    );
+    // The oracle renders the three file rows alone, in the order `src/界.rs`, `tests/界.rs`,
+    // `deep/a_very_long…` and the first selected. The file search sorts equal scores by path,
+    // so the filesystem tab lists `deep/…` first and selects it: the same three rows, the same
+    // columns and cuts, in the order the search gives (the snapshot's rows, `›` aside).
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .script(include_str!("fixtures/composer_popups/mentions_long.jsonl"))
         .open();
-    s.type_text("@");
-    s.assert_snap_region(
-        "codex_tui__bottom_pane__mentions_v2__render__tests__bounded_filesystem_columns_wide",
-        row_starting(&s, "› 界.rs"),
-        0,
-    );
+    s.type_text("@a").keys("right");
+    let top = row_starting(&s, "› a_very");
+    for (width, rows) in [
+        (
+            80,
+            [
+                "› a_very_long_filename_that_exceeds…  deep/                               File",
+                "  界.rs                               src/                                File",
+                "  界.rs                               tests/                              File",
+            ],
+        ),
+        (
+            40,
+            [
+                "› a_very_long_f…  deep/           File",
+                "  界.rs           src/            File",
+                "  界.rs           tests/          File",
+            ],
+        ),
+    ] {
+        if width == 40 {
+            s.resize(40, 24);
+        }
+        for (at, row) in rows.iter().enumerate() {
+            s.assert_row(top + at, row);
+        }
+    }
 }
 
 // ---- oracle: bottom_pane/skill_popup.rs (3 screen-level tests here; 3 state tests left to chat-nav-pane)
