@@ -39,6 +39,21 @@ pub(super) fn sync(app: &mut CodexApp, fx: &mut AppFx) {
         return;
     };
     let part = &model.screen_slots().popovers;
+    // the last task search's answer, once
+    if let Some(found) = &part.found
+        && app.screens.popovers.tasks_from != Some((thread.clone(), found.generation))
+    {
+        let ev = Ev::TasksFound {
+            thread: thread.clone(),
+            seq: found.generation,
+            tasks: found.tasks.clone(),
+        };
+        popovers::apply(&mut Rc::make_mut(&mut app.screens).popovers, ev, fx);
+    }
+    let Some(model) = app.threads.get(&thread) else {
+        return;
+    };
+    let part = &model.screen_slots().popovers;
     let apps = app.screens.select.apps.ready();
     let listed = &app.screens.popovers.listed;
     let nothing = part.skills.is_none() && part.plugins.is_none() && apps.is_none();

@@ -296,6 +296,7 @@ impl Draft {
                         .collect(),
                     remote_images: prompt.remote_images.clone(),
                     mentions: Vec::new(),
+                    tasks: Vec::new(),
                 }
             }
         }

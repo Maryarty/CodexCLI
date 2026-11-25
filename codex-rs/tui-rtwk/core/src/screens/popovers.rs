@@ -8,6 +8,15 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::PluginInstalledParams;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::SkillsListParams;
+use codex_app_server_protocol::SortDirection;
+use codex_app_server_protocol::ThreadListParams;
+use codex_app_server_protocol::ThreadListResponse;
+use codex_app_server_protocol::ThreadSearchParams;
+use codex_app_server_protocol::ThreadSearchResponse;
+use codex_app_server_protocol::ThreadSearchResult;
+use codex_app_server_protocol::ThreadSearchSortKey;
+use codex_app_server_protocol::ThreadSortKey;
+use codex_app_server_protocol::ThreadSource;
 
 use crate::app::AppFx;
 use crate::ids::ThreadId;
@@ -43,6 +52,9 @@ pub struct Model {
     pub listed: Listed,
     /// The tasks the last task search found (`@`).
     pub tasks: Vec<TaskMention>,
+    /// Which answer of a thread's task search `tasks` came from (`Ev::TasksFound`), so the app
+    /// takes each answer once.
+    pub tasks_from: Option<(ThreadId, u64)>,
     /// What the file search last answered: the query and its matches.
     pub file_matches: FileMatches,
     /// The window of recent `$` picks.
@@ -133,6 +145,12 @@ pub enum Ev {
     },
     /// The tasks a task search found.
     Tasks(Vec<TaskMention>),
+    /// The answer `seq` of a task search of `thread` (`ThreadPart::found`).
+    TasksFound {
+        thread: ThreadId,
+        seq: u64,
+        tasks: Vec<TaskMention>,
+    },
     /// The file search answered `query`.
     FileMatches { query: String, matches: Vec<FileMatch> },
     /// The recent `$` picks the usage file held, oldest first.
@@ -174,6 +192,9 @@ pub enum Intent {
     SearchFiles(FileSearchAsk),
     /// A `$` mention was picked (by the skill's path).
     RecordMention(String),
+    /// The `@` token is now this query: the tasks of the thread in use are searched (the app
+    /// hands it to the active thread, `ThreadEv::SearchTasks`).
+    SearchTasks(String),
     /// A task was picked: the list of tasks the search found is spent.
     SpendTasks,
     /// Ctrl+V: the clipboard's image is wanted (`Ask::ClipboardImage`).
@@ -189,6 +210,10 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             model.mentions = mentions;
         }
         Ev::Tasks(tasks) => model.tasks = tasks,
+        Ev::TasksFound { thread, seq, tasks } => {
+            model.tasks_from = Some((thread, seq));
+            model.tasks = tasks;
+        }
         Ev::FileMatches { query, matches } => model.file_matches = FileMatches { query, matches },
         Ev::MentionUsage(recent) => model.usage = MentionUsage::from_recent(recent),
         Ev::ImagePasted(path) => model.pasted.on_image(path),
@@ -228,6 +253,8 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         }
         Intent::Lookup(lookup) => model.asks.push(Ask::Lookup(lookup)),
         Intent::SearchFiles(ask) => model.asks.push(Ask::FileSearch(ask)),
+        // the thread's: the app routes it (`app::apply_intent`)
+        Intent::SearchTasks(_) => {}
         Intent::SpendTasks => model.tasks.clear(),
         Intent::PasteImage => model.asks.push(Ask::ClipboardImage),
         Intent::RecordMention(identity) => {
@@ -249,6 +276,47 @@ pub struct ThreadPart {
     pub skills: Option<Vec<Mention>>,
     /// `plugin/installed`'s eligible plugins, once answered.
     pub plugins: Option<Vec<Mention>>,
+    /// The directory of the thread (what its own tasks are sorted first by).
+    pub cwd: String,
+    /// The task searches asked so far: the number of the last one, which only its answers count.
+    pub generation: u64,
+    /// The task search in flight: its two RPCs and what each answered.
+    pub tasks_ask: Option<TasksAsk>,
+    /// The answer of the last task search that came, for the app to take (`Model::tasks_from`).
+    pub found: Option<TasksFound>,
+}
+
+/// A task search in flight (`task_mentions::spawn_search`): `thread/search` by the query joined
+/// with the titles of `thread/list`, both asked at once.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TasksAsk {
+    pub generation: u64,
+    pub query: String,
+    /// The thread in use: no task of its own to reference.
+    pub current: ThreadId,
+    /// What each RPC answered: nothing yet, an error, or its threads.
+    pub search: Option<Option<Vec<Found>>>,
+    pub titles: Option<Option<Vec<Found>>>,
+}
+
+/// The tasks a search found for `query`, the `generation` of the search naming the answer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TasksFound {
+    pub generation: u64,
+    pub query: String,
+    pub tasks: Vec<TaskMention>,
+}
+
+/// One thread an RPC of the task search listed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Found {
+    pub id: ThreadId,
+    /// The first of the name, the preview and the id that is not blank.
+    pub title: String,
+    pub cwd: String,
+    pub snippet: String,
+    /// An ephemeral thread or an ambient suggestion: never a task to mention.
+    pub hidden: bool,
 }
 
 /// An event of one thread for this screen; a variant of `ThreadEv::Screen`.
@@ -256,6 +324,11 @@ pub struct ThreadPart {
 pub enum ThreadEv {
     /// The thread is in use, in `cwd`: its lists are asked for, once.
     Load { cwd: String },
+    /// The `@` token is `query` in `current`'s composer: its tasks are searched. Only the last
+    /// search's answer counts, a stale one is dropped (the oracle also waits 100 ms for the
+    /// token to settle; the host's search of files does that here, a typed word costs two
+    /// requests more).
+    SearchTasks { query: String, current: ThreadId },
 }
 
 /// The RPCs of this screen: requested with `ThreadFx::request`, which stamps
@@ -266,6 +339,11 @@ pub enum Command {
     Skills { cwd: String },
     /// `plugin/installed` for the directory.
     Plugins { cwd: String },
+    /// `thread/search` for `query`, by recency.
+    TaskSearch { query: String },
+    /// `thread/list` of the newest threads (their titles are matched by the query's words in the
+    /// popup).
+    TaskTitles,
 }
 
 /// The replies of those RPCs, decoded by `decode`.
@@ -275,6 +353,8 @@ pub enum Reply {
     Skills(Vec<Mention>),
     /// The installed plugins, as mentions.
     Plugins(Vec<Mention>),
+    /// The threads of a task search or of the title list.
+    Threads(Vec<Found>),
 }
 
 /// What an outgoing RPC of this screen was for, kept with its ticket.
@@ -282,6 +362,10 @@ pub enum Reply {
 pub enum Ctx {
     Skills,
     Plugins,
+    /// The `thread/search` of the task search `generation`.
+    TaskSearch { generation: u64 },
+    /// The `thread/list` of the task search `generation`.
+    TaskTitles { generation: u64 },
 }
 
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
@@ -290,11 +374,85 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
             if std::mem::replace(&mut part.asked, true) {
                 return;
             }
+            part.cwd = cwd.clone();
             fx.request(Ctx::Skills, Command::Skills { cwd: cwd.clone() });
             fx.request(Ctx::Plugins, Command::Plugins { cwd });
         }
+        ThreadEv::SearchTasks { query, current } => {
+            part.generation += 1;
+            let generation = part.generation;
+            // a blank query lists nothing, at once
+            if query.trim().is_empty() {
+                part.tasks_ask = None;
+                part.found = Some(TasksFound {
+                    generation,
+                    query,
+                    tasks: Vec::new(),
+                });
+                return;
+            }
+            fx.request(
+                Ctx::TaskSearch { generation },
+                Command::TaskSearch {
+                    query: query.clone(),
+                },
+            );
+            fx.request(Ctx::TaskTitles { generation }, Command::TaskTitles);
+            part.tasks_ask = Some(TasksAsk {
+                generation,
+                query,
+                current,
+                search: None,
+                titles: None,
+            });
+        }
     }
 }
+
+/// The threads of the search and of the title list as the tasks to mention: the search's rows,
+/// then the listed ones it lacks; not the `current` thread, nor an ephemeral or ambient one;
+/// the first 50; those of `cwd` (or under it) first, otherwise in order. `None` when both RPCs
+/// failed.
+pub fn merge_tasks(
+    search: Option<Vec<Found>>,
+    titles: Option<Vec<Found>>,
+    current: &ThreadId,
+    cwd: &str,
+) -> Option<Vec<TaskMention>> {
+    if search.is_none() && titles.is_none() {
+        return None;
+    }
+    let mut found = search.unwrap_or_default();
+    for thread in titles.unwrap_or_default() {
+        if found.iter().all(|other| other.id != thread.id) {
+            found.push(thread);
+        }
+    }
+    let mut tasks: Vec<TaskMention> = found
+        .into_iter()
+        .filter(|thread| !thread.hidden && thread.id != *current)
+        .take(MAX_SEARCH_RESULTS)
+        .map(|thread| TaskMention {
+            thread_id: thread.id,
+            title: thread.title,
+            cwd: thread.cwd,
+            snippet: thread.snippet,
+        })
+        .collect();
+    let windows = cwd.as_bytes().get(1) == Some(&b':') || cwd.starts_with(r"\\");
+    tasks.sort_by_key(|task| {
+        let Some((prefix, suffix)) = task.cwd.get(..cwd.len()).zip(task.cwd.get(cwd.len()..))
+        else {
+            return true;
+        };
+        !(prefix == cwd || windows && prefix.eq_ignore_ascii_case(cwd))
+            || !(suffix.is_empty() || suffix.starts_with(['/', '\\']))
+    });
+    Some(tasks)
+}
+
+/// The most threads one search asks for and lists.
+const MAX_SEARCH_RESULTS: usize = 50;
 
 /// An answer of the server: its list, or nothing when it failed (the popups then list what they
 /// had; the oracle logs the failure and shows no warning of its own).
@@ -308,7 +466,50 @@ pub fn apply_reply(
     match (ctx, result) {
         (Ctx::Skills, Ok(Reply::Skills(skills))) => part.skills = Some(skills),
         (Ctx::Plugins, Ok(Reply::Plugins(plugins))) => part.plugins = Some(plugins),
+        (Ctx::TaskSearch { generation }, result) => {
+            task_reply(part, generation, true, result.ok().and_then(threads))
+        }
+        (Ctx::TaskTitles { generation }, result) => {
+            task_reply(part, generation, false, result.ok().and_then(threads))
+        }
         _ => {}
+    }
+}
+
+fn threads(reply: Reply) -> Option<Vec<Found>> {
+    match reply {
+        Reply::Threads(found) => Some(found),
+        _ => None,
+    }
+}
+
+/// One of the two answers of the search `generation`; the second one merges them. A search
+/// that is not the last is dropped.
+fn task_reply(part: &mut ThreadPart, generation: u64, search: bool, found: Option<Vec<Found>>) {
+    let Some(ask) = part.tasks_ask.as_mut().filter(|ask| ask.generation == generation) else {
+        return;
+    };
+    if search {
+        ask.search = Some(found);
+    } else {
+        ask.titles = Some(found);
+    }
+    if ask.search.is_none() || ask.titles.is_none() {
+        return;
+    }
+    let ask = part.tasks_ask.take().unwrap_or_else(|| unreachable!("checked above"));
+    // both failed: the list stays as it was
+    if let Some(tasks) = merge_tasks(
+        ask.search.flatten(),
+        ask.titles.flatten(),
+        &ask.current,
+        &part.cwd,
+    ) {
+        part.found = Some(TasksFound {
+            generation,
+            query: ask.query,
+            tasks,
+        });
     }
 }
 
@@ -321,6 +522,44 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
             params: SkillsListParams {
                 cwds: vec![cwd.into()],
                 force_reload: true,
+            },
+        },
+        Command::TaskSearch { query } => ClientRequest::ThreadSearch {
+            request_id: id,
+            params: ThreadSearchParams {
+                include_attached_threads: false,
+                current_account_only: true,
+                cursor: None,
+                limit: Some(MAX_SEARCH_RESULTS as u32),
+                sort_key: Some(ThreadSearchSortKey::RecencyAt),
+                sort_direction: Some(SortDirection::Desc),
+                source_kinds: Some(Vec::new()),
+                archived: Some(false),
+                search_term: query.trim().to_string(),
+            },
+        },
+        Command::TaskTitles => ClientRequest::ThreadList {
+            request_id: id,
+            params: ThreadListParams {
+                include_attached_threads: false,
+                current_account_only: true,
+                excluded_thread_ids: None,
+                attached_to_thread_id: None,
+                originators: None,
+                cursor: None,
+                limit: Some(MAX_SEARCH_RESULTS as u32),
+                sort_key: Some(ThreadSortKey::UpdatedAt),
+                sort_direction: Some(SortDirection::Desc),
+                model_providers: Some(Vec::new()),
+                source_kinds: Some(Vec::new()),
+                archived: Some(false),
+                section_id: None,
+                project_id: None,
+                cwd: None,
+                use_state_db_only: true,
+                search_term: None,
+                parent_thread_id: None,
+                ancestor_thread_id: None,
             },
         },
         Command::Plugins { cwd } => ClientRequest::PluginInstalled {
@@ -346,6 +585,52 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
         Command::Plugins { .. } => serde_json::from_value(result)
             .map(|response| Reply::Plugins(sources::plugins(response)))
             .map_err(malformed),
+        Command::TaskSearch { .. } => serde_json::from_value::<ThreadSearchResponse>(result)
+            .map(|response| Reply::Threads(response.data.into_iter().map(found).collect()))
+            .map_err(malformed),
+        Command::TaskTitles => serde_json::from_value::<ThreadListResponse>(result)
+            .map(|response| {
+                Reply::Threads(
+                    response
+                        .data
+                        .into_iter()
+                        .map(|thread| {
+                            found(ThreadSearchResult {
+                                thread,
+                                snippet: String::new(),
+                            })
+                        })
+                        .collect(),
+                )
+            })
+            .map_err(malformed),
+    }
+}
+
+/// A thread of an answer as the search lists it: titled by its name, else its preview, else its id.
+fn found(result: ThreadSearchResult) -> Found {
+    let thread = result.thread;
+    let title = [
+        thread.name.as_deref(),
+        Some(thread.preview.as_str()),
+        Some(thread.id.as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    .map(str::trim)
+    .find(|title| !title.is_empty())
+    .unwrap_or_default()
+    .to_string();
+    Found {
+        hidden: thread.ephemeral
+            || matches!(
+                thread.thread_source,
+                Some(ThreadSource::Feature(ref source)) if source == "ambient_suggestions"
+            ),
+        id: ThreadId::new(&thread.id),
+        title,
+        cwd: thread.cwd.to_string_lossy().into_owned(),
+        snippet: result.snippet,
     }
 }
 

@@ -11,6 +11,7 @@ use rtwk::editing::TextEditingController;
 use rtwk::focus::KeyPress;
 use rtwk::provider::read;
 
+use codex_tui_core::data::files::FileSearchAsk;
 use codex_tui_core::kit::mentions::session::{Active, MentionPick, PickAction};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, popovers};
 
@@ -82,12 +83,22 @@ pub(super) fn sync(w: &Composer, states: &ScreenStates, cx: &mut Cx<'_, Composer
     } else {
         draft.sync_mentions(c, &states.popovers.sources())
     };
+    // the `@` token's query also searches the user's other tasks
+    let tasks: Vec<_> = synced
+        .asks
+        .iter()
+        .filter_map(|ask| match ask {
+            FileSearchAsk::Query(query) => Some(popovers::Intent::SearchTasks(query.clone())),
+            FileSearchAsk::Stop => None,
+        })
+        .collect();
     let asks = synced
         .asks
         .into_iter()
         .map(popovers::Intent::SearchFiles)
         .collect();
     emit(cx, asks);
+    emit(cx, tasks);
     if synced.changed {
         draft.mentions().notify();
     }

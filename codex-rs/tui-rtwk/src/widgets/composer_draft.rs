@@ -32,7 +32,7 @@ use codex_tui_core::kit::mentions::session::ComposerBinding;
 use codex_tui_core::kit::mentions::tool_mentions;
 use codex_tui_core::kit::paste as paste_rules;
 use codex_tui_core::kit::paste_burst::PasteBurst;
-use codex_tui_core::threads::{LocalImage, UserMessage};
+use codex_tui_core::threads::{LocalImage, TaskRef, UserMessage};
 
 use crate::services::images;
 
@@ -525,6 +525,19 @@ impl ComposerDraft {
             .iter()
             .filter_map(|(_, e)| e.binding.clone())
             .collect();
+        // the `@title` elements bound to a `thread://` path name a task
+        let tasks: Vec<TaskRef> = placed
+            .iter()
+            .filter_map(|(range, e)| {
+                let binding = e.binding.as_ref()?;
+                let thread = binding.path.strip_prefix("thread://")?;
+                Some(TaskRef {
+                    range: range.clone(),
+                    title: binding.mention.clone(),
+                    thread: thread.to_string(),
+                })
+            })
+            .collect();
         let mut images: Vec<(u64, LocalImage)> = placed
             .into_iter()
             .filter_map(|(range, e)| {
@@ -544,6 +557,7 @@ impl ComposerDraft {
             images: images.into_iter().map(|(_, image)| image).collect(),
             remote_images: self.remote_images(),
             mentions: tool_mentions(&bindings, catalog),
+            tasks,
         }
     }
 

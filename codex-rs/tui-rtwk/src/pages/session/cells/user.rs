@@ -109,7 +109,7 @@ pub fn panel(prompt: &UserPrompt, look: &Look<'_>, joins_previous: bool) -> BoxW
         } else {
             let mut spans = Vec::with_capacity(shown.elements.len() * 2 + 1);
             let mut cursor = 0;
-            for range in shown.elements {
+            for range in shown.elements.iter() {
                 let Some(piece) = text.get(range.clone()) else {
                     break;
                 };
