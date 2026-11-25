@@ -11,9 +11,10 @@
 
 use rtwk::editing::{StoredStops, TextEditingController, editing_key};
 use rtwk::focus::KeyPress;
+use rtwk::prelude::KeyCode;
 
 use codex_tui_core::keymap::actions::{
-    VIM_NORMAL_APPEND_AFTER_CURSOR, VIM_NORMAL_APPEND_LINE_END, VIM_NORMAL_CANCEL_OPERATOR,
+    EDITOR_MOVE_LEFT, VIM_NORMAL_APPEND_AFTER_CURSOR, VIM_NORMAL_APPEND_LINE_END, VIM_NORMAL_CANCEL_OPERATOR,
     VIM_NORMAL_CHANGE_TO_LINE_END, VIM_NORMAL_DELETE_CHAR, VIM_NORMAL_DELETE_TO_LINE_END,
     VIM_NORMAL_ENTER_INSERT, VIM_NORMAL_ENTER_REPLACE_MODE, VIM_NORMAL_FIND_BACKWARD,
     VIM_NORMAL_FIND_FORWARD, VIM_NORMAL_INSERT_LINE_START, VIM_NORMAL_JUMP_BOTTOM,
@@ -354,6 +355,40 @@ pub fn opens_slash(data: &KeyData, c: &TextEditingController, key: &KeyPress, mo
         ]
         .into_iter()
         .any(|id| pressed(&data.keymap, id, key))
+}
+
+/// Whether Normal mode takes `key` as one of its search keys (`wants_vim_search_key`: `/`, `?`,
+/// `n`, `N` by default, as remapped). They come before the page's own keys of an empty
+/// composer: `?` in Normal mode searches backward, the shortcut overlay is for the other modes.
+pub fn wants_search_key(draft: &ComposerDraft, keymap: &Keymap, key: &KeyPress) -> bool {
+    let mode = mode(draft);
+    mode.searching
+        || (mode.enabled
+            && mode.normal
+            && matches!(mode.pending, VimPending::None | VimPending::Operator(_))
+            && [
+                VIM_SEARCH_FORWARD,
+                VIM_SEARCH_BACKWARD,
+                VIM_SEARCH_NEXT,
+                VIM_SEARCH_PREVIOUS,
+            ]
+            .into_iter()
+            .any(|id| pressed(keymap, id, key)))
+}
+
+/// Whether the `←` key is the agents shortcut's here (`agents_navigation_key_available`): the
+/// Left arrow is the composer's `move_left` (the editor's, or Normal mode's in Normal mode),
+/// and no operator waits for its motion. A remap that takes `←` away from `move_left` leaves
+/// it to the field (history, as `move_up`), and the footer's hint goes with it.
+pub fn agents_key_available(draft: &ComposerDraft, keymap: &Keymap) -> bool {
+    let mode = mode(draft);
+    let id = if mode.enabled && mode.normal {
+        VIM_NORMAL_MOVE_LEFT
+    } else {
+        EDITOR_MOVE_LEFT
+    };
+    !matches!(mode.pending, VimPending::Operator(_))
+        && pressed(keymap, id, &KeyPress::code(KeyCode::Left))
 }
 
 /// The keys Normal mode answers before anything else of the composer: the

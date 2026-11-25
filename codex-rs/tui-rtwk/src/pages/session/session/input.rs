@@ -14,6 +14,7 @@ use codex_tui_core::keymap::actions::{
 use codex_tui_core::keymap::{ActionId, Binding, Keymap, fixed};
 
 use crate::keymap::{combo_of, holds_ctrl_or_alt, pressed_fixed, unmodified};
+use crate::pages::session::composer::vim;
 use crate::pages::session::keys;
 use crate::pages::session::live::browse::{self, Browse};
 use crate::pages::session::live::provider_error;
@@ -252,9 +253,15 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
         {
             return KeyEventResult::Ignored;
         }
+        // Normal mode's search keys come first (`wants_vim_search_key`: `?` searches backward)
+        if vim::wants_search_key(&draft.borrow(), &keymap.borrow(), &key) {
+            return KeyEventResult::Ignored;
+        }
         if pressed_fixed(fixed::OPEN_SHORTCUTS, &key) {
             send(ChatMsg::Shortcuts);
-        } else if pressed_fixed(fixed::OPEN_AGENTS_FROM_LEFT, &key) {
+        } else if pressed_fixed(fixed::OPEN_AGENTS_FROM_LEFT, &key)
+            && vim::agents_key_available(&draft.borrow(), &keymap.borrow())
+        {
             send(ChatMsg::Agents);
         } else {
             return KeyEventResult::Ignored;

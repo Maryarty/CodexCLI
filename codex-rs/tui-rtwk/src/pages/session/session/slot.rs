@@ -15,6 +15,7 @@ use codex_tui_core::screens::backtrack::Targets;
 use codex_tui_core::threads::composer::{ComposerState, composer_state};
 
 use crate::pages::session::composer::strings as composer_strings;
+use crate::pages::session::composer::vim as composer_vim;
 use crate::pages::session::composer::{Composer, Placeholder};
 use crate::pages::session::external_writer;
 use crate::pages::session::footer::{Flash, Footer, Line, Timed};
@@ -88,6 +89,11 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
             // Reverse history search: its row is the footer
             // (`history_search_footer_line`).
             crate::pages::session::composer::search::footer(cx, query, status)
+        } else if let Some(row) =
+            crate::pages::session::composer::search::query_footer(cx, &w.ui.draft)
+        {
+            // Normal mode's `/` query: its row is the footer too
+            row
         } else {
             let line = if state.shortcuts {
                 // Open: the footer is the close hint (`close_hint`).
@@ -101,7 +107,10 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
             };
             let props = Footer {
                 line,
-                agents: true,
+                agents: composer_vim::agents_key_available(
+                    &w.ui.draft,
+                    &crate::keymap::keymap(cx),
+                ),
                 draft_empty: state.draft_empty,
                 shell: state.draft_shell,
                 vim: w
