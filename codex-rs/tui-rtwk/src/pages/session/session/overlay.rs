@@ -7,14 +7,22 @@ use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, Expanded, SizedBox, St
 use rtwk::style::Style;
 use rtwk::{AnyWidget, LayoutBuilder};
 
+use super::chord_guide::ChordGuide;
+
 /// The window height under which the chat draws nothing.
 const HIDDEN_BELOW_ROWS: i32 = 4;
 
-/// The transcript above the bottom pane, and the blank sheet over both. An inline region is as
+/// The transcript above the bottom pane, the guide of a held chord at the bottom right, and the
+/// blank sheet over all. An inline region is as
 /// tall as the page asks (`inline_draft`: the startup draft, whose heading stands where the
 /// transcript will), so the transcript has no flex there: a flex child would keep the rows of
 /// the tallest frame (the footer's row, gone with the first key).
-pub(super) fn page(transcript: Stack, body: Column, inline_draft: bool) -> Stack {
+pub(super) fn page(
+    transcript: Stack,
+    body: Column,
+    inline_draft: bool,
+    guide: ChordGuide,
+) -> Stack {
     let transcript: AnyWidget = if inline_draft {
         transcript.into()
     } else {
@@ -32,5 +40,9 @@ pub(super) fn page(transcript: Stack, body: Column, inline_draft: bool) -> Stack
             SizedBox::shrink().into()
         }
     });
-    Stack::new().fit(StackFit::Expand).child(page).child(blank)
+    Stack::new()
+        .fit(StackFit::Expand)
+        .child(page)
+        .child(guide)
+        .child(blank)
 }

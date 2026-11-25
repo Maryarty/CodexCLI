@@ -146,7 +146,7 @@ pub fn texts(item: &Item, env: &Env<'_>) -> Texts {
         Item::Notice(Notice::SessionInfo(info)) if session_info::has_markdown(info) => {
             Texts::Gap(Gap::Markdown)
         }
-        Item::Notice(notice) => Texts::Exact(notice::texts(notice, cells)),
+        Item::Notice(notice) => Texts::Exact(notice::texts(notice, cells, env.detailed)),
         Item::Note(note) => Texts::Exact(note::texts(note, env.chat, cells)),
         Item::Hook(run) => Texts::Exact(
             hook::texts(run, cells)

@@ -31,14 +31,14 @@ use rtwk::gestures::SelectionTarget;
 use rtwk::render::RenderId;
 
 use codex_tui_core::keymap::actions::{
-    PAGER_HALF_PAGE_DOWN, PAGER_HALF_PAGE_UP, PAGER_JUMP_BOTTOM, PAGER_JUMP_TOP, PAGER_PAGE_DOWN,
-    PAGER_PAGE_UP, PAGER_SCROLL_DOWN, PAGER_SCROLL_UP,
+    GLOBAL_SELECT_TRANSCRIPT, PAGER_HALF_PAGE_DOWN, PAGER_HALF_PAGE_UP, PAGER_JUMP_BOTTOM,
+    PAGER_JUMP_TOP, PAGER_PAGE_DOWN, PAGER_PAGE_UP, PAGER_SCROLL_DOWN, PAGER_SCROLL_UP,
 };
 use codex_tui_core::keymap::{ActionId, Keymap};
 
 use super::TranscriptMode;
 use super::find::{self, Direction, Finder, RowTexts};
-use crate::keymap::pressed;
+use crate::keymap::{chords_of, pressed};
 use crate::widgets::thread_ui::{Follow, TextSelection};
 
 /// A place in the transcript: a row of the list (oldest first) and a byte of its text.
@@ -196,6 +196,8 @@ struct Data {
     /// The caret moved: the pane scrolls it into view.
     reveal: bool,
     watched: bool,
+    /// The pane refused the mode (nothing selectable); the host that held it reads this once.
+    refused: bool,
     /// The query of the Find that was accepted in this mode, lowercased: what `n` and `N` look for
     /// (the oracle keeps that Find open and reading; here it closes and leaves its query).
     query: String,
@@ -233,6 +235,7 @@ impl Default for Select {
                 list: None,
                 reveal: false,
                 watched: false,
+                refused: false,
                 query: String::new(),
             }),
             ticks: Rc::new(ValueNotifier::new(0)),
@@ -255,6 +258,32 @@ fn what(key: &KeyPress) -> Option<Do> {
             .filter(|combo| combo.accepts_press(key))
             .map(|_| what)
     })
+}
+
+/// What a key does of the chord that begins select mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Chord {
+    /// The leader: the next key may complete the chord.
+    Waiting,
+    /// The chord is complete: `select_transcript` (`begin_select_mode`).
+    Begin,
+}
+
+/// `select_transcript` is a chord (the leader, then `[` by default): `leader` is the flag the
+/// host keeps between the two keys. `None` where the key is no part of it.
+pub fn chord(keymap: &Keymap, leader: &Cell<bool>, key: &KeyPress) -> Option<Chord> {
+    let chords = chords_of(keymap, GLOBAL_SELECT_TRANSCRIPT);
+    if leader.replace(false) {
+        chords
+            .iter()
+            .any(|(_, done)| done.accepts_press(key))
+            .then_some(Chord::Begin)
+    } else if chords.iter().any(|(prefix, _)| prefix.accepts_press(key)) {
+        leader.set(true);
+        Some(Chord::Waiting)
+    } else {
+        None
+    }
 }
 
 /// What the pager's keys (`keymap.pager`: rebound or not) do in select mode: they move the caret
@@ -358,8 +387,14 @@ impl Select {
             if !data.active {
                 return;
             }
+            // on the grapheme the match starts in (a match of a combining mark alone), or the next
+            // line's start where it began on a line break
+            let at = data
+                .rows
+                .clone()
+                .map_or(hit, |rows| place(&rows, &lines(&rows), hit));
             data.query = query.chars().flat_map(char::to_lowercase).collect();
-            data.cursor = hit;
+            data.cursor = at;
             data.column = None;
             data.reveal = true;
             data.shown = None;
@@ -435,6 +470,40 @@ impl Select {
         };
         self.notify();
         Some(step)
+    }
+
+    /// A key of the mode, while Find is not asking (`handle_select_mode_key`): the model takes it
+    /// and the mode does what the step says (a copy lets the mark go, Enter's copy leaves the mode
+    /// with what it selected, Exit ends it, `/` opens Find from where the reader is); `host` is
+    /// told the step first, for what is the host's (the copy itself, the way out). Whether the key
+    /// was the mode's; a key that is not goes on.
+    pub fn take(
+        &self,
+        keymap: &Keymap,
+        key: &KeyPress,
+        selection: &TextSelection,
+        finder: &Finder,
+        host: &dyn Fn(Step),
+    ) -> bool {
+        if !self.active() || finder.active() {
+            return false;
+        }
+        let Some(step) = self.key(keymap, key) else {
+            return false;
+        };
+        host(step);
+        match step {
+            Step::Moved => {}
+            Step::Copy => self.copied(),
+            Step::CopyAndFollow => self.leave(),
+            Step::Exit => self.end(selection),
+            Step::Find => {
+                if let Some(follow) = self.reader() {
+                    finder.begin(&follow, selection);
+                }
+            }
+        }
+        true
     }
 
     /// A copy was asked for: what was marked is let go, the caret stays on its grapheme.
@@ -557,13 +626,18 @@ impl Select {
         // nothing to select (no line with a character in it): `begin_select_mode` is refused
         if lines.iter().all(Line::empty) {
             data.active = false;
+            data.refused = true;
             drop(data);
             self.notify();
             return false;
         }
         if !data.placed {
             data.placed = true;
-            let last = lines.iter().rev().find(|line| !line.empty()).or(lines.last());
+            let last = lines
+                .iter()
+                .rev()
+                .find(|line| !line.empty())
+                .or(lines.last());
             if let Some(last) = last {
                 data.cursor = Pos {
                     row: last.row,
@@ -718,6 +792,12 @@ impl Select {
         self.notify();
     }
 
+    /// Whether the pane refused the mode, once: it began where nothing is selectable
+    /// (`begin_select_mode` is refused, and a sheet that was to hold it is done).
+    pub fn refused(&self) -> bool {
+        std::mem::take(&mut self.0.data.borrow_mut().refused)
+    }
+
     /// Whether the mode's listener has been put on the pane (`watched`), once.
     pub fn watching(&self) -> bool {
         !std::mem::replace(&mut self.0.data.borrow_mut().watched, true)
@@ -758,9 +838,7 @@ fn place(rows: &RowTexts, lines: &[Line], at: Pos) -> Pos {
         .find(|line| line.row == at.row && (line.start..=line.end).contains(&at.offset))
     else {
         // a match in a gutter: the next line there is a stop on
-        return after(at)
-            .or(lines.last())
-            .map_or(at, at_line);
+        return after(at).or(lines.last()).map_or(at, at_line);
     };
     if line.empty() {
         return at_line(line);
@@ -935,8 +1013,7 @@ fn moved(
         Motion::WordBackward => {
             let buffer = TextBuffer::new(text);
             if cursor.offset > line.start {
-                let start =
-                    buffer.word_start_before_in(cursor.offset, false, line.start, line.end);
+                let start = buffer.word_start_before_in(cursor.offset, false, line.start, line.end);
                 return (
                     Pos {
                         row: line.row,

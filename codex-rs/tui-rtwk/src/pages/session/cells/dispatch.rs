@@ -47,7 +47,7 @@ pub struct CellEnv<'a> {
 pub struct Place {
     /// Something is above it: a blank row separates them.
     pub separator: bool,
-    /// A prompt that follows another with no turn between (no blank row).
+    /// A prompt that follows another in the detailed transcript (no blank row between).
     pub joins_prompt: bool,
     /// The prompt a browsing sheet marks.
     pub highlighted: bool,

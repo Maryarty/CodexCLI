@@ -512,14 +512,18 @@ fn paste_burst_expired_before_tab_still_queues() {
 // ORACLE bottom_pane/chat_composer/paste_tests.rs:150 paste_burst_modified_queue_binding_still_dispatches kind=ui owner=chat-live
 #[test]
 fn paste_burst_modified_queue_binding_still_dispatches() {
-    kit::pending(
-        Owner::ChatLive,
-        "no rebindable queue key: the default keymap queues on Tab only; Ctrl+Q (`queue_keys` override) is the keymap task's",
-    );
-    let mut s = chat_running(100, 24);
-    s.type_text("x");
+    // the oracle's `queue_keys = [ctrl-q]`: the keymap's `composer.queue`
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .script(include_str!("fixtures/composer_2/running.jsonl"))
+        .keymap(&[("composer.queue", "ctrl+q")])
+        .open();
+    // the first character is held by the paste-burst detector when the queue key comes
+    s.type_burst("x");
     s.keys("ctrl+q");
+    // queued, not typed: the composer is empty again and the row waits behind the turn
     s.assert_row(prompt(&s), PLACEHOLDER);
+    s.assert_has_row("  ↳ x");
 }
 
 // ---- oracle: bottom_pane/chat_composer/reconnect_tests.rs (6 screen-level tests here; 5 state tests left to chat-live)

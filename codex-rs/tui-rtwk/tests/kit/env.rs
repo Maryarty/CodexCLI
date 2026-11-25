@@ -15,6 +15,8 @@
 //!   is `ColorDepth::None`, `1` is `Ansi16`, `2` is `Ansi256`, `3` is
 //!   `TrueColor`); the app's colours come down to them as they are written.
 //! - `legacy_text()`: a terminal without grapheme clustering (`TextMode::Legacy`).
+//! - `notifications()`: a terminal that shows OSC 9 notifications (what the app tells it to
+//!   notify is `Screen::notifications()`).
 //! - `syntax_theme(name)`: the config's `[tui] theme` (the highlight theme in
 //!   force), delivered as the host does, the settings screen's facts.
 //! - `env(name, value)`: a variable of the app's environment (empty by
@@ -55,6 +57,7 @@ use codex_tui_core::threads::daybreak::{Access, ModelAccess, Programs};
 use codex_tui_rtwk::services::startup::UpdateAction;
 use rtwk::binding::ScreenMode;
 use rtwk_core::style::ColorMode;
+use rtwk_core::terminal::NotificationProtocol;
 use rtwk_core::unicode::TextMode;
 use rtwk_test::Options;
 
@@ -119,6 +122,7 @@ pub(super) struct Env {
     palette: Vec<(u8, u32)>,
     depth: Option<ColorDepth>,
     legacy_text: bool,
+    notifications: bool,
     vars: Vec<(&'static str, &'static str)>,
     syntax_theme: Option<&'static str>,
     foreign_writer: Option<&'static str>,
@@ -165,11 +169,12 @@ impl Env {
         for (name, value) in &self.vars {
             options = options.env(name, value);
         }
-        let (fg, palette, depth, legacy) = (
+        let (fg, palette, depth, legacy, notifications) = (
             self.foreground,
             self.palette.clone(),
             self.depth,
             self.legacy_text,
+            self.notifications,
         );
         options.terminal(move |terminal| {
             terminal.foreground_rgb = fg;
@@ -179,6 +184,9 @@ impl Env {
             }
             if legacy {
                 terminal.text_mode = TextMode::Legacy;
+            }
+            if notifications {
+                terminal.notifications = NotificationProtocol::Osc9;
             }
         })
     }
@@ -343,6 +351,13 @@ impl Open {
     /// `UnicodeWidthStr` counts them.
     pub fn legacy_text(mut self) -> Open {
         self.env.legacy_text = true;
+        self
+    }
+
+    /// A terminal that shows OSC 9 notifications: what the app asks it to notify is written, and
+    /// `Screen::notifications` reads it.
+    pub fn notifications(mut self) -> Open {
+        self.env.notifications = true;
         self
     }
 

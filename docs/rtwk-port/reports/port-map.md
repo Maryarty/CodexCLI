@@ -1,8 +1,8 @@
 # Карта всего порта: oracle (codex-rs/tui) против порта (codex-rs/tui-rtwk)
 
-Дата: 2026-11-24, база 01741db4b (батчи 10-12). Документ собран скриптом `tools/rtwk-port/map-full/build.py` из данных рядом с ним: правится дата, перезапуск. Проверка непротиворечивости — `tools/rtwk-port/map-full/check.py`. Карта экрана чата `chat-feature-map.md` остаётся (подробные ячейки, числа тестов, архитектура ADR-013) и ссылается сюда; здесь — вся функциональность oracle без исключений, пакеты работ по владению файлами, и 905 pending-тестов по пакетам.
+Дата: 2026-11-24, база 01741db4b (батчи 10-12). Документ собран скриптом `tools/rtwk-port/map-full/build.py` из данных рядом с ним: правится дата, перезапуск. Проверка непротиворечивости — `tools/rtwk-port/map-full/check.py`. Карта экрана чата `chat-feature-map.md` остаётся (подробные ячейки, числа тестов, архитектура ADR-013) и ссылается сюда; здесь — вся функциональность oracle без исключений, пакеты работ по владению файлами, и 904 pending-тестов по пакетам.
 
-**Итог.** Строк-функций: 328 (экран чата — 293 из `chat-feature-map.md` + 35 вне экрана чата): ✅ 138, 🟡 86, ❌ 99, «?» 5. Все 312 строк `codex-tui-features.csv` покрыты строкой (раздел «Покрытие CSV»), все 1230 файлов `codex-rs/tui/src` — пакетом или «✅ rtwk» (`port-map-modules.tsv`), все 24 экранов карты S01-S27 (в карте нет S07-S09) — строкой. Пакетов: 30 (волна 1 — 9, влита; волна 2 — 11; волна 3 — 10); кроме волны 1 — 46-49 прогонов порт-агента (прогон ≈150-250 ходов, ≈1500 написанных строк). Pending-тестов oracle: 905, у каждого пакет (раздел «Тесты»).
+**Итог.** Строк-функций: 328 (экран чата — 293 из `chat-feature-map.md` + 35 вне экрана чата): ✅ 138, 🟡 86, ❌ 99, «?» 5. Все 312 строк `codex-tui-features.csv` покрыты строкой (раздел «Покрытие CSV»), все 1230 файлов `codex-rs/tui/src` — пакетом или «✅ rtwk» (`port-map-modules.tsv`), все 24 экранов карты S01-S27 (в карте нет S07-S09) — строкой. Пакетов: 30 (волна 1 — 9, влита; волна 2 — 11; волна 3 — 10); кроме волны 1 — 46-49 прогонов порт-агента (прогон ≈150-250 ходов, ≈1500 написанных строк). Pending-тестов oracle: 904, у каждого пакет (раздел «Тесты»).
 
 ## Как читать
 
@@ -51,7 +51,7 @@
 | `resume-rest` — resume/fork picker: хвосты и превью транскрипта | W3 | 1 | ≈600 | 1 | 5 | w2-transcript, kit-seeds |
 | `terminal-features` — терминал и рантайм: Ctrl+Z, Ctrl+L, screen reader, reduced motion, уведомления, тема | W3 | 1 | ≈900 | 9 | 0 | fw-ui-registry, fw-core-hubs (Ask::Suspend/Notify/Probe) |
 | `app-misc` — остальное приложения: exit summary, session log, turn tips, MCP startup, reconnect, read-only, quit-confirm | W3 | 1-2 | ≈1100 | 4 | 0 | fw-core-hubs, fw-ui-registry |
-| `kit-seeds` — обвязка oracle-тестов: семена kit, имена кадров, хранилище настроек | W2 | 1-2 | ≈1400 | 1 | 64 | — |
+| `kit-seeds` — обвязка oracle-тестов: семена kit, имена кадров, хранилище настроек | W2 | 1-2 | ≈1400 | 1 | 63 | — |
 
 ### `fw1-c1`
 
@@ -349,7 +349,7 @@
 - **UI:** семена: keymap-семя, хранилище view-mode, entry для make_elicitation_request, имена кадров склеенного снимка, Screen::feed в entry-экраны; снимает pending «no seed»/«kit names the frames» (≈160 тестов).
 - **Зависит:** —.
 - **Строки (1):** Keymap-seeds для approval.
-- **Тесты:** 64 pending (список — `tools/rtwk-port/map-full/unpend/kit-seeds.txt`).
+- **Тесты:** 63 pending (список — `tools/rtwk-port/map-full/unpend/kit-seeds.txt`).
 
 ## Строки
 
@@ -1115,7 +1115,7 @@
 | `app-misc` | 2 | 0 | 0 | 2 |
 | `sidebar` | 2 | 0 | 0 | 2 |
 
-## Тесты: 905 pending по пакетам
+## Тесты: 904 pending по пакетам
 
 Правило отнесения (`tests_rules.py`): тест, чья причина названа семенем/входом/именами кадров kit, — в `kit-seeds` (это обвязка, пока она не влита, функция не зазеленит тест); остальные — по имени теста, затем по причине, затем по шарду. Неточность правил — не пробел: пакет получает свой список, перенос теста между пакетами — правка одной строки в `unpend/`.
 
@@ -1133,9 +1133,9 @@
 | `inline-mode` | 12 | markdown_streaming_2 4, textarea 3, markdown_streaming_5 2, cells_4 1, chat_commands_3 1, composer_1 1 |
 | `startup-rest` | 20 | chat_commands_3 8, chat_live_3 4, startup_prompts 3, signin 2, cells_1 1, cells_2 1 |
 | `resume-rest` | 5 | resume_2 3, resume_1 2 |
-| `kit-seeds` | 64 | chat_commands_1 13, transcript_view_5 8, chat_commands_3 7, composer_4 5, picker 5, transcript_view_1 4 |
+| `kit-seeds` | 63 | chat_commands_1 13, transcript_view_5 8, chat_commands_3 6, composer_4 5, picker 5, transcript_view_1 4 |
 
-По тегам владельца шарда: chat-live 539, dialogs-pane 137, ui-pane 121, chat-nav-pane 75, routes-lists 27, startup-prompts 3, onboarding 2, startup-flow 1.
+По тегам владельца шарда: chat-live 539, dialogs-pane 137, ui-pane 121, chat-nav-pane 74, routes-lists 27, startup-prompts 3, onboarding 2, startup-flow 1.
 
 ## Связь с прежней картой
 

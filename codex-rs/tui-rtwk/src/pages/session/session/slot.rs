@@ -18,12 +18,13 @@ use crate::pages::session::composer::strings as composer_strings;
 use crate::pages::session::composer::vim as composer_vim;
 use crate::pages::session::composer::{Composer, Placeholder};
 use crate::pages::session::external_writer;
-use crate::pages::session::footer::{Flash, Footer, Line, Timed};
+use crate::pages::session::footer::{Flash, Footer, Line};
 use crate::pages::session::keys::Action;
 use crate::pages::session::live::provider_error;
 use crate::pages::session::transcript;
 use crate::widgets::status_line::{Notice, with_warning_notice};
 
+use super::cloud_wait;
 use super::frame::Frame;
 use super::{Chat, ChatMsg, ChatState};
 
@@ -76,7 +77,10 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
         let mut composer = Composer::new(w.ui.clone(), state.node.clone())
             .on_changed(cx.map(ChatMsg::Changed))
             .on_submitted(cx.map(ChatMsg::Submit))
-            .on_picked(cx.map(ChatMsg::Picked));
+            .on_picked(cx.map(ChatMsg::Picked))
+            // the queue key when it is not Tab (`composer.queue`): Tab is the page's
+            .on_queue(cx.send(ChatMsg::QueueDraft))
+            .queueing(thread.task_running());
         let closing = select::<ScreenStates, bool, _>(cx, |states| states.chat.facts.shutting_down);
         let held = composer_state(thread, closing);
         match held {
@@ -91,6 +95,11 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
                 placeholder = Placeholder::Side.text(composer_strings::of(cx));
             }
             ComposerState::ReadOnly | ComposerState::Disabled | ComposerState::Open => {}
+        }
+        if held == ComposerState::Open
+            && let Some(mode) = cloud_wait::restricted(&frame.session)
+        {
+            composer = composer.restricted(mode);
         }
         let footer = if held == ComposerState::ShuttingDown {
             // `show_shutdown_in_progress`: the empty hint override takes the footer away
@@ -149,10 +158,10 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
             let flash = select::<ScreenStates, Option<Flash>, _>(cx, |states| {
                 states.chat.facts.flash().map(Flash::of)
             });
-            let footer: AnyWidget = Timed {
-                footer: Footer { flash, ..props },
-            }
-            .into();
+            let footer = cloud_wait::footer(
+                Footer { flash, ..props },
+                cloud_wait::Hint::of(&frame.session, chat_strings),
+            );
             if line == Line::Passive {
                 transcript::follow::footer(
                     cx,

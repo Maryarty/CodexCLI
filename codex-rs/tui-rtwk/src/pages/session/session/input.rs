@@ -4,16 +4,16 @@
 
 use std::rc::Rc;
 
-use rtwk::focus::{Focus, KeyBindings, KeyCombo, KeyEventResult};
+use rtwk::focus::{Focus, KeyBindings, KeyEventResult};
 use rtwk::layout::Stack;
 use rtwk::{AnyWidget, Cx, Key};
 
 use codex_tui_core::keymap::actions::{
     CHAT_OPEN_PRESETS, GLOBAL_CHANGE_HOST, GLOBAL_SELECT_TRANSCRIPT,
 };
-use codex_tui_core::keymap::{ActionId, Binding, Keymap, fixed};
+use codex_tui_core::keymap::fixed;
 
-use crate::keymap::{combo_of, holds_ctrl_or_alt, pressed_fixed, unmodified};
+use crate::keymap::{chords_of, holds_ctrl_or_alt, pressed_fixed, unmodified};
 use crate::pages::session::composer::vim;
 use crate::pages::session::keys;
 use crate::pages::session::live::browse::{self, Browse};
@@ -28,21 +28,6 @@ use crate::widgets::thread_ui::Input;
 
 use super::frame::Frame;
 use super::{ChatMsg, ChatState};
-
-/// The chords of an action (the leader's prefix and its completion: `Ctrl+X b` for `change_host`,
-/// `Ctrl+X p` for `open_presets` by default), as the keymap resolved them.
-fn chords_of(keymap: &Keymap, action: ActionId) -> Vec<(KeyCombo, KeyCombo)> {
-    keymap
-        .bindings(action)
-        .into_iter()
-        .filter_map(|binding| match binding {
-            Binding::Chord { prefix, completion } => {
-                Some((combo_of(&prefix)?, combo_of(&completion)?))
-            }
-            Binding::Single(_) => None,
-        })
-        .collect()
-}
 
 /// `?` (the shortcut overlay, `footer_shortcuts_default`) and `←` (the agents page,
 /// `handle_agents_navigation`) on an EMPTY composer belong to the page; with text they go to
@@ -122,32 +107,21 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
         // select mode: the caret's keys come before the field's, while Find is not asking
         // (`handle_select_mode_key`); a key of the mode ends here, one that is not goes on
         let caret = caret::of(&finder);
-        if caret.active()
-            && !finder.active()
-            && let Some(step) = caret.key(&keymap.borrow(), &key)
-        {
-            let selection = selection.borrow().clone();
-            match step {
-                Step::Moved => {}
-                Step::Copy => {
-                    send(ChatMsg::Selection(SelectionKey::Copy));
-                    caret.copied();
-                }
+        if caret.take(
+            &keymap.borrow(),
+            &key,
+            &selection.borrow(),
+            &finder,
+            &|step| match step {
+                Step::Copy => send(ChatMsg::Selection(SelectionKey::Copy)),
                 Step::CopyAndFollow => {
                     send(ChatMsg::Selection(SelectionKey::CopyAndFollow));
-                    caret.leave();
                     modes.borrow().hold(Input::Plain);
                 }
-                Step::Exit => {
-                    caret.end(&selection);
-                    modes.borrow().hold(Input::Plain);
-                }
-                Step::Find => {
-                    if let Some(follow) = caret.reader() {
-                        finder.begin(&follow, &selection);
-                    }
-                }
-            }
+                Step::Exit => modes.borrow().hold(Input::Plain),
+                Step::Moved | Step::Find => {}
+            },
+        ) {
             return KeyEventResult::Handled;
         }
         // browsing the prompts: its keys come first, any other key ends it
@@ -273,8 +247,10 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
         if pressed_fixed(fixed::OPEN_SHORTCUTS, &key) {
             send(ChatMsg::Shortcuts);
         } else if pressed_fixed(fixed::OPEN_AGENTS_FROM_LEFT, &key)
+            // the plain Left only (`key_hint::plain(KeyCode::Left)`): Shift+Left is the edit-queued
+            // key when it is bound, and nothing when it is not
+            && unmodified(&key)
             && vim::agents_key_available(&draft.borrow(), &keymap.borrow())
-            // Shift+Left is the chat's own key first (`edit_queued_message`)
             && !crate::keymap::pressed(
                 &keymap.borrow(),
                 codex_tui_core::keymap::actions::CHAT_EDIT_QUEUED_MESSAGE,
@@ -312,9 +288,9 @@ pub(super) fn focus(
             focus = focus.bind(key, cx.send(msg.clone()));
         }
     }
-    // Tab queues while a turn runs and submits otherwise, but not a
+    // Tab queues while a task runs and submits otherwise, but not a
     // shell command (`queue_keys` in `handle_key_event_without_popup`).
-    if (frame.run.running() || !state.draft_shell)
+    if (thread.task_running() || !state.draft_shell)
         && !state.draft_empty
         && frame.searching.is_none()
     {

@@ -35,6 +35,7 @@ use codex_tui_rtwk::services::backend::fake::FakeServer;
 use codex_tui_rtwk::services::shell::Backend;
 
 use crate::common::{Harness, ms};
+use crate::kit::Screen;
 
 /// Puts the transcript alone in place of the harness app's home. The app (its core, its
 /// controllers, its backend link) is the one running; the spare given to `AppView` is dropped
@@ -150,4 +151,28 @@ fn home(
         .with(Provider::value_shared(Rc::new(hs)).update_should_notify(|_, _| false))
         .child(AnyWidget::from(Navigator::new().home(home)).with_key(app.ui.nav_key.clone()))
         .into()
+}
+
+/// The oracle's tests of the view alone read its cells by coordinates (`assert_style(13, 0, ..)`,
+/// `assert_row(5, ..)`); the port draws an agent answer after a two-column gutter (`• `), closes
+/// a turn with its `Worked for` row, and puts the transcript at the bottom of the list, where the
+/// rows of a footer (select mode's hints, Find's query) move it. These read the cells by the text
+/// they hold instead.
+impl Screen {
+    /// The row of the screen that holds `text` first, from the top.
+    pub fn row_of(&self, text: &str) -> usize {
+        self.rows()
+            .iter()
+            .position(|row| row.contains(text))
+            .unwrap_or_else(|| panic!("no `{text}` on the screen:\n{}", self.text()))
+    }
+
+    /// The style of the cell `offset` characters into the first `text` of the screen.
+    pub fn assert_style_in(&self, text: &str, offset: usize, spec: &str) {
+        let y = self.row_of(text);
+        let row = &self.rows()[y];
+        let at = row.find(text).unwrap_or_default();
+        let x = row[..at].chars().count() + offset;
+        self.assert_style(x, y, spec);
+    }
 }

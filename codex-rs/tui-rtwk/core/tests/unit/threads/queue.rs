@@ -26,13 +26,33 @@ fn the_queue_key_sorts_a_line_by_its_first_character() {
     // a `!` the user did not type in shell mode is a message as it stands
     assert_eq!(
         Queued::of(text(" !echo hi"), false),
-        Queued::Literal(text("!echo hi"))
+        Queued::Literal(text("!echo hi"), None)
     );
     // a line led by a space is not a command
     assert_eq!(
         Queued::of(text(" /model"), false),
         Queued::Message(text("/model"))
     );
+}
+
+#[test]
+fn a_hidden_paste_keeps_the_label_the_composer_showed() {
+    let payload = format!("!echo {}", "x".repeat(40));
+    let literal = Queued::of(text(&payload), false);
+    // the row reads as the composer did, the message is the whole text
+    let label = "[Pasted Content 46 chars]";
+    let shown = literal.clone().shown_as(&format!(" {label} "));
+    assert_eq!(shown.shown(), label);
+    assert_eq!(shown.message().text, payload);
+    // a line the composer showed as it is has no label of its own
+    assert_eq!(literal.clone().shown_as(&payload).shown(), payload);
+    assert_eq!(
+        literal.shown_as(&payload),
+        Queued::Literal(text(&payload), None)
+    );
+    // the rest are shown as their text
+    let message = Queued::of(text("hello"), false).shown_as("[Pasted Content 5 chars]");
+    assert_eq!(message.shown(), "hello");
 }
 
 #[test]

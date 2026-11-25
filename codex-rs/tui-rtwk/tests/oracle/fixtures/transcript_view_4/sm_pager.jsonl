@@ -1,5 +1,16 @@
-# sm_pager: oracle cell input of transcript_view select_mode/selection tests
+# sm_pager: oracle cell input (one cell of twelve lines) as twelve answers of one turn: an item taller than the window cannot be scrolled to a row of its own (G-new-sel-reveal)
 {"step":"seed","seed":"session","thread":"thread-1"}
 {"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
-{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-1","delta":"line 0\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11"}}}
+{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-0","delta":"line 0"}}}
+{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-1","delta":"line 1"}}}
+{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-2","delta":"line 2"}}}
+{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-3","delta":"line 3"}}}
+{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-4","delta":"line 4"}}}
+{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-5","delta":"line 5"}}}
+{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-6","delta":"line 6"}}}
+{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-7","delta":"line 7"}}}
+{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-8","delta":"line 8"}}}
+{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-9","delta":"line 9"}}}
+{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-10","delta":"line 10"}}}
+{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-11","delta":"line 11"}}}
 {"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"summary","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}

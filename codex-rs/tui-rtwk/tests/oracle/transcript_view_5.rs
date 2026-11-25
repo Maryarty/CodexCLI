@@ -348,15 +348,52 @@ fn command_and_output_copy_preserve_hard_lines_across_resize() {
 // ORACLE transcript_view_tests.rs:77 consecutive_user_prompts_share_one_background_block kind=snap owner=chat-live snap=consecutive_user_prompts_share_one_background_block
 #[test]
 fn consecutive_user_prompts_share_one_background_block() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat draws user prompts without the shared background block of consecutive prompts yet",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(32, 12)
-        .script(include_str!("fixtures/transcript_view_5/prompts.jsonl"))
+    // the oracle's frame is its `TranscriptView` (Ctrl+T), built from cells with no turns
+    // around them: two steering prompts, an answer, a blank prompt and a later prompt, one
+    // turn each, none with a start, end or duration (no `Worked for` row between them). The
+    // chat keeps each prompt's own rows (chat_live_2's replayed review prompts).
+    let turn = |id: &str, item: serde_json::Value| {
+        let mut turn = kit::replay_turn(id, serde_json::json!([item]));
+        turn["startedAt"] = serde_json::Value::Null;
+        turn["completedAt"] = serde_json::Value::Null;
+        turn["durationMs"] = serde_json::Value::Null;
+        turn
+    };
+    let user = |id: &str, text: &str| {
+        serde_json::json!({
+            "type": "userMessage", "id": id, "clientId": null,
+            "content": [{"type": "text", "text": text, "text_elements": []}],
+            "startedAtMs": null, "completedAtMs": null
+        })
+    };
+    let mut turns = vec![
+        turn("turn-1", user("user-1", "First steering message")),
+        turn("turn-2", user("user-2", "Second steering message")),
+        turn(
+            "turn-3",
+            message_item("msg-3", "Assistant response", "final_answer"),
+        ),
+        turn("turn-4", user("user-4", "   ")),
+        turn("turn-5", user("user-5", "Later user message")),
+    ];
+    turns.reverse();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 24)
+        .replay(turns)
+        .terminal_colors(0xeb_eb_eb, 0x12_14_1e)
+        .live()
         .open();
-    s.assert_snap("consecutive_user_prompts_share_one_background_block");
+    s.keys("ctrl+t");
+    let first = s
+        .rows()
+        .iter()
+        .position(|row| row.starts_with("› First steering message"))
+        .expect("the first prompt is drawn");
+    s.assert_snap_region(
+        "consecutive_user_prompts_share_one_background_block",
+        first - 1,
+        0,
+    );
 }
 
 // ORACLE transcript_view_tests.rs:115 prompt_adjacency_uses_cached_retained_presentations kind=ui owner=chat-live

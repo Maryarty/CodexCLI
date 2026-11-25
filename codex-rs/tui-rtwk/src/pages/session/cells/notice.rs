@@ -25,11 +25,14 @@ use codex_tui_core::threads::Item;
 /// The mark and its blank (oracle `"⚠ "` and `"  "`).
 const MARK_COLUMNS: i32 = 2;
 
-/// The notice's texts, the mark of a row that has one included.
-pub fn texts(notice: &Notice, strings: &Strings) -> Vec<Part> {
+/// The notice's texts, the mark of a row that has one included. `detailed`: the Ctrl+T
+/// transcript, whose end of a review names the review's text (the chat's does not).
+pub fn texts(notice: &Notice, strings: &Strings, detailed: bool) -> Vec<Part> {
     let row = |text: String| vec![Part::text(text)];
     match notice {
-        Notice::ContextCompacted { took } => row([strings.bullet, &super::compaction::line(*took, strings)].concat()),
+        Notice::ContextCompacted { took } => {
+            row([strings.bullet, &super::compaction::line(*took, strings)].concat())
+        }
         Notice::Interrupted => row(strings.interrupted.to_owned()),
         Notice::InterruptedForSteer => {
             row([strings.bullet, strings.interrupted_for_steer].concat())
@@ -40,6 +43,7 @@ pub fn texts(notice: &Notice, strings: &Strings) -> Vec<Part> {
         Notice::EnteredReview(review) => {
             row([strings.review_started.0, review, strings.review_started.1].concat())
         }
+        Notice::ExitedReview(_) if !detailed => row(strings.review_finished_chat.to_owned()),
         Notice::ExitedReview(review) => {
             row([strings.review_finished.0, review, strings.review_finished.1].concat())
         }
@@ -139,6 +143,11 @@ fn nudge_words(nudge: Nudge, outcome: NudgeOutcome, strings: &Strings) -> &'stat
     }
 }
 
+/// `new_review_status_line`: the line in the accent colour.
+fn review_line(tokens: &Tokens, line: String) -> AnyWidget {
+    Text::new(line).style(tokens.accent()).into()
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NoticeCell {
     pub notice: Notice,
@@ -151,13 +160,7 @@ impl StatelessWidget for NoticeCell {
         let tokens = Tokens::of(cx);
         let strings = super::strings::of(cx);
         let review = |(open, close): (&'static str, &'static str), review: &str| {
-            Text::rich(vec![
-                Span::new(open),
-                Span::new(review.to_owned()),
-                Span::new(close),
-            ])
-            .style(tokens.accent())
-            .into()
+            review_line(&tokens, [open, review, close].concat())
         };
         match &self.notice {
             Notice::ContextCompacted { took } => Text::rich(vec![
@@ -305,15 +308,21 @@ impl StatelessWidget for NoticeCell {
 
 /// A notice of the session (compacted, forked, ...).
 /// The cell of `item` when it is this file's (`cell_list!`).
-pub fn view(item: &Item, _env: &CellEnv<'_>, place: &Place) -> AnyWidget {
+///
+/// The end of a review is two cells: the chat's (`exit_review_mode_after_item`) has no review
+/// text, the detailed transcript's (`thread_transcript`, the [`NoticeCell`]) names it.
+pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
     let Item::Notice(notice) = item else {
         return AnyWidget::default();
     };
-    below(
-        place.separator,
-        NoticeCell {
+    let cell = match notice {
+        Notice::ExitedReview(_) if !env.detailed => {
+            review_line(env.tokens, env.cells.review_finished_chat.to_owned())
+        }
+        _ => NoticeCell {
             notice: notice.clone(),
         }
         .into(),
-    )
+    };
+    below(place.separator, cell)
 }

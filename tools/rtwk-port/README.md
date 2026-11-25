@@ -12,3 +12,4 @@
 - `f-approval-decisions/pending_tsv.py`: drops the pending-tests.tsv rows of that task's tests that pass, refreshes the reason of those still pending; then map-full build.py + check.py.
 - async-questions/fixtures.py: writes the q_*.jsonl fixtures of the async-question tests of tests/oracle/chat_approvals_2.rs (an agent message with questions, the running turn, the reply of another client).
 - f-unified-exec/fixtures.py: writes the jsonl fixtures of the unified-exec oracle tests (tests/oracle/fixtures/{chat_approvals_1,cells_3,cells_4}: a turn, a startup command, polls, agent messages, the turn end).
+- `f-select-mode/unpend.py`: removes the kit::pending marker of the 15 select-mode tests of tests/oracle/transcript_view_4.rs and puts `.view_only()` on their screens (idempotent; the bodies are then hand-adapted: text lookups for the port frame, gaps behind a marker).

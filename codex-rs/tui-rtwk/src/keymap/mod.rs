@@ -91,6 +91,21 @@ pub fn combo_of(stroke: &Stroke) -> Option<KeyCombo> {
     KeyCombo::parse(&name_of(stroke)?).ok()
 }
 
+/// The chords of an action (the leader's prefix and its completion: `Ctrl+X b` for `change_host`,
+/// `Ctrl+X [` for `select_transcript` by default), as the keymap resolved them.
+pub fn chords_of(keymap: &Keymap, action: ActionId) -> Vec<(KeyCombo, KeyCombo)> {
+    keymap
+        .bindings(action)
+        .into_iter()
+        .filter_map(|binding| match binding {
+            Binding::Chord { prefix, completion } => {
+                Some((combo_of(&prefix)?, combo_of(&completion)?))
+            }
+            Binding::Single(_) => None,
+        })
+        .collect()
+}
+
 /// The name a binding has for `KeyBindings`: a key (`ctrl+t`) or the keys
 /// pressed one after another (`ctrl+x enter`).
 pub fn name_of_binding(binding: &Binding) -> Option<String> {

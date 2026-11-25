@@ -153,6 +153,16 @@ pub struct Strings {
     pub cloud_connecting: &'static str,
     pub cloud_failed: &'static str,
     pub cloud_failed_action: &'static str,
+    /// `PendingChord::guide`, `ShortcutHud::render_overlay`: the block a held editor chord
+    /// draws. The key that cancels, between a key and what it does, between the keys of one
+    /// action, the rule's head and the cell before its tail, between the title and the cancel
+    /// key of a compact block.
+    pub chord_cancel: &'static str,
+    pub hud_separator: &'static str,
+    pub hud_key_separator: &'static str,
+    pub chord_rule_lead: &'static str,
+    pub chord_rule_gap: &'static str,
+    pub chord_command_gap: &'static str,
     pub forking_session: &'static str,
     /// `chatwidget/provider_error.rs`: the notice that stands in place of the
     /// composer when the server refused the chat for its model provider.
@@ -345,6 +355,12 @@ pub const EN: Strings = Strings {
     cloud_connecting: "Connecting to Cloud…",
     cloud_failed: "Cloud conversation did not open",
     cloud_failed_action: "draft kept",
+    chord_cancel: "Esc cancel",
+    hud_separator: " \u{b7} ",
+    hud_key_separator: " / ",
+    chord_rule_lead: "\u{2500} ",
+    chord_rule_gap: " ",
+    chord_command_gap: "   ",
     forking_session: "  Forking session…",
     provider_lock: "\u{1f512}",
     provider_title_continue: "Continue in a new chat",

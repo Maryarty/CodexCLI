@@ -27,6 +27,16 @@ pub(in crate::pages::session) enum Delivery {
     Drain,
 }
 
+impl Delivery {
+    /// Whether `line` waits behind the running turn: Tab says so, and so does Enter on a paste
+    /// that merely starts with `!` (not shell mode), which is never a steer
+    /// (`QueuedInputAction::Literal`).
+    pub(in crate::pages::session) fn queues(self, line: &str, busy: bool, shell: bool) -> bool {
+        self == Delivery::Queue
+            || (self == Delivery::Submit && busy && !shell && line.trim_start().starts_with('!'))
+    }
+}
+
 /// The message `line` is: the draft with its images and mentions when it is the draft, else
 /// the line as text (a popup's pick).
 pub(in crate::pages::session) fn message(
@@ -74,7 +84,9 @@ pub(in crate::pages::session) fn keep(
 ) {
     let record = popovers::Intent::Record(line.to_string());
     cx.emit(&hs.screen, ScreenIntent::from(record));
-    let queued = Queued::of(message(line, w, cx, states), w.ui.draft.shell());
+    // a literal paste keeps its placeholder in the queue's row, the expansion is the turn's text
+    let queued = Queued::of(message(line, w, cx, states), w.ui.draft.shell())
+        .shown_as(&w.ui.composer.text());
     let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::Queue(queued));
     cx.emit(&hs.thread_screen, (thread.clone(), intent));
 }

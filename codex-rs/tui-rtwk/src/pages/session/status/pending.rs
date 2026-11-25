@@ -53,7 +53,7 @@ impl Pending {
             queued: thread
                 .queue()
                 .iter()
-                .map(|message| shown(&message.text))
+                .map(|queued| shown(queued.shown()))
                 .collect(),
         }
     }
