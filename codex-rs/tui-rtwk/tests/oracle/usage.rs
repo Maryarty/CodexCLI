@@ -6,54 +6,6 @@
 
 use crate::kit::{self, Owner, Screen, snap_rows};
 
-/// The chart's rows as the oracle draws them (`chart_lines` at a graph width, trailing blanks
-/// cut), found anywhere on the screen: the first row is the one that ends with the first line,
-/// the page's inset is the shift of that row, and each following row is the next line shifted
-/// the same. `clipped` lets the last row (a caption wider than the graph: `chart_lines` does not
-/// clip, the page does at the graph's width) lose its tail.
-fn assert_chart(s: &Screen, want: &[&str], clipped: bool) {
-    let rows = s.rows();
-    let first = want[0].trim_end();
-    let at = rows
-        .iter()
-        .position(|row| row.trim_end().ends_with(first.trim_start()))
-        .unwrap_or_else(|| panic!("no row ends with `{first}` on\n{}", s.text()));
-    let shift = rows[at].trim_end().chars().count() - first.chars().count();
-    for (i, line) in want.iter().enumerate() {
-        let expected = if line.trim().is_empty() {
-            String::new()
-        } else {
-            format!("{}{}", " ".repeat(shift), line.trim_end())
-        };
-        let got = rows.get(at + i).map_or("", |row| row.trim_end());
-        if clipped && i + 1 == want.len() {
-            assert!(
-                expected.starts_with(got) && got.trim().chars().count() >= 15,
-                "chart caption {got:?} is not {expected:?} clipped:\n{}",
-                s.text()
-            );
-        } else {
-            assert_eq!(got, expected, "chart row {i}:\n{}", s.text());
-        }
-    }
-}
-
-/// The plan body under the page's heading and tabs: the rows of ours that start at the row
-/// beginning `from`, the page's one-cell inset cut (the oracle's snapshot is the body alone).
-fn plan_body(s: &Screen, from: &str, rows: usize) -> Vec<String> {
-    let screen = s.rows();
-    let at = screen
-        .iter()
-        .position(|row| row.trim_start().starts_with(from))
-        .unwrap_or_else(|| panic!("no `{from}` on\n{}", s.text()));
-    screen
-        .iter()
-        .skip(at)
-        .take(rows)
-        .map(|row| row.strip_prefix(' ').unwrap_or(row).trim_end().to_owned())
-        .collect()
-}
-
 // ---- oracle: analytics/account_layout_tests.rs (1 screen-level tests here; 11 state tests left to routes-lists)
 // ORACLE analytics/account_layout_tests.rs:423 navigation_keeps_its_row_when_sections_change kind=ui owner=routes-lists
 #[test]
@@ -84,8 +36,7 @@ fn daily_graph_snapshot_uses_distinct_empty_and_active_cells() {
         .size(24, 70)
         .entry("usage", "activity_daily")
         .open();
-    assert_chart(
-        &s,
+    s.assert_chart(
         &[
             "     Apr     May",
             "Su □ □ □ □ □ □ □ □ □",
@@ -111,8 +62,7 @@ fn daily_graph_snapshot_stays_left_aligned_in_wide_terminal() {
         .size(162, 40)
         .entry("usage", "activity_empty")
         .open();
-    assert_chart(
-        &s,
+    s.assert_chart(
         &[
             "   Jun       Jul     Aug       Sep     Oct     Nov       Dec     Jan     Feb     Mar       Apr     May",
             "Su □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □",
@@ -130,8 +80,7 @@ fn weekly_graph_snapshot_renders_bar_chart_and_caption() {
         .size(24, 70)
         .entry("usage", "activity_weekly")
         .open();
-    assert_chart(
-        &s,
+    s.assert_chart(
         &[
             "      Apr     May",
             "max                 █",
@@ -156,8 +105,7 @@ fn cumulative_graph_snapshot_renders_running_total_bar_chart_and_caption() {
         .size(24, 70)
         .entry("usage", "activity_cumulative")
         .open();
-    assert_chart(
-        &s,
+    s.assert_chart(
         &[
             "      Apr     May",
             "max                 █",
@@ -302,13 +250,7 @@ fn dashboard_cards_align_and_keep_stable_summary_heights() {
         ("3 Messages", "4 Plugins"),
         ("5 Skills", "6 Chats"),
     ] {
-        assert!(
-            wide.rows()
-                .iter()
-                .any(|row| row.contains(left) && row.contains(right)),
-            "{left} {right}:\n{}",
-            wide.text()
-        );
+        wide.assert_row_with_both(left, right);
     }
     wide.assert_absent("Coverage from");
     wide.assert_snap_state_rows(name, 0, 64);
@@ -316,14 +258,13 @@ fn dashboard_cards_align_and_keep_stable_summary_heights() {
     let edges = |entry: &'static str, keys: &str| {
         let mut s = screen(entry, 140, 56);
         s.keys(keys);
-        s.rows()
-            .iter()
-            .enumerate()
-            .filter(|(_, row)| row.trim_start().starts_with(['\u{256d}', '\u{2570}']))
-            .map(|(at, _)| at)
-            .collect::<Vec<_>>()
+        s.card_edge_rows()
     };
-    assert_eq!(edges("dashboard", "z"), edges("dashboard_denied", "z left"));
+    kit::assert_same(
+        edges("dashboard", "z"),
+        edges("dashboard_denied", "z left"),
+        "the card edges",
+    );
     let mut narrow = screen("dashboard_denied", 72, 48);
     narrow.keys("z left");
     narrow.assert_contains("1 Overview");
@@ -394,7 +335,7 @@ fn unavailable_empty_and_zero_history_are_distinct() {
             state.push(row);
         }
     }
-    assert_eq!(states.len(), 4);
+    kit::assert_same(states.len(), 4, "the oracle's four states");
     for (mut want, entry) in
         states
             .into_iter()
@@ -407,9 +348,7 @@ fn unavailable_empty_and_zero_history_are_distinct() {
             .size(102, 30)
             .entry("usage", entry)
             .open();
-        let got = plan_body(&s, "\u{203a} 5-hour limits", want.len());
-        let want: Vec<String> = want.iter().map(|row| row.trim_end().to_owned()).collect();
-        assert_eq!(got, want, "{entry}:\n{}", s.text());
+        s.assert_body_from("\u{203a} 5-hour limits", &want, entry);
     }
 }
 
@@ -463,12 +402,7 @@ fn plan_clocks_follow_preference_and_keep_utc() {
         .size(82, 30)
         .entry("usage", "plan_twelve_hour")
         .open();
-    let want: Vec<String> = snap_rows(name, "")
-        .iter()
-        .map(|row| row.trim_end().to_owned())
-        .collect();
-    let got = plan_body(&s, "\u{203a} 5-hour limits", want.len());
-    assert_eq!(got, want, "{name}:\n{}", s.text());
+    s.assert_body_from("\u{203a} 5-hour limits", &snap_rows(name, ""), name);
 }
 
 // ---- oracle: analytics/plot_tests.rs (10 screen-level tests here; 4 state tests left to routes-lists)

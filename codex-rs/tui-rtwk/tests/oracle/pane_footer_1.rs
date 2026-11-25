@@ -154,9 +154,7 @@ fn retained_command_suggestions_yield_paint_and_cursor_to_find() {
     for (width, height) in [(24, 8), (12, 3)] {
         s.resize(width, height);
         s.assert_absent("/model");
-        if let Some((_, y)) = s.grid().cursor {
-            assert_eq!(y, row_of(&s, "Find:"), "{}", s.text());
-        }
+        s.assert_cursor_on_row_of("Find:");
     }
     s.resize(60, 16);
     s.keys("ctrl+c");
@@ -907,93 +905,15 @@ fn native_status_wraps_links_within_the_host_budget() {
     // whole row (`green deploy…`, `tests passed…`); the widget's `Text` cuts that row by
     // cells (`green deploy re…`, `tests passed re…`). And the oracle's `…` carries no link;
     // the widget's takes the link of the text it cuts.
-    use codex_tui_rtwk::app::theme::{Tokens, data};
-    use codex_tui_rtwk::widgets::status_line::status_spans;
-    use rtwk::layout::{Expanded, Row, SizedBox};
-    use rtwk::style::{Span, Style};
-    use rtwk::text::TextOverflow;
-    use rtwk::widgets::Text;
-    use rtwk_core::terminal::BidiReordering;
-    use rtwk_test::{Options, Tester};
-
-    const INDENT: usize = 2;
-    let name = "native_status_wraps_links_within_the_host_budget";
-    let url = "https://example.com/pr/42";
-    let prefix = "\u{644}\u{627} ";
-    let tokens = Tokens::new(data());
-    let mut spans = vec![Span::styled(prefix, Style::default())];
-    spans.extend(status_spans(
-        [(
-            "pull-request-number",
-            "PR #42 build green deploy ready all unit tests passed release queued".to_string(),
-        )],
-        false,
-        &tokens,
-        None,
-        |_| Some(url.to_string()),
-    ));
-    let mut frames: Vec<Vec<String>> = vec![Vec::new()];
-    for row in kit::snap_rows(name, "") {
-        if row.trim() == "---" {
-            frames.push(Vec::new());
-        } else if let Some(frame) = frames.last_mut() {
-            frame.push(row.trim().to_owned());
-        }
-    }
-    assert_eq!(frames.len(), 4, "the oracle's four layouts");
-    let mut drawn: Vec<Vec<String>> = Vec::new();
-    let mut ellipsis_links: Vec<Option<String>> = Vec::new();
-    for (rows, want) in [4_u16, 3, 2, 1].into_iter().zip(&frames) {
-        let mut t = Tester::with(
-            Options::new()
-                .size(18, rows)
-                .terminal(|o| o.bidi = BidiReordering::Terminal),
-        );
-        t.pump_widget(
-            Row::new()
-                .child(SizedBox::new(Some(INDENT as i32), None, None))
-                .child(Expanded::new(
-                    1,
-                    Text::rich(spans.clone())
-                        .max_lines(Some(usize::from(rows)))
-                        .overflow(TextOverflow::Ellipsis),
-                )),
-        );
-        let lines = t.lines();
-        let got: Vec<String> = lines.iter().map(|row| row.trim().to_owned()).collect();
-        let (last, rest) = got.split_last().expect("a row");
-        let (want_last, want_rest) = want.split_last().expect("a row");
-        assert_eq!(rest, want_rest, "{rows} rows: the rows above the last");
-        assert!(
-            last.starts_with(want_last.trim_end_matches('\u{2026}'))
-                && last.ends_with('\u{2026}') == want_last.ends_with('\u{2026}'),
-            "{rows} rows: the last row `{last}` begins as the oracle's `{want_last}`"
-        );
-        for (y, row) in lines.iter().enumerate() {
-            let cells: Vec<char> = row.trim_end().chars().collect();
-            assert!(
-                cells[..INDENT].iter().all(|ch| *ch == ' '),
-                "{rows} rows, row {y}: indented"
-            );
-            for (x, ch) in cells.iter().enumerate().skip(INDENT) {
-                let link = t.cell(x, y).link;
-                if *ch == '\u{2026}' && x + 1 == cells.len() {
-                    ellipsis_links.push(link);
-                } else if y == 0 && x < INDENT + prefix.chars().count() {
-                    assert_eq!(link, None, "{rows} rows, ({x}, {y}) the prefix");
-                } else {
-                    assert_eq!(link.as_deref(), Some(url), "{rows} rows, ({x}, {y}) `{ch}`");
-                }
-            }
-        }
-        drawn.push(got);
-    }
-    kit::pending(Owner::UiPane, ELLIPSIS_CUT);
-    assert_eq!(drawn, frames, "the oracle's frames");
-    assert!(
-        ellipsis_links.len() == 4 && ellipsis_links.iter().all(Option::is_none),
-        "the ellipsis carries no link: {ellipsis_links:?}"
+    let status = kit::native_status(
+        "native_status_wraps_links_within_the_host_budget",
+        "https://example.com/pr/42",
+        "\u{644}\u{627} ",
+        "PR #42 build green deploy ready all unit tests passed release queued",
     );
+    status.assert_wrap_holds();
+    kit::pending(Owner::UiPane, ELLIPSIS_CUT);
+    status.assert_oracle_frames();
 }
 
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:542 native_wrap_tracks_agent_label_and_content_changes_at_the_same_width kind=ui owner=ui-pane
@@ -1073,11 +993,7 @@ fn fullscreen_plan_indicator_keeps_the_cycle_hint_when_it_fits() {
     s.feed(&agent("reviewer"));
     s.resize(37, 24);
     s.assert_contains("project · PR #42 · reviewer");
-    assert!(
-        s.rows().last().unwrap().contains("Plan mode"),
-        "{}",
-        s.text()
-    );
+    s.assert_last_row_has("Plan mode");
     s.feed(&agent(""));
     s.resize(100, 24);
     // a running task keeps the indicator and drops the cycle key

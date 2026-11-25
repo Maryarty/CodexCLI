@@ -574,7 +574,7 @@ fn rate_limit_usage_warnings_keep_newly_reached_workspace_limit() {
         s.assert_rows_with(WARNING, usize::from(should_warn));
         // the prompt that waits for the end of the turn is the plan's own limit's
         s.feed(&format!("{TURN_ENDED}\n"));
-        assert_eq!(s.text().contains("Approaching rate limits"), should_warn);
+        s.assert_present("Approaching rate limits", should_warn);
         if should_warn {
             s.keys("esc");
         }

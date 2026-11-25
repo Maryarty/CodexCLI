@@ -16,6 +16,7 @@
 #[path = "../oracle_snap/mod.rs"]
 mod oracle_snap;
 
+mod asserts;
 mod compare;
 mod env;
 mod expect;
@@ -35,6 +36,8 @@ mod states;
 mod verdict;
 mod worktrees;
 
+#[allow(unused_imports)]
+pub use asserts::{assert_same, native_status};
 #[allow(unused_imports)]
 pub use compare::{Want, assert_snap as assert_snap_on, snap_frames, snap_rows, snap_size};
 #[allow(unused_imports)]
