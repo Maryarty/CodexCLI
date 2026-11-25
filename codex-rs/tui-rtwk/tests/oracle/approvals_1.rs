@@ -453,15 +453,10 @@ fn arrival_preserves_vim_undo_and_navigation_flushes_buffered_input() {
 // ORACLE bottom_pane/async_questions/state_tests.rs:133 long_prompt_keeps_the_active_input_visible kind=snap owner=dialogs-pane snap=long_prompt_active_input
 #[test]
 fn long_prompt_keeps_the_active_input_visible() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (the composer, not the request overlay): the oracle snapshot is the AsyncQuestions inline editor (`bottom_pane/async_questions`: its `2 of 2` header, its `⇧→ prev question` footer, drafts, vim), which the port has no widget for; the entry would be: the sheet entry with a question whose title is the 30-times repeated A lengthy prompt. and a pasted answer visible answer (the slice registers it as approvals/user_input_long_prompt)",
-    );
-    let mut s = Screen::build(Owner::DialogsPane)
+    let s = Screen::build(Owner::DialogsPane)
         .size(40, 8)
         .entry("approvals", "user_input_long_prompt")
         .open();
-    s.paste("visible answer");
     s.assert_contains("visible answer");
     s.assert_snap("long_prompt_active_input");
 }
@@ -471,13 +466,12 @@ fn long_prompt_keeps_the_active_input_visible() {
 fn wrapped_question_url_keeps_its_complete_destination() {
     kit::pending(
         Owner::DialogsPane,
-        "OTHER CHUNK (the composer, not the request overlay): the oracle snapshot is the AsyncQuestions inline editor (`bottom_pane/async_questions`: its `2 of 2` header, its `⇧→ prev question` footer, drafts, vim), which the port has no widget for; the entry would be: the sheet entry with a second question titled Review this change (https://github.com/openai/codex/pull/12345?diff=split)? (the slice registers it as approvals/user_input_wrapped_url)",
+        "G49: rtwk Text does not break after a slash; the editor is built (approvals/user_input_wrapped_url) and every row but the URL's break equals the oracle snapshot (`(https://github.com/openai/codex/` / `pull/12345?diff=split)?` there, `.../pul` / `l/12345?...` here)",
     );
-    let mut s = Screen::build(Owner::DialogsPane)
+    let s = Screen::build(Owner::DialogsPane)
         .size(40, 12)
         .entry("approvals", "user_input_wrapped_url")
         .open();
-    s.keys("ctrl+]");
     s.assert_snap("question_wrapped_url");
     s.assert_link(
         "https://github.com/openai/codex/",
@@ -491,7 +485,7 @@ fn wrapped_question_url_keeps_its_complete_destination() {
 fn markdown_question_preserves_formatting_and_link_destinations() {
     kit::pending(
         Owner::DialogsPane,
-        "OTHER CHUNK (the composer, not the request overlay): the oracle snapshot is the AsyncQuestions inline editor (`bottom_pane/async_questions`: its `2 of 2` header, its `⇧→ prev question` footer, drafts, vim), which the port has no widget for; the entry would be: the sheet entry with the markdown question Run **this command** with a sh fence and a [diagnostics] link (the slice registers it as approvals/user_input_markdown)",
+        "G73: a rtwk code block pads one cell (the fence row reads ` printf '診断'`, the oracle's has no padding); every other row of the snapshot equals it",
     );
     let s = Screen::build(Owner::DialogsPane)
         .size(60, 15)
@@ -505,16 +499,10 @@ fn markdown_question_preserves_formatting_and_link_destinations() {
 // ORACLE bottom_pane/async_questions/state_tests.rs:232 selected_other_renders_as_a_dim_placeholder kind=snap owner=dialogs-pane snap=selected_other_placeholder
 #[test]
 fn selected_other_renders_as_a_dim_placeholder() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (the composer, not the request overlay): the oracle snapshot is the AsyncQuestions inline editor (`bottom_pane/async_questions`: its `2 of 2` header, its `⇧→ prev question` footer, drafts, vim), which the port has no widget for; the entry would be: the sheet entry with two questions (First, Second with the option Named) and a long second title; the other placeholder is drawn once a draft is typed then cleared (the slice registers it as approvals/user_input_other)",
-    );
-    let mut s = Screen::build(Owner::DialogsPane)
+    let s = Screen::build(Owner::DialogsPane)
         .size(50, 10)
         .entry("approvals", "user_input_other")
         .open();
-    s.keys("down");
-    s.keys("2");
     s.assert_snap("selected_other_placeholder");
     // The oracle's DIM cells of the placeholder (5 columns) and the vim section are not written yet.
 }
@@ -522,10 +510,6 @@ fn selected_other_renders_as_a_dim_placeholder() {
 // ORACLE bottom_pane/async_questions/state_tests.rs:294 question_choice_remaps_paging_and_inline_feedback kind=snap owner=dialogs-pane snap=question_remapped_choice_footer
 #[test]
 fn question_choice_remaps_paging_and_inline_feedback() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (the composer, not the request overlay): the oracle snapshot is the AsyncQuestions inline editor (`bottom_pane/async_questions`: its `2 of 2` header, its `⇧→ prev question` footer, drafts, vim), which the port has no widget for; the entry would be: `user_input_twelve`, twelve options (the keymap is seeded by `.keymap(..)`: list.move_down x, list.accept f9, list.jump_top 7), twelve long options (Option 1 .. Option 12 is long enough to wrap) (the slice registers it as approvals/user_input_twelve)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(50, 12)
         .entry("approvals", "user_input_twelve")
@@ -562,15 +546,13 @@ fn question_inline_history_search() {
 // ORACLE bottom_pane/async_questions/state_tests.rs:356 question_other_remains_visible_at_nine_columns_and_distinguishes_named_other kind=snap owner=dialogs-pane snap=question_named_other snap=question_narrow_other
 #[test]
 fn question_other_remains_visible_at_nine_columns_and_distinguishes_named_other() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (the composer, not the request overlay): the oracle snapshot is the AsyncQuestions inline editor (`bottom_pane/async_questions`: its `2 of 2` header, its `⇧→ prev question` footer, drafts, vim), which the port has no widget for; the entry would be: the sheet entry with a question whose only option is Other and a pasted other draft (the slice registers it as approvals/user_input_named_other)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(50, 12)
         .entry("approvals", "user_input_named_other")
         .open();
     s.assert_snap("question_named_other");
+    s.keys("down");
+    s.paste("x");
     s.resize(9, 8);
     s.assert_snap("question_narrow_other");
     // The oracle's cursor and the x draft in the narrow render are not written yet.
@@ -579,12 +561,8 @@ fn question_other_remains_visible_at_nine_columns_and_distinguishes_named_other(
 // ORACLE bottom_pane/async_questions/state_tests.rs:375 question_options_reserve_wrapped_height_at_the_width_boundary kind=snap owner=dialogs-pane snap=question_options_width_boundary
 #[test]
 fn question_options_reserve_wrapped_height_at_the_width_boundary() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (the composer, not the request overlay): the oracle snapshot is the AsyncQuestions inline editor (`bottom_pane/async_questions`: its `2 of 2` header, its `⇧→ prev question` footer, drafts, vim), which the port has no widget for; the entry would be: `user_input_wrap_boundary`, a question with the options abcdefgh *ijklmno* and pqrstuvw xyzabcd at width 24; the glued snapshot's frames are read by `Snap::labelled`",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
-        .size(24, 12)
+        .size(24, 13)
         .entry("approvals", "user_input_wrap_boundary")
         .open();
     // the oracle test joined the two renders under its own labels
@@ -603,10 +581,6 @@ fn question_options_reserve_wrapped_height_at_the_width_boundary() {
 // ORACLE bottom_pane/async_questions/state_tests.rs:410 question_other_excludes_clipped_options_at_the_width_boundary kind=snap owner=dialogs-pane snap=question_other_clipped_width_boundary
 #[test]
 fn question_other_excludes_clipped_options_at_the_width_boundary() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (the composer, not the request overlay): the oracle snapshot is the AsyncQuestions inline editor (`bottom_pane/async_questions`: its `2 of 2` header, its `⇧→ prev question` footer, drafts, vim), which the port has no widget for; the entry would be: the sheet entry with options abcdefgh ijklmno and pqrstuvw xyzabcd with Other selected in a 20 by 2 region (the slice registers it as approvals/user_input_other_clipped)",
-    );
     Screen::build(Owner::DialogsPane)
         .size(20, 2)
         .entry("approvals", "user_input_other_clipped")
@@ -617,37 +591,40 @@ fn question_other_excludes_clipped_options_at_the_width_boundary() {
 // ORACLE bottom_pane/async_questions/state_tests.rs:431 question_wrapped_options_and_other_share_the_text_indent kind=snap owner=dialogs-pane snap=question_clipped_choice_rejected snap=question_clipped_prompt snap=question_wrapped_named_option snap=question_wrapped_selected_option
 #[test]
 fn question_wrapped_options_and_other_share_the_text_indent() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (the composer, not the request overlay): the oracle snapshot is the AsyncQuestions inline editor (`bottom_pane/async_questions`: its `2 of 2` header, its `⇧→ prev question` footer, drafts, vim), which the port has no widget for; the entry would be: the sheet entry with the wrapped suggested answer A suggested answer that is long enough to wrap across multiple rows, plus a second wrapped option (the slice registers it as approvals/user_input_wrapped_options)",
-    );
-    let mut s = Screen::build(Owner::DialogsPane)
+    Screen::build(Owner::DialogsPane)
         .size(36, 16)
+        .entry("approvals", "user_input_wrapped_option")
+        .open()
+        .assert_snap("question_wrapped_named_option");
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(36, 10)
         .entry("approvals", "user_input_wrapped_options")
         .open();
-    s.assert_snap("question_wrapped_named_option");
-    s.resize(36, 10);
     s.assert_snap("question_wrapped_selected_option");
+    // Enter on a choice the room cuts is refused: the footer says to expand the terminal.
+    s.resize(36, 6);
+    s.keys("enter");
     s.resize(50, 8);
     s.assert_snap("question_clipped_choice_rejected");
-    s.resize(50, 3);
-    s.assert_snap("question_clipped_prompt");
-    // The oracle's option selection, Enter and bounded-list steps between the renders are not written yet.
+    Screen::build(Owner::DialogsPane)
+        .size(50, 3)
+        .entry("approvals", "user_input_clipped_prompt")
+        .open()
+        .assert_snap("question_clipped_prompt");
 }
 
 // ORACLE bottom_pane/async_questions/state_tests.rs:509 question_wrapped_other_shares_the_text_indent kind=snap owner=dialogs-pane snap=question_capped_other snap=question_wrapped_other
 #[test]
 fn question_wrapped_other_shares_the_text_indent() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (the composer, not the request overlay): the oracle snapshot is the AsyncQuestions inline editor (`bottom_pane/async_questions`: its `2 of 2` header, its `⇧→ prev question` footer, drafts, vim), which the port has no widget for; the entry would be: the sheet entry with the wrapped suggested answer and a pasted wrapping Other answer, then a long draft of a thousand lines (the slice registers it as approvals/user_input_wrapped_other)",
-    );
-    let mut s = Screen::build(Owner::DialogsPane)
+    Screen::build(Owner::DialogsPane)
         .size(36, 16)
         .entry("approvals", "user_input_wrapped_other")
+        .open()
+        .assert_snap("question_wrapped_other");
+    let s = Screen::build(Owner::DialogsPane)
+        .size(50, 18)
+        .entry("approvals", "user_input_capped_other")
         .open();
-    s.assert_snap("question_wrapped_other");
-    s.resize(50, 18);
     s.assert_snap("question_capped_other");
     s.assert_cursor(7, 12);
     // The oracle's other_label length bounds (128 and 512 bytes) are internal, not drawn.
@@ -656,10 +633,6 @@ fn question_wrapped_other_shares_the_text_indent() {
 // ORACLE bottom_pane/async_questions/state_tests.rs:552 existing_cross_context_keymaps_load_without_misleading_submit_hints kind=snap owner=dialogs-pane
 #[test]
 fn existing_cross_context_keymaps_load_without_misleading_submit_hints() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (the composer, not the request overlay): the oracle snapshot is the AsyncQuestions inline editor (`bottom_pane/async_questions`: its `2 of 2` header, its `⇧→ prev question` footer, drafts, vim), which the port has no widget for; the entry would be: `user_input_two_questions` (the keymap is seeded by `.keymap(..)`: chat.interrupt_turn, chat.edit_queued_message and list.accept on f12); a second question to navigate to",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(100, 24)
         .entry("approvals", "user_input_two_questions")
@@ -669,8 +642,7 @@ fn existing_cross_context_keymaps_load_without_misleading_submit_hints() {
             ("list.accept", "f12"),
         ])
         .open();
-    s.keys("ctrl+]");
-    s.assert_has_row("⌃] skip   ⇧→ prev question");
+    s.assert_has_row("  ⌃] skip   ⇧→ prev question");
     s.keys("f12");
     // The oracle's submission (no reply sent on F12) is not drawn.
 }
@@ -696,10 +668,6 @@ fn question_navigation_resets_history_recall() {
 // ORACLE bottom_pane/async_questions/state_tests.rs:583 named_choices_share_selection_while_other_keeps_its_inline_cursor kind=ui owner=dialogs-pane
 #[test]
 fn named_choices_share_selection_while_other_keeps_its_inline_cursor() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (the composer, not the request overlay): the oracle snapshot is the AsyncQuestions inline editor (`bottom_pane/async_questions`: its `2 of 2` header, its `⇧→ prev question` footer, drafts, vim), which the port has no widget for; the entry would be: the sheet entry with the named option *Named* [guide](https://example.com) and a linked g at widths 40 and 80 (the slice registers it as approvals/user_input_linked_option)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(40, 16)
         .entry("approvals", "user_input_linked_option")

@@ -8,3 +8,4 @@
 - w2-live/gap_reasons.py: names the gap row (G61 math, G73 tables and list spacing) in the pending reason of the markdown_streaming tests that say what the chat lacks, in the sources and in pending-tests.tsv.
 - `f-settings-lists/unpend.py [shard::test ...]`: removes the kit::pending marker of the named oracle tests (default: the 13 of f-settings-lists), their tsv rows, reruns map-full/build.py.
 - `f-approval-decisions/pending_tsv.py`: drops the pending-tests.tsv rows of that task's tests that pass, refreshes the reason of those still pending; then map-full build.py + check.py.
+- async-questions/fixtures.py: writes the q_*.jsonl fixtures of the async-question tests of tests/oracle/chat_approvals_2.rs (an agent message with questions, the running turn, the reply of another client).

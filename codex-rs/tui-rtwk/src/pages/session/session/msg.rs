@@ -19,8 +19,11 @@ pub enum ChatMsg {
     Cycle,
     Submit(Rc<str>),
     QueueDraft,
-    /// The edit-queued key: the newest queued message goes back to the composer.
+    /// The edit-queued key: the newest queued message goes back to the composer (over questions
+    /// that wait, it opens their editor).
     EditQueued,
+    /// What the user decided in the editor of the model's questions.
+    Question(crate::sheets::approvals::questions::Outcome),
     /// The reasoning shortcuts: a step down or up (`handle_reasoning_shortcut`).
     Reasoning(codex_tui_core::screens::select::reasoning::Direction),
     CtrlC,

@@ -49,6 +49,14 @@ impl UserPrompt {
     /// elements, their byte ranges no longer fit it. The text itself, which
     /// the model has and steers are matched by, is not touched.
     pub fn shown(&self) -> Shown<'_> {
+        // an answer to an async question shows as the question quoted over the answer
+        // (`display_replies`), whoever sent it
+        if let Some(text) = crate::question_reply::display_text(&self.text) {
+            return Shown {
+                text: Cow::Owned(without_controls(&text).into_owned()),
+                elements: &[],
+            };
+        }
         let text = without_controls(&self.text);
         let elements = if matches!(text, Cow::Borrowed(_)) {
             self.elements.as_slice()
