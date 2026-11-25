@@ -150,9 +150,10 @@ pub(super) fn run(
     flags.service_tier_commands_enabled = !tiers.is_empty();
     let facts = DispatchCx {
         flags,
-        task_running: thread.is_running(),
+        task_running: thread.busy(), // a turn running or a start in flight
         side_conversation: states.chat.flags.side_conversation_active,
         review_mode: thread.screen_slots().chat.review_mode(),
+        queued_follow_up: !thread.queue().is_empty() || !thread.rejected_steers().is_empty(),
         thread_started: matches!(session.status, Session::Ready),
         has_backend_auth: states.chat.signed_in,
     };
