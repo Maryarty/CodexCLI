@@ -17,6 +17,8 @@ pub enum Family {
     Elicitation,
     UserInput,
     UserVerification,
+    /// An app link: a view of its own over the others, the newest on top.
+    AppLink,
     /// A request with no prompt (the dismiss fallback).
     Other,
 }
@@ -28,6 +30,7 @@ impl Family {
             Some(Prompt::Elicitation(_)) => Family::Elicitation,
             Some(Prompt::UserInput(_)) => Family::UserInput,
             Some(Prompt::UserVerification(_)) => Family::UserVerification,
+            Some(Prompt::AppLink(_)) => Family::AppLink,
             None => Family::Other,
         }
     }
@@ -44,7 +47,7 @@ pub fn to_show<K>(queue: &[(K, Family)]) -> Option<&K> {
         .map_or(0, |before| before + 1);
     let run = &queue[start..];
     let (key, _) = match family {
-        Family::Approval => run.last()?,
+        Family::Approval | Family::AppLink => run.last()?,
         _ => run.first()?,
     };
     Some(key)

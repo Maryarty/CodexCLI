@@ -1,0 +1,4 @@
+# oracle: bottom_pane/app_link_view.rs generic_url_elicitation_snapshot (another server asks for a URL to be visited)
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "request", "message": {"method": "mcpServer/elicitation/request", "id": 24, "params": {"threadId": "thread-1", "turnId": "turn-1", "serverName": "payments", "mode": "url", "_meta": null, "message": "Review the payment details to continue.", "url": "https://payments.example/checkout/123", "elicitationId": "payment-123"}}}
+{"step": "screen", "dir": "approvals", "ev": {"kind": "request", "request": {"method": "mcpServer/elicitation/request", "id": 24, "params": {"threadId": "thread-1", "turnId": "turn-1", "serverName": "payments", "mode": "url", "_meta": null, "message": "Review the payment details to continue.", "url": "https://payments.example/checkout/123", "elicitationId": "payment-123"}}}}

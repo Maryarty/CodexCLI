@@ -139,8 +139,10 @@ pub fn body(prompt: &Prompt, s: &Strings) -> Option<Body> {
     let mut body = build(prompt, s)?;
     // The oracle leaves two blank rows between the header and the options (`header_gap`): the
     // last `GAP` lines of the header, which a dialog short of room gives up before it cuts the
-    // header (`clip.rs`).
-    body.header.extend(std::iter::repeat_n(Line::Blank, GAP));
+    // header (`clip.rs`). The waiting view has no list under its header, so no gap.
+    if !body.flat {
+        body.header.extend(std::iter::repeat_n(Line::Blank, GAP));
+    }
     Some(body)
 }
 
@@ -293,7 +295,8 @@ fn build(prompt: &Prompt, s: &Strings) -> Option<Body> {
                 flat: false,
             }
         }
-        Prompt::UserInput(_) => return None,
+        // The link to open is the dialog of `select::app_link`, as the questions are their own.
+        Prompt::UserInput(_) | Prompt::AppLink(_) => return None,
         Prompt::UserVerification(verification) => {
             // The oracle's own view (`bottom_pane/user_verification.rs`): the title in bold,
             // the thread, the server and the description; no thread key, no digits-only list.

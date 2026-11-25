@@ -794,16 +794,16 @@ fn clipped_prompt_exposes_fullscreen_hint() {
 // ORACLE bottom_pane/user_verification_tests.rs:76 waiting_snapshot_and_duplicate_approval_suppression kind=snap owner=dialogs-pane snap=user_verification_waiting
 #[test]
 fn waiting_snapshot_and_duplicate_approval_suppression() {
-    kit::pending(
-        Owner::DialogsPane,
-        "Enter on Verify starts the controller (userVerification/verify, the attempt, the waiting flag on the queued prompt): app.rs, handed over; the waiting view itself is the entry user_verification_waiting, pinned in tests/sheets/approvals.rs",
-    );
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(80, 7)
-        .entry("approvals", "user_verification")
-        .open();
+    let mut s = Screen::build(Owner::DialogsPane).size(80, 7).live().open();
+    s.feed(include_str!("fixtures/approvals_2/user_verification.jsonl"));
     s.keys("enter");
     s.assert_snap("user_verification_waiting");
+    // the second Enter starts nothing: one verification is asked of the device
+    s.keys("enter");
+    s.assert_commands_named("VerifyUser", 1);
+    // and the prompt is not complete: no answer was sent, the request is open
+    s.assert_no_resolved_requests();
+    s.assert_contains("Waiting for verification");
 }
 
 // ORACLE bottom_pane/user_verification_tests.rs:93 cancellation_is_available_before_and_during_verification kind=ui owner=dialogs-pane
@@ -829,7 +829,7 @@ fn full_screen_request_is_available_before_and_during_verification() {
 fn long_url_tokens_remain_visible_in_a_narrow_verification_prompt() {
     kit::pending(
         Owner::DialogsPane,
-        "G72: a URL in a plain string has no autolink (the prompt's OSC 8 links) and TextWrap::Word breaks the URL after a hyphen where the oracle cuts it at the width; the rows differ only there",
+        "G72: the first differing row is row 9 of the snapshot: the oracle cuts the URL token at the width (`  tion/critical-release-cand`, then `  idate`), TextWrap::Word breaks it after the hyphen (`  tion/critical-release-`, then `  candidate`); every row before it and the options and hint under it equal the snapshot; and the URL is plain text with no OSC 8 link (`assert_link` after the snapshot is not reached)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(30, 18)
@@ -846,11 +846,17 @@ fn long_url_tokens_remain_visible_in_a_narrow_verification_prompt() {
 // ORACLE bottom_pane/user_verification_tests.rs:206 full_screen_pager_reaches_the_end_of_a_long_request kind=snap owner=dialogs-pane snap=user_verification_full_screen_bottom
 #[test]
 fn full_screen_pager_reaches_the_end_of_a_long_request() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no full-screen pager for the user-verification request: the oracle pages a static overlay over the prompt header, which the port does not have",
-    );
     let mut s = Screen::build(Owner::DialogsPane).size(40, 12).live().open();
+    s.feed(include_str!(
+        "fixtures/approvals_2/user_verification_long.jsonl"
+    ));
+    s.keys("ctrl+a");
     s.keys("end");
-    s.assert_snap("user_verification_full_screen_bottom");
+    // the title row is the app's (`U S E R  V E R I F I C A T I O N`), the oracle's test titled
+    // its own pager `USER VERIFICATION`
+    s.assert_row_starts_with(0, "/ U S E R  V E R I F I C A T I O N");
+    s.assert_snap_rows_except("user_verification_full_screen_bottom", 0..11, &[0]);
+    // `q` returns to the prompt
+    s.keys("q");
+    s.assert_contains("Verify and approve");
 }

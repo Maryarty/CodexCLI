@@ -67,6 +67,8 @@ const CORE_DEPS: &[&str] = &[
     "serde",
     "serde_json",
     "pretty_assertions",
+    // f-elicitation-dialogs: the oracle validates an app link's URL with `url::Url`; pure, no IO.
+    "url",
     // fw-hubs-c5: the module list of `tests/all.rs` (a dev-dependency without dependencies of its
     // own, `test-mods/`: std only).
     "tui-test-mods",

@@ -4,7 +4,7 @@
 //! Oracle: `bottom_pane/list_selection_view.rs`.
 
 pub(crate) mod agent_picker;
-mod app_link;
+pub(crate) mod app_link;
 mod apps;
 mod centered;
 mod confirm;

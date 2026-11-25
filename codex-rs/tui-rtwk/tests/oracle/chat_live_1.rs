@@ -177,13 +177,21 @@ fn item_completed(item: &str) -> String {
     )
 }
 
+/// The idle footer of the oracle's harness: no agents hint, the status line (model, directory)
+/// over `? for shortcuts`.
+const IDLE_FOOTER: &str = concat!(
+    r#"{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}"#,
+    "\n",
+    r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"GPT-5.6-Sol","cwd":"/tmp/project","items":["model-with-reasoning","current-dir"]}}}"#
+);
+
 /// The elicitation request that offers an install link (the oracle's tool suggestion).
 fn tool_suggestion_request(install_url: &str) -> String {
     request(
         "mcpServer/elicitation/request",
         9,
         &format!(
-            r#"{{"threadId":"thread-2","turnId":"turn-install","serverName":"connector-server","request":{{"mode":"form","_meta":{{"codex_approval_kind":"tool_suggestion","tool_type":"connector","suggest_type":"install","suggest_reason":"Install the connector to continue","tool_id":"connector_test","tool_name":"Test Connector","install_url":"{install_url}"}},"message":"Install Test Connector","requestedSchema":{{"type":"object","properties":{{}}}}}}}}"#
+            r#"{{"threadId":"thread-1","turnId":"turn-install","serverName":"connector-server","environmentId":null,"mode":"form","_meta":{{"codex_approval_kind":"tool_suggestion","tool_type":"connector","suggest_type":"install","suggest_reason":"Install the connector to continue","tool_id":"connector_test","tool_name":"Test Connector","install_url":"{install_url}"}},"message":"Install Test Connector","requestedSchema":{{"type":"object","properties":{{}}}}}}"#
         ),
     )
 }
@@ -685,31 +693,39 @@ fn safety_buffering_ignores_hidden_stale_and_historical_updates() {
 // ORACLE chatwidget/tests/app_server.rs:575 tool_suggestion_install_url_is_validated_before_opening kind=snap owner=chat-live snap=declined_tool_suggestion
 #[test]
 fn tool_suggestion_install_url_is_validated_before_opening() {
-    kit::pending(
-        Owner::ChatLive,
-        "no install-link form on the chat screen: a tool-suggestion elicitation is read, but its install URL is neither offered nor declined on screen yet",
-    );
+    // the oracle's snapshot is the bottom pane alone; ours has the blank row over the composer
     let (w, h) = oracle_size("declined_tool_suggestion", 80);
+    let h = h + 2;
+    let offered = "https://example.test/install";
     for install_url in [
         "file:///tmp/connector",
         "http://example.test/install",
         "custom://example.test/install",
         "not a URL",
         "https://user:password@example.test/install",
-        "https://example.test/install",
+        offered,
     ] {
-        let mut s = Screen::build(Owner::ChatLive).size(w, h).live().open();
+        // the offered link's dialog needs the room of a window, the declined ones the bottom pane's
+        let rows = if install_url == offered { 24 } else { h };
+        let mut s = Screen::build(Owner::ChatLive).size(w, rows).live().open();
+        s.feed(IDLE_FOOTER);
         let initial = s.shot();
         s.feed(&tool_suggestion_request(install_url));
-        if install_url == "https://example.test/install" {
-            // oracle: a valid https link is offered, and enter opens it in the browser (not drawn).
-            s.assert_contains("Install Test Connector");
+        if install_url == offered {
+            // oracle: a valid https link is offered, and enter opens it in the browser.
+            s.assert_contains("Test Connector");
+            s.assert_contains("Install on ChatGPT");
+            s.assert_opened_urls(&[]);
+            s.assert_no_resolved_requests();
             s.keys("enter");
+            s.assert_opened_urls(&[install_url]);
             continue;
         }
-        // oracle: an invalid link is declined at once; the popup is the initial one and the decline is sent (not drawn).
+        // oracle: an invalid link is declined at once; the popup is the initial one and the decline is sent.
         s.assert_same_rows(&initial);
-        s.assert_snap("declined_tool_suggestion");
+        s.assert_snap_rows_at("declined_tool_suggestion", 2);
+        s.assert_opened_urls(&[]);
+        s.assert_resolved_actions(&["decline"]);
     }
 }
 

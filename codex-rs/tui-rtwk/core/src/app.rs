@@ -1642,22 +1642,35 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         preview: preview.clone(),
                     });
                 }
-                Rc::make_mut(&mut app.requests)
-                    .entries
-                    .push(PendingRequest {
-                        key,
-                        method,
-                        preview,
-                        prompt: approvals::prompt_of(&request).map(|entry| {
-                            let label = approvals::thread_label(
-                                &app.screens.agents.threads,
-                                &entry.thread,
-                                app.session.active.as_ref(),
-                            );
-                            Rc::new(entry.prompt.with_thread_label(label))
-                        }),
-                        request: Rc::from(request),
-                    });
+                if approvals::link::rejected(&request) {
+                    // A link the oracle refuses (an install URL that is not https, a sign-in off
+                    // ChatGPT) is declined as it arrives: no dialog, no queue entry.
+                    let decline = approvals::RequestAnswer::Elicitation {
+                        decision: approvals::Decision::Decline,
+                        content: None,
+                        meta: None,
+                    };
+                    if let Some(result) = requests::answer(&request, None, decline) {
+                        fx.commands.push(Command::ResolveRequest { key, result });
+                    }
+                } else {
+                    Rc::make_mut(&mut app.requests)
+                        .entries
+                        .push(PendingRequest {
+                            key,
+                            method,
+                            preview,
+                            prompt: approvals::prompt_of(&request).map(|entry| {
+                                let label = approvals::thread_label(
+                                    &app.screens.agents.threads,
+                                    &entry.thread,
+                                    app.session.active.as_ref(),
+                                );
+                                Rc::new(entry.prompt.with_thread_label(label))
+                            }),
+                            request: Rc::from(request),
+                        });
+                }
             }
         }
         AppEv::Backend(BackendEv::Lagged(skipped)) => {
@@ -2406,6 +2419,27 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
         Intent::Screen(ScreenIntent::Approvals(approvals::Intent::Respond { key, answer })) => {
             resolve_request(app, key, answer, fx);
         }
+        Intent::Screen(ScreenIntent::Approvals(approvals::Intent::OpenLink { key })) => {
+            if let Some(link) = app_link(app, &key) {
+                fx.commands.push(Command::OpenUrl { url: link.url });
+            }
+        }
+        Intent::Screen(ScreenIntent::Approvals(approvals::Intent::LinkDone { key })) => {
+            if app_link(app, &key).is_some_and(|link| link.refreshes_apps()) {
+                select::intent(app, crate::screens::select::Intent::RefreshApps, fx);
+            }
+            accept_link(app, key, fx);
+        }
+        Intent::Screen(ScreenIntent::Approvals(approvals::Intent::LinkEnable { key })) => {
+            if let Some(link) = app_link(app, &key) {
+                let intent = crate::screens::select::Intent::SetApp {
+                    id: link.app_id,
+                    enabled: true,
+                };
+                select::intent(app, intent, fx);
+            }
+            accept_link(app, key, fx);
+        }
         Intent::Screen(ScreenIntent::Agents(agents::Intent::CancelOpen)) => {
             if let Some(id) = Rc::make_mut(&mut app.screens).agents.opening.take() {
                 set_open_cancelled(app, &id, true);
@@ -2622,6 +2656,24 @@ fn resolve_request(
     true
 }
 
+/// The app link request `key` holds, while it is queued.
+fn app_link(app: &CodexApp, key: &RequestKey) -> Option<approvals::link::AppLinkPrompt> {
+    match app.requests.get(key)?.prompt.as_deref()? {
+        approvals::Prompt::AppLink(link) => Some(link.clone()),
+        _ => None,
+    }
+}
+
+/// An app link request is accepted with no content (`resolve_elicitation(Accept, None, None)`).
+fn accept_link(app: &mut CodexApp, key: RequestKey, fx: &mut AppFx) {
+    let accept = approvals::RequestAnswer::Elicitation {
+        decision: approvals::Decision::Accept,
+        content: None,
+        meta: None,
+    };
+    resolve_request(app, key, accept, fx);
+}
+
 /// The user chose to verify: one attempt per request, the host runs the device and answers with
 /// `AppEv::Verified`; the dialog shows the waiting state meanwhile.
 fn start_verification(app: &mut CodexApp, key: RequestKey, fx: &mut AppFx) {
@@ -2701,14 +2753,10 @@ fn cancel_requests(app: &mut CodexApp, fx: &mut AppFx) {
     for entry in queued {
         remove_request(app, &entry.key);
     }
-    let cancel = current.prompt.as_deref().and_then(|prompt| {
-        prompt.decisions().into_iter().rev().find(|decision| {
-            matches!(
-                decision,
-                approvals::Decision::Cancel | approvals::Decision::DenyPermissions
-            )
-        })
-    });
+    let cancel = current
+        .prompt
+        .as_deref()
+        .and_then(approvals::Prompt::cancel_decision);
     if let Some(decision) = cancel {
         resolve_request(
             app,

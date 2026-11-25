@@ -18,6 +18,7 @@ pub mod decided;
 pub mod form;
 pub mod guardian;
 pub mod input;
+pub mod link;
 pub mod order;
 pub mod verify;
 
@@ -151,7 +152,10 @@ pub enum Decision {
     GrantForSession,
     DenyPermissions,
     /// A persistent network policy rule for a host: allow or block it.
-    NetworkRule { host: String, allow: bool },
+    NetworkRule {
+        host: String,
+        allow: bool,
+    },
 }
 
 /// Input from the request sheet. The app validates it against the pending request.
@@ -176,6 +180,9 @@ pub enum Prompt {
     Elicitation(ElicitationPrompt),
     UserInput(UserInputPrompt),
     UserVerification(UserVerificationPrompt),
+    /// A link to open in the browser (a tool suggestion, a sign-in, a URL elicitation): the app
+    /// link dialog (`link`).
+    AppLink(link::AppLinkPrompt),
 }
 
 impl Prompt {
@@ -188,6 +195,8 @@ impl Prompt {
             Prompt::Elicitation(p) => p.thread_label.as_deref(),
             Prompt::UserInput(_) => None,
             Prompt::UserVerification(p) => p.thread_label.as_deref(),
+            // The oracle's link dialog does not name the thread.
+            Prompt::AppLink(_) => None,
         }
     }
 
@@ -200,6 +209,7 @@ impl Prompt {
             Prompt::Elicitation(p) => p.thread_label = label,
             Prompt::UserInput(_) => {}
             Prompt::UserVerification(p) => p.thread_label = label,
+            Prompt::AppLink(_) => {}
         }
         self
     }
@@ -208,7 +218,11 @@ impl Prompt {
     pub fn decisions(&self) -> Vec<Decision> {
         match self {
             Prompt::Exec(exec) => exec.decisions.clone(),
-            Prompt::Patch(_) => vec![Decision::Accept, Decision::AcceptForSession, Decision::Cancel],
+            Prompt::Patch(_) => vec![
+                Decision::Accept,
+                Decision::AcceptForSession,
+                Decision::Cancel,
+            ],
             Prompt::Permissions(_) => vec![
                 Decision::GrantForTurn,
                 Decision::GrantForTurnStrict,
@@ -221,7 +235,21 @@ impl Prompt {
             // The prompt asks to verify or to cancel; once verification runs, only cancel is left.
             Prompt::UserVerification(p) if p.waiting => vec![Decision::Cancel],
             Prompt::UserVerification(_) => vec![Decision::Verify, Decision::Cancel],
+            // The dialog's own rows (the page, then done; the app's switch) lead to one of these.
+            Prompt::AppLink(_) => vec![Decision::Accept, Decision::Decline],
         }
+    }
+
+    /// What Ctrl+C on the dialog of this prompt answers: its cancelling decision (the oracle's
+    /// `ApprovalOverlay::cancel_current_request`, an app link's `on_ctrl_c`: a decline).
+    pub fn cancel_decision(&self) -> Option<Decision> {
+        if matches!(self, Prompt::AppLink(_)) {
+            return Some(Decision::Decline);
+        }
+        self.decisions()
+            .into_iter()
+            .rev()
+            .find(|decision| matches!(decision, Decision::Cancel | Decision::DenyPermissions))
     }
 }
 
@@ -250,11 +278,32 @@ pub enum Ev {
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
-    Answer { key: RequestKey, decision: Decision },
+    Answer {
+        key: RequestKey,
+        decision: Decision,
+    },
     /// An answer with content (a form's values, a user-input answer): checked against the
     /// pending request like `Answer`; one that does not fit, or for a request no longer queued,
     /// is dropped.
-    Respond { key: RequestKey, answer: RequestAnswer },
+    Respond {
+        key: RequestKey,
+        answer: RequestAnswer,
+    },
+    /// The page of an app link request is opened in the browser (`AppEvent::OpenUrlInBrowser`):
+    /// the URL the prompt holds, validated when the request came.
+    OpenLink {
+        key: RequestKey,
+    },
+    /// The page of an app link request was visited (`complete_external_flow_and_close`): the
+    /// directory of apps is read again when the apps server asked, and the request is accepted.
+    LinkDone {
+        key: RequestKey,
+    },
+    /// The app of an enable suggestion is switched on (`toggle_enabled`), and the request is
+    /// accepted.
+    LinkEnable {
+        key: RequestKey,
+    },
 }
 
 /// The app takes a presented request into its queue (`CodexApp.requests`); the model has no copy.
@@ -269,7 +318,11 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = (model, fx);
     match intent {
-        Intent::Answer { .. } | Intent::Respond { .. } => {}
+        Intent::Answer { .. }
+        | Intent::Respond { .. }
+        | Intent::OpenLink { .. }
+        | Intent::LinkDone { .. }
+        | Intent::LinkEnable { .. } => {}
     }
 }
 
@@ -278,10 +331,9 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
 /// the request is resolved).
 pub fn recorded(prompt: &Prompt, answer: &RequestAnswer) -> Option<ThreadEv> {
     match (prompt, answer) {
-        (
-            _,
-            RequestAnswer::Choice(decision) | RequestAnswer::Elicitation { decision, .. },
-        ) => decided::Decided::of(prompt, decision).map(ThreadEv::Decided),
+        (_, RequestAnswer::Choice(decision) | RequestAnswer::Elicitation { decision, .. }) => {
+            decided::Decided::of(prompt, decision).map(ThreadEv::Decided)
+        }
         (Prompt::UserInput(asked), RequestAnswer::UserInput(answers)) => Some(
             ThreadEv::Questioned(input::answered_questions(&asked.questions, answers)),
         ),
@@ -379,13 +431,11 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
 /// The reply `result` (the JSON result of the request) is for `command`.
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
     match command {
-        Command::ApproveDenied { .. } => {
-            serde_json::from_value::<codex_app_server_protocol::ThreadApproveGuardianDeniedActionResponse>(
-                result,
-            )
-            .map(|_| Reply::Approved)
-            .map_err(|error| RpcError::Malformed(error.to_string()))
-        }
+        Command::ApproveDenied { .. } => serde_json::from_value::<
+            codex_app_server_protocol::ThreadApproveGuardianDeniedActionResponse,
+        >(result)
+        .map(|_| Reply::Approved)
+        .map_err(|error| RpcError::Malformed(error.to_string())),
     }
 }
 
@@ -407,6 +457,10 @@ enum SeedEv {
         /// A user verification whose device proof the controller waits for.
         #[serde(default)]
         waiting: bool,
+        /// What an app link's app is: the oracle's tests give the view a description, the wire
+        /// of a request carries none.
+        #[serde(default)]
+        description: Option<String>,
     },
 }
 
@@ -419,6 +473,7 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
         label,
         destinations,
         waiting,
+        description,
     } = seed;
     let mut entry = prompt_of(&request).ok_or_else(|| {
         crate::screens::SeedError::Bad("not a request this screen presents".into())
@@ -428,6 +483,9 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
     }
     if let Prompt::UserVerification(verification) = &mut entry.prompt {
         verification.waiting = waiting;
+    }
+    if let Prompt::AppLink(link) = &mut entry.prompt {
+        link.description = description;
     }
     entry.prompt = entry.prompt.with_thread_label(label);
     Ok(Ev::Presented(entry))
@@ -446,7 +504,11 @@ pub fn thread_label(
         return None;
     }
     let known = threads.iter().find(|t| t.id == thread.as_str());
-    let clean = |text: Option<&str>| text.map(str::trim).filter(|t| !t.is_empty()).map(String::from);
+    let clean = |text: Option<&str>| {
+        text.map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(String::from)
+    };
     let nickname = clean(known.and_then(|t| t.agent_nickname.as_deref()));
     let role = clean(known.and_then(|t| t.agent_role.as_deref()));
     let label = match (&nickname, &role) {
@@ -520,7 +582,8 @@ pub fn labels_of(
 /// oracle's `exec_approval_request_from_params` and its siblings in
 /// `chatwidget.rs`).
 pub fn prompt_of(request: &ServerRequest) -> Option<Entry> {
-    if matches!(request, ServerRequest::ToolRequestUserInput { params, .. } if params.questions.is_empty()) {
+    if matches!(request, ServerRequest::ToolRequestUserInput { params, .. } if params.questions.is_empty())
+    {
         return None;
     }
     let wire = serde_json::to_value(request).ok()?;
@@ -542,6 +605,21 @@ pub fn prompt_of(request: &ServerRequest) -> Option<Entry> {
             rule: rule_of(params.get("permissions")),
         }),
         "mcpServer/elicitation/request" => {
+            // A link request is the app link dialog; one whose link the oracle refuses has no prompt
+            // at all (the app declines it as it arrives, `link::rejected`).
+            if let ServerRequest::McpServerElicitationRequest { params: typed, .. } = request {
+                match link::parse(typed) {
+                    link::Parsed::Link(link) => {
+                        return Some(Entry {
+                            thread,
+                            id: ServerRequestId::new(id),
+                            prompt: Prompt::AppLink(link),
+                        });
+                    }
+                    link::Parsed::Reject => return None,
+                    link::Parsed::NotALink => {}
+                }
+            }
             if params.get("mode").and_then(|m| m.as_str()) == Some("openai/userVerification") {
                 return Some(Entry {
                     thread,
@@ -564,12 +642,16 @@ pub fn prompt_of(request: &ServerRequest) -> Option<Entry> {
                 message: text("message").unwrap_or_default(),
                 form: Form::parse(
                     params.get("_meta").filter(|meta| !meta.is_null()),
-                    params.get("requestedSchema").unwrap_or(&serde_json::Value::Null),
+                    params
+                        .get("requestedSchema")
+                        .unwrap_or(&serde_json::Value::Null),
                 ),
             })
         }
         "item/tool/requestUserInput" => Prompt::UserInput(UserInputPrompt {
-            can_auto_resolve: params.get("isBlocking").and_then(serde_json::Value::as_bool)
+            can_auto_resolve: params
+                .get("isBlocking")
+                .and_then(serde_json::Value::as_bool)
                 == Some(false),
             questions: params
                 .get("questions")
@@ -653,11 +735,7 @@ fn exec_prompt(params: &serde_json::Value) -> ExecPrompt {
 
 /// `network_approval_command_target` and `network_approval_target`: the command names its target
 /// (`network-access <target>`), or the context's protocol and host say it.
-fn network_target(
-    params: &serde_json::Value,
-    command: &str,
-    host: Option<&str>,
-) -> Option<String> {
+fn network_target(params: &serde_json::Value, command: &str, host: Option<&str>) -> Option<String> {
     let named = command
         .strip_prefix("network-access ")
         .filter(|target| !target.is_empty());
@@ -703,7 +781,11 @@ fn decision_of(value: &serde_json::Value) -> Option<Decision> {
     let prefix = value
         .get("acceptWithExecpolicyAmendment")?
         .get("execpolicy_amendment")
-        .or_else(|| value.get("acceptWithExecpolicyAmendment")?.get("execpolicyAmendment"))?;
+        .or_else(|| {
+            value
+                .get("acceptWithExecpolicyAmendment")?
+                .get("execpolicyAmendment")
+        })?;
     let words = prefix
         .as_array()
         .or_else(|| prefix.get("command")?.as_array())?;
@@ -730,7 +812,12 @@ fn rule_of(permissions: Option<&serde_json::Value>) -> Vec<Rule> {
             .get("fileSystem")
             .and_then(|fs| fs.get(key))
             .and_then(|list| list.as_array())
-            .map(|list| list.iter().filter_map(|p| p.as_str()).map(str::to_string).collect())
+            .map(|list| {
+                list.iter()
+                    .filter_map(|p| p.as_str())
+                    .map(str::to_string)
+                    .collect()
+            })
             .unwrap_or_default()
     };
     let (read, write) = (paths("read"), paths("write"));
@@ -755,8 +842,14 @@ fn question_of(value: &serde_json::Value) -> Question {
         id: text("id"),
         header: text("header"),
         text: text("question"),
-        is_other: value.get("isOther").and_then(serde_json::Value::as_bool).unwrap_or(false),
-        is_secret: value.get("isSecret").and_then(serde_json::Value::as_bool).unwrap_or(false),
+        is_other: value
+            .get("isOther")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+        is_secret: value
+            .get("isSecret")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
         options: value
             .get("options")
             .and_then(|o| o.as_array())
@@ -809,11 +902,7 @@ pub fn escape_command<'a>(words: impl IntoIterator<Item = &'a str>) -> String {
         quoted.push('"');
         quoted
     };
-    words
-        .into_iter()
-        .map(quote)
-        .collect::<Vec<_>>()
-        .join(" ")
+    words.into_iter().map(quote).collect::<Vec<_>>().join(" ")
 }
 
 /// `strip_bash_lc_and_escape` of the oracle (`tui/src/exec_command.rs:17`),
