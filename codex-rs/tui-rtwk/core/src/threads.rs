@@ -19,6 +19,7 @@ pub mod directives;
 pub mod exploration;
 pub mod followups;
 pub mod goal;
+pub mod hooks;
 pub mod inline_vis;
 pub mod local_links;
 mod message;
@@ -774,12 +775,6 @@ pub enum TurnEnd {
     Failed,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct RunningHook {
-    id: String,
-    message: Option<String>,
-}
-
 /// A message sent to the running turn (`turn/steer`) that the server has not
 /// yet echoed as the user's item (the oracle's `PendingSteer`): the pending-
 /// input preview lists it until then.
@@ -1166,7 +1161,7 @@ pub struct ThreadCore {
     /// polls (oracle `unified_exec_processes`, `unified_exec_wait_streak`).
     processes: processes::Processes,
     /// The hook runs the server reported started and not yet completed.
-    hooks: Vec<RunningHook>,
+    hooks: hooks::Hooks,
     last_error: Option<Failure>,
     /// The last turn that ended: a late start of it must not revive it.
     last_ended: Option<TurnId>,
@@ -1353,7 +1348,7 @@ impl ThreadModel {
                 restore: None,
                 recovered: false,
                 processes: processes::Processes::default(),
-                hooks: Vec::new(),
+                hooks: hooks::Hooks::default(),
                 last_error: None,
                 goal: None,
                 compaction: compaction::Compaction::default(),
@@ -1416,6 +1411,12 @@ impl ThreadModel {
     /// from them; review prompts and hidden nested review turns are not among them.
     pub fn replayed_submissions(&self) -> &replay::Submissions {
         &self.submissions
+    }
+
+    /// The hook runs under way: the status row names the ones the view has revealed
+    /// ([`hooks::summary`]).
+    pub fn running_hooks(&self) -> &[hooks::RunningHook] {
+        self.hooks.runs()
     }
 
     pub fn can_load_history(&self) -> bool {
@@ -1495,29 +1496,6 @@ impl ThreadModel {
     /// (oracle `unified_exec_wait_streak`).
     pub fn terminal_wait(&self) -> Option<&WaitStreak> {
         self.processes.streak()
-    }
-
-    /// What the status row says of the running hooks (oracle
-    /// `HookCell::running_status_summary`): their shared message, else
-    /// `Running hooks` for several and `Running hook` for one.
-    pub fn hook_status(&self) -> Option<String> {
-        let mut messages = self
-            .hooks
-            .iter()
-            .map(|hook| {
-                hook.message
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|m| !m.is_empty())
-            })
-            .peekable();
-        let first = messages.next()?;
-        let multiple = messages.peek().is_some();
-        Some(match first {
-            Some(message) if messages.all(|other| other == Some(message)) => message.to_string(),
-            _ if multiple => "Running hooks".to_string(),
-            _ => "Running hook".to_string(),
-        })
     }
 
     pub fn screen_slots(&self) -> &ThreadSlots {
@@ -3222,16 +3200,8 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 apply_ev(model, ThreadEv::Interrupt, fx);
             }
         }
-        ThreadEv::HookStarted { id, message } => {
-            model.hooks.retain(|hook| hook.id != id);
-            model.hooks.push(RunningHook { id, message });
-        }
-        ThreadEv::HookEnded { id, turn, item } => {
-            model.hooks.retain(|hook| hook.id != id);
-            if let Some(item) = item {
-                apply_appended(model, turn, item);
-            }
-        }
+        ThreadEv::HookStarted { id, message } => hooks::started(model, id, message),
+        ThreadEv::HookEnded { id, turn, item } => hooks::ended(model, &id, turn, item),
         ThreadEv::ItemStarted { key, item } => {
             processes::track(model, &key, &item);
             note_review(model, &item);
@@ -3442,6 +3412,8 @@ fn end_turn(model: &mut ThreadModel, turn: TurnId, end: TurnEnd, fx: &mut Thread
     let ends_running = matches!(&model.turn, TurnState::Running(running) if running.turn == turn);
     if ends_running || !model.is_running() {
         model.last_ended = Some(turn.clone());
+        // a later turn's runs are not this turn's to drop
+        hooks::clear(model);
     }
     model
         .outgoing
@@ -3839,6 +3811,7 @@ fn start_turn(model: &mut ThreadModel, turn: TurnId, now: i64) {
     model.core.safety.turn_started(&turn);
     match &model.turn {
         TurnState::Idle => {
+            hooks::clear(model);
             model.slots.chat.begin_turn();
             model.turn = TurnState::Running(RunningTurn {
                 turn,

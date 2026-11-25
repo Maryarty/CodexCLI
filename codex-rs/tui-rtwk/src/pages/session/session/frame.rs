@@ -17,6 +17,7 @@ use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::chat;
 use codex_tui_core::screens::status::{Account, Figure};
 use codex_tui_core::threads::ThreadModel;
+use codex_tui_core::threads::hooks::RunningHook;
 
 use crate::app::theme::Tokens;
 use crate::l10n::strings::{self as l10n, Shared};
@@ -26,6 +27,7 @@ use crate::pages::session::slice::{self, Drawn};
 use crate::pages::session::status_surfaces::StatusContext;
 use crate::pages::session::strings::{self as chat_strings, Strings};
 
+use super::msg::ChatMsg;
 use super::{Chat, ChatState};
 
 /// The values of one build: what the sections draw from.
@@ -67,7 +69,14 @@ impl Frame {
         thread_shape(cx);
         let drawn = slice::drawn(cx, thread.id());
         let searching = w.ui.draft.search_state();
-        let run = Run::of(&thread).asking(super::questions::count(cx, thread.id()));
+        // the page follows the runs under way, not the rest of the thread
+        let runs = select::<ThreadModel, Vec<RunningHook>, _>(cx, |thread| {
+            thread.running_hooks().to_vec()
+        });
+        let hook = state.hooks.shown(&runs, cx, ChatMsg::HookRevealed);
+        let run = Run::of(&thread)
+            .asking(super::questions::count(cx, thread.id()))
+            .hooked(hook);
         let reconnecting =
             session.connections.get(&drawn.owner) == Some(&ConnectionState::Reconnecting);
         let chat_strings = chat_strings::of(cx);

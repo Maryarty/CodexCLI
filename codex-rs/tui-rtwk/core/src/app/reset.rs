@@ -77,7 +77,7 @@ fn output_active(app: &CodexApp, thread: &ThreadId) -> bool {
         return false;
     };
     let transcript = model.transcript();
-    model.hook_status().is_some()
+    !model.running_hooks().is_empty()
         || transcript.iter().any(|(key, item)| {
             transcript.is_agent_streaming(key)
                 || match item {
