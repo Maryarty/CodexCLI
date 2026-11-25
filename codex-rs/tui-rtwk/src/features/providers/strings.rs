@@ -3,11 +3,11 @@
 //! document and the form's labels. Core says what each state is (`features::providers`), the rows
 //! are made here. The wording is the oracle's English until the catalog has these entries.
 
-use codex_app_server_protocol::{ModelProviderSummary, ProviderSettings};
-
 use crate::l10n::Lang;
 use codex_tui_core::features::providers::form::{Field, Invalid, provider_fields};
-use codex_tui_core::features::providers::{Failure, Note, Outcome, Page, Saved, Trouble};
+use codex_tui_core::features::providers::{
+    Failure, ModelProviderSummary, Note, Outcome, Page, ProviderSettings, Saved, Trouble,
+};
 
 use crate::widgets::picker::list::{Columns, Item, List, Role, Secondary, Span};
 
@@ -21,6 +21,29 @@ pub const TITLE: &str = "Model providers";
 pub const DETAILS_TITLE: &str = "Model provider details";
 pub const CREATE_CUSTOM_PROVIDER: &str = "Create a custom provider or gateway";
 pub const EDIT_CONFIGURATION: &str = "Edit configuration";
+
+/// The form: the save row, the required mark, the key hints and the environment variable's mark.
+pub const SAVE: &str = "  Save";
+pub const SAVE_SELECTED: &str = "› Save";
+pub const REQUIRED: &str = "* Required";
+pub const KEY_TAB: &str = "tab";
+pub const KEY_TAB_DOES: &str = " move · ";
+pub const KEY_ENTER: &str = "enter";
+pub const KEY_ENTER_DOES: &str = " next/save · ";
+pub const KEY_ESC: &str = "esc";
+pub const KEY_ESC_DOES: &str = " back";
+pub const KEY_COMPLETE: &str = "ctrl + space";
+pub const VARIABLE_PREFIX: &str = "$";
+
+/// The title of the form that edits `name`.
+pub fn edit_title(name: &str) -> String {
+    format!("Edit {name}")
+}
+
+/// What `ctrl + space` does at the environment variable's field: completes `name`.
+pub fn complete_does(name: &str) -> String {
+    format!(" complete {name}")
+}
 
 /// The title of the directory in the debug menu.
 pub fn title(_lang: Lang) -> &'static str {

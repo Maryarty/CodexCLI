@@ -1,7 +1,7 @@
 //! The home page of the providers sheet (oracle `app/provider.rs` `list`, `load_error`,
 //! `progress`): the list the server answered with, or the page that says it is being read, why it
 //! could not be, or that a default is being written. What it shows is the feature's state; what it
-//! asks is a verb (`Intent::Choose`), the read is the sheet's interest. A provider's Enter opens
+//! asks is a verb (`Intent::SetDefault`), the read is the sheet's interest. A provider's Enter opens
 //! the details pager; its `Edit configuration` and the row that creates a gateway push the form.
 //!
 //! Every phase is a page of its own (the oracle replaces the view), so its cursor starts on the
@@ -9,7 +9,6 @@
 
 use std::rc::Rc;
 
-use codex_app_server_protocol::{ModelProviderSummary, ProviderSettings};
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::overlay::{close_dialog, show_dialog};
 use rtwk::provider::{read, select};
@@ -17,7 +16,9 @@ use rtwk::{AnyWidget, Cx, Key, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::features::FeatureStates;
 use codex_tui_core::features::providers::form::Draft;
-use codex_tui_core::features::providers::{Intent, Interest as Wanted, Load, Saving};
+use codex_tui_core::features::providers::{
+    Intent, Interest as Wanted, Load, ModelProviderSummary, ProviderSettings, Saving,
+};
 use codex_tui_core::keymap::actions::{LIST_ACCEPT, LIST_CANCEL};
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::transcript::{PagerAction, PagerDoc};
@@ -158,7 +159,7 @@ impl State for HomeState {
             Msg::Picked(Event::Secondary(id)) => {
                 let provider = index_of(&id).and_then(|index| catalog(cx).get(index).cloned());
                 if let Some(provider) = provider {
-                    verb(cx, Intent::Choose(provider.id));
+                    verb(cx, Intent::SetDefault(provider.id));
                 }
             }
             // Esc leaves the sheet, whatever it shows: a write under way is not waited for.

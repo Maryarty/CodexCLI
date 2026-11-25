@@ -288,22 +288,18 @@ pub fn reply_from_server(
             _ => {}
         }
     }
-    // A refusal that is an answer of a provider ask: the list the server does not know, a write
-    // whose reply may have been lost after the server committed it.
+    // A refusal that is an answer of a feature's ask (the feature says which).
     if let (
         Command::Feature {
             ticket,
-            command: crate::features::FeatureCommand::Providers(asked),
+            command: asked,
             ..
         },
         Err(error),
     ) = (command, &result)
-        && let Some(answer) = crate::features::providers::refusal(asked, error)
+        && let Some(answer) = crate::features::refusal(asked, error)
     {
-        return Some((
-            *ticket,
-            Reply::feature(crate::features::FeatureReply::Providers(answer)),
-        ));
+        return Some((*ticket, Reply::feature(answer)));
     }
     reply(command, result.map_err(|error| error.message))
 }

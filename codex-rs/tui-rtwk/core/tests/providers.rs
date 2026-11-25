@@ -235,7 +235,7 @@ fn any_other_failure_of_the_list_is_the_servers_text() {
 fn the_default_is_written_once_and_the_list_read_again_with_the_outcome() {
     let mut app = listed("openai");
     interest(&mut app, Interest::Saving, true);
-    let fx = verb(&mut app, providers::Intent::Choose("gateway".into()));
+    let fx = verb(&mut app, providers::Intent::SetDefault("gateway".into()));
     let write = one(&fx);
     assert_eq!(write.1, providers::Command::SetDefault("gateway".into()));
     assert_eq!(
@@ -243,7 +243,7 @@ fn the_default_is_written_once_and_the_list_read_again_with_the_outcome() {
         Some(&Saving::Default("gateway".into()))
     );
     // a second press while one write is under way is told, not sent
-    let fx = verb(&mut app, providers::Intent::Choose("openai".into()));
+    let fx = verb(&mut app, providers::Intent::SetDefault("openai".into()));
     assert!(sent(&fx).is_empty());
     assert_eq!(notes(&app), vec![Note::Busy]);
     let fx = answer(&mut app, &write, written());
@@ -264,7 +264,7 @@ fn the_default_is_written_once_and_the_list_read_again_with_the_outcome() {
 #[test]
 fn a_write_that_finishes_after_the_page_went_is_said_in_the_transcript() {
     let mut app = listed("openai");
-    let fx = verb(&mut app, providers::Intent::Choose("gateway".into()));
+    let fx = verb(&mut app, providers::Intent::SetDefault("gateway".into()));
     let write = one(&fx);
     // the user left the page that waited for the write
     let fx = answer(&mut app, &write, written());
@@ -281,7 +281,7 @@ fn a_write_that_finishes_after_the_page_went_is_said_in_the_transcript() {
 fn an_overridden_default_keeps_the_reason_the_server_gave() {
     let mut app = listed("openai");
     interest(&mut app, Interest::Saving, true);
-    let fx = verb(&mut app, providers::Intent::Choose("gateway".into()));
+    let fx = verb(&mut app, providers::Intent::SetDefault("gateway".into()));
     let write = one(&fx);
     let fx = answer(
         &mut app,
@@ -305,7 +305,7 @@ fn an_overridden_default_keeps_the_reason_the_server_gave() {
 fn a_lost_reply_of_the_default_may_be_a_committed_write() {
     let mut app = listed("openai");
     interest(&mut app, Interest::Saving, true);
-    let fx = verb(&mut app, providers::Intent::Choose("gateway".into()));
+    let fx = verb(&mut app, providers::Intent::SetDefault("gateway".into()));
     let fx = refused(&mut app, &fx, None, "connection lost");
     // the page that waited reads the list again and shows what the write may have done
     assert_eq!(one(&fx).1, providers::Command::List);
@@ -391,7 +391,7 @@ fn offline_nothing_is_sent_and_the_list_says_to_reconnect() {
     let mut app = listed("openai");
     interest(&mut app, Interest::Saving, true);
     run(&mut app, AppEv::Disconnected);
-    let fx = verb(&mut app, providers::Intent::Choose("gateway".into()));
+    let fx = verb(&mut app, providers::Intent::SetDefault("gateway".into()));
     assert!(sent(&fx).is_empty());
     assert_eq!(state(&app).saving(), None);
     // the list is read again, and a read offline is not sent either

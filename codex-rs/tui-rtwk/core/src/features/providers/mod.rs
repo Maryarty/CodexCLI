@@ -24,6 +24,7 @@ use crate::rpc::RpcError;
 use crate::screens::SeedError;
 use crate::threads::Tone;
 
+pub use codex_app_server_protocol::{ModelProviderSummary, ProviderSettings};
 pub use rpcs::{Chosen, Command, Reply, refusal};
 
 /// The marker of the feature (`feature_list!`).
@@ -35,7 +36,7 @@ pub enum Intent {
     /// Save what a form asks for (`form::Draft::patch`).
     Save(codex_app_server_protocol::ModelProviderConfigWriteParams),
     /// `model_provider` of the user's config becomes `id`: the default for new chats.
-    Choose(String),
+    SetDefault(String),
     /// Read the list again (the retry of a failed one).
     Reload,
 }
@@ -329,6 +330,8 @@ feature! {
     impl Feature for Providers {
         const NAME: &'static str = "providers";
         const SEED: Option<fn(serde_json::Value) -> Result<Fact, SeedError>> = Some(seed);
+        const REFUSAL: Option<super::RefusalFn<Command, Reply>> = Some(refusal);
+        const SETTING: Option<super::SettingId> = Some(super::SettingId::ModelProviders);
         type State = State;
         type Intent = Intent;
         type Command = Command;
@@ -344,7 +347,7 @@ feature! {
                         let create = form::creates(&params);
                         state.save(Saving::Settings, Command::Write(params), Ctx::Write { create }, cx);
                     }
-                    Intent::Choose(id) => {
+                    Intent::SetDefault(id) => {
                         state.save(
                             Saving::Default(id.clone()),
                             Command::SetDefault(id.clone()),

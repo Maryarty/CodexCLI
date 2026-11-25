@@ -36,11 +36,15 @@ impl FeatureView for Providers {
             open_empty: debug::open_empty,
         })
     }
+
+    fn open_setting<S: 'static>(cx: &mut Cx<'_, S>) {
+        open(cx);
+    }
 }
 
 /// The sheet of the providers, from the widget that asks (the settings panel's `Model providers`
 /// row): it says it wants the list (`Interest::List`) and the feature reads it.
-pub fn open<S: 'static>(cx: &mut Cx<'_, S>) {
+fn open<S: 'static>(cx: &mut Cx<'_, S>) {
     drop(show_dialog::<(), S>(
         cx,
         |_| sheet::sheet(),

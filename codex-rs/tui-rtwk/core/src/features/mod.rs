@@ -34,7 +34,7 @@ use crate::app::Now;
 use crate::app::effects::Done;
 use crate::commands::SlashCommand;
 use crate::ids::{BackendId, ThreadId};
-use crate::rpc::RpcError;
+use crate::rpc::{RpcError, ServerError};
 use crate::screens::SeedError;
 use crate::screens::status::RateRead;
 use crate::threads::{Tone, TurnEnd};
@@ -51,6 +51,7 @@ pub use crate::threads::structured::{
 pub use cx::{AppCx, AppFacts, AppView, ChatFacts, Out, ThreadCx, ThreadView};
 pub use lifecycle::{Connection, Lifecycle, Refusal, ThreadSpawn};
 pub use remote::Remote;
+pub use settings::SettingId;
 pub use surface::{InterestStep, Interests, Scope, SurfaceWish, Wishes};
 pub use verb::PublicVerb;
 
@@ -106,7 +107,7 @@ macro_rules! feature_no_rpcs {
 /// }
 /// ```
 ///
-/// The constants are `NAME`, then `SEED`, `SEED_NOTE`, `OPENS`, `RUNS`; the types are `State`,
+/// The constants are `NAME`, then `SEED`, `SEED_NOTE`, `OPENS`, `RUNS`, `REFUSAL`, `SETTING`; the types are `State`,
 /// `ThreadPart`, `Target`, `Intent`, `ThreadIntent`, `Command`, `Reply`, `Ctx`, `Note`, `Fact`, `Wish`,
 /// `Interest`, `Event`; the methods are the items of the last braces. Each is written as in the
 /// trait (rules scan these lines); a doc comment goes on a method, not on a constant or a type.
@@ -119,6 +120,8 @@ macro_rules! feature {
             $(const SEED_NOTE: $seed_note_ty:ty = $seed_note:expr;)?
             $(const OPENS: $opens_ty:ty = $opens:expr;)?
             $(const RUNS: $runs_ty:ty = $runs:expr;)?
+            $(const REFUSAL: $refusal_ty:ty = $refusal:expr;)?
+            $(const SETTING: $setting_ty:ty = $setting:expr;)?
             $(type State = $state:ty;)?
             $(type ThreadPart = $part:ty;)?
             $(type Target = $target:ty;)?
@@ -141,6 +144,8 @@ macro_rules! feature {
             $(const SEED_NOTE: $seed_note_ty = $seed_note;)?
             $(const OPENS: $opens_ty = $opens;)?
             $(const RUNS: $runs_ty = $runs;)?
+            $(const REFUSAL: $refusal_ty = $refusal;)?
+            $(const SETTING: $setting_ty = $setting;)?
             type State = feature_or!((); $($state)?);
             type ThreadPart = feature_or!((); $($part)?);
             type Target = feature_or!($crate::features::Never<Self>; $($target)?);
@@ -177,6 +182,9 @@ pub enum Never<F> {
         std::marker::PhantomData<fn() -> F>,
     ),
 }
+
+/// What the server's refusal of a feature's RPC means to the feature (`Feature::REFUSAL`).
+pub type RefusalFn<C, R> = fn(&C, &ServerError) -> Option<R>;
 
 /// How a script's `fact` step reads one fact of a feature from its JSON (`Feature::SEED`).
 pub type SeedFn<T> = fn(serde_json::Value) -> Result<T, SeedError>;
@@ -271,6 +279,16 @@ pub trait Feature: 'static {
     /// one owner (`one_owner_per_command`); one that opens a sheet bare and runs with arguments
     /// (`/export <path>`, `/mcp verbose`) is in `OPENS` and `RUNS` of the same feature.
     const RUNS: &'static [SlashCommand] = &[];
+
+    /// What the server's refusal of one of the feature's RPCs means to the feature, when it is an
+    /// answer and no failure (a list the server does not know, a write whose reply may have been
+    /// lost after the server committed it): the reply the feature reads. None: every refusal is
+    /// a failure. A constant, not a method: no feature but the one that asks needs it.
+    const REFUSAL: Option<RefusalFn<Self::Command, Self::Reply>> = None;
+
+    /// The row of the settings panel that opens the feature's own sheet (`open_setting`): the
+    /// panel asks the list, so it names no slice. None: no row opens a sheet of the feature.
+    const SETTING: Option<SettingId> = None;
 
     /// The feature's app-scoped state: a field of `CodexApp`, changed only by this trait's
     /// `intent`, `answered`, `effect_done`, `on_fact`, `on_interest` and `on_resumed`.
@@ -1052,6 +1070,18 @@ macro_rules! feature_dirs {
             match *command {
                 $(FeatureCommand::$variant(ref command) => {
                     <$name::$variant as Feature>::wire(command, thread, id)
+                })*
+            }
+        }
+
+        /// What the server's refusal of a feature's RPC means to the feature, when it is an answer.
+        #[allow(unused_variables, dead_code)]
+        pub fn refusal(command: &FeatureCommand, error: &$crate::rpc::ServerError) -> Option<FeatureReply> {
+            match *command {
+                $(FeatureCommand::$variant(ref command) => {
+                    <$name::$variant as Feature>::REFUSAL
+                        .and_then(|refusal| refusal(command, error))
+                        .map(FeatureReply::$variant)
                 })*
             }
         }

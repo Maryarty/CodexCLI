@@ -142,9 +142,9 @@ impl ConfigState {
             (Value::Test, _) => super::request(cx, Edit::TestNotification),
             (Value::Unavailable, _) => {}
             (_, SettingId::Effects) => self.edit(Editor::Effects),
-            (_, SettingId::ModelProviders) => {
+            (_, id) if crate::features::opens_setting(id) => {
                 close_dialog::<_, ()>(cx, None);
-                crate::features::providers::open(cx);
+                crate::features::open_setting(cx, id);
             }
             (_, id) => match editors::dialog_of(id) {
                 Some(which) => {

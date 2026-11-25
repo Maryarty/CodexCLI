@@ -449,9 +449,9 @@ impl FormState {
             .on_tap(tap)
             .child(
                 Focus::new(Text::rich([if selected == save_at {
-                    Span::styled("› Save", bold.clone())
+                    Span::styled(strings::SAVE_SELECTED, bold.clone())
                 } else {
-                    Span::new("  Save")
+                    Span::new(strings::SAVE)
                 }]))
                 .focus_node(self.nodes[save_at].clone())
                 .on_focus_change(cx.map(move |on: bool| Msg::Focused(save_at, on))),
@@ -459,7 +459,7 @@ impl FormState {
             .into();
         let title = w.draft.provider().map_or_else(
             || strings::CREATE_CUSTOM_PROVIDER.to_owned(),
-            |provider| format!("Edit {}", provider.name),
+            |provider| strings::edit_title(&provider.name),
         );
         let top: Vec<Line> = vec![vec![Span::styled(title, bold.clone())], Vec::new()];
         let error: Option<Line> = self
@@ -474,16 +474,16 @@ impl FormState {
             } else {
                 "Authentication is managed on the app server."
             };
-            notes.push(vec![Span::styled("* Required", dim.clone())]);
+            notes.push(vec![Span::styled(strings::REQUIRED, dim.clone())]);
             notes.push(vec![Span::styled(hint, dim.clone())]);
         }
         let keys: Vec<Line> = vec![vec![
-            Span::styled("tab", bold.clone()),
-            Span::styled(" move · ", dim.clone()),
-            Span::styled("enter", bold.clone()),
-            Span::styled(" next/save · ", dim.clone()),
-            Span::styled("esc", bold.clone()),
-            Span::styled(" back", dim.clone()),
+            Span::styled(strings::KEY_TAB, bold.clone()),
+            Span::styled(strings::KEY_TAB_DOES, dim.clone()),
+            Span::styled(strings::KEY_ENTER, bold.clone()),
+            Span::styled(strings::KEY_ENTER_DOES, dim.clone()),
+            Span::styled(strings::KEY_ESC, bold.clone()),
+            Span::styled(strings::KEY_ESC_DOES, dim.clone()),
         ]];
         let variable = Self::variable(w);
         let controllers = self.fields.clone();
@@ -540,7 +540,7 @@ impl FormState {
                     let crowded = segmenter_of(cx).width(&label) + 8 > width;
                     let mut value = Row::new();
                     if Some(index) == variable && width > 1 {
-                        value = value.child(Text::rich([Span::styled("$", dim.clone())]));
+                        value = value.child(Text::rich([Span::styled(strings::VARIABLE_PREFIX, dim.clone())]));
                     }
                     let value = value.child(Expanded::new(1, input.clone()));
                     if crowded {
@@ -592,8 +592,8 @@ impl FormState {
                     let at_end = controllers[variable].selection().extent_offset == text.len();
                     if let Some(name) = at_end.then(|| draft.suggestion(&text)).flatten() {
                         let line = vec![
-                            Span::styled("ctrl + space", bold.clone()),
-                            Span::styled(format!(" complete {name}"), dim.clone()),
+                            Span::styled(strings::KEY_COMPLETE, bold.clone()),
+                            Span::styled(strings::complete_does(name), dim.clone()),
                         ];
                         row_at += i64::try_from(rows_of(cx, std::slice::from_ref(&line), width))
                             .unwrap_or(1);
