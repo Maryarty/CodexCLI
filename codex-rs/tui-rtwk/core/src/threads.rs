@@ -3227,7 +3227,11 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         } => {
             processes::turn_ended(model, &turn, end);
             match snapshot {
-                Some(TurnSnapshot::Full(items)) => {
+                // A list with no item says nothing of a turn whose items came as they ran: the
+                // oracle's live chat keeps what the notifications drew (an interrupted turn's
+                // running command stays, finished as failed); only a list that names items is
+                // the turn's own.
+                Some(TurnSnapshot::Full(items)) if !items.is_empty() => {
                     Rc::make_mut(&mut model.authoritative_turns).insert(turn.clone());
                     for (id, item) in &items {
                         let key = ItemKey {
