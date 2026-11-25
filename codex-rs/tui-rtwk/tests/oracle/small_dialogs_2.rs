@@ -368,7 +368,7 @@ fn reset_confirmation_keeps_both_choices_at_wrap_boundary() {
 fn shortcut_overlay_uses_runtime_bindings_and_wsl_paste() {
     kit::pending(
         Owner::DialogsPane,
-        "the shortcut overlay seed carries no runtime keymap (ctrl+x chords, reasoning_down and history_search unbound) and no WSL flag: the shortcuts seed is {\"kind\":\"shortcuts\"} only; no entry dialogs/shortcut_overlay_custom_wsl",
+        "the overlay reads the keymap (`.keymap(..)` seeds the ctrl+x chords and the unbound rows), but its Paste image key is the fixed `⌃v`: the oracle's `is_wsl` makes it `⌃⌥v` and no fact of the sheet says WSL (services/clipboard/machine.rs probes the process); `esc_backtrack_hint` (`esc` for Edit last message) is no seed either; no entry dialogs/shortcut_overlay_custom_wsl",
     );
     let s = Screen::build(Owner::DialogsPane)
         .size(80, 21)
