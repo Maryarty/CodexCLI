@@ -157,6 +157,15 @@ fn key_names(display: &str) -> Vec<String> {
                 mods.push_str(name);
                 rest = &rest[sign.len_utf8()..];
             }
+            // Shift on a key whose character is not a letter types another character (`⇧?` is
+            // the `?` of the `/` key, `⇧1` the `!`): rtwk names that key by the character.
+            let mut chars = rest.chars();
+            if let (Some(only), None) = (chars.next(), chars.next())
+                && !only.is_alphabetic()
+                && let Some(without) = mods.strip_suffix("shift+")
+            {
+                mods = without.to_owned();
+            }
             let key = match rest {
                 "\u{2191}" => "up",
                 "\u{2193}" => "down",
