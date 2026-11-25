@@ -64,9 +64,8 @@ when stuck on a type). Then, from `codex-rs/tui-rtwk`:
   ONCE, before task_done, until clean (person 2026-11-25);
 - one `~/.cache/rtwk/acargo nextest run -p codex-tui-rtwk --test rules --cargo-quiet
   --status-level fail --final-status-level fail --hide-progress-bar`;
-- `~/.cache/rtwk/acargo fmt`, and for test files (macro-declared modules that
-  cargo fmt skips) `rustfmt --edition 2024 tests/{app,pages,sheets,oracle,services}/*.rs`
-  from `codex-rs/tui-rtwk`.
+- fmt in ONE call: `tools/rtwk-port/fmt-all.sh` (cargo fmt + the build.rs-declared
+  modules + every test file).
 - the scoped tests of your feature, always with a filter: `~/.cache/rtwk/acargo
   nextest run -p codex-tui-rtwk --test <root> -E 'test(<pattern>)'` (same quiet
   flags; oracle shards: `--profile oracle -E 'test(<shard>::)'`), and the
