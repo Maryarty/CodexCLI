@@ -1,0 +1,3 @@
+# Oracle data: history_cell/tests.rs:1256 prefixed_wrapped_history_cell_indents_wrapped_lines: an exec approval of the summary command, answered `y` by the test (the decision cell is the PrefixedWrappedHistoryCell)
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"request","message":{"method":"item/commandExecution/requestApproval","id":1,"params":{"kind":"command","itemId":"call-1","approvalId":"call-1","environmentId":"remote","command":"bash -lc 'echo something really long to ensure wrapping happens'","cwd":"/tmp","reason":null,"proposedExecpolicyAmendment":null,"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}

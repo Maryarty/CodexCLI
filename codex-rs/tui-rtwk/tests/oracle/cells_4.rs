@@ -68,23 +68,36 @@ fn mcp_tools_output_from_statuses_renders_verbose_inventory() {
 // ORACLE history_cell/tests.rs:1256 prefixed_wrapped_history_cell_indents_wrapped_lines kind=ui owner=chat-live
 #[test]
 fn prefixed_wrapped_history_cell_indents_wrapped_lines() {
-    kit::pending(Owner::ChatLive, NO_SEED_LOCAL);
-    let s = Screen::build(Owner::ChatLive).size(24, 8).live().open();
-    s.assert_has_row("✔ You approved codex to");
-    s.assert_has_row("  run echo something");
-    s.assert_has_row("  really long to ensure");
-    s.assert_has_row("  wrapping happens this");
-    s.assert_has_row("  time");
+    // the decision cell of an approved command is the oracle's `PrefixedWrappedHistoryCell`
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(24, 12)
+        .script(include_str!("fixtures/cells_4/approved_wrapped.jsonl"))
+        .open();
+    s.keys("y");
+    s.assert_in_order(&[
+        "✔ You approved codex to",
+        "  run echo something",
+        "  really long to ensure",
+        "  wrapping happens this",
+        "  time",
+    ]);
 }
 
 // ORACLE history_cell/tests.rs:1279 prefixed_wrapped_history_cell_does_not_split_url_like_token kind=ui owner=chat-live
 #[test]
 fn prefixed_wrapped_history_cell_does_not_split_url_like_token() {
-    // The oracle renders at width 24 and counts logical lines; the URL is 77 columns,
-    // so the screen shows it whole on one row only at a width that holds it with the prefix.
-    kit::pending(Owner::ChatLive, NO_SEED_LOCAL);
-    let s = Screen::build(Owner::ChatLive).size(80, 8).live().open();
-    s.assert_has_row(&format!("✔ {URL_LIKE}"));
+    kit::pending(
+        Owner::ChatLive,
+        "G72: the decision cell wraps the command with `TextWrap::Word`, which breaks the URL-like token after its hyphens (`alpha-` / `team/...`); the oracle's URL-aware wrap keeps the token whole on one row",
+    );
+    // The oracle renders at width 24 and counts logical lines; the token is 77 columns,
+    // so the screen shows it whole on one row only at a width that holds it with the indent.
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 12)
+        .script(include_str!("fixtures/cells_4/approved_url.jsonl"))
+        .open();
+    s.keys("y");
+    s.assert_has_row(&format!("  {URL_LIKE}"));
 }
 
 // ORACLE history_cell/tests.rs:1295 unified_exec_interaction_details_do_not_split_url_like_stdin_token kind=ui owner=chat-live
@@ -102,11 +115,28 @@ fn unified_exec_interaction_details_do_not_split_url_like_stdin_token() {
 #[test]
 fn prefixed_wrapped_history_cell_height_matches_wrapped_rendering() {
     // The oracle asserts the wrapped height exceeds the logical lines and the first row keeps
-    // the prefix; on the screen the URL wraps over the rows below the prefix.
-    kit::pending(Owner::ChatLive, NO_SEED_LOCAL);
-    let s = Screen::build(Owner::ChatLive).size(24, 12).live().open();
-    s.assert_contains("✔");
-    s.assert_contains("long/path");
+    // the prefix; on the screen the command wraps over the rows below the prefix.
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(24, 12)
+        .script(include_str!("fixtures/cells_4/approved_url.jsonl"))
+        .open();
+    s.keys("y");
+    let rows = s.rows();
+    let first = rows
+        .iter()
+        .position(|row| row.starts_with("✔"))
+        .unwrap_or_else(|| panic!("no decision cell:\n{}", s.text()));
+    // one logical line, wrapped over more rows than that (the decision cell cuts a long command
+    // itself, so the oracle's own token is not on the screen)
+    let height = rows[first..]
+        .iter()
+        .take_while(|row| !row.trim().is_empty())
+        .count();
+    assert!(
+        height > 1,
+        "the wrapped height exceeds the logical line:\n{}",
+        s.text()
+    );
 }
 
 // ORACLE history_cell/tests.rs:1348 unified_exec_interaction_details_wrap_long_input kind=ui owner=chat-live
