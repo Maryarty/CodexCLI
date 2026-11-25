@@ -150,6 +150,30 @@ pub(super) fn track(model: &mut ThreadModel, key: &ItemKey, item: &Item) {
     model.processes.end(call, process);
 }
 
+/// A unified-exec startup command that is not a standard tool call draws no entry of its own
+/// (oracle `on_command_execution_started`: it returns before any cell unless the command parses
+/// to known actions, the footer and the wait row say it runs), and its end after its turn
+/// finished draws none either (`on_command_execution_completed`: `if !is_task_running`). While
+/// the turn runs the end draws the `Ran` cell as any command's. The process facts are kept
+/// ([`track`] runs first), only the transcript entry is skipped.
+pub(super) fn draws_nothing(item: &Item, turn_finished: bool) -> bool {
+    let Item::Tool(tool) = item else {
+        return false;
+    };
+    let ToolKind::Shell {
+        actions,
+        unified_exec: true,
+        ..
+    } = &tool.kind
+    else {
+        return false;
+    };
+    if tool.status == ToolStatus::Running {
+        return actions.is_empty();
+    }
+    turn_finished
+}
+
 /// Output of a command: the last lines of a background terminal's (oracle
 /// `on_exec_command_output_delta`).
 pub(super) fn output(model: &mut ThreadModel, key: &ItemKey, delta: &str) {

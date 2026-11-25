@@ -6,6 +6,18 @@
 
 use crate::kit::{self, Owner, Screen};
 
+/// The turn of the unified-exec fixtures ends.
+const TURN_COMPLETED: &str = r#"{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}"#;
+
+/// The screen row of the status line (`• Working`, `• Waiting for background terminal`): the
+/// oracle's snapshots of the bottom pane start there.
+fn status_row(s: &Screen) -> usize {
+    s.rows()
+        .iter()
+        .position(|row| row.starts_with("• Working") || row.starts_with("• Waiting"))
+        .unwrap_or_else(|| panic!("no status row on the screen:\n{}", s.text()))
+}
+
 // ---- oracle: chatwidget/tests/approval_requests.rs (8 screen-level tests here; 2 state tests left to dialogs-pane)
 // ORACLE chatwidget/tests/approval_requests.rs:8 exec_approval_emits_proposed_command_and_decision_history kind=snap owner=dialogs-pane
 #[test]
@@ -156,7 +168,7 @@ fn external_writer_snapshot_freezes_active_command_and_mcp_rows() {
 fn replayed_background_terminals_belong_to_the_displayed_thread() {
     kit::pending(
         Owner::DialogsPane,
-        "OTHER CHUNK (chunk-chat-commands, not approvals): no /ps background-terminal list on the chat screen (the replayed inherited terminal and the fork's own terminals)",
+        "NEED (f-unified-exec): nothing asks `thread/backgroundTerminals/list` when a thread is resumed. The restore is a core door: a `screens::chat` Command/Reply for the list (decode), `threads::apply` writing `ThreadCore.processes` (a feature slice cannot: ThreadCx is read-only), `app.rs` sending it after `features::resumed`, and the terminals that ended while it was in flight skipped. /ps and the footer already read ThreadModel::terminals",
     );
     // oracle: the fork's /ps lists only its own live terminal; the exited one is not listed.
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -298,14 +310,20 @@ fn replayed_commands_preserve_individual_output_and_failure_status() {
 // ORACLE chatwidget/tests/exec_flow.rs:493 unified_exec_begin_restores_working_status_snapshot kind=snap owner=dialogs-pane snap=unified_exec_begin_restores_working_status
 #[test]
 fn unified_exec_begin_restores_working_status_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-status, not approvals): no working status row restored after the preamble of a unified exec begin on the chat screen",
+    // oracle: a preamble line, then a unified exec begin: the working status shows again, with the
+    // background terminal in it and no row of the command (the snapshot is the bottom pane, 80 wide).
+    let s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/chat_approvals_1/unified_exec_begin_restores_working_status_snapshot.jsonl"
+        ))
+        .open();
+    s.assert_absent("Running sleep 2");
+    s.assert_snap_region(
+        "unified_exec_begin_restores_working_status",
+        status_row(&s).saturating_sub(1),
+        0,
     );
-    // oracle: a preamble line, a commit tick, then a unified exec begin: the working status shows again (80 wide).
-    let s = Screen::build(Owner::DialogsPane).size(80, 8).live().open();
-    // needs feed: task started, agent message delta "Preamble line", commit tick, begin unified exec `sleep 2` (call-1, proc-1)
-    s.assert_snap("unified_exec_begin_restores_working_status");
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:517 exec_history_cell_shows_working_then_completed kind=ui owner=dialogs-pane
@@ -416,40 +434,52 @@ fn exec_history_shows_unified_exec_startup_commands() {
 // ORACLE chatwidget/tests/exec_flow.rs:781 unified_exec_unknown_end_with_active_exploring_cell_snapshot kind=snap owner=dialogs-pane snap=unified_exec_unknown_end_with_active_exploring_cell
 #[test]
 fn unified_exec_unknown_end_with_active_exploring_cell_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no active exploring cell with an orphan unified exec end beside it on the chat screen (History and Active rows)",
-    );
-    // oracle: History (the orphan's entry) and Active (the exploring cell `cat /dev/null`) in one snapshot.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: task started, begin cat /dev/null (call-exploring), begin unified exec echo repro-marker (call-orphan), end it
-    s.assert_snap("unified_exec_unknown_end_with_active_exploring_cell");
+    // oracle: History (the orphan's entry) and Active (the exploring cell `cat /dev/null`) in one
+    // snapshot: the scrollback form splits them, the owned transcript holds the rows in order.
+    let s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!("fixtures/chat_approvals_1/unified_exec_unknown_end_with_active_exploring_cell_snapshot.jsonl"))
+        .open();
+    s.assert_in_order(&["• Ran echo repro-marker", "└ repro-marker"]);
+    s.assert_in_order(&["• Exploring", "└ Read null"]);
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:852 unified_exec_wait_after_final_agent_message_snapshot kind=snap owner=dialogs-pane snap=unified_exec_wait_after_final_agent_message
 #[test]
 fn unified_exec_wait_after_final_agent_message_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no waiting-for-terminal row in the transcript after the final agent message on the chat screen",
-    );
-    // oracle: a unified exec wait then the final message and the turn completion: the transcript snapshot.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: turn started, begin `cargo test -p codex-core` (call-wait, proc-1), empty terminal interaction, final message, turn completed
-    s.assert_snap("unified_exec_wait_after_final_agent_message");
+    // oracle: a unified exec wait, then the final message and the turn completion: the wait is
+    // written before the message (the detailed transcript; the compact one does not list it).
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/chat_approvals_1/unified_exec_wait_after_final_agent_message_snapshot.jsonl"
+        ))
+        .open();
+    s.assert_absent("Waited for background terminal");
+    s.keys("ctrl+t");
+    s.assert_in_order(&[
+        "• Waited for background terminal · cargo test -p codex-core",
+        "• Final response.",
+        "Worked for",
+    ]);
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:871 unified_exec_wait_before_streamed_agent_message_snapshot kind=snap owner=dialogs-pane snap=unified_exec_wait_before_streamed_agent_message
 #[test]
 fn unified_exec_wait_before_streamed_agent_message_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no waiting-for-terminal row in the transcript before a streamed agent message on the chat screen",
-    );
-    // oracle: a unified exec wait, then a streamed message "Streaming response." and the turn completion.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: turn started, begin `cargo test -p codex-core` (call-wait-stream), empty terminal interaction, streamed delta, turn completed
-    s.assert_snap("unified_exec_wait_before_streamed_agent_message");
+    // oracle: a unified exec wait, then a streamed message "Streaming response." and the turn
+    // completion: the wait is written before the message.
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!("fixtures/chat_approvals_1/unified_exec_wait_before_streamed_agent_message_snapshot.jsonl"))
+        .open();
+    s.assert_absent("Waited for background terminal");
+    s.keys("ctrl+t");
+    s.assert_in_order(&[
+        "• Waited for background terminal · cargo test -p codex-core",
+        "• Streaming response.",
+        "Worked for",
+    ]);
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:895 final_worked_for_uses_cumulative_turn_duration_snapshot kind=snap owner=dialogs-pane snap=final_worked_for_uses_cumulative_turn_duration
@@ -468,61 +498,84 @@ fn final_worked_for_uses_cumulative_turn_duration_snapshot() {
 // ORACLE chatwidget/tests/exec_flow.rs:983 unified_exec_waiting_multiple_empty_snapshots kind=snap owner=dialogs-pane snap=unified_exec_waiting_multiple_empty_after
 #[test]
 fn unified_exec_waiting_multiple_empty_snapshots() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-status, not approvals): no 'Waiting for background terminal' status with its command detail on the chat screen after two empty polls",
-    );
-    // oracle: two empty polls of `just fix` show the waiting status with the command as its detail; the turn completion
-    // writes the compact and the transcript renderings.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: task started, begin unified exec `just fix` (call-wait-1, proc-1), two empty terminal interactions, turn completed
+    // oracle: two empty polls of `just fix` show the waiting status with the command as its detail;
+    // the turn completion writes ONE wait entry (the compact rendering has only the separator).
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/chat_approvals_1/unified_exec_waiting_multiple_empty_snapshots.jsonl"
+        ))
+        .open();
     s.assert_contains("Waiting for background terminal");
     s.assert_contains("just fix");
-    s.assert_snap("unified_exec_waiting_multiple_empty_after");
+    s.feed(TURN_COMPLETED);
+    s.assert_absent("Waiting for background terminal");
+    s.assert_absent("Waited for background terminal");
+    s.keys("ctrl+t");
+    s.assert_in_order(&["• Waited for background terminal · just fix", "Worked for"]);
+    s.assert_text_count("Waited for background terminal", 1);
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:1032 unified_exec_wait_status_renders_command_in_single_details_row_snapshot kind=snap owner=dialogs-pane snap=unified_exec_wait_status_renders_command_in_single_details_row
 #[test]
 fn unified_exec_wait_status_renders_command_in_single_details_row_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-status, not approvals): no bottom status popup with a long command in one details row on the chat screen (width 48)",
+    // oracle: a long command (cargo test ... --exact some::very::long::test::name) stays in one
+    // details row at 48 columns (the snapshot is the bottom pane: from the status row down).
+    let s = Screen::build(Owner::DialogsPane)
+        .size(48, 8)
+        .script(include_str!("fixtures/chat_approvals_1/unified_exec_wait_status_renders_command_in_single_details_row_snapshot.jsonl"))
+        .open();
+    s.assert_snap_region(
+        "unified_exec_wait_status_renders_command_in_single_details_row",
+        status_row(&s),
+        0,
     );
-    // oracle: a long command (cargo test ... --exact some::very::long::test::name) stays in one details row at 48 columns.
-    let s = Screen::build(Owner::DialogsPane).size(48, 8).live().open();
-    // needs feed: task started, begin unified exec with the long command (call-wait-ui, proc-ui), empty terminal interaction
-    s.assert_snap("unified_exec_wait_status_renders_command_in_single_details_row");
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:1052 unified_exec_empty_then_non_empty_snapshot kind=snap owner=dialogs-pane snap=unified_exec_empty_then_non_empty_after
 #[test]
 fn unified_exec_empty_then_non_empty_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no transcript rendering of an empty then a non-empty terminal poll on the chat screen",
-    );
-    // oracle: an empty poll then a poll with `ls` output: the transcript snapshot.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: task started, begin unified exec `just fix` (call-wait-2, proc-2), empty poll, poll with `ls\n`
-    s.assert_snap("unified_exec_empty_then_non_empty_after");
+    // oracle: an empty poll then a poll with `ls`: the non-empty write settles the wait first, so
+    // the transcript holds the wait, then the interaction.
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/chat_approvals_1/unified_exec_empty_then_non_empty_snapshot.jsonl"
+        ))
+        .open();
+    s.keys("ctrl+t");
+    s.assert_in_order(&[
+        "• Waited for background terminal · just fix",
+        "↳ Interacted with background terminal · just fix",
+        "└ ls",
+    ]);
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:1069 unified_exec_non_empty_then_empty_snapshots kind=snap owner=dialogs-pane snap=unified_exec_non_empty_then_empty_active snap=unified_exec_non_empty_then_empty_after
 #[test]
 fn unified_exec_non_empty_then_empty_snapshots() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-status, not approvals): no 'Waiting for background terminal' status after a non-empty then an empty poll on the chat screen",
-    );
-    // oracle: a non-empty poll (`pwd`) then an empty one: the status waits with the command `just fix` as its detail;
-    // after the turn completes the transcript holds both.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: task started, begin unified exec `just fix` (call-wait-3, proc-3), poll with `pwd\n`, empty poll
+    // oracle: a non-empty poll (`pwd`) then an empty one: the status waits with the command `just
+    // fix` as its detail; after the turn completes the transcript holds both.
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/chat_approvals_1/unified_exec_non_empty_then_empty_snapshots.jsonl"
+        ))
+        .open();
     s.assert_contains("Waiting for background terminal");
     s.assert_contains("just fix");
-    s.assert_snap("unified_exec_non_empty_then_empty_active");
-    // needs feed: turn completed
-    s.assert_snap("unified_exec_non_empty_then_empty_after");
+    s.keys("ctrl+t");
+    s.assert_in_order(&["↳ Interacted with background terminal · just fix", "└ pwd"]);
+    s.assert_absent("Waited for background terminal");
+    s.keys("esc");
+    s.feed(TURN_COMPLETED);
+    s.keys("ctrl+t");
+    s.assert_in_order(&[
+        "↳ Interacted with background terminal · just fix",
+        "└ pwd",
+        "• Waited for background terminal · just fix",
+        "Worked for",
+    ]);
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:1112 view_image_tool_call_adds_history_cell kind=ui owner=dialogs-pane
@@ -741,14 +794,22 @@ fn interrupt_preserves_unified_exec_processes() {
 // ORACLE chatwidget/tests/exec_flow.rs:1604 interrupt_preserves_unified_exec_wait_streak_snapshot kind=snap owner=dialogs-pane snap=interrupt_preserves_unified_exec_wait_streak
 #[test]
 fn interrupt_preserves_unified_exec_wait_streak_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no waiting-streak history after an interrupt on the chat screen (cells count and the wait row)",
+    // oracle: an interrupted turn with a waiting streak, then the exec end: one cell, the
+    // interrupted notice; the streak and the late end draw nothing.
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/chat_approvals_1/interrupt_preserves_unified_exec_wait_streak_snapshot.jsonl"
+        ))
+        .open();
+    s.assert_text_count(
+        "■ Conversation interrupted - use /feedback if something went wrong",
+        1,
     );
-    // oracle: an interrupted turn with a waiting streak, then the exec end: the cell count and the history.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: turn started, begin unified exec `just fix` (call-1, process-1), empty poll (call-1a), turn interrupted, end the exec
-    s.assert_snap("interrupt_preserves_unified_exec_wait_streak");
+    s.keys("ctrl+t");
+    s.assert_contains("■ Conversation interrupted - use /feedback if something went wrong");
+    s.assert_absent("Waited for background terminal");
+    s.assert_absent("just fix");
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:1626 turn_complete_keeps_unified_exec_processes kind=ui owner=dialogs-pane

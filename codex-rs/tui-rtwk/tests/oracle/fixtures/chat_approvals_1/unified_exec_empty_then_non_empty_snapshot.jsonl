@@ -1,0 +1,6 @@
+# oracle chatwidget/tests/exec_flow.rs:1052 unified_exec_empty_then_non_empty_snapshot
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "notify", "message": {"method": "turn/started", "params": {"threadId": "thread-1", "turn": {"id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "full", "status": "inProgress", "error": null, "startedAt": null, "completedAt": null, "durationMs": null}}}}
+{"step": "notify", "message": {"method": "item/started", "params": {"item": {"type": "commandExecution", "id": "call-wait-2", "pluginId": null, "scriptPath": null, "command": "bash -lc 'just fix'", "cwd": "/tmp/project", "processId": "proc-2", "source": "unifiedExecStartup", "status": "inProgress", "commandActions": [], "aggregatedOutput": null, "exitCode": null, "durationMs": null, "startedAtMs": 0, "completedAtMs": null}, "threadId": "thread-1", "turnId": "turn-1", "startedAtMs": 0}}}
+{"step": "notify", "message": {"method": "item/commandExecution/terminalInteraction", "params": {"threadId": "thread-1", "turnId": "turn-1", "itemId": "call-wait-2a", "processId": "proc-2", "stdin": ""}}}
+{"step": "notify", "message": {"method": "item/commandExecution/terminalInteraction", "params": {"threadId": "thread-1", "turnId": "turn-1", "itemId": "call-wait-2b", "processId": "proc-2", "stdin": "ls\n"}}}

@@ -21,6 +21,9 @@ pub struct Strings {
     pub details_prefix: &'static str,
     /// What the compaction says under its header (`compaction.rs`).
     pub compaction_details: &'static str,
+    /// The header while the model polls a background terminal (oracle
+    /// `COMMAND_LIFECYCLE_WAITING_FOR_BACKGROUND_TERMINAL`).
+    pub terminal_wait: &'static str,
     /// `• ` before the hook text of a row with no turn status.
     pub bullet: &'static str,
     /// The pending preview: the section headers and what follows the key.
@@ -83,6 +86,7 @@ pub const EN: Strings = Strings {
     inline_sep: " \u{b7} ",
     details_prefix: "  \u{2514} ",
     compaction_details: "Making room to continue.",
+    terminal_wait: "Waiting for background terminal",
     bullet: "\u{2022} ",
     steers_header: "Messages to be submitted after next tool call",
     steers_press: " (press ",

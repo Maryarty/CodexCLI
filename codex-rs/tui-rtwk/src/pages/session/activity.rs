@@ -21,11 +21,13 @@ use codex_tui_core::keymap::actions::CHAT_INTERRUPT_TURN;
 use codex_tui_core::screens::approvals::guardian::Reviewing;
 use codex_tui_core::screens::{ScreenStates, chat};
 use codex_tui_core::threads::compaction::Running as ActiveCompaction;
-use codex_tui_core::threads::{Failure, Notice, ThreadModel, TurnState};
+use codex_tui_core::threads::{Failure, Notice, ThreadModel, TurnState, WaitStreak};
 
 use crate::app::theme;
 use crate::l10n::strings as l10n;
 use crate::sheets::approvals;
+use crate::widgets::dots::dots_spans;
+use crate::widgets::measure::{self, Measure};
 
 use super::actions::failure_text;
 use super::cells::notice::NoticeCell;
@@ -51,6 +53,9 @@ pub(super) struct Run {
     reviews: Vec<Reviewing>,
     /// Background terminals still running (`ThreadModel::terminals`).
     terminals: usize,
+    /// The process the model keeps polling with nothing to write (`ThreadModel::terminal_wait`):
+    /// it owns the row's header and details while it lasts.
+    wait: Option<WaitStreak>,
     /// What the running hooks say (`ThreadModel::hook_status`).
     hook: Option<String>,
     /// The user's input that waits: steers, refused steers, the queue, the model's questions.
@@ -73,6 +78,7 @@ impl Run {
             compaction: thread.compaction().running().cloned(),
             reviews: thread.screen_slots().approvals.reviews.clone(),
             terminals: thread.terminals().len(),
+            wait: thread.terminal_wait().cloned(),
             hook: thread.hook_status(),
             pending: !Pending::of(thread).is_empty(),
             asking: 0,
@@ -112,6 +118,8 @@ impl Run {
     pub(super) fn word(&self, session: &SessionSlice, reconnecting: bool) -> &'static str {
         if self.compacting() {
             "Compacting"
+        } else if self.running() && self.wait.is_some() {
+            "Waiting"
         } else if self.running() {
             match self.chat.activity {
                 chat::ActivityPhase::Working => "Working",
@@ -186,6 +194,11 @@ impl StatelessWidget for StatusSlot {
         };
         let compacting = run.compacting();
         let review = approvals::review_status(approvals::strings::of(cx), &run.reviews);
+        // the empty polls own the row unless a review, a retry or the MCP startup does
+        let waiting = run
+            .wait
+            .as_ref()
+            .filter(|_| review.is_none() && run.chat.header().is_none());
         let mut working = false;
         let status: Option<AnyWidget> = if reconnecting {
             Some(
@@ -247,6 +260,7 @@ impl StatelessWidget for StatusSlot {
                                 .header()
                                 .map(|header| session_strings.status_header(&header))
                         })
+                        .or_else(|| waiting.map(|_| status_strings.terminal_wait.to_string()))
                         .unwrap_or_else(|| {
                             if compacting {
                                 strings.chat.compacting
@@ -262,7 +276,14 @@ impl StatelessWidget for StatusSlot {
                         .map(|review| {
                             chat::StatusDetails::preserved(&review.details, review.max_lines)
                         })
-                        .or_else(|| run.chat.details().cloned())
+                        .or_else(|| match waiting {
+                            // the oracle's `set_status` replaces the details: no command, none
+                            Some(wait) => wait
+                                .command
+                                .as_deref()
+                                .map(|command| chat::StatusDetails::preserved(command, 1)),
+                            None => run.chat.details().cloned(),
+                        })
                         .or_else(|| {
                             compacting.then(|| {
                                 chat::StatusDetails::new(
@@ -646,10 +667,10 @@ impl State for ActivityState {
             if let Some(bullet) = &bullet {
                 line = line.child(bullet.clone());
             }
-            let line = line.child(header.clone()).child(Expanded::new(
-                1,
-                Text::rich_line(label).overflow(TextOverflow::Ellipsis),
-            ));
+            // the oracle's cut keeps the blank before the `…` (N1)
+            let line = line
+                .child(header.clone())
+                .child(Expanded::new(1, dots_spans(label)));
             let mut body = Column::new()
                 .main_axis_size(MainAxisSize::Min)
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
@@ -658,7 +679,7 @@ impl State for ActivityState {
                 body = body.child(row);
             }
             if let Some(details) = &details {
-                body = body.child(details_rows(strings, details));
+                body = body.child(details_rows(strings, details, width, seg));
             }
             body.into()
         })
@@ -669,8 +690,14 @@ impl State for ActivityState {
 /// The lines under the header: `  └ ` before the first row, four columns of
 /// indent under it, at most `max_lines` rows, the last ending in `…` when
 /// more were cut (`wrapped_details_lines`).
-fn details_rows(strings: &status::strings::Strings, details: &chat::StatusDetails) -> AnyWidget {
+fn details_rows(
+    strings: &status::strings::Strings,
+    details: &chat::StatusDetails,
+    width: usize,
+    seg: Measure,
+) -> AnyWidget {
     let hang = i32::try_from(strings.item_hang.len()).unwrap_or(4);
+    let room = width.saturating_sub(strings.item_hang.len()).max(1);
     let mark = Column::new()
         .main_axis_size(MainAxisSize::Min)
         .child(Text::line(strings.details_prefix.trim_end()).style(status::dim()));
@@ -679,13 +706,45 @@ fn details_rows(strings: &status::strings::Strings, details: &chat::StatusDetail
         .child(SizedBox::new(Some(hang), None, Some(mark.into())))
         .child(Expanded::new(
             1,
-            Text::new(details.text.clone())
+            Text::new(capped(seg, &details.text, details.max_lines, room))
                 .wrap(TextWrap::Word)
                 .max_lines(Some(details.max_lines))
                 .overflow(TextOverflow::Ellipsis)
                 .style(status::dim()),
         ))
         .into()
+}
+
+/// The details cut as the oracle cuts them (`wrapped_details_lines`): wrapped at the room first,
+/// the first `max_lines` rows kept, the last row ending in `…` where more were cut. `Text` with
+/// `max_lines` cuts the last row at the width through the rest of the text instead (G74), so the
+/// app does the cut and the `…` and hands the rows over whole.
+fn capped(seg: Measure, text: &str, max_lines: usize, room: usize) -> String {
+    let rows = measure::rows(seg, text, room);
+    if rows.len() <= max_lines {
+        return text.to_owned();
+    }
+    let mut shown: Vec<String> = rows
+        .iter()
+        .take(max_lines)
+        .map(|row| row.trim_end().to_owned())
+        .collect();
+    if let Some(last) = shown.last_mut() {
+        // one cell of the row is the ellipsis's
+        let mut kept = String::new();
+        let mut used = 0;
+        for grapheme in last.chars() {
+            let cells = seg.width(&grapheme.to_string());
+            if used + cells + 1 > room {
+                break;
+            }
+            used += cells;
+            kept.push(grapheme);
+        }
+        kept.push('\u{2026}');
+        *last = kept;
+    }
+    shown.join("\n")
 }
 
 impl_widget!(stateful eq Activity);
