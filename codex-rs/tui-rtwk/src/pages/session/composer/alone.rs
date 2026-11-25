@@ -8,8 +8,12 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use rtwk::focus::{FocusNode, KeyEventResult};
-use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize};
+use rtwk::layout::{
+    BoxConstraints, BoxWidget, Column, ConstrainedBox, CrossAxisAlignment, EdgeInsets, Expanded,
+    MainAxisSize, UNBOUNDED,
+};
 use rtwk::provider::read;
+use rtwk::style::Span;
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::keymap::{Keymap, fixed};
@@ -17,9 +21,9 @@ use codex_tui_core::threads::ThreadModel;
 
 use crate::app::theme;
 use crate::keymap::{pressed_fixed, types_text};
-use crate::pages::session::footer::{Flash, Footer, Line, Timed};
+use crate::pages::session::footer::{Flash, Footer, Line, StatusRows, Timed};
 use crate::pages::session::popovers::mention;
-use crate::sheets::dialogs::shortcut_panel;
+use crate::sheets::dialogs::shortcut_panel_fixed;
 use crate::widgets::thread_ui::ThreadUi;
 
 use super::{Composer, clear_sent, search, vim};
@@ -37,6 +41,10 @@ pub struct Alone {
     hint_override: Option<Vec<(String, String)>>,
     /// `show_footer_flash`: a line over the hints for a while.
     flash: Option<Flash>,
+    /// `enable_agents_navigation`: the empty prompt's `←` is the agents page's key.
+    agents: bool,
+    /// `set_status_line`: the text of the status line over the hints.
+    status: Option<Rc<str>>,
 }
 
 impl PartialEq for Alone {
@@ -44,6 +52,8 @@ impl PartialEq for Alone {
         Rc::ptr_eq(&self.ui, &other.ui)
             && self.hint_override == other.hint_override
             && self.flash == other.flash
+            && self.agents == other.agents
+            && self.status == other.status
     }
 }
 
@@ -53,7 +63,21 @@ impl Alone {
             ui,
             hint_override: None,
             flash: None,
+            agents: false,
+            status: None,
         }
+    }
+
+    /// The agents page is reachable from the empty prompt: the hints name its key.
+    pub fn agents(mut self) -> Alone {
+        self.agents = true;
+        self
+    }
+
+    /// The status line shows `text` over the hints.
+    pub fn status_line(mut self, text: &str) -> Alone {
+        self.status = Some(Rc::from(text));
+        self
     }
 
     /// The footer shows `items` instead of its hints.
@@ -165,31 +189,48 @@ impl State for AloneState {
         } else if let Some(row) = search::query_footer(cx, &w.ui.draft) {
             row
         } else {
-            Timed {
-                footer: Footer {
-                    line: if self.shortcuts {
-                        Line::Close
-                    } else {
-                        Line::Passive
-                    },
-                    agents: false,
-                    draft_empty: self.draft_empty,
-                    shell: self.draft_shell,
-                    vim: w
-                        .ui
-                        .draft
-                        .with_vim(|vim| vim.is_enabled().then(|| vim.mode())),
-                    hint_override: w.hint_override.clone(),
-                    flash: w.flash.clone(),
-                    on_queue: None,
-                    on_warnings: None,
-                    on_close: Some(cx.send(Msg::Shortcuts)),
+            let footer = Footer {
+                line: if self.shortcuts {
+                    Line::Close
+                } else {
+                    Line::Passive
                 },
+                agents: w.agents,
+                draft_empty: self.draft_empty,
+                shell: self.draft_shell,
+                vim: w
+                    .ui
+                    .draft
+                    .with_vim(|vim| vim.is_enabled().then(|| vim.mode())),
+                hint_override: w.hint_override.clone(),
+                flash: w.flash.clone(),
+                on_queue: None,
+                on_warnings: None,
+                on_close: Some(cx.send(Msg::Shortcuts)),
+            };
+            let hints: AnyWidget = Timed {
+                footer: footer.clone(),
             }
-            .into()
+            .into();
+            match &w.status {
+                // the status line stands over the hints (`status_surface`)
+                Some(text) => Column::new()
+                    .cross_axis_alignment(CrossAxisAlignment::Start)
+                    .main_axis_size(MainAxisSize::Min)
+                    .child(StatusRows {
+                        spans: vec![Span::styled(text.to_string(), tokens.dim())],
+                        composer: w.ui.composer.clone(),
+                        hints: Some(footer),
+                    })
+                    .child(hints)
+                    .into(),
+                None => hints,
+            }
         };
         let running = read::<ThreadModel, _>(cx).is_running();
-        let shortcuts = self.shortcuts.then(|| shortcut_panel(cx, running).0);
+        let shortcuts = self
+            .shortcuts
+            .then(|| shortcut_panel_fixed(cx, running, w.agents));
         let surface = tokens.prompt_surface(cx, false);
         let ui = w.ui.clone();
         // The `@`/`$` popup stands above the draft and takes the rows the
@@ -201,7 +242,11 @@ impl State for AloneState {
                 .cross_axis_alignment(CrossAxisAlignment::Start)
                 .main_axis_size(MainAxisSize::Max);
             if let Some(panel) = shortcuts.clone() {
-                body = body.child(panel);
+                // the overlay takes its rows and the composer the rest
+                body = body.child(ConstrainedBox::new(
+                    BoxConstraints::new(0, UNBOUNDED, 0, room.max(0)),
+                    panel,
+                ));
             }
             body.child(mention::capped(ui.clone(), room))
                 .child(Expanded::new(

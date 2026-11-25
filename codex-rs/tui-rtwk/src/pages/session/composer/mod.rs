@@ -106,6 +106,27 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             }),
         },
         DebugEntry {
+            name: "alone_agents",
+            description: "the composer with its key footer, the agents page reachable (`← for agents`)",
+            script: include_str!("fixtures/alone.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                alone::Alone::new(ui).agents().into()
+            }),
+        },
+        DebugEntry {
+            name: "alone_agents_status",
+            description: "the composer with the agents hint and a status line `model · project` over it",
+            script: include_str!("fixtures/alone_status.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                alone::Alone::new(ui)
+                    .agents()
+                    .status_line("model · project")
+                    .into()
+            }),
+        },
+        DebugEntry {
             name: "alone_history",
             description: "the composer with its key footer and two prompts of history (Ctrl+R)",
             script: include_str!("fixtures/alone_history.jsonl"),
@@ -1109,7 +1130,7 @@ impl State for ComposerState {
         let strings = l10n::of(cx);
         let composer_words = table;
         let mut area = area
-            .placeholder_style(tokens.dim().attrs(Attrs::DIM))
+            .placeholder_style(Style::new().attrs(Attrs::DIM))
             .max_lines(
                 w.plain
                     .as_ref()

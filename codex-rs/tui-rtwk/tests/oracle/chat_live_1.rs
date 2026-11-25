@@ -240,7 +240,7 @@ fn configured_pet_loads_are_scoped_across_widget_replacements() {
 fn owned_bottom_pane_preserves_draft_cursor_and_read_only_notice() {
     kit::pending(
         Owner::ChatLive,
-        "no external-writer state on the chat screen: the thread open in another app, whose notice replaces the composer, has no feed step",
+        "G-new-external-writer-state: no external-writer state on the chat screen: the thread open in another app, whose notice replaces the composer, has no feed step",
     );
     // oracle: the draft stays in the composer while live output lands in the transcript; the notice replaces the composer and has no cursor.
     let mut s = Screen::build(Owner::ChatLive).size(60, 8).live().open();
@@ -441,7 +441,7 @@ fn provider_error(error: &str) -> String {
 fn provider_error_preserves_draft_and_survives_thread_navigation() {
     kit::pending(
         Owner::ChatLive,
-        "the mismatch frames name the provider the config calls `Team Gateway` and the remote server the connection is to: the app has no fact for the config's model providers or the launch's remote address (StatusFacts of core/src/screens/chat.rs and host/src/facts.rs), so the notice names the id and has no location row",
+        "G-new-provider-facts: the mismatch frames name the provider the config calls `Team Gateway` and the remote server the connection is to: the app has no fact for the config's model providers or the launch's remote address (StatusFacts of core/src/screens/chat.rs and host/src/facts.rs), so the notice names the id and has no location row",
     );
     let not_configured = r#"{"type":"modelProviderNotConfigured","modelProvider":"old-provider"}"#;
     let mismatch = r#"{"type":"modelProviderMismatch","modelProvider":"custom-gateway","currentModelProvider":"amazon-bedrock-runtime"}"#;

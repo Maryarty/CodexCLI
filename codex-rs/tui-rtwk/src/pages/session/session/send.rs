@@ -77,6 +77,12 @@ impl ChatState {
     /// itself); what `$` and `@` put in is text and stays.
     pub(super) fn picked(&mut self, text: &Rc<str>, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs) {
         if text.starts_with('/') {
+            // `/clear` picked in the popup is not kept for recall
+            // (`stage_selected_slash_command_history`): it clears the line first, so the
+            // command finds nothing to record
+            if &**text == "/clear" {
+                w.ui.composer.clear();
+            }
             run_line(text, w, cx, hs, Delivery::Submit);
             self.sync_draft(w);
         }
