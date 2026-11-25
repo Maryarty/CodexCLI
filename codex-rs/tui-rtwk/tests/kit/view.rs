@@ -40,6 +40,17 @@ use crate::common::{Harness, ms};
 /// controllers, its backend link) is the one running; the spare given to `AppView` is dropped
 /// unused, as its state is only the initial one.
 pub(super) fn mount(h: &mut Harness) {
+    // The page the app showed goes first, and is let go of in a frame of its own: a controller the
+    // new transcript shares with it (the thread's selection) is detached by the old area's disposal,
+    // which Flutter runs at the end of the frame that inflated the new one, and no Find match could
+    // be selected after it.
+    let (server, _) = FakeServer::new();
+    let spare = UiApp::new(Backend::Fake(server));
+    h.t.pump_widget(localized(
+        root(AppView::new(spare, |_, _| AnyWidget::default())),
+        Lang::En,
+    ));
+    h.t.pump_for(ms(20));
     let (server, _) = FakeServer::new();
     let spare = UiApp::new(Backend::Fake(server));
     h.t.pump_widget(localized(root(AppView::new(spare, view)), Lang::En));

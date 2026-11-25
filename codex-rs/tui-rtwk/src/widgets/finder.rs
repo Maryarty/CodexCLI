@@ -19,7 +19,7 @@ use std::cell::{Cell, RefCell};
 use std::ops::Range;
 use std::rc::Rc;
 
-use rtwk::editing::{TextBuffer, TextEditingController};
+use rtwk::editing::{TextBuffer, TextEditingController, TextSelection as Caret};
 use rtwk::focus::{FocusNode, KeyCombo, KeyPress};
 use rtwk::foundation::ValueNotifier;
 
@@ -135,6 +135,9 @@ struct Data {
     truncated: bool,
     history_failed: bool,
     saved: Option<Saved>,
+    /// Where the reader goes once the list has built again: Find closed, and the list that builds
+    /// again as it does takes no jump made before it (`go_back`).
+    restore: Option<Saved>,
     follow: Option<Follow>,
     selection: Option<TextSelection>,
 }
@@ -193,6 +196,7 @@ impl Finder {
                 truncated: false,
                 history_failed: false,
                 saved: None,
+                restore: None,
                 follow: None,
                 selection: None,
             }),
@@ -289,6 +293,7 @@ impl Finder {
             let mut data = self.0.data.borrow_mut();
             let reading = data.mode == Mode::Reading;
             data.mode = Mode::Editing;
+            data.restore = None;
             data.follow = Some(follow.clone());
             data.selection = Some(selection.clone());
             if !reading || data.current.is_none() {
@@ -310,9 +315,22 @@ impl Finder {
         }
         let text = if text.len() > QUERY_BYTES {
             // an edit past the limit is undone (`QUERY_BYTES` in `handle_search_key`)
+            // the caret goes back to where it was before the edit
             let kept = self.0.seen.borrow().clone();
+            let inserted = text.len().saturating_sub(kept.len());
+            let mut caret = self
+                .0
+                .query
+                .selection()
+                .extent_offset
+                .saturating_sub(inserted)
+                .min(kept.len());
+            while !kept.is_char_boundary(caret) {
+                caret -= 1;
+            }
             self.0.data.borrow_mut().truncated = true;
             self.set_query(&kept);
+            self.0.query.set_selection(Caret::collapsed(caret));
             self.notify();
             return;
         } else {
@@ -401,9 +419,25 @@ impl Finder {
             (data.saved, data.follow.clone())
         };
         self.close();
+        self.0.data.borrow_mut().restore = saved.filter(|_| follow.is_some());
+        self.notify();
+    }
+
+    /// The reader goes where the closed Find leaves them, once: asked after the frame that built
+    /// the list again, which takes no move made before it.
+    pub fn go_back(&self) {
+        let (saved, follow) = {
+            let mut data = self.0.data.borrow_mut();
+            (data.restore.take(), data.follow.clone())
+        };
         if let (Some(saved), Some(follow)) = (saved, follow) {
             put_back(&follow, saved);
         }
+    }
+
+    /// Find closed and the reader is yet to be put back (`go_back`).
+    pub fn going_back(&self) -> bool {
+        self.0.data.borrow().restore.is_some()
     }
 
     /// Esc while a match is read: Find closes and the reader is back at the last row
@@ -411,9 +445,11 @@ impl Finder {
     pub fn latest(&self) {
         let follow = self.0.data.borrow().follow.clone();
         self.close();
-        if let Some(follow) = follow {
-            follow.jump_to_latest();
-        }
+        self.0.data.borrow_mut().restore = follow.map(|_| Saved {
+            at_tail: true,
+            pixels: 0,
+        });
+        self.notify();
     }
 
     /// Find closes: no query, no match, nothing selected.

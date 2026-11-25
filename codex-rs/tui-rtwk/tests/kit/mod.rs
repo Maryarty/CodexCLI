@@ -20,6 +20,7 @@ mod asserts;
 mod compare;
 mod env;
 mod expect;
+mod find;
 mod grid;
 mod handles;
 mod hold;

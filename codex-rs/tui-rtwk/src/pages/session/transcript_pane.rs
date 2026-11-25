@@ -5,7 +5,9 @@ use std::cell::RefCell;
 use std::fmt::Write as _;
 use std::hash::{DefaultHasher, Hasher};
 use std::rc::Rc;
+use std::time::Duration;
 
+use rtwk::binding::AppBinding;
 use rtwk::foundation::{Listenable, VoidCallback};
 use rtwk::gestures::SelectionTarget;
 use rtwk::layout::{Column, CrossAxisAlignment, MainAxisSize};
@@ -154,6 +156,8 @@ pub(super) enum Msg {
     Toggle(Vec<ItemKey>),
     /// Find moved: its footer and its match are drawn from the list's build.
     Find,
+    /// Find closed and the list built again: the reader goes back.
+    Restore,
 }
 
 impl ViewportState {
@@ -649,6 +653,10 @@ impl State for ViewportState {
                 Rebuild::Yes
             }
             Msg::Find => Rebuild::Yes,
+            Msg::Restore => {
+                widget.find.go_back();
+                Rebuild::No
+            }
         }
     }
 
@@ -725,6 +733,13 @@ impl State for ViewportState {
         let folds = transcript_strings::of(cx);
         let search = widget.find.clone();
         self.listen(&search, cx.local_sender());
+        // Find closed: the list builds again and takes no move made in the frame that does, so the
+        // reader is put back after it
+        if search.going_back()
+            && let Some(binding) = AppBinding::maybe_of(cx)
+        {
+            binding.add_post_frame_callback(cx.map(|_: Duration| Msg::Restore));
+        }
         let caret = select::of(&search);
         let copier = copying::mode_of(&search);
         self.listen_select(&caret, cx.local_sender());

@@ -243,6 +243,29 @@ pub fn slot_in<S: 'static>(
     .into()
 }
 
+/// The query of Find on a transcript that draws no footer (the bare view: the oracle's view
+/// alone has no bottom pane, and its `begin_search`, `paste_search` and keys still edit the
+/// query): the field of the footer, mounted while the query is edited and given no row, so it
+/// holds the focus and takes the typing, the paste and the keys of Find without drawing.
+pub fn unseen_query<S: 'static>(cx: &mut Cx<'_, S>, finder: &Finder) -> AnyWidget {
+    let table = strings::of(cx);
+    let dim = Tokens::of(cx).dim();
+    let finder = finder.clone();
+    ListenableBuilder::new(finder.listenable(), move |_, _| {
+        if finder.mode() == Mode::Editing {
+            SizedBox::new(
+                None,
+                Some(0),
+                Some(QueryField::new(&finder, table, dim.clone()).into()),
+            )
+            .into()
+        } else {
+            SizedBox::new(None, Some(0), None).into()
+        }
+    })
+    .into()
+}
+
 /// The hint row of the focus on a fold of the turn details in the place of `normal` while a fold
 /// has it (`disclosure_footer`): the keys, the first spelling that fits, dropping what leads
 /// before the toggle and the way back.

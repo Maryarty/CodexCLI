@@ -241,7 +241,11 @@ impl State for SheetState {
         });
         // while Find is open its query row and status row take the place of the status row and the
         // hints (`footer_with_navigation`), from the first column
-        let bottom = bottom.map(|rows| find_footer::slot_in(cx, &find, rows.into(), 0));
+        let bottom = match bottom {
+            Some(rows) => Some(find_footer::slot_in(cx, &find, rows.into(), 0)),
+            // the bare view draws no footer: Find's query is edited all the same
+            None => Some(find_footer::unseen_query(cx, &find)),
+        };
         let mut column = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
         if w.chrome == Chrome::Overlay {
             column = column.child(pager::header(table.sheet_title, table, tokens.dim()));
