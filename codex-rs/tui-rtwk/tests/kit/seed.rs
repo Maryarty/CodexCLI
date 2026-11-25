@@ -61,6 +61,8 @@ pub struct Open {
     pub(super) draft: Option<String>,
     /// What the usage page's host answers (`Open::usage_accounts`, `usage_report`).
     pub(super) usage: super::usage::Host,
+    /// The transcript alone, no composer or footer (`Open::view_only`).
+    pub(super) view_only: bool,
 }
 
 impl Screen {
@@ -83,6 +85,7 @@ impl Screen {
             remote_images: Vec::new(),
             draft: None,
             usage: super::usage::Host::default(),
+            view_only: false,
         }
     }
 }
@@ -190,7 +193,21 @@ impl Open {
         self
     }
 
+    /// The transcript view alone, as the oracle's `transcript_view` tests drive it (no bottom
+    /// pane: the list has every row of the terminal, at 32x6 or 20x2 as the oracle's tests
+    /// size it). The live app underneath is the one `live()` and `script(..)` have: `feed`,
+    /// the history pages (`replay`, `history_page`) and the effects work as for them; only the
+    /// home is the transcript of the active thread (`kit::view`). For `live()` and `script(..)`.
+    pub fn view_only(mut self) -> Open {
+        self.view_only = true;
+        self
+    }
+
     pub fn open(self) -> Screen {
+        assert!(
+            !self.view_only || matches!(self.seed, Seed::Live | Seed::Script(_)),
+            "view_only() is for live() and script(..): a debug entry has a screen of its own"
+        );
         let gutter = self.gutter;
         let draft = self.draft.clone();
         let remote = self.remote_images.clone();
@@ -235,6 +252,9 @@ impl Open {
 
     fn live_harness(&self) -> Harness {
         let mut h = self.driven(false);
+        if self.view_only {
+            super::view::mount(&mut h);
+        }
         if self.held_start {
             h.fake.hold_thread_start();
         }
@@ -459,6 +479,19 @@ fn feed(h: &mut Harness, text: &str) {
                     .expect("a `note` or `presets` step is an event")
                 {
                     Ok(ev) => h.fake.inject(epoch, ev),
+                    Err(err) => panic!("script line {line}: {err}"),
+                }
+            }
+            step @ (Step::Entry(_) | Step::Commit { .. }) => {
+                match step
+                    .events(line)
+                    .expect("an `entry` or `commit` step is events")
+                {
+                    Ok(events) => {
+                        for ev in events {
+                            h.fake.inject(epoch, ev);
+                        }
+                    }
                     Err(err) => panic!("script line {line}: {err}"),
                 }
             }
