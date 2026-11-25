@@ -1458,7 +1458,9 @@ fn full_access_asks_before_it_applies() {
     let screen = h.t.screen();
     for text in [
         "Enable full access?",
-        "When Codex runs with full access, it can edit any file on your computer",
+        // The centered dialog is the oracle's shared geometry: the sentence wraps in it.
+        "When Codex runs with full access, it can edit any file on your",
+        "computer and run commands with network, without your approval.",
         "1. Yes, continue anyway",
         "Apply full access for this session",
         "2. Cancel",
@@ -1504,7 +1506,7 @@ fn the_cyber_model_s_confirmation_recommends_what_is_available() {
     let screen = h.t.screen();
     assert!(
         screen.contains("Cyber models carry a higher risk of dangerous actions.")
-            && screen.contains("We strongly recommend selecting \"Approve for me\" instead"),
+            && screen.contains("recommend selecting \"Approve for me\" instead"),
         "{screen}"
     );
 }
@@ -1578,7 +1580,7 @@ fn the_confirmation_header_is_bold_then_plain_then_red() {
 
     let h = open(120, "permissions_cyber_full_access");
     let (risk, ry) = find(&h, "Cyber models carry");
-    let (plain, py) = find(&h, "Ensure proper safeguards");
+    let (plain, py) = find(&h, "Ensure proper");
     assert_ne!(h.t.cell(risk, ry).fg, h.t.cell(plain, py).fg);
     assert_eq!(h.t.cell(risk, ry).fg, red);
 }
