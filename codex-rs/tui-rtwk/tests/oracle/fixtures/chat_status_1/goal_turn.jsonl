@@ -1,0 +1,7 @@
+# A running turn of a thread with an active goal (status_and_layout.rs `start_active_goal_turn`),
+# fed to the live chat: agents navigation off as the oracle's chat widget has it.
+{"step": "screen", "dir": "chat", "ev": {"facts": {"agents_navigation": false}}}
+{"step": "screen", "dir": "chat", "ev": {"status": {"model": "GPT-5.6-Sol", "cwd": "/tmp/project", "items": ["model-with-reasoning", "current-dir"]}}}
+{"step": "clock", "secs": 1700000000}
+{"step": "notify", "message": {"method": "thread/goal/updated", "params": {"threadId": "thread-1", "turnId": null, "goal": {"threadId": "thread-1", "objective": "Keep improving the benchmark", "status": "active", "tokenBudget": null, "tokensUsed": 0, "timeUsedSeconds": 0, "createdAt": 0, "updatedAt": 0}}}}
+{"step": "notify", "message": {"method": "turn/started", "params": {"threadId": "thread-1", "turn": {"id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "full", "status": "inProgress", "error": null, "startedAt": 1700000000, "completedAt": null, "durationMs": null}}}}

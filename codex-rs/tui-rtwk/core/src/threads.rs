@@ -1505,11 +1505,6 @@ impl ThreadModel {
         self.last_error.as_ref()
     }
 
-    /// The thread's goal, none when it has none.
-    pub fn goal(&self) -> Option<&Goal> {
-        self.goal.as_ref()
-    }
-
     pub fn last_ended(&self) -> Option<&TurnId> {
         self.last_ended.as_ref()
     }
@@ -1542,6 +1537,11 @@ impl ThreadModel {
 }
 
 impl ThreadCore {
+    /// The thread's goal, none when it has none.
+    pub fn goal(&self) -> Option<&Goal> {
+        self.goal.as_ref()
+    }
+
     pub fn id(&self) -> &ThreadId {
         &self.id
     }

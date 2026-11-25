@@ -3,6 +3,7 @@
 //! its notes and the wishes for a question or the prompt); the presenter shows a wish through
 //! `shown` and the answer goes back as a verb (`Intent::Resume`, `Replace`, `Edit`).
 
+pub mod cell;
 pub mod sheet;
 pub mod strings;
 
@@ -68,5 +69,17 @@ impl FeatureView for Goal {
 
     fn note_words(note: &Note, _words: &SessionStrings) -> String {
         strings::note(note)
+    }
+
+    /// A message with a hint is one wrapped line, not two rows; the bare `/goal` summary is a plain cell of rows (oracle `add_plain_history_lines`), not
+    /// a bullet and its message.
+    fn cell(note: &Note) -> Option<AnyWidget> {
+        match note {
+            Note::Summary(goal) => Some(cell::SummaryCell { goal: goal.clone() }.into()),
+            Note::Usage(_) | Note::Status(_) | Note::NothingToClear => {
+                Some(cell::HintCell { note: note.clone() }.into())
+            }
+            _ => None,
+        }
     }
 }

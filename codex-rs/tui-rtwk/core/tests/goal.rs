@@ -10,7 +10,7 @@ use codex_app_server_protocol::{
     ClientRequest, RequestId, ThreadGoalClearParams, ThreadGoalGetParams, ThreadGoalMutationOrigin,
     ThreadGoalSetParams, ThreadGoalStatus,
 };
-use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
+use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, Now, apply_app};
 use codex_tui_core::commands::{SessionIntent, SlashCommand};
 use codex_tui_core::features::goal::{self, Ask};
 use codex_tui_core::features::{FeatureCommand, FeatureIntent, FeatureNote, FeatureWish};
@@ -591,4 +591,100 @@ fn a_goal_set_lets_the_queue_go_on() {
     let set = goal("ship it", GoalStatus::Active);
     let fx = answer(&mut app, ticket, goal::Reply::Goal(Some(set)));
     assert_eq!(started_texts(&fx), ["hello"]);
+}
+
+/// The goal of the thread, as `thread/goal/updated` tells it.
+fn goal_fact(app: &mut CodexApp, goal: Goal) {
+    use codex_app_server_protocol::{
+        ServerNotification, ThreadGoal, ThreadGoalUpdatedNotification,
+    };
+    let status = match goal.status {
+        GoalStatus::Active => ThreadGoalStatus::Active,
+        GoalStatus::Paused => ThreadGoalStatus::Paused,
+        GoalStatus::BudgetLimited => ThreadGoalStatus::BudgetLimited,
+        GoalStatus::Blocked => ThreadGoalStatus::Blocked,
+        GoalStatus::UsageLimited => ThreadGoalStatus::UsageLimited,
+        GoalStatus::Complete => ThreadGoalStatus::Complete,
+    };
+    let note = ServerNotification::ThreadGoalUpdated(ThreadGoalUpdatedNotification {
+        thread_id: T.into(),
+        turn_id: None,
+        goal: ThreadGoal {
+            thread_id: T.into(),
+            objective: goal.objective,
+            status,
+            token_budget: goal.token_budget,
+            tokens_used: goal.tokens_used,
+            time_used_seconds: goal.time_used_seconds,
+            created_at: goal.created_at,
+            updated_at: goal.updated_at,
+        },
+    });
+    run(app, AppEv::Backend(BackendEv::Notification(Box::new(note))));
+}
+
+/// The statuses the goal asked to set in `fx`.
+fn paused_by_interrupt(fx: &AppFx) -> bool {
+    asked(fx).iter().any(|(_, _, ask)| {
+        matches!(
+            ask,
+            Ask::Set {
+                objective: None,
+                status: Some(GoalStatus::Paused),
+                token_budget: None,
+            }
+        )
+    })
+}
+
+/// `pause_active_goal_for_interrupt`: Esc or Ctrl+C over the running turn of an active goal
+/// pauses the goal; a turn that is over, or a goal that is not active, leaves it.
+#[test]
+fn an_interrupt_pauses_the_goal_of_a_running_turn() {
+    let mut app = ready();
+    goal_fact(&mut app, goal("ship it", GoalStatus::Active));
+    let fx = run(&mut app, AppEv::Intent(Intent::Interrupt(ThreadId::new(T))));
+    assert!(!paused_by_interrupt(&fx), "no turn runs");
+
+    run(&mut app, AppEv::Backend(turn_started(T, "turn-1")));
+    let fx = run(&mut app, AppEv::Intent(Intent::Interrupt(ThreadId::new(T))));
+    assert!(paused_by_interrupt(&fx), "{:?}", fx.commands());
+
+    let mut app = ready();
+    goal_fact(&mut app, goal("ship it", GoalStatus::Paused));
+    run(&mut app, AppEv::Backend(turn_started(T, "turn-1")));
+    let fx = run(&mut app, AppEv::Intent(Intent::Interrupt(ThreadId::new(T))));
+    assert!(!paused_by_interrupt(&fx), "the goal is paused already");
+}
+
+/// `GoalStatusState` redraws the footer when the elapsed label changes: the app asks to be woken
+/// at that moment, only while the label shows an elapsed time.
+#[test]
+fn the_goal_clock_wakes_when_the_elapsed_label_changes() {
+    let tell = |app: &mut CodexApp, secs: i64| {
+        let mut fx = AppFx::default();
+        apply_app(app, AppEv::Clock(Now::at_secs(secs)), &mut fx);
+        fx.wake().map(|wake| wake.at())
+    };
+    let timed = |budget: Option<i64>, status: GoalStatus| {
+        let mut app = ready();
+        goal_fact(
+            &mut app,
+            Goal {
+                token_budget: budget,
+                ..goal("ship it", status)
+            },
+        );
+        run(&mut app, AppEv::Backend(turn_started(T, "turn-1")));
+        app
+    };
+
+    let mut app = timed(None, GoalStatus::Active);
+    // updated at 20 s, 30 s used before: 90 s at 80 s, the label of minute 1 until 120 s
+    assert_eq!(tell(&mut app, 80), Some(Now::at_secs(110)));
+    assert_eq!(tell(&mut app, 110), Some(Now::at_secs(170)));
+    let mut app = timed(Some(5_000), GoalStatus::Active);
+    assert_eq!(tell(&mut app, 80), None, "a budget shows tokens, not time");
+    let mut app = timed(None, GoalStatus::Paused);
+    assert_eq!(tell(&mut app, 80), None, "a paused goal shows no clock");
 }
