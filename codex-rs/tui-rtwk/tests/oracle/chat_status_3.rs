@@ -316,7 +316,7 @@ fn goal_clock_refresh_redraws_only_when_elapsed_label_changes() {
     // elapsed time, redrawn when its label changes (each minute), not on every tick. The goal and
     // the turn start at the moment the app's clock says (the wall clock, which the shell tells the
     // app when the app asks to be woken), so the minute passes by the `clock` step.
-    let now = codex_tui_rtwk::services::clock::unix_now();
+    let now = kit::unix_now();
     let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
     s.feed(&format!(
         r#"{{"step":"clock","secs":{now}}}
