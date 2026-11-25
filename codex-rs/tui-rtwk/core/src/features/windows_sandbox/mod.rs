@@ -17,7 +17,7 @@ use codex_protocol::config_types::WindowsSandboxLevel;
 
 use super::{AppCx, PublicVerb, Scope};
 use crate::screens::SeedError;
-use crate::screens::select::permissions::{Preset, Reviewer, Selection};
+use crate::screens::select::permissions::{Label, Preset, Reviewer, Selection};
 use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
@@ -396,10 +396,20 @@ impl State {
     /// `Unknown`, or a local one with no sandbox when the approvals go to the user; a remote
     /// host owns its pick. Not Windows (the environment was never read), nothing is held.
     pub fn pick_needs_setup(&self, selection: &Selection) -> bool {
-        let Selection::Preset {
+        // the legacy list picks the preset, the catalog (every thread's list) the profile of its
+        // mode row: both are the Auto preset (`profile_selection`)
+        let (Selection::Preset {
             preset: Preset::Auto,
             reviewer,
-        } = selection
+        }
+        | Selection::Profile {
+            label:
+                Label::Mode {
+                    preset: Preset::Auto,
+                    reviewer,
+                },
+            ..
+        }) = selection
         else {
             return false;
         };

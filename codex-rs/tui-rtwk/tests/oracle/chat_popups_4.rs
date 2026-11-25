@@ -928,23 +928,85 @@ fn feedback_stops_before_collecting_a_note_when_no_destination_is_available() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:4359 feedback_upload_consent_popup_snapshot kind=snap owner=dialogs-pane snap=feedback_upload_consent_popup
 #[test]
 fn feedback_upload_consent_popup_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "entry to register (w2-commands, feedback consent): the entry with the proxy connectivity diagnostics: feedback_consent and feedback_consent_windows carry the doctor report and no proxy headline",
-    );
-    let s = Screen::build(Owner::DialogsPane).size(80, 22).live().open();
-    s.assert_snap("feedback_upload_consent_popup");
+    // a bug report (the first category), the Windows sandbox log included
+    let s = consent_with_proxy(true, "1");
+    assert_consent_rows(&s, "feedback_upload_consent_popup");
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:4381 feedback_good_result_consent_popup_includes_connectivity_diagnostics_filename kind=snap owner=dialogs-pane snap=feedback_good_result_consent_popup
 #[test]
 fn feedback_good_result_consent_popup_includes_connectivity_diagnostics_filename() {
-    kit::pending(
-        Owner::DialogsPane,
-        "entry to register (w2-commands, feedback consent): the entry with the good-result consent and its connectivity diagnostics filename: the port consent entries carry no proxy headline",
-    );
-    let s = Screen::build(Owner::DialogsPane).size(80, 17).live().open();
-    s.assert_snap("feedback_good_result_consent_popup");
+    // a good result (the third): the file is named, the proxy list is left out
+    let s = consent_with_proxy(false, "3");
+    assert_consent_rows(&s, "feedback_good_result_consent_popup");
+}
+
+/// The host's attachments of the oracle's two consent tests: the auto-review rollout (the chat
+/// has no rollout path of its own), the connectivity diagnostics of a proxy variable, and the
+/// Windows sandbox log when `windows`.
+fn consent_with_proxy(windows: bool, category: &str) -> Screen {
+    let script = |windows: bool| -> &'static str {
+        if windows {
+            concat!(
+                r#"{"step":"seed","seed":"session","thread":"thread-1"}"#,
+                "\n",
+                r#"{"step":"screen","dir":"dialogs","ev":{"kind":"attachments","can_save":true,"windows_sandbox_log":true,"auto_review":"auto-review-rollout-thread-1.jsonl","diagnostics":[{"headline":"Proxy environment variables are set and may affect connectivity.","details":["HTTPS_PROXY = hello"]}]}}"#
+            )
+        } else {
+            concat!(
+                r#"{"step":"seed","seed":"session","thread":"thread-1"}"#,
+                "\n",
+                r#"{"step":"screen","dir":"dialogs","ev":{"kind":"attachments","can_save":true,"auto_review":"auto-review-rollout-thread-1.jsonl","diagnostics":[{"headline":"Proxy environment variables are set and may affect connectivity.","details":["HTTPS_PROXY = hello"]}]}}"#
+            )
+        }
+    };
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 34)
+        .script(script(windows))
+        .open();
+    s.type_text("/feedback");
+    s.keys("enter");
+    s.keys(category);
+    s.assert_contains("Include logs and session history?");
+    s
+}
+
+/// The oracle's snapshot `name` is the bottom pane's rows over the chat: the pane starts at column
+/// 6 and the composer's `› As` and the footer's `GP` show at its left edge on two rows. Ours is
+/// the dialog from its title, each row without the dialog's margin.
+fn assert_consent_rows(s: &Screen, name: &str) {
+    let ours = s.rows();
+    let title = "Include logs and session history?";
+    let (row, col) = ours
+        .iter()
+        .enumerate()
+        .find_map(|(y, r)| r.find(title).map(|b| (y, r[..b].chars().count())))
+        .unwrap_or_else(|| panic!("no `{title}` on the screen:\n{}", s.text()));
+    let want: Vec<String> = kit::snap_rows(name, "")
+        .iter()
+        .map(|r| r.chars().skip(6).collect::<String>().trim_end().to_owned())
+        .collect();
+    let have: Vec<String> = (0..want.len())
+        .map(|at| {
+            ours.get(row + at)
+                .map_or(String::new(), |r| r.chars().skip(col).collect::<String>())
+                .trim_end()
+                .to_owned()
+        })
+        // the list's own marker column (`▎`, or blank) is one cell where the oracle's `› ` is
+        // two: the rows are compared from their numbers
+        .map(|row| {
+            let mut chars = row.chars();
+            match (chars.next(), chars.next()) {
+                (Some('\u{258c}' | '\u{258e}' | ' '), Some(digit)) if digit.is_ascii_digit() => {
+                    row.chars().skip(1).collect()
+                }
+                _ => row,
+            }
+        })
+        .collect();
+    let want: Vec<&str> = want.iter().map(String::as_str).collect();
+    kit::assert_rows_are(&have, &want);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:4403 reasoning_popup_escape_returns_to_model_popup kind=ui owner=dialogs-pane

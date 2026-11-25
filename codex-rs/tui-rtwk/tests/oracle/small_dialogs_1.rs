@@ -577,45 +577,59 @@ fn feedback_view_safety_check() {
     s.assert_snap("feedback_view_safety_check");
 }
 
+/// The oracle's frame `frame` of the snapshot `name` is the note pane alone; ours is the sheet
+/// over the debug list the entry opened it from, so the rows are compared from the pane's title.
+fn assert_pane_frame(s: &Screen, name: &str, frame: &str) {
+    let ours = s.rows();
+    let row = ours
+        .iter()
+        .position(|r| r.contains("Tell us more"))
+        .unwrap_or_else(|| panic!("no pane on the screen:\n{}", s.text()));
+    let trim = |rows: Vec<String>| -> Vec<String> {
+        let mut rows: Vec<String> = rows.into_iter().map(|r| r.trim_end().to_owned()).collect();
+        while rows.last().is_some_and(String::is_empty) {
+            rows.pop();
+        }
+        rows
+    };
+    let want = trim(kit::snap_rows(name, frame));
+    let have = trim(ours[row..].to_vec());
+    let want: Vec<&str> = want.iter().map(String::as_str).collect();
+    kit::assert_rows_are(&have, &want);
+}
+
 // ORACLE bottom_pane/feedback_note_view_tests.rs:79 feedback_disclosure_matches_audience_at_normal_and_narrow_widths kind=snap owner=dialogs-pane snap=feedback_disclosures
 #[test]
 fn feedback_disclosure_matches_audience_at_normal_and_narrow_widths() {
-    // KIT GAP: the snapshot joins its states under `external (80 columns)`-style
-    // headers, which oracle_snap::header does not take as frames.
     let mut s = Screen::build(Owner::DialogsPane)
-        .size(80, 16)
+        .size(80, 20)
         .entry("feedback", "feedback_note_bug_external")
         .open();
     s.assert_link("Learnmore", "https://help.openai.com/en/articles/5722486-how-your-data-is-used-to-improve-model-performance");
-    kit::pending(
-        Owner::DialogsPane,
-        "oracle_snap::header takes no `external (80 columns)`-style frame headers (KIT GAP)",
-    );
-    s.assert_snap_section("feedback_disclosures", "external (80 columns)");
-    s.resize(40, 16);
+    assert_pane_frame(&s, "feedback_disclosures", "external (80 columns)");
+    s.resize(40, 20);
     s.assert_link("Learnmore", "https://help.openai.com/en/articles/5722486-how-your-data-is-used-to-improve-model-performance");
-    s.assert_snap_section("feedback_disclosures", "external (40 columns)");
+    assert_pane_frame(&s, "feedback_disclosures", "external (40 columns)");
     let mut s = Screen::build(Owner::DialogsPane)
-        .size(80, 16)
+        .size(80, 20)
         .entry("feedback", "feedback_note_bug_employee")
         .open();
     s.assert_link("here", "https://go/codex-employee-feedback-faq");
-    s.assert_snap_section("feedback_disclosures", "employee (80 columns)");
-    s.resize(40, 16);
+    assert_pane_frame(&s, "feedback_disclosures", "employee (80 columns)");
+    s.resize(40, 20);
     s.assert_link("here", "https://go/codex-employee-feedback-faq");
-    s.assert_snap_section("feedback_disclosures", "employee (40 columns)");
+    assert_pane_frame(&s, "feedback_disclosures", "employee (40 columns)");
     let s = Screen::build(Owner::DialogsPane)
-        .size(80, 16)
+        .size(80, 20)
         .entry("feedback", "feedback_note_bug_remote")
         .open();
-    s.assert_snap_section("feedback_disclosures", "remote server (80 columns)");
+    assert_pane_frame(&s, "feedback_disclosures", "remote server (80 columns)");
 }
 
 // ORACLE bottom_pane/feedback_note_view_tests.rs:130 feedback_disclosure_scrolls_without_hiding_input_in_short_panes kind=snap owner=dialogs-pane snap=feedback_disclosure_short_panes
 #[test]
 fn feedback_disclosure_scrolls_without_hiding_input_in_short_panes() {
-    // The snapshot's states are headed `40x12 initial`-style, which
-    // oracle_snap::header does not take as frames (KIT GAP): the rest is checked by hand.
+    // the snapshot's states are headed `40x12 initial`-style
     for (entry, width, height) in [
         ("feedback_note_employee_40x12", 40, 12),
         ("feedback_note_employee_80x8", 80, 8),
@@ -632,10 +646,6 @@ fn feedback_disclosure_scrolls_without_hiding_input_in_short_panes() {
         s.keys("pageup");
         s.assert_contains("A visible note.");
     }
-    kit::pending(
-        Owner::DialogsPane,
-        "oracle_snap::header takes no `40x12 initial`-style frame headers (KIT GAP)",
-    );
     for (entry, width, height) in [
         ("feedback_note_employee_40x12", 40, 12),
         ("feedback_note_employee_80x8", 80, 8),
@@ -695,27 +705,22 @@ fn feedback_disclosure_keeps_editor_visible_in_four_rows() {
 // ORACLE bottom_pane/feedback_note_view_tests.rs:214 feedback_paste_burst_preserves_multiline_note_until_submit kind=snap owner=dialogs-pane snap=feedback_multiline_paste
 #[test]
 fn feedback_paste_burst_preserves_multiline_note_until_submit() {
-    kit::pending(
-        Owner::DialogsPane,
-        "TextArea has no paste-burst: a fast Enter after typed text must insert a newline (NEED: widget)",
-    );
     for entry in ["feedback_note_bug_no_logs", "feedback_note_bug"] {
         for note in ["x\nrest", "id\n\nbody", "foo\nbar", "x\t\nrest"] {
             let mut s = Screen::build(Owner::DialogsPane)
                 .size(60, 11)
                 .entry("feedback", entry)
                 .open();
-            for ch in note.chars() {
-                match ch {
-                    '\n' => s.keys("enter"),
-                    '\t' => s.keys("tab"),
-                    other => s.type_text(&other.to_string()),
-                };
-            }
+            // a key per char a millisecond apart: the paste of a terminal with no bracketed
+            // paste, whose Enter is a line of the note and not the send
+            s.burst(note);
+            s.assert_contains("Tell us more");
             if entry == "feedback_note_bug_no_logs" && note == "foo\nbar" {
                 s.assert_snap("feedback_multiline_paste");
             }
             s.assert_contains(note.rsplit('\n').next().unwrap_or(""));
+            // the burst has ended: the next Enter sends
+            s.wait(200);
             s.keys("enter");
             s.assert_absent("Tell us more");
         }

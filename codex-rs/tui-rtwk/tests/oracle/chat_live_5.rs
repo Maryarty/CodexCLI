@@ -630,14 +630,18 @@ fn review_queues_user_messages_snapshot() {
 // ORACLE chatwidget/tests/side.rs:7 suppressed_interrupted_turn_notice_skips_history_warning kind=ui owner=chat-live
 #[test]
 fn suppressed_interrupted_turn_notice_skips_history_warning() {
-    kit::pending(
-        Owner::ChatLive,
-        "no side conversation on the chat screen: the interrupted-turn notice mode 'Suppress' is not a seed, so the notices are drawn",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.feed(&turn_started("turn-1"));
-    s.feed(&agent_delta("partial output"));
-    s.feed(&turn_ended("turn-1", "interrupted"));
+    // the side conversation's own thread (the kit's `/side` seed): the side feature makes it quiet
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .live()
+        .side()
+        .open();
+    let of_side = |step: String| step.replace("\"thread-1\"", &format!("\"{}\"", kit::SIDE_THREAD));
+    s.feed(&of_side(turn_started("turn-1")));
+    s.feed(&of_side(agent_delta("partial output")));
+    // the steps reach the side conversation, so the absence below is not a miss
+    s.assert_contains("partial output");
+    s.feed(&of_side(turn_ended("turn-1", "interrupted")));
     // oracle: no 'Conversation interrupted' and no steer-interrupt notice in the history of a side conversation.
     s.assert_absent("Conversation interrupted");
     s.assert_absent("Model interrupted to submit steer instructions.");
@@ -688,11 +692,11 @@ fn side_aliases_are_rejected_during_review_mode() {
 // ORACLE chatwidget/tests/side.rs:166 slash_btw_is_rejected_before_the_session_starts kind=ui owner=chat-live
 #[test]
 fn slash_btw_is_rejected_before_the_session_starts() {
-    kit::pending(
-        Owner::ChatLive,
-        "no pre-session state on the chat screen: '/btw' before the session starts draws no 'unavailable before the session starts' error",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .live()
+        .held_start()
+        .open();
     s.type_text("/btw");
     s.keys("enter");
     s.assert_contains("'/btw' is unavailable before the session starts.");
@@ -741,13 +745,6 @@ fn side_context_label_preserves_status_line_snapshot() {
         r#"{"step":"screen","dir":"chat","ev":{"facts":{"side_label":"Side from main thread \u00b7 ctrl+/ to switch \u00b7 ctrl+c to close"}}}"#,
     );
     s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"GPT-5.6-Sol","items":["model-name"]}}}"#);
-    // The composer's placeholder in a side conversation (`Ask a follow-up question`, row 2) is
-    // `bottom.rs`'s (status': a flag-keyed placeholder): the other rows are the oracle's.
-    s.assert_snap_rows_except("side_context_label_preserves_status_line", 0..6, &[2]);
-    kit::pending(
-        Owner::ChatLive,
-        "the composer's placeholder in a side conversation is `Ask a follow-up question` (flags.side_conversation_active): bottom.rs (status') sets the chat's placeholder only",
-    );
     s.assert_snap("side_context_label_preserves_status_line");
 }
 
@@ -761,13 +758,6 @@ fn side_context_label_shows_parent_status_snapshot() {
         r#"{"step":"screen","dir":"chat","ev":{"facts":{"side_label":"Side from main thread \u00b7 main needs input \u00b7 ctrl+/ to switch \u00b7 ctrl+c to close"}}}"#,
     );
     s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"GPT-5.6-Sol","cwd":"/tmp/project","items":["model-with-reasoning","current-dir"]}}}"#);
-    // The composer's placeholder in a side conversation (`Ask a follow-up question`, row 2) is
-    // `bottom.rs`'s (status': a flag-keyed placeholder): the other rows are the oracle's.
-    s.assert_snap_rows_except("side_context_label_shows_parent_status", 0..6, &[2]);
-    kit::pending(
-        Owner::ChatLive,
-        "the composer's placeholder in a side conversation is `Ask a follow-up question` (flags.side_conversation_active): bottom.rs (status') sets the chat's placeholder only",
-    );
     s.assert_snap("side_context_label_shows_parent_status");
 }
 

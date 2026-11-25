@@ -815,13 +815,16 @@ mod burst_into_the_feedback_note {
     }
 
     #[test]
-    #[ignore = "NEED (widget): the note's TextArea has no paste-burst, a fast Enter submits (oracle feedback_paste_burst_preserves_multiline_note_until_submit)"]
     fn a_newline_inside_a_burst_is_a_line_of_the_note() {
         let mut s = note();
         s.burst("foo\nbar");
         s.assert_contains("foo");
         s.assert_contains("bar");
         s.assert_contains("Tell us more");
+        // the burst is over: an Enter sends
+        s.wait(200);
+        s.keys("enter");
+        s.assert_absent("Tell us more");
     }
 }
 

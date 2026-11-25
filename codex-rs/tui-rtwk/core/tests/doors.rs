@@ -124,6 +124,37 @@ fn a_permissions_pick_waits_for_the_windows_sandbox_setup() {
     assert_eq!(app.features().windows_sandbox.then(), Some(&pick));
 }
 
+/// The catalog (the list of every thread) picks the profile of a mode row, the legacy list the
+/// preset: both are the Auto preset the sandbox is the missing piece of, and only that one.
+#[test]
+fn the_catalogs_auto_row_waits_for_the_windows_sandbox_as_the_presets_does() {
+    let profile = |preset: Preset, reviewer: Reviewer| Selection::Profile {
+        id: preset.profile().to_owned(),
+        approval: None,
+        reviewer: Some(reviewer),
+        label: Label::Mode { preset, reviewer },
+        unchanged: false,
+    };
+    let mut app = CodexApp::new();
+    sandbox_ready(&mut app, None);
+    let sandbox = &app.features().windows_sandbox;
+    assert!(sandbox.pick_needs_setup(&profile(Preset::Auto, Reviewer::User)));
+    assert!(sandbox.pick_needs_setup(&Selection::Preset {
+        preset: Preset::Auto,
+        reviewer: Reviewer::User
+    }));
+    // the reviewer is the user's: `Approve for me` is not held, nor are the other modes
+    assert!(!sandbox.pick_needs_setup(&profile(Preset::Auto, Reviewer::AutoReview)));
+    assert!(!sandbox.pick_needs_setup(&profile(Preset::ReadOnly, Reviewer::User)));
+    assert!(!sandbox.pick_needs_setup(&Selection::Profile {
+        id: ":workspace".to_owned(),
+        approval: None,
+        reviewer: None,
+        label: Label::Profile(":workspace".to_owned()),
+        unchanged: false,
+    }));
+}
+
 /// The kit's `presets` and `note` steps are events the host or a feature makes (`AppEv::Presets`,
 /// the chat's `Intent::Note`), read from a script line: a refusal names the line.
 #[test]
@@ -291,7 +322,10 @@ fn the_inline_item_lists_take_the_alias_and_the_names_the_limits_give() {
         Some(vec!["five-hour-limit".to_owned()])
     );
     let unlabeled = limits(None, None);
-    assert_eq!(line("usage-limit", Some(&unlabeled)), ids(&["five-hour-limit"]));
+    assert_eq!(
+        line("usage-limit", Some(&unlabeled)),
+        ids(&["five-hour-limit"])
+    );
     assert_eq!(
         line("secondary-usage-limit", Some(&unlabeled)),
         ids(&["weekly-limit"])

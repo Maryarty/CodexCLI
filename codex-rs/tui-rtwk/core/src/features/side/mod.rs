@@ -245,6 +245,9 @@ pub enum Ctx {
 pub enum Note {
     /// `'/side' is unavailable until the main thread is ready.`
     MainUnavailable,
+    /// `'/{command}' is unavailable before the session starts.` (`/side` or `/btw` typed where the
+    /// chat has no thread yet: the chat's own refusal, before the app is asked)
+    BeforeSession(&'static str),
     /// `'/side' is unavailable until the current conversation has started. Send a message first,
     /// then try /side again.`
     NoStartedConversation,
@@ -382,6 +385,9 @@ feature! {
         {
             /// `/side` and `/btw`, each with an optional prompt.
             fn slash(state: &mut State, slash: Slash, cx: &mut AppCx<'_>) {
+                if slash.source.is_none() {
+                    return cx.note(None, Note::BeforeSession(slash.command.command()));
+                }
                 let source = slash.source.clone();
                 let prompt = slash.into_args();
                 Self::intent(state, Intent::Start { source, prompt }, cx);
@@ -466,6 +472,8 @@ feature! {
                             .and_then(|link| link.status);
                         state.links.insert(child.clone(), Link { parent, status });
                         state.preparing.insert(child.clone(), prompt);
+                        // a turn interrupted here is no news (`should_suppress_interrupted_turn_notice`)
+                        cx.quiet_interrupts(&child, true);
                         cx.ask(
                             Some(&child),
                             Command::Boundary,

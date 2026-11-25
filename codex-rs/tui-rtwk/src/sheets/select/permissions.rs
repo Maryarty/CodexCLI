@@ -32,6 +32,7 @@ use codex_tui_core::screens::select::permissions::{
 use codex_tui_core::screens::select::{Intent, Opening};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates};
 
+use super::centered;
 use super::strings::{self, Strings};
 use crate::app::debug::seeded::Seeded;
 use crate::app::view::Hs;
@@ -43,10 +44,18 @@ use crate::widgets::sheet::bottom;
 /// sheet's cap whose home is the page of the menu, each page at the bottom edge of it (where the
 /// oracle's pane is; `features/plugins/sheet.rs`).
 pub fn sheet(menu: PermissionsMenu) -> AnyWidget {
-    Navigator::new()
-        .home(bottom(Step { menu }))
-        .back_key(None)
-        .into()
+    Navigator::new().home(placed(menu)).back_key(None).into()
+}
+
+/// A page where the oracle shows its view: the confirmation (`SelectionViewParams::confirmation()`,
+/// `ViewPresentation::Centered`) floats in the middle over the composer, the menus sit at the
+/// bottom edge.
+fn placed(menu: PermissionsMenu) -> AnyWidget {
+    if matches!(menu, PermissionsMenu::FullAccess { .. }) {
+        centered(Step { menu })
+    } else {
+        bottom(Step { menu })
+    }
 }
 
 /// The options the sheet is shown with: the bottom pane, built under the providers of the page
@@ -74,7 +83,7 @@ pub fn seeded(seeded: &Seeded<'_>) -> AnyWidget {
 }
 
 fn route(menu: PermissionsMenu) -> PageRoute<()> {
-    PageRoute::new(move |_| bottom(Step { menu: menu.clone() }))
+    PageRoute::new(move |_| placed(menu.clone()))
 }
 
 /// One page of the sheet: the menu it shows.

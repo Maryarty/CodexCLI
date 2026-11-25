@@ -185,6 +185,49 @@ fn the_fork_is_shown_linked_and_labelled() {
 }
 
 #[test]
+fn an_interrupted_turn_of_the_side_conversation_leaves_no_notice() {
+    use codex_tui_core::fixtures::builders::turn_started;
+    use codex_tui_core::threads::Notice;
+
+    let (mut app, _) = opened(None);
+    // the parent keeps the notice, the side conversation does not
+    for (thread, notices) in [(MAIN, 1), (SIDE, 0)] {
+        run(&mut app, AppEv::Backend(turn_started(thread, "turn-1")));
+        run(&mut app, AppEv::Backend(interrupted(thread, "turn-1")));
+        let held = app.thread(&ThreadId::new(thread)).expect("held");
+        let count = held
+            .transcript()
+            .iter()
+            .filter(|(_, item)| matches!(item, Entry::Notice(Notice::Interrupted)))
+            .count();
+        assert_eq!(count, notices, "{thread}");
+    }
+}
+
+/// `turn/completed` of an interrupted turn.
+fn interrupted(thread: &str, turn: &str) -> codex_tui_core::app::BackendEv {
+    use codex_app_server_protocol::{
+        ServerNotification, Turn, TurnCompletedNotification, TurnItemsView, TurnStatus,
+    };
+    codex_tui_core::app::BackendEv::Notification(Box::new(ServerNotification::TurnCompleted(
+        TurnCompletedNotification {
+            thread_id: thread.to_string(),
+            turn: Turn {
+                id: turn.to_string(),
+                root_turn_id: None,
+                items: Vec::new(),
+                items_view: TurnItemsView::NotLoaded,
+                status: TurnStatus::Interrupted,
+                error: None,
+                started_at: None,
+                completed_at: None,
+                duration_ms: None,
+            },
+        },
+    )))
+}
+
+#[test]
 fn the_forked_history_is_not_read_for_the_screen() {
     let (_, fx) = opened(None);
     let reads = fx.commands().iter().filter(|c| {
