@@ -376,6 +376,12 @@ pub trait Feature: 'static {
         let _ = (state, thread, cx);
     }
 
+    /// The user interrupted the running turn of `thread` (Esc, Ctrl+C: `Intent::Interrupt`), after
+    /// the thread said the interrupt (the oracle's `pause_active_goal_for_interrupt` is one).
+    fn on_interrupt(state: &mut Self::State, thread: &ThreadId, cx: &mut AppCx<'_>) {
+        let _ = (state, thread, cx);
+    }
+
     /// An intent for this thread's part: an ask, applied only under the thread's writer.
     fn thread_intent(
         part: &mut Self::ThreadPart,
@@ -959,6 +965,12 @@ macro_rules! feature_dirs {
         #[allow(unused_variables)]
         pub fn on_resumed(states: &mut FeatureStates, thread: &ThreadId, cx: &mut AppCx<'_>) {
             $(<$name::$variant as Feature>::on_resumed(&mut states.$name, thread, cx);)*
+        }
+
+        /// The user interrupted the running turn of `thread`: every feature's hook, in list order.
+        #[allow(unused_variables, dead_code)]
+        pub fn on_interrupt(states: &mut FeatureStates, thread: &ThreadId, cx: &mut AppCx<'_>) {
+            $(<$name::$variant as Feature>::on_interrupt(&mut states.$name, thread, cx);)*
         }
 
         /// The nearest moment any feature's `wake_at` asks for.

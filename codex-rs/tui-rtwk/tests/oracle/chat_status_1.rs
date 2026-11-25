@@ -887,14 +887,21 @@ fn program_status_stays_working_when_input_acknowledges_an_active_goal() {
 // ORACLE chatwidget/tests/status_and_layout.rs:2532 esc_interrupt_pauses_active_goal_turn kind=snap owner=ui-pane snap=esc_interrupt_goal_paused_footer
 #[test]
 fn esc_interrupt_pauses_active_goal_turn() {
-    kit::pending(
-        Owner::UiPane,
-        "no goal turn state or goal-paused footer on the chat screen",
+    // oracle: Esc interrupts an active goal turn; the goal is paused (the server tells the new
+    // status, `update_thread_goal`); the goal-paused footer is the snapshot (width 80).
+    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    s.feed(include_str!("fixtures/chat_status_1/goal_turn.jsonl"));
+    s.keys("esc");
+    s.feed(
+        r#"{"step":"notify","message":{"method":"thread/goal/updated","params":{"threadId":"thread-1","turnId":null,"goal":{"threadId":"thread-1","objective":"Keep improving the benchmark","status":"paused","tokenBudget":null,"tokensUsed":0,"timeUsedSeconds":0,"createdAt":0,"updatedAt":0}}}}"#,
     );
-    // oracle: Esc interrupts an active goal turn; the goal is paused; the goal-paused footer is the snapshot (width 80).
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: an active goal turn; Esc; thread goal Paused
-    s.assert_snap("esc_interrupt_goal_paused_footer");
+    let working = s
+        .rows()
+        .iter()
+        .position(|row| row.contains("Working (0s"))
+        .unwrap_or_else(|| panic!("no working row:\n{}", s.text()));
+    // the spinner glyph follows the clock
+    s.assert_snap_rows_from("esc_interrupt_goal_paused_footer", working - 1, 8, true);
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:2559 request_user_input_interrupt_pauses_active_goal_turn kind=ui owner=ui-pane

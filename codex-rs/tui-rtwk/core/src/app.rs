@@ -2233,7 +2233,10 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 fx,
             )
         }
-        Intent::Interrupt(thread) => apply_thread(app, &thread, ThreadEv::Interrupt, fx),
+        Intent::Interrupt(thread) => {
+            apply_thread(app, &thread, ThreadEv::Interrupt, fx);
+            features::interrupted(app, &thread, fx);
+        }
         Intent::ThreadScreen { thread, intent } => {
             apply_thread(app, &thread, ThreadEv::ScreenIntent(intent), fx)
         }
