@@ -546,8 +546,9 @@ fn put_back(follow: &Follow, saved: Saved) {
     }
 }
 
-/// The lowercase of `text`: what the query and the rows are compared as.
-fn fold(text: &str) -> String {
+/// The lowercase of `text`: what the query and the rows are compared as (`search` takes the
+/// query folded).
+pub fn fold(text: &str) -> String {
     text.chars().flat_map(char::to_lowercase).collect()
 }
 
@@ -587,8 +588,9 @@ fn find_literal(text: &str, query: &str, direction: Direction) -> Option<Range<u
 }
 
 /// The next match from `from` (a row and a byte of its text) in `direction`, never wrapping: in
-/// the row itself before (older) or after (newer) the byte, then in each row beyond.
-fn search(rows: &dyn Rows, query: &str, from: (usize, usize), direction: Direction) -> Option<Hit> {
+/// the row itself before (older) or after (newer) the byte, then in each row beyond. The query is
+/// folded (`fold`); the scan is the finder's own and select mode's `n`/`N` (`find::repeat`).
+pub fn search(rows: &dyn Rows, query: &str, from: (usize, usize), direction: Direction) -> Option<Hit> {
     let count = rows.count();
     if count == 0 || query.is_empty() {
         return None;

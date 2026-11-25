@@ -396,7 +396,7 @@ impl_widget!(stateful eq Composer);
 /// The listener that keeps the elements in step with the text and the caret
 /// out of them, and what the editing keys read.
 pub struct ComposerState {
-    listener: Option<(Rc<ThreadUi>, VoidCallback, VoidCallback)>,
+    listener: Option<(Rc<ThreadUi>, VoidCallback, VoidCallback, VoidCallback)>,
     /// The popup's rows and highlight, read by the key hook.
     suggest: Rc<suggest::Suggest>,
     /// Whether the last build saw a restricted composer: a change into it
@@ -499,15 +499,20 @@ impl ComposerState {
         let snap: VoidCallback = Rc::new(move || d.snap_caret(&c));
         ui.composer.listenable().add_listener(snap.clone());
         // the popup's rows follow the text and the caret
+        let moved = tell.clone();
         let refresh: VoidCallback = Rc::new(move || tell(ComposerMsg::Refresh));
         ui.composer.listenable().add_listener(refresh.clone());
-        self.listener = Some((ui.clone(), snap, refresh));
+        // Find opening or closing: the popup is painted or not, its rows kept (`popup`)
+        let find: VoidCallback = Rc::new(move || moved(ComposerMsg::Redraw));
+        ui.find.listenable().add_listener(find.clone());
+        self.listener = Some((ui.clone(), snap, refresh, find));
     }
 
     fn unlisten(&mut self) {
-        if let Some((ui, snap, refresh)) = self.listener.take() {
+        if let Some((ui, snap, refresh, find)) = self.listener.take() {
             ui.composer.listenable().remove_listener(&snap);
             ui.composer.listenable().remove_listener(&refresh);
+            ui.find.listenable().remove_listener(&find);
         }
     }
 
@@ -570,10 +575,13 @@ impl ComposerState {
     /// `Popover` of an `OptionList` (no focus of its own, the caret stays
     /// in the field), closed by Esc, a press outside or the focus leaving.
     /// Enter and a click pick, Tab completes (`suggest`).
-    fn popup(&self, field: AnyWidget, cx: &mut Cx<'_, Self>) -> AnyWidget {
+    ///
+    /// While Find is open the popup is not painted and its rows stay (the oracle's composer
+    /// keeps `ActivePopup::Command` and paints it again once the footer is gone): `find_open`.
+    fn popup(&self, field: AnyWidget, find_open: bool, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let theme = Theme::of(cx);
         let shown = self.suggest.shown();
-        let open = !shown.items.is_empty();
+        let open = !shown.items.is_empty() && !find_open;
         let popup: AnyWidget = if open {
             let rows: Vec<OptionItem> = shown
                 .items
@@ -814,6 +822,10 @@ impl State for ComposerState {
                 return rtwk::Rebuild::Yes;
             }
             ComposerMsg::Dismiss => {
+                // the focus went to Find's query: the popup is kept, not closed
+                if w.ui.find.active() {
+                    return rtwk::Rebuild::Yes;
+                }
                 self.suggest.hide(w.ui.composer.text());
                 return rtwk::Rebuild::Yes;
             }
@@ -1064,7 +1076,7 @@ impl State for ComposerState {
         let table = chat_strings::of(cx);
         // the rows of the text as it is now (the states may have changed)
         self.refresh(w, &popovers, &slash, table);
-        let field = self.popup(keys(area.into()), cx);
+        let field = self.popup(keys(area.into()), w.ui.find.active(), cx);
         let mark = if w.ui.draft.shell() {
             prompt(
                 strings::of(cx).shell_prompt,

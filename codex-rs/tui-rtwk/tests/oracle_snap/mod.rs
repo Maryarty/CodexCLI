@@ -356,6 +356,27 @@ pub fn state(rel: &str, height: usize, index: usize) -> Frame {
     parse_frame(format!("state {index}"), &body[start..end])
 }
 
+/// The states of a snapshot the test joined of renders of one screen with `join("\n---\n")` and
+/// no header (`states.join("\n---\n")`): the lines between the bare `---` rules, named
+/// `state 0`, `state 1`... in the order the test wrote them. A bare `---` row of a screen's own
+/// (a markdown rule) is not told from the test's: ask for it only of a snapshot made so.
+pub fn cut(rel: &str) -> Vec<Frame> {
+    body(rel)
+        .split(|line| line == "---")
+        .enumerate()
+        .map(|(index, lines)| parse_frame(format!("state {index}"), lines))
+        .collect()
+}
+
+/// State `index` (from 0) of a snapshot cut at its bare rules (`cut`). Panics when there is none.
+pub fn cut_state(rel: &str, index: usize) -> Frame {
+    let all = cut(rel);
+    let count = all.len();
+    all.into_iter()
+        .nth(index)
+        .unwrap_or_else(|| panic!("{rel}: no state {index} of {count} between its bare `---` rules"))
+}
+
 /// What a header reader answers for a line: the frame's name and the row the header line also is.
 type Header = Option<(String, Option<String>)>;
 

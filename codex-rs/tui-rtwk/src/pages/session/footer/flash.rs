@@ -14,6 +14,8 @@ use std::time::Duration;
 use rtwk::binding::{AppBinding, Timer};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::screens::chat::facts::{FlashTone, Flashed};
+
 use super::Footer;
 
 /// The style the flash line is drawn in.
@@ -32,6 +34,22 @@ pub struct Flash {
     pub tone: Tone,
     pub epoch: u64,
     pub lasts: Duration,
+}
+
+impl Flash {
+    /// The flash the facts hold (`facts::Ev::Flash`): the showing's number is the epoch the
+    /// timer is started by.
+    pub fn of(flashed: &Flashed) -> Flash {
+        Flash {
+            text: flashed.line.text.clone(),
+            tone: match flashed.line.tone {
+                FlashTone::Plain => Tone::Plain,
+                FlashTone::Error => Tone::Error,
+            },
+            epoch: flashed.seq,
+            lasts: Duration::from_millis(flashed.line.millis),
+        }
+    }
 }
 
 /// A footer that lets its flash run out.

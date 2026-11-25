@@ -17,7 +17,7 @@ use codex_tui_core::threads::composer::{ComposerState, composer_state};
 use crate::pages::session::composer::strings as composer_strings;
 use crate::pages::session::composer::{Composer, Placeholder};
 use crate::pages::session::external_writer;
-use crate::pages::session::footer::{Footer, Line};
+use crate::pages::session::footer::{Flash, Footer, Line, Timed};
 use crate::pages::session::keys::Action;
 use crate::pages::session::live::provider_error;
 use crate::pages::session::transcript;
@@ -116,7 +116,15 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
                 on_close: Some(cx.send(ChatMsg::Shortcuts)),
             };
             hints = Some(props.clone());
-            let footer: AnyWidget = props.into();
+            // `show_footer_flash`: the line the app or the thread raised (`facts::Ev::Flash`)
+            // takes the footer's left side until its time is up
+            let flash = select::<ScreenStates, Option<Flash>, _>(cx, |states| {
+                states.chat.facts.flash().map(Flash::of)
+            });
+            let footer: AnyWidget = Timed {
+                footer: Footer { flash, ..props },
+            }
+            .into();
             if line == Line::Passive {
                 transcript::follow::footer(
                     cx,

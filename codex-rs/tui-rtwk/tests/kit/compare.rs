@@ -37,6 +37,15 @@ pub fn snap_rows(name: &str, frame: &str) -> Vec<String> {
     oracle_snap::frame(&oracle_snap::find(name), frame).rows
 }
 
+/// The rows of each state of a snapshot cut at its bare `---` rules (`oracle_snap::cut`), in the
+/// order the test wrote them.
+pub fn snap_cuts(name: &str) -> Vec<Vec<String>> {
+    oracle_snap::cut(&oracle_snap::find(name))
+        .into_iter()
+        .map(|f| f.rows)
+        .collect()
+}
+
 /// What to compare the screen with: a snapshot, one frame of it, placed at a
 /// row and column of the screen.
 pub struct Want<'a> {
@@ -70,6 +79,19 @@ pub fn assert_labelled(grid: &Grid, want: &Want<'_>, labels: &[&str], dialog: bo
 pub fn assert_state(grid: &Grid, want: &Want<'_>, height: usize, index: usize) {
     let frame = oracle_snap::state(&oracle_snap::find(want.name), height, index);
     assert_frame(grid, want, frame, want.at);
+}
+
+/// `assert_snap` for a snapshot the test joined of renders with bare `---` rules and no header
+/// (`oracle_snap::cut_state`): the screen equals state `index` (from 0, in the order the test
+/// wrote them); `dialog` reads it as `assert_dialog` does.
+pub fn assert_cut(grid: &Grid, want: &Want<'_>, index: usize, dialog: bool) {
+    let frame = oracle_snap::cut_state(&oracle_snap::find(want.name), index);
+    if dialog {
+        let (frame, at) = dialog_region(grid, frame);
+        assert_frame(grid, want, frame, at);
+    } else {
+        assert_frame(grid, want, frame, want.at);
+    }
 }
 
 /// `assert_snap` for a frame the oracle drew into the whole area (spare rows

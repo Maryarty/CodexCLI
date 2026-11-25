@@ -57,6 +57,14 @@ pub(super) fn goal(spec: &Spec, width: &dyn Fn(&str) -> usize) -> Option<Vec<For
     )])
 }
 
+/// `IDE context` while `/ide` is on, then `IDE`, in the info colour (`.cyan()`).
+pub(super) fn ide(spec: &Spec, width: &dyn Fn(&str) -> usize) -> Option<Vec<Form>> {
+    spec.ide.then(|| {
+        let one = |text: &'static str| form(vec![Span::styled(text, spec.tokens.info())], width);
+        vec![one(spec.own.ide_context), one(spec.own.ide_short)]
+    })
+}
+
 /// `Vim: Normal` (accent), `Vim: Insert` (success), `Vim: Replace` (info).
 pub(super) fn vim(spec: &Spec, width: &dyn Fn(&str) -> usize) -> Option<Vec<Form>> {
     let mode = spec.vim?;

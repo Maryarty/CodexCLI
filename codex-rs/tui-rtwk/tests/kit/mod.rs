@@ -39,7 +39,9 @@ mod worktrees;
 #[allow(unused_imports)]
 pub use asserts::{assert_same, native_status};
 #[allow(unused_imports)]
-pub use compare::{Want, assert_snap as assert_snap_on, snap_frames, snap_rows, snap_size};
+pub use compare::{
+    Want, assert_snap as assert_snap_on, snap_cuts, snap_frames, snap_rows, snap_size,
+};
 #[allow(unused_imports)]
 pub use env::{ColorDepth, Install, REPLAYED, replay_turn};
 #[allow(unused_imports)]
@@ -460,6 +462,7 @@ impl Screen {
             frame: "",
             labels: &[],
             state: None,
+            cut: None,
             at: None,
             dialog: false,
         }
@@ -785,6 +788,7 @@ pub struct Snap<'a> {
     at: Option<(usize, usize)>,
     dialog: bool,
     state: Option<(usize, usize)>,
+    cut: Option<usize>,
 }
 
 impl<'a> Snap<'a> {
@@ -812,6 +816,14 @@ impl<'a> Snap<'a> {
         self
     }
 
+    /// The snapshot is one the test glued of renders with `join("\n---\n")` and no header
+    /// (`rate_limit_reset_popup_states`): this compares state `index` (from 0, in the order the
+    /// test wrote them), the lines between the bare `---` rules; `dialog()` reads it as a dialog.
+    pub fn cut(mut self, index: usize) -> Snap<'a> {
+        self.cut = Some(index);
+        self
+    }
+
     /// The snapshot is a region of the oracle's screen that starts at screen
     /// row `row` and column `col` of ours.
     pub fn at(mut self, row: usize, col: usize) -> Snap<'a> {
@@ -835,7 +847,9 @@ impl<'a> Snap<'a> {
             frame: self.frame,
             at: self.at,
         };
-        if let Some((height, index)) = self.state {
+        if let Some(index) = self.cut {
+            compare::assert_cut(&grid, &want, index, self.dialog);
+        } else if let Some((height, index)) = self.state {
             compare::assert_state(&grid, &want, height, index);
         } else if !self.labels.is_empty() {
             compare::assert_labelled(&grid, &want, self.labels, self.dialog);
