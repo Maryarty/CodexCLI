@@ -26,6 +26,7 @@ use codex_tui_core::threads::Item;
 use super::TranscriptMode;
 use super::find::{Finder, RowTexts};
 use super::item_text::{Reading, drawn_blocks};
+use super::markdown_copy::{self, Marks};
 use super::markdown_text::{self, Kind};
 use super::select;
 use super::strings::Strings;
@@ -322,17 +323,28 @@ impl Targets {
     }
 }
 
+/// Where each part starts in the text of its row (the parts are joined by one line break).
+fn starts_of(parts: &[Part]) -> Vec<usize> {
+    let mut at = 0;
+    parts
+        .iter()
+        .map(|part| {
+            let start = at;
+            at += part.text.len() + 1;
+            start
+        })
+        .collect()
+}
+
 /// The bytes the non-gutter parts of a row span in its text: where the first starts to where the
 /// last ends.
 fn extent(parts: &[Part]) -> Option<(usize, usize)> {
-    let mut at = 0;
     let mut span: Option<(usize, usize)> = None;
-    for part in parts {
+    for (part, start) in parts.iter().zip(starts_of(parts)) {
         if !part.gutter {
-            let end = at + part.text.len();
-            span = Some(span.map_or((at, end), |(first, _)| (first, end)));
+            let end = start + part.text.len();
+            span = Some(span.map_or((start, end), |(first, _)| (first, end)));
         }
-        at += part.text.len() + 1;
     }
     span
 }
@@ -385,19 +397,25 @@ fn rendered_blocks(
     table: &'static Strings,
     cutter: &Cutter,
 ) -> Vec<Target> {
-    // the body is the last part, laid out as the cell draws the blocks: when it is not (a cell
-    // that is drawn another way) there is no block to point at
+    // the body is the last parts, a part for each node the cell draws the blocks as: when it is
+    // not (a cell that is drawn another way) there is no block to point at
     let blocks = drawn_blocks(item, reading);
-    let Some(body) = parts.last() else {
+    let Some(nodes) = markdown_text::nodes(&blocks) else {
         return Vec::new();
     };
-    if markdown_text::drawn(&blocks).as_deref() != Some(body.text.as_str()) {
+    let Some(first) = parts.len().checked_sub(nodes.len()) else {
+        return Vec::new();
+    };
+    if parts[first..]
+        .iter()
+        .zip(&nodes)
+        .any(|(part, node)| part.text != node.text)
+    {
         return Vec::new();
     }
-    let body_at: usize = parts[..parts.len() - 1]
-        .iter()
-        .map(|part| part.text.len() + 1)
-        .sum();
+    // where each part starts in the text of the row: a node's range is the node and its offset
+    let starts = starts_of(parts);
+    let end_of = |node: usize| starts[first + node] + parts[first + node].text.len();
     let (mut codes, mut quotes) = sources(cutter, source);
     markdown_text::found(&blocks)
         .into_iter()
@@ -412,7 +430,7 @@ fn rendered_blocks(
                 .map(|at| pool.remove(at));
             Target {
                 row,
-                range: body_at + block.range.start..body_at + block.range.end,
+                range: starts[first + block.nodes.start]..end_of(block.nodes.end - 1),
                 label,
                 payload,
             }
@@ -463,11 +481,20 @@ fn literal_blocks(
                     .rfind('\n')
                     .map_or(0, |newline| newline + 1)
                     .max(first);
-                // as many lines as the quote has, whether the drawing keeps its `>` marks or not
-                let lines = content.trim_end_matches('\n').lines().count().max(1);
+                // as many lines as the quote has, whether the drawing keeps its `>` marks or not;
+                // a blank line of its source is a line of the drawing where the drawing has one
+                // (the view draws the paragraphs of a quote on rows that follow each other)
                 let mut end = start;
-                for line in text[start..last].split_inclusive('\n').take(lines) {
+                let mut drawn = text[start..last].split_inclusive('\n').peekable();
+                for source in content.trim_end_matches('\n').lines() {
+                    let Some(line) = drawn.peek() else {
+                        break;
+                    };
+                    if source.trim().is_empty() && !unquoted(line).trim().is_empty() {
+                        continue;
+                    }
                     end += line.len();
+                    drawn.next();
                 }
                 let end = text[..end].trim_end_matches('\n').len().max(start);
                 found.push(Target {
@@ -568,6 +595,8 @@ struct Data {
 
 struct Inner {
     data: RefCell<Data>,
+    /// The Markdown bodies a selection that no mode made is copied with (`markdown_copy`).
+    marks: Marks,
     /// The select mode's: the pane and the footer listen to the one notifier.
     ticks: Rc<ValueNotifier<u32>>,
 }
@@ -585,6 +614,7 @@ impl PartialEq for CopyMode {
 /// The copy mode of the thread whose finder this is (made on first ask, held with the thread's
 /// controllers: `ThreadUi::held`).
 pub fn mode_of(finder: &Finder) -> CopyMode {
+    let marks = markdown_copy::of(finder);
     finder.held(|| {
         CopyMode(Rc::new(Inner {
             data: RefCell::new(Data {
@@ -598,6 +628,7 @@ pub fn mode_of(finder: &Finder) -> CopyMode {
                 reveal: false,
                 pending: None,
             }),
+            marks,
             ticks: select::of(finder).listenable(),
         }))
     })
@@ -834,6 +865,20 @@ impl CopyMode {
         if let Some(payload) = self.0.data.borrow_mut().pending.take() {
             job.text = payload.text;
             job.format = payload.format;
+            return job;
+        }
+        self.marked(job)
+    }
+
+    /// A copy of what the reader selected in a Markdown message also offers the selection as
+    /// Markdown (`markdown_copy`: its HTML flavour keeps the words' formatting), the plain text
+    /// the same.
+    #[must_use]
+    pub fn marked(&self, mut job: CopyJob) -> CopyJob {
+        if job.format == CopyFormat::PlainText
+            && let Some(source) = self.0.marks.selected(&job.text)
+        {
+            job.format = CopyFormat::MarkdownSelection(source.into());
         }
         job
     }

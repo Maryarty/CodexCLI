@@ -14,7 +14,10 @@
 //! What the search reads is the rows of the transcript as text (`RowTexts`, in the order they
 //! are read: the oldest first), through the same `ItemTexts` model the list's selection reads
 //! (`item_text`); a row whose text the cells do not model yet (`cells::text::Gap::Rows`) has
-//! none, so nothing is found in it.
+//! none, so nothing is found in it. A row's text is its `Text`s' own texts joined by a line
+//! break, and nothing between the blocks of a Markdown body: the offsets of a row are a node and
+//! an offset in the node's text (`item_text::mounted_parts`), and what lies between two blocks
+//! is in a copy of a selection across them, which the area derives from the layout.
 //!
 //! Where the oracle reads one entry per frame, bounded, the scan here reads the whole transcript
 //! in the frame the query changed: the rows are in memory and a literal scan of them is the
@@ -22,10 +25,75 @@
 
 use std::borrow::Cow;
 
+use rtwk::gestures::SelectionPoint;
+use rtwk::render::RenderId;
 use rtwk::scroll::ItemTexts;
 
 pub use crate::widgets::finder::{Direction, Finder, Hit, Key, Mode, QUERY_BYTES, Rows, key};
 use crate::widgets::thread_ui::ThreadUi;
+
+/// The next match of `query` (lowercased, as the finder holds it) from `from`, a row and a byte of
+/// its text, in `direction`, never wrapping: select mode's `n` and `N` look from the caret, where
+/// the finder's own step goes on from its match. The finder's scan (`widgets::finder`, private
+/// there) over the rows of the transcript.
+pub fn repeat(
+    rows: &RowTexts,
+    query: &str,
+    from: (usize, usize),
+    direction: Direction,
+) -> Option<Hit> {
+    let count = rows.row_count();
+    if count == 0 || query.is_empty() {
+        return None;
+    }
+    let first = from.0.min(count - 1);
+    let mut row = first;
+    loop {
+        let text = rows.row_text(row);
+        let window = if row == first {
+            let mut at = from.1.min(text.len());
+            while !text.is_char_boundary(at) {
+                at -= 1;
+            }
+            match direction {
+                Direction::Older => 0..at,
+                Direction::Newer => at..text.len(),
+            }
+        } else {
+            0..text.len()
+        };
+        if let Some(found) = literal(&text[window.clone()], query, direction) {
+            return Some(Hit {
+                row,
+                range: window.start + found.start..window.start + found.end,
+            });
+        }
+        row = match direction {
+            Direction::Older => row.checked_sub(1)?,
+            Direction::Newer => (row + 1 < count).then_some(row + 1)?,
+        };
+    }
+}
+
+/// The first match of the folded `query` in `text` from `direction` (the last when older), as
+/// bytes of `text` itself: the lowercase of a character can be longer or shorter than it.
+fn literal(text: &str, query: &str, direction: Direction) -> Option<std::ops::Range<usize>> {
+    let mut folded = String::new();
+    let mut spans = Vec::new();
+    for (start, character) in text.char_indices() {
+        for lowercase in character.to_lowercase() {
+            folded.push(lowercase);
+            spans.push((folded.len(), start..start + character.len_utf8()));
+        }
+    }
+    let start = match direction {
+        Direction::Older => folded.rfind(query),
+        Direction::Newer => folded.find(query),
+    }?;
+    let first = spans.partition_point(|(end, _)| *end <= start);
+    let last = spans.partition_point(|(end, _)| *end < start + query.len());
+    Some(spans.get(first)?.1.start..spans.get(last)?.1.end)
+}
 
 /// The finder of a thread's controllers (the one `begin` opens and the pane reads).
 pub fn finder(ui: &ThreadUi) -> Finder {
@@ -47,15 +115,27 @@ pub struct RowTexts {
     /// Per row, per line of its text: the line is a gutter (a bullet, a prompt mark) the select
     /// mode's caret never stops on and a copy leaves out. Empty when no row has one.
     gutters: Vec<Vec<bool>>,
+    /// Where each row starts in the text of the list (the rows are joined by a line break).
+    starts: Vec<usize>,
     reverse: bool,
     revision: u64,
 }
 
 impl RowTexts {
     pub fn new(texts: Vec<String>, reverse: bool, revision: u64) -> RowTexts {
+        let mut at = 0;
+        let starts = texts
+            .iter()
+            .map(|text| {
+                let start = at;
+                at += text.len() + 1;
+                start
+            })
+            .collect();
         RowTexts {
             texts,
             gutters: Vec::new(),
+            starts,
             reverse,
             revision,
         }
@@ -89,6 +169,15 @@ impl RowTexts {
     /// The revision of the transcript the rows were read from.
     pub fn revision_of(&self) -> u64 {
         self.revision
+    }
+
+    /// The place in the list's text of the byte `offset` of row `row`, as the selection area
+    /// names it: `list` is the render object of the list (`SelectionAreaController::start`).
+    pub fn point(&self, list: RenderId, row: usize, offset: usize) -> SelectionPoint {
+        SelectionPoint {
+            object: list,
+            offset: self.starts.get(row).copied().unwrap_or(0) + offset,
+        }
     }
 
     /// The `ListController`'s index of row `row` (oldest first): a reverse list counts from its

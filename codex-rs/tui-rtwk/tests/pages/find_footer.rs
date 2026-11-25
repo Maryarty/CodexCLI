@@ -145,6 +145,24 @@ mod copy_mode {
 
     const HINTS: &str = "↑/↓/j/k select · g/G ends · enter copy · esc close";
 
+    /// A prompt whose quote has two paragraphs, then an answer.
+    const QUOTES: &str = concat!(
+        r#"{"step":"seed","seed":"session","thread":"thread-1"}"#,
+        "\n",
+        r#"{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}"#,
+        "\n",
+        r#"{"step":"notify","message":{"method":"item/started","params":{"item":{"type":"userMessage","id":"user-1-0","clientId":null,"content":[{"type":"text","text":"User text\n\n> first\n>\n> second\n\ntail text","text_elements":[]}],"startedAtMs":null,"completedAtMs":null},"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}"#,
+        "\n",
+        r#"{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"summary","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}"#,
+        "\n",
+        r#"{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-2","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}"#,
+        "\n",
+        r#"{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-2","itemId":"msg-2-0","delta":"Done"}}}"#,
+        "\n",
+        r#"{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-2","rootTurnId":null,"items":[],"itemsView":"summary","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}"#,
+        "\n"
+    );
+
     fn chat(script: &'static str, width: u16) -> Screen {
         let mut s = Screen::build(Owner::ChatLive)
             .size(width, 40)
@@ -333,11 +351,10 @@ mod copy_mode {
     }
 
     /// The cursor is the reversed text of its piece. A message of more than one block is a row
-    /// whose mounted cells the list's `ItemTexts` model has to name one by one (the blocks are
-    /// `Text`s joined by one line break; the model joins them by a blank line), so a piece after
-    /// the first block lands late.
+    /// whose mounted cells the list's `ItemTexts` model names one by one (the blocks are `Text`s
+    /// joined by one line break, and the model is the nodes' own texts joined so: a range is a
+    /// node and an offset in it), so a piece after the first block lands where it is.
     #[test]
-    #[ignore = "pending(chat-live): the mounted ItemTexts model of a Markdown row is its blocks joined by a blank line; the row's cells are joined by one line break, so a range after the first block lands late"]
     fn the_cursor_is_the_reversed_text_of_its_piece() {
         let mut s = chat(NAV, 80);
         begin(&mut s);
@@ -363,5 +380,215 @@ mod copy_mode {
         s.keys("up");
         s.keys("esc");
         s.assert_text_style("assistant code", "!reversed");
+    }
+
+    /// A prompt with markup is drawn as Markdown: the paragraphs of a quote are nodes on rows that
+    /// follow each other, so the piece is the quote's two lines and no more (the blank line of
+    /// its source is a line of the drawing only where the drawing has one).
+    #[test]
+    fn a_quote_of_two_paragraphs_in_a_prompt_is_one_piece() {
+        let mut s = chat(QUOTES, 80);
+        begin(&mut s);
+        s.keys("up");
+        s.assert_text_style("first", "reversed");
+        s.assert_text_style("second", "reversed");
+        s.assert_text_style("tail text", "!reversed");
+        s.assert_text_style("User text", "!reversed");
+        s.assert_text_style("Done", "!reversed");
+    }
+}
+
+/// `n` and `N` in select mode, and the page the mode moves by (oracle `select_mode_tests.rs`
+/// `accepted_find_repeats_into_the_select_cursor`, `configured_pager_page_motion_moves_the_select_cursor`;
+/// the oracle's own are on a six-row screen the chat does not lay a list out in).
+mod select_find {
+    use codex_tui_core::app::Command;
+    use codex_tui_core::app::effects::Ask;
+
+    use crate::kit::{Owner, Screen};
+
+    /// One answer: `needle first needle second`.
+    const REPEAT: &str =
+        include_str!("../oracle/fixtures/transcript_view_4/sm_accepted_repeat.jsonl");
+    /// One answer of twelve lines: `line 0` .. `line 11`.
+    const LINES: &str = include_str!("../oracle/fixtures/transcript_view_4/sm_pager.jsonl");
+
+    fn chat(script: &'static str, width: u16, height: u16) -> Screen {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(width, height)
+            .script(script)
+            .open();
+        s.wait(50);
+        s
+    }
+
+    /// The cell the caret of `needle first needle second` is on, a byte of its text from the
+    /// left: (column, row).
+    fn cell(s: &Screen, byte: usize) -> (usize, usize) {
+        let rows = s.rows();
+        let row = rows
+            .iter()
+            .position(|row| row.contains("needle first"))
+            .expect("the answer is on the screen");
+        let start = rows[row].find("needle first").expect("its start");
+        (rows[row][..start].chars().count() + byte, row)
+    }
+
+    fn caret_at(s: &Screen, byte: usize) {
+        let (column, row) = cell(s, byte);
+        s.assert_style(column, row, "reversed");
+    }
+
+    fn find_needle(s: &mut Screen) {
+        s.keys("ctrl+x [");
+        s.keys("/");
+        s.type_text("needle");
+        s.keys("enter");
+    }
+
+    #[test]
+    fn n_goes_to_the_older_match_and_shift_n_to_the_newer_from_the_caret() {
+        let mut s = chat(REPEAT, 60, 14);
+        find_needle(&mut s);
+        // the newest match is the one accepted
+        caret_at(&s, 13);
+        let (column, row) = cell(&s, 0);
+        s.assert_style(column, row, "!reversed");
+        s.keys("n");
+        caret_at(&s, 0);
+        // there is none before the first one: the caret stays
+        s.keys("n");
+        caret_at(&s, 0);
+        s.keys("N");
+        caret_at(&s, 13);
+        s.keys("N");
+        caret_at(&s, 13);
+    }
+
+    #[test]
+    fn the_search_goes_on_from_where_the_caret_was_moved_to() {
+        let mut s = chat(REPEAT, 60, 14);
+        find_needle(&mut s);
+        // one cell right of the second match: the older matches are those before the caret, so
+        // the second one is not found again, the first one is
+        s.keys("l");
+        s.keys("n");
+        caret_at(&s, 0);
+        // from the first one's start, one cell on, the newer one is the second
+        s.keys("l N");
+        caret_at(&s, 13);
+    }
+
+    #[test]
+    fn a_marked_range_goes_on_from_the_match() {
+        let mut s = chat(REPEAT, 60, 14);
+        find_needle(&mut s);
+        s.keys("v n");
+        s.assert_text_style("needle first n", "reversed");
+        s.keys("N");
+        // the mark is where it was begun, its active end is the second match again
+        caret_at(&s, 13);
+        s.assert_text_style("needle first", "!reversed");
+    }
+
+    #[test]
+    fn n_does_nothing_where_no_search_was_accepted() {
+        let mut s = chat(REPEAT, 60, 14);
+        s.keys("ctrl+x [");
+        s.keys("n");
+        s.keys("N");
+        s.assert_contains("v mark · enter/q close");
+        // a second mode starts without the first one's query
+        find_needle(&mut s);
+        s.keys("esc");
+        s.keys("ctrl+x [");
+        s.keys("n");
+        // the caret is where a mode begins, on the start of the last line
+        caret_at(&s, 0);
+        let (column, row) = cell(&s, 13);
+        s.assert_style(column, row, "!reversed");
+    }
+
+    #[test]
+    fn enter_on_an_empty_query_goes_back_to_the_search_accepted_and_esc_keeps_it() {
+        let mut s = chat(REPEAT, 60, 14);
+        find_needle(&mut s);
+        s.keys("/");
+        s.assert_contains("Find:");
+        s.keys("enter");
+        s.assert_absent("Find:");
+        caret_at(&s, 13);
+        s.keys("n");
+        caret_at(&s, 0);
+        s.keys("/");
+        s.assert_contains("Find:");
+        s.keys("esc");
+        s.assert_absent("Find:");
+        s.keys("N");
+        caret_at(&s, 13);
+    }
+
+    /// The rows in view of the transcript's list.
+    fn height(s: &mut Screen) -> usize {
+        let ui = s.thread_ui();
+        let scroll = ui.follow.scroll();
+        let position = scroll
+            .as_scroll_controller()
+            .try_position()
+            .expect("the list is laid out");
+        usize::try_from(position.viewport_dimension()).expect("rows")
+    }
+
+    /// The line the caret is on, as a copy of it says (the list scrolls by whole rows of the
+    /// transcript, and the answer is one row: the caret can be out of view).
+    fn line_of(s: &mut Screen) -> String {
+        s.keys("V y");
+        s.commands()
+            .into_iter()
+            .rev()
+            .find_map(|command| match command {
+                Command::Effect {
+                    ask: Ask::Copy { text, .. },
+                    ..
+                } => Some(text),
+                _ => None,
+            })
+            .expect("a copy was asked for")
+    }
+
+    #[test]
+    fn a_page_is_the_rows_in_view_less_one_and_half_a_page_is_half_of_them() {
+        let mut s = chat(LINES, 40, 12);
+        let rows = height(&mut s);
+        assert!((4..11).contains(&rows), "{rows} rows in view");
+        s.keys("ctrl+x [");
+        s.keys("g ctrl+f");
+        assert_eq!(line_of(&mut s), format!("line {}", rows - 1));
+        s.keys("g ctrl+d");
+        assert_eq!(line_of(&mut s), format!("line {}", rows.div_ceil(2)));
+        s.keys("G ctrl+b");
+        assert_eq!(line_of(&mut s), format!("line {}", 11 - (rows - 1)));
+        s.keys("ctrl+u");
+        assert_eq!(
+            line_of(&mut s),
+            format!("line {}", 11 - (rows - 1) - rows.div_ceil(2))
+        );
+    }
+
+    #[test]
+    fn the_pager_keys_move_the_caret_too_rebound_or_not() {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(40, 12)
+            .keymap(&[("pager.page_down", "x")])
+            .script(LINES)
+            .open();
+        s.wait(50);
+        let rows = height(&mut s);
+        s.keys("ctrl+x [");
+        s.keys("g x");
+        assert_eq!(line_of(&mut s), format!("line {}", rows - 1));
+        // the keys of the mode come first: space marks, it does not page
+        s.keys("g space");
+        s.assert_contains("enter copy · q close");
     }
 }

@@ -12,7 +12,7 @@ use codex_tui_rtwk::pages::session::cells::agent;
 use codex_tui_rtwk::pages::session::cells::strings::EN as CELLS;
 use codex_tui_rtwk::pages::session::cells::text::Env;
 use codex_tui_rtwk::pages::session::strings::EN as CHAT;
-use codex_tui_rtwk::pages::session::transcript::item_text::{Reading, item_text};
+use codex_tui_rtwk::pages::session::transcript::item_text::{Reading, item_text, mounted_text};
 use rtwk::AnyWidget;
 use rtwk::gestures::{SelectionArea, SelectionAreaController};
 use rtwk::style::Style;
@@ -135,6 +135,62 @@ fn the_model_is_the_mounted_selection() {
     assert!(wrong.is_empty(), "\n{}", wrong.join("\n"));
 }
 
+/// The texts of the `Text`s of `widget` as the list's selection reads a mounted row: the
+/// selectables below the row, a gutter in its `ExcludeSelection` too, in the order of the tree.
+fn nodes_of(widget: AnyWidget) -> Vec<String> {
+    fn walk(tree: &rtwk_render::RenderTree, id: rtwk_render::RenderId, out: &mut Vec<String>) {
+        if let Some(selectable) = tree.selectable(id) {
+            out.push(selectable.selectable_text());
+        } else {
+            for child in tree.children(id) {
+                walk(tree, child, out);
+            }
+        }
+    }
+    let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(WIDTH, HEIGHT));
+    t.pump_widget(widget);
+    let tree = t.tree().expect("the app runs").render_tree();
+    let mut out = Vec::new();
+    if let Some(root) = tree.root() {
+        walk(tree, root, &mut out);
+    }
+    out
+}
+
+/// A range of a row is a node and an offset in the node's text: the model of a row the list's
+/// selection maps through is the mounted `Text`s joined by one line break, whatever lies between
+/// two blocks on the screen (that is in a copy, which the area derives from the layout).
+#[test]
+fn the_row_model_is_the_mounted_nodes_joined_by_a_line_break() {
+    let theme = MarkdownTheme::default();
+    let mut wrong = Vec::new();
+    for source in CORPUS {
+        let item = Item::Agent {
+            text: (*source).into(),
+            phase: None,
+        };
+        let model = mounted_text(&item, &Reading::new(&env(), BULLET));
+        let mounted = nodes_of(agent::message(
+            source,
+            false,
+            None,
+            &agent::Look {
+                bullet: BULLET,
+                bullet_style: Style::new(),
+                markdown: &theme,
+                cells: &CELLS,
+            },
+        ))
+        .join("\n");
+        if model.as_deref() != Some(mounted.as_str()) {
+            wrong.push(format!(
+                "{source:?}\n   model   {model:?}\n   mounted {mounted:?}"
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "\n{}", wrong.join("\n"));
+}
+
 #[test]
 fn what_the_model_does_not_know_it_leaves_out() {
     for source in UNMODELLED {
@@ -174,7 +230,11 @@ mod others {
 
     #[test]
     fn a_reasoning_summary_is_its_markdown() {
-        for summary in ["thinking", "**Plan**\n\nfirst\n\nsecond", "# Head\n- a\n- b"] {
+        for summary in [
+            "thinking",
+            "**Plan**\n\nfirst\n\nsecond",
+            "# Head\n- a\n- b",
+        ] {
             let item = Item::Reasoning {
                 summary: summary.into(),
                 with_raw: None,
@@ -325,4 +385,3 @@ mod others {
         }
     }
 }
-

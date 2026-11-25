@@ -1,8 +1,8 @@
 # Карта всего порта: oracle (codex-rs/tui) против порта (codex-rs/tui-rtwk)
 
-Дата: 2026-11-24, база 01741db4b (батчи 10-12). Документ собран скриптом `tools/rtwk-port/map-full/build.py` из данных рядом с ним: правится дата, перезапуск. Проверка непротиворечивости — `tools/rtwk-port/map-full/check.py`. Карта экрана чата `chat-feature-map.md` остаётся (подробные ячейки, числа тестов, архитектура ADR-013) и ссылается сюда; здесь — вся функциональность oracle без исключений, пакеты работ по владению файлами, и 958 pending-тестов по пакетам.
+Дата: 2026-11-24, база 01741db4b (батчи 10-12). Документ собран скриптом `tools/rtwk-port/map-full/build.py` из данных рядом с ним: правится дата, перезапуск. Проверка непротиворечивости — `tools/rtwk-port/map-full/check.py`. Карта экрана чата `chat-feature-map.md` остаётся (подробные ячейки, числа тестов, архитектура ADR-013) и ссылается сюда; здесь — вся функциональность oracle без исключений, пакеты работ по владению файлами, и 956 pending-тестов по пакетам.
 
-**Итог.** Строк-функций: 328 (экран чата — 293 из `chat-feature-map.md` + 35 вне экрана чата): ✅ 138, 🟡 86, ❌ 99, «?» 5. Все 312 строк `codex-tui-features.csv` покрыты строкой (раздел «Покрытие CSV»), все 1230 файлов `codex-rs/tui/src` — пакетом или «✅ rtwk» (`port-map-modules.tsv`), все 24 экранов карты S01-S27 (в карте нет S07-S09) — строкой. Пакетов: 30 (волна 1 — 9, влита; волна 2 — 11; волна 3 — 10); кроме волны 1 — 46-49 прогонов порт-агента (прогон ≈150-250 ходов, ≈1500 написанных строк). Pending-тестов oracle: 958, у каждого пакет (раздел «Тесты»).
+**Итог.** Строк-функций: 328 (экран чата — 293 из `chat-feature-map.md` + 35 вне экрана чата): ✅ 138, 🟡 86, ❌ 99, «?» 5. Все 312 строк `codex-tui-features.csv` покрыты строкой (раздел «Покрытие CSV»), все 1230 файлов `codex-rs/tui/src` — пакетом или «✅ rtwk» (`port-map-modules.tsv`), все 24 экранов карты S01-S27 (в карте нет S07-S09) — строкой. Пакетов: 30 (волна 1 — 9, влита; волна 2 — 11; волна 3 — 10); кроме волны 1 — 46-49 прогонов порт-агента (прогон ≈150-250 ходов, ≈1500 написанных строк). Pending-тестов oracle: 956, у каждого пакет (раздел «Тесты»).
 
 ## Как читать
 
@@ -33,7 +33,7 @@
 | `fw1-c9` — core: /feedback (note, upload), решение approval, вопросы (черновики, очередь) | W1 (влита) | 1 | ≈700 | ядро для 50 | 0 | — |
 | `fw-core-hubs` — framework: core-хабы — сжатие (`SessionIntent::Feature`, конец арма NotAvailable) и одна дверь возможностей хоста (`effects::Ask`); с 2026-11-24 = tm fw-hubs-a/b/c + fix-recap-title, fix-stream-lost (arch-pillars P1-P9) | W2 | 3 + 2 | ≈950 | — (сжатие хабов) | 0 | после fw1-c1..c9, fw1-c2 (Ask::Editor) |
 | `fw-ui-registry` — framework: сжатие UI-хабов — реестры действий, целей, ячеек и режимов; session_page.rs по заботам | W2 | 1-2 | ≈1000 | — (сжатие хабов) | 0 | после fw1-c1..c9 (их открытые sheet) |
-| `w2-transcript` — UI транскрипт: Ctrl+T pager с поиском, select и copy mode, детали хода, /diff, хром транскрипта | W2 | 4 | ≈3550 | 27 | 200 | fw-ui-registry, fw1-c1, fw1-c4 |
+| `w2-transcript` — UI транскрипт: Ctrl+T pager с поиском, select и copy mode, детали хода, /diff, хром транскрипта | W2 | 4 | ≈3550 | 27 | 198 | fw-ui-registry, fw1-c1, fw1-c4 |
 | `w2-composer` — UI composer: состояния, очередь, Ctrl+G, мышь, Vim, burst, mentions и popovers | W2 | 3 | ≈2450 | 21 | 81 | fw-ui-registry, fw1-c2 |
 | `w2-settings` — UI настройки: /config, /keymap, /experimental /skills /hooks, лист по заботам | W2 | 2 | ≈2050 | 16 | 9 | fw-ui-registry, fw1-c3 |
 | `w2-cells` — UI ячейки: exec, MCP, exploration, /ps, compaction, safety, guardian, ошибки провайдера и остальной cells-sweep | W2 | 3 | ≈3050 | 14 | 95 | fw-ui-registry, fw1-c5, fw1-c6 |
@@ -170,7 +170,7 @@
 - **Бриф и задача:** `docs/rtwk-port/research/w2-packages/briefs.md` §A.1; задача tm `w2-transcript`, её `area` — список владения (15 путей, `tools/rtwk-port/map-full/packages.py`).
 - **Зависит:** fw-ui-registry, fw1-c1, fw1-c4.
 - **Строки (27):** Гиперссылки в тексте (клик открывает); Сворачивание деталей хода (collapse_turn_details), раскрытие; Фокус на activity-группах (F4) и подсказка раскрытия; PageUp/PageDown, колесо мыши, Home/End в транскрипте; Подгрузка старых страниц истории при прокрутке вверх; Закреплённая шапка prompt над транскриптом (pinned header); /copy — копировать ответ; /diff; Copy/export picker (кастомные клавиши, payload); Статический pager (/diff, вывод): строки, страницы, Home/End; Pager: поиск /, n/N; Pager: live tail sync при росте транскрипта; Копирование выделения (Ctrl+C / по отпусканию); Двойной/тройной клик: слово/строка/абзац; Shift-клик расширяет, правая кнопка копирует; Копия как Markdown/plain (payload); Режим выделения с клавиатуры (select mode); Режим копирования (copy mode, Ctrl+X-лидер); Поиск по транскрипту F3/F4 (подсветка, счётчик, n/N); Подсказки поиска и футер поиска; Скорость колеса (mouse_scroll_speed); Старые страницы в overlay (history pages); Клик по ссылке/файлу в overlay; F3 — поиск; F4 — focus activity; Ctrl+O — копировать ответ; Turn tips и tooltips.
-- **Тесты:** 200 pending (список — `tools/rtwk-port/map-full/unpend/w2-transcript.txt`).
+- **Тесты:** 198 pending (список — `tools/rtwk-port/map-full/unpend/w2-transcript.txt`).
 
 ### `w2-composer`
 
@@ -1115,13 +1115,13 @@
 | `app-misc` | 2 | 0 | 0 | 2 |
 | `sidebar` | 2 | 0 | 0 | 2 |
 
-## Тесты: 958 pending по пакетам
+## Тесты: 956 pending по пакетам
 
 Правило отнесения (`tests_rules.py`): тест, чья причина названа семенем/входом/именами кадров kit, — в `kit-seeds` (это обвязка, пока она не влита, функция не зазеленит тест); остальные — по имени теста, затем по причине, затем по шарду. Неточность правил — не пробел: пакет получает свой список, перенос теста между пакетами — правка одной строки в `unpend/`.
 
 | Пакет | Pending | Шарды (число) |
 |---|---|---|
-| `w2-transcript` | 200 | transcript_view_4 57, transcript_view_2 34, transcript_view_5 30, transcript_view_1 26, transcript_view_3 12, pager 7 |
+| `w2-transcript` | 198 | transcript_view_4 57, transcript_view_2 34, transcript_view_5 30, transcript_view_1 24, transcript_view_3 12, pager 7 |
 | `w2-composer` | 81 | textarea 31, composer_4 27, chat_commands_1 4, chat_commands_2 4, composer_1 3, composer_3 3 |
 | `w2-settings` | 9 | chat_popups_4 5, chat_commands_3 2, chat_status_2 1, transcript_view_1 1 |
 | `w2-cells` | 95 | cells_4 16, cells_5 14, cells_1 13, chat_approvals_1 10, chat_live_1 8, cells_2 6 |
@@ -1135,7 +1135,7 @@
 | `resume-rest` | 5 | resume_2 3, resume_1 2 |
 | `kit-seeds` | 72 | chat_commands_1 13, transcript_view_5 8, chat_commands_3 7, cells_4 5, composer_4 5, picker 5 |
 
-По тегам владельца шарда: chat-live 547, dialogs-pane 172, ui-pane 126, chat-nav-pane 80, routes-lists 27, startup-prompts 3, onboarding 2, startup-flow 1.
+По тегам владельца шарда: chat-live 545, dialogs-pane 172, ui-pane 126, chat-nav-pane 80, routes-lists 27, startup-prompts 3, onboarding 2, startup-flow 1.
 
 ## Связь с прежней картой
 

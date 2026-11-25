@@ -10,6 +10,7 @@
 //! `ThreadUi` keeps so that the page's keys can read it too (`key`).
 
 use rtwk::focus::{KeyCombo, KeyPress};
+use rtwk::foundation::ListenableBuilder;
 use rtwk::gestures::{Listener, PointerEvent, SelectionArea};
 use rtwk::provider::{read, watch};
 use rtwk::style::{Attrs, Style};
@@ -19,8 +20,9 @@ use codex_tui_core::app::effects::CopyStatus;
 use codex_tui_core::app::facts::TuiSettings;
 
 use super::TranscriptMode;
-use super::copy::{CopyJob, Shown};
+use super::copy::{self, CopyJob, Shown};
 use crate::app::view::Hs;
+use crate::widgets::finder::Finder;
 use crate::widgets::thread_ui::{Follow, TextSelection};
 
 /// The button a right click is in a `PointerEvent`.
@@ -36,6 +38,9 @@ pub(in crate::pages::session) struct SelectionHost {
     /// Select mode of the thread: while only its caret is shown, the caret's cell is drawn bold
     /// and underlined as well as reversed (the oracle's `render_select_cursor`).
     pub caret: bool,
+    /// The thread's Find: while it reads a match, Esc is Find's (back to the latest row), not the
+    /// area's (let the match go).
+    pub find: Finder,
 }
 
 /// What a key does while something is selected (oracle `handle_selection_key`): the keys are
@@ -137,7 +142,8 @@ impl State for HostState {
         }
         let settings = read::<TuiSettings, _>(cx);
         let handlers = read::<Hs, _>(cx);
-        cx.emit(&handlers.copy, CopyJob::selected(text, explicit, &settings));
+        let job = CopyJob::selected(text, explicit, &settings);
+        cx.emit(&handlers.copy, copy::mode_of(&w.find).marked(job));
         Rebuild::No
     }
 
@@ -148,13 +154,30 @@ impl State for HostState {
         } else {
             Attrs::REVERSE
         };
-        let area = SelectionArea::new(w.child.clone())
-            // the oracle draws the selection REVERSED on top of the cell's own style
-            // (`transcript_view/selection.rs`; `rendered_selection`)
-            .style(Style::new().attrs(attrs).pen())
-            .controller(w.selection.controller())
-            .copy_on_release(settings.copy_on_select)
-            .on_copy(cx.map(Msg::Copied));
+        let (child, controller, copy_on_select) = (
+            w.child.clone(),
+            w.selection.controller(),
+            settings.copy_on_select,
+        );
+        let (find, on_copy) = (w.find.clone(), cx.map(Msg::Copied));
+        // the area clears what is selected on Esc where the keys reach it with no focus to start
+        // from (the sheet has no composer): the match Find shows is selected, and Esc is Find's
+        // while it is read
+        let area = ListenableBuilder::new(w.find.listenable(), move |_, _| {
+            let area = SelectionArea::new(child.clone())
+                // the oracle draws the selection REVERSED on top of the cell's own style
+                // (`transcript_view/selection.rs`; `rendered_selection`)
+                .style(Style::new().attrs(attrs).pen())
+                .controller(controller.clone())
+                .copy_on_release(copy_on_select)
+                .on_copy(on_copy.clone());
+            // the area's own clear key (Esc) is Find's while Find reads
+            if find.reading() {
+                area.clear_key(None).into()
+            } else {
+                area.into()
+            }
+        });
         Listener::new()
             .on_pointer_down(cx.map(Msg::Press))
             .child(area)

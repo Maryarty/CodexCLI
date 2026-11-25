@@ -643,10 +643,6 @@ fn cancelling_owned_backtrack_returns_arrow_keys_to_the_composer() {
 // ORACLE app/owned_transcript_tests.rs:918 owned_search_and_selection_consume_input_before_composer_and_backtrack kind=ui owner=chat-live
 #[test]
 fn owned_search_and_selection_consume_input_before_composer_and_backtrack() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Find (F3) on the owned transcript: the query footer 'Find: needle' and Enter accepting it are not built; the selection (ctrl+space, copy) and the Esc chain back to following, and the repeat-Enter and modified-Enter checks, have no kit call",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!("fixtures/transcript_view_1/needle.jsonl"))
@@ -662,10 +658,6 @@ fn owned_search_and_selection_consume_input_before_composer_and_backtrack() {
 // ORACLE app/owned_transcript_tests.rs:1024 keyboard_select_mode_preserves_the_draft_and_absorbs_enter_repeat kind=ui owner=chat-live
 #[test]
 fn keyboard_select_mode_preserves_the_draft_and_absorbs_enter_repeat() {
-    kit::pending(
-        Owner::ChatLive,
-        "no keyboard select mode (ctrl+x then [) on the owned transcript, and no keymap override (find_transcript on v, pager find on Enter) through the kit (.keymap is pending); the select-mode status and the Enter repeat guard are not drawn",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!("fixtures/transcript_view_1/select.jsonl"))

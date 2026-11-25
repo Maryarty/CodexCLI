@@ -12,7 +12,7 @@
 
 use std::rc::Rc;
 
-use rtwk::focus::Focus;
+use rtwk::focus::{Focus, KeyEventResult};
 use rtwk::foundation::{Listenable, ListenableBuilder};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, SizedBox};
 use rtwk::navigation::Navigator;
@@ -21,12 +21,15 @@ use rtwk::style::{Span, Style};
 use rtwk::text::{Text, TextOverflow, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::keymap::actions::{GLOBAL_FIND_TRANSCRIPT, PAGER_FIND};
 use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::backtrack::{EscStep, Targets};
 use codex_tui_core::screens::{ScreenThreadIntent, chat};
 use codex_tui_core::threads::{HistoryState, ThreadModel};
 
 use super::TranscriptMode;
+use super::find;
+use super::find_footer;
 use super::history;
 use super::pager;
 use super::strings::{self, Strings};
@@ -90,6 +93,8 @@ pub struct SheetState;
 #[derive(Clone, Debug, PartialEq)]
 pub enum Msg {
     Pager(pager::Msg),
+    /// F3 (`/`): Find opens on the sheet's transcript (`begin_search`).
+    Find,
     Esc,
     Older,
     Newer,
@@ -114,6 +119,7 @@ impl State for SheetState {
         let thread = read::<ThreadModel, _>(cx);
         let targets = Targets::of(thread.transcript(), thread.can_load_history());
         match msg {
+            Msg::Find => w.find.begin(&w.follow, &w.selection),
             Msg::Pager(pager::Msg::Rows(rows)) => w.follow.scroll_by(rows),
             Msg::Pager(pager::Msg::Pages(pages)) => w.follow.page(pages),
             Msg::Pager(pager::Msg::HalfPages(pages)) => w.follow.half_page(pages),
@@ -177,6 +183,7 @@ impl State for SheetState {
                 .into()
             })
         };
+        let find = w.find.clone();
         let bottom = (w.chrome == Chrome::Overlay).then(|| {
             // what the thread's history is doing: loaded, loadable, on its way, refused
             let state = select::<ThreadModel, _, _>(cx, ThreadModel::history_state);
@@ -232,6 +239,9 @@ impl State for SheetState {
                 rows.into()
             })
         });
+        // while Find is open its query row and status row take the place of the status row and the
+        // hints (`footer_with_navigation`), from the first column
+        let bottom = bottom.map(|rows| find_footer::slot_in(cx, &find, rows.into(), 0));
         let mut column = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
         if w.chrome == Chrome::Overlay {
             column = column.child(pager::header(table.sheet_title, table, tokens.dim()));
@@ -240,7 +250,21 @@ impl State for SheetState {
         if let Some(bottom) = bottom {
             column = column.child(bottom);
         }
-        let mut focus = Focus::new(column).autofocus();
+        let reading = w.find.clone();
+        let mut focus = Focus::new(column)
+            .autofocus()
+            // a match being read (Find accepted): `Ctrl+P`, `Ctrl+N`, Enter (swallowed), Esc and
+            // `Ctrl+C` are Find's, before the sheet's own (`handle_search_key`)
+            .on_key_event(move |_, key| {
+                if reading.reading()
+                    && let Some(taken) = find::key(reading.mode(), &key)
+                    && reading.take(taken)
+                {
+                    KeyEventResult::Handled
+                } else {
+                    KeyEventResult::Ignored
+                }
+            });
         let keymap = crate::keymap::keymap(cx);
         for (key, msg) in pager::bindings(&keymap, false) {
             focus = focus.bind(key, cx.send(Msg::Pager(msg)));
@@ -252,6 +276,8 @@ impl State for SheetState {
                 .collect::<Vec<_>>()
         };
         for (key, msg) in [
+            step(PAGER_FIND, Msg::Find),
+            step(GLOBAL_FIND_TRANSCRIPT, Msg::Find),
             step(fixed::DISMISS, Msg::Esc),
             step(fixed::BROWSE_OLDER, Msg::Older),
             step(fixed::BROWSE_OLDER_VIM, Msg::Older),
