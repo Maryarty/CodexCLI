@@ -78,7 +78,7 @@ fn current_palette_uses_effective_terminal_color_level() {
         ]
         .map(String::from)
         .to_vec(),
-        &s.text().to_string(),
+        &s.text(),
     );
     // a terminal of 16 colours has no gradient: the hollow glyph marks the empty cells
     let low = Screen::build(Owner::RoutesLists)
