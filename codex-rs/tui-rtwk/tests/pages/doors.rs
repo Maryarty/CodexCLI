@@ -1010,7 +1010,9 @@ mod small_windows {
 
     const TWO: &str = include_str!("../oracle/fixtures/transcript_view_4/sm_entry_1.jsonl");
     const PROMPT: &str = include_str!("../oracle/fixtures/transcript_view_5/one_prompt.jsonl");
-    const FOOTER: &str = "for shortcuts";
+    /// The footer row of a chat that has agents to go to (oracle `passive_hints.rs`: `← for agents`
+    /// is the first passive hint; the width of 32 keeps no more of the row).
+    const FOOTER: &str = "for agents";
 
     fn open(width: u16, height: u16, script: &'static str) -> Screen {
         Screen::build(Owner::ChatLive)
@@ -1099,7 +1101,8 @@ mod usage_host {
     }
 
     /// An account that changes plan while the page is open: the refresh's answer is the new
-    /// plan's tabs (a Plus account has Activity, no Credits; an Enterprise one the reverse).
+    /// plan's tabs (oracle `sections.rs`: a consumer account has Messages and no Credits, a
+    /// business or enterprise one the reverse).
     #[test]
     fn the_plan_changes_under_an_open_page() {
         let mut s = Screen::build(Owner::RoutesLists)
@@ -1107,11 +1110,11 @@ mod usage_host {
             .dir("usage")
             .usage_accounts(&[Ok(PLUS), Ok(ENTERPRISE)])
             .open();
-        s.assert_contains("Activity");
+        s.assert_contains("Messages");
         s.assert_absent("Credits");
         s.keys("R");
         s.wait_for("Credits");
-        s.assert_absent("Activity");
+        s.assert_absent("Messages");
     }
 }
 
