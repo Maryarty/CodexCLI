@@ -68,10 +68,6 @@ fn hidden_shell_paste_submits_literal_prompt() {
 // ORACLE chatwidget/tests/composer_submission.rs:158 hidden_shell_paste_recalled_from_history_submits_literal_prompt kind=ui owner=chat-nav-pane
 #[test]
 fn hidden_shell_paste_recalled_from_history_submits_literal_prompt() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "screen feature (composer history): Up recalls the payload as the plain text `!echo xxx...` (the oracle's history keeps the large-paste placeholder and its pending paste), and Enter on it sends no turn; the kit reads the sent turns (`assert_turn_texts`)",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .script(SESSION)

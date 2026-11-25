@@ -845,11 +845,40 @@ impl ComposerDraft {
         entry
     }
 
+    /// [`kept_entry`](Self::kept_entry) with the outer whitespace of `shown` cut off, the
+    /// placeholders' ranges moved with it (`trim_text_elements`).
+    fn kept_entry_trimmed(&self, c: &TextEditingController, shown: &str) -> HistoryEntry {
+        let mut entry = self.kept_entry(c);
+        let text = shown.trim();
+        let head = shown.len() - shown.trim_start().len();
+        entry.text = text.to_string();
+        entry.text_elements = entry
+            .text_elements
+            .into_iter()
+            .filter_map(|e| {
+                let (start, end) = (e.start.checked_sub(head)?, e.end.checked_sub(head)?);
+                (end <= text.len()).then_some(TextElement { start, end, ..e })
+            })
+            .collect();
+        entry
+    }
+
     /// The draft as the submit sends it, as a history entry: pastes
     /// expanded, the image placeholders kept (`prepare_submission_text`
     /// records the expanded text).
     fn sent_entry(&self, c: &TextEditingController) -> HistoryEntry {
         let (text, placed) = self.expand(c);
+        // A paste that only reads as `!cmd` once expanded stays a paste in the recall, or Up
+        // would turn it into a shell command (`preserve_literal_paste`).
+        let shown = if self.shell() {
+            format!("!{}", c.text())
+        } else {
+            c.text().to_string()
+        };
+        if !self.is_plain() && text.trim().starts_with('!') && !shown.trim_start().starts_with('!')
+        {
+            return self.kept_entry_trimmed(c, &shown);
+        }
         let mut entry = HistoryEntry::new(text);
         for (range, e) in placed {
             if let Some(path) = &e.image {
