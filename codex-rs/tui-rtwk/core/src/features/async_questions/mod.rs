@@ -194,6 +194,11 @@ feature! {
                 state.now = cx.view().facts().now().millis();
                 match intent {
                     Intent::Resolve { thread, id } => state.resolve(&thread, &[id]),
+                    Intent::Clear { thread } => {
+                        let ids: Vec<String> =
+                            state.of(&thread).iter().map(|q| q.id.clone()).collect();
+                        state.resolve(&thread, &ids);
+                    }
                     Intent::Snooze { thread } => {
                         let ids: Vec<String> =
                             state.of(&thread).iter().map(|q| q.id.clone()).collect();

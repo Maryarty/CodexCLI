@@ -12,6 +12,7 @@ use codex_tui_core::commands::{
     parent_owned_takes,
 };
 use codex_tui_core::ids::Cwd;
+use codex_tui_core::question_reply::Intent as QuestionIntent;
 use codex_tui_core::screens::composer::{self, ShellLine};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, popovers};
 use codex_tui_core::threads::{Failure, Note, NoteKey, Ran, ThreadModel, Toggle, UserMessage};
@@ -230,6 +231,11 @@ pub(super) fn run(
                 let message = queue::message(line, w, cx, &states);
                 // (the queue key and the drain left before dispatch)
                 cx.emit(&hs.submit, message);
+                // a message of the user's own answers the questions that wait
+                // (`clear_pending_questions`)
+                if let Some(thread) = session.active.clone() {
+                    features::verb(cx, QuestionIntent::Clear { thread });
+                }
             }
         }
         // A feature's own sheet (`/plugins`, a bare `/export`): its UI half opens it with the

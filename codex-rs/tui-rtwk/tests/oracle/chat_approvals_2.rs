@@ -877,50 +877,73 @@ fn question_key_repeats_do_not_consume_another_question() {
 // ORACLE chatwidget/tests/questions_tests.rs:754 question_queue_pop_becomes_an_ordinary_composer_draft_and_clears_questions_on_send kind=snap owner=dialogs-pane
 #[test]
 fn question_queue_pop_becomes_an_ordinary_composer_draft_and_clears_questions_on_send() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no async-question editor and no queued-message pop into the composer on the chat screen: the question with its queue is not drawn",
-    );
-    // oracle: queued "older" and "newer" and an open question; alt+up draws `last_question_with_queue`; the next alt+up pops
-    // "newer" into the composer, " edited" is typed, the next alt+up expands "newer edited", the next pops "older"; enter sends it.
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: queued "older" and "newer"; question "Which way?" added
+    // oracle: queued "older" and "newer" and two open questions; alt+up goes to the last question
+    // (`last_question_with_queue`); the next alt+up pops "newer" into the composer, " edited" is typed, the next alt+up expands
+    // "newer edited", the next pops "older"; enter sends it as the answer; the next alt+up finds the questions cleared.
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!("fixtures/chat_approvals_2/q_review_running.jsonl"))
+        .open();
+    s.paste("older");
+    s.keys("tab");
+    s.paste("newer");
+    s.keys("tab");
     s.keys("alt+up");
-    s.assert_snap("last_question_with_queue");
+    s.keys("alt+up");
+    let at = row_of(&s, "Queued follow-up inputs");
+    s.assert_snap_region("last_question_with_queue", at, 0);
     s.keys("alt+up");
     s.assert_contains("newer");
+    s.assert_absent("2 of 2");
     s.paste(" edited");
-    s.keys("alt+up");
     s.assert_contains("newer edited");
     s.keys("alt+up");
-    s.assert_contains("older");
+    s.assert_contains("2 of 2");
+    s.keys("alt+up");
+    s.assert_contains("› older");
+    s.assert_absent("↳");
     s.keys("enter");
+    // an ordinary message (here a steer behind the running turn), not a question's reply
+    let last = format!("{:?}", s.commands().last());
+    kit::assert_same(last.contains("older"), true, "the popped message went out");
+    kit::assert_same(last.contains("question_reply"), false, "as a message of its own");
+    s.keys("alt+up");
+    s.assert_absent("2 of 2");
+    s.assert_absent("? 2 questions");
+    s.assert_absent("to answer");
 }
 
 // ORACLE chatwidget/tests/questions_tests.rs:793 question_drafts_survive_navigation_and_snapshot_replay kind=ui owner=dialogs-pane
 #[test]
 fn question_drafts_survive_navigation_and_snapshot_replay() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no async-question editor: per-question drafts, their navigation (alt+up/alt+down), and the restore of a thread's input are not drawn",
-    );
     // oracle: composer "main draft"; question "Which way?" with "first draft", then "Any details?" with "second draft";
-    // capture, a buffered question replay (not shown until the snapshot), restore: "second draft" is drawn; the pause and
-    // ctrl+] + enter add a question; alt+down walks back to "first draft" and then to the composer "main draft".
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: composer "main draft"; thread started; question "Which way?" added
+    // the thread input is captured and restored into a new chat after a buffered question replay (a replayed question is not
+    // asked until its live notification), the pause and ctrl+] + enter keep the three questions; alt+down walks back to
+    // "first draft" and then to the composer "main draft".
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!("fixtures/chat_approvals_2/q_two.jsonl"))
+        .open();
+    s.paste("main draft");
     s.keys("alt+up");
     s.paste("first draft");
     s.keys("alt+up 2");
     s.paste("second draft");
-    // needs: capture and restore of the thread input, and the buffered replay of question "Buffered?"
+    s.assert_contains("2 of 2");
     s.assert_contains("second draft");
-    // needs: the unavailable-thread pause (a host state)
-    s.keys("ctrl+] enter");
+    // the buffered question arrives: the editor keeps its drafts
+    s.feed(include_str!("fixtures/chat_approvals_2/q_buffered.jsonl"));
+    s.assert_contains("2 of 3");
+    s.assert_contains("second draft");
     s.keys("alt+down");
     s.assert_contains("first draft");
     s.keys("alt+down");
     s.assert_contains("main draft");
+    s.assert_absent("of 3");
+    kit::pending(
+        Owner::DialogsPane,
+        "rtwk gap G-new-thread-input-capture (the oracle captures a thread's input into a value and restores it into another widget after a reconnect, with the pause of an unavailable thread: the port's drafts live in the page and the thread's ThreadUi and are never copied out; no restore door exists to drive): the drafts, their navigation and the arrival of the buffered question above pass; the restore and the paused ctrl+] / enter frame is the one pending frame",
+    );
 }
 
 // ORACLE chatwidget/tests/questions_tests.rs:845 single_question_spacing_with_working_status kind=snap owner=dialogs-pane
@@ -945,32 +968,81 @@ fn single_question_spacing_with_working_status() {
 // ORACLE chatwidget/tests/questions_tests.rs:889 questions_and_queued_messages_share_the_resolved_shortcut kind=snap owner=dialogs-pane
 #[test]
 fn questions_and_queued_messages_share_the_resolved_shortcut() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no shortcut hints for the question editor and the queued messages on the chat screen, and no keymap config seed (Open::keymap is missing)",
-    );
     // oracle: the hints `⇧← edit last queued message` and `⇧← to answer` (labels from the resolved key), then shift+left shows
     // `main prompt` and `next question` (snapshot question_queue_hint_Left); alt+up/alt+down do the same; the remapped config
     // (edit_queued_message = alt-up, shift-left; prompt_stack_back = alt-down, shift-right) draws `question_queue_hint_Up`;
     // the chord config (ctrl-x up / ctrl-x down) draws its chord labels.
+    let queued = |s: &mut Screen| {
+        s.paste("queued");
+        s.keys("tab");
+    };
     let mut s = Screen::build(Owner::DialogsPane)
         .size(100, 24)
-        .live()
+        .script(include_str!("fixtures/chat_approvals_2/q_run.jsonl"))
         .open();
-    // needs feed: queued "queued"; questions "Which way?", "Any details?" added
-    s.keys("shift+left");
-    s.assert_snap("question_queue_hint_Left");
-    // needs keymap seed (remapped alt-up / shift-left) for the next screen
+    queued(&mut s);
+    s.assert_contains("⇧← edit last queued message");
+    s.feed(include_str!("fixtures/chat_approvals_2/q_ask_two.jsonl"));
+    s.assert_contains("⇧← to answer");
+    for (forward, backward) in [("shift+left", "shift+right"), ("alt+up", "alt+down")] {
+        s.keys(forward);
+        s.assert_contains("⇧→ main prompt");
+        s.assert_contains("⇧← next question");
+        if forward == "shift+left" {
+            let at = row_of(&s, "Queued follow-up inputs");
+            s.assert_snap_region("question_queue_hint_Left", at, 0);
+        }
+        s.keys(forward);
+        s.assert_contains("⇧→ prev question");
+        s.assert_contains("⇧← queued messages");
+        s.keys(backward);
+        s.assert_contains("1 of 2");
+        s.assert_contains("Which way?");
+        s.keys(backward);
+        s.assert_absent("1 of 2");
+        s.assert_contains("⇧← to answer");
+    }
+
+    // the remapped config: Alt+Up first; the questions of two messages
+    let remapped: &'static [(&'static str, &'static str)] = &[
+        ("chat.edit_queued_message", "alt-up"),
+        ("chat.edit_queued_message", "shift-left"),
+        ("chat.prompt_stack_back", "alt-down"),
+        ("chat.prompt_stack_back", "shift-right"),
+    ];
     let mut r = Screen::build(Owner::DialogsPane)
         .size(100, 24)
-        .live()
-        .keymap(&[
-            ("chat.edit_queued_message", "alt-up"),
-            ("chat.prompt_stack_back", "alt-down"),
-        ])
+        .script(include_str!("fixtures/chat_approvals_2/q_run.jsonl"))
+        .keymap(remapped)
         .open();
+    queued(&mut r);
+    r.feed(include_str!("fixtures/chat_approvals_2/q_ask_two.jsonl"));
+    r.feed(include_str!("fixtures/chat_approvals_2/q_remapped.jsonl"));
+    r.assert_contains("⌥↑ to answer");
     r.keys("alt+up");
-    r.assert_snap("question_queue_hint_Up");
+    let at = row_of(&r, "Queued follow-up inputs");
+    r.assert_snap_region("question_queue_hint_Up", at, 0);
+
+    // chords: the chat's keys are `ctrl-x up` / `ctrl-x down` (the labels name the chord)
+    let chords: &'static [(&'static str, &'static str)] = &[
+        ("chat.edit_queued_message", "ctrl-x up"),
+        ("chat.edit_queued_message", "shift-left"),
+        ("chat.prompt_stack_back", "ctrl-x down"),
+        ("chat.prompt_stack_back", "shift-right"),
+    ];
+    let mut c = Screen::build(Owner::DialogsPane)
+        .size(100, 24)
+        .script(include_str!("fixtures/chat_approvals_2/q_run.jsonl"))
+        .keymap(chords)
+        .open();
+    queued(&mut c);
+    c.feed(include_str!("fixtures/chat_approvals_2/q_ask_two.jsonl"));
+    c.assert_contains("⌃x ↑ to answer");
+    c.keys("shift+left");
+    c.assert_contains("⌃x ↓ main prompt");
+    c.assert_contains("⌃x ↑ next question");
+    c.keys("shift+right");
+    c.assert_contains("⌃x ↑ to answer");
 }
 
 // ORACLE chatwidget/tests/questions_tests.rs:985 desktop_async_answer_dismisses_only_its_question_and_preserves_the_other_draft kind=snap owner=dialogs-pane

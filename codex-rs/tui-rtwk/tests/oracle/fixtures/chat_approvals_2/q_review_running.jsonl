@@ -1,0 +1,4 @@
+# questions_tests.rs:647 open_questions(), turn running so that messages queue (tools/rtwk-port/async-questions/fixtures.py)
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"agentMessage","moderation":null,"id":"review","text":"First?\n\nSecond?\n- Next","phase":"final_answer","memoryCitation":null,"delivery":null,"questions":[{"title":"First?","options":null},{"title":"Second?","options":["Next"]}],"startedAtMs":null,"completedAtMs":null},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}

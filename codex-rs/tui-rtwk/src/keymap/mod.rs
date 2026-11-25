@@ -528,11 +528,12 @@ mod tests {
         let keymap = with("global", "open_transcript", &["ctrl-x ctrl-t", "f6"]);
         assert_eq!(
             names(&keymap, GLOBAL_OPEN_TRANSCRIPT),
-            ["f6", "ctrl+x ctrl+t"]
+            ["ctrl+x ctrl+t", "f6"]
         );
+        // the first spec the user wrote is the hint (`primary_hint`)
         assert_eq!(
             label(&keymap, GLOBAL_OPEN_TRANSCRIPT).as_deref(),
-            Some("f6")
+            Some("\u{2303}x \u{2303}t")
         );
     }
 

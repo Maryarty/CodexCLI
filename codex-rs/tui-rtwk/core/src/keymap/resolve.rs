@@ -566,8 +566,9 @@ impl Keymap {
 
         let mut keymap = Keymap { slots, leaders };
         keymap.add_implicit_chords(spec);
-        // Single keys before chords, as a hint lists them.
-        for slot in &mut keymap.slots {
+        // Single keys before chords, as a hint lists them; what the user set stays in the order
+        // they wrote it (`primary_hint`: the first configured spec is the hint, a chord or not).
+        for slot in keymap.slots.iter_mut().filter(|slot| !slot.configured) {
             slot.bound
                 .sort_by_key(|bound| matches!(bound.binding, Binding::Chord { .. }));
         }

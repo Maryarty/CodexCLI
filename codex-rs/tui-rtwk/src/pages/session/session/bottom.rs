@@ -136,6 +136,10 @@ pub(super) fn body(
     state.banner_blocked.set(BannerBlocked {
         running,
         overlay: state.shortcuts,
+        edit: !editing
+            && !menu
+            && !state.shortcuts
+            && (run.asking > 0 || !thread.queue().is_empty() || !thread.rejected_steers().is_empty()),
     });
     // the threads that wait for an approval, right above the composer (`bottom_pane`)
     let body = body.child(PendingThreadsBanner);
