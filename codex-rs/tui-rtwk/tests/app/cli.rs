@@ -210,8 +210,8 @@ fn agents_refuses_a_prompt_images_and_conflicting_endpoints() {
             .to_string(),
         "`codex agents` received conflicting remote server endpoints"
     );
-    // The same endpoint twice is no conflict; a prompt without `agents` is not
-    // a thing this app takes yet.
+    // The same endpoint twice is no conflict; a prompt without `agents` is the
+    // startup draft's initial prompt (f-startup-draft), as the oracle's `codex <prompt>`.
     assert!(parse(&["--remote", "ws://h:1", "agents", "--remote", "ws://h:1"]).is_ok());
-    assert!(parse(&["fix the bug"]).is_err());
+    assert!(parse(&["fix the bug"]).is_ok());
 }

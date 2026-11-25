@@ -1086,7 +1086,7 @@ fn startup_draft_hydrates_its_header_without_moving_the_composer() {
     s.configured_cwd("workspace");
     s.assert_has_row("     workspace");
     s.assert_absent("loading");
-    assert_eq!(composer(&s), before);
+    kit::assert_same(composer(&s), before, "the composer did not move");
 }
 
 // ORACLE startup_draft_tests.rs:690 startup_draft_applies_super_editor_keymap_without_inserting_pending_newline kind=snap owner=chat-nav-pane snap=startup_draft_safe_chord_guide
