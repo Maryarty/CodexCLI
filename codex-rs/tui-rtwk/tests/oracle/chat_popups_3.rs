@@ -1346,12 +1346,10 @@ fn apps_popup_preserves_selected_app_across_refresh() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:2711 apps_popup_keeps_existing_full_snapshot_while_partial_refresh_loads kind=ui owner=dialogs-pane
 #[test]
 fn apps_popup_keeps_existing_full_snapshot_while_partial_refresh_loads() {
-    kit::pending(Owner::DialogsPane, APPS);
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    s.type_text("/apps").keys("enter");
-    // the full list, then a partial refresh (Hidden OpenAI) arrive from the app server: script lines
-    s.assert_contains("Installed 1 of 2 available apps.");
-    s.assert_absent("Hidden OpenAI");
+    kit::na(
+        Owner::DialogsPane,
+        "a partial directory snapshot (`ConnectorsLoaded { is_final: false }`) is sent by no production code (app/background_requests.rs sends `is_final: true` only) and the port has no partial directory (screens/select/apps.rs `Cache`); the kept snapshot on a failed refresh is apps_refresh_failure_keeps_existing_full_snapshot",
+    );
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:2823 apps_popup_replaces_loading_state_after_initial_refresh_failure kind=snap owner=dialogs-pane snap=apps_popup_error_state

@@ -14,16 +14,10 @@ use crate::kit::{self, Checkout, Held, Owner, Screen};
 // ORACLE chatwidget/tests/popups_and_settings.rs:2864 apps_refresh_failure_without_full_snapshot_falls_back_to_installed_apps kind=ui owner=dialogs-pane
 #[test]
 fn apps_refresh_failure_without_full_snapshot_falls_back_to_installed_apps() {
-    kit::pending(
+    kit::na(
         Owner::DialogsPane,
-        "/apps is live; the oracle injects a partial snapshot (`is_final: false`) and then a failed refresh: no protocol message carries a partial snapshot (the kit answers a request with an error, `Screen::answer_error`)",
+        "a partial directory snapshot (`ConnectorsLoaded { is_final: false }`) is sent by no production code (app/background_requests.rs sends `is_final: true` only) and the port has no partial directory (screens/select/apps.rs `Cache`); the kept snapshot on a failed refresh is chat_popups_3::apps_refresh_failure_keeps_existing_full_snapshot",
     );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    s.type_text("/apps");
-    s.keys("enter");
-    s.assert_contains("Loading installed and available apps...");
-    s.assert_contains("Installed 1 of 1 available apps.");
-    s.assert_contains("Installed · Press Enter to open the app page");
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:2925 apps_popup_shows_disabled_status_for_installed_but_disabled_apps kind=ui owner=dialogs-pane

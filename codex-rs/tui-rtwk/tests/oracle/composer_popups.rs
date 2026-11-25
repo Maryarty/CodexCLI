@@ -473,33 +473,18 @@ fn history_search_paste_uses_full_sanitized_text() {
 // ORACLE bottom_pane/chat_composer/mentions_layout_tests.rs:86 mention_scopes_overlay_history_without_moving_composer_or_footer kind=snap owner=chat-nav-pane snap=codex_tui__bottom_pane__chat_composer__mentions_layout_tests__mention_scopes_overlay_history
 #[test]
 fn mention_scopes_overlay_history_without_moving_composer_or_footer() {
-    kit::pending(
+    kit::na(
         Owner::ChatNavPane,
-        "the transcript rows behind the menu ('Transcript row NN') and its footer (TRANSCRIPT STATUS) are not seeded by any entry",
+        "the snapshot holds the harness's literal strings (`Transcript row NN: behind the menu`, `TRANSCRIPT STATUS`, `MODEL STATUS`) that no state of the app produces; the invariant (composer rows, caret and footer unmoved by the popup across tabs and Esc) is the page test composer_mentions::mention_menu_keeps_composer_rows_and_cursor_across_tabs",
     );
-    let mut s = Screen::build(Owner::ChatNavPane)
-        .size(80, 32)
-        .entry("popovers", "composer_popups")
-        .open();
-    s.type_text("@");
-    s.assert_snap("codex_tui__bottom_pane__chat_composer__mentions_layout_tests__mention_scopes_overlay_history");
-    s.keys("right");
 }
 
 // ORACLE bottom_pane/chat_composer/mentions_layout_tests.rs:154 mention_menu_reserves_height_above_composer_and_owns_cursor_over_interactive_footer kind=snap owner=chat-nav-pane snap=codex_tui__bottom_pane__chat_composer__mentions_layout_tests__mention_menu_above_composer
 #[test]
 fn mention_menu_reserves_height_above_composer_and_owns_cursor_over_interactive_footer() {
-    kit::pending(
+    kit::na(
         Owner::ChatNavPane,
-        "the chat status line (MODEL STATUS) and the interactive transcript footer (Find: needle) are not seeded by any entry",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane)
-        .size(80, 21)
-        .entry("popovers", "composer_popups")
-        .open();
-    s.type_text("@");
-    s.assert_snap(
-        "codex_tui__bottom_pane__chat_composer__mentions_layout_tests__mention_menu_above_composer",
+        "the snapshot holds the harness's literal strings (`MODEL STATUS`, `Find: needle`) that no state of the app produces; the invariant (the popup ends at the composer's first row, the caret stays in the composer) is the page test composer_mentions::mention_menu_keeps_composer_rows_and_cursor_across_tabs",
     );
 }
 
@@ -892,18 +877,8 @@ fn category_tags_distinguish_mentions_when_descriptions_hide() {
 // ORACLE bottom_pane/skill_popup.rs:387 lowercase_expansion_preserves_match_ranking_and_highlighting kind=snap owner=chat-nav-pane snap=skill_popup_lowercase_expansion
 #[test]
 fn lowercase_expansion_preserves_match_ranking_and_highlighting() {
-    kit::pending(
+    kit::na(
         Owner::ChatNavPane,
-        "the query U+0307 x is not a mention name: typed after `$` the composer closes the popup (the combining dot joins the `$`), so the oracle's `SkillPopup::set_query` state has no screen",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane)
-        .size(80, 24)
-        .entry("popovers", "composer_popups")
-        .open();
-    s.type_text("$\u{307}x");
-    s.assert_snap_region(
-        "codex_tui__bottom_pane__skill_popup__tests__skill_popup_lowercase_expansion",
-        row_starting(&s, "› "),
-        0,
+        "a `SkillPopup::set_query` state: the query U+0307 x cannot be typed after `$` (the combining dot joins the `$` and the popup closes), so the frame has no screen; the ranking of the four names is pinned by core/tests/mention_filter.rs `lowercase_expansion_keeps_the_oracles_order_and_marks`",
     );
 }
