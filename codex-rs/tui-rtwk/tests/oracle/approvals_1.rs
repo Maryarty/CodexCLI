@@ -451,7 +451,7 @@ fn arrival_preserves_vim_undo_and_navigation_flushes_buffered_input() {
 // ORACLE bottom_pane/async_questions/state_tests.rs:133 long_prompt_keeps_the_active_input_visible kind=snap owner=dialogs-pane snap=long_prompt_active_input
 #[test]
 fn long_prompt_keeps_the_active_input_visible() {
-    let mut s = Screen::build(Owner::DialogsPane)
+    let s = Screen::build(Owner::DialogsPane)
         .size(40, 8)
         .entry("approvals", "user_input_long_prompt")
         .open();
@@ -466,7 +466,7 @@ fn wrapped_question_url_keeps_its_complete_destination() {
         Owner::DialogsPane,
         "G49: rtwk Text does not break after a slash; the editor is built (approvals/user_input_wrapped_url) and every row but the URL's break equals the oracle snapshot (`(https://github.com/openai/codex/` / `pull/12345?diff=split)?` there, `.../pul` / `l/12345?...` here)",
     );
-    let mut s = Screen::build(Owner::DialogsPane)
+    let s = Screen::build(Owner::DialogsPane)
         .size(40, 12)
         .entry("approvals", "user_input_wrapped_url")
         .open();

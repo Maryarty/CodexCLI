@@ -28,11 +28,6 @@ pub fn markdown_rows(seg: TextSegmenter, source: &str, width: usize) -> usize {
         .sum()
 }
 
-/// What the Markdown `source` says as text (the choice rows of the oracle measure this).
-pub fn plain_of(source: &str) -> String {
-    markdown_text::copied(&nodes_of(source))
-}
-
 fn nodes_of(source: &str) -> Vec<markdown_text::Node> {
     let mut stream = rtwk_rich::markdown::MarkdownStream::new(source);
     let blocks = stream.blocks().to_vec();
@@ -47,7 +42,12 @@ pub fn width_of(seg: TextSegmenter, spans: &[Span]) -> usize {
 }
 
 /// `tips` (each its spans) packed into rows as wide as `width`, `gap` between the tips of a row.
-pub fn pack(seg: TextSegmenter, tips: Vec<Vec<Span>>, gap: &'static str, width: usize) -> Vec<Vec<Span>> {
+pub fn pack(
+    seg: TextSegmenter,
+    tips: Vec<Vec<Span>>,
+    gap: &'static str,
+    width: usize,
+) -> Vec<Vec<Span>> {
     let mut lines: Vec<Vec<Span>> = Vec::new();
     let mut line: Vec<Span> = Vec::new();
     for tip in tips {

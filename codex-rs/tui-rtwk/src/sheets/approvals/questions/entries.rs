@@ -70,7 +70,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "async questions: a long prompt over a typed answer",
             {
                 let mut questions = pair();
-                questions[0].title = "A lengthy prompt. ".repeat(30);
+                questions[0].title = std::iter::repeat_n("A lengthy prompt. ", 30).collect();
                 editor(
                     questions,
                     Seed {
@@ -85,7 +85,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "async questions: a question whose URL wraps",
             {
                 let mut questions = pair();
-                questions[1].title = format!("Review this change ({URL})?");
+                questions[1].title = ["Review this change (", URL, ")?"].concat();
                 editor(questions, on(1))
             }
         ),
@@ -103,7 +103,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "async questions: Other is the row on, its input empty, under a long question",
             {
                 let mut questions = pair();
-                questions[1].title = "Long question ".repeat(40);
+                questions[1].title = std::iter::repeat_n("Long question ", 40).collect();
                 editor(
                     questions,
                     Seed {
@@ -120,7 +120,14 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             {
                 let mut questions = pair();
                 let options: Vec<String> = (1..=12)
-                    .map(|i| format!("Option {i} is long enough to wrap across rows"))
+                    .map(|i| {
+                        [
+                            "Option ",
+                            &i.to_string(),
+                            " is long enough to wrap across rows",
+                        ]
+                        .concat()
+                    })
                     .collect();
                 questions[1].options = options;
                 editor(questions, on(1))
@@ -146,7 +153,11 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "user_input_wrap_boundary",
             "async questions: two choices exactly one column too wide",
             editor(
-                vec![q("q2", "Second", &["abcdefgh *ijklmno*", "pqrstuvw xyzabcd"])],
+                vec![q(
+                    "q2",
+                    "Second",
+                    &["abcdefgh *ijklmno*", "pqrstuvw xyzabcd"]
+                )],
                 Seed::default()
             )
         ),
@@ -191,7 +202,11 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "user_input_clipped_prompt",
             "async questions: a question taller than any room",
             editor(
-                vec![q("q2", &"Long question ".repeat(300), &["x", "y"])],
+                vec![q(
+                    "q2",
+                    &std::iter::repeat_n("Long question ", 300).collect::<String>(),
+                    &["x", "y"]
+                )],
                 Seed::default()
             )
         ),
@@ -217,7 +232,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
                 Seed {
                     current: 0,
                     selected: vec![Some(1)],
-                    drafts: vec!["long draft\n".repeat(1000)],
+                    drafts: vec![std::iter::repeat_n("long draft\n", 1000).collect()],
                 },
             )
         ),

@@ -29,14 +29,13 @@ use rtwk::style::{Span, Style};
 use rtwk::text::{DefaultTextStyle, Text, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::data::links::LinkDisplay;
+use codex_tui_core::keymap::ActionId;
 use codex_tui_core::keymap::Keymap;
 use codex_tui_core::keymap::actions::{
     CHAT_EDIT_QUEUED_MESSAGE, CHAT_INTERRUPT_TURN, CHAT_PROMPT_STACK_BACK, CHAT_SKIP_QUESTION,
     COMPOSER_SUBMIT, LIST_ACCEPT, LIST_CANCEL, LIST_JUMP_BOTTOM, LIST_JUMP_TOP, LIST_MOVE_DOWN,
     LIST_MOVE_LEFT, LIST_MOVE_RIGHT, LIST_MOVE_UP, LIST_PAGE_DOWN, LIST_PAGE_UP,
 };
-use codex_tui_core::keymap::ActionId;
 
 pub use entries::debug_entries;
 
@@ -46,9 +45,7 @@ use crate::keymap::{label, only_shift, pressed, unmodified};
 use crate::widgets::markdown;
 use crate::widgets::measure::Measure;
 
-/// The most choices a question keeps and the longest a choice may be (bytes): what the oracle
-/// bounds the model's suggestions to.
-pub const MAX_OPTIONS: usize = 32;
+/// The longest a choice may be (bytes): what the oracle bounds the model's suggestions to.
 pub const MAX_OPTION_BYTES: usize = 512;
 /// The rows the input of a freeform answer or of Other grows to.
 const MAX_INPUT_ROWS: u16 = 8;
@@ -141,23 +138,7 @@ pub enum Msg {
     Tick,
 }
 
-impl AQuestion {
-    /// A question as the oracle keeps it: the choices bounded.
-    pub fn bounded(id: &str, title: &str, options: &[String]) -> AQuestion {
-        AQuestion {
-            id: id.to_owned(),
-            title: title.to_owned(),
-            options: options
-                .iter()
-                .take(MAX_OPTIONS)
-                .filter(|label| label.len() <= MAX_OPTION_BYTES)
-                .cloned()
-                .collect(),
-        }
-    }
-}
-
-fn new_question_state(question: &AQuestion, selected: Option<Option<usize>>, draft: &str) -> QState {
+fn qstate(question: &AQuestion, selected: Option<Option<usize>>, draft: &str) -> QState {
     let controller = TextEditingController::new(draft);
     controller.move_caret(draft.len(), false);
     QState {
@@ -178,7 +159,7 @@ impl StatefulWidget for AsyncQuestions {
             .iter()
             .enumerate()
             .map(|(at, question)| {
-                new_question_state(
+                qstate(
                     question,
                     self.seed.selected.get(at).copied(),
                     self.seed.drafts.get(at).map_or("", String::as_str),
@@ -187,7 +168,10 @@ impl StatefulWidget for AsyncQuestions {
             .collect();
         AsyncState {
             questions,
-            current: self.seed.current.min(self.questions.len().saturating_sub(1)),
+            current: self
+                .seed
+                .current
+                .min(self.questions.len().saturating_sub(1)),
             visible: Rc::new(Cell::new((0, 0))),
             flash: None,
             flash_age: 0,
@@ -315,7 +299,8 @@ impl AsyncState {
         if self.timer.is_none()
             && let Some(binding) = AppBinding::maybe_of(cx)
         {
-            self.timer = Some(binding.start_periodic(Duration::from_secs(1), cx.map(|(): ()| Msg::Tick)));
+            self.timer =
+                Some(binding.start_periodic(Duration::from_secs(1), cx.map(|(): ()| Msg::Tick)));
         }
     }
 
@@ -347,7 +332,7 @@ impl AsyncState {
             return;
         }
         let reply = reply_of(&question.title, text);
-        if reply.chars().count() > MAX_REPLY_CHARS {
+        if reply.chars().take(MAX_REPLY_CHARS + 1).count() > MAX_REPLY_CHARS {
             self.flash(s.aq_too_long, cx);
             return;
         }
@@ -423,7 +408,8 @@ impl AsyncState {
             // meaning.
             let action = list_action(&keymap, key);
             let is_remapped = action.is_some_and(|id| remapped(&keymap, id));
-            let up_down = pressed(&keymap, LIST_MOVE_UP, key) || pressed(&keymap, LIST_MOVE_DOWN, key);
+            let up_down =
+                pressed(&keymap, LIST_MOVE_UP, key) || pressed(&keymap, LIST_MOVE_DOWN, key);
             if (!printable(key) || is_remapped)
                 && (!input || up_down)
                 && action.is_some_and(|id| id != LIST_ACCEPT)
@@ -506,13 +492,18 @@ impl State for AsyncState {
         }
     }
 
-    fn did_update_widget(&mut self, _old: &AsyncQuestions, w: &AsyncQuestions, _cx: &mut Cx<'_, Self>) {
+    fn did_update_widget(
+        &mut self,
+        _old: &AsyncQuestions,
+        w: &AsyncQuestions,
+        _cx: &mut Cx<'_, Self>,
+    ) {
         // The parent drops a question that was answered or skipped: the state follows by id.
         let mut next = Vec::new();
         for question in w.questions.iter() {
             match self.questions.iter().position(|q| q.id == question.id) {
                 Some(at) => next.push(self.questions.remove(at)),
-                None => next.push(new_question_state(question, None, "")),
+                None => next.push(qstate(question, None, "")),
             }
         }
         let shown = self.questions.get(self.current).map(|q| q.id.clone());
@@ -593,7 +584,6 @@ impl State for AsyncState {
             tokens: tokens.clone(),
             s,
             keymap: Rc::clone(&keymap),
-            link_display: Tokens::link_display(cx),
             markdown: tokens.transcript_markdown(cx),
             on_submit: cx.map(Msg::Submitted),
             take: {
@@ -614,10 +604,11 @@ impl State for AsyncState {
         if options_only {
             return body;
         }
-        let focus = Focus::new(BoxWidget::new().style(surface).child(Padding::new(
-            EdgeInsets::symmetric(INSET_X, INSET_Y),
-            body,
-        )))
+        let focus = Focus::new(
+            BoxWidget::new()
+                .style(surface)
+                .child(Padding::new(EdgeInsets::symmetric(INSET_X, INSET_Y), body)),
+        )
         .focus_node(self.node.clone());
         if self.focus_is_input(w) {
             focus.into()
@@ -645,7 +636,6 @@ struct View {
     tokens: Tokens,
     s: &'static Strings,
     keymap: Rc<Keymap>,
-    link_display: LinkDisplay,
     markdown: rtwk_rich::markdown::MarkdownTheme,
     on_submit: Handler<Rc<str>>,
     take: Rc<dyn Fn(&KeyPress) -> bool>,
@@ -684,7 +674,11 @@ impl View {
     }
 
     fn other_placeholder(&self) -> &'static str {
-        if self.options.iter().any(|o| o.eq_ignore_ascii_case(self.s.aq_other)) {
+        if self
+            .options
+            .iter()
+            .any(|o| o.eq_ignore_ascii_case(self.s.aq_other))
+        {
             self.s.aq_other_named
         } else {
             self.s.aq_other
@@ -705,7 +699,11 @@ impl View {
     }
 
     fn row_prefix(&self, at: usize) -> String {
-        let mark = if self.selected == Some(at) { '›' } else { ' ' };
+        let mark = if self.selected == Some(at) {
+            '›'
+        } else {
+            ' '
+        };
         format!("{mark} {}. ", at + 1)
     }
 
@@ -730,7 +728,15 @@ impl View {
         if width > indent {
             measure::rows(seg, &self.other_label(), width - indent)
         } else {
-            measure::rows(seg, &format!("{}{}", self.row_prefix(self.options.len()), self.other_label()), width)
+            measure::rows(
+                seg,
+                &format!(
+                    "{}{}",
+                    self.row_prefix(self.options.len()),
+                    self.other_label()
+                ),
+                width,
+            )
         }
     }
 
@@ -767,12 +773,19 @@ impl View {
     }
 
     fn question_rows(&self, seg: Measure, width: u16) -> u16 {
-        rows_u16(measure::markdown_rows(seg, &self.markdown_source(), usize::from(width.max(1))))
+        rows_u16(measure::markdown_rows(
+            seg,
+            &self.markdown_source(),
+            usize::from(width.max(1)),
+        ))
     }
 
     fn tip(&self, keys: &str, text: &str) -> Vec<Span> {
         vec![
-            Span::styled(keys.to_owned(), self.tokens.bold().attrs(rtwk::style::Attrs::DIM)),
+            Span::styled(
+                keys.to_owned(),
+                self.tokens.bold().attrs(rtwk::style::Attrs::DIM),
+            ),
             Span::styled(self.s.key_gap, self.tokens.dim()),
             Span::styled(text.to_owned(), self.tokens.dim()),
         ]
@@ -810,7 +823,11 @@ impl View {
             )]);
         }
         if let Some(key) = label(&self.keymap, CHAT_PROMPT_STACK_BACK) {
-            let text = if self.at > 0 { s.aq_tip_prev } else { s.aq_tip_main };
+            let text = if self.at > 0 {
+                s.aq_tip_prev
+            } else {
+                s.aq_tip_main
+            };
             tips.push(self.tip(&key, text));
         }
         let next = if self.at + 1 < self.total {
@@ -856,14 +873,18 @@ impl View {
         let mut column = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Stretch);
-        let blank = |rows: u16| -> AnyWidget { SizedBox::new(None, Some(px(rows)), None::<AnyWidget>).into() };
+        let blank = |rows: u16| -> AnyWidget {
+            SizedBox::new(None, Some(px(rows)), None::<AnyWidget>).into()
+        };
         if sections.progress > 0 {
             let text = self.s.aq_progress(self.at + 1, self.total).to_string();
-            column = column.child(clipped(
+            column = column.child(boxed(
                 width,
                 sections.progress,
                 1,
-                Text::new(text).style(self.tokens.dim()).wrap(TextWrap::None),
+                Text::new(text)
+                    .style(self.tokens.dim())
+                    .wrap(TextWrap::None),
             ));
         }
         if sections.spacer_before_question > 0 {
@@ -872,9 +893,12 @@ impl View {
         if sections.question > 0 {
             let md = DefaultTextStyle::new(
                 self.tokens.accent(),
-                markdown::themed(markdown::view(&self.markdown_source()), self.markdown.clone()),
+                markdown::themed(
+                    markdown::view(&self.markdown_source()),
+                    self.markdown.clone(),
+                ),
             );
-            column = column.child(clipped(width, sections.question, facts.question_rows, md));
+            column = column.child(boxed(width, sections.question, facts.question_rows, md));
         }
         if sections.spacer_after_question > 0 {
             column = column.child(blank(sections.spacer_after_question));
@@ -901,7 +925,7 @@ impl View {
                 let cut = measure::truncate(seg, line, usize::from(w16));
                 footer = footer.child(Text::rich(cut).wrap(TextWrap::None));
             }
-            column = column.child(clipped(width, sections.footer, rows_u16(count), footer));
+            column = column.child(boxed(width, sections.footer, rows_u16(count), footer));
         }
         column.into()
     }
@@ -919,7 +943,8 @@ impl View {
             .focus_node(self.node.clone())
             .autofocus(true)
             .on_submitted(self.on_submit.clone());
-        let keyed = EditingKeys::new(move |_, key, _| take(key), area).controller(self.draft.clone());
+        let keyed =
+            EditingKeys::new(move |_, key, _| take(key), area).controller(self.draft.clone());
         SizedBox::new(None, Some(px(rows)), Some(AnyWidget::from(keyed))).into()
     }
 
@@ -949,8 +974,8 @@ impl View {
                 .main_axis_size(MainAxisSize::Min)
                 .cross_axis_alignment(CrossAxisAlignment::Stretch);
             let total: usize = choice.get(first..).map_or(0, |r| r.iter().sum());
-            for at in first..count {
-                column = column.child(self.choice_widget(at, choice[at]));
+            for (at, rows) in choice.iter().enumerate().take(count).skip(first) {
+                column = column.child(self.choice_widget(at, *rows));
             }
             let mark = if i32::from(prefix) < i32::try_from(self.prefix_width(seg)).unwrap_or(0) {
                 "› ".to_owned()
@@ -962,22 +987,33 @@ impl View {
                 .child(SizedBox::new(
                     Some(i32::from(prefix)),
                     Some(1),
-                    Some(AnyWidget::from(Text::new(mark).style(self.tokens.accent()).wrap(TextWrap::None))),
+                    Some(AnyWidget::from(
+                        Text::new(mark)
+                            .style(self.tokens.accent())
+                            .wrap(TextWrap::None),
+                    )),
                 ))
-                .child(Expanded::new(1, self.input_widget(input_rows, self.placeholder())));
+                .child(Expanded::new(
+                    1,
+                    self.input_widget(input_rows, self.placeholder()),
+                ));
             let mut whole = Column::new()
                 .main_axis_size(MainAxisSize::Min)
                 .cross_axis_alignment(CrossAxisAlignment::Stretch);
             if named > 0 {
-                whole = whole.child(clipped(width, rows_u16(named), rows_u16(total), column));
+                whole = whole.child(boxed(width, rows_u16(named), rows_u16(total), column));
             }
             return whole
-                .child(SizedBox::new(None, Some(px(input_rows)), Some(AnyWidget::from(input))))
+                .child(SizedBox::new(
+                    None,
+                    Some(px(input_rows)),
+                    Some(AnyWidget::from(input)),
+                ))
                 .into();
         }
         // The scroll: the first row the cursor's row fits under, from the last first row.
         let selected = self.selected.unwrap_or(0).min(count);
-        let mut heights = choice.clone();
+        let mut heights = choice;
         heights.push(self.other_rows(seg, usize::from(w16)));
         let top = if heights.iter().sum::<usize>() <= available {
             0
@@ -1002,15 +1038,15 @@ impl View {
         let mut column = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Stretch);
-        for at in first..=count {
+        for (at, rows) in heights.iter().enumerate().skip(first) {
             column = if at < count {
-                column.child(self.choice_widget(at, heights[at]))
+                column.child(self.choice_widget(at, *rows))
             } else {
-                column.child(self.other_widget(heights[at]))
+                column.child(self.other_widget(*rows))
             };
         }
         let total: usize = heights[first..].iter().sum();
-        clipped(width, rows, rows_u16(total), column)
+        boxed(width, rows, rows_u16(total), column)
     }
 
     fn row_style(&self, at: usize) -> Style {
@@ -1030,7 +1066,12 @@ impl View {
             .cross_axis_alignment(CrossAxisAlignment::Start)
             .child(prefix)
             .child(Expanded::new(1, label));
-        SizedBox::new(None, Some(i32::try_from(rows).unwrap_or(1)), Some(AnyWidget::from(row))).into()
+        SizedBox::new(
+            None,
+            Some(i32::try_from(rows).unwrap_or(1)),
+            Some(AnyWidget::from(row)),
+        )
+        .into()
     }
 
     fn other_widget(&self, rows: usize) -> AnyWidget {
@@ -1042,12 +1083,17 @@ impl View {
             .cross_axis_alignment(CrossAxisAlignment::Start)
             .child(prefix)
             .child(Expanded::new(1, Text::new(self.other_label())));
-        SizedBox::new(None, Some(i32::try_from(rows).unwrap_or(1)), Some(AnyWidget::from(row))).into()
+        SizedBox::new(
+            None,
+            Some(i32::try_from(rows).unwrap_or(1)),
+            Some(AnyWidget::from(row)),
+        )
+        .into()
     }
 }
 
 /// `child` laid out at its `natural` rows and cut to the `shown` rows of its box, the top first.
-fn clipped(width: i32, shown: u16, natural: u16, child: impl Into<AnyWidget>) -> AnyWidget {
+fn boxed(width: i32, shown: u16, natural: u16, child: impl Into<AnyWidget>) -> AnyWidget {
     let whole = OverflowBox::new(child)
         .min_height(0)
         .max_height(px(natural.max(shown)))
