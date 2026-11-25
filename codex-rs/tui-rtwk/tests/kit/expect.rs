@@ -30,6 +30,7 @@ pub struct Turn {
     remote: Option<Vec<String>>,
     images: Option<Vec<(PathBuf, Option<Range<usize>>)>>,
     skills: Option<Vec<(String, String)>>,
+    mentions: Option<Vec<(String, String)>>,
 }
 
 impl Turn {
@@ -84,6 +85,19 @@ impl Turn {
     pub fn skills(mut self, skills: &[(&str, &str)]) -> Turn {
         self.skills = Some(
             skills
+                .iter()
+                .map(|(n, p)| ((*n).to_owned(), (*p).to_owned()))
+                .collect(),
+        );
+        self
+    }
+}
+
+impl Turn {
+    /// It binds these tool mentions (`name`, `path`: `app://...`, `plugin://...`) and nothing else.
+    pub fn mentions(mut self, mentions: &[(&str, &str)]) -> Turn {
+        self.mentions = Some(
+            mentions
                 .iter()
                 .map(|(n, p)| ((*n).to_owned(), (*p).to_owned()))
                 .collect(),
@@ -459,6 +473,17 @@ impl Screen {
                 })
                 .collect();
             pretty_assertions::assert_eq!(&got, skills, "the turn's skills");
+        }
+        if let Some(mentions) = &want.mentions {
+            let got: Vec<(String, String)> = turn
+                .mentions
+                .iter()
+                .map(|m| match m {
+                    ToolMention::Mention { name, path } => (name.clone(), path.clone()),
+                    other => panic!("not a mention: {other:?}"),
+                })
+                .collect();
+            pretty_assertions::assert_eq!(&got, mentions, "the turn's mentions");
         }
     }
 

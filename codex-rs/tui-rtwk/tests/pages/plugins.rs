@@ -151,3 +151,74 @@ fn the_sheet_loads_the_list_when_it_opens_and_not_again_while_it_stays() {
     s.keys("right").keys("left");
     assert_eq!(lists(&s), first, "{:?}", seed::wants(&s));
 }
+
+/// `/plugins` over a plugin whose install needs the setup of the app `arabica`; the server's
+/// directory holds that app as `accessible` and switched off.
+fn setup_of_arabica(accessible: bool) -> Screen {
+    let linear = seed::set(
+        seed::remote_summary(
+            "plugins~Plugin_linear",
+            "plugin",
+            Some("Plugin"),
+            Some("Issue tracking."),
+            false,
+        ),
+        &[("installPolicy", serde_json::json!("INSTALLED_BY_DEFAULT"))],
+    );
+    let apps = serde_json::json!([{
+        "id": "arabica", "name": "Arabica", "description": "A cafe",
+        "installUrl": "https://example.test/arabica",
+        "isAccessible": accessible, "isEnabled": false, "pluginDisplayNames": [],
+    }]);
+    let shelf = seed::shelf(Vec::new());
+    seed::with(&shelf, |held| {
+        held.remote = vec![seed::marketplace(
+            "workspace-shared-with-me-private",
+            None,
+            Some("Shared with me"),
+            vec![linear.clone()],
+        )];
+        held.details.insert(
+            "plugins~Plugin_linear".to_string(),
+            seed::remote_detail("workspace-shared-with-me-private", linear, None),
+        );
+        held.replies
+            .insert("app/list", Ok(serde_json::json!({ "data": apps.clone() })));
+        held.replies.insert(
+            "plugin/install",
+            Ok(serde_json::json!({
+                "authPolicy": "ON_INSTALL",
+                "appsNeedingAuth": [{ "id": "arabica", "name": "Arabica" }],
+            })),
+        );
+    });
+    let mut s = seed::start(80, 24, seed::config(), &shelf);
+    s.feed(
+        &serde_json::json!({
+            "step": "notify",
+            "message": { "method": "app/list/updated", "params": { "data": apps } },
+        })
+        .to_string(),
+    );
+    s.type_text("/plugins").keys("enter");
+    s.keys("enter");
+    s.keys("down enter");
+    s
+}
+
+#[test]
+fn the_auth_step_of_an_accessible_but_disabled_app_says_it_is_installed_and_continues() {
+    let s = setup_of_arabica(true);
+    s.assert_contains("Plugin plugin installed.");
+    s.assert_contains("App setup 1/1: Arabica");
+    s.assert_contains("Already installed in this session.");
+    s.assert_contains("Continue");
+    s.assert_contains("Skip remaining app setup");
+}
+
+#[test]
+fn the_auth_step_of_an_app_the_directory_does_not_hold_as_accessible_is_not_installed() {
+    let s = setup_of_arabica(false);
+    s.assert_contains("App setup 1/1: Arabica");
+    s.assert_absent("Already installed");
+}
