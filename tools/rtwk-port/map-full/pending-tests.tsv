@@ -176,7 +176,6 @@ chat_commands_2::slash_copy_status_omits_missing_fields_and_copies_full_director
 chat_commands_2::slash_copy_status_yields_to_later_turns_and_commands_even_after_refresh	chat-nav-pane	no /copy picker: the port answers /copy with 'not available yet', so the picker rows are not drawn; the ServiceTier case needs a model catalog seed
 chat_commands_3::compact_queues_user_messages_snapshot	chat-nav-pane	a compact turn that refuses a steer (ActiveTurnNotSteerable) and the queued-message rows cannot be seeded black-box
 chat_commands_3::configured_welcome_opt_out_disables_blossom_and_clicks	chat-nav-pane	the welcome opt-out settings (config.toml animations / welcome) are not seedable by the kit; the blossom glyph check is a kit gap
-chat_commands_3::copy_action_reports_when_no_agent_response_exists	chat-nav-pane	the copy key action (ctrl+o) and its no-output info cell are not built
 chat_commands_3::copy_shortcut_can_be_remapped	chat-nav-pane	the seed sets global.copy = alt+v (`.keymap(..)` is read), but the chat has no copy action (`No agent response to copy` is nowhere in the port): `alt+v` does no
 chat_commands_3::copy_shortcut_submits_markdown_and_reports_completion_once	chat-nav-pane	the copy action with a pending clipboard status (pending_copy), its confirmed completion and the unconfirmed notice are not built; the agent markdown seed is no
 chat_commands_3::initial_prompt_image_preparation_preserves_recall_metadata	chat-nav-pane	an initial prompt with an image file (a 1x1 PNG in a temp dir) is not seedable: the kit has no file seed
