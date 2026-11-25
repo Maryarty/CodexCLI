@@ -14,6 +14,7 @@ use codex_tui_core::screens::chat::DesktopNotice;
 use rtwk::GlobalKey;
 use rtwk::app::AppCx;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 pub mod debug;
 mod export_text;
@@ -30,6 +31,10 @@ use crate::services::shell;
 use crate::sheets::presenter;
 use crate::sheets::presenter::Presenter;
 use crate::widgets::thread_ui::ThreadUiMap;
+
+/// The text of a launch that failed, for the host to print once the terminal is restored
+/// (the oracle's "Unsent draft"): written before the app ends, as the host's other slots.
+pub type UnsentSlot = Arc<Mutex<Option<String>>>;
 
 /// What only the UI keeps: never seen by `apply`, never in the core model.
 pub struct UiState {
@@ -64,6 +69,8 @@ pub struct UiState {
     /// composer words it): the UI's follower of the answers core keeps.
     pub copies: CopyLog,
     pub(super) desktop_notice: Option<Rc<DesktopNotice>>,
+    /// Where the unsent text goes when the launch fails (`UiApp::with_unsent_slot`).
+    unsent: Option<UnsentSlot>,
 }
 
 /// The model of the rtwk app.
@@ -100,6 +107,7 @@ impl UiApp {
                 followed: None,
                 copies: CopyLog::default(),
                 desktop_notice: None,
+                unsent: None,
             },
             link: shell::Link::new(backend),
         }
@@ -134,6 +142,13 @@ impl UiApp {
     /// The prompt of the command line (`codex "prompt"`): sent when the first thread starts.
     pub fn with_initial_prompt(mut self, message: codex_tui_core::threads::UserMessage) -> Self {
         self.core = self.core.with_initial_prompt(message);
+        self
+    }
+
+    /// The host prints what the user wrote and the launch never took when the app ends because
+    /// the server did not start (`restore_terminal_before_fatal_exit`): `slot` gets it first.
+    pub fn with_unsent_slot(mut self, slot: UnsentSlot) -> Self {
+        self.ui.unsent = Some(slot);
         self
     }
 
@@ -191,9 +206,26 @@ impl UiApp {
         // The connection did not start: the app ends, and the host reports
         // why (the oracle's `run_main_inner` returns the error).
         let ends = fx.ends_app();
+        if ends {
+            self.keep_unsent();
+        }
         shell::run_effects(self, fx);
         if ends {
             cx.quit();
+        }
+    }
+
+    /// The unsent text of the blank thread goes into the host's slot before the app ends: the
+    /// queue the first thread never took, else the composer with the keys the paste detector
+    /// still holds.
+    fn keep_unsent(&self) {
+        let Some(slot) = &self.ui.unsent else { return };
+        let blank = self.ui.thread_ui.get(None);
+        let text = self
+            .core
+            .unsent_startup_text(&crate::pages::session::composer::burst::unsent(&blank));
+        if let Ok(mut held) = slot.lock() {
+            *held = text;
         }
     }
 

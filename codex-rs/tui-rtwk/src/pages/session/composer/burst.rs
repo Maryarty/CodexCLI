@@ -23,6 +23,7 @@ use super::editing::{KeyData, typed_char};
 use super::vim;
 use crate::keymap::{at_most_shift, pressed, unmodified};
 use crate::widgets::composer_draft::ComposerDraft;
+use crate::widgets::thread_ui::ThreadUi;
 use codex_tui_core::keymap::fixed::{ENTER, TAB};
 
 /// What a held first char waits for before it goes in as typing: the burst
@@ -153,6 +154,40 @@ pub fn flush_held_with(
     if let Some(text) = draft.burst(PasteBurst::flush_before_modified_input) {
         apply_paste(draft, tell, env, c, &text);
     }
+}
+
+/// What the composer of `ui` holds that was not sent, as it would read once the keys the detector
+/// still holds went in: the submission's text (every placeholder expanded) with the held keys at
+/// the caret, a typed one over the character it covers in Replace mode. The detector is read, not
+/// flushed (`recovery_snapshot` over a copy of it): a launch that failed prints this after the
+/// terminal is restored.
+pub fn unsent(ui: &ThreadUi) -> String {
+    let (draft, c) = (&ui.draft, &ui.composer);
+    let mut text = draft.expanded(c);
+    let (held, covers) = match draft.burst(|b| b.clone().flush_pending()) {
+        FlushResult::None => return text,
+        FlushResult::Paste(pasted) => (pasted, false),
+        FlushResult::Typed(ch) => (ch.to_string(), vim::replacing(draft)),
+    };
+    // the caret in the expanded text: a placeholder before it stands for its payload
+    let caret = c.selection().extent_offset;
+    let shift: isize = draft
+        .elements(c)
+        .iter()
+        .filter(|e| e.end <= caret)
+        .map(|e| e.payload.len() as isize - (e.end - e.start) as isize)
+        .sum();
+    let mut at =
+        ((caret as isize + shift).max(0) as usize + usize::from(draft.shell())).min(text.len());
+    while !text.is_char_boundary(at) {
+        at -= 1;
+    }
+    if covers && let Some(under) = text[at..].chars().next() {
+        text.replace_range(at..at + under.len_utf8(), &held);
+    } else {
+        text.insert_str(at, &held);
+    }
+    text
 }
 
 /// Puts `text` in as a paste (`apply_paste`): a large one as a placeholder,
