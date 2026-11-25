@@ -46,7 +46,7 @@ pub(in crate::pages::session) struct SelectionHost {
 /// What a key does while something is selected (oracle `handle_selection_key`): the keys are
 /// the selection's before they are the composer's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::pages::session) enum Key {
+pub enum Key {
     /// Ctrl+C, Cmd+C, Ctrl+Shift+C and Ctrl+Insert (`text_selection::is_copy_key`).
     Copy,
     /// Enter: copy, and back to the last row once it is delivered.
@@ -135,7 +135,11 @@ impl State for HostState {
             Msg::Press(press) if press.button == RIGHT_BUTTON => {
                 (w.selection.controller().text(), true)
             }
-            Msg::Press(_) => return Rebuild::No,
+            // a press that is not a copy is the reader selecting: not Find's match any more
+            Msg::Press(_) => {
+                w.find.pressed();
+                return Rebuild::No;
+            }
         };
         if text.is_empty() {
             return Rebuild::No;

@@ -8,12 +8,13 @@
 //! `Text` and an `Expanded` field, and a `LayoutBuilder` + `segmenter_of` that
 //! picks the spelling (as `follow.rs`).
 
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
 use rtwk::binding::AppBinding;
 use rtwk::editing::{EditingKeys, TextField};
-use rtwk::focus::{Focus, FocusNode};
+use rtwk::focus::{Focus, FocusNode, KeyPress};
 use rtwk::foundation::ListenableBuilder;
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
 use rtwk::style::{Span, Style};
@@ -24,8 +25,10 @@ use super::activity_focus::{self, Activity};
 use super::copy;
 use super::find::{self, Finder, Mode};
 use super::select;
+use super::selection;
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
+use crate::pages::session::composer::editing::edit_query;
 pub use crate::widgets::finder::{Progress, Status};
 
 /// The spellings of the status row, the widest first (`status_line`).
@@ -243,6 +246,29 @@ pub fn slot_in<S: 'static>(
     .into()
 }
 
+/// The query of Find on a transcript that draws no footer (the bare view: the oracle's view
+/// alone has no bottom pane, and its `begin_search`, `paste_search` and keys still edit the
+/// query): the field of the footer, mounted while the query is edited and given no row, so it
+/// holds the focus and takes the typing, the paste and the keys of Find without drawing.
+pub fn unseen_query<S: 'static>(cx: &mut Cx<'_, S>, finder: &Finder) -> AnyWidget {
+    let table = strings::of(cx);
+    let dim = Tokens::of(cx).dim();
+    let finder = finder.clone();
+    ListenableBuilder::new(finder.listenable(), move |_, _| {
+        if finder.mode() == Mode::Editing {
+            SizedBox::new(
+                None,
+                Some(0),
+                Some(QueryField::new(&finder, table, dim.clone()).into()),
+            )
+            .into()
+        } else {
+            SizedBox::new(None, Some(0), None).into()
+        }
+    })
+    .into()
+}
+
 /// The hint row of the focus on a fold of the turn details in the place of `normal` while a fold
 /// has it (`disclosure_footer`): the keys, the first spelling that fits, dropping what leads
 /// before the toggle and the way back.
@@ -439,13 +465,18 @@ enum Edit {
 
 struct QueryState {
     back: Option<FocusNode>,
+    /// The first key of an Editor chord the query is part way through.
+    chord: Rc<RefCell<Option<KeyPress>>>,
 }
 
 impl StatefulWidget for QueryField {
     type State = QueryState;
 
     fn create_state(&self) -> QueryState {
-        QueryState { back: None }
+        QueryState {
+            back: None,
+            chord: Rc::default(),
+        }
     }
 }
 
@@ -496,10 +527,18 @@ impl State for QueryState {
             });
         let keys = finder.clone();
         let caret = select::of(&finder);
+        let keymap = crate::keymap::keymap(cx);
+        let chord = self.chord.clone();
         let field = EditingKeys::new(
-            move |_, key, _| {
-                let Some(taken) = find::key(keys.mode(), key) else {
+            move |c, key, _| {
+                // what the reader selected comes first: its copy keys and Esc are the selection's
+                // (`handle_selection_key`), the page takes them
+                if keys.paused() && selection::key(key).is_some() {
                     return false;
+                }
+                let Some(taken) = find::key(keys.mode(), key) else {
+                    // the user's Editor bindings are the query's too (`input_with_keymap`)
+                    return edit_query(&keymap, c, key, &chord);
                 };
                 // Enter on an empty query in select mode is the search accepted there once more:
                 // Find closes and `n` and `N` go on with it (`restore_saved_select_search`)

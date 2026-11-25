@@ -1,11 +1,13 @@
 //! The retained transcript viewport. Inline Markdown uses this list's scroll
 //! position and preserves the parser for a row while its item key is mounted.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::fmt::Write as _;
 use std::hash::{DefaultHasher, Hasher};
 use std::rc::Rc;
+use std::time::Duration;
 
+use rtwk::binding::AppBinding;
 use rtwk::foundation::{Listenable, VoidCallback};
 use rtwk::gestures::SelectionTarget;
 use rtwk::layout::{Column, CrossAxisAlignment, MainAxisSize};
@@ -18,11 +20,12 @@ use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::backtrack::nth_user;
-use codex_tui_core::threads::{Item, ItemKey, ThreadModel};
+use codex_tui_core::threads::{HistoryState, Item, ItemKey, ThreadModel};
 
 use crate::app::theme;
 use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
+use crate::widgets::finder::More;
 use crate::widgets::thread_scope::thread_scope;
 use crate::widgets::thread_ui::{Follow, TextSelection};
 
@@ -55,6 +58,10 @@ pub(super) struct Pane {
     pub detailed: bool,
     pub mark: Option<usize>,
 }
+
+/// How many frames after a swap of the list the reader is put back again (the first lands on
+/// estimates of the rows not laid out yet).
+const KEEPS: u8 = 3;
 
 pub(super) struct ViewportState {
     layout: RefCell<Option<RowLayout>>,
@@ -89,6 +96,9 @@ pub(super) struct ViewportState {
     /// The texts of the rows Find reads, kept while they are the same so that what the selection
     /// area was asked to select stays named by the same model.
     texts: RefCell<Option<Rc<RowTexts>>>,
+    /// The list was built as one that reads its rows as text: another widget than the plain list,
+    /// so a list that comes in its place starts at the end.
+    texted: Cell<bool>,
     /// What copy mode can copy of those rows, kept while the rows are the same ones (it parses the
     /// messages' Markdown).
     targets: RefCell<Option<(Rc<RowTexts>, Rc<Targets>)>>,
@@ -154,6 +164,12 @@ pub(super) enum Msg {
     Toggle(Vec<ItemKey>),
     /// Find moved: its footer and its match are drawn from the list's build.
     Find,
+    /// Find closed and the list built again: the reader goes back.
+    Restore,
+    /// The list became another widget under a reader who was away from the last row: the new
+    /// list starts at the end, and the reader goes back to where they were. The rows it has not
+    /// measured yet are estimates, so the move is made again (the count) once they are.
+    Keep(i64, u8),
 }
 
 impl ViewportState {
@@ -558,6 +574,7 @@ impl StatefulWidget for Pane {
             watching: RefCell::default(),
             marked: RefCell::default(),
             texts: RefCell::default(),
+            texted: Cell::new(false),
             targets: RefCell::default(),
         }
     }
@@ -649,6 +666,33 @@ impl State for ViewportState {
                 Rebuild::Yes
             }
             Msg::Find => Rebuild::Yes,
+            Msg::Restore => {
+                if let Some(pixels) = widget.find.go_back()
+                    && let Some(binding) = AppBinding::maybe_of(cx)
+                {
+                    binding.add_post_frame_callback(
+                        cx.map(move |_: Duration| Msg::Keep(pixels, KEEPS - 1)),
+                    );
+                }
+                Rebuild::No
+            }
+            Msg::Keep(pixels, again) => {
+                let controller = widget.follow.scroll().as_scroll_controller().clone();
+                let moved = controller
+                    .try_position()
+                    .is_ok_and(|position| position.pixels() != pixels);
+                if moved {
+                    controller.jump_to(pixels);
+                }
+                if again > 0
+                    && let Some(binding) = AppBinding::maybe_of(cx)
+                {
+                    binding.add_post_frame_callback(
+                        cx.map(move |_: Duration| Msg::Keep(pixels, again - 1)),
+                    );
+                }
+                Rebuild::No
+            }
         }
     }
 
@@ -727,6 +771,28 @@ impl State for ViewportState {
         self.listen(&search, cx.local_sender());
         let caret = select::of(&search);
         let copier = copying::mode_of(&search);
+        // The list reads its rows as text while Find is open, select mode is on or copy mode is:
+        // the widget of that is not the plain list, and the one that takes the place of the other
+        // starts at the end. A reader who was away from the last row is put back after the frame
+        // that swaps them (before the move Find's own close asks for).
+        let reads = search.active() || caret.active() || copier.active();
+        if reads != self.texted.replace(reads)
+            && widget.follow.away()
+            && self.restoring.is_none()
+            && !search.going_back()
+            && let Ok(position) = widget.follow.scroll().as_scroll_controller().try_position()
+            && let Some(binding) = AppBinding::maybe_of(cx)
+        {
+            let pixels = position.pixels();
+            binding.add_post_frame_callback(cx.map(move |_: Duration| Msg::Keep(pixels, KEEPS)));
+        }
+        // Find closed: the list builds again and takes no move made in the frame that does, so the
+        // reader is put back after it
+        if search.going_back()
+            && let Some(binding) = AppBinding::maybe_of(cx)
+        {
+            binding.add_post_frame_callback(cx.map(|_: Duration| Msg::Restore));
+        }
         self.listen_select(&caret, cx.local_sender());
         // while Find is open or select mode is on the list reads its rows as text: the scan runs
         // over them, and the match it found (or the caret, or the range marked) is scrolled to and
@@ -753,7 +819,15 @@ impl State for ViewportState {
             &rows,
             &reading,
         );
-        let (texts, targets) = if search.active() || caret.active() || copier.active() {
+        // what a search that reached the oldest row waits for
+        let more = match thread.history_state() {
+            HistoryState::Partial => More::Loadable,
+            HistoryState::Loading => More::Loading,
+            HistoryState::Failed => More::Failed,
+            HistoryState::Complete => More::None,
+        };
+        let load = cx.local_sender();
+        let (texts, targets) = if reads {
             let texts = self.row_texts(&thread, &rows, header.is_some(), reverse, &reading);
             let targets = copier.cutter().filter(|_| copier.active()).map(|cutter| {
                 self.targets_of(
@@ -784,7 +858,11 @@ impl State for ViewportState {
                 search.cancel();
             }
             if search.active() {
-                if let Some(hit) = search.advance(&**texts) {
+                let hit = search.advance(&**texts, more);
+                if search.take_load() {
+                    load(Msg::Load(thread.id().clone()));
+                }
+                if let Some(hit) = hit {
                     // the controller counts a reverse list's items from its bottom; the selection
                     // area's model counts the rows of the render list, from the top
                     widget

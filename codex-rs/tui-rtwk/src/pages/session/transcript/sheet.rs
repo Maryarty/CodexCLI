@@ -21,6 +21,7 @@ use rtwk::style::{Span, Style};
 use rtwk::text::{Text, TextOverflow, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::keymap::actions::{GLOBAL_FIND_TRANSCRIPT, PAGER_FIND};
 use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::backtrack::{EscStep, Targets};
@@ -28,10 +29,12 @@ use codex_tui_core::screens::{ScreenThreadIntent, chat};
 use codex_tui_core::threads::{HistoryState, ThreadModel};
 
 use super::TranscriptMode;
+use super::copy::{self, CopyJob};
 use super::find;
 use super::find_footer;
 use super::history;
 use super::pager;
+use super::selection;
 use super::strings::{self, Strings};
 use crate::app::debug::seeded::Seeded;
 use crate::app::debug::{DebugEntry, EntryOpen};
@@ -95,6 +98,8 @@ pub enum Msg {
     Pager(pager::Msg),
     /// F3 (`/`): Find opens on the sheet's transcript (`begin_search`).
     Find,
+    /// A copy key or Esc while the reader's selection pauses Find (`handle_selection_key`).
+    Selection(selection::Key),
     Esc,
     Older,
     Newer,
@@ -120,6 +125,28 @@ impl State for SheetState {
         let targets = Targets::of(thread.transcript(), thread.can_load_history());
         match msg {
             Msg::Find => w.find.begin(&w.follow, &w.selection),
+            Msg::Selection(key) => {
+                let held = w.selection.controller();
+                let text = held.text();
+                if key == selection::Key::Clear {
+                    held.clear();
+                } else if !text.is_empty() {
+                    let hs = read::<Hs, _>(cx);
+                    let job = copy::mode_of(&w.find).shape(CopyJob::selected(
+                        text,
+                        true,
+                        &read::<TuiSettings, _>(cx),
+                    ));
+                    cx.emit(
+                        &hs.copy,
+                        if key == selection::Key::CopyAndFollow {
+                            job.following()
+                        } else {
+                            job
+                        },
+                    );
+                }
+            }
             Msg::Pager(pager::Msg::Rows(rows)) => w.follow.scroll_by(rows),
             Msg::Pager(pager::Msg::Pages(pages)) => w.follow.page(pages),
             Msg::Pager(pager::Msg::HalfPages(pages)) => w.follow.half_page(pages),
@@ -241,7 +268,11 @@ impl State for SheetState {
         });
         // while Find is open its query row and status row take the place of the status row and the
         // hints (`footer_with_navigation`), from the first column
-        let bottom = bottom.map(|rows| find_footer::slot_in(cx, &find, rows.into(), 0));
+        let bottom = match bottom {
+            Some(rows) => Some(find_footer::slot_in(cx, &find, rows.into(), 0)),
+            // the bare view draws no footer: Find's query is edited all the same
+            None => Some(find_footer::unseen_query(cx, &find)),
+        };
         let mut column = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
         if w.chrome == Chrome::Overlay {
             column = column.child(pager::header(table.sheet_title, table, tokens.dim()));
@@ -251,12 +282,20 @@ impl State for SheetState {
             column = column.child(bottom);
         }
         let reading = w.find.clone();
+        let send = cx.local_sender();
         let mut focus = Focus::new(column)
             .autofocus()
-            // a match being read (Find accepted): `Ctrl+P`, `Ctrl+N`, Enter (swallowed), Esc and
-            // `Ctrl+C` are Find's, before the sheet's own (`handle_search_key`)
+            // what the reader selected while Find is open: its copy keys and Esc come first
+            // (`handle_selection_key`); a match being read (Find accepted): `Ctrl+P`, `Ctrl+N`,
+            // Enter (swallowed), Esc and `Ctrl+C` are Find's, before the sheet's own
+            // (`handle_search_key`)
             .on_key_event(move |_, key| {
-                if reading.reading()
+                if reading.paused()
+                    && let Some(step) = selection::key(&key)
+                {
+                    send(Msg::Selection(step));
+                    KeyEventResult::Handled
+                } else if reading.reading()
                     && let Some(taken) = find::key(reading.mode(), &key)
                     && reading.take(taken)
                 {

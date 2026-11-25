@@ -379,22 +379,25 @@ fn raw_multiline_paste_defers_rendering_and_submits_once() {
 // ORACLE app/owned_transcript_input_tests.rs:835 accepted_find_defers_paste_rendering_but_keeps_enter kind=ui owner=chat-live
 #[test]
 fn accepted_find_defers_paste_rendering_but_keeps_enter() {
-    kit::pending(
-        Owner::ChatLive,
-        "no transcript find on the chat: F3 with a pasted needle, Enter accepting it, and a paste burst held back under the accepted find are not built (the 'Before paste needle' cell is not seeded)",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    // the oracle's cell `Before paste needle` is the fixture's `needle in history`
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!("fixtures/transcript_view_1/needle.jsonl"))
+        .open();
     s.keys("f3");
     s.paste("needle");
     s.keys("enter");
-    s.type_text("D");
+    // the oracle's clock is paused: `D` and the keys after it come with no time between
+    s.type_burst("D");
     let before = s.shot();
-    s.type_text(&"ebug log ".repeat(80));
+    s.type_burst(&"ebug log ".repeat(80));
     s.assert_same_rows(&before);
+    // Enter still belongs to accepted Find, even in the middle of a paste burst
     s.keys("enter");
     s.assert_rows_differ(&before);
     s.wait(1000);
-    s.assert_contains("ebug log");
+    // the composer shows the last rows of what it holds: the flush is whole
+    s.assert_contains("log ebug log ebug log");
 }
 
 // ORACLE app/owned_transcript_input_tests.rs:899 composer_paste_releases_selection_and_retains_normal_cursor_movement kind=ui owner=chat-live
@@ -693,10 +696,6 @@ fn inline_transcript_search_draws_and_escape_precedes_backtrack() {
 // ORACLE app/owned_transcript_tests.rs:1208 find_owns_editor_chords_without_changing_the_composer_draft kind=ui owner=chat-live
 #[test]
 fn find_owns_editor_chords_without_changing_the_composer_draft() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Find (F4) on the owned transcript with its query TextArea: editor chords on the query line (ctrl+x h, ctrl+f, delete), the 'h · Move Line Start' editor completion HUD and the query caret are not built; only the owned half of the oracle's loop is ported (the inline overlay half is not)",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .keymap(&[
@@ -714,8 +713,11 @@ fn find_owns_editor_chords_without_changing_the_composer_draft() {
     s.assert_contains("enter accept");
     s.keys("ctrl+g x");
     s.keys("ctrl+x h ctrl+f delete");
-    s.assert_has_row("Find: apha betax");
+    s.assert_has_row_trimmed("Find: apha betax");
     s.assert_contains("draft remains intact");
+    s.keys("ctrl+c");
+    s.assert_absent("Find:");
+    s.assert_composer("draft remains intact");
 }
 
 // ORACLE app/owned_transcript_tests.rs:1317 offline_find_closes_before_the_next_ctrl_c_quits kind=ui owner=chat-live

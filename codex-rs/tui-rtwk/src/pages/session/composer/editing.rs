@@ -7,10 +7,11 @@
 //! (`input_with_keymap`, the default editor keymap of `keymap.rs`) and
 //! `chat_composer_history.rs`.
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use rtwk::editing::{KeyCx, StoredStops, TextEditingController, TextSelection, editing_key};
-use rtwk::focus::KeyPress;
+use rtwk::focus::{KeyCombo, KeyPress};
 
 use codex_tui_core::data::history::Store;
 use codex_tui_core::keymap::actions::{
@@ -27,7 +28,7 @@ use codex_tui_core::keymap::fixed::{
     FIELD_WORD_LEFT, FIELD_WORD_RIGHT, FIELD_YANK, HISTORY_NEXT, HISTORY_PREVIOUS, PASTE_IMAGE,
     TAB,
 };
-use codex_tui_core::keymap::{ActionId, Keymap};
+use codex_tui_core::keymap::{ActionId, Binding, Keymap};
 use codex_tui_core::kit::vim::{EditorAction, VimPending};
 use codex_tui_core::screens::composer::restricted::Restricted;
 use codex_tui_core::screens::{Shared, popovers};
@@ -39,8 +40,8 @@ use super::search;
 use super::suggest::Suggest;
 use super::vim;
 use crate::keymap::{
-    c0_ctrl_h, holds_command_mod, holds_ctrl_or_alt, holds_shift_or_alt, only_shift, press_for,
-    pressed, unmodified,
+    c0_ctrl_h, combo_of, holds_command_mod, holds_ctrl_or_alt, holds_shift_or_alt, only_shift,
+    press_for, pressed, unmodified,
 };
 use crate::widgets::composer_draft::ComposerDraft;
 use crate::widgets::composer_sparkle::{Key as SparkleKey, SparkleController};
@@ -624,6 +625,64 @@ fn edit_key(
                 true
             }
         }
+    }
+}
+
+/// What a one-line field (Find's query: the oracle's own `TextArea`, not the composer's) takes of
+/// the user's Editor bindings: an action's key is carried out as the field's own editing would,
+/// and a chord's second key completes the chord whose first `held` kept. The composer's elements,
+/// kill ring and history are the composer's. `false`: the key is the field's.
+pub(crate) fn edit_query(
+    keymap: &Keymap,
+    c: &TextEditingController,
+    key: &KeyPress,
+    held: &RefCell<Option<KeyPress>>,
+) -> bool {
+    let chords = |id: ActionId| -> Vec<(KeyCombo, KeyCombo)> {
+        keymap
+            .bindings(id)
+            .into_iter()
+            .filter_map(|binding| match binding {
+                Binding::Chord { prefix, completion } => {
+                    Some((combo_of(&prefix)?, combo_of(&completion)?))
+                }
+                Binding::Single(_) => None,
+            })
+            .collect()
+    };
+    let carried = |edit: Edit| {
+        if let Some(via) = edit.canonical() {
+            field_edit(keymap, c, &via);
+        }
+    };
+    if let Some(first) = held.borrow_mut().take()
+        && let Some((edit, _)) = EDITS.iter().find(|(_, id)| {
+            chords(*id)
+                .iter()
+                .any(|(prefix, done)| prefix.accepts_press(&first) && done.accepts_press(key))
+        })
+    {
+        carried(*edit);
+        return true;
+    }
+    if EDITS.iter().any(|(_, id)| {
+        chords(*id)
+            .iter()
+            .any(|(prefix, _)| prefix.accepts_press(key))
+    }) {
+        *held.borrow_mut() = Some(key.clone());
+        return true;
+    }
+    match resolve(keymap, key) {
+        Resolved::Nothing => true,
+        Resolved::Edit {
+            edit,
+            via: Some(via),
+        } if !matches!(edit, Edit::Newline | Edit::KillWholeLine) => {
+            field_edit(keymap, c, &via);
+            true
+        }
+        _ => false,
     }
 }
 
