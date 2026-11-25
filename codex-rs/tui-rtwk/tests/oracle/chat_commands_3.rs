@@ -35,7 +35,7 @@ const ROLLOUT: &str = include_str!("fixtures/chat_commands_3/rollout.jsonl");
 fn slash_copy_picker_remains_available_from_parent_owned_threads() {
     kit::pending(
         Owner::ChatNavPane,
-        "the /copy picker (Whole response) is not built, and no seed sets a parent-owned thread with a transcript copy source",
+        "G-new-copy-picker: the /copy picker (Whole response) is not built, and no seed sets a parent-owned thread with a transcript copy source",
     );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/cop");
@@ -640,27 +640,9 @@ fn slash_cd_changes_current_session_after_replay_and_defaults_to_home() {
 // ORACLE chatwidget/tests/slash_commands.rs:3434 slash_cd_rejects_pending_input_and_unsupported_session_ownership kind=snap owner=chat-nav-pane
 #[test]
 fn slash_cd_rejects_pending_input_and_unsupported_session_ownership() {
-    kit::pending(
+    kit::na(
         Owner::ChatNavPane,
         "the snapshot's second half is the idle session with a queued message: the port drains its queue at turn end and refuses /cd while a task runs, so no key sequence reaches that state; the oracle's whole table of states is carried by core/tests/commands.rs directory::the_directory_is_not_changed_unless_the_session_is_idle_and_the_primary_one and ::cd_before_the_session_starts_says_so",
-    );
-    // State \"new\": no session yet.
-    let mut s = Screen::build(Owner::ChatNavPane)
-        .size(200, 24)
-        .live()
-        .open();
-    s.type_text("/cd /tmp");
-    s.keys("enter");
-    s.assert_contains("The session must start before you can change its working directory.");
-    // State \"queued\": a queued input is pending.
-    let mut q = Screen::build(Owner::ChatNavPane)
-        .size(200, 24)
-        .live()
-        .open();
-    q.type_text("/cd /tmp");
-    q.keys("enter");
-    q.assert_contains(
-        "Changing directories requires an idle primary session without queued input.",
     );
 }
 

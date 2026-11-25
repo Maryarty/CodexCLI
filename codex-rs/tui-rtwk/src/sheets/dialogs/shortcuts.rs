@@ -20,8 +20,8 @@ use super::dialog::{Msg, SmallDialogState};
 use super::strings::{Keys, Strings};
 use crate::app::theme::Tokens;
 use crate::keymap::{bind_fixed, label, stroke_for, stroke_label};
-use codex_tui_core::keymap::fixed;
 use codex_tui_core::keymap::actions::GLOBAL_OPEN_AGENTS;
+use codex_tui_core::keymap::fixed;
 use codex_tui_core::keymap::{Keymap, Stroke};
 
 /// The two pages of the shortcut overlay (`bottom_pane/shortcut_overlay.rs`: `ShortcutView`):
@@ -155,12 +155,7 @@ pub(super) struct Resolved {
 /// The columns of `bindings` (`shortcut_overlay.rs`): a row whose action is
 /// unbound is left out, `Send message` and `Quit` turn into `Queue message`
 /// and `Interrupt` while a turn runs.
-pub(super) fn resolve(
-    s: &Strings,
-    keymap: &Keymap,
-    running: bool,
-    agents: bool,
-) -> Vec<Resolved> {
+pub(super) fn resolve(s: &Strings, keymap: &Keymap, running: bool, agents: bool) -> Vec<Resolved> {
     let spell = |stroke: &Stroke| stroke_label(stroke);
     s.shortcut_sections
         .iter()

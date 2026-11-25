@@ -9,7 +9,8 @@ use std::rc::Rc;
 
 use rtwk::focus::{FocusNode, KeyEventResult};
 use rtwk::layout::{
-    BoxConstraints, BoxWidget, Column, ConstrainedBox, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, UNBOUNDED,
+    BoxConstraints, BoxWidget, Column, ConstrainedBox, CrossAxisAlignment, EdgeInsets, Expanded,
+    MainAxisSize, UNBOUNDED,
 };
 use rtwk::provider::read;
 use rtwk::style::Span;
@@ -227,7 +228,9 @@ impl State for AloneState {
             }
         };
         let running = read::<ThreadModel, _>(cx).is_running();
-        let shortcuts = self.shortcuts.then(|| shortcut_panel_fixed(cx, running, w.agents));
+        let shortcuts = self
+            .shortcuts
+            .then(|| shortcut_panel_fixed(cx, running, w.agents));
         let surface = tokens.prompt_surface(cx, false);
         let ui = w.ui.clone();
         // The `@`/`$` popup stands above the draft and takes the rows the

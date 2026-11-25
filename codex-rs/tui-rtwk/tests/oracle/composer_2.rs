@@ -265,12 +265,18 @@ fn non_ascii_burst_buffers_large_multiline_mixed_ascii_and_unicode() {
 // ORACLE bottom_pane/chat_composer.rs:8862 ascii_burst_treats_enter_as_newline_even_when_parent_owned kind=ui owner=chat-live
 #[test]
 fn ascii_burst_treats_enter_as_newline_even_when_parent_owned() {
-    let mut s = ready(100, 24);
-    s.type_burst("hi\nthere");
-    s.wait(50);
-    let p = prompt(&s);
-    s.assert_row(p, "› hi");
-    s.assert_row(p + 1, "  there");
+    // the oracle runs it plain and with `set_parent_owned_thread()`
+    for parent_owned in [false, true] {
+        let mut s = ready(100, 24);
+        if parent_owned {
+            s.parent_owned();
+        }
+        s.type_burst("hi\nthere");
+        s.wait(50);
+        let p = prompt(&s);
+        s.assert_row(p, "› hi");
+        s.assert_row(p + 1, "  there");
+    }
 }
 
 // ORACLE bottom_pane/chat_composer.rs:8956 slash_context_enter_ignores_paste_burst_enter_suppression kind=ui owner=chat-live
@@ -456,10 +462,6 @@ fn remote_image_rows_snapshots() {
 // ORACLE bottom_pane/chat_composer.rs:9412 slash_popup_model_clipping_snapshot kind=snap owner=chat-live snap=slash_popup_mo_clipped
 #[test]
 fn slash_popup_model_clipping_snapshot() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "G68: the popup rows float in a different layout from the oracle's: a `▎` bar and a right-aligned detail, not aligned name/description columns with a `›` marker, no `enter insert · esc close` line, no `100% context left` footer",
-    );
     let mut s = ready(60, 3);
     s.type_text("/mo");
     // the draft and its cursor stay visible above the clipped picker

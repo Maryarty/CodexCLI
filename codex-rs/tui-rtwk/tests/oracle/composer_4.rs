@@ -210,7 +210,7 @@ fn blockquote_paste_uses_cursor_line_and_preserves_suffix() {
 fn blockquote_paste_large_expands_quoted_text_on_submit() {
     kit::pending(
         Owner::ChatLive,
-        "the sent user message is drawn as Markdown, so `> x` / `> second` is one quote paragraph (the oracle prints the typed lines): the user message cell, chat-cells",
+        "G73: item 1, the quote draws as rtwk Markdown (a `│` bar, one paragraph): the sent user message is drawn as Markdown, so `> x` / `> second` is one quote paragraph (the oracle prints the typed lines): the user message cell, chat-cells",
     );
     let mut s = chat(100, 24);
     s.type_text("> ");
@@ -565,7 +565,7 @@ fn handoff_edit_discards_stale_command_before_ordinary_enter() {
 fn offline_delete_reveals_the_edited_row_without_moving_the_caret() {
     kit::pending(
         Owner::ChatLive,
-        "screen: the page draws its `Reconnecting…` row above and the footer under the composer (the oracle's snapshot is the composer alone at 40x8), and a composer scrolled by the wheel shows no `↑` cue at the end of its first row; the offline Delete itself acts (tests/pages/composer_draft.rs)",
+        "G-new-offline-composer-screen: screen: the page draws its `Reconnecting…` row above and the footer under the composer (the oracle's snapshot is the composer alone at 40x8), and a composer scrolled by the wheel shows no `↑` cue at the end of its first row; the offline Delete itself acts (tests/pages/composer_draft.rs)",
     );
     let mut s = offline(40, 8);
     let text = (1..=20)
@@ -611,10 +611,14 @@ fn reconnect_edit_removes_deleted_attachment_and_paste_metadata() {
 // ORACLE bottom_pane/chat_composer/reconnect_tests.rs:297 unavailable_thread_expands_pasted_commands_without_dispatching kind=ui owner=chat-live
 #[test]
 fn unavailable_thread_expands_pasted_commands_without_dispatching() {
+    kit::pending(
+        Owner::ChatLive,
+        "G-new-unavailable-thread: core has no unavailable-thread fact (a Cloud thread whose channel is not live after reopen; oracle `thread_unavailable`), so the composer never takes `Restricted::UnavailableThread` and Enter on a pasted `/clear <1001 chars>` neither expands the paste into the text nor stays put",
+    );
     let mut s = chat(100, 24);
     s.paste(&format!("/clear {}", "x".repeat(1001)));
     s.keys("enter");
-    s.assert_row_starts_with(prompt(&s), "› /clear [Pasted Content 1008 chars]");
+    s.assert_row_starts_with(prompt(&s), "› /clear xxxx");
 }
 
 // ---- oracle: bottom_pane/chat_composer/snapshot_tests.rs (3 screen-level tests here; 0 state tests left to chat-live)

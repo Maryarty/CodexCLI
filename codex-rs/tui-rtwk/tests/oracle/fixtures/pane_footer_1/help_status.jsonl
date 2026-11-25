@@ -2,5 +2,6 @@
 # (set_status_line), colours off. 20% used: a 112000-token window, 32000 in the last turn leave 80% after the
 # 12000 reserved.
 {"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}
 {"step":"screen","dir":"chat","ev":{"status":{"model":"MODEL","cwd":"~/project","items":["model-name","current-dir","context-used"],"colors":false}}}
 {"step":"notify","message":{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"totalTokens":32000,"inputTokens":32000,"cachedInputTokens":0,"outputTokens":0,"reasoningOutputTokens":0},"last":{"totalTokens":32000,"inputTokens":32000,"cachedInputTokens":0,"outputTokens":0,"reasoningOutputTokens":0},"modelContextWindow":112000}}}}

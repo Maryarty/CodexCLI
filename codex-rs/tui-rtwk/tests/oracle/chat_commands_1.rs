@@ -727,7 +727,7 @@ fn committed_user_message_with_hidden_prompt_context_renders_local_images() {
 fn reconnect_resumes_unsent_input_and_reconciles_confirmed_submissions() {
     kit::pending(
         Owner::ChatNavPane,
-        "no seed for a reconnect with a first message in flight (pause for disconnect, capture and restore of the input); the kit cannot drive the reconnect",
+        "G-new-reconnect-reconcile: the port keeps one thread model across a lost stream (queue on Enter, drain on restore: built), but it does not capture the first message in flight (a pending steer or a pending start) with its client id, nor reconcile it against the recovered history's receipts, so the notice `Couldn't confirm whether “first message” was sent. It hasn't been resent.` is never raised and an unconfirmed first message is not put back at the head of the queue",
     );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("first message");
