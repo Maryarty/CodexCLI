@@ -703,6 +703,12 @@ fn chord_step(keymap: &Keymap, first: Option<&KeyPress>, key: &KeyPress) -> Chor
     }
 }
 
+/// Whether `key` completes an editor chord the held `first` began: the page asks before it
+/// lets a key go on to the composer with a leader's prefix held.
+pub(crate) fn completes_editor_chord(keymap: &Keymap, first: &KeyPress, key: &KeyPress) -> bool {
+    matches!(chord_step(keymap, Some(first), key), ChordStep::Done(_))
+}
+
 /// One guide row per action: the action and the labels of the keys that complete it.
 pub(crate) type ChordRows = Vec<(ActionId, Vec<String>)>;
 
@@ -747,9 +753,11 @@ fn chord_key(
         .map(|env| (env.now)())
         .unwrap_or_default();
     let before = draft.chord();
+    // a leader's prefix waits for ever (`expire`: only a chord that is not persistent ends)
+    let leader = draft.chord_is_leader();
     let held = before
         .clone()
-        .filter(|(_, since)| now.saturating_sub(*since) < KEY_CHORD_TIMEOUT);
+        .filter(|(_, since)| leader || now.saturating_sub(*since) < KEY_CHORD_TIMEOUT);
     let step = chord_step(&data.keymap, held.as_ref().map(|(first, _)| first), key);
     match step {
         ChordStep::Hold => draft.set_chord(Some((key.clone(), now))),

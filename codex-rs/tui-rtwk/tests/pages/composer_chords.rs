@@ -14,6 +14,22 @@ const CHORDS: &[(&str, &str)] = &[
     ("editor.delete_backward_word", "f11 d"),
 ];
 
+/// The same with the leader moved to `f12`, the prefix of the editor chords: an explicit leader
+/// keeps both on it (`validate_chord_conflicts` rejects only identical completions).
+const LEADER_CHORDS: &[(&str, &str)] = &[
+    ("editor.move_line_end", "f12 e"),
+    ("editor.move_line_start", "f12 a"),
+    ("global.leader", "f12"),
+];
+
+fn leader() -> Screen {
+    Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .keymap(LEADER_CHORDS)
+        .open()
+}
+
 fn chat(width: u16, height: u16) -> Screen {
     Screen::build(Owner::ChatNavPane)
         .size(width, height)
@@ -247,6 +263,138 @@ fn normal_mode_keeps_its_own_keys() {
     s.keys("0");
     // the chord's keys are Normal mode's own: `e` moves to the end of the word
     s.keys("alt+x");
+    s.keys("e");
+    s.type_text("i");
+    s.type_text("Q");
+    s.assert_composer("foQo bar");
+}
+
+#[test]
+fn an_explicit_leader_and_an_editor_chord_share_a_prefix_and_both_complete() {
+    let mut s = leader();
+    s.type_text("draft");
+    s.keys("f12");
+    s.keys("a");
+    s.assert_composer("draft");
+    assert_eq!(caret_probe(&mut s, "Y"), "Ydraft");
+    s.keys("f12");
+    s.keys("e");
+    s.assert_composer("draft");
+    assert_eq!(caret_probe(&mut s, "Z"), "draftZ");
+    s.assert_absent("No presets saved");
+    // the leader's own chord on the same prefix opens the presets, the draft kept
+    s.keys("f12");
+    s.keys("p");
+    s.assert_contains("No presets saved");
+    s.keys("esc");
+    s.assert_composer("draft");
+}
+
+#[test]
+fn an_explicit_leader_miss_is_an_ordinary_key() {
+    let mut s = leader();
+    s.type_text("draft");
+    s.keys("f12");
+    s.type_text("x");
+    s.assert_composer("draftx");
+    // the prefix again cancels it: nothing typed, no menu, and nothing is held after
+    s.keys("f12");
+    s.keys("f12");
+    s.assert_composer("draftx");
+    s.type_text("p");
+    s.assert_composer("draftxp");
+    s.assert_absent("No presets saved");
+    // Esc cancels and is spent
+    s.keys("f12");
+    s.keys("esc");
+    s.assert_composer("draftxp");
+    s.type_text("e");
+    s.assert_composer("draftxpe");
+    s.assert_absent("No presets saved");
+}
+
+#[test]
+fn a_pending_leader_prefix_shows_its_guide_after_350_ms() {
+    let mut s = leader();
+    s.keys("f12");
+    s.wait(100);
+    s.assert_absent("Esc cancel");
+    s.wait(300);
+    s.assert_contains("\u{2500} f12 ");
+    s.assert_contains("a \u{b7} Move Line Start");
+    s.assert_contains("e \u{b7} Move Line End");
+    s.assert_contains("p \u{b7} Open Presets");
+    s.assert_contains("[ \u{b7} Select Transcript");
+    s.assert_contains("Esc cancel");
+    // the editor's rows come before the leader's
+    let rows = s.rows().join("\n");
+    let at = |text: &str| {
+        rows.find(text)
+            .unwrap_or_else(|| panic!("{text:?} in {rows}"))
+    };
+    assert!(at("e \u{b7} Move Line End") < at("p \u{b7} Open Presets"));
+    assert!(at("a \u{b7} Move Line Start") < at("[ \u{b7} Select Transcript"));
+}
+
+#[test]
+fn a_pending_leader_prefix_never_expires() {
+    let mut s = leader();
+    s.type_text("draft");
+    s.keys("f12");
+    s.wait(5000);
+    s.assert_contains("Esc cancel");
+    s.assert_contains("p \u{b7} Open Presets");
+    s.keys("p");
+    s.assert_contains("No presets saved");
+    s.assert_composer("draft");
+}
+
+#[test]
+fn the_guide_goes_with_the_leader_when_it_completes_or_is_cancelled() {
+    let mut s = leader();
+    s.keys("f12");
+    s.wait(400);
+    s.assert_contains("Open Presets");
+    s.keys("p");
+    s.assert_absent("Open Presets");
+    s.keys("esc");
+    s.keys("f12");
+    s.wait(400);
+    s.assert_contains("Open Presets");
+    s.keys("esc");
+    s.assert_absent("Open Presets");
+    s.assert_absent("Esc cancel");
+}
+
+#[test]
+fn a_default_leader_guide_lists_the_leaders_chords() {
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.keys("ctrl+x");
+    s.wait(400);
+    s.assert_contains("p \u{b7} Open Presets");
+    s.assert_contains("[ \u{b7} Select Transcript");
+    s.assert_contains("b \u{b7} Change Where to Run");
+    s.assert_contains("Esc cancel");
+    s.keys("esc");
+    s.assert_absent("Esc cancel");
+}
+
+#[test]
+fn an_explicit_leader_with_the_page_in_normal_mode_keeps_vim_keys() {
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .keymap(&[
+            ("global.toggle_vim_mode", "f9"),
+            ("editor.move_line_end", "f12 e"),
+            ("global.leader", "f12"),
+        ])
+        .open();
+    s.type_text("foo bar");
+    s.keys("f9");
+    s.keys("0");
+    // `e` is Normal mode's own (the end of the word) and no leader stays held
+    s.keys("f12");
     s.keys("e");
     s.type_text("i");
     s.type_text("Q");
