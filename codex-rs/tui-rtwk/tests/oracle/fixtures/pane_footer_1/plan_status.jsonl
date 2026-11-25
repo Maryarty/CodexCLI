@@ -1,0 +1,9 @@
+# The oracle's `composer()` of status_surface_tests.rs in Plan mode (`set_collaboration_mode_indicator`): the status line
+# `MODEL · ~/project · Context 20% used` (help_status.jsonl) and the thread's collaboration mode (the thread's settings
+# update), which the footer draws as `Plan mode`.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}
+{"step":"screen","dir":"chat","ev":{"status":{"model":"MODEL","project_root":"~/project","items":["model-name","project-name","context-used"],"colors":false}}}
+{"step":"notify","message":{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"totalTokens":32000,"inputTokens":32000,"cachedInputTokens":0,"outputTokens":0,"reasoningOutputTokens":0},"last":{"totalTokens":32000,"inputTokens":32000,"cachedInputTokens":0,"outputTokens":0,"reasoningOutputTokens":0},"modelContextWindow":112000}}}}
+{"step":"screen","dir":"chat","ev":{"flags":{"collaboration_modes_enabled":true}}}
+{"step":"notify","message":{"method":"thread/settings/updated","params":{"threadId":"thread-1","threadSettings":{"cwd":"/tmp/project","approvalPolicy":"on-request","approvalsReviewer":"user","sandboxPolicy":{"type":"dangerFullAccess"},"activePermissionProfile":null,"model":"MODEL","modelProvider":"openai","serviceTier":null,"effort":null,"summary":null,"collaborationMode":{"mode":"plan","settings":{"model":"MODEL","reasoning_effort":null,"developer_instructions":null}},"personality":null}}}}

@@ -464,7 +464,9 @@ impl Spec {
             };
             out.push((Kind::Context, vec![plain(text, dim)]));
         }
-        if self.warnings > 0 {
+        // the notice yields to a draft kept while a task runs: the queue hint is the row's
+        // (`shows_passive_line`)
+        if self.warnings > 0 && (self.draft_empty || !self.running) {
             out.push((Kind::Warning, self.warning_forms(width)));
         }
         out

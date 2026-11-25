@@ -6,6 +6,8 @@
 //! pane over.
 
 use rtwk::foundation::ListenableBuilder;
+use rtwk::provider::select;
+use rtwk::style::Span;
 use rtwk::layout::{
     BoxWidget, Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Row, SizedBox,
 };
@@ -13,6 +15,7 @@ use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Key};
 
 use codex_tui_core::app::Session;
+use codex_tui_core::screens::ScreenStates;
 
 use crate::pages::session::activity::StatusSlot;
 use crate::pages::session::backtrack::EditWatch;
@@ -24,7 +27,7 @@ use crate::pages::session::status_surfaces::{line_interests, raise};
 use crate::pages::session::transcript;
 use crate::sheets::dialogs::shortcut_panel;
 use crate::sheets::select::hud;
-use crate::widgets::status_line::{status_spans, thread_color};
+use crate::widgets::status_line::{SEPARATOR, status_spans, thread_color};
 
 use super::frame::Frame;
 use super::slot::Slot;
@@ -81,13 +84,25 @@ pub(super) fn body(
             .as_ref()
             .map(codex_tui_core::ids::ThreadId::as_str),
     );
-    let line = status_spans(
+    let mut line = status_spans(
         context.items_for(facts),
         facts.colors,
         tokens,
         thread_color,
         |id| context.link_for(id),
     );
+    // the viewed agent joins the status line (`passive_footer_status_line`); with the line
+    // off, the footer's hints carry it (`Kind::AgentName`)
+    if facts.items.as_ref().is_none_or(|items| !items.is_empty())
+        && let Some(label) = select::<ScreenStates, Option<String>, _>(cx, |states| {
+            states.chat.facts.agent_label.clone()
+        })
+    {
+        if !line.is_empty() {
+            line.push(Span::styled(SEPARATOR, tokens.dim()));
+        }
+        line.push(Span::styled(label, tokens.dim()));
+    }
     // The backend control above the composer (`rendering.rs`,
     // `visible_new_backend_control`): the displayed backend, and the key.
     let control = session

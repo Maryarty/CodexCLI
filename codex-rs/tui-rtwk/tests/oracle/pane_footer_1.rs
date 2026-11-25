@@ -69,49 +69,110 @@ fn plain(width: u16, height: u16) -> Screen {
         .open()
 }
 
-const FIND_REASON: &str = "the transcript Find footer (`Find: needle` above the composer, its cursor, the copy flash) is not built: the chat footer draws only the history-search row, and no key or seed opens a find footer";
+const RETAINED_POPUP_REASON: &str = "the command popup is not retained across Find: F3 hides it (the page ports the rest: no popup rows and the cursor on the query's row at 60x16, 24x8 and 12x3) but closing Find with Esc or Ctrl+C leaves the draft `/m` without its popup, where the oracle's composer keeps `ActivePopup::Command` and paints it again once the footer is gone (`render(None) == original`): the draft's popover (pages/session/composer, w2-composer) closes with the focus and `Suggest` stays open without a rebuild";
+const FIND_COPY_REASON: &str = "Find is built (F3: `Find: needle`, the cursor on the query) but its copy flash is not: Ctrl+C in Find cancels it (the oracle's footer says `Ctrl+C copy · Esc clear selection` over a selection), and the chat page gives its footer no flash (session/slot.rs `flash: None`; the selection's copy feedback is the pager's, transcript/copy_feedback.rs): see FLASH_REASON";
+const FIND_OVERRIDE_REASON: &str = "a hint override (`ctrl+c quit`) under the interactive Find footer: nothing sets one in the live chat (only the presets menu and the shutdown do, session/slot.rs), and Ctrl+C in Find cancels it; the footer's own precedence (flash over override over passive, `lead.rs`) has no key to drive it";
 const REPLACE_REASON: &str = "the draft replaced from outside while the history search is open (`ChatComposer::set_text_content`): no seed, key or fact replaces the composer's text from the host's side (the queued-draft restore and the external editor's result do it, with no search open)";
 const FOCUS_REASON: &str = "the terminal losing and regaining focus (`set_sparkle_terminal_focus`, crossterm's FocusLost/FocusGained): rtwk reports no terminal focus-in/out events (rtwk-gaps.md), so the deadline's behaviour across a focus loss cannot be driven; a running turn on a fresh task (`set_task_running`) has no seed either: a turn that ran ends the fresh task";
 const CARET_REASON: &str = "the terminal cursor on the history search's own row (`reverse-i-search: query▮`): the search row is static text under the composer, and the composer's TextArea (focused, it takes the search's keys) keeps its caret on the prompt row (row 3 of 6, the oracle puts it on row 5); a caret at the query's end needs the query as an editing field that holds the focus (a restructure of composer/search.rs: footer field, Up/Down/Enter/Esc as its shortcuts) or a custom RenderObject calling `rtwk::editing::show_caret` (R15 forbids hand-made render objects in the app), and the TextArea has no way to hide its caret while it has the focus";
 const HELP_STATUS: &str = include_str!("fixtures/pane_footer_1/help_status.jsonl");
 const EXTENSION_REASON: &str = "the status line of this test is a ui_tree `extension` (a `FooterContent` that only the oracle's tests and previews build; no native item makes such a row): the person decides (brief section 7), the behaviour it checks is re-expressed with native items in tests/pages/chat_status.rs";
-const PROVIDER_REASON: &str = "a provider status (the bold `codex-internal`, an extension row) beside Plan mode: no collaboration-mode fact in StatusFacts (core/src/screens/chat.rs, chunk-live's) and no extension status";
+const PROVIDER_REASON: &str = "the bold `codex-internal` provider status (an extension row, see EXTENSION_REASON) beside Plan mode and 2 warnings: Plan mode, the warning count and the `f2 to view` hint are in the page (the warnings_yield and effort ports run them); the row itself is the extension status a person decides";
 const THUMBNAIL_REASON: &str = "the composer's image thumbnails between the footer rows and the extra status (composer chunk) over an extension status row";
-const LINK_REASON: &str = "the native status carries a link (`PR #42`): no pull-request fact (git summary in StatusFacts, chunk-live's; the host probe is a need), and Plan mode needs the collaboration fact";
-const AGENT_REASON: &str = "the viewed agent's label joins the status (`build ready · frontend`): no agent-label fact in StatusFacts (chunk-live's)";
+const LINK_REASON: &str = "the status of this test is one underlined text under a single link (`لا PR #42 build green deploy ready …`, set_status_line with a HyperlinkLine): the native status line has the `pull-request-number` item as a link on its own (the plan-mode port runs `project · PR #42` with it) but no item carries free text under a whole-text link, so the wrap of a linked sentence at 18 columns has no native input: the person decides (brief section 7)";
 const ACTIVITY_REASON: &str = "the hint is the footer of the transcript view (`TranscriptFooter`: `ctrl+o t/f4 inspect activity`, interactive or not, with the shortcut key unbound) that the composer shows under the transcript pager: the pager has no such footer yet (the pager task's), the Working row and the activity rows of chunk-status do not draw it";
-const MODE_REASON: &str = "the Plan mode indicator and its cycle hint (and the side-conversation label): no collaboration-mode / side facts in StatusFacts (chunk-live's); the footer's fit for them is done (footer/hints.rs unit tests)";
-const QUEUE_REASON: &str = "the status under hints, a flash and a hint override (`persistent_status_and_messages`, five states at 64 columns): no Plan-mode indicator (no collaboration fact in StatusFacts, chunk-live's), no footer flash (`Copied selection`) and no hint override (`Ctrl+X waiting for chord`); no queued messages are in this test, the queue preview is chunk-status's and is done";
+const MODE_REASON: &str = "the footer at five widths with Plan mode, the IDE context indicator, the vim mode and 2 warnings: Plan mode, the vim mode and the warnings are in the page (ported in the plan and warnings tests), the IDE context indicator is not (no IDE-context fact in StatusFacts, no host probe: a Need on the IDE-context owner)";
 const POPUP_REASON: &str = "the status stays under the composer while the popup is open (page test), but the popup's own rows (`/model` descriptions, the selection marker) are the popups chunk's widget and differ from the oracle's Buffer snapshot";
-const WARN_REASON: &str = "the warning notice (`⚠ N warnings · /warnings to view`) is not built in the composer footer: no seed sets a warning count";
-const FLASH_REASON: &str = "no footer flash (`show_flash`, `saved` for a second over the footer row) and no Plan-mode indicator (MODE_REASON): the effort animation lives in the status row above the footer, which it never touches, but the flash it is asserted beside does not exist";
+const FLASH_REASON: &str = "no footer flash source in the live chat: `Timed`/`Flash` (footer/flash.rs) draw a flash when the footer is given one, and the chat page gives none (session/slot.rs `flash: None`: the draft limit's message goes to the transcript as an error cell, nothing else flashes); the oracle sets `saved` on the footer directly";
 
 /// The chat screen's status facts (`ScreenEv::Chat(Ev::Status)`), as the host sends them.
 fn facts(json: &str) -> String {
     format!(r#"{{"step":"screen","dir":"chat","ev":{{"status":{json}}}}}"#)
 }
 
+const WARNINGS_STATUS: &str = include_str!("fixtures/pane_footer_1/warnings_status.jsonl");
+const PLAN_NEEDLE: &str = include_str!("fixtures/transcript_view_4/find_jump.jsonl");
+const PLAN_STATUS: &str = include_str!("fixtures/pane_footer_1/plan_status.jsonl");
+
+/// The git probe answered the first request of the screen: the branch's pull request is 42.
+const PR_42: &str = r#"{"step":"screen","dir":"chat","ev":{"facts":{"cwd":"/w"}}}
+{"step":"screen","dir":"chat","ev":{"facts":{"git_summary":{"request":1,"summary":{"pull_request":{"number":42,"url":"https://example.com/pull/42"}}}}}}"#;
+
+/// A turn is running on the thread.
+const RUNNING: &str = r#"{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}"#;
+
+/// The thread kept a warning, the `n`th (the footer counts them).
+fn warning(n: usize) -> String {
+    format!(
+        r#"{{"step":"notify","message":{{"method":"warning","params":{{"threadId":"thread-1","message":"Warning {n}"}}}}}}"#
+    )
+}
+
+/// A screen of the oracle's `composer()` of the warning tests with `count` warnings.
+fn warned(width: u16, height: u16, count: usize) -> Screen {
+    let mut s = Screen::build(Owner::UiPane)
+        .size(width, height)
+        .script(WARNINGS_STATUS)
+        .terminal_colors(0xde_de_de, 0x10_10_10)
+        .open();
+    for n in 1..=count {
+        s.feed(&warning(n));
+    }
+    s
+}
+
+/// The thread is named (the status line's `thread-name`).
+fn named(name: &str) -> String {
+    format!(
+        r#"{{"step":"notify","message":{{"method":"thread/name/updated","params":{{"threadId":"thread-1","threadName":"{name}"}}}}}}"#
+    )
+}
+
+/// The viewed agent's label (`set_active_agent_label`).
+fn agent(label: &str) -> String {
+    format!(r#"{{"step":"screen","dir":"chat","ev":{{"facts":{{"agent_label":"{label}"}}}}}}"#)
+}
+
 // ---- oracle: bottom_pane/chat_composer/footer_state_tests.rs (3 screen-level tests here; 0 state tests left to ui-pane)
 // ORACLE bottom_pane/chat_composer/footer_state_tests.rs:62 retained_command_suggestions_yield_paint_and_cursor_to_find kind=snap owner=ui-pane snap=find_hides_retained_command_suggestions
 #[test]
 fn retained_command_suggestions_yield_paint_and_cursor_to_find() {
-    kit::pending(Owner::UiPane, FIND_REASON);
-    // the oracle types `/` under a Find footer (`Find: needle`, cursor at column 8) and
-    // renders it at 60x8, 24x8 and 12x3; the footer is set by the test, no key reaches it
-    let mut s = Screen::build(Owner::UiPane).size(60, 8).live().open();
-    s.type_text("/");
-    s.assert_contains("Find: needle");
-    s.assert_contains("Enter next · Esc close");
-    // the snapshot holds the three frames; the kit compares one frame of the snapshot
-    s.assert_snap("find_hides_retained_command_suggestions");
-    s.resize(24, 8);
-    s.resize(12, 3);
+    kit::pending(Owner::UiPane, RETAINED_POPUP_REASON);
+    // the draft `/m` keeps its command popup under Find: the popup is not painted while Find is
+    // open and the cursor is the query's, at 60x8, 24x8 and 12x3; Esc closes Find and the popup
+    // is painted again, the draft untouched
+    // (the popup needs rows the oracle's 8 do not give it here: the page opens at 16)
+    let mut s = Screen::build(Owner::UiPane)
+        .size(60, 16)
+        .script(PLAN_NEEDLE)
+        .open();
+    s.type_text("/m");
+    s.wait(300);
+    s.assert_contains("/model");
+    s.keys("f3");
+    s.assert_contains("Find:");
+    s.assert_absent("/model");
+    let footer = row_of(&s, "Find:");
+    s.assert_cursor(8, footer);
+    for (width, height) in [(24, 8), (12, 3)] {
+        s.resize(width, height);
+        s.assert_absent("/model");
+        if let Some((_, y)) = s.grid().cursor {
+            assert_eq!(y, row_of(&s, "Find:"), "{}", s.text());
+        }
+    }
+    s.resize(60, 16);
+    s.keys("ctrl+c");
+    s.wait(300);
+    s.assert_absent("Find:");
+    s.assert_contains("/model");
+    s.assert_composer("/m");
 }
 
 // ORACLE bottom_pane/chat_composer/footer_state_tests.rs:110 copying_from_find_preserves_the_query_above_selection_feedback kind=snap owner=ui-pane snap=transcript_find_copy_footer
 #[test]
 fn copying_from_find_preserves_the_query_above_selection_feedback() {
-    kit::pending(Owner::UiPane, FIND_REASON);
+    kit::pending(Owner::UiPane, FIND_COPY_REASON);
     // the Find footer (`Find: needle`, `Ctrl+C copy · Esc clear selection`) and the 3 s flash
     // `Copied selection to clipboard` are set by the test; the flash keeps the query above it
     let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
@@ -123,7 +184,7 @@ fn copying_from_find_preserves_the_query_above_selection_feedback() {
 // ORACLE bottom_pane/chat_composer/footer_state_tests.rs:134 interactive_query_keeps_focus_over_underlying_hints_but_empty_override_wins kind=ui owner=ui-pane
 #[test]
 fn interactive_query_keeps_focus_over_underlying_hints_but_empty_override_wins() {
-    kit::pending(Owner::UiPane, FIND_REASON);
+    kit::pending(Owner::UiPane, FIND_OVERRIDE_REASON);
     // the interactive Find footer (cursor at 12) keeps the frame the same when the test sets a
     // hint override (`ctrl+c quit`); an empty override shows the composer's own footer again
     let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
@@ -871,20 +932,25 @@ fn native_status_wraps_links_within_the_host_budget() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:542 native_wrap_tracks_agent_label_and_content_changes_at_the_same_width kind=ui owner=ui-pane
 #[test]
 fn native_wrap_tracks_agent_label_and_content_changes_at_the_same_width() {
-    kit::pending(Owner::UiPane, AGENT_REASON);
     // the status `build ready` at 16 columns wraps to `build ready ·` and the agent label; the
-    // test changes the label and the status (no key does) and the wrap follows at the same width
-    let mut s = Screen::build(Owner::UiPane).size(16, 14).live().open();
-    s.assert_row(0, "build ready ·");
-    s.assert_row(1, "frontend");
-    // the test then sets the label `backend` and the status `tests green` (no key does)
-    s.assert_row(0, "tests green ·");
-    s.assert_row(1, "backend");
-    s.resize(36, 14);
-    s.assert_row(0, "tests green · backend");
-    s.resize(16, 14);
-    s.assert_row(0, "tests green ·");
-    s.assert_row(1, "backend");
+    // label and the status change and the wrap follows at the same width (the oracle hands the
+    // status the whole area, the page keeps the hint row and a cap: a frame of 24 rows gives
+    // the line three)
+    let mut s = Screen::build(Owner::UiPane).size(16, 24).live().open();
+    s.feed(&facts(r#"{"items":["thread-name"]}"#));
+    s.feed(&named("build ready"));
+    s.feed(&agent("frontend"));
+    s.assert_in_order(&["build ready ·", "frontend"]);
+    s.assert_rows_with("frontend", 1);
+    s.feed(&agent("backend"));
+    s.assert_in_order(&["build ready ·", "backend"]);
+    s.feed(&named("tests green"));
+    s.assert_in_order(&["tests green ·", "backend"]);
+    s.resize(36, 24);
+    s.assert_has_row_trimmed("tests green · backend");
+    s.resize(16, 24);
+    s.assert_in_order(&["tests green ·", "backend"]);
+    s.assert_absent("tests green · backend");
 }
 
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:571 native_effort_transition_restores_wrapping_after_its_final_frame kind=ui owner=ui-pane
@@ -919,19 +985,34 @@ fn passive_activity_keeps_shortcuts_only_when_the_complete_hint_fits() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:683 fullscreen_plan_indicator_keeps_the_cycle_hint_when_it_fits kind=snap owner=ui-pane snap=fullscreen_plan_cycle_hint
 #[test]
 fn fullscreen_plan_indicator_keeps_the_cycle_hint_when_it_fits() {
-    kit::pending(Owner::UiPane, MODE_REASON);
-    // Plan mode shows `Plan mode (⇧tab to cycle)` at 100 columns while idle; narrow (37) it keeps
-    // `Plan mode` on the last row beside the status; running it has no ⇧tab; a `Search: verify`
-    // footer keeps it too
-    let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
+    let mut s = Screen::build(Owner::UiPane)
+        .size(100, 24)
+        .script(PLAN_STATUS)
+        .open();
     s.assert_contains("Plan mode (⇧tab to cycle)");
-    s.assert_snap("fullscreen_plan_cycle_hint");
+    // the oracle's snapshot is the composer alone: the prompt, the status line and the hint row
+    // (the page's own placeholder on the prompt row)
+    s.assert_row(22, "  MODEL · ~/project · Context 20% used");
+    s.assert_row(
+        23,
+        &format!("{:<74}Plan mode (⇧tab to cycle)", "  ? for shortcuts"),
+    );
+    // the status `project · PR #42` (the number a link) and the viewed agent's label: the last
+    // row keeps `Plan mode` beside the hint at 37 columns
+    s.feed(&facts(
+        r#"{"cwd":"/tmp/project","project_root":"project","items":["project-name","pull-request-number"]}"#,
+    ));
+    s.feed(PR_42);
+    s.feed(&agent("reviewer"));
     s.resize(37, 24);
     s.assert_contains("project · PR #42 · reviewer");
-    s.assert_contains("Plan mode");
+    assert!(s.rows().last().unwrap().contains("Plan mode"), "{}", s.text());
+    s.feed(&agent(""));
     s.resize(100, 24);
-    s.assert_contains("Search: verify");
+    // a running task keeps the indicator and drops the cycle key
+    s.feed(RUNNING);
     s.assert_contains("Plan mode");
+    s.assert_absent("⇧tab");
 }
 
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:771 footer_layout_in_fullscreen_and_scrollback kind=snap owner=ui-pane snap=empty snap=footer_layout_in_fullscreen_and_scrollback
@@ -1053,31 +1134,52 @@ fn shortcut_help_close_row_uses_runtime_binding_and_narrow_fallback() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:1031 status_survives_hints_feedback_and_queue kind=snap owner=ui-pane snap=persistent_status_and_messages
 #[test]
 fn status_survives_hints_feedback_and_queue() {
-    kit::pending(Owner::UiPane, QUEUE_REASON);
-    // the status `MODEL · ~/project · Context 20% used` and `Plan mode` persist through the
-    // shortcut overlay, a copy flash, a hint override, a running task and the file and skill
-    // popups (the test sets the flash and the override; no key does)
-    let mut s = Screen::build(Owner::UiPane).size(64, 24).live().open();
-    s.assert_snap("persistent_status_and_messages");
-    s.keys("?");
-    s.assert_contains("MODEL · ~/project · Context 20% used");
-    s.assert_contains("Plan mode");
+    // the status `MODEL · ~/project · Context 20% used` and `Plan mode` persist through a
+    // running task with a draft and the file and skill popups. (The oracle's shortcut overlay
+    // with a copy flash and its hint override on the footer are set by the test: the page's
+    // overlay has its own close row, and nothing flashes or overrides: see FLASH_REASON.)
+    let mut s = Screen::build(Owner::UiPane)
+        .size(64, 24)
+        .script(PLAN_STATUS)
+        .open();
+    let status = "MODEL · ~/project · Context 20% used";
+    s.assert_has_row_trimmed(status);
+    s.assert_text_count("Plan mode", 1);
+    s.assert_contains("? for shortcuts");
+    // a running task with a draft: the queue hint, and `Plan mode` without its cycle key
+    s.feed(RUNNING);
+    s.type_text("Continue the task");
+    s.assert_has_row_trimmed(status);
+    s.assert_contains("tab to queue message");
+    s.assert_text_count("Plan mode", 1);
+    s.assert_absent("⇧tab");
+    // the file and skill popups keep both
+    for popup in ["@", "$"] {
+        s.keys("ctrl+u");
+        s.type_text(popup);
+        s.assert_has_row_trimmed(status);
+        s.assert_text_count("Plan mode", 1);
+    }
 }
 
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:1064 transcript_search_keeps_status_and_query_cursor kind=ui owner=ui-pane
 #[test]
 fn transcript_search_keeps_status_and_query_cursor() {
-    kit::pending(Owner::UiPane, FIND_REASON);
-    // the Find footer (`Find: needle`, cursor at 8) at 48 columns: heights 4, 5 and 6 keep its
-    // `F` at column 2 and the cursor at column 10 of its row
-    let mut s = Screen::build(Owner::UiPane).size(48, 4).live().open();
-    let footer = row_of(&s, "Find:");
-    s.assert_text_at(2, footer, "F");
-    s.assert_cursor(10, footer);
-    s.resize(48, 5);
-    s.assert_text_at(2, row_of(&s, "Find:"), "F");
-    s.resize(48, 6);
-    s.assert_text_at(2, row_of(&s, "Find:"), "F");
+    // the Find footer (`Find: ne`, the cursor after the query) at 48 columns: heights 4, 5 and 6
+    // keep its `F` at column 2 and the cursor at column 10 of its row; the status line of the
+    // composer stays above it when the room allows (the oracle's layout asserts the rows)
+    let mut s = Screen::build(Owner::UiPane)
+        .size(48, 4)
+        .script(PLAN_NEEDLE)
+        .open();
+    s.keys("f3");
+    s.type_text("ne");
+    for height in [4, 5, 6] {
+        s.resize(48, height);
+        let footer = row_of(&s, "Find:");
+        s.assert_text_at(2, footer, "F");
+        s.assert_cursor(10, footer);
+    }
 }
 
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:1098 input_history_search_uses_the_final_row kind=ui owner=ui-pane
@@ -1147,23 +1249,34 @@ fn activity_shortcut_help_follows_runtime_binding() {
 // ORACLE bottom_pane/chat_composer/warning_notice_tests.rs:57 warning_notice_styles kind=snap owner=ui-pane snap=warning_notice_styles
 #[test]
 fn warning_notice_styles() {
-    kit::pending(Owner::UiPane, WARN_REASON);
-    // the draft `keep this draft` and 3 warnings at 80 columns, on the test's default colours;
-    // the snapshot is a Buffer dump with the notice's styles
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    // the draft `keep this draft` and 3 warnings at 80 columns, on the test's default colours
+    // (222 on 16); the oracle's Buffer dump has the notice's styles: the badge and the count in
+    // the warning colour, `f2` bold, the rest secondary
+    let mut s = warned(80, 24, 3);
     s.type_text("keep this draft");
-    s.assert_snap("warning_notice_styles");
+    s.assert_contains("⚠ 3 warnings · f2 to view");
+    s.assert_text_style("3 warnings", "!dim");
+    s.assert_text_style("f2", "bold");
+    s.assert_text_style("to view", "!bold");
 }
 
 // ORACLE bottom_pane/chat_composer/warning_notice_tests.rs:71 light_warning_notice_clears_inherited_dimming kind=ui owner=ui-pane
 #[test]
 fn light_warning_notice_clears_inherited_dimming() {
-    kit::pending(Owner::UiPane, WARN_REASON);
-    // on a light background the notice's `3` at column 2 is not dimmed, the notice is 20
-    // columns wide (the test sets the palette and the dim; the kit has no palette seed)
-    let s = Screen::build(Owner::UiPane).size(20, 1).live().open();
-    s.assert_text_at(2, 0, "3");
-    s.assert_style(2, 0, "!dim");
+    // on a light background (30 on 255) the notice's `3` is not dimmed: the notice is the
+    // short spelling at 20 columns (the oracle renders it over a dimmed buffer)
+    let mut s = Screen::build(Owner::UiPane)
+        .size(20, 24)
+        .script(WARNINGS_STATUS)
+        .terminal_colors(0x1e_1e_1e, 0xff_ff_ff)
+        .open();
+    for n in 1..=3 {
+        s.feed(&warning(n));
+    }
+    let row = row_of(&s, "⚠");
+    let at = s.rows()[row].chars().position(|c| c == '⚠').unwrap();
+    s.assert_text_at(at + 2, row, "3");
+    s.assert_style(at + 2, row, "!dim");
 }
 
 // ORACLE bottom_pane/chat_composer/warning_notice_tests.rs:102 warning_notice_respects_shortcuts_and_interactive_hints kind=ui owner=ui-pane
@@ -1185,17 +1298,16 @@ fn warning_notice_respects_shortcuts_and_interactive_hints() {
 // ORACLE bottom_pane/chat_composer/warning_notice_tests.rs:139 warnings_yield_to_queue_controls_and_complete_navigation_hints kind=ui owner=ui-pane
 #[test]
 fn warnings_yield_to_queue_controls_and_complete_navigation_hints() {
-    kit::pending(Owner::UiPane, WARN_REASON);
-    // a queued draft with a task running shows no notice; with the hint `esc latest` and 4
-    // warnings the notice shows at 20 columns, and not at 12
-    let mut s = Screen::build(Owner::UiPane).size(32, 6).live().open();
-    s.type_text("queued draft");
-    s.assert_absent("⚠ 4 warnings");
-    s.resize(20, 6);
-    s.assert_contains("esc latest");
+    // a queued draft with a task running shows no notice, whatever the count (the oracle compares
+    // the render of 4 warnings with the render of none); the notice waits for the draft's task
+    let mut s = warned(32, 8, 4);
     s.assert_contains("⚠");
-    s.resize(12, 6);
+    s.feed(RUNNING);
+    s.type_text("queued draft");
     s.assert_absent("⚠");
+    s.assert_contains("tab to queue");
+    // (the oracle's `esc latest` footer at 12 and 20 columns is the footer's own fit, a state
+    // test of `warning_notice_layout`: the page draws the Find footer in its own rows)
 }
 
 // ---- oracle: bottom_pane/chat_composer_effort_tests.rs (3 screen-level tests here; 4 state tests left to ui-pane)
@@ -1205,7 +1317,13 @@ fn effort_transition_never_replaces_a_footer_flash() {
     kit::pending(Owner::UiPane, FLASH_REASON);
     // the flash `saved` (1 s) on the footer row at 60x6 is kept through the effort transitions
     // High then Ultra; the footer never shows `U L T R A` (the test sets them; no key does)
-    let s = Screen::build(Owner::UiPane).size(60, 6).live().open();
+    let mut s = Screen::build(Owner::UiPane).size(60, 6).live().open();
+    s.feed(&facts(
+        r#"{"model":"gpt-5.4","effort":"high","branch":"main","items":["model-with-reasoning","git-branch"]}"#,
+    ));
+    s.feed(&facts(
+        r#"{"model":"gpt-5.4","effort":"ultra","branch":"main","items":["model-with-reasoning","git-branch"]}"#,
+    ));
     s.assert_contains("saved");
     s.assert_absent("U L T R A");
 }
@@ -1213,17 +1331,25 @@ fn effort_transition_never_replaces_a_footer_flash() {
 // ORACLE bottom_pane/chat_composer_effort_tests.rs:154 effort_transition_keeps_the_full_footer_row kind=snap owner=ui-pane snap=codex_tui__bottom_pane__chat_composer__effort_tests__effort_transition_keeps_the_full_footer_row
 #[test]
 fn effort_transition_keeps_the_full_footer_row() {
-    kit::pending(Owner::UiPane, FLASH_REASON);
-    // the two bottom rows at 36 columns: `gpt-5.4 ultra · feature-branch` and the Plan-mode row
-    // (the test sets the effort and the indicator; the mode through the thread's settings)
-    let mut s = Screen::build(Owner::UiPane).size(36, 6).live().open();
+    // the two bottom rows at 36 columns: the status line (the oracle's `gpt-5.4 high ·
+    // feature-branch`, here the thread's model) and the Plan-mode row, whole while the
+    // transition to Ultra runs and after it
+    let mut s = Screen::build(Owner::UiPane)
+        .size(36, 6)
+        .script(PLAN_STATUS)
+        .open();
     s.feed(&facts(
-        r#"{"model":"gpt-5.4","effort":"high","branch":"feature-branch","items":["model-with-reasoning","git-branch"]}"#,
+        r#"{"effort":"high","branch":"feature-branch","items":["model-with-reasoning","git-branch"]}"#,
     ));
     s.feed(&facts(
-        r#"{"model":"gpt-5.4","effort":"ultra","branch":"feature-branch","items":["model-with-reasoning","git-branch"]}"#,
+        r#"{"effort":"ultra","branch":"feature-branch","items":["model-with-reasoning","git-branch"]}"#,
     ));
-    s.assert_snap_region("effort_transition_keeps_the_full_footer_row", 4, 0);
+    s.assert_row(5, "          Plan mode (⇧tab to cycle)");
+    // (the sweep of the transition may shift the line by a column)
+    s.assert_has_row_trimmed("MODEL high · feature-branch");
+    s.wait(10_000);
+    s.assert_row(4, "  MODEL ultra · feature-branch");
+    s.assert_row(5, "          Plan mode (⇧tab to cycle)");
 }
 
 // ORACLE bottom_pane/chat_composer_effort_tests.rs:188 ultra_accent_upgrades_prompt_glyph kind=snap owner=ui-pane snap=ultra_accent_upgrades_prompt_glyph

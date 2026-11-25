@@ -1,0 +1,5 @@
+# The oracle's `composer()` of warning_notice_tests.rs: the status line `MODEL · ~/project`, colours off, no agents hint
+# (the warnings are told by the test: `warning(n)`).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}
+{"step":"screen","dir":"chat","ev":{"status":{"model":"MODEL","project_root":"~/project","items":["model-name","project-name"],"colors":false}}}
