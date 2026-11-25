@@ -15,6 +15,7 @@ use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, StatelessWidget, impl_widget};
 
+use codex_tui_core::features::async_questions::reply;
 use codex_tui_core::keymap::actions::{CHAT_EDIT_QUEUED_MESSAGE, CHAT_INTERRUPT_TURN};
 use codex_tui_core::threads::ThreadModel;
 
@@ -42,17 +43,17 @@ impl Pending {
             steers: thread
                 .pending_steers()
                 .iter()
-                .map(|steer| steer.message().text.clone())
+                .map(|steer| shown(&steer.message().text))
                 .collect(),
             rejected: thread
                 .rejected_steers()
                 .iter()
-                .map(|message| message.text.clone())
+                .map(|message| shown(&message.text))
                 .collect(),
             queued: thread
                 .queue()
                 .iter()
-                .map(|message| message.text.clone())
+                .map(|message| shown(&message.text))
                 .collect(),
         }
     }
@@ -60,6 +61,12 @@ impl Pending {
     pub(in crate::pages::session) fn is_empty(&self) -> bool {
         self.steers.is_empty() && self.rejected.is_empty() && self.queued.is_empty()
     }
+}
+
+/// What the preview shows of a message: an answer to an async question as the question quoted
+/// over the answer.
+fn shown(text: &str) -> String {
+    reply::display_text(text).unwrap_or_else(|| text.to_owned())
 }
 
 #[derive(Clone, Debug, PartialEq)]

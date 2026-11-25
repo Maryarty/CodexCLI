@@ -25,6 +25,7 @@ fn editor(questions: Vec<AQuestion>, seed: Seed) -> AnyWidget {
         seed,
         queued: false,
         options_only: false,
+        saved: None,
         on_outcome: None,
     }
     .into()
@@ -177,6 +178,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
                 },
                 queued: false,
                 options_only: true,
+                saved: None,
                 on_outcome: None,
             }
             .into()

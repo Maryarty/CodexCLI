@@ -13,7 +13,8 @@ mod entries;
 mod layout;
 mod measure;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -29,6 +30,8 @@ use rtwk::style::{Span, Style};
 use rtwk::text::{DefaultTextStyle, Text, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_protocol::user_input::MAX_USER_INPUT_TEXT_CHARS;
+use codex_tui_core::features::async_questions::reply;
 use codex_tui_core::keymap::ActionId;
 use codex_tui_core::keymap::Keymap;
 use codex_tui_core::keymap::actions::{
@@ -74,6 +77,15 @@ pub struct Seed {
     pub drafts: Vec<String>,
 }
 
+/// What the editor keeps for the next time it opens (the parent holds it between closings, as the
+/// oracle keeps the drafts of the questions while the editor is collapsed): the question on show
+/// and, of each question by its id, the row of its cursor and what was typed.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Saved {
+    pub current: Option<String>,
+    pub kept: BTreeMap<String, (Option<usize>, String)>,
+}
+
 /// What the user decided; the parent applies it (a reply, a skip, a move out of the editor).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Outcome {
@@ -101,6 +113,8 @@ pub struct AsyncQuestions {
     /// Only the part of the choices, over the whole area and without the surface (what the
     /// oracle's test of Other in two rows draws).
     pub options_only: bool,
+    /// Where the editor leaves its drafts when it closes, and where it starts from.
+    pub saved: Option<Rc<RefCell<Saved>>>,
     pub on_outcome: Option<Handler<Outcome>>,
 }
 
@@ -125,6 +139,7 @@ pub struct AsyncState {
     timer: Option<Timer>,
     node: FocusNode,
     keymap: Rc<Keymap>,
+    saved: Option<Rc<RefCell<Saved>>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -154,30 +169,35 @@ impl StatefulWidget for AsyncQuestions {
     type State = AsyncState;
 
     fn create_state(&self) -> AsyncState {
-        let questions = self
+        let saved = self.saved.as_ref().map(|saved| saved.borrow().clone());
+        let questions: Vec<QState> = self
             .questions
             .iter()
             .enumerate()
-            .map(|(at, question)| {
-                qstate(
+            .map(|(at, question)| match saved.as_ref().and_then(|s| s.kept.get(&question.id)) {
+                Some((selected, draft)) => qstate(question, Some(*selected), draft),
+                None => qstate(
                     question,
                     self.seed.selected.get(at).copied(),
                     self.seed.drafts.get(at).map_or("", String::as_str),
-                )
+                ),
             })
             .collect();
+        let current = saved
+            .as_ref()
+            .and_then(|s| s.current.as_ref())
+            .and_then(|id| self.questions.iter().position(|q| q.id == *id))
+            .unwrap_or(self.seed.current);
         AsyncState {
             questions,
-            current: self
-                .seed
-                .current
-                .min(self.questions.len().saturating_sub(1)),
+            current: current.min(self.questions.len().saturating_sub(1)),
             visible: Rc::new(Cell::new((0, 0))),
             flash: None,
             flash_age: 0,
             timer: None,
             node: FocusNode::new(),
             keymap: Rc::new(Keymap::defaults()),
+            saved: self.saved.clone(),
         }
     }
 }
@@ -331,12 +351,12 @@ impl AsyncState {
         if text.is_empty() {
             return;
         }
-        let reply = reply_of(&question.title, text);
-        if reply.chars().take(MAX_REPLY_CHARS + 1).count() > MAX_REPLY_CHARS {
+        let id = question.id.clone();
+        let reply = reply::render(&id, &question.title, text);
+        if reply.chars().take(MAX_USER_INPUT_TEXT_CHARS + 1).count() > MAX_USER_INPUT_TEXT_CHARS {
             self.flash(s.aq_too_long, cx);
             return;
         }
-        let id = question.id.clone();
         self.emit(w, Outcome::Submit { id, reply, queue }, cx);
     }
 
@@ -451,25 +471,6 @@ impl AsyncState {
     }
 }
 
-/// The longest reply the model's input takes (`MAX_USER_INPUT_TEXT_CHARS`).
-const MAX_REPLY_CHARS: usize = 1 << 20;
-
-/// The reply that answers `title` with `answer`: the question quoted, then the answer
-/// (`AnsweredQuestion::render`).
-fn reply_of(title: &str, answer: &str) -> String {
-    let quoted: Vec<String> = title
-        .lines()
-        .map(|line| {
-            if line.is_empty() {
-                ">".to_owned()
-            } else {
-                format!("> {line}")
-            }
-        })
-        .collect();
-    format!("{}\n\n{answer}", quoted.join("\n"))
-}
-
 impl State for AsyncState {
     type Widget = AsyncQuestions;
     type Msg = Msg;
@@ -513,6 +514,16 @@ impl State for AsyncState {
     }
 
     fn dispose(&mut self) {
+        if let Some(saved) = &self.saved {
+            *saved.borrow_mut() = Saved {
+                current: self.questions.get(self.current).map(|q| q.id.clone()),
+                kept: self
+                    .questions
+                    .iter()
+                    .map(|q| (q.id.clone(), (q.selected, q.draft.text().to_string())))
+                    .collect(),
+            };
+        }
         if let Some(timer) = self.timer.take() {
             timer.cancel();
         }
