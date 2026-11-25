@@ -100,7 +100,7 @@ impl Open {
 
     /// The message history file holds these prompts of other sessions, oldest first.
     pub fn message_history(mut self, prompts: &[&str]) -> Open {
-        self.env.message_history = prompts.iter().map(|p| p.to_string()).collect();
+        self.env.message_history = prompts.iter().copied().map(String::from).collect();
         self
     }
 
