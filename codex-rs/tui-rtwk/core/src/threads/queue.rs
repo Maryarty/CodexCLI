@@ -10,9 +10,7 @@
 
 use std::ops::Deref;
 
-use super::{
-    Item, Note, ThreadFx, ThreadModel, apply_appended, give_back, is_start_turn, merge_messages,
-};
+use super::{Item, Note, ThreadFx, ThreadModel, apply_appended, give_back, merge_messages};
 use crate::commands::{QueueDrain, SlashCommand, queued_command_drain_result};
 use crate::screens::{self, ScreenThreadIntent};
 use crate::threads::UserMessage;
@@ -23,8 +21,11 @@ pub enum Queued {
     /// A message for the model.
     Message(UserMessage),
     /// A message that is sent as it is: no slash or shell parsing (a `!` the user did not type
-    /// in shell mode, a paste that merely starts with `/`).
-    Literal(UserMessage),
+    /// in shell mode, a paste that merely starts with `/`), and the text as it stood in the
+    /// composer when it differs from the message (a `[Pasted Content 1006 chars]` placeholder
+    /// the queue row keeps, `queue_user_message_with_options`). The label is a thin pointer: a
+    /// queued item travels in the `Err` of the thread's intents (`result_large_err`).
+    Literal(UserMessage, Option<Box<String>>),
     /// A line that starts with `/`: dispatched when its turn comes.
     Command(UserMessage),
     /// A `!` line of the composer's shell mode: run when its turn comes.
@@ -42,7 +43,7 @@ impl Queued {
             if shell {
                 Queued::Shell(message)
             } else {
-                Queued::Literal(message)
+                Queued::Literal(message, None)
             }
         } else if slash {
             Queued::Command(message)
@@ -51,12 +52,33 @@ impl Queued {
         }
     }
 
+    /// The line as the composer showed it: a literal paste keeps its placeholder.
+    #[must_use]
+    pub fn shown_as(self, composer_text: &str) -> Queued {
+        match self {
+            Queued::Literal(message, _) => {
+                let label = composer_text.trim();
+                let label = (label != message.text).then(|| Box::new(label.to_owned()));
+                Queued::Literal(message, label)
+            }
+            other => other,
+        }
+    }
+
     pub fn message(&self) -> &UserMessage {
         match self {
             Queued::Message(message)
-            | Queued::Literal(message)
+            | Queued::Literal(message, _)
             | Queued::Command(message)
             | Queued::Shell(message) => message,
+        }
+    }
+
+    /// The text of the queue's row: what the user saw in the composer, else the message.
+    pub fn shown(&self) -> &str {
+        match self {
+            Queued::Literal(_, Some(label)) => label,
+            _ => &self.message().text,
         }
     }
 
@@ -64,7 +86,7 @@ impl Queued {
     pub fn into_message(self) -> UserMessage {
         match self {
             Queued::Message(message)
-            | Queued::Literal(message)
+            | Queued::Literal(message, _)
             | Queued::Command(message)
             | Queued::Shell(message) => message,
         }
@@ -189,7 +211,7 @@ pub(super) fn apply(
             if model.due.take().is_none() {
                 return Ok(());
             }
-            let busy = model.is_running() || model.outgoing.any(is_start_turn);
+            let busy = model.busy();
             let stop = match ran {
                 Ran::Submitted => true,
                 Ran::Dispatched(ran) => ran.drain(busy) == QueueDrain::Stop,
@@ -201,7 +223,7 @@ pub(super) fn apply(
         // What stopped the queue is over (the sheet closed, a settings pick was applied, a goal
         // was set): the next item goes on (`maybe_send_next_queued_input`).
         Chat::QueueResume => {
-            if !model.is_running() && !model.outgoing.any(is_start_turn) {
+            if !model.busy() {
                 send_next(model, fx);
             }
         }
@@ -233,7 +255,7 @@ pub(super) fn apply(
 /// A message to the queue, behind the running turn; with none running and
 /// nothing older waiting it goes out at once.
 pub(super) fn enqueue(model: &mut ThreadModel, message: Queued, fx: &mut ThreadFx<'_>) {
-    let busy = model.is_running() || model.outgoing.any(is_start_turn);
+    let busy = model.busy();
     model.queue.push(message);
     model.last_submit = Some(fx.mint());
     if !busy {
@@ -253,6 +275,7 @@ pub(super) fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
         || model.slots.chat.provider_error.is_some()
         || model.recovered
         || model.due.is_some()
+        || model.slots.chat.is_compacting()
     {
         return;
     }
@@ -273,7 +296,7 @@ pub(super) fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
         match model.queue.remove(0) {
             // a thread whose model is empty takes no turn: the message goes back to the composer
             // and the rest of the queue stays (`submit_user_message`)
-            Queued::Message(message) | Queued::Literal(message)
+            Queued::Message(message) | Queued::Literal(message, _)
                 if super::startup::model_unavailable(model.slots.chat.model.as_deref()) =>
             {
                 apply_appended(
@@ -290,9 +313,9 @@ pub(super) fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
                 }
                 return;
             }
-            Queued::Literal(message) => {
+            Queued::Literal(message, label) => {
                 if let Err(message) = fx.start_turn(message) {
-                    model.queue.insert(0, Queued::Literal(message));
+                    model.queue.insert(0, Queued::Literal(message, label));
                 }
                 return;
             }

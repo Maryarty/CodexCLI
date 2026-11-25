@@ -247,8 +247,10 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
         if pressed_fixed(fixed::OPEN_SHORTCUTS, &key) {
             send(ChatMsg::Shortcuts);
         } else if pressed_fixed(fixed::OPEN_AGENTS_FROM_LEFT, &key)
+            // the plain Left only (`key_hint::plain(KeyCode::Left)`): Shift+Left is the edit-queued
+            // key when it is bound, and nothing when it is not
+            && unmodified(&key)
             && vim::agents_key_available(&draft.borrow(), &keymap.borrow())
-            // Shift+Left is the chat's own key first (`edit_queued_message`)
             && !crate::keymap::pressed(
                 &keymap.borrow(),
                 codex_tui_core::keymap::actions::CHAT_EDIT_QUEUED_MESSAGE,
@@ -286,9 +288,9 @@ pub(super) fn focus(
             focus = focus.bind(key, cx.send(msg.clone()));
         }
     }
-    // Tab queues while a turn runs and submits otherwise, but not a
+    // Tab queues while a task runs and submits otherwise, but not a
     // shell command (`queue_keys` in `handle_key_event_without_popup`).
-    if (frame.run.running() || !state.draft_shell)
+    if (thread.task_running() || !state.draft_shell)
         && !state.draft_empty
         && frame.searching.is_none()
     {

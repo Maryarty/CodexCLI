@@ -710,16 +710,20 @@ fn user_message_during_user_shell_command_is_queued_not_steered() {
 // ORACLE chatwidget/tests/exec_flow.rs:1358 disabled_slash_command_while_task_running_snapshot kind=snap owner=dialogs-pane snap=disabled_slash_command_while_task_running_snapshot
 #[test]
 fn disabled_slash_command_while_task_running_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-chat-commands, not approvals): no error history cell for a slash command disabled while a task runs (/resume during a turn) on the chat screen",
-    );
     // oracle: the last history cell is the error line for /resume while the turn is active.
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: turn started (turn-1)
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!("fixtures/chat_commands_2/running.jsonl"))
+        .open();
     s.type_text("/resume");
     s.keys("enter");
-    s.assert_snap("disabled_slash_command_while_task_running_snapshot");
+    // the snapshot is that one cell: its row is where the transcript draws it
+    let row = s
+        .rows()
+        .iter()
+        .position(|row| row.contains("is disabled while a task is in progress"))
+        .unwrap_or(usize::MAX);
+    s.assert_snap_region("disabled_slash_command_while_task_running_snapshot", row, 0);
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:1382 approval_modal_exec_snapshot kind=snap owner=dialogs-pane snap=approval_modal_exec

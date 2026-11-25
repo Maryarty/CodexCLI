@@ -70,61 +70,68 @@ fn service_tier_commands_and_saved_selection_respect_independent_speed_policy() 
 // ORACLE chatwidget/tests/slash_commands.rs:189 slash_compact_eagerly_queues_follow_up_before_turn_start kind=ui owner=chat-nav-pane
 #[test]
 fn slash_compact_eagerly_queues_follow_up_before_turn_start() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "not verified: /compact holds no running task in the live chat, so the probe passes on the typed text alone and the queued state (one queued message, no op) is not drawn",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).live().open();
     s.type_text("/compact").keys("enter");
-    // The compact op is submitted and the task is running: Enter queues the follow-up.
+    // The compact request is out and the task is running before its turn starts: Enter queues
+    // the follow-up (no steer, no turn: the request is `thread/compact/start`, not a turn).
     s.type_text("queued before compact turn start")
         .keys("enter");
-    s.assert_contains("queued before compact turn start");
+    s.assert_has_row("• Queued follow-up inputs");
+    s.assert_has_row("  ↳ queued before compact turn start");
+    s.assert_absent("Messages to be submitted after next tool call");
+    s.assert_no_turn();
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:285 queued_slash_review_with_args_restores_for_edit kind=ui owner=chat-nav-pane
 #[test]
 fn queued_slash_review_with_args_restores_for_edit() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "Tab does not queue a slash command while a turn runs in the port: the text stays in the composer, so the probe passes on the text alone; the queued-input slice must draw the queue",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
     s.type_text("/review check regressions").keys("tab");
+    // Tab queued the command with its arguments: the composer is empty, the queue holds the line
+    s.assert_composer("");
+    s.assert_has_row("  ↳ /review check regressions");
     s.keys("alt+up");
     s.assert_has_row("› /review check regressions");
+    s.assert_absent("↳");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:329 queued_empty_bang_shell_reports_help_when_dequeued_and_drains_next_input kind=ui owner=chat-nav-pane
 #[test]
 fn queued_empty_bang_shell_reports_help_when_dequeued_and_drains_next_input() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "Tab does not queue a !-command while a turn runs in the port: the composer keeps the text, so the help notice never shows",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
     s.type_text("!").keys("tab");
     s.type_text("hello after help").keys("tab");
     s.assert_absent("Prefix a command with ! to run it locally");
+    s.assert_no_turn();
     s.feed(DONE);
     s.assert_contains("Prefix a command with ! to run it locally");
-    s.assert_contains("hello after help");
+    // the next input drains: the message is the next turn
+    s.assert_turn_texts(&["hello after help"]);
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:476 queued_settings_selection_applies_before_next_input kind=ui owner=chat-nav-pane
 #[test]
 fn queued_settings_selection_applies_before_next_input() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "Tab does not queue /model while a turn runs in the port, so the Select Model and Effort popup never opens; the gpt-5.6-terra catalog seed is missing too",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
+    // the server lists one model (the oracle narrows its catalog to one, `gpt-5.6-terra`)
+    let catalog = include_str!("fixtures/chat_commands_2/speed_catalog.json").trim();
+    s.feed(&format!(
+        r#"{{"step":"respond","method":"model/list","result":{catalog}}}
+{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"gpt-5.2"}}}}}}"#
+    ));
     s.type_text("/model").keys("tab");
     s.type_text("hello after selection").keys("tab");
     s.feed(DONE);
+    // the queued /model opens its popup and the message waits for the selection
     s.assert_contains("Select Model and Effort");
+    s.assert_no_turn();
+    // the model, then its effort
     s.keys("enter");
-    s.assert_contains("hello after selection");
+    s.assert_no_turn();
+    s.keys("enter");
+    // the turn is the queued message, sent once the selection settled (which model and effort
+    // it carries is the thread settings' own, not a field of the start command)
+    s.assert_turn_texts(&["hello after selection"]);
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:529 queued_bare_rename_drains_next_input_after_name_update kind=ui owner=chat-nav-pane

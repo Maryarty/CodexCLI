@@ -247,15 +247,28 @@ fn copy_shortcut_submits_markdown_and_reports_completion_once() {
 // ORACLE chatwidget/tests/slash_commands.rs:2816 queued_menu_slash_keeps_agent_turn_complete_notification kind=ui owner=chat-nav-pane
 #[test]
 fn queued_menu_slash_keeps_agent_turn_complete_notification() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "a running turn (queued /model during a turn) cannot be seeded black-box; the /model Select Model popup is the visible half",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    // the terminal is not focused when the turn ends (the oracle's notification is sent then)
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(RUNNING)
+        .notifications()
+        .open();
+    s.focus_out();
+    // the config lets the turn's end notify
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"notification_policy":{"enabled":true}}}}"#);
+    // the server lists its models (the picker reads the catalog when it opens)
+    let catalog = include_str!("fixtures/chat_commands_2/speed_catalog.json").trim();
+    s.feed(&format!(
+        r#"{{"step":"respond","method":"model/list","result":{catalog}}}"#
+    ));
     s.type_text("/model");
     s.keys("tab");
+    s.feed(include_str!("fixtures/chat_commands_2/done.jsonl"));
+    // the queued /model opens its popup and starts no turn, the notification of the turn's end
+    // is the terminal's already
     s.assert_contains("Select Model");
-    // The oracle asserts the pending AgentTurnComplete notification and no core op: not drawn.
+    s.assert_no_turn();
+    kit::assert_rows_are(&s.notifications(), &["Agent turn complete: done"]);
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2833 slash_stop_submits_background_terminal_cleanup kind=ui owner=chat-nav-pane
@@ -722,14 +735,18 @@ fn raw_slash_command_reports_usage_for_invalid_arg() {
 // ORACLE chatwidget/tests/slash_commands.rs:3830 compact_queues_user_messages_snapshot kind=snap owner=chat-nav-pane snap=compact_queues_user_messages_snapshot
 #[test]
 fn compact_queues_user_messages_snapshot() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "a compact turn that refuses a steer (ActiveTurnNotSteerable) and the queued-message rows cannot be seeded black-box",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 18).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 18)
+        .script(RUNNING)
+        .open();
+    // the running turn is a compact turn: the server refuses a steer of it
+    s.server_refuses("turn/steer", None, "cannot steer a compact turn");
     s.type_text("Steer submitted while /compact was running.");
     s.keys("enter");
-    s.assert_snap("compact_queues_user_messages_snapshot");
+    // the oracle's chat widget alone: no agents hint, the status items as the config set them
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}"#);
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"GPT-5.6-Sol","cwd":"/tmp/project","items":["model-with-reasoning","current-dir"]}}}"#);
+    s.assert_snap_rows_blanks_aside("compact_queues_user_messages_snapshot");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3863 transcript_copy_feedback_stays_in_the_footer_without_history_or_interrupts kind=snap owner=chat-nav-pane snap=transcript_copy_success snap=transcript_copy_unconfirmed snap=transcript_copy_failure

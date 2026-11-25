@@ -92,10 +92,6 @@ fn hidden_shell_paste_recalled_from_history_submits_literal_prompt() {
 // ORACLE chatwidget/tests/composer_submission.rs:174 hidden_shell_paste_queued_during_turn_submits_literal_prompt kind=snap owner=chat-nav-pane snap=hidden_shell_paste_queued_preview
 #[test]
 fn hidden_shell_paste_queued_during_turn_submits_literal_prompt() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the queued preview shows the expanded `!echo xxx` text, the oracle keeps the `[Pasted Content 1006 chars]` placeholder in the queue row (the chat queue stores expanded text); the seed is the scripted running turn and the bottom-pane region",
-    );
     for key in ["tab", "enter"] {
         let mut s = Screen::build(Owner::ChatNavPane)
             .size(80, 24)
@@ -104,13 +100,10 @@ fn hidden_shell_paste_queued_during_turn_submits_literal_prompt() {
         s.paste(&hidden_shell_payload());
         s.keys(key);
         if key == "tab" {
-            // The oracle's snapshot is the queued preview alone: ours is the bottom pane's top.
-            let row = s
-                .rows()
-                .iter()
-                .position(|row| row.contains("Queued follow-up inputs"))
-                .unwrap_or(usize::MAX);
-            s.assert_snap_region("hidden_shell_paste_queued_preview", row, 0);
+            // the oracle's chat widget alone: no agents hint, the status items as the config set them
+            s.feed(r#"{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}"#);
+            s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"GPT-5.6-Sol","cwd":"/tmp/project","items":["model-with-reasoning","current-dir"]}}}"#);
+            s.assert_snap_rows_blanks_aside("hidden_shell_paste_queued_preview");
         }
         // The turn finishes: the queued payload goes out as the literal `!echo` text.
         s.feed(COMPLETED);
@@ -127,8 +120,11 @@ fn hidden_shell_paste_restored_by_queue_edit_submits_literal_prompt() {
         .open();
     s.paste(&hidden_shell_payload());
     s.assert_composer("[Pasted Content 1006 chars]");
-    // Tab queues it behind the running turn, alt+up takes it back, Enter queues it again
-    s.keys("tab alt+up enter");
+    // Tab queues it behind the running turn, alt+up takes it back, Enter queues it again; the
+    // edit key reads the queue the last frame drew, so each key is a call (a frame between)
+    s.keys("tab");
+    s.keys("alt+up");
+    s.keys("enter");
     s.assert_no_turn();
     s.feed(COMPLETED);
     s.assert_turn_texts(&[&hidden_shell_payload()]);
@@ -607,10 +603,6 @@ fn pending_steer_interrupt_uses_remapped_binding() {
 // ORACLE chatwidget/tests/composer_submission.rs:2287 default_shortcuts_edit_most_recent_queued_message kind=ui owner=chat-nav-pane
 #[test]
 fn default_shortcuts_edit_most_recent_queued_message() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "chat.edit_queued_message is not wired: shift+left opens the agent command center and alt+up does nothing, the queued message stays queued; the seed is the scripted running turn plus Tab",
-    );
     for key in ["shift+left", "alt+up"] {
         // A running turn with two messages queued behind it (Tab queues a draft).
         let mut s = Screen::build(Owner::ChatNavPane)
@@ -632,10 +624,6 @@ fn default_shortcuts_edit_most_recent_queued_message() {
 // ORACLE chatwidget/tests/composer_submission.rs:2309 unbound_queued_message_edit_does_not_fall_back_to_alt_up kind=ui owner=chat-nav-pane
 #[test]
 fn unbound_queued_message_edit_does_not_fall_back_to_alt_up() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "chat.edit_queued_message is not wired (shift+left opens the agent command center, focus leaves the composer); the keymap seed with an unbound action and the queued Tab are in place",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(100, 24)
         .script(RUNNING)

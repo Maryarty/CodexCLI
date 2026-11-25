@@ -37,6 +37,8 @@ struct Inner {
     /// The text the popup was closed in: it stays closed until the text
     /// changes (`hide`).
     hidden_in: Option<Rc<str>>,
+    /// A turn runs, so Tab on a command typed in full queues the line (`set_queueing`).
+    queueing: bool,
 }
 
 /// What a popup shows: the rows, the query they answer and the highlight.
@@ -47,6 +49,12 @@ pub struct Shown {
 }
 
 impl Suggest {
+    /// Tells whether a turn runs: Tab on a command already typed in full has nothing to complete,
+    /// and queues the whole line then (the page's Tab) instead of completing it.
+    pub fn set_queueing(&self, on: bool) {
+        self.0.borrow_mut().queueing = on;
+    }
+
     /// Whether the popup has rows to show.
     pub fn open(&self) -> bool {
         !self.0.borrow().items.is_empty()
@@ -229,17 +237,29 @@ impl Suggest {
             }
             () if is(POPUP_COMPLETE) && plain && usable => {
                 // `/skills` is the one command Tab runs, as Enter does
-                let runs = self
-                    .0
-                    .borrow()
-                    .items
-                    .get(at)
-                    .is_some_and(|i| &*i.text == "/skills");
+                let (runs, typed, queueing) = {
+                    let inner = self.0.borrow();
+                    let item = inner.items.get(at);
+                    (
+                        item.is_some_and(|i| &*i.text == "/skills"),
+                        // the command's name stands in the text already: nothing to complete
+                        // (`selected_command_completion`)
+                        item.is_some_and(|i| {
+                            i.text.starts_with('/')
+                                && inner.query.trim_start().starts_with(&*i.text)
+                        }),
+                        inner.queueing,
+                    )
+                };
                 if runs {
                     if let Some(text) = self.pick(c, at) {
                         tell(ComposerMsg::Picked(text));
                     }
                     return true;
+                }
+                if typed {
+                    // a turn running: the page's Tab queues the line; none: Tab does nothing
+                    return !queueing;
                 }
                 if let Some(text) = self.complete(c, at) {
                     tell(ComposerMsg::Completed(text));
