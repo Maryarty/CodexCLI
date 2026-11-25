@@ -644,7 +644,7 @@ fn queue_before_thread(app: &mut CodexApp, ask: BeforeThread, fx: &mut AppFx) {
     app.queued_submits.push(ask);
     threads::apply(
         app.threads.blank_mut(),
-        ThreadEv::DeferredSubmit(queued),
+        ThreadEv::Deferred(threads::Deferred::Submit(queued)),
         &mut ThreadFx::new(&ThreadId::default(), fx, &mut app.mint),
     );
 }
@@ -2932,7 +2932,7 @@ fn send_queued(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx) {
     if !asks.is_empty() {
         threads::apply(
             app.threads.blank_mut(),
-            ThreadEv::DeferredSent,
+            ThreadEv::Deferred(threads::Deferred::Sent),
             &mut ThreadFx::new(&ThreadId::default(), fx, &mut app.mint),
         );
     }
@@ -2945,9 +2945,18 @@ fn send_queued(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx) {
             BeforeThread::Initial(message) => {
                 let text = message.text.clone();
                 submit(app, thread, message.clone(), fx);
-                apply_thread(app, thread, ThreadEv::Recorded(message), fx);
+                apply_thread(
+                    app,
+                    thread,
+                    ThreadEv::Deferred(threads::Deferred::Recorded(message)),
+                    fx,
+                );
                 let popovers = &mut Rc::make_mut(&mut app.screens).popovers;
-                screens::popovers::apply_intent(popovers, screens::popovers::Intent::Record(text), fx);
+                screens::popovers::apply_intent(
+                    popovers,
+                    screens::popovers::Intent::Record(text),
+                    fx,
+                );
             }
             BeforeThread::Shell(command) => run_shell(app, thread, command, fx),
         }

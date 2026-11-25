@@ -251,7 +251,10 @@ impl Open {
                     // `text_elements`); else the command line appends them
                     let mut message = codex_tui_core::threads::UserMessage::text(text.clone());
                     let placeholder = |n: usize| format!("[Image #{n}]");
-                    if images.iter().enumerate().all(|(i, _)| text.contains(&placeholder(i + 1)))
+                    if images
+                        .iter()
+                        .enumerate()
+                        .all(|(i, _)| text.contains(&placeholder(i + 1)))
                         && !images.is_empty()
                     {
                         for (i, path) in images.iter().enumerate() {
@@ -268,7 +271,10 @@ impl Open {
                             images,
                             ..Default::default()
                         };
-                        app.with_initial_prompt(cli.initial_message().expect("a prompt"))
+                        app.with_initial_prompt(
+                            cli.initial_message(codex_tui_rtwk::l10n::Lang::En)
+                                .expect("a prompt"),
+                        )
                     }
                 }
                 None => app,

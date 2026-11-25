@@ -235,7 +235,10 @@ impl Cli {
 
     /// The prompt of the command line as the first message: the text, then the placeholder of
     /// each image after it (`create_initial_user_message`).
-    pub fn initial_message(&self) -> Option<codex_tui_core::threads::UserMessage> {
+    pub fn initial_message(
+        &self,
+        lang: l10n::Lang,
+    ) -> Option<codex_tui_core::threads::UserMessage> {
         let mut text = self.prompt.clone().unwrap_or_default();
         if text.is_empty() && self.images.is_empty() {
             return None;
@@ -246,7 +249,10 @@ impl Cli {
                 text.push(' ');
             }
             let start = text.len();
-            text.push_str(&format!("[Image #{}]", index + 1));
+            text.push_str(&pages::session::composer::strings::image_label(
+                lang,
+                index + 1,
+            ));
             message.images.push(codex_tui_core::threads::LocalImage {
                 path: path.clone(),
                 range: start..text.len(),

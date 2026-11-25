@@ -121,7 +121,7 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
     if let Some(start) = cli.session.clone() {
         app = app.with_start_session(start);
     }
-    if let Some(message) = cli.initial_message() {
+    if let Some(message) = cli.initial_message(cli.lang(&rtwk::l10n::requested())) {
         app = app.with_initial_prompt(message);
     }
     let result = run_on(app, !cli.no_alt_screen);

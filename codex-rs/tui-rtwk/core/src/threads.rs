@@ -871,16 +871,23 @@ pub enum CommandEv {
     Interaction { process: String, stdin: String },
 }
 
+/// What the thread is told of the asks made before it started.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Deferred {
+    /// A startup draft was accepted while the thread is pending: it waits on the blank thread's
+    /// queue, drawn as a queued row, until the session starts.
+    Submit(Queued),
+    /// The session started and what waited went out: the blank thread's queue is empty again.
+    Sent,
+    /// The launch's prompt went out: the composer's recall keeps it (`record_local_submission`).
+    Recorded(UserMessage),
+}
+
 /// An event of one thread.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadEv {
-    /// A startup draft was accepted while an attached thread is pending: it waits on the
-    /// blank thread's queue, drawn as a queued row, until the session starts.
-    DeferredSubmit(Queued),
-    /// The session started and what waited went out: the blank thread's queue is empty again.
-    DeferredSent,
-    /// The launch's prompt went out: the composer's recall keeps it (`record_local_submission`).
-    Recorded(UserMessage),
+    /// What was asked before the thread started (`Deferred`).
+    Deferred(Deferred),
     /// The thread tells (`false`) or does not tell (`true`) its transcript that a turn was
     /// interrupted: a side conversation keeps it out (`InterruptedTurnNoticeMode::Suppress`).
     QuietInterrupts(bool),
@@ -2689,12 +2696,12 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             let warnings = model.slots.chat.mcp.finish_after_lag();
             add_startup_warnings(model, warnings, fx);
         }
-        ThreadEv::DeferredSubmit(queued) => {
+        ThreadEv::Deferred(Deferred::Submit(queued)) => {
             model.queue.push(queued);
             model.last_submit = Some(fx.mint());
         }
-        ThreadEv::DeferredSent => model.queue.clear(),
-        ThreadEv::Recorded(message) => {
+        ThreadEv::Deferred(Deferred::Sent) => model.queue.clear(),
+        ThreadEv::Deferred(Deferred::Recorded(message)) => {
             let seq = model.recorded.as_ref().map_or(1, |(seq, _)| seq + 1);
             model.recorded = Some((seq, message));
         }
