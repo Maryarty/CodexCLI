@@ -524,3 +524,36 @@ pub(super) fn answer(h: &mut Harness, method: String, result: script::Answer) {
         })
     });
 }
+
+impl Screen {
+    /// From now on the server answers requests of `method` with `result` (the script's `respond`
+    /// step, for a test that changes the answer between two keys).
+    pub fn server_answers(&mut self, method: &str, result: serde_json::Value) -> &mut Screen {
+        answer(
+            &mut self.h,
+            method.to_string(),
+            script::Answer::Result(result),
+        );
+        self
+    }
+
+    /// From now on the server refuses requests of `method` with the JSON-RPC error `code` and
+    /// `message`.
+    pub fn server_refuses(
+        &mut self,
+        method: &str,
+        code: Option<i64>,
+        message: &str,
+    ) -> &mut Screen {
+        answer(
+            &mut self.h,
+            method.to_string(),
+            script::Answer::Error {
+                code,
+                message: message.to_string(),
+                data: None,
+            },
+        );
+        self
+    }
+}

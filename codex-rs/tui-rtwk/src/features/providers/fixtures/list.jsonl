@@ -1,0 +1,3 @@
+# Model providers: the sheet over a chat; the list is the server's answer.
+# Oracle data: app/provider_tests.rs provider_list
+{"step":"seed","seed":"session","thread":"thread-1"}
