@@ -254,15 +254,13 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             script,
             // The oracle's form snapshots render the overlay into a buffer taller than its
             // desired height, and the form fills it; the debug menu is that frame.
-            open: EntryOpen::Dialog(
-                if name == "user_input_unanswered" {
-                    confirming_dialog
-                } else if name.starts_with("mcp_") || name.starts_with("user_input_") {
-                    framed_dialog
-                } else {
-                    head_dialog
-                },
-            ),
+            open: EntryOpen::Dialog(if name == "user_input_unanswered" {
+                confirming_dialog
+            } else if name.starts_with("mcp_") || name.starts_with("user_input_") {
+                framed_dialog
+            } else {
+                head_dialog
+            }),
         })
         .collect()
 }

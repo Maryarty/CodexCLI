@@ -1,0 +1,3 @@
+# The warnings viewer on the two warnings of warnings_view_tests.rs entries().
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "dialogs", "ev": {"kind": "warnings", "entries": [{"source": "MCP · example", "details": "MCP example could not connect\nSign in again using codex mcp login example"}, {"source": "Startup", "details": "Unknown setting `old_option`\nRemove it from config.toml"}]}}

@@ -105,10 +105,14 @@ fn built_ins() -> serde_json::Value {
 /// profiles that follows it (`profiles`, the JSON list of summaries).
 fn read_catalog(s: &mut Screen, requirements: serde_json::Value, profiles: serde_json::Value) {
     let reads = asked(s, |c| matches!(c, select::Command::Requirements { .. }));
-    let read = reads.last().expect("the requirements were asked");
+    let read = reads
+        .last()
+        .unwrap_or_else(|| panic!("the requirements were not asked:\n{}", s.text()));
     s.answer_request(read, json!({ "requirements": requirements }));
     let pages = asked(s, |c| matches!(c, select::Command::Profiles { .. }));
-    let page = pages.last().expect("a page of profiles was asked");
+    let page = pages
+        .last()
+        .unwrap_or_else(|| panic!("no page of profiles was asked:\n{}", s.text()));
     s.answer_request(page, json!({ "data": profiles, "nextCursor": null }));
 }
 

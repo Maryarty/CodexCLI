@@ -4,6 +4,7 @@
 
 use std::collections::BTreeSet;
 
+use rtwk::binding::InputListener;
 use rtwk::focus::Focus;
 use rtwk::layout::{
     BoxConstraints, BoxWidget, Column, ConstrainedBox, CrossAxisAlignment, EdgeInsets, Flexible,
@@ -16,13 +17,16 @@ use rtwk::text::segmenter_of;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, LayoutBuilder};
 
+use codex_tui_core::keymap::actions::{GLOBAL_COPY, LIST_CANCEL, LIST_MOVE_LEFT, LIST_MOVE_RIGHT};
+use rtwk_core::input::{InputEvent, KeyKind};
+
 use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::dialogs::{Decision, Warning};
 
 use super::dialog::{Msg, SmallDialogState};
 use super::strings::Strings;
 use crate::app::theme::Tokens;
-use crate::keymap::bind_fixed;
+use crate::keymap::{bind_fixed, event_is_fixed};
 
 /// `WARNING_PANEL_CONTENT_ROWS` less the header and its blank row.
 const BODY_ROWS: i32 = 8;
@@ -117,7 +121,7 @@ impl Pages {
     }
 }
 
-pub(super) fn build(warnings: &Pages, s: &Strings, cx: &mut Cx<'_, SmallDialogState>) -> Focus {
+pub(super) fn build(warnings: &Pages, s: &Strings, cx: &mut Cx<'_, SmallDialogState>) -> AnyWidget {
     let tokens = Tokens::of(cx);
     let page = warnings.page();
     let title = match page {
@@ -131,7 +135,29 @@ pub(super) fn build(warnings: &Pages, s: &Strings, cx: &mut Cx<'_, SmallDialogSt
     let body =
         AnyWidget::from(SingleChildScrollView::new(Text::new(details.to_string())).autofocus(true))
             .with_key(warnings.current);
-    let hints = [s.hint_keep, s.hint_dismiss, s.hint_copy, s.hint_pages];
+    // Plain k belongs to this viewer, also where the keymap gives it to another action.
+    let keys = crate::keymap::keymap(cx);
+    let hint_key = |id| {
+        crate::keymap::label(&keys, id).filter(|label| label != "k" && !label.starts_with("k "))
+    };
+    let pages = [LIST_MOVE_LEFT, LIST_MOVE_RIGHT]
+        .into_iter()
+        .filter_map(hint_key)
+        .collect::<Vec<_>>()
+        .join(s.hint_pages_join);
+    let hints: Vec<String> = [
+        Some(s.hint_keep.to_string()),
+        Some(format!(
+            "{} {}",
+            hint_key(LIST_CANCEL).unwrap_or_else(|| s.hint_dismiss_fallback_key.to_string()),
+            s.hint_dismiss
+        )),
+        crate::keymap::label(&keys, GLOBAL_COPY).map(|key| format!("{key} {}", s.hint_copy)),
+        (!pages.is_empty()).then(|| format!("{pages} {}", s.hint_pages)),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
     let separator = s.hint_separator;
     let dim = tokens.dim();
     let seg = segmenter_of(cx);
@@ -139,7 +165,7 @@ pub(super) fn build(warnings: &Pages, s: &Strings, cx: &mut Cx<'_, SmallDialogSt
     // left out and the next is tried (`warnings_view_render.rs`).
     let hint = LayoutBuilder::new(move |_, constraints| {
         let mut shown: Vec<&str> = Vec::new();
-        for hint in hints {
+        for hint in &hints {
             shown.push(hint);
             if seg.width(&shown.join(separator)) as i32 > constraints.max_width {
                 shown.pop();
@@ -182,15 +208,20 @@ pub(super) fn build(warnings: &Pages, s: &Strings, cx: &mut Cx<'_, SmallDialogSt
     let focus = Focus::new(Dialog::bare(column)).can_request_focus(false);
     let focus = bind_fixed(focus, fixed::DISMISS, cx.send(Msg::Close));
     let focus = bind_fixed(
-        bind_fixed(
-            focus,
-            fixed::TURN_KEEP,
-            cx.send(Msg::Turn(Turn::KeepAndNext)),
-        ),
-        fixed::TURN_PREVIOUS,
-        cx.send(Msg::Turn(Turn::Previous)),
+        focus,
+        fixed::TURN_KEEP,
+        cx.send(Msg::Turn(Turn::KeepAndNext)),
     );
-    bind_fixed(focus, fixed::TURN_NEXT, cx.send(Msg::Turn(Turn::Next)))
+    // A held k keeps once (`handle_key`: only a press of k keeps): its repeats are dropped, the
+    // other keys' repeats (paging, scrolling) go on.
+    InputListener::with_raw_key_repeats(focus, |event| {
+        matches!(
+            event,
+            InputEvent::Key(key)
+                if key.kind == KeyKind::Repeat && event_is_fixed(fixed::TURN_KEEP, key)
+        )
+    })
+    .into()
 }
 
 #[cfg(test)]
