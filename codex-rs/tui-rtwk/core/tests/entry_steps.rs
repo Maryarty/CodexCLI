@@ -1,9 +1,11 @@
 //! The `entry` and `commit` steps of a script: the transcript's entries in the shorthand the
 //! transcript tests write, played through `ingest` like the notifications they stand for.
 
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 use codex_tui_core::app::CodexApp;
 use codex_tui_core::fixtures::script::{build, parse};
-use codex_tui_core::threads::{Item, NoteKey, ToolKind, ToolStatus, TurnState};
+use codex_tui_core::threads::{Item, ToolKind, ToolStatus, TurnState};
 use pretty_assertions::assert_eq;
 
 const SESSION: &str = r#"{"step":"seed","seed":"session","thread":"thread-1"}"#;
@@ -31,10 +33,9 @@ fn every_shape_makes_its_item_and_a_tab_reaches_the_item() {
         r#"{"step":"entry","kind":"plan_update","steps":[["Write it","completed"]],"explanation":"why"}"#,
         r#"{"step":"entry","kind":"exec","command":"false","output":"bad\n","exit":1}"#,
         r#"{"step":"entry","kind":"exec","command":"sleep 9","running":true}"#,
-        r#"{"step":"entry","kind":"recap","summary":"The recap.","next":"Run it."}"#,
     ]);
     let items = items(&app);
-    assert_eq!(items.len(), 8, "one item per entry: {items:#?}");
+    assert_eq!(items.len(), 7, "one item per entry: {items:#?}");
     assert!(matches!(&items[0], Item::User(prompt) if prompt.text == "the prompt"));
     assert_eq!(
         items[1],
@@ -58,10 +59,6 @@ fn every_shape_makes_its_item_and_a_tab_reaches_the_item() {
     };
     assert_eq!(shell(&items[5]), Some(ToolStatus::Failed));
     assert_eq!(shell(&items[6]), Some(ToolStatus::Running));
-    assert!(
-        matches!(&items[7], Item::Note(note) if matches!(note.key, NoteKey::Feature(_))),
-        "the recap is a note of the thread's own transcript"
-    );
 }
 
 #[test]

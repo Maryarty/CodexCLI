@@ -39,12 +39,13 @@
 //! - `entry`: one entry of the transcript, in the shorthand the transcript tests write instead of
 //!   the notifications that make it: `{"step":"entry","kind":"agent","text":"top"}`. `kind` is
 //!   `agent`, `user`, `reasoning`, `plan` (the proposed plan, `text`), `plan_update` (`steps`:
-//!   `[["Write it","completed"]]`, `explanation`), `exec` (`command`, `output`, `exit`, or
-//!   `running`) or `recap` (`summary`, `next`). The entry is a turn of its own (`turn/started`, the
-//!   item, `turn/completed`; `turn` names it, else `entry-<line>`); `"end":false` leaves the turn
-//!   open, so an `agent` entry is the live tail, and `"start":false` adds to the open turn `turn`
-//!   names. `text` is the text as the model said it, a tab and Markdown included. `thread` is
-//!   `thread-1` unless the step says.
+//!   `[["Write it","completed"]]`, `explanation`) or `exec` (`command`, `output`, `exit`, or
+//!   `running`). The entry is a turn of its own (`turn/started`, the item, `turn/completed`;
+//!   `turn` names it, else `entry-<line>`); `"end":false` leaves the turn open, so an `agent`
+//!   entry is the live tail, and `"start":false` adds to the open turn `turn` names. `item` names
+//!   the item, so a second `agent` entry of it adds to its text. `text` is the text as the model
+//!   said it, a tab and Markdown included. `thread` is `thread-1` unless the step says. A recap
+//!   is not a shape: it is a feature's note (`Screen::recap` of the test kit).
 //! - `commit`: the end of an open turn (`{"step":"commit","turn":"turn-2"}`): the live tail is
 //!   committed to the transcript (`turn/completed`).
 //! - `key` and `resize`: inputs for a tester; the model has no use for them,
@@ -205,6 +206,10 @@ pub struct Entry {
     /// The turn the entry is in; none is a turn of its own, named by the line.
     #[serde(default)]
     pub turn: Option<String>,
+    /// The item's id; none is named by the line. A second `agent` entry with the same `item` in
+    /// the same turn is more of its text (a delta), so a live answer grows by steps.
+    #[serde(default)]
+    pub item: Option<String>,
     /// The turn begins with this entry (`turn/started`).
     #[serde(default = "yes")]
     pub start: bool,
@@ -243,12 +248,6 @@ pub enum Shape {
         #[serde(default)]
         running: bool,
     },
-    /// The recap `/recap` says (oracle `ThreadRecapHistoryCell`): what happened, and what next.
-    Recap {
-        summary: String,
-        #[serde(default)]
-        next: Option<String>,
-    },
 }
 
 impl Entry {
@@ -256,11 +255,10 @@ impl Entry {
     /// does not.
     fn events(&self, line: usize) -> Result<Vec<AppEv>, String> {
         let thread = self.thread.as_deref().unwrap_or(DEFAULT_THREAD);
-        let turn = self
-            .turn
-            .clone()
-            .unwrap_or_else(|| format!("entry-{line}"));
-        let item = format!("item-{line}");
+        // ids, not prose: a turn and an item the step did not name are named by its line
+        let at = line.to_string();
+        let turn = (self.turn.clone()).unwrap_or_else(|| ["entry-", at.as_str()].concat());
+        let item = (self.item.clone()).unwrap_or_else(|| ["item-", at.as_str()].concat());
         let backend = |ev: BackendEv| AppEv::Backend(ev);
         let mut events = Vec::new();
         if self.start {
@@ -305,19 +303,6 @@ impl Entry {
                         thread, &turn, &item, command, output, *exit,
                     )?));
                 }
-            }
-            Shape::Recap { summary, next } => {
-                let note = crate::features::recap::Note::Recap {
-                    summary: summary.clone(),
-                    next_action: next.clone(),
-                };
-                events.push(AppEv::Intent(Intent::Screen(ScreenIntent::Chat(
-                    chat::Intent::Note {
-                        // in the thread's transcript: with no thread a note is the chat's own
-                        thread: Some(ThreadId::new(thread)),
-                        note: Note::from(NoteKey::Feature(note.into())),
-                    },
-                ))));
             }
         }
         if self.end {

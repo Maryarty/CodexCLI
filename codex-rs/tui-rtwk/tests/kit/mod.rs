@@ -34,6 +34,7 @@ mod settings;
 mod side;
 mod sparkle;
 mod states;
+mod tail;
 mod usage;
 mod verdict;
 mod view;

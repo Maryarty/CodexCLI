@@ -296,7 +296,11 @@ pub fn command_completed(
     output: &str,
     exit_code: i32,
 ) -> Result<BackendEv, String> {
-    let status = if exit_code == 0 { "completed" } else { "failed" };
+    let status = if exit_code == 0 {
+        "completed"
+    } else {
+        "failed"
+    };
     wire(
         "item/completed",
         serde_json::json!({

@@ -71,14 +71,14 @@ fn every_entry_shape_has_a_script_step() {
         r#"{"step":"entry","kind":"plan","text":"the plan"}"#,
         r#"{"step":"entry","kind":"plan_update","steps":[["Write it","completed"],["Test it","inProgress"]]}"#,
         r#"{"step":"entry","kind":"exec","command":"printf visible","output":"visible\n","exit":0}"#,
-        r#"{"step":"entry","kind":"recap","summary":"The recap.","next":"Run it."}"#,
         r#"{"step":"entry","kind":"exec","command":"sleep 9","running":true,"end":false}"#,
     ]);
-    let s = Screen::build(Owner::ChatLive)
+    let mut s = Screen::build(Owner::ChatLive)
         .size(60, 90)
         .script(text)
         .view_only()
         .open();
+    s.recap("The recap.", Some("Run it."));
     for shown in [
         "› the prompt",
         "• a b bold",
@@ -95,4 +95,51 @@ fn every_entry_shape_has_a_script_step() {
     ] {
         s.assert_contains(shown);
     }
+}
+
+/// The oracle's live cell: the answer streams (hidden from history until its turn ends), then
+/// commits. The transcript shows it all along and the commit adds the turn's "Worked for" row.
+#[test]
+fn the_live_tail_grows_and_a_commit_ends_its_turn() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(40, 8)
+        .script(SESSION)
+        .view_only()
+        .open();
+    s.live_tail("live needle");
+    s.assert_contains("• live needle");
+    s.assert_absent("Worked for");
+    s.live_tail(" again needle");
+    s.assert_contains("• live needle again needle");
+    s.assert_absent("Worked for");
+    s.commit_live_tail();
+    s.assert_contains("• live needle again needle");
+    s.assert_contains("Worked for");
+}
+
+/// The oracle sets `TranscriptHistoryState::Partial` by hand and joins a page by hand: here the
+/// server's first page has a cursor behind it, the reader goes to the top, and the older page
+/// the app asked for joins above, under a live answer that keeps streaming.
+#[test]
+fn an_older_page_joins_above_a_partial_history_and_the_live_tail() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(30, 6)
+        .replay(Vec::new())
+        .view_only()
+        .open();
+    s.partial_history(3);
+    s.assert_contains("row 02");
+    s.live_tail("latest answer");
+    s.assert_contains("• latest answer");
+    s.join_older_page(&["older a", "older b"], false);
+    assert_eq!(s.page_requests(), [None, Some("cursor-1".to_string())]);
+    assert_eq!(s.pages_waiting(), 0);
+    // the reader keeps the row it was on; the joined rows are above it
+    s.assert_contains("row 00");
+    s.assert_absent("older a");
+    s.wheel_up(0, 0, 100);
+    s.assert_contains("older a");
+    s.live_tail(" and more");
+    s.wheel_down(0, 0, 100);
+    s.assert_contains("• latest answer and more");
 }
