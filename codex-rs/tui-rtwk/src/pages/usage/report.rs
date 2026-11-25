@@ -267,7 +267,9 @@ fn stacked(items: Vec<Item>, cross: CrossAxisAlignment) -> AnyWidget {
 /// A label at the left and its value at the right (oracle: `columns`): the
 /// label is cut with an ellipsis before it meets the value's column.
 fn columns(left: Text, right: Text) -> AnyWidget {
+    // a screen narrower than the value clips it (the oracle draws into whatever room it has)
     Row::new()
+        .overflow_intended(true)
         .child(Expanded::new(1, left))
         .child(SizedBox::new(Some(2), None, None))
         .child(right)

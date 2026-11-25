@@ -36,6 +36,7 @@ use crate::app::debug::DebugOpen;
 use crate::app::debug::EntryOpen;
 use crate::app::debug::seeded::Seeded;
 use crate::app::theme;
+use crate::app::theme::effort::Colors;
 use crate::app::view::Hs;
 use crate::keymap::press_for;
 use crate::l10n::strings as shared;
@@ -47,6 +48,7 @@ mod hints;
 mod keys;
 mod list;
 pub mod overview;
+mod palette;
 mod plan;
 pub mod report;
 pub mod strings;
@@ -141,6 +143,18 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             name: "chat_padding",
             description: "a Plus account's Chats report of one chat with its three amounts",
             script: include_str!("fixtures/chat_padding.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
+        },
+        DebugEntry {
+            name: "activity_ada",
+            description: "a Plus account's daily activity graph with the `ada` syntax theme in force",
+            script: include_str!("fixtures/activity_ada.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
+        },
+        DebugEntry {
+            name: "business_chat_padding",
+            description: "a usage-based Enterprise account's Chats report of one chat with its three amounts",
+            script: include_str!("fixtures/business_chat_padding.jsonl"),
             open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
         },
         DebugEntry {
@@ -494,10 +508,18 @@ pub struct Look {
     pub secondary: Style,
     pub bold: Style,
     pub accent: Style,
+    /// The row under the cursor (oracle: `selection_style`).
     pub selected: Style,
+    /// The active tab (oracle: `active_tab_style`).
+    pub tab: Style,
     /// The plot's series: the theme's info, accent and success hues (the
     /// oracle: the terminal's cyan, magenta and green), the terminal's own after.
     pub series: [Style; 4],
+    /// The terminal's default colours as it told them.
+    pub(crate) colors: Colors,
+    /// An active cell of the activity chart (oracle: `theme_activity_style`): the syntax
+    /// theme's type colour in bold, else the accent.
+    pub activity: Style,
 }
 
 /// An empty row.
@@ -574,7 +596,7 @@ fn tabs(
             .position(|section| *section == model.section())
             .unwrap_or(0),
         marks: (strings.tab_left, strings.tab_right),
-        styles: (look.selected.clone(), look.dim.clone()),
+        styles: (look.tab.clone(), look.dim.clone()),
         taps: taps.tabs.clone(),
     }
     .widget()
@@ -848,7 +870,9 @@ impl Page<'_> {
             rows[0].insert(0, control(spans, &taps.dashboard));
         }
         let height = if inner >= 100 { 2 } else { 3 };
-        let mut column = Column::new().cross_axis_alignment(CrossAxisAlignment::Start);
+        let mut column = Column::new()
+            .overflow_intended(true)
+            .cross_axis_alignment(CrossAxisAlignment::Start);
         // The rows above the last, the last says when the report was updated.
         for row in rows.into_iter().take(height as usize - 1) {
             let mut shown = Row::new();
@@ -866,6 +890,7 @@ impl Page<'_> {
             .and_then(|history| history.updated_at)
             .map(|at| strings.updated_controls(at, model.hour24, num));
         let column = Column::new()
+            .overflow_intended(true)
             .cross_axis_alignment(CrossAxisAlignment::Start)
             .child(SizedBox::new(None, Some(height - 1), Some(column.into())))
             .child(
@@ -893,7 +918,9 @@ impl Page<'_> {
             .kind(BorderType::Single)
             .style(look.dim.clone())
             .merge(false);
+        // a screen shorter than the page clips its last rows
         let column = Column::new()
+            .overflow_intended(true)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .child(heading(model, strings, num, look))
             .child(SizedBox::new(
@@ -1202,7 +1229,18 @@ impl State for ScreenState {
         let plan_taps = self.plan_taps.as_ref().map(|(_, taps)| taps.clone());
         let chat = self.chat;
         let chat_taps = self.chat_taps.as_ref().map(|(_, taps)| taps.clone());
+        let colors = Colors::of(cx);
+        let accent = palette::accent(
+            tokens.accent(),
+            colors,
+            tokens.scope_color(&["codex.accent"]),
+        );
+        let activity = tokens
+            .scope_color(&palette::ANCHOR_SCOPES)
+            .map_or_else(|| accent.clone(), crate::app::theme::bold);
         let look = Look {
+            colors,
+            activity,
             dim: tokens.dim(),
             secondary: tokens.dim(),
             series: [
@@ -1212,8 +1250,9 @@ impl State for ScreenState {
                 Style::new(),
             ],
             bold: tokens.bold(),
-            accent: tokens.accent(),
-            selected: tokens.selected().attrs(Attrs::REVERSE),
+            accent,
+            selected: palette::selection(tokens.selected().attrs(Attrs::REVERSE), colors),
+            tab: palette::active_tab(tokens.selected().attrs(Attrs::REVERSE), colors),
         };
         let shown_keymap = keymap.clone();
         let body = LayoutBuilder::new(move |_, constraints| {

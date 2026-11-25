@@ -48,10 +48,41 @@ fn navigation_keeps_its_row_when_sections_change() {
 // ORACLE analytics/activity_chart/palette_tests.rs:7 current_palette_uses_effective_terminal_color_level kind=snap owner=routes-lists snap=current_palette_uses_effective_terminal_color_level
 #[test]
 fn current_palette_uses_effective_terminal_color_level() {
-    kit::pending(
-        Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's activity data (the chart is drawn from the test's own history)",
+    // the legend of the daily graph on a true-colour terminal (text f0f0f0 on black) with the
+    // `ada` syntax theme: one square glyph, the five steps of the gradient from the terminal's
+    // text colour (empty) to the theme's type colour (the oracle's snapshot)
+    let s = Screen::build(Owner::RoutesLists)
+        .size(100, 40)
+        .entry("usage", "activity_ada")
+        .terminal_colors(0xf0_f0_f0, 0x00_00_00)
+        .open();
+    let g = s.grid();
+    let (_, _, row) = g.locate("Less").expect("the legend");
+    let squares: Vec<usize> = (0..g.width)
+        .filter(|x| g.cell(*x, row).text == "\u{25a0}")
+        .collect();
+    assert_eq!(squares.len(), 5, "the legend's squares:\n{}", s.text());
+    let colors: Vec<String> = squares.iter().map(|x| g.style(*x, row).fg).collect();
+    assert_eq!(
+        colors,
+        [
+            "Rgb(33, 33, 33)",
+            "Rgb(20, 47, 56)",
+            "Rgb(39, 90, 107)",
+            "Rgb(64, 146, 173)",
+            "Rgb(95, 215, 255)",
+        ],
+        "{}",
+        s.text()
     );
+    // a terminal of 16 colours has no gradient: the hollow glyph marks the empty cells
+    let low = Screen::build(Owner::RoutesLists)
+        .size(100, 40)
+        .entry("usage", "activity_ada")
+        .terminal_colors(0xf0_f0_f0, 0x00_00_00)
+        .color_depth(kit::ColorDepth::Ansi16)
+        .open();
+    low.assert_contains("\u{25a1}");
 }
 
 // ---- oracle: analytics/activity_chart_tests.rs (4 screen-level tests here; 4 state tests left to routes-lists)
@@ -410,6 +441,23 @@ fn horizontal_aliases_ignore_modifiers_and_release_but_accept_repeat() {
 // ORACLE analytics/plan_tests.rs:33 resize_keeps_visible_weekly_selection_and_respects_manual_scroll kind=ui owner=routes-lists
 #[test]
 fn resize_keeps_visible_weekly_selection_and_respects_manual_scroll() {
+    // the part that needs no cursor-follow, on a page tall enough to show every row: the
+    // dashboard lists the weekly limits, the first weekly period opens with its range, and the
+    // narrow page keeps the hint line
+    let mut s = Screen::build(Owner::RoutesLists)
+        .size(120, 60)
+        .entry("usage", "plan_many")
+        .open();
+    s.keys("z");
+    s.assert_contains("Weekly limits");
+    s.keys("z");
+    s.resize(80, 60);
+    s.keys("right");
+    s.assert_contains("Weekly limits");
+    s.keys("enter");
+    s.assert_contains("Sep 1 00:00 \u{2013} Sep 8 00:00");
+    s.resize(40, 16);
+    s.assert_contains("\u{2191}/\u{2193} period \u{b7} enter details");
     kit::pending(
         Owner::RoutesLists,
         "the Plan report does not follow its cursor row (G-new-usage-1: no ensure_visible of a row from a State, tests/pages/usage.rs `the_plan_report_follows_the_cursor_row` is its ignored page test): the test's resize and scroll steps keep the selected weekly row in view, which a 24-row page cannot do; the entry `plan_many` holds the history",
@@ -648,8 +696,15 @@ fn tall_reports_use_available_height_and_wide_reports_put_details_beside_plot() 
             .size(width, height)
             .entry("usage", "business_tokens")
             .open();
-        let plot_rows = s.rows().iter().filter(|row| row.contains('\u{2588}')).count();
-        assert!(plot_rows > 14, "only {plot_rows} plot rows at {width} columns");
+        let plot_rows = s
+            .rows()
+            .iter()
+            .filter(|row| row.contains('\u{2588}'))
+            .count();
+        assert!(
+            plot_rows > 14,
+            "only {plot_rows} plot rows at {width} columns"
+        );
         s.assert_contains("731,000 tokens");
         s.assert_absent("scroll");
         if width == 180 {
@@ -660,7 +715,9 @@ fn tall_reports_use_available_height_and_wide_reports_put_details_beside_plot() 
                 "no headline row with a rule:\n{}",
                 s.text()
             );
-            s.assert_snap("tall_reports_use_available_height_and_wide_reports_put_details_beside_plot");
+            s.assert_snap(
+                "tall_reports_use_available_height_and_wide_reports_put_details_beside_plot",
+            );
         }
     }
 }
@@ -716,7 +773,11 @@ fn keyboard_tabs_and_help_preserve_report_reading_position() {
     s.assert_contains("credits");
     s.keys("pagedown");
     s.keys("tab");
-    s.assert_same_frame(&s.rows(), &read, "the report's position after Shift+Tab and Tab");
+    s.assert_same_frame(
+        &s.rows(),
+        &read,
+        "the report's position after Shift+Tab and Tab",
+    );
     s.resize(40, 16);
     s.keys("?");
     s.assert_contains("Usage shortcuts");
@@ -753,26 +814,161 @@ fn keyboard_tabs_and_help_preserve_report_reading_position() {
     s.assert_same_frame(&s.rows(), &dashboard, "the dashboard after the help");
     s.keys("enter");
     s.assert_absent("Dashboard \u{b7}");
-    s.assert_same_frame(&s.rows(), &read, "the report focused again, its detail open");
+    s.assert_same_frame(
+        &s.rows(),
+        &read,
+        "the report focused again, its detail open",
+    );
 }
 
 // ---- oracle: analytics/styles_tests.rs (2 screen-level tests here; 0 state tests left to routes-lists)
 // ORACLE analytics/styles_tests.rs:27 analytics_sections_adapt_to_terminal_colors kind=ui owner=routes-lists
 #[test]
 fn analytics_sections_adapt_to_terminal_colors() {
-    kit::pending(
-        Owner::RoutesLists,
-        "asserts terminal colour mapping of the test's palette, needs a fixture of every section",
-    );
+    // every report of a consumer and an enterprise account on a light and a dark terminal (the
+    // Chats report with its first chat's details open): the active tab is a grey fill (220 on
+    // light, 76 on dark) with the terminal's text on it, bold; every `\u{25b2}` is the accent
+    // (readable on the terminal's background), bold, on no fill; on the light terminal no text
+    // reads under 4.5 but a key hint's own white, which stays in the hint rows (the two under
+    // the heading's tabs and the last two) and bold
+    struct Terminal {
+        name: &'static str,
+        colors: (u32, u32),
+        fill: &'static str,
+        ink: &'static str,
+        accent: &'static str,
+    }
+    fn check(s: &Screen, at: &str, terminal: &Terminal) {
+        let g = s.grid();
+        let filled: Vec<usize> = (0..g.width)
+            .filter(|x| g.style(*x, 1).bg != "Reset")
+            .collect();
+        assert!(!filled.is_empty(), "{at}: no active tab:\n{}", s.text());
+        let head = g.style(filled[0], 1);
+        assert_eq!(head.bg, terminal.fill, "{at}: the active tab's fill");
+        assert_eq!(head.fg, terminal.ink, "{at}: the active tab's text");
+        assert!(head.modifier.contains("BOLD"), "{at}: {head:?}");
+        for y in 0..g.height {
+            for x in 0..g.width {
+                let style = g.style(x, y);
+                if g.cell(x, y).text == "\u{25b2}" {
+                    assert_eq!(style.fg, terminal.accent, "{at}: marker at {x},{y}");
+                    assert_eq!(style.bg, "Reset", "{at}: marker at {x},{y}");
+                    assert!(style.modifier.contains("BOLD"), "{at}: marker {style:?}");
+                }
+                if terminal.name == "light"
+                    && style.fg == "White"
+                    && !g.cell(x, y).text.trim().is_empty()
+                {
+                    assert!(
+                        y >= g.height - 2 || (3..5).contains(&y),
+                        "{at}: white at {x},{y}"
+                    );
+                    assert_eq!(style.modifier, "BOLD", "{at}: white at {x},{y}");
+                }
+            }
+        }
+        if terminal.name == "light" {
+            let low = g.low_contrast(kit::LIGHT, 4.5);
+            assert!(low.is_empty(), "{at}: {low:?}\n{}", s.text());
+        }
+    }
+    for terminal in [
+        Terminal {
+            name: "light",
+            colors: kit::LIGHT,
+            fill: "Rgb(220, 220, 220)",
+            ink: "Rgb(0, 0, 0)",
+            accent: "Rgb(28, 100, 200)",
+        },
+        Terminal {
+            name: "dark",
+            colors: kit::DARK,
+            fill: "Rgb(76, 76, 76)",
+            ink: "Rgb(230, 230, 230)",
+            accent: "Rgb(99, 168, 248)",
+        },
+    ] {
+        for entry in ["dashboard", "enterprise_all"] {
+            let mut s = Screen::build(Owner::RoutesLists)
+                .size(120, 42)
+                .entry("usage", entry)
+                .terminal_colors(terminal.colors.0, terminal.colors.1)
+                .open();
+            s.keys("enter");
+            let tabs = s.rows()[1]
+                .split_whitespace()
+                .filter(|word| word.parse::<u32>().is_ok())
+                .count();
+            assert!(tabs >= 6, "{entry}: {tabs} tabs:\n{}", s.text());
+            for index in 0..tabs {
+                let at = format!("{} {entry} report {index}", terminal.name);
+                check(&s, &at, &terminal);
+                let g = s.grid();
+                let active: Vec<usize> = (0..g.width)
+                    .filter(|x| g.style(*x, 1).bg != "Reset")
+                    .collect();
+                let (first, last) = (active[0], active[active.len() - 1]);
+                if g.row(1, first, last + 1, false).contains("Chats") {
+                    s.keys("enter");
+                    check(&s, &format!("{at} with its details"), &terminal);
+                }
+                s.keys("tab");
+            }
+        }
+    }
 }
 
 // ORACLE analytics/styles_tests.rs:131 chat_selection_keeps_a_highlighted_trailing_blank_after_wrapping kind=ui owner=routes-lists
 #[test]
 fn chat_selection_keeps_a_highlighted_trailing_blank_after_wrapping() {
-    kit::pending(
-        Owner::RoutesLists,
-        "asserts terminal colour mapping of the test's palette, needs a fixture of every section",
-    );
+    // the Chats report of a business and a consumer account on a white terminal (text 30 30 30),
+    // 40 and 120 cells wide: every row of the report with the selection's fill ends in a filled
+    // blank, after text
+    for entry in ["business_chat_padding", "chat_padding"] {
+        let mut s = Screen::build(Owner::RoutesLists)
+            .size(40, 30)
+            .entry("usage", entry)
+            .terminal_colors(0x1e_1e_1e, 0xff_ff_ff)
+            .open();
+        for _ in 0..8 {
+            if s.text().contains("Building Analytics") {
+                break;
+            }
+            s.keys("tab");
+        }
+        s.assert_contains("Building Analytics");
+        for width in [40, 120] {
+            s.resize(width, 30);
+            let g = s.grid();
+            let mut selected = 0;
+            for y in 0..g.height {
+                let filled: Vec<usize> = (0..g.width)
+                    .filter(|x| g.style(*x, y).bg == "Rgb(164, 205, 251)")
+                    .collect();
+                let Some(end) = filled.last().copied() else {
+                    continue;
+                };
+                selected += 1;
+                assert_eq!(
+                    g.cell(end, y).text.trim(),
+                    "",
+                    "{entry} {width}: row {y}:\n{}",
+                    s.text()
+                );
+                assert!(
+                    (0..end).any(|x| !g.cell(x, y).text.trim().is_empty()),
+                    "{entry} {width}: row {y} has no text before its last filled cell:\n{}",
+                    s.text()
+                );
+            }
+            assert!(
+                selected > 0,
+                "{entry} {width}: no selected row:\n{}",
+                s.text()
+            );
+        }
+    }
 }
 
 // ---- oracle: analytics/summary_tests.rs (2 screen-level tests here; 3 state tests left to routes-lists)
@@ -871,7 +1067,11 @@ fn analytics_dates_distinguish_zero_missing_and_exact_details() {
     // day; the page draws each as its body on a 58-cell screen
     let name = "analytics_dates_distinguish_zero_missing_and_exact_details";
     let bodies = kit::snap_states(name, &[16, 16, 16, 2, 5]);
-    for (body, keys) in [(0, "home"), (1, "home right enter"), (2, "home right enter right")] {
+    for (body, keys) in [
+        (0, "home"),
+        (1, "home right enter"),
+        (2, "home right enter right"),
+    ] {
         let s = panel_screen("credits_exact", keys, 16);
         s.assert_body_from("13.1K credits", &bodies[body], name);
     }
@@ -979,7 +1179,11 @@ fn analytics_series_rank_by_range_and_keep_calendar_ticks_stable() {
         .size(98, 38)
         .entry("usage", "usage_month_other")
         .open();
-    s.assert_in_order(&["\u{25cf} Other", "\u{25cf} GPT-5.6-Sol", "\u{25cf} GPT-5.6-Terra"]);
+    s.assert_in_order(&[
+        "\u{25cf} Other",
+        "\u{25cf} GPT-5.6-Sol",
+        "\u{25cf} GPT-5.6-Terra",
+    ]);
     let grid = s.grid();
     let rows = s.rows();
     let marks: Vec<String> = ["Other", "GPT-5.6-Sol", "GPT-5.6-Terra"]
@@ -992,7 +1196,7 @@ fn analytics_series_rank_by_range_and_keep_calendar_ticks_stable() {
                 .find(|(_, row)| row.contains(&want))
                 .unwrap_or_else(|| panic!("no `{want}` row:\n{}", s.text()));
             let x = row[..row.find(&want).unwrap()].chars().count();
-            grid.style(x, y).fg.clone()
+            grid.style(x, y).fg
         })
         .collect();
     kit::assert_same(

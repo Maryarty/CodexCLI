@@ -3,7 +3,7 @@
 (`fixture::view/history/tokens/chats`, the seeded reports of an account kind) with the edits the
 oracle's tests make to them: dashboard_month, usage_month_other, denominators,
 denominators_credits, business_tokens, business_updated_12h, tasks_updated_12h, enterprise_all,
-large_values, chat_padding.  Run `python3 -I` from the repo root; the result is committed."""
+large_values, chat_padding, business_chat_padding.  Run `python3 -I` from the repo root; the result is committed."""
 import datetime
 import json
 import pathlib
@@ -284,31 +284,34 @@ write(
         ],
     ),
 )
-write(
-    "chat_padding",
-    [
-        "`chat_selection_keeps_a_highlighted_trailing_blank_after_wrapping` (styles_tests.rs): a Plus",
-        "account's Chats report of one chat, `Building Analytics`, 42% weekly, 15% 5-hour, 35.83.",
-    ],
-    seeded(
-        "plus",
-        "chats",
-        tasks=ready(
-            {
-                "rows": [
-                    {
-                        "title": "Building Analytics",
-                        "task": {
-                            "status": "available",
-                            "amounts": {"weekly_percent": 42.0, "five_hour_percent": 15.0, "balance": "35.83"},
-                            "groups": [],
-                        },
-                    }
-                ]
-            }
-        ),
-    ),
-)
+def padding_chats(plan):
+    """One chat, `Building Analytics`: a consumer's `task` with its three amounts, a business
+    chat's `estimate` of the same balance."""
+    if plan != "plus":
+        group = {"model": "GPT-5.6-Sol", "effort": "high", "speed": "standard", "credits_micros": 35_830_000}
+        row = {"title": "Building Analytics", "estimate": {"credits_micros": 35_830_000, "groups": [group]}}
+        return {"chats": ready({"rows": [row]})}
+    row = {
+        "title": "Building Analytics",
+        "task": {
+            "status": "available",
+            "amounts": {"weekly_percent": 42.0, "five_hour_percent": 15.0, "balance": "35.83"},
+            "groups": [],
+        },
+    }
+    return {"tasks": ready({"rows": [row]})}
+
+
+for name, plan, who in [("chat_padding", "plus", "a Plus"), ("business_chat_padding", "enterprise_cbp_usage_based", "a usage-based Enterprise")]:
+    write(
+        name,
+        [
+            "`chat_selection_keeps_a_highlighted_trailing_blank_after_wrapping` (styles_tests.rs): " + who,
+            "account's Chats report of one chat, `Building Analytics` (a Plus task: 42% weekly, 15% 5-hour,",
+            "35.83; a business chat: 35.83 credits).",
+        ],
+        seeded(plan, "chats", **padding_chats(plan)),
+    )
 
 
 def credits_exact_with(edit):
@@ -341,3 +344,16 @@ write(
     ],
     credits_exact_with(lambda load, data: data.clear()),
 )
+
+
+# `current_palette_uses_effective_terminal_color_level` (palette_tests.rs): the daily graph with
+# the `ada` syntax theme in force (a theme picker offer is the theme in force).
+lines = (OUT / "activity_daily.jsonl").read_text().splitlines()
+head = [line for line in lines if line.startswith("#")]
+head[0] = "# `current_palette_uses_effective_terminal_color_level` (palette_tests.rs): the daily graph of a Plus account with the `ada` theme in force."
+steps = [line for line in lines if not line.startswith("#")]
+theme = json.dumps(
+    {"step": "fact", "feature": "settings", "fact": {"kind": "theme_picker", "themes": ["ada"], "current": "ada"}},
+    separators=(",", ":"),
+)
+(OUT / "activity_ada.jsonl").write_text("\n".join(head + steps[:1] + [theme] + steps[1:]) + "\n")
