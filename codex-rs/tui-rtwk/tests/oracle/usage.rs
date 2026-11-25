@@ -6,6 +6,38 @@
 
 use crate::kit::{self, Owner, Screen, snap_rows};
 
+/// The chart's rows as the oracle draws them (`chart_lines` at a graph width, trailing blanks
+/// cut), found anywhere on the screen: the first row is the one that ends with the first line,
+/// the page's inset is the shift of that row, and each following row is the next line shifted
+/// the same. `clipped` lets the last row (a caption wider than the graph: `chart_lines` does not
+/// clip, the page does at the graph's width) lose its tail.
+fn assert_chart(s: &Screen, want: &[&str], clipped: bool) {
+    let rows = s.rows();
+    let first = want[0].trim_end();
+    let at = rows
+        .iter()
+        .position(|row| row.trim_end().ends_with(first.trim_start()))
+        .unwrap_or_else(|| panic!("no row ends with `{first}` on\n{}", s.text()));
+    let shift = rows[at].trim_end().chars().count() - first.chars().count();
+    for (i, line) in want.iter().enumerate() {
+        let expected = if line.trim().is_empty() {
+            String::new()
+        } else {
+            format!("{}{}", " ".repeat(shift), line.trim_end())
+        };
+        let got = rows.get(at + i).map_or("", |row| row.trim_end());
+        if clipped && i + 1 == want.len() {
+            assert!(
+                expected.starts_with(got) && got.trim().chars().count() >= 15,
+                "chart caption {got:?} is not {expected:?} clipped:\n{}",
+                s.text()
+            );
+        } else {
+            assert_eq!(got, expected, "chart row {i}:\n{}", s.text());
+        }
+    }
+}
+
 /// The plan body under the page's heading and tabs: the rows of ours that start at the row
 /// beginning `from`, the page's one-cell inset cut (the oracle's snapshot is the body alone).
 fn plan_body(s: &Screen, from: &str, rows: usize) -> Vec<String> {
@@ -21,7 +53,6 @@ fn plan_body(s: &Screen, from: &str, rows: usize) -> Vec<String> {
         .map(|row| row.strip_prefix(' ').unwrap_or(row).trim_end().to_owned())
         .collect()
 }
-
 
 // ---- oracle: analytics/account_layout_tests.rs (1 screen-level tests here; 11 state tests left to routes-lists)
 // ORACLE analytics/account_layout_tests.rs:423 navigation_keeps_its_row_when_sections_change kind=ui owner=routes-lists
@@ -47,36 +78,99 @@ fn current_palette_uses_effective_terminal_color_level() {
 // ORACLE analytics/activity_chart_tests.rs:65 daily_graph_snapshot_uses_distinct_empty_and_active_cells kind=snap owner=routes-lists
 #[test]
 fn daily_graph_snapshot_uses_distinct_empty_and_active_cells() {
-    kit::pending(
-        Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's activity data (the chart is drawn from the test's own history)",
+    // today 2026-05-29, one token on the 25th and four on the 29th: the empty and the active
+    // cells differ (`□`, `■`), and the legend sits under the grid; a graph 22 cells wide
+    let s = Screen::build(Owner::RoutesLists)
+        .size(24, 70)
+        .entry("usage", "activity_daily")
+        .open();
+    assert_chart(
+        &s,
+        &[
+            "     Apr     May",
+            "Su □ □ □ □ □ □ □ □ □",
+            "Mo □ □ □ □ □ □ □ □ ■",
+            "Tu □ □ □ □ □ □ □ □ □",
+            "We □ □ □ □ □ □ □ □ □",
+            "Th □ □ □ □ □ □ □ □ □",
+            "Fr □ □ □ □ □ □ □ □ ■",
+            "Sa □ □ □ □ □ □ □ □",
+            "",
+            "  Less □ ■ ■ ■ ■ More",
+        ],
+        false,
     );
 }
 
 // ORACLE analytics/activity_chart_tests.rs:100 daily_graph_snapshot_stays_left_aligned_in_wide_terminal kind=snap owner=routes-lists
 #[test]
 fn daily_graph_snapshot_stays_left_aligned_in_wide_terminal() {
-    kit::pending(
-        Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's activity data (the chart is drawn from the test's own history)",
+    // no history on a 160-cell terminal: the graph is 107 cells wide and sits at the left; the
+    // months row, the first weekday row and the legend are the oracle's
+    let s = Screen::build(Owner::RoutesLists)
+        .size(162, 40)
+        .entry("usage", "activity_empty")
+        .open();
+    assert_chart(
+        &s,
+        &[
+            "   Jun       Jul     Aug       Sep     Oct     Nov       Dec     Jan     Feb     Mar       Apr     May",
+            "Su □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □",
+        ],
+        false,
     );
+    s.assert_contains("Less □ ■ ■ ■ ■ More");
 }
 
 // ORACLE analytics/activity_chart_tests.rs:121 weekly_graph_snapshot_renders_bar_chart_and_caption kind=snap owner=routes-lists
 #[test]
 fn weekly_graph_snapshot_renders_bar_chart_and_caption() {
-    kit::pending(
-        Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's activity data (the chart is drawn from the test's own history)",
+    // three Mondays with 3, 6 and 9 tokens: the weekly bars (one column a week) and the caption `Each column = 1 week · tallest 9`; a graph 22 cells wide
+    let s = Screen::build(Owner::RoutesLists)
+        .size(24, 70)
+        .entry("usage", "activity_weekly")
+        .open();
+    assert_chart(
+        &s,
+        &[
+            "      Apr     May",
+            "max                 █",
+            "                    █",
+            "                  █ █",
+            "                  █ █",
+            "                █ █ █",
+            "                █ █ █",
+            "  0             █ █ █",
+            "",
+            "   Each column = 1 week · tallest 9",
+        ],
+        true,
     );
 }
 
 // ORACLE analytics/activity_chart_tests.rs:165 cumulative_graph_snapshot_renders_running_total_bar_chart_and_caption kind=snap owner=routes-lists
 #[test]
 fn cumulative_graph_snapshot_renders_running_total_bar_chart_and_caption() {
-    kit::pending(
-        Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's activity data (the chart is drawn from the test's own history)",
+    // three Mondays with 3, 6 and 9 tokens: the running total (the same weeks added up) and the caption `Running total · top 18`; a graph 22 cells wide
+    let s = Screen::build(Owner::RoutesLists)
+        .size(24, 70)
+        .entry("usage", "activity_cumulative")
+        .open();
+    assert_chart(
+        &s,
+        &[
+            "      Apr     May",
+            "max                 █",
+            "                    █",
+            "                    █",
+            "                  █ █",
+            "                  █ █",
+            "                █ █ █",
+            "  0             █ █ █",
+            "",
+            "   Running total · top 18",
+        ],
+        true,
     );
 }
 
@@ -162,7 +256,11 @@ fn consumer_chats_keep_missing_rows_and_only_offer_known_metrics() {
         .size(90, 30)
         .entry("usage", "chats_balance")
         .open();
-    s.assert_in_order(&["Refunded task", "Chat usage unavailable", "Chat usage unavailable"]);
+    s.assert_in_order(&[
+        "Refunded task",
+        "Chat usage unavailable",
+        "Chat usage unavailable",
+    ]);
     s.assert_text_count("Chat usage unavailable", 2);
     s.assert_absent("Private title");
     s.assert_absent("Unverified backend row");
@@ -254,9 +352,10 @@ fn unavailable_empty_and_zero_history_are_distinct() {
         }
     }
     assert_eq!(states.len(), 4);
-    for (mut want, entry) in states
-        .into_iter()
-        .zip(["plan_unavailable", "plan_empty", "plan_zero", "plan_future"])
+    for (mut want, entry) in
+        states
+            .into_iter()
+            .zip(["plan_unavailable", "plan_empty", "plan_zero", "plan_future"])
     {
         while want.last().is_some_and(|row| row.trim().is_empty()) {
             want.pop();

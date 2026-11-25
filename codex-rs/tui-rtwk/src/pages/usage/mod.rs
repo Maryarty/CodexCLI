@@ -144,6 +144,30 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
         },
         DebugEntry {
+            name: "activity_daily",
+            description: "the Overview's daily graph: one token on May 25 and four on May 29",
+            script: include_str!("fixtures/activity_daily.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
+        },
+        DebugEntry {
+            name: "activity_empty",
+            description: "the Overview of an account with no daily buckets",
+            script: include_str!("fixtures/activity_empty.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
+        },
+        DebugEntry {
+            name: "activity_weekly",
+            description: "the Overview's weekly graph: 3, 6 and 9 tokens on three Mondays",
+            script: include_str!("fixtures/activity_weekly.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
+        },
+        DebugEntry {
+            name: "activity_cumulative",
+            description: "the same weeks as a running total",
+            script: include_str!("fixtures/activity_cumulative.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
+        },
+        DebugEntry {
             name: "chats_balance",
             description: "a Plus account's Chats report with only the balance known: three chats, one a refund",
             script: include_str!("fixtures/chats_balance.jsonl"),
