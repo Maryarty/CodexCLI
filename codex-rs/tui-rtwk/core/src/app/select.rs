@@ -358,7 +358,13 @@ pub(super) fn turn_override(
     settings(app, patch, select::Setting::Model, None, fx);
 }
 
-pub(super) fn model_pick(app: &mut CodexApp, selection: select::Selection, fx: &mut AppFx) {
+/// A model picked by a verb of a feature: no select step drains its line, so it does.
+pub(super) fn model_verb(app: &mut CodexApp, selection: select::Selection, fx: &mut AppFx) {
+    model_pick(app, selection, fx);
+    drain(app, fx);
+}
+
+fn model_pick(app: &mut CodexApp, selection: select::Selection, fx: &mut AppFx) {
     use select::models::Apply;
     let effects = select::persist::effects(&selection);
     if let Some(threads) = selection.warning {

@@ -12,7 +12,7 @@ pub(super) fn carry(app: &mut CodexApp, verb: PublicVerb, fx: &mut AppFx) {
             let intent = Intent::Screen(ScreenIntent::Chat(chat::Intent::StatusOverride(set)));
             apply_app(app, AppEv::Intent(intent), fx);
         }
-        PublicVerb::PickModel(selection) => select::model_pick(app, selection, fx),
+        PublicVerb::PickModel(selection) => select::model_verb(app, selection, fx),
         PublicVerb::PickPermissions(selection) => select::permissions_apply(app, selection, fx),
         PublicVerb::OverrideTurn { model, effort } => {
             select::turn_override(app, model, effort, fx);
@@ -87,6 +87,28 @@ mod tests {
             }
         );
         assert!(app.screens().chat.notes.is_empty(), "no line is said");
+    }
+
+    /// A model picked by a verb is no step of the select screen, so nothing else says the line it
+    /// leaves: it is in the thread's transcript at once, not held on the screen for the next pick.
+    #[test]
+    fn a_model_picked_by_a_verb_says_its_line_at_once() {
+        use crate::screens::select::models::{Apply, Selection};
+
+        let mut app = open_app();
+        let mut fx = AppFx::default();
+        let selection = Selection {
+            model: "gpt-5.1-codex-mini".to_owned(),
+            effort: Some(ReasoningEffort::Medium),
+            apply: Apply::Session,
+            warning: None,
+        };
+        carry(&mut app, PublicVerb::PickModel(selection), &mut fx);
+        assert!(
+            app.screens().select.notes.is_empty(),
+            "the line went into the transcript: {:?}",
+            app.screens().select.notes
+        );
     }
 
     /// The one path of the nudge: a feature's verb sends the e-mail through the same request the
