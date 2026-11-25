@@ -15,12 +15,33 @@ use codex_tui_rtwk::app::UiApp;
 
 use super::Screen;
 
-/// The turn the live tail of [`Screen::live_tail`] is in.
+/// The turn the first live tail of [`Screen::live_tail`] is in; a tail after a committed one is in
+/// `live-tail-1`, `live-tail-2`, and so on.
 const TAIL_TURN: &str = "live-tail";
+
+/// The turn of the live tail that is the `n`th this thread has had.
+fn tail_turn(n: usize) -> String {
+    if n == 0 {
+        TAIL_TURN.to_owned()
+    } else {
+        format!("{TAIL_TURN}-{n}")
+    }
+}
+
+/// The item of the live answer in `turn`.
+fn tail_item(turn: &str) -> String {
+    format!("{turn}-answer")
+}
 
 impl Screen {
     /// The thread in use, and the turn running on it (none when no turn runs).
     fn thread_and_turn(&mut self) -> (String, Option<String>) {
+        let (thread, turn, _) = self.thread_turn_and_tails();
+        (thread, turn)
+    }
+
+    /// The same, and how many live tails the thread has had before (the turns named for them).
+    fn thread_turn_and_tails(&mut self) -> (String, Option<String>, usize) {
         let slot = std::rc::Rc::new(std::cell::RefCell::new(None));
         let grab = slot.clone();
         self.h.t.update_app(move |app: &mut UiApp, _| {
@@ -36,7 +57,14 @@ impl Screen {
                 }
                 _ => None,
             };
-            *grab.borrow_mut() = thread.map(|thread| (thread, turn));
+            let mut tails: Vec<String> = Vec::new();
+            for (key, _) in app.core.active_thread().transcript().iter() {
+                let turn = key.turn.as_str();
+                if turn.starts_with(TAIL_TURN) && !tails.iter().any(|seen| seen == turn) {
+                    tails.push(turn.to_owned());
+                }
+            }
+            *grab.borrow_mut() = thread.map(|thread| (thread, turn, tails.len()));
         });
         slot.borrow_mut().take().expect("the screen has a thread")
     }
@@ -65,15 +93,35 @@ impl Screen {
     /// turn that has not ended): the first call starts the turn, each next one adds to the same
     /// answer.
     pub fn live_tail(&mut self, text: &str) -> &mut Screen {
-        let (thread, turn) = self.thread_and_turn();
+        let (thread, turn, tails) = self.thread_turn_and_tails();
         let start = turn.is_none();
         assert!(
-            start || turn.as_deref() == Some(TAIL_TURN),
+            start
+                || turn
+                    .as_deref()
+                    .is_some_and(|turn| turn.starts_with(TAIL_TURN)),
             "a turn other than the live tail's is running: {turn:?}"
         );
+        let turn = turn.unwrap_or_else(|| tail_turn(tails));
         let line = serde_json::json!({
-            "step": "entry", "kind": "agent", "thread": thread, "turn": TAIL_TURN,
-            "item": "live-tail-answer", "text": text, "start": start, "end": false,
+            "step": "entry", "kind": "agent", "thread": thread, "turn": turn,
+            "item": tail_item(&turn), "text": text, "start": start, "end": false,
+        });
+        self.feed(&line.to_string())
+    }
+
+    /// The live answer's text is now `text`, not what it was with more added (the oracle's
+    /// `sync_live_tail` replaces the active cell: a live view of the answer is the whole of it each
+    /// time). The answer is the live tail's item; the turn goes on running.
+    pub fn replace_live_tail(&mut self, text: &str) -> &mut Screen {
+        let (thread, turn) = self.thread_and_turn();
+        let turn = turn
+            .filter(|turn| turn.starts_with(TAIL_TURN))
+            .expect("no live tail to replace (call `live_tail` first)");
+        let line = serde_json::json!({
+            "step": "entry", "kind": "agent", "thread": thread, "turn": turn,
+            "item": tail_item(&turn), "text": text, "start": false, "end": false,
+            "replace": true,
         });
         self.feed(&line.to_string())
     }

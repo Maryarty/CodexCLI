@@ -24,7 +24,10 @@
 //! cost of laying out one screen.
 
 use std::borrow::Cow;
+use std::cell::RefCell;
+use std::rc::Rc;
 
+use codex_tui_core::threads::ThreadModel;
 use rtwk::gestures::SelectionPoint;
 use rtwk::render::RenderId;
 use rtwk::scroll::ItemTexts;
@@ -44,6 +47,50 @@ pub fn repeat(
     direction: Direction,
 ) -> Option<Hit> {
     search(rows, query, from, direction)
+}
+
+/// The thread as it was when Find landed on a match in its live tail (oracle `held_reading`: the
+/// view keeps the snapshot of the cells the match was found in, so the live match stays displayed
+/// while the answer grows, commits or is replaced). The pane draws and reads this thread in place
+/// of the live one until the reader steps to another match, the query changes or Find closes.
+/// The model is shared (`Rc`), so the snapshot costs what the model's `make_mut` copies. Held by
+/// the thread's finder (`Finder::held`).
+#[derive(Clone, Default)]
+pub struct Held(Rc<RefCell<Option<Snapshot>>>);
+
+/// The held thread, and how many times the reader had moved the view when it was taken.
+type Snapshot = (Rc<ThreadModel>, u64);
+
+impl Held {
+    /// The thread's, held by its finder.
+    pub fn of(finder: &Finder) -> Held {
+        finder.held(Held::default)
+    }
+
+    /// The thread as it was matched, if a live match is held.
+    pub fn thread(&self) -> Option<Rc<ThreadModel>> {
+        self.0.borrow().as_ref().map(|(thread, _)| thread.clone())
+    }
+
+    /// The match is in the live tail of `thread`, and the reader had moved the view `moves`
+    /// times.
+    pub fn set(&self, thread: Rc<ThreadModel>, moves: u64) {
+        *self.0.borrow_mut() = Some((thread, moves));
+    }
+
+    /// The reader moved the view since the match was held: what they page to is the transcript as
+    /// it is.
+    pub fn moved(&self, moves: u64) -> bool {
+        self.0
+            .borrow()
+            .as_ref()
+            .is_some_and(|(_, held)| *held != moves)
+    }
+
+    /// Nothing is held: the next frame reads the thread as it is.
+    pub fn clear(&self) {
+        self.0.borrow_mut().take();
+    }
 }
 
 /// The finder of a thread's controllers (the one `begin` opens and the pane reads).

@@ -39,7 +39,7 @@ use crate::common::{Harness, ms};
 /// Puts the transcript alone in place of the harness app's home. The app (its core, its
 /// controllers, its backend link) is the one running; the spare given to `AppView` is dropped
 /// unused, as its state is only the initial one.
-pub(super) fn mount(h: &mut Harness) {
+pub(super) fn mount(h: &mut Harness, compact: bool) {
     // The page the app showed goes first, and is let go of in a frame of its own: a controller the
     // new transcript shares with it (the thread's selection) is detached by the old area's disposal,
     // which Flutter runs at the end of the frame that inflated the new one, and no Find match could
@@ -53,12 +53,31 @@ pub(super) fn mount(h: &mut Harness) {
     h.t.pump_for(ms(20));
     let (server, _) = FakeServer::new();
     let spare = UiApp::new(Backend::Fake(server));
-    h.t.pump_widget(localized(root(AppView::new(spare, view)), Lang::En));
+    h.t.pump_widget(localized(
+        root(AppView::new(
+            spare,
+            if compact { compact_view } else { view },
+        )),
+        Lang::En,
+    ));
     h.t.pump_for(ms(20));
 }
 
-/// `app::view::view` with the home replaced by the bare transcript sheet of the active thread.
 fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
+    home(app, cx, sheet::seeded_bare)
+}
+
+/// The same with the compact transcript (`Chrome::Compact`).
+fn compact_view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
+    home(app, cx, sheet::seeded_bare_compact)
+}
+
+/// `app::view::view` with the home replaced by the bare transcript sheet of the active thread.
+fn home(
+    app: &UiApp,
+    cx: &mut ViewCx<'_, '_, UiApp>,
+    make: fn(&Seeded<'_>) -> AnyWidget,
+) -> AnyWidget {
     let hs = Hs {
         submit: cx.on_with(|app: &mut UiApp, message: UserMessage, _cx| {
             let thread = app.core.session().active.clone();
@@ -109,7 +128,7 @@ fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
             app.send(AppEv::Intent(Intent::Effect { request, ask }));
         }),
     };
-    let home = sheet::seeded_bare(&Seeded {
+    let home = make(&Seeded {
         core: &app.core,
         thread_ui: &app.ui.thread_ui,
     });

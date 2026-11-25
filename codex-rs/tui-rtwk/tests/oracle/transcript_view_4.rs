@@ -143,25 +143,31 @@ fn selection_pauses_find_and_normalized_navigation_resumes_the_same_query() {
 // ORACLE transcript_view/search_tests.rs:259 paging_away_from_a_live_match_does_not_restart_find kind=ui owner=chat-live
 #[test]
 fn paging_away_from_a_live_match_does_not_restart_find() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no find over a streaming answer and no live-match hold; paging away from the live match is not a chat step",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(30, 3)
         .script(include_str!("fixtures/transcript_view_4/find_live.jsonl"))
+        .view_only()
         .open();
+    s.live_tail("live needle");
     s.keys("/");
     s.type_text("needle");
+    s.assert_text_style("needle", "reversed");
     s.keys("pageup");
     let scrolled = s.shot();
     s.keys("enter");
     s.assert_same_rows(&scrolled);
-    s.double_click(0, 0);
-    s.assert_contains("earlier context");
-    // begin_search clears the selection and the live match stays the current one: the oracle's keys, the rows are its visible part
+    s.assert_find_query("needle");
+    s.assert_find_footer(80, "Find · ctrl+p older · ctrl+n newer · esc latest");
+    // the reader selects a word of the older answer; Find opens again and takes the selection
+    // back to the live match it still holds
+    s.double_click_text("earlier");
+    s.assert_text_style("earlier", "reversed");
     s.keys("/");
-    s.assert_contains("live needle");
+    s.assert_find_query("needle");
+    s.assert_text_style("earlier", "!reversed");
+    // the match it still holds is the live answer's, below the rows the reader is at
+    s.keys("pagedown");
+    s.assert_text_style("needle", "reversed");
 }
 
 // ORACLE transcript_view/search_tests.rs:303 reading_without_a_match_searches_from_the_visible_entry_in_each_direction kind=ui owner=chat-live
@@ -274,21 +280,22 @@ fn reading_a_find_result_loads_older_context() {
 // ORACLE transcript_view/search_tests.rs:410 paging_below_a_live_find_result_resumes_current_output kind=snap owner=chat-live
 #[test]
 fn paging_below_a_live_find_result_resumes_current_output() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no transcript find over a live answer; the oracle replaces the live tail, and the chat appends deltas, which no kit step does yet",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(30, 3)
         .script(include_str!("fixtures/transcript_view_4/find_live.jsonl"))
+        .view_only()
         .open();
+    s.live_tail("live needle");
     s.keys("/");
     s.type_text("needle");
     s.keys("pagedown");
-    s.assert_row(0, "earlier context");
+    // the answer the model is streaming is another text now, with no match in it: the reader is
+    // at the last row and follows it, the query stays
+    s.replace_live_tail("updated live output");
+    s.assert_contains("Worked for");
     s.assert_row(1, "");
-    s.assert_row(2, "updated live output");
-    s.assert_contains("needle");
+    s.assert_row(2, "• updated live output");
+    s.assert_find_query("needle");
 }
 
 // ORACLE transcript_view/search_tests.rs:579 empty_find_keeps_following_new_output_after_a_page_join kind=snap owner=chat-live snap=empty_find_follows_output_after_page_join
@@ -312,20 +319,20 @@ fn empty_find_keeps_following_new_output_after_a_page_join() {
 // ORACLE transcript_view/search_tests.rs:625 empty_find_preserves_reading_inside_a_joined_group kind=ui owner=chat-live
 #[test]
 fn empty_find_preserves_reading_inside_a_joined_group() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no transcript find with an empty query and no reading position that a page join keeps; the kit has no step that joins an older page",
-    );
+    // the oracle's two entries are the first page of a partial history; the older page and the
+    // group over the displayed entry join while Find is open and empty
     let mut s = Screen::build(Owner::ChatLive)
         .size(40, 4)
-        .script(include_str!(
-            "fixtures/transcript_view_4/joined_reading.jsonl"
-        ))
+        .replay(Vec::new())
+        .view_only()
         .open();
-    s.keys("pageup");
+    s.partial_history_of(&["displayed computer action", "latest answer"]);
+    // the reader is at the first entry: the top, where the app asks for the older page
+    s.wheel_up(0, 0, 100);
     s.keys("/");
     let before = s.shot();
-    // the oracle joins an older page and a group over the displayed entry here: the join is not a kit step yet
+    s.assert_contains("displayed computer action");
+    s.join_older_page(&["older computer action"], false);
     s.type_text("x");
     s.keys("backspace");
     s.assert_same_rows(&before);
@@ -490,7 +497,7 @@ fn legacy_search_shortcuts_navigate_in_both_directions_without_wrapping() {
 fn find_expands_only_the_match_and_preserves_manual_disclosures() {
     kit::pending(
         Owner::ChatLive,
-        "the chat has no transcript find over command cells, no hidden exec output and no per-match expansion; the chat draws commands as their default compact cells only",
+        "G-new-find-room-text: the oracle's hidden content is the output of a command cell (`ExecCell`) that its compact draw cuts to a tail, and Find expands only the cell of the match; the port's tool rows have no text (`Gap::Rows`), so Find reads no command or output and has nothing to reveal",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
@@ -524,7 +531,7 @@ fn find_expands_only_the_match_and_preserves_manual_disclosures() {
 fn find_searches_hidden_live_content_and_collapses_it_when_leaving_the_match() {
     kit::pending(
         Owner::ChatLive,
-        "the chat has no transcript find over a live answer: a search of the hidden live text and its collapse to the compact live cell when the match is left are not built",
+        "G-new-find-room-text: the hidden live text is the output of a running command, which the port's tool row does not give Find as text (`Gap::Rows`); the live-tail hold itself is built (`live_match_stays_displayed_after_commit_and_a_fresh_query_searches_current_content`)",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(30, 4)
@@ -548,7 +555,7 @@ fn find_searches_hidden_live_content_and_collapses_it_when_leaving_the_match() {
 fn selected_hidden_live_match_keeps_its_revision_without_persisting_expansion() {
     kit::pending(
         Owner::ChatLive,
-        "the chat has no transcript selection over a hidden live match and no revision kept across live updates; the kit has no step that updates a live answer under a selection",
+        "G-new-find-room-text: the selected match is in the hidden output of a running command, whose text the port's tool row does not give select or Find (`Gap::Rows`)",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(32, 6)
@@ -573,7 +580,7 @@ fn selected_hidden_live_match_keeps_its_revision_without_persisting_expansion() 
 fn find_reveals_hidden_command_output_and_restores_compact_presentation() {
     kit::pending(
         Owner::ChatLive,
-        "the chat draws command output compact with no reveal of hidden output by a transcript find, and no find state to restore the compact view from",
+        "G-new-find-room-text: the hidden `needle` is in command output the compact cell cuts; the port's tool row has no text for Find (`Gap::Rows`), so nothing is revealed or restored",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 4)
@@ -609,26 +616,46 @@ fn search_preserves_both_presentation_positions() {
 // ORACLE transcript_view/search_tests.rs:1537 live_match_stays_displayed_after_commit_and_a_fresh_query_searches_current_content kind=ui owner=chat-live
 #[test]
 fn live_match_stays_displayed_after_commit_and_a_fresh_query_searches_current_content() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no transcript find over a live answer: the live match stays on screen while the answer streams and commits, and no fresh query searches the current content",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(30, 3)
         .script(include_str!("fixtures/transcript_view_4/live_commit.jsonl"))
+        .view_only()
         .open();
     s.keys("/");
+    s.live_tail("live needle");
     s.type_text("needle");
-    s.assert_row(0, "live needle");
-    // the oracle's later steps: the live text grows to `live needle again needle`, commits, and a fresh query `current` searches the new text; those are kit steps not written yet
+    s.assert_row(2, "• live needle");
+    // the answer grows under the match: the match is shown as it was found
+    s.replace_live_tail("live needle again needle");
+    s.assert_row(2, "• live needle");
+    // the next match is in the answer as it is now
     s.keys("ctrl+n");
-    s.assert_contains("live needle again needle");
+    s.assert_row(2, "• live needle again needle");
+    // the answer commits with more text and a new answer streams: the match is still shown as it
+    // was found
+    s.replace_live_tail("live needle again needle committed needle");
+    s.assert_row(2, "• live needle again needle");
+    s.commit_live_tail();
+    s.live_tail("current needle");
+    s.assert_contains("• live needle again needle");
+    s.assert_absent("committed needle");
     s.keys("ctrl+n");
+    s.assert_contains("committed needle");
     s.keys("ctrl+n");
+    s.assert_contains("current needle");
     s.keys("ctrl+p");
+    s.assert_contains("committed needle");
+    // a fresh query reads the current content
     s.keys("ctrl+u");
     s.type_text("current");
-    s.assert_contains("current needle");
+    s.assert_text_style("current", "reversed");
+    s.keys("ctrl+n");
+    s.assert_text_style("current", "reversed");
+    // no match is newer: the one found stays (the oracle's exhausted search retains its match)
+    s.assert_find_footer(
+        80,
+        "No more matches · enter accept · ⌃p older · ⌃n newer · esc cancel",
+    );
 }
 
 // ORACLE transcript_view/search_tests.rs:1664 leaving_a_regrouped_search_match_restarts_from_current_history kind=ui owner=chat-live

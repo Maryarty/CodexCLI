@@ -69,6 +69,8 @@ pub struct Open {
     pub(super) usage: super::usage::Host,
     /// The transcript alone, no composer or footer (`Open::view_only`).
     pub(super) view_only: bool,
+    /// The view alone shows the compact transcript (`Open::view_compact`).
+    pub(super) compact: bool,
 }
 
 impl Screen {
@@ -94,6 +96,7 @@ impl Screen {
             launch: None,
             usage: super::usage::Host::default(),
             view_only: false,
+            compact: false,
         }
     }
 }
@@ -244,6 +247,16 @@ impl Open {
         self
     }
 
+    /// The transcript view alone over the compact presentation, as the oracle's find tests over
+    /// hidden content drive it (`TranscriptView` with `detailed` false: a cell shows less than it
+    /// holds). `view_only` shows the detailed transcript of the Ctrl+T sheet, where nothing is
+    /// hidden.
+    pub fn view_compact(mut self) -> Open {
+        self.view_only = true;
+        self.compact = true;
+        self
+    }
+
     pub fn open(self) -> Screen {
         assert!(
             !self.view_only || matches!(self.seed, Seed::Live | Seed::Script(_)),
@@ -339,7 +352,7 @@ impl Open {
     fn live_harness(&self) -> Harness {
         let mut h = self.driven(false);
         if self.view_only {
-            super::view::mount(&mut h);
+            super::view::mount(&mut h, self.compact);
         }
         if self.held_start {
             h.fake.hold_thread_start();
