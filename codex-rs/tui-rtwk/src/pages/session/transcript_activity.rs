@@ -16,8 +16,8 @@ use codex_tui_core::threads::{McpCall, ToolActivity, ToolKind};
 
 use crate::app::theme::Tokens;
 
-use super::cells::disclosure::disclosing;
-use super::cells::tool_rows::{Env, Parts};
+use super::cells::disclosure::{self, disclosing};
+use super::cells::tool_rows::{BULLET, Env, Parts};
 use super::cells::{computer_activity, exec, tool_call};
 
 #[derive(Clone, PartialEq)]
@@ -59,7 +59,7 @@ impl State for ToolRowState {
         let tokens = Tokens::of(cx);
         let strings = super::cells::strings::of(cx);
         let syntax = SyntaxTheme::of(cx);
-        let expanded = widget.detailed || self.expanded;
+        let expanded = widget.detailed || disclosure::expanded(cx, self.expanded);
         let env = Env {
             strings,
             tokens: &tokens,
@@ -101,7 +101,7 @@ impl State for ToolRowState {
                 let cell: AnyWidget = Row::new()
                     .spacing(1)
                     .cross_axis_alignment(CrossAxisAlignment::Start)
-                    .child(ExcludeSelection::new(Text::line("•").style(rows.mark)))
+                    .child(ExcludeSelection::new(Text::line(BULLET).style(rows.mark)))
                     .child(Expanded::new(1, content))
                     .into();
                 match rows.disclosure.filter(|_| !widget.detailed) {

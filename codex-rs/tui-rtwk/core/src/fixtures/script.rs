@@ -218,7 +218,8 @@ pub struct Entry {
     #[serde(default = "yes")]
     pub end: bool,
     /// An `agent` entry of an item that has text says the text is now this one, in place of the
-    /// text it had (the item completes with it, `item/completed`) instead of adding to it.
+    /// text it had (the item completes with it, `item/completed`) instead of adding to it; an
+    /// `exec` entry of a running command says so of its output.
     #[serde(default)]
     pub replace: bool,
     #[serde(flatten)]
@@ -243,7 +244,8 @@ pub enum Shape {
         #[serde(default)]
         explanation: Option<String>,
     },
-    /// A shell command: running (no output yet), or finished with `output` and `exit`.
+    /// A shell command: running (with the `output` it has streamed so far), or finished with
+    /// `output` and `exit`.
     Exec {
         command: String,
         #[serde(default)]
@@ -305,9 +307,21 @@ impl Entry {
                 exit,
                 running,
             } => {
-                events.push(backend(builders::command_started(
-                    thread, &turn, &item, command,
-                )?));
+                if self.replace {
+                    // the running command's output is now `output`, in place of what it had
+                    events.push(backend(builders::command_progress(
+                        thread, &turn, &item, command, output,
+                    )?));
+                } else {
+                    events.push(backend(builders::command_started(
+                        thread, &turn, &item, command,
+                    )?));
+                    if *running && !output.is_empty() {
+                        events.push(backend(builders::command_output(
+                            thread, &turn, &item, output,
+                        )?));
+                    }
+                }
                 if !running {
                     events.push(backend(builders::command_completed(
                         thread, &turn, &item, command, output, *exit,

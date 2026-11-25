@@ -76,7 +76,7 @@ impl State for PatchCellState {
             strings,
             cwd: widget.cwd.as_deref(),
         };
-        let expanded = widget.detailed || self.expanded;
+        let expanded = widget.detailed || super::disclosure::expanded(cx, self.expanded);
         let activity = &widget.activity;
         let mut column = Column::new()
             .main_axis_size(MainAxisSize::Min)

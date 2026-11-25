@@ -27,8 +27,9 @@ use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
 use crate::widgets::finder::More;
 use crate::widgets::thread_scope::thread_scope;
-use crate::widgets::thread_ui::{Follow, TextSelection};
+use crate::widgets::thread_ui::{Disclosed, Follow, TextSelection};
 
+use super::cells::disclosure::tile;
 use super::cells::strings as cells_strings;
 use super::cells::text::Env;
 use super::cells::user;
@@ -37,7 +38,7 @@ use super::strings as chat_strings;
 use super::transcript::activity_focus::{self, Activity};
 use super::transcript::copy::{self as copying, Targets};
 use super::transcript::find::{Finder, Held, RowTexts};
-use super::transcript::item_text::{Reading, body_nodes, mounted_parts};
+use super::transcript::item_text::{Reading, body_nodes, mounted_parts, row_parts};
 use super::transcript::markdown_copy::{self, Marks};
 use super::transcript::select::{self, Pos, Select};
 use super::transcript::selection::SelectionHost;
@@ -441,10 +442,7 @@ impl ViewportState {
             gutters.push(vec![true]);
         }
         for row in rows {
-            let parts = transcript
-                .get(row.range.start)
-                .and_then(|(_, item)| mounted_parts(item, reading));
-            match parts {
+            match row_parts(transcript, row, reading) {
                 Some(parts) => {
                     texts.push(
                         parts
@@ -852,6 +850,7 @@ impl State for ViewportState {
         let collapse = select::<TuiSettings, _, _>(cx, |settings| settings.collapse_turn_details);
         let rendering = select::<TuiSettings, _, _>(cx, |settings| settings.rendering);
         let activity = activity_focus::of(&widget.find);
+        let disclosed = widget.find.held(Disclosed::default);
         let Shown { rows, plan } = self.rows(&thread, detailed, collapse, &activity);
         let reverse = !thread.read_only() && header.is_none();
         let header = header.filter(|_| !can_load);
@@ -951,6 +950,7 @@ impl State for ViewportState {
             rendering,
             raw,
             raw_reasoning: show_raw_reasoning,
+            revealed: search.active(),
         };
         self.listen_selection(&widget.selection, cx.local_sender());
         self.mark(
@@ -999,11 +999,28 @@ impl State for ViewportState {
                 search.accepted();
             }
             if search.active() {
+                // a new query leaves the cell its old match opened (the next match opens its own)
+                if search.asked() {
+                    disclosed.set_found(None);
+                }
                 let hit = search.advance(&**texts, more);
                 if search.take_load() {
                     load(Msg::Load(thread.id().clone()));
                 }
                 if let Some(hit) = hit {
+                    // the cell of the match is open while it is the current one (a shell call's
+                    // output is cut to a tail in the list), shut again when Find leaves it
+                    let before = disclosed.found();
+                    disclosed.set_found(
+                        hit.row
+                            .checked_sub(usize::from(header.is_some()))
+                            .and_then(|row| rows.get(row))
+                            .filter(|row| matches!(row.kind, Kind::Cell))
+                            .and_then(|row| thread.transcript().get(row.range.start))
+                            .filter(|(_, item)| matches!(item, Item::Tool(_) | Item::Patch(_)))
+                            .map(|(key, _)| key.clone()),
+                    );
+                    let opened = disclosed.found() != before;
                     // a match in the live tail stays displayed as it was found (`Held`)
                     let live = hit
                         .row
@@ -1021,7 +1038,7 @@ impl State for ViewportState {
                         match AppBinding::maybe_of(cx) {
                             // rows came or went since the list was laid out (the live tail grew,
                             // a turn committed): the list knows them after this frame
-                            Some(binding) if grew => binding.add_post_frame_callback(
+                            Some(binding) if grew || opened => binding.add_post_frame_callback(
                                 cx.map(move |_: Duration| Msg::Reveal(index)),
                             ),
                             _ => widget.follow.scroll().ensure_index_visible(index),
@@ -1035,6 +1052,7 @@ impl State for ViewportState {
                     );
                 }
             } else if copier.active() {
+                disclosed.set_found(None);
                 if let Some(targets) = &targets {
                     copier.read(targets);
                 }
@@ -1056,6 +1074,9 @@ impl State for ViewportState {
             }
         } else {
             *self.texts.borrow_mut() = None;
+        }
+        if !search.active() {
+            disclosed.set_found(None);
         }
         let toggled = cx.map(Msg::Toggle);
         let state = activity;
@@ -1158,23 +1179,32 @@ impl State for ViewportState {
             };
             let row_cell: AnyWidget = match fold {
                 Some(fold) => fold,
-                None => cell(
-                    item,
-                    &CellEnv {
-                        tokens: &tokens,
-                        markdown: &markdown,
-                        prompt_surface: &prompt_surface,
-                        chat: table,
-                        cells,
-                        bullet: &bullet,
-                        bullet_style: &agent_style,
-                        cwd: cwd.as_deref(),
-                        detailed,
-                        raw,
-                        show_raw_reasoning,
-                    },
-                    &place,
-                ),
+                None => {
+                    let drawn = cell(
+                        item,
+                        &CellEnv {
+                            tokens: &tokens,
+                            markdown: &markdown,
+                            prompt_surface: &prompt_surface,
+                            chat: table,
+                            cells,
+                            bullet: &bullet,
+                            bullet_style: &agent_style,
+                            cwd: cwd.as_deref(),
+                            detailed,
+                            raw,
+                            show_raw_reasoning,
+                        },
+                        &place,
+                    );
+                    // a cell with a control is the thread's controller's: a tap, a key and Find
+                    // open and shut it the same way
+                    if matches!(item, Item::Tool(_) | Item::Patch(_)) {
+                        tile(&disclosed, key.clone(), drawn)
+                    } else {
+                        drawn
+                    }
+                }
             };
             // The cell is always the first child of one column, so a timing row
             // arriving below it does not rebuild the cell's state (the patch
