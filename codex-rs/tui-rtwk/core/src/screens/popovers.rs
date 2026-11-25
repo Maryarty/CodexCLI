@@ -775,3 +775,71 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
         SeedEv::ImagePasted(path) => Ev::ImagePasted(path),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ids::TicketMint;
+
+    fn found(id: &str) -> Found {
+        Found {
+            id: ThreadId::new(id),
+            title: id.into(),
+            cwd: "/w".into(),
+            snippet: String::new(),
+            hidden: false,
+        }
+    }
+
+    fn search(part: &mut ThreadPart, query: &str) {
+        let mut out = AppFx::default();
+        let mut mint = TicketMint::default();
+        let thread = ThreadId::new("cur");
+        let mut fx = ThreadFx::new(&thread, &mut out, &mut mint);
+        let ev = ThreadEv::SearchTasks {
+            query: query.into(),
+            current: thread.clone(),
+        };
+        apply_thread(part, ev, &mut fx);
+    }
+
+    fn answer(part: &mut ThreadPart, ctx: Ctx, threads: Option<Vec<Found>>) {
+        let mut out = AppFx::default();
+        let mut mint = TicketMint::default();
+        let thread = ThreadId::new("cur");
+        let mut fx = ThreadFx::new(&thread, &mut out, &mut mint);
+        let result = threads
+            .map(Reply::Threads)
+            .ok_or(RpcError::Remote("failed".into()));
+        apply_reply(part, ctx, result, &mut fx);
+    }
+
+    #[test]
+    fn both_answers_of_the_last_search_make_the_list_and_a_stale_one_is_dropped() {
+        let mut part = ThreadPart::default();
+        search(&mut part, "fi");
+        search(&mut part, "fix");
+        // the first search answers late: dropped
+        answer(&mut part, Ctx::TaskSearch { generation: 1 }, Some(vec![found("old")]));
+        assert!(part.found.is_none());
+        answer(&mut part, Ctx::TaskSearch { generation: 2 }, Some(vec![found("a")]));
+        assert!(part.found.is_none(), "one half is not the answer");
+        answer(&mut part, Ctx::TaskTitles { generation: 2 }, Some(vec![found("b")]));
+        let found = part.found.expect("both are in");
+        assert_eq!((found.generation, found.query.as_str()), (2, "fix"));
+        assert_eq!(found.tasks.len(), 2);
+        assert!(part.tasks_ask.is_none());
+    }
+
+    #[test]
+    fn a_blank_query_empties_the_list_at_once_and_two_failures_leave_it() {
+        let mut part = ThreadPart::default();
+        search(&mut part, "  ");
+        assert_eq!(part.found.as_ref().map(|found| found.tasks.len()), Some(0));
+        let before = part.found.clone();
+        search(&mut part, "x");
+        answer(&mut part, Ctx::TaskSearch { generation: 2 }, None);
+        answer(&mut part, Ctx::TaskTitles { generation: 2 }, None);
+        assert_eq!(part.found, before);
+    }
+}

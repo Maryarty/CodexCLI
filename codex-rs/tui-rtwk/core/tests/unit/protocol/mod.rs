@@ -31,7 +31,7 @@ fn the_images_go_first_and_the_text_names_their_placeholders() {
         }],
         ..UserMessage::default()
     };
-    let input = turn_input(&message);
+    let input = turn_input_in(&message, None);
     assert!(matches!(&input[0], UserInput::LocalImage { path, .. } if path.ends_with("a.png")));
     let UserInput::Text {
         text,
@@ -60,7 +60,7 @@ fn an_image_alone_sends_no_text() {
         }],
         ..UserMessage::default()
     };
-    assert_eq!(turn_input(&message).len(), 1);
+    assert_eq!(turn_input_in(&message, None).len(), 1);
 }
 
 #[test]
@@ -74,7 +74,7 @@ fn the_remote_images_go_before_the_local_ones() {
         remote_images: vec!["https://x/a.png".into(), "https://x/b.png".into()],
         ..UserMessage::default()
     };
-    let input = turn_input(&message);
+    let input = turn_input_in(&message, None);
     assert_eq!(input.len(), 4);
     assert!(matches!(
         &input[0],
@@ -94,7 +94,7 @@ fn remote_images_alone_send_no_text() {
         remote_images: vec!["https://x/a.png".into()],
         ..UserMessage::default()
     };
-    assert_eq!(turn_input(&message).len(), 1);
+    assert_eq!(turn_input_in(&message, None).len(), 1);
 }
 
 #[test]
@@ -114,7 +114,7 @@ fn the_named_tools_follow_the_text() {
             },
         ],
     };
-    let input = turn_input(&message);
+    let input = turn_input_in(&message, None);
     assert_eq!(input.len(), 3);
     assert!(matches!(&input[0], UserInput::Text { .. }));
     assert!(matches!(
@@ -125,4 +125,33 @@ fn the_named_tools_follow_the_text() {
         &input[2],
         UserInput::Mention { name, path } if name == "Figma" && path == "plugin://figma@openai"
     ));
+}
+
+#[test]
+fn a_task_mention_adds_its_context_to_the_text_sent_and_keeps_its_element() {
+    use codex_tui_core::threads::TaskRef;
+    let message = UserMessage {
+        text: "Inspect @Review it".into(),
+        tasks: vec![TaskRef {
+            range: 8..18,
+            title: "Review it".into(),
+            thread: "task-123".into(),
+        }],
+        ..UserMessage::default()
+    };
+    let input = turn_input_in(&message, Some("current"));
+    let UserInput::Text {
+        text,
+        text_elements,
+    } = &input[0]
+    else {
+        panic!("the text first: {input:?}");
+    };
+    assert!(text.contains("\"threadId\":\"task-123\""));
+    assert!(text.ends_with("Inspect [@Review it](thread://task-123)"));
+    let range = &text_elements[0].byte_range;
+    assert_eq!(&text[range.start..range.end], "[@Review it](thread://task-123)");
+    // the task of the thread itself is no reference
+    let own = turn_input_in(&message, Some("task-123"));
+    assert!(matches!(&own[0], UserInput::Text { text, .. } if text == "Inspect @Review it"));
 }

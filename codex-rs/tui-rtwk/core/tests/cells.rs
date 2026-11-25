@@ -1523,7 +1523,7 @@ mod user_prompt_shown {
         let prompt = prompt("abc def", elements);
         let shown = prompt.shown();
         assert!(matches!(shown.text, std::borrow::Cow::Borrowed(_)));
-        assert_eq!(bounds(shown.elements), [(0, 3)]);
+        assert_eq!(bounds(&shown.elements), [(0, 3)]);
     }
 
     #[test]

@@ -328,13 +328,9 @@ pub fn dismissal() -> JSONRPCErrorError {
 
 /// The input of a turn (`input_submission.rs`): the remote images first, then the local ones,
 /// then the text with a text element for each local image's placeholder. The tasks the text
-/// names add their context to the text sent (`turn_input_in`, no thread of its own).
-#[cfg(test)]
-pub(crate) fn turn_input(message: &UserMessage) -> Vec<UserInput> {
-    turn_input_in(message, None)
-}
-
-/// [`turn_input`] of a message for the thread `current`, whose task mention is no reference
+/// names add their context to the text sent.
+///
+/// `current` is the thread the turn goes to: its own task mention is no reference
 /// (`apply_task_references`). Task mentions are always on: the oracle turns them off only for a
 /// thread resumed from a directory without the capability file, a state this port has not.
 pub(crate) fn turn_input_in(message: &UserMessage, current: Option<&str>) -> Vec<UserInput> {
