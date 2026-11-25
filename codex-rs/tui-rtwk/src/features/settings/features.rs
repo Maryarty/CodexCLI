@@ -33,7 +33,7 @@ use codex_tui_core::features::settings::{Experimental, FeaturesStatus, Offer, Wh
 use codex_tui_core::keymap::Keymap;
 
 use super::draft::{FeaturesDraft, Saving};
-use super::keys::{Keys, ListKey, is_interrupt, is_space, list_key};
+use super::keys::{Keys, ListKey, is_interrupt, is_space, keyed, list_key};
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
 use crate::widgets::session_list::{Move, page_rows, target};
@@ -248,11 +248,11 @@ impl State for FeaturesState {
             FeaturesStatus::Message(text) => Some(text.as_str()),
         };
         let hint = if dialog.saving {
-            s.features_hint_saving
+            s.features_hint_saving.to_owned()
         } else if !dialog.unconfirmed.is_empty() {
-            s.features_hint_retained
+            s.features_hint_retained.to_owned()
         } else {
-            s.features_hint
+            keyed(s.features_hint, &self.keys.get())
         };
         let gutter = EdgeInsets::symmetric(2, 0);
         let note = |text: &str| -> AnyWidget {
@@ -325,7 +325,7 @@ impl State for FeaturesState {
             .child(body)
             .child(Text::new(String::new()))
             .child(Text::new(String::new()))
-            .child(note(hint));
+            .child(note(&hint));
         // The surface is the sheet's own (`user_message_style`): a bare dialog
         // leaves what it does not paint to the app under it.
         let surface = tokens.prompt_surface(cx, false);

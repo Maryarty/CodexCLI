@@ -6,9 +6,9 @@ use rtwk::text::Text;
 use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::features::FeatureStates;
-use codex_tui_core::features::settings::{ID, Settings, Which};
+use codex_tui_core::features::settings::{Enable, ID, Settings, Which};
 
-use super::{config_panel, features, hooks, keymap_editor, memories, setup, theme};
+use super::{config_panel, features, hooks, keymap_editor, memories, prompts, setup, theme};
 
 /// Which sheet the dialog asked for is drawn with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20,6 +20,8 @@ pub(super) enum Shown {
     Hooks,
     Config,
     Keymap,
+    SkillsMenu,
+    Enable(Enable),
 }
 
 impl Shown {
@@ -32,6 +34,9 @@ impl Shown {
             Which::Hooks => Shown::Hooks,
             Which::Config => Shown::Config,
             Which::Keymap => Shown::Keymap,
+            Which::SkillsMenu => Shown::SkillsMenu,
+            Which::EnableMemories => Shown::Enable(Enable::Memories),
+            Which::EnableSubagents => Shown::Enable(Enable::Subagents),
         }
     }
 }
@@ -97,6 +102,8 @@ impl State for ScreenState {
                 inspect: w.inspect,
             }
             .into(),
+            Some(Shown::SkillsMenu) => prompts::SkillsMenu.into(),
+            Some(Shown::Enable(feature)) => prompts::EnableSheet { feature }.into(),
             // No dialog offered (the debug menu's row): the skeleton's empty-slot line.
             None => {
                 let shared = crate::l10n::strings::of(cx);

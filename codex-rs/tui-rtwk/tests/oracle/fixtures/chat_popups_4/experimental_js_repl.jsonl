@@ -1,0 +1,3 @@
+# The server lists one beta feature, off (experimental_features_toggle_saves_on_exit).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"respond","method":"experimentalFeature/list","result":{"data":[{"name": "js_repl", "stage": "beta", "displayName": "JavaScript REPL", "description": "Enable a persistent Node-backed JavaScript REPL for interactive website debugging and other inline JavaScript execution capabilities.", "announcement": null, "enabled": false, "defaultEnabled": false}],"nextCursor":null}}

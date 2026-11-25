@@ -49,6 +49,13 @@ enum SeedEv {
     },
     /// The picker of the built-in keymap (what the host offers with no config).
     KeymapDefault,
+    /// The menu of `/skills`.
+    SkillsMenu,
+    /// The prompt that offers to turn the memory tool (or the subagents) on.
+    Enable {
+        #[serde(default)]
+        subagents: bool,
+    },
     Skills {
         items: Vec<SkillSeed>,
     },
@@ -86,6 +93,9 @@ enum SeedEv {
     Facts {
         #[serde(default)]
         memories: Option<MemoryFacts>,
+        /// The keymap picker of the built-in keymap is among the facts.
+        #[serde(default)]
+        keymap_default: bool,
     },
 }
 
@@ -114,9 +124,22 @@ pub fn seed(value: serde_json::Value) -> Result<Fact, SeedError> {
                 features,
             });
         }
-        SeedEv::Facts { memories } => {
+        SeedEv::Facts {
+            memories,
+            keymap_default,
+        } => {
+            let keymap_tabs = if keymap_default {
+                super::keymap::picker(
+                    &crate::keymap::Keymap::defaults(),
+                    super::keymap::Filter::default(),
+                )
+                .tabs
+            } else {
+                Vec::new()
+            };
             return Ok(Fact::Facts(Facts {
                 memories,
+                keymap_tabs,
                 ..Facts::default()
             }));
         }
@@ -125,6 +148,12 @@ pub fn seed(value: serde_json::Value) -> Result<Fact, SeedError> {
             warnings,
             errors,
         } => Offer::Hooks(Hooks::new(hooks, warnings, errors)),
+        SeedEv::SkillsMenu => Offer::SkillsMenu,
+        SeedEv::Enable { subagents } => Offer::Enable(if subagents {
+            super::Enable::Subagents
+        } else {
+            super::Enable::Memories
+        }),
         SeedEv::Memories {
             use_memories,
             generate_memories,

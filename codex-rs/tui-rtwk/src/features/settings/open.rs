@@ -2,7 +2,6 @@
 //! `open_empty`), and what a dialog asks of the app (`request`).
 
 use rtwk::{AnyWidget, Cx};
-use rtwk::overlay::{DialogOptions, show_dialog};
 
 use codex_tui_core::features::settings::{Edit, Intent};
 
@@ -55,6 +54,16 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "skills_empty",
             "the skills toggle with no skills",
             include_str!("fixtures/skills_empty.jsonl"),
+        ),
+        (
+            "skills_menu",
+            "the menu of /skills: list the skills, or enable and disable them",
+            include_str!("fixtures/skills_menu.jsonl"),
+        ),
+        (
+            "enable_subagents",
+            "the prompt that offers to turn the subagents on",
+            include_str!("fixtures/enable_subagents.jsonl"),
         ),
         (
             "experimental_features_two",
@@ -240,28 +249,15 @@ fn debug_screen(seeded: &Seeded<'_>, confirm_reset: bool, inspect: bool) -> AnyW
     .into()
 }
 
-/// Opens the dialog of `args` from the widget that asks (`show_dialog`): the feature is told to
-/// build its catalogue (`Intent::Open`), the sheet draws it when it is there.
+/// Opens the dialog of `args` from the widget that asks: the feature is told to build its
+/// catalogue (`Intent::Open`, `Intent::Inspect`) and wishes for the sheet once it is there
+/// (`Wish::Show`, shown by `FeatureView::shown`); a dialog with nothing to show is not opened.
 pub fn open<S: 'static>(cx: &mut Cx<'_, S>, args: Args) {
-    verb(cx, Intent::Open(args.which));
-    drop(show_dialog::<(), S>(
-        cx,
-        move |_| {
-            Screen {
-                which: Some(args.which),
-                confirm_reset: false,
-                inspect: args.inspect,
-                live: true,
-            }
-            .into()
-        },
-        // Esc is the dialog's own key when one is up; the barrier closes the dialog (the
-        // theme picker restores its preview as it goes), or the unoffered slot.
-        DialogOptions {
-            barrier_dismissible: true,
-            ..crate::sheets::sheet_options()
-        },
-    ));
+    if args.inspect {
+        verb(cx, Intent::Inspect);
+    } else {
+        verb(cx, Intent::Open(args.which));
+    }
 }
 
 /// Opens the sheet with no seeded model (debug menu): the empty slot.

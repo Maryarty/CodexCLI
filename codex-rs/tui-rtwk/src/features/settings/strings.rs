@@ -562,6 +562,8 @@ pub fn note(note: &Note) -> String {
             Setting::Keymap => format!("Failed to save shortcut: {error}"),
             Setting::PetSelection => format!("Failed to save pet selection: {error}"),
             Setting::PetsDisabled => format!("Failed to disable pets: {error}"),
+            Setting::MemoriesFeature => format!("Failed to save Memories setting: {error}"),
+            Setting::SubagentsFeature => format!("Failed to save Subagents setting: {error}"),
             Setting::RateLimitReminder => {
                 format!("Failed to save rate limit reminder preference: {error}")
             }
@@ -581,6 +583,11 @@ pub fn note(note: &Note) -> String {
                 ),
             }
         }
+        Note::NoSkills => "No skills available.".to_string(),
+        Note::FeatureEnabled(feature) => format!(
+            "{} setting saved on the server for new threads. This thread is unchanged. Project or task settings may override it.",
+            feature.label()
+        ),
         Note::SkillsFailed { error } => format!("Failed to load skills: {error}"),
         Note::HookWriteFailed { error } => format!("Failed to update hook config: {error}"),
         Note::HookTrustFailed { many: false, error } => format!("Failed to trust hook: {error}"),
@@ -1122,3 +1129,83 @@ pub(super) const TERMINAL_TITLE_ITEMS: &[(&str, &str, &str)] = &[
         "Tasks 0/0",
     ),
 ];
+
+/// The row ids of the `/skills` menu and of the enable prompt.
+pub const SKILLS_LIST: &str = "skills.list";
+pub const SKILLS_MANAGE: &str = "skills.manage";
+pub const ENABLE_YES: &str = "enable.yes";
+pub const ENABLE_NO: &str = "enable.no";
+
+/// `open_skills_menu`: the two actions of `/skills`.
+pub fn skills_menu() -> crate::widgets::picker::list::List {
+    use crate::widgets::picker::list::{Columns, Item, List};
+    let row = |id: &str, name: &str, description: &str| Item {
+        id: id.to_owned(),
+        name: name.to_owned(),
+        description: Some(description.to_owned()),
+        ..Item::default()
+    };
+    List {
+        title: Some("Skills".to_owned()),
+        subtitle: Some("Choose an action".to_owned()),
+        standard_hint: true,
+        items: vec![
+            row(
+                SKILLS_LIST,
+                "List skills",
+                "Tip: press $ to open this list directly",
+            ),
+            row(
+                SKILLS_MANAGE,
+                "Enable/Disable Skills",
+                "Enable or disable skills",
+            ),
+        ],
+        columns: Columns::AutoAllRows,
+        panel: true,
+        ..List::default()
+    }
+}
+
+/// `open_feature_enable_prompt`: the prompt that offers to turn a feature on for new threads.
+pub fn enable_prompt(
+    feature: codex_tui_core::features::settings::Enable,
+) -> crate::widgets::picker::list::List {
+    use crate::widgets::picker::list::{Columns, Item, List, Role, Span};
+    use codex_tui_core::features::settings::Enable;
+    let (label, name) = match feature {
+        Enable::Memories => ("Memories", "memories"),
+        Enable::Subagents => ("Subagents", "subagents"),
+    };
+    let row = |id: &str, name: &str, description: String| Item {
+        id: id.to_owned(),
+        name: name.to_owned(),
+        description: Some(description),
+        ..Item::default()
+    };
+    let docs = "https://developers.openai.com/codex/memories";
+    List {
+        title: Some(format!("Enable {name}?")),
+        subtitle: Some(format!("{label} are disabled in this TUI session.")),
+        footer_note_spans: if feature == Enable::Memories {
+            vec![
+                Span::new("Learn more: ", Role::Dim),
+                Span::new(docs, Role::Info).linked(docs),
+            ]
+        } else {
+            Vec::new()
+        },
+        standard_hint: true,
+        items: vec![
+            row(
+                ENABLE_YES,
+                "Yes, enable",
+                "Save on the server for new threads without changing this thread".to_owned(),
+            ),
+            row(ENABLE_NO, "Not now", format!("Keep {name} disabled")),
+        ],
+        columns: Columns::AutoAllRows,
+        panel: true,
+        ..List::default()
+    }
+}

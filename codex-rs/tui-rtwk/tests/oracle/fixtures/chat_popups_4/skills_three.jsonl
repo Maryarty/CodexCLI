@@ -1,0 +1,4 @@
+# The server lists three skills, the last on (manage_skills_summary_snapshot); a write is confirmed.
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "respond", "method": "skills/list", "result": {"data": [{"cwd": "/tmp", "skills": [{"name": "skill-0", "description": "Summary fixture", "path": "/tmp/skills/skill-0/SKILL.md", "scope": "user", "enabled": false}, {"name": "skill-1", "description": "Summary fixture", "path": "/tmp/skills/skill-1/SKILL.md", "scope": "user", "enabled": false}, {"name": "skill-2", "description": "Summary fixture", "path": "/tmp/skills/skill-2/SKILL.md", "scope": "user", "enabled": true}], "errors": []}]}}
+{"step": "respond", "method": "skills/config/write", "result": {"effectiveEnabled": true}}

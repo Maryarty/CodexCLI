@@ -1,0 +1,4 @@
+# The menu of /skills: List skills, Enable/Disable Skills
+# Oracle data: chatwidget/skills.rs:34 open_skills_menu
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"fact","feature":"settings","fact":{"kind":"skills_menu"}}

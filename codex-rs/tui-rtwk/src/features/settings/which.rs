@@ -22,7 +22,7 @@ impl Args {
                 SlashCommand::Memories => Which::Memories,
                 SlashCommand::Statusline => Which::StatusLine,
                 SlashCommand::Title => Which::Title,
-                SlashCommand::Skills => Which::Skills,
+                SlashCommand::Skills => Which::SkillsMenu,
                 SlashCommand::Experimental => Which::Experimental,
                 SlashCommand::Keymap => Which::Keymap,
                 _ => Which::Config,

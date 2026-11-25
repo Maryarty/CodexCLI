@@ -561,6 +561,38 @@ pub enum Which {
     Experimental,
     Memories,
     Hooks,
+    /// `/skills`: the menu of its two actions (list, enable/disable).
+    SkillsMenu,
+    /// The prompt that offers to turn the memory tool on (`/memories` while it is off).
+    EnableMemories,
+    /// The prompt that offers to turn the subagents on (`/subagents` while they are off).
+    EnableSubagents,
+}
+
+/// A feature a prompt offers to turn on for new threads (`open_feature_enable_prompt`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Enable {
+    Memories,
+    Subagents,
+}
+
+impl Enable {
+    /// The label of the prompt's subtitle and of the notes (`Memories`, `Subagents`).
+    pub fn label(self) -> &'static str {
+        match self {
+            Enable::Memories => "Memories",
+            Enable::Subagents => "Subagents",
+        }
+    }
+
+    /// The keys of the config's `[features]` table the write sets (`feature.key()`; the memory
+    /// tool's legacy key is set too, older app servers still use it).
+    pub fn keys(self) -> &'static [&'static str] {
+        match self {
+            Enable::Memories => &["memories", "memory_tool"],
+            Enable::Subagents => &["multi_agent"],
+        }
+    }
 }
 
 /// What a dialog is offered: the catalogue it lists, as the server and the host gave it (a
@@ -575,6 +607,10 @@ pub enum Offer {
     Experimental(Experimental),
     Memories(Memories),
     Hooks(Hooks),
+    /// The menu of `/skills`.
+    SkillsMenu,
+    /// A prompt to turn a feature on.
+    Enable(Enable),
 }
 
 impl Offer {
@@ -592,6 +628,9 @@ impl Offer {
             Offer::Experimental(_) => Which::Experimental,
             Offer::Memories(_) => Which::Memories,
             Offer::Hooks(_) => Which::Hooks,
+            Offer::SkillsMenu => Which::SkillsMenu,
+            Offer::Enable(Enable::Memories) => Which::EnableMemories,
+            Offer::Enable(Enable::Subagents) => Which::EnableSubagents,
         }
     }
 }
@@ -753,6 +792,9 @@ pub enum Edit {
     },
     /// Enter on "Reset all memories" in its confirmation (`ResetMemories`).
     MemoriesReset,
+    /// "Yes, enable" of a feature's prompt (`EnableFeatureForNewThreads`): the feature is turned
+    /// on in the config, for new threads.
+    FeatureEnabled(Enable),
     /// A hook was switched (`AppEvent::SetHookEnabled`): its key, its value.
     HookEnabled {
         key: String,

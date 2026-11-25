@@ -521,6 +521,11 @@ impl State for SetupState {
         if let Some(preview) = super::preview::row(&setup, &tokens, thread, s.indent) {
             column = column.child(preview);
         }
+        let hint = if setup.kind == SetupKind::Skills {
+            super::keys::keyed(hint, &self.keys.get())
+        } else {
+            hint.to_owned()
+        };
         column = column.child(Text::line(format!("{}{hint}", s.indent)).style(tokens.dim()));
         Dialog::bare(BoxWidget::new().style(Style::new()).child(column)).into()
     }

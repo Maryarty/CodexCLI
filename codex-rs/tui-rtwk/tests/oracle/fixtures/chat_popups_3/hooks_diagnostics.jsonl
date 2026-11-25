@@ -1,0 +1,3 @@
+# The server lists no hooks and two diagnostics (hooks_popup_shows_list_diagnostics).
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "respond", "method": "hooks/list", "result": {"data": [{"cwd": "/tmp", "hooks": [], "warnings": ["skipped invalid matcher for PreToolUse"], "errors": [{"path": "/tmp/hooks.json", "message": "failed to parse hooks config"}]}]}}

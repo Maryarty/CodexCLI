@@ -1,0 +1,3 @@
+# The live chat whose host offers the keymap editor over the built-in keymap (the facts of the config /keymap opens from).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"fact","feature":"settings","fact":{"kind":"facts","keymap_default":true}}

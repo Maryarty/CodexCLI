@@ -979,7 +979,8 @@ fn the_memories_dialog_is_offered_with_the_switches_of_the_config() {
 fn slash_memories_opens_from_the_facts_when_the_memory_tool_is_on() {
     let mut rig = Rig::play(EMPTY).expect("plays");
     send(&mut rig, SettingsIntent::Open(Which::Memories));
-    assert!(model(&rig).offers.is_empty());
+    // The memory tool is off: what is offered is the prompt that turns it on.
+    assert!(!model(&rig).offers.contains_key(&Which::Memories));
     answer(
         &mut rig,
         SettingsFact::Facts(Facts {

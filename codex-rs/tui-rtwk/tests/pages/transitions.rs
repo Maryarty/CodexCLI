@@ -69,13 +69,11 @@ command_opens! {
     slash_archive_opens_the_confirmation: "/archive" => "select";
     slash_delete_opens_the_confirmation: "/delete" => "select";
     slash_skills_opens_the_settings: "/skills" => "settings";
-    slash_config_opens_the_settings: "/config" => "settings";
     slash_theme_opens_the_settings: "/theme" => "settings";
     slash_title_opens_the_settings: "/title" => "settings";
     slash_statusline_opens_the_settings: "/statusline" => "settings";
     slash_experimental_opens_the_settings: "/experimental" => "settings";
     slash_memories_opens_the_settings: "/memories" => "settings";
-    slash_keymap_opens_the_settings: "/keymap" => "settings";
     slash_agents_opens_the_agents: "/agents" => "agents";
     slash_resume_opens_the_picker: "/resume" => "resume";
     slash_import_opens_the_import: "/import" => "import";
@@ -86,6 +84,39 @@ command_opens! {
     slash_pets_opens_the_pets: "/pets" => "pets";
     slash_pet_alias_opens_the_pets: "/pet" => "pets";
     slash_test_approval_opens_the_approvals: "/test-approval" => "approvals";
+}
+
+/// The dialogs the host offers the catalogue of (`/config`, `/keymap`: the facts of the config
+/// the app was started with) open once it has sent it.
+fn host_offers_then_opens(offer: serde_json::Value, line: &str) {
+    let mut h = chat();
+    h.connect();
+    let fact = codex_tui_core::features::seed_fact("settings", offer)
+        .unwrap_or_else(|err| panic!("the offer: {err:?}"));
+    h.inject([codex_tui_core::app::AppEv::Feature(fact)]);
+    let before = h.t.screen();
+    run_command(&mut h, line);
+    wait_shows(&mut h, line, "settings");
+    assert!(
+        shows(&h, "settings"),
+        "{line} did not open the settings:\n{}",
+        h.t.screen()
+    );
+    escape_closes(&mut h, &before);
+    assert_chat_back(&h, None, &before);
+}
+
+#[test]
+fn slash_config_opens_the_settings() {
+    host_offers_then_opens(
+        serde_json::json!({"kind": "config_panel", "rows": []}),
+        "/config",
+    );
+}
+
+#[test]
+fn slash_keymap_opens_the_settings() {
+    host_offers_then_opens(serde_json::json!({"kind": "keymap_default"}), "/keymap");
 }
 
 /// A bare `/usage` is the feature's own sheet (`features/usage_menu`): the usage menu over the chat,

@@ -19,7 +19,6 @@ pub(crate) mod seed;
 // bottom popup only, so the popup slice sets the region (assert_snap_region).
 const APPS: &str = "/apps is live and the kit answers a request with an error (`Screen::answer_error`, a `respond` step with `error`); this test needs a partial directory snapshot: the oracle injects `on_connectors_loaded(.., is_final: false)` and no protocol message carries `is_final: false`";
 const MENTIONS: &str = "/apps is live and `app/list/updated` drops the uncallable apps from the mentions (core/tests/apps_directory.rs); this test also needs the oracle's separate installed-mentions fetch (`FetchInstalledConnectorMentions`, `connectors_for_mentions` keeps only enabled installed apps), a directory partial snapshot (`is_final: false`, no protocol message carries it), the submitted `app://` mention of `$` and the plugin authentication step's `Already installed in this session` (the install flow of /plugins reading the installed ids): the mention source and the plugin flow are other owners'";
-const HOOKS: &str = "no /hooks popup in the port: no hooks list view with its warnings and errors, and no seed for the hooks list result";
 
 /// The first row that contains `text`; past the screen when none does (the kit then names the row it looked for).
 pub(crate) fn row_of(s: &Screen, text: &str) -> usize {
@@ -175,13 +174,15 @@ fn marketplace_upgrade_failure_includes_backend_messages_snapshot() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:136 hooks_popup_shows_list_diagnostics kind=snap owner=dialogs-pane snap=hooks_popup_shows_list_diagnostics
 #[test]
 fn hooks_popup_shows_list_diagnostics() {
-    kit::pending(Owner::DialogsPane, HOOKS);
     let mut s = Screen::build(Owner::DialogsPane)
-        .size(112, 24)
-        .live()
+        .size(112, 21)
+        .script(include_str!(
+            "fixtures/chat_popups_3/hooks_diagnostics.jsonl"
+        ))
         .open();
     s.type_text("/hooks").keys("enter");
-    s.assert_snap("hooks_popup_shows_list_diagnostics");
+    // The oracle's snapshot is the popup alone, from its title.
+    s.assert_snap_region("hooks_popup_shows_list_diagnostics", row_of(&s, "Hooks"), 0);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:160 plugins_popup_snapshot_shows_all_marketplaces_and_sorts_installed_then_name kind=snap owner=dialogs-pane snap=plugins_popup_curated_marketplace
