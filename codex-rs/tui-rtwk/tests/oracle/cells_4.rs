@@ -131,10 +131,10 @@ fn prefixed_wrapped_history_cell_height_matches_wrapped_rendering() {
         .iter()
         .take_while(|row| !row.trim().is_empty())
         .count();
-    assert!(
+    kit::assert_same(
         height > 1,
-        "the wrapped height exceeds the logical line:\n{}",
-        s.text()
+        true,
+        &format!("the wrapped height exceeds the logical line:\n{}", s.text()),
     );
 }
 
