@@ -626,6 +626,15 @@ enum BeforeThread {
 }
 
 impl BeforeThread {
+    /// The text the user wrote for the ask.
+    fn text(&self) -> String {
+        match self {
+            BeforeThread::Message(message) | BeforeThread::Initial(message) => message.text.clone(),
+            BeforeThread::Shell(command) => format!("!{command}"),
+            BeforeThread::Plan { command, prompt } => format!("/{} {prompt}", command.command()),
+        }
+    }
+
     /// The row the queue draws for the ask while it waits (the oracle's queued input).
     fn queued(&self) -> threads::Queued {
         match self {
@@ -794,6 +803,37 @@ impl CodexApp {
     pub fn with_first_thread(mut self, when: FirstThread) -> Self {
         self.first_thread = when;
         self
+    }
+
+    /// What the user wrote and the first thread never took: the first ask they made that waits
+    /// for it (later input is another draft, the oracle keeps the submitted one until it is
+    /// acknowledged), else `composer` (the blank thread's draft, expanded, as the UI reads it).
+    /// The command line's own prompt is not the user's draft: it is never printed. The text a
+    /// launch that failed prints for the user to keep (oracle `startup_recovery`, printed after
+    /// the terminal is restored); control characters other than newline and tab are escaped, so
+    /// pasted bytes cannot drive the terminal. Once a thread exists the queue was sent and the
+    /// composer is the thread's: nothing is unsent (the oracle's `acknowledged`).
+    pub fn unsent_startup_text(&self, composer: &str) -> Option<String> {
+        if self.session.active.is_some() {
+            return None;
+        }
+        let asked = self
+            .queued_submits
+            .iter()
+            .find(|ask| !matches!(ask, BeforeThread::Initial(_)));
+        let text = asked.map_or_else(|| composer.to_owned(), BeforeThread::text);
+        if text.is_empty() {
+            return None;
+        }
+        let mut visible = String::with_capacity(text.len());
+        for character in text.chars() {
+            if character.is_control() && !matches!(character, '\n' | '\t') {
+                visible.extend(character.escape_default());
+            } else {
+                visible.push(character);
+            }
+        }
+        Some(visible)
     }
 
     /// `codex resume <id>` / `codex fork <id>`: the session is read once the

@@ -19,6 +19,7 @@ mod security_setup;
 mod settings;
 mod small;
 mod startup;
+mod state_db;
 mod target;
 mod update;
 mod usage;
@@ -30,6 +31,7 @@ use codex_arg0::Arg0DispatchPaths;
 use codex_arg0::arg0_dispatch_or_else;
 use codex_tui_rtwk::Cli;
 use codex_tui_rtwk::app::UiApp;
+use codex_tui_rtwk::app::UnsentSlot;
 use codex_tui_rtwk::app::run::run_on;
 use codex_tui_rtwk::services::shell::Backend;
 use codex_tui_rtwk::services::startup::UpdateAction;
@@ -53,8 +55,34 @@ fn main() -> anyhow::Result<()> {
     })
 }
 
-/// Runs the app against the in-process app-server until the user quits.
+/// Runs the app against the in-process app-server until the user quits. A launch the local
+/// database stopped is tried again, as the oracle CLI's `run_tui_with_recovery` does: a locked
+/// database ends it with guidance, a damaged one is moved into a backup folder first, once per
+/// database file.
 async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
+    let mut attempted = std::collections::HashSet::new();
+    loop {
+        let startup_error = match launch(&cli, arg0_paths.clone()).await? {
+            Launch::Ended => return Ok(()),
+            Launch::StateDb(startup_error) => startup_error,
+        };
+        match state_db::recover(&startup_error, &mut attempted).await? {
+            state_db::Recovery::Retry => {}
+            state_db::Recovery::Fatal(message) => anyhow::bail!(message),
+        }
+    }
+}
+
+/// How one launch ended.
+enum Launch {
+    /// The user quit, or the process is to end with what the launch reported (an `Err`).
+    Ended,
+    /// The local database could not be opened; the terminal is restored.
+    StateDb(state_db::StateDbStartupError),
+}
+
+/// One launch: the app on its backend, until it ends.
+async fn launch(cli: &Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<Launch> {
     // First frame first: the config, the state DB and the environment manager
     // are loaded by the backend future, after the terminal has painted the
     // composer (the oracle's `StartupDraft`); a failure arrives as `StartFailed`.
@@ -84,6 +112,9 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
     // restored (the oracle's `UpdatePromptOutcome::RunUpdate`).
     let update = startup::UpdateSlot::default();
     let startup_failure = startup::FailureSlot::default();
+    let state_db_failure = state_db::FailureSlot::default();
+    // What the user wrote and the launch never took, printed when it fails.
+    let unsent = UnsentSlot::default();
     let cloud = cloud::Cloud {
         id: codex_tui_rtwk::services::shell::CLOUD_BACKEND,
         mode: mode.clone(),
@@ -104,6 +135,7 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
         launch_prompt: cli.prompt.as_ref().is_some_and(|prompt| !prompt.is_empty()),
         update: update.clone(),
         startup_failure: startup_failure.clone(),
+        state_db_failure: state_db_failure.clone(),
     }));
     // The Cloud connection next to the first, when the oracle's gate lets it
     // be tried (it decides inside, once the config is read).
@@ -120,6 +152,7 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
         .with_start_resume(cli.resume)
         .with_awaited_facts(true)
         .with_folder_consent(true)
+        .with_unsent_slot(unsent.clone())
         .with_lang(cli.lang(&rtwk::l10n::requested()));
     if let Some(start) = cli.session.clone() {
         app = app.with_start_session(start);
@@ -135,13 +168,27 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
         let _ = client.shutdown().await;
     }
     result.map_err(|error| anyhow::anyhow!("the terminal app failed: {error}"))?;
+    let failed = failed_rx.try_recv().ok();
+    // A launch fact that could not be read ends the process the same way.
+    let startup_failed = startup_failure.lock().ok().and_then(|mut slot| slot.take());
+    // The terminal is restored: what the user wrote is printed before the error, as the
+    // oracle's `restore_terminal_before_fatal_exit` does.
+    if failed.is_some() || startup_failed.is_some() {
+        print_unsent_draft(&unsent);
+    }
+    if let Some(typed) = state_db_failure
+        .lock()
+        .ok()
+        .and_then(|mut slot| slot.take())
+    {
+        return Ok(Launch::StateDb(typed));
+    }
     // The server did not start: the process ends with the error, as the
     // oracle's does (`Error: <message>`), after the terminal is restored.
-    if let Ok(message) = failed_rx.try_recv() {
+    if let Some(message) = failed {
         anyhow::bail!(message);
     }
-    // A launch fact that could not be read ends the process the same way.
-    if let Some(message) = startup_failure.lock().ok().and_then(|mut slot| slot.take()) {
+    if let Some(message) = startup_failed {
         anyhow::bail!(message);
     }
     let chosen = update.lock().ok().and_then(|mut slot| slot.take());
@@ -154,5 +201,13 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
         Some(action) => update::run_update(action).map_err(anyhow::Error::msg)?,
         None => {}
     }
-    Ok(())
+    Ok(Launch::Ended)
+}
+
+/// The unsent draft on stderr, once (`startup_recovery::print_unsent_draft`).
+fn print_unsent_draft(unsent: &UnsentSlot) {
+    use std::io::Write as _;
+    if let Some(text) = unsent.lock().ok().and_then(|mut slot| slot.take()) {
+        let _ = writeln!(std::io::stderr().lock(), "\nUnsent draft:\n{text}\n");
+    }
 }

@@ -124,7 +124,9 @@ async fn start_args(
 ) -> anyhow::Result<InProcessClientStartArgs> {
     let loader_overrides = LoaderOverrides::default();
     let embedded_network_policy = EmbeddedNetworkPolicy::load(&loader_overrides).await;
-    let state_db = codex_core::init_state_db(&config).await;
+    // The embedded server fails the launch when the local database cannot be opened, with the
+    // typed error `main` recovers from (`state_db::init`).
+    let state_db = crate::state_db::init(&config).await?;
     let runtime_paths = ExecServerRuntimeOptions::from_optional_paths(
         arg0_paths.codex_self_exe.clone(),
         arg0_paths.codex_linux_sandbox_exe.clone(),
@@ -158,7 +160,7 @@ async fn start_args(
         embedded_network_policy,
         feedback: CodexFeedback::new(),
         log_db: None,
-        state_db,
+        state_db: Some(state_db),
         environment_manager: Arc::new(environment_manager),
         config_warnings,
         session_source: SessionSource::Cli,
@@ -201,6 +203,8 @@ pub struct InProcess {
     pub update: crate::startup::UpdateSlot,
     /// Where the startup page leaves the error of a launch it failed.
     pub startup_failure: crate::startup::FailureSlot,
+    /// Where the typed failure of the local database is left, next to the text `failed` gets.
+    pub state_db_failure: crate::state_db::FailureSlot,
 }
 
 impl Connector for InProcess {
@@ -235,6 +239,7 @@ async fn run(
         launch_prompt,
         update,
         startup_failure,
+        state_db_failure,
     } = spec;
     // A start that fails ends the app: `main` reports `error` once the
     // terminal is restored.
@@ -285,7 +290,19 @@ async fn run(
     // `worktrees_enabled`: a local workspace, and no cloud list).
     let (client, local) = match connect_first(&mode, &config, arg0_paths.clone()).await {
         Ok(connected) => connected,
-        Err(error) => return fail(error),
+        Err(error) => {
+            // The typed failure first: `main` finds it once the app has ended.
+            return match error.downcast::<crate::state_db::StateDbStartupError>() {
+                Ok(typed) => {
+                    let text = typed.to_string();
+                    if let Ok(mut slot) = state_db_failure.lock() {
+                        *slot = Some(typed);
+                    }
+                    fail(text)
+                }
+                Err(error) => fail(format!("{error:#}")),
+            };
+        }
     };
     let facts = Facts {
         cloud: false,
@@ -587,7 +604,7 @@ async fn run(
                         let _ = done.send(());
                     }
                 }
-                Err(error) => emit(&ingress, epoch, AppEv::StartFailed(error)),
+                Err(error) => emit(&ingress, epoch, AppEv::StartFailed(format!("{error:#}"))),
             }
             continue;
         }
@@ -816,12 +833,10 @@ async fn connect_first(
     mode: &Mode,
     config: &Arc<Config>,
     arg0_paths: Arg0DispatchPaths,
-) -> Result<(AppServerClient, bool), String> {
+) -> anyhow::Result<(AppServerClient, bool)> {
     match mode {
         Mode::Embedded => {
-            let args = start_args(config.clone(), arg0_paths)
-                .await
-                .map_err(|error| format!("{error:#}"))?;
+            let args = start_args(config.clone(), arg0_paths).await?;
             let local = !args
                 .environment_manager
                 .default_environment()
@@ -829,7 +844,7 @@ async fn connect_first(
             // Boxed: the start future is large, and the pump should not carry it inline.
             let client = Box::pin(InProcessAppServerClient::start(args))
                 .await
-                .map_err(|error| error.to_string())?;
+                .map_err(|error| anyhow::anyhow!(error.to_string()))?;
             Ok((AppServerClient::InProcess(client), local))
         }
         Mode::Daemon => {
@@ -839,20 +854,22 @@ async fn connect_first(
             let started =
                 codex_app_server_daemon::start_with_features_classified(&Default::default())
                     .await
-                    .map_err(|failure| format!("{:#}\n{DAEMON_FAILURE_HINT}", failure.error))?;
+                    .map_err(|failure| {
+                        anyhow::anyhow!("{:#}\n{DAEMON_FAILURE_HINT}", failure.error)
+                    })?;
             let socket_path = AbsolutePathBuf::from_absolute_path_checked(started.socket_path)
-                .map_err(|error| error.to_string())?;
+                .map_err(|error| anyhow::anyhow!(error.to_string()))?;
             let client = connect_remote(RemoteAppServerEndpoint::UnixSocket { socket_path })
                 .await
                 .ok_or_else(|| {
-                    format!("failed to connect to the local daemon\n{DAEMON_FAILURE_HINT}")
+                    anyhow::anyhow!("failed to connect to the local daemon\n{DAEMON_FAILURE_HINT}")
                 })?;
             Ok((client, true))
         }
         Mode::Remote { endpoint, daemon } => {
             let client = connect_remote(endpoint.clone())
                 .await
-                .ok_or_else(|| "failed to connect to remote app server".to_string())?;
+                .ok_or_else(|| anyhow::anyhow!("failed to connect to remote app server"))?;
             Ok((client, *daemon))
         }
     }

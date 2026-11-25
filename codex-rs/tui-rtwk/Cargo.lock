@@ -3669,6 +3669,8 @@ dependencies = [
  "codex-model-provider",
  "codex-model-provider-info",
  "codex-protocol",
+ "codex-rollout",
+ "codex-state",
  "codex-terminal-detection",
  "codex-tui-core",
  "codex-tui-rtwk",
