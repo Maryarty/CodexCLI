@@ -33,6 +33,7 @@ mod seed;
 mod settings;
 mod side;
 mod sparkle;
+mod startup;
 mod states;
 mod usage;
 mod verdict;

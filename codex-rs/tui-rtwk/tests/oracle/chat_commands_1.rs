@@ -195,14 +195,17 @@ fn rejected_hidden_shell_paste_preserves_colliding_draft_paste() {
 // ORACLE chatwidget/tests/composer_submission.rs:289 hidden_shell_paste_queued_before_session_submits_literal_prompt kind=ui owner=chat-nav-pane
 #[test]
 fn hidden_shell_paste_queued_before_session_submits_literal_prompt() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no seed for submissions queued until the session is configured (set_queue_submissions_until_session_configured); the live chat starts configured",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .held_start()
+        .open();
     s.paste(&hidden_shell_payload());
     s.keys("enter");
+    s.assert_no_turn();
     // The oracle configures the thread, then sends the queued input.
+    s.start_thread();
+    s.assert_turn_texts(&[&hidden_shell_payload()]);
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:302 parent_owned_thread_blocks_all_direct_input_entry_points kind=snap owner=chat-nav-pane snap=parent_owned_thread_rejects_input

@@ -446,14 +446,15 @@ fn plan_slash_command_with_hidden_shell_paste_queued_during_turn_submits_literal
 fn plan_slash_command_with_hidden_shell_paste_queued_before_session_submits_literal_prompt() {
     kit::pending(
         Owner::ChatLive,
-        "no before-session queue in the port: the live chat starts with its session, so the queued rows and their order are not drawn as the oracle queues them",
+        "no before-session queue in the port: /plan <args> before the thread exists is refused (SessionStarting) and queued rows are not drawn; needs BeforeThread::Plan and queue rows on the blank thread (see f-startup-draft checkpoint)",
     );
     let payload = hidden_shell_payload();
-    let mut s = Screen::build(Owner::ChatLive).live().open();
+    let mut s = Screen::build(Owner::ChatLive).live().held_start().open();
     s.type_text("/plan ").paste(&payload);
     s.keys("enter");
     s.type_text("queued follow-up").keys("enter");
     s.assert_in_order(&["/plan !echo", "queued follow-up"]);
+    s.start_thread();
 }
 
 // ORACLE chatwidget/tests/plan_mode.rs:1579 vim_mode_default_enabled_starts_composer_in_insert_mode kind=ui owner=chat-live

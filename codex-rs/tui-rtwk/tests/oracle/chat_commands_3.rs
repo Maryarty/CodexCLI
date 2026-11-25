@@ -888,7 +888,12 @@ fn startup_draft_renders_full_empty_and_multiline_composer_frames() {
         Owner::ChatNavPane,
         "feature pre-session startup draft (w2-composer, startup): not in the port (session actions New, Resume, Fork; a 18-column narrow frame) is not reachable black-box",
     );
-    let mut s = Screen::build(Owner::ChatNavPane).size(48, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(48, 24)
+        .live()
+        .held_start()
+        .inline(&[])
+        .open();
     s.assert_snap_section("startup_draft_full_frames", "empty (48 columns)");
     s.assert_snap_section("startup_draft_full_frames", "configured (48 columns)");
     s.assert_snap_section("startup_draft_full_frames", "resuming (48 columns)");
@@ -942,7 +947,11 @@ fn startup_draft_hydrates_its_header_without_moving_the_composer() {
         Owner::ChatNavPane,
         "feature startup header (w2-composer, startup): not in the port's directory line (loading, then the configured cwd) is not reachable black-box",
     );
-    let s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .held_start()
+        .open();
     s.assert_contains("directory: loading");
     // The oracle then asserts the directory line equals the configured cwd, and that the composer height did not move: the cwd is not known to the kit.
 }
