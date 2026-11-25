@@ -76,10 +76,7 @@ const REPLACE_REASON: &str = "the draft replaced from outside while the history 
 const FOCUS_REASON: &str = "the terminal losing and regaining focus (`set_sparkle_terminal_focus`, crossterm's FocusLost/FocusGained): rtwk reports no terminal focus-in/out events (rtwk-gaps.md), so the deadline's behaviour across a focus loss cannot be driven; a running turn on a fresh task (`set_task_running`) has no seed either: a turn that ran ends the fresh task";
 const CARET_REASON: &str = "the terminal cursor on the history search's own row (`reverse-i-search: query▮`): the search row is static text under the composer, and the composer's TextArea (focused, it takes the search's keys) keeps its caret on the prompt row (row 3 of 6, the oracle puts it on row 5); a caret at the query's end needs the query as an editing field that holds the focus (a restructure of composer/search.rs: footer field, Up/Down/Enter/Esc as its shortcuts) or a custom RenderObject calling `rtwk::editing::show_caret` (R15 forbids hand-made render objects in the app), and the TextArea has no way to hide its caret while it has the focus";
 const HELP_STATUS: &str = include_str!("fixtures/pane_footer_1/help_status.jsonl");
-const EXTENSION_REASON: &str = "the status line of this test is a ui_tree `extension` (a `FooterContent` that only the oracle's tests and previews build; no native item makes such a row): the person decides (brief section 7), the behaviour it checks is re-expressed with native items in tests/pages/chat_status.rs";
-const PROVIDER_REASON: &str = "the bold `codex-internal` provider status (an extension row, see EXTENSION_REASON) beside Plan mode and 2 warnings: Plan mode, the warning count and the `f2 to view` hint are in the page (the warnings_yield and effort ports run them); the row itself is the extension status a person decides";
-const THUMBNAIL_REASON: &str = "the composer's image thumbnails between the footer rows and the extra status (composer chunk) over an extension status row";
-const LINK_REASON: &str = "the status of this test is one underlined text under a single link (`لا PR #42 build green deploy ready …`, set_status_line with a HyperlinkLine): the native status line has the `pull-request-number` item as a link on its own (the plan-mode port runs `project · PR #42` with it) but no item carries free text under a whole-text link, so the wrap of a linked sentence at 18 columns has no native input: the person decides (brief section 7)";
+const EXTENSION_NA: &str = "no live producer: the oracle's app never builds a ui_tree status row (only its tests); native wrap/row budget covered by native_wrap_tracks_agent_label_and_content_changes_at_the_same_width and status_survives_hints_feedback_and_queue";
 const ACTIVITY_REASON: &str = "the hint is the footer of the transcript view (`TranscriptFooter`: `ctrl+o t/f4 inspect activity`, interactive or not, with the shortcut key unbound) that the composer shows under the transcript pager: the pager has no such footer yet (the pager task's), the Working row and the activity rows of chunk-status do not draw it";
 const MODE_REASON: &str = "the footer at five widths with Plan mode, the IDE context indicator, the vim mode and 2 warnings: Plan mode, the vim mode and the warnings are in the page (ported in the plan and warnings tests), the IDE context indicator is not (no IDE-context fact in StatusFacts, no host probe: a Need on the IDE-context owner)";
 const POPUP_REASON: &str = "the status stays under the composer while the popup is open (page test), but the popup's own rows (`/model` descriptions, the selection marker) are the popups chunk's widget and differ from the oracle's Buffer snapshot";
@@ -801,43 +798,25 @@ fn focus_startup_work_and_configuration_do_not_extend_a_started_deadline() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:27 extension_status_line_clips_links_to_footer_layout kind=ui owner=ui-pane
 #[test]
 fn extension_status_line_clips_links_to_footer_layout() {
-    kit::pending(Owner::UiPane, EXTENSION_REASON);
+    kit::na(Owner::UiPane, EXTENSION_NA);
     // the status `plain · PR #42` (the PR a link to https://example.com/pr/42) clips to `PR#` at
     // 12 columns and shows `PR #42` at 40; an agent label shows only when the status is cleared
-    let mut s = Screen::build(Owner::UiPane).size(40, 8).live().open();
-    s.assert_contains("plain");
-    s.assert_link("PR #42", "https://example.com/pr/42");
-    s.assert_absent("…");
-    s.resize(12, 8);
-    s.assert_contains("PR#");
-    s.assert_absent("…");
 }
 
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:131 extension_uses_the_full_width_after_resize kind=ui owner=ui-pane
 #[test]
 fn extension_uses_the_full_width_after_resize() {
-    kit::pending(Owner::UiPane, EXTENSION_REASON);
+    kit::na(Owner::UiPane, EXTENSION_NA);
     // the status `Ready PR 12345` (the number is a link) on one row at 16 columns, two rows at
     // 15 in fullscreen; the warning `⚠` sits at the bottom-right corner after collaboration modes
-    let mut s = Screen::build(Owner::UiPane).size(16, 6).live().open();
-    s.assert_contains("Ready PR 12345");
-    s.resize(15, 6);
-    s.assert_contains("12345");
-    s.assert_contains("⚠");
-    s.resize(27, 6);
-    s.assert_contains("Plan mode");
 }
 
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:174 provider_status_and_hints_use_separate_rows kind=snap owner=ui-pane snap=provider_status_and_hints_use_separate_rows
 #[test]
 fn provider_status_and_hints_use_separate_rows() {
-    kit::pending(Owner::UiPane, PROVIDER_REASON);
+    kit::na(Owner::UiPane, EXTENSION_NA);
     // the bold `codex-internal` status and the hints sit on separate rows at 84 columns, with
     // 2 warnings and Plan mode; the warning `⚠` stays on the footer row at 22 and at 4 rows
-    let mut s = Screen::build(Owner::UiPane).size(84, 22).live().open();
-    s.assert_snap("provider_status_and_hints_use_separate_rows");
-    s.resize(84, 4);
-    s.assert_contains("⚠");
 }
 
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:205 status_rows_respect_host_budget_and_yield_to_the_draft kind=snap owner=ui-pane snap=status_rows_respect_host_budget_and_yield_to_the_draft
@@ -875,58 +854,146 @@ fn status_rows_respect_host_budget_and_yield_to_the_draft() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:269 sidebar_focus_keeps_dim_extension_status_rows kind=snap owner=ui-pane
 #[test]
 fn sidebar_focus_keeps_dim_extension_status_rows() {
-    kit::pending(Owner::UiPane, EXTENSION_REASON);
+    kit::na(Owner::UiPane, EXTENSION_NA);
     // the draft `draft` above four status rows; unfocused (sidebar focus) the warning is hidden
     // and the rows dim, the last one shortened to `three…` (the oracle's inline snapshot)
-    let mut s = Screen::build(Owner::UiPane).size(40, 12).live().open();
-    s.type_text("draft");
-    s.assert_in_order(&["one", "two", "three", "four"]);
-    s.assert_absent("⚠");
-    s.assert_in_order(&["one", "two", "three…"]);
 }
 
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:316 thumbnails_fit_after_basic_footer_rows_and_before_extra_status kind=snap owner=ui-pane snap=thumbnails_fit_after_basic_footer_rows_and_before_extra_status
 #[test]
 fn thumbnails_fit_after_basic_footer_rows_and_before_extra_status() {
-    kit::pending(Owner::UiPane, THUMBNAIL_REASON);
+    kit::na(Owner::UiPane, EXTENSION_NA);
     // the attached image `preview.png` (the test attaches it; no key does) shows thumbnails
     // between the basic footer rows and the extra status, at caps 4 to 10 rows, in fullscreen
-    let mut s = Screen::build(Owner::UiPane).size(32, 9).live().open();
-    s.type_text("draft");
-    s.assert_snap("thumbnails_fit_after_basic_footer_rows_and_before_extra_status");
-    s.resize(32, 10);
-    s.assert_contains("draft");
 }
 
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:416 extension_status_paints_with_the_current_theme_at_the_same_width kind=ui owner=ui-pane
 #[test]
 fn extension_status_paints_with_the_current_theme_at_the_same_width() {
-    kit::pending(Owner::UiPane, EXTENSION_REASON);
+    kit::na(Owner::UiPane, EXTENSION_NA);
     // the status `λ` in the primary colour: red under the first syntax theme, green under the
     // second (the test switches the theme; no key does) at the same width of 24 columns
-    let s = Screen::build(Owner::UiPane).size(24, 4).live().open();
-    s.assert_text_style("λ", "fg=Red");
-    s.assert_text_style("λ", "fg=Green");
 }
 
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:460 extension_status_keeps_its_rows_when_effort_changes kind=ui owner=ui-pane
 #[test]
 fn extension_status_keeps_its_rows_when_effort_changes() {
-    kit::pending(Owner::UiPane, EXTENSION_REASON);
+    kit::na(Owner::UiPane, EXTENSION_NA);
     // the status `one two three` at 7 columns keeps its rows through an effort change to Max
     // (the test sets the effort; no key does): three rows fullscreen, `two…` in scrollback
-    let s = Screen::build(Owner::UiPane).size(7, 12).live().open();
-    s.assert_in_order(&["one", "two", "three"]);
 }
+
+const ELLIPSIS_CUT: &str = "the status line's Text cuts its last visible row by cells (`green deploy re…`, `tests passed re…`) and its ellipsis cell takes the link of the cut text; the oracle wraps by words, puts the ellipsis after the last whole row (`green deploy…`, `tests passed…`) and leaves it unlinked; the wrap, the links of the text and the one- and three-row frames match";
 
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:489 native_status_wraps_links_within_the_host_budget kind=snap owner=ui-pane snap=native_status_wraps_links_within_the_host_budget
 #[test]
 fn native_status_wraps_links_within_the_host_budget() {
-    kit::pending(Owner::UiPane, LINK_REASON);
-    // the native status `لا PR #42 build green …` (a link) wraps within 18 columns: 4 rows
-    // fullscreen, 2 in scrollback; with Plan mode 3 and 1 rows
-    let s = Screen::build(Owner::UiPane).size(18, 20).live().open();
-    s.assert_snap("native_status_wraps_links_within_the_host_budget");
+    // A widget test, as the oracle's is: it hands the composer a status it built by hand (`لا `
+    // and one underlined text under one link) and draws it at 18 columns with the rows each
+    // layout leaves the status: 4 (fullscreen), 3 (fullscreen with Plan mode), 2 (scrollback)
+    // and 1 (scrollback with Plan mode). Here the same line goes to the status line widget
+    // (`status_spans` with its link, then the footer's own `Text` of `max_lines` rows ending in
+    // an ellipsis, two cells in as the footer puts it, as `StatusLine` draws it at rest). The
+    // terminal reorders the Arabic prefix (`BidiReordering::Terminal`: the cells are in logical
+    // order, as the oracle's buffer holds them). What the widget cannot say is how many rows
+    // the chat's chrome leaves it in each layout (the composer's budget: `rows_for`'s unit
+    // tests in footer/status_rows.rs, and the page tests that put the status under a growing
+    // draft): the row counts are the oracle's.
+    //
+    // Holds today (asserted before the marker): the wrap, so every row but the last cut one
+    // equals the oracle's; each frame's text begins as the oracle's; every cell of the link's
+    // text carries the link (the spaces inside it too), the prefix none. What is pending is
+    // the ellipsis, in two things. The oracle wraps by words and puts `…` after the last
+    // whole row (`green deploy…`, `tests passed…`); the widget's `Text` cuts that row by
+    // cells (`green deploy re…`, `tests passed re…`). And the oracle's `…` carries no link;
+    // the widget's takes the link of the text it cuts.
+    use codex_tui_rtwk::app::theme::{Tokens, data};
+    use codex_tui_rtwk::widgets::status_line::status_spans;
+    use rtwk::layout::{Expanded, Row, SizedBox};
+    use rtwk::style::{Span, Style};
+    use rtwk::text::TextOverflow;
+    use rtwk::widgets::Text;
+    use rtwk_core::terminal::BidiReordering;
+    use rtwk_test::{Options, Tester};
+
+    const INDENT: usize = 2;
+    let name = "native_status_wraps_links_within_the_host_budget";
+    let url = "https://example.com/pr/42";
+    let prefix = "\u{644}\u{627} ";
+    let tokens = Tokens::new(data());
+    let mut spans = vec![Span::styled(prefix, Style::default())];
+    spans.extend(status_spans(
+        [(
+            "pull-request-number",
+            "PR #42 build green deploy ready all unit tests passed release queued".to_string(),
+        )],
+        false,
+        &tokens,
+        None,
+        |_| Some(url.to_string()),
+    ));
+    let mut frames: Vec<Vec<String>> = vec![Vec::new()];
+    for row in kit::snap_rows(name, "") {
+        if row.trim() == "---" {
+            frames.push(Vec::new());
+        } else if let Some(frame) = frames.last_mut() {
+            frame.push(row.trim().to_owned());
+        }
+    }
+    assert_eq!(frames.len(), 4, "the oracle's four layouts");
+    let mut drawn: Vec<Vec<String>> = Vec::new();
+    let mut ellipsis_links: Vec<Option<String>> = Vec::new();
+    for (rows, want) in [4_u16, 3, 2, 1].into_iter().zip(&frames) {
+        let mut t = Tester::with(
+            Options::new()
+                .size(18, rows)
+                .terminal(|o| o.bidi = BidiReordering::Terminal),
+        );
+        t.pump_widget(
+            Row::new()
+                .child(SizedBox::new(Some(INDENT as i32), None, None))
+                .child(Expanded::new(
+                    1,
+                    Text::rich(spans.clone())
+                        .max_lines(Some(usize::from(rows)))
+                        .overflow(TextOverflow::Ellipsis),
+                )),
+        );
+        let lines = t.lines();
+        let got: Vec<String> = lines.iter().map(|row| row.trim().to_owned()).collect();
+        let (last, rest) = got.split_last().expect("a row");
+        let (want_last, want_rest) = want.split_last().expect("a row");
+        assert_eq!(rest, want_rest, "{rows} rows: the rows above the last");
+        assert!(
+            last.starts_with(want_last.trim_end_matches('\u{2026}'))
+                && last.ends_with('\u{2026}') == want_last.ends_with('\u{2026}'),
+            "{rows} rows: the last row `{last}` begins as the oracle's `{want_last}`"
+        );
+        for (y, row) in lines.iter().enumerate() {
+            let cells: Vec<char> = row.trim_end().chars().collect();
+            assert!(
+                cells[..INDENT].iter().all(|ch| *ch == ' '),
+                "{rows} rows, row {y}: indented"
+            );
+            for (x, ch) in cells.iter().enumerate().skip(INDENT) {
+                let link = t.cell(x, y).link;
+                if *ch == '\u{2026}' && x + 1 == cells.len() {
+                    ellipsis_links.push(link);
+                } else if y == 0 && x < INDENT + prefix.chars().count() {
+                    assert_eq!(link, None, "{rows} rows, ({x}, {y}) the prefix");
+                } else {
+                    assert_eq!(link.as_deref(), Some(url), "{rows} rows, ({x}, {y}) `{ch}`");
+                }
+            }
+        }
+        drawn.push(got);
+    }
+    kit::pending(Owner::UiPane, ELLIPSIS_CUT);
+    assert_eq!(drawn, frames, "the oracle's frames");
+    assert!(
+        ellipsis_links.len() == 4 && ellipsis_links.iter().all(Option::is_none),
+        "the ellipsis carries no link: {ellipsis_links:?}"
+    );
 }
 
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:542 native_wrap_tracks_agent_label_and_content_changes_at_the_same_width kind=ui owner=ui-pane
@@ -1201,13 +1268,9 @@ fn input_history_search_uses_the_final_row() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:1109 slash_suggestions_take_space_before_status_expands kind=snap owner=ui-pane snap=slash_suggestions_take_space_before_status_expands
 #[test]
 fn slash_suggestions_take_space_before_status_expands() {
-    kit::pending(Owner::UiPane, EXTENSION_REASON);
+    kit::na(Owner::UiPane, EXTENSION_NA);
     // the status `one two three four` shows `one…` while the `/m` command popup takes the space
     // above the composer, at 80 columns and 7 rows
-    let mut s = Screen::build(Owner::UiPane).size(80, 7).live().open();
-    s.type_text("/m");
-    s.assert_row_starts_with(0, "one…");
-    s.assert_snap("slash_suggestions_take_space_before_status_expands");
 }
 
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:1130 slash_popup_preserves_footer_and_selection_style kind=snap owner=ui-pane snap=slash_popup_footer_wide
