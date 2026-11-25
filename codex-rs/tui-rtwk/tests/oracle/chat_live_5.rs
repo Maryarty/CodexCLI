@@ -643,6 +643,8 @@ fn suppressed_interrupted_turn_notice_skips_history_warning() {
     // the steps reach the side conversation, so the absence below is not a miss
     s.assert_contains("partial output");
     s.feed(&of_side(turn_ended("turn-1", "interrupted")));
+    // the streamed text stays: a `turn/completed` that lists no item does not take the turn's items
+    s.assert_contains("partial output");
     // oracle: no 'Conversation interrupted' and no steer-interrupt notice in the history of a side conversation.
     s.assert_absent("Conversation interrupted");
     s.assert_absent("Model interrupted to submit steer instructions.");
