@@ -166,7 +166,7 @@ fn usage_menu_rate_limit_reset_entry_opens_reset_flow() {
 fn rate_limit_reset_popup_states_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "no rate-limit reset flow in the chat (loading, list, empty, load error, consuming, redeemed states); kit gap: the snapshot joins its 10 states with bare `---` lines, which tests/oracle_snap frame parsing does not split (only labelled headers), so each state needs a frame label",
+        "the reset popup's states are run one by one in this file (loading and consuming can be held with `hold_request`); what the snapshot needs is its ten states joined by bare `---` lines, which tests/oracle_snap frame parsing does not split (only labelled headers): a kit option (the oracle_snap owner's) to cut a snapshot at its bare rules",
     );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     // State 1: the loading popup, then 2 credits listed (soonest expiry first).
@@ -339,21 +339,24 @@ fn no_credit_outcome_disables_reset_entry_in_usage_menu() {
 // ORACLE chatwidget/tests/usage.rs:738 rate_limit_reset_redemption_cannot_be_dismissed_while_in_flight kind=ui owner=chat-live
 #[test]
 fn rate_limit_reset_redemption_cannot_be_dismissed_while_in_flight() {
-    kit::pending(
-        Owner::ChatLive,
-        "the Refreshing... half: the kit's respond table answers every limits read at once, so the state between the Reset outcome and the post-consume read cannot be held (see reset_redemption_in_flight_ignores_escape for the first half)",
-    );
     let mut s = usage_chat(80, Some(&detailed(1, vec![credit("credit-1", None, None)])));
     open_resets(&mut s);
+    // The redemption and the read after it are each held in flight (the respond table has the
+    // redemption answer Reset once it is let go).
+    let consume = s.hold_request("account/rateLimitResetCredit/consume");
+    let read = s.hold_request("account/rateLimits/read");
+    s.feed(&consume_answer("reset"));
     s.keys("enter up enter");
     s.wait_for("Using a reset...");
     s.keys("esc");
     s.assert_contains("Using a reset...");
     // The redemption answers Reset; Esc while refreshing.
-    s.feed(&consume_answer("reset"));
+    s.release(&consume);
+    s.wait_for("Refreshing...");
     s.keys("esc");
     s.assert_contains("Refreshing...");
     // The post-consume refresh lands; Esc closes it.
+    s.release(&read);
     s.keys("esc");
     s.assert_absent("Refreshing...");
 }
@@ -428,7 +431,7 @@ fn failed_post_consume_refresh_does_not_keep_stale_reset_count() {
 fn rate_limit_reset_load_result_updates_popup_beneath_overlay() {
     kit::pending(
         Owner::ChatLive,
-        "no rate-limit reset flow in the chat, and no way to put a selection overlay over the reset popup (the Covering overlay view is an oracle test helper)",
+        "the reset flow is in the chat (this file's other ports run it); what the test needs is a selection overlay over the reset popup (the oracle's `Covering` overlay view is a test helper: the picker is modal and no key or command opens a second view over it), so the list that lands beneath it cannot be put there",
     );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.type_text("/usage").keys("enter down enter");
@@ -443,7 +446,7 @@ fn rate_limit_reset_load_result_updates_popup_beneath_overlay() {
 fn rate_limit_reset_success_updates_popup_beneath_overlay() {
     kit::pending(
         Owner::ChatLive,
-        "no rate-limit reset flow in the chat, and no way to put a selection overlay over the consuming popup (the Covering overlay view is an oracle test helper)",
+        "the reset flow is in the chat (this file's other ports run it, the redemption can be held with `hold_request`); what the test needs is a selection overlay over the consuming popup (the oracle's `Covering` overlay view is a test helper: no key or command opens a second view over the open picker)",
     );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.type_text("/usage").keys("enter down enter");
@@ -458,7 +461,7 @@ fn rate_limit_reset_success_updates_popup_beneath_overlay() {
 fn account_change_dismisses_reset_popup_beneath_overlay() {
     kit::pending(
         Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no confirmation over an overlay, and no account change as a script step (seed steps)",
+        "the reset flow is in the chat (this file's other ports run it); what the test needs is a confirmation over the popup (the oracle's `Covering` overlay view is a test helper: no key or command opens one over the open reset picker) and an account change as a script step (a seed step carries no account swap)",
     );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.type_text("/usage").keys("enter down enter");
@@ -487,7 +490,7 @@ fn startup_check_shows_available_reset_hint_snapshot() {
 fn startup_reset_hint_waits_for_active_output_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "no rate-limit reset flow in the chat: no startup reset check with 2 available that waits behind an active tool cell (seed step), and no flush of the active cell",
+        "the reset flow is in the chat (this file's other ports run it); what the test needs is the startup check answering 2 available while a tool cell is active (a seed step for the active cell with the startup check held) and the flush of that cell: the hint's wait behind active output has no script step",
     );
     let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     // The active tool output is on screen, the hint is held back (seed steps).
