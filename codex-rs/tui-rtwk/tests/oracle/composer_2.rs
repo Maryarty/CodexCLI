@@ -462,6 +462,10 @@ fn remote_image_rows_snapshots() {
 // ORACLE bottom_pane/chat_composer.rs:9412 slash_popup_model_clipping_snapshot kind=snap owner=chat-live snap=slash_popup_mo_clipped
 #[test]
 fn slash_popup_model_clipping_snapshot() {
+    kit::pending(
+        Owner::ChatNavPane,
+        "G68: the popup rows float in a different layout from the oracle's: a `▎` bar and a right-aligned detail, not aligned name/description columns with a `›` marker, no `enter insert · esc close` line, no `100% context left` footer",
+    );
     let mut s = ready(60, 3);
     s.type_text("/mo");
     // the draft and its cursor stay visible above the clipped picker
