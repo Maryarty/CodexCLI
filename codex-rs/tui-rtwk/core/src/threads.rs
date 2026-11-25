@@ -1413,6 +1413,12 @@ impl ThreadModel {
         &self.submissions
     }
 
+    /// The hook runs under way: the status row names the ones the view has revealed
+    /// ([`hooks::summary`]).
+    pub fn running_hooks(&self) -> &[hooks::RunningHook] {
+        self.hooks.runs()
+    }
+
     pub fn can_load_history(&self) -> bool {
         self.history_next.is_some()
     }

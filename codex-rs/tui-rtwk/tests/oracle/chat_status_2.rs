@@ -117,7 +117,13 @@ fn hook_completed(
         .iter()
         .map(|(kind, text)| format!(r#"{{"kind":"{kind}","text":{text:?}}}"#))
         .collect();
-    let run = hook_run(id, event, status, message, &format!("[{}]", entries.join(",")));
+    let run = hook_run(
+        id,
+        event,
+        status,
+        message,
+        &format!("[{}]", entries.join(",")),
+    );
     format!(
         r#"{{"step":"notify","message":{{"method":"hook/completed","params":{{"threadId":"thread-1","turnId":null,{run}}}}}}}"#
     )
@@ -233,7 +239,9 @@ impl Frames {
             .map(|at| steady(ours.get(top + at).map_or("", String::as_str)))
             .collect();
         assert!(
-            got.iter().map(String::as_str).eq(want.iter().map(String::as_str)),
+            got.iter()
+                .map(String::as_str)
+                .eq(want.iter().map(String::as_str)),
             "{} / render {k}: ours (left) differs from the oracle's (right):\n{}\n{got:#?}\n{want:#?}",
             self.name,
             s.text()
@@ -472,9 +480,11 @@ fn completed_turn_clears_visible_running_hook() {
         named: false,
     };
     let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    s.feed(BASE)
-        .feed(TURN)
-        .feed(&hook_started("post-tool-use:0:/tmp/hooks.json", "postToolUse", None));
+    s.feed(BASE).feed(TURN).feed(&hook_started(
+        "post-tool-use:0:/tmp/hooks.json",
+        "postToolUse",
+        None,
+    ));
     s.wait(300);
     frames.pane(&s, 0);
     s.feed(&turn_ended("completed"));
@@ -827,13 +837,32 @@ fn user_prompt_submit_app_server_hook_notifications_render_snapshot() {
 #[test]
 fn hook_events_render_consistently() {
     for (event, id, message) in [
-        ("interrupt", "interrupt:0:/tmp/hooks.json", "cleaning up the interrupted turn"),
-        ("preToolUse", "pre-tool-use:0:/tmp/hooks.json", "warming the shell"),
-        ("postToolUse", "post-tool-use:0:/tmp/hooks.json", "warming the shell"),
-        ("sessionStart", "session-start:0:/tmp/hooks.json", "warming the shell"),
+        (
+            "interrupt",
+            "interrupt:0:/tmp/hooks.json",
+            "cleaning up the interrupted turn",
+        ),
+        (
+            "preToolUse",
+            "pre-tool-use:0:/tmp/hooks.json",
+            "warming the shell",
+        ),
+        (
+            "postToolUse",
+            "post-tool-use:0:/tmp/hooks.json",
+            "warming the shell",
+        ),
+        (
+            "sessionStart",
+            "session-start:0:/tmp/hooks.json",
+            "warming the shell",
+        ),
     ] {
         let mut s = chat();
-        s.feed(&format!("{TURN}\n{}", hook_started(id, event, Some(message))));
+        s.feed(&format!(
+            "{TURN}\n{}",
+            hook_started(id, event, Some(message))
+        ));
         // the start updates the live row, nothing is written to history; the row waits for its delay
         s.assert_absent("Hook");
         s.assert_absent(message);
@@ -850,7 +879,13 @@ fn hook_events_render_consistently() {
         if event != "interrupt" {
             entries.push(("context", "Remember the startup checklist."));
         }
-        s.feed(&hook_completed(id, event, "completed", Some(message), &entries));
+        s.feed(&hook_completed(
+            id,
+            event,
+            "completed",
+            Some(message),
+            &entries,
+        ));
         // the output for the user is the one history row; the context is the model's
         s.assert_has_row_trimmed("↳ Hook · Heads up from the hook");
         s.assert_absent("startup checklist");
@@ -865,7 +900,11 @@ fn quiet_hook_cleanup_starts_when_the_hook_is_revealed() {
     let quiet = hook_completed(id, "postToolUse", "completed", None, &[]);
     for delayed_redraw in [false, true] {
         let mut s = chat();
-        s.feed(&hook_started(id, "postToolUse", Some("checking output policy")));
+        s.feed(&hook_started(
+            id,
+            "postToolUse",
+            Some("checking output policy"),
+        ));
         // held back for its delay: no row yet
         s.assert_absent("Checking output policy");
         // revealed (a redraw at the deadline, or one that comes late)
@@ -880,7 +919,11 @@ fn quiet_hook_cleanup_starts_when_the_hook_is_revealed() {
     }
     // a hook that is over before its delay never shows
     let mut s = chat();
-    s.feed(&hook_started(id, "postToolUse", Some("checking output policy")));
+    s.feed(&hook_started(
+        id,
+        "postToolUse",
+        Some("checking output policy"),
+    ));
     s.feed(&quiet);
     s.wait(700);
     s.assert_absent("Checking output policy");
@@ -965,7 +1008,10 @@ fn completed_hook_output_precedes_following_assistant_message() {
         None,
         &[("feedback", "command blocked by policy")],
     ));
-    s.feed(&assistant_message("msg-after-hook", "The hook feedback was applied."));
+    s.feed(&assistant_message(
+        "msg-after-hook",
+        "The hook feedback was applied.",
+    ));
     s.assert_in_order(&["Blocked by hook", "The hook feedback was applied."]);
     frames.history(&s, 0, "• Blocked by hook");
 }
@@ -1028,11 +1074,19 @@ fn running_hooks_fit_around_background_activity_and_finish_without_history_snaps
         let started: Vec<String> = messages
             .iter()
             .enumerate()
-            .map(|(index, message)| hook_started(&format!("hook-{index}"), "preToolUse", Some(message)))
+            .map(|(index, message)| {
+                hook_started(&format!("hook-{index}"), "preToolUse", Some(message))
+            })
             .collect();
         let finished: Vec<String> = (0..messages.len())
             .map(|index| {
-                hook_completed(&format!("hook-{index}"), "preToolUse", "completed", None, &[])
+                hook_completed(
+                    &format!("hook-{index}"),
+                    "preToolUse",
+                    "completed",
+                    None,
+                    &[],
+                )
             })
             .collect();
         for (render, width) in [(0, 80), (1, 120)] {
@@ -1069,7 +1123,13 @@ fn session_end_hook_has_standalone_activity_row() {
         frames.pane(&s, 0);
         s.wait(150);
         frames.pane(&s, 1);
-        s.feed(&hook_completed("session-end", "sessionEnd", "completed", None, &[]));
+        s.feed(&hook_completed(
+            "session-end",
+            "sessionEnd",
+            "completed",
+            None,
+            &[],
+        ));
         frames.pane(&s, 2);
         // no history is written
         s.assert_absent("Hook");
@@ -1096,10 +1156,18 @@ fn overlapping_hook_live_cell_tracks_parallel_quiet_hooks() {
     let mut s = chat();
     // a task that is thinking (`set_status_header("Thinking")`)
     s.feed(&format!("{TURN}\n{THINKING}"));
-    s.feed(&hook_started(pre, "preToolUse", Some("checking command policy")));
+    s.feed(&hook_started(
+        pre,
+        "preToolUse",
+        Some("checking command policy"),
+    ));
     s.wait(150);
     frames.pane(&s, 1);
-    s.feed(&hook_started(post, "postToolUse", Some("checking output policy")));
+    s.feed(&hook_started(
+        post,
+        "postToolUse",
+        Some("checking output policy"),
+    ));
     s.wait(150);
     frames.pane(&s, 4);
     s.feed(&hook_completed(pre, "preToolUse", "completed", None, &[]));
@@ -1130,7 +1198,11 @@ fn running_hook_does_not_displace_active_exec_cell() {
     frames.history(&s, 0, "• Running echo done");
     let exec_row = row_of(&s, "• Running echo done");
     // the revealed hook is a row of the status area: the exec cell stays where it is
-    s.feed(&hook_started(id, "postToolUse", Some("checking output policy")));
+    s.feed(&hook_started(
+        id,
+        "postToolUse",
+        Some("checking output policy"),
+    ));
     s.wait(150);
     assert_eq!(row_of(&s, "• Running echo done"), exec_row, "{}", s.text());
     frames.pane_from(&s, 1, 3);

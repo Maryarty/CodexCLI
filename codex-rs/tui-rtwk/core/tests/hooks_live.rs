@@ -3,7 +3,7 @@
 //! something to say is a transcript row at its place in the event order, and a restart of the same
 //! id never drops it; the edges of a turn drop the runs whose end never came. The 300 ms delay
 //! before the status row names a run is the view's (ADR-012: core reads no clock), so here a run
-//! only has a `seq` to tell a restart from the first run.
+//! only has a `run` number to tell a restart from the first run.
 
 #![allow(clippy::expect_used)]
 
@@ -143,22 +143,22 @@ fn a_started_hook_is_under_way_until_it_completes() {
 }
 
 #[test]
-fn a_restart_of_the_same_id_is_one_run_with_a_new_seq() {
+fn a_restart_of_the_same_id_is_one_run_with_a_new_run_number() {
     // oracle hook_cell.rs `start_run`: a second begin of an id replaces the run and resets its
     // reveal delay, so the view needs to tell the two apart
     let mut app = ready();
     started(&mut app, "stop:0", Some("checking stop condition"));
-    let first = app.active_thread().running_hooks()[0].seq;
+    let first = app.active_thread().running_hooks()[0].run;
     started(&mut app, "stop:0", Some("checking stop condition"));
     let thread = app.active_thread();
     let runs = thread.running_hooks();
     assert_eq!(runs.len(), 1);
-    assert_ne!(runs[0].seq, first);
+    assert_ne!(runs[0].run, first);
 
     // and after a completion in between
     ended(&mut app, "stop:0", "completed", json!([]));
     started(&mut app, "stop:0", None);
-    let again = app.active_thread().running_hooks()[0].seq;
+    let again = app.active_thread().running_hooks()[0].run;
     assert_ne!(again, first);
 }
 
@@ -250,9 +250,9 @@ fn a_quiet_hook_leaves_no_row() {
     assert!(kinds(&app).is_empty());
 }
 
-fn hook(seq: u32, id: &str, message: Option<&str>) -> RunningHook {
+fn hook(run: u32, id: &str, message: Option<&str>) -> RunningHook {
     RunningHook {
-        seq,
+        run,
         id: id.to_string(),
         message: message.map(str::to_string),
     }
@@ -289,8 +289,14 @@ fn the_status_summary_is_the_shared_message_else_how_many_run() {
         hook(1, "b", Some("scanning for secrets")),
     ];
     assert_eq!(hooks::summary(&mixed).as_deref(), Some("Running hooks"));
-    let one_silent = [hook(0, "a", Some("checking command policy")), hook(1, "b", None)];
-    assert_eq!(hooks::summary(&one_silent).as_deref(), Some("Running hooks"));
+    let one_silent = [
+        hook(0, "a", Some("checking command policy")),
+        hook(1, "b", None),
+    ];
+    assert_eq!(
+        hooks::summary(&one_silent).as_deref(),
+        Some("Running hooks")
+    );
     let silent = [hook(0, "a", None), hook(1, "b", None)];
     assert_eq!(hooks::summary(&silent).as_deref(), Some("Running hooks"));
 }

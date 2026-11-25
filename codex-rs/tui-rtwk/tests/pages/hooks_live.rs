@@ -160,7 +160,10 @@ fn a_new_turn_starts_without_the_hook_the_last_one_left() {
 #[test]
 fn hooks_that_run_together_say_so_in_one_row() {
     let mut s = hooked("pre-tool-use:0", Some("checking command policy"));
-    s.feed(&hook_started("post-tool-use:1", Some("scanning for secrets")));
+    s.feed(&hook_started(
+        "post-tool-use:1",
+        Some("scanning for secrets"),
+    ));
     s.wait(400);
     assert!(named(&s, "Running hooks"), "{}", s.text());
     s.assert_absent("checking command policy");

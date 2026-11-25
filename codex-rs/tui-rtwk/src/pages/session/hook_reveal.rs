@@ -5,7 +5,7 @@
 //!
 //! In Flutter this is a `Timer` the page's `State` starts for the next run that is due, and a
 //! map from the run to the moment it was first built. The runs are the thread's
-//! (`ThreadModel::running_hooks`, each with a `seq`, so a restart of the same id is a new run
+//! (`ThreadModel::running_hooks`, each with a `run` number, so a restart of the same id is a new run
 //! with a new delay); the delay is a presentation matter, timed on the app clock (ADR-012:
 //! core reads no clock). The oracle's 600 ms linger of a quiet run that has drawn shows nothing
 //! (the summary clears on completion) and is not kept.
@@ -51,17 +51,17 @@ impl Reveal {
         };
         let now = binding.clock().now();
         let mut seen = self.seen.borrow_mut();
-        seen.retain(|seq, _| runs.iter().any(|run| run.seq == *seq));
+        seen.retain(|number, _| runs.iter().any(|run| run.run == *number));
         for run in runs {
-            seen.entry(run.seq).or_insert(now);
+            seen.entry(run.run).or_insert(now);
         }
         let shown: Vec<&RunningHook> = runs
             .iter()
-            .filter(|run| now.saturating_sub(seen[&run.seq]) >= REVEAL_DELAY)
+            .filter(|run| now.saturating_sub(seen[&run.run]) >= REVEAL_DELAY)
             .collect();
         let next = runs
             .iter()
-            .map(|run| seen[&run.seq] + REVEAL_DELAY)
+            .map(|run| seen[&run.run] + REVEAL_DELAY)
             .filter(|at| *at > now)
             .min();
         drop(seen);

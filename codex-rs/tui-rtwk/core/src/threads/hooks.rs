@@ -9,7 +9,7 @@
 //!
 //! What the oracle holds back for 300 ms (`HOOK_RUN_REVEAL_DELAY`: a quiet hook that is over
 //! sooner never shows) is the view's timer (`pages/session/hook_reveal.rs`, ADR-012: core reads
-//! no clock): each run has a `seq`, a restart of the same id is a new run with a new delay.
+//! no clock): each run has a `run` number, a restart of the same id is a new run with a new delay.
 //! The 600 ms a quiet run lingers after it has drawn (`QUIET_HOOK_MIN_VISIBLE`) only holds back
 //! bookkeeping the oracle's rows never show (the summary clears on completion), and is not kept.
 
@@ -19,7 +19,7 @@ use super::{Item, ThreadModel, TurnId, apply_appended};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunningHook {
     /// Told apart from a restart of the same id: that is a new run, with its own reveal delay.
-    pub seq: u32,
+    pub run: u32,
     pub id: String,
     /// What the hook says of itself while it runs (`statusMessage`).
     pub message: Option<String>,
@@ -33,20 +33,16 @@ pub(super) struct Hooks {
 }
 
 impl Hooks {
+    pub(super) fn runs(&self) -> &[RunningHook] {
+        &self.runs
+    }
+
     fn start(&mut self, id: String, message: Option<String>) {
         // a second begin of an id replaces the run (the oracle resets its reveal delay)
         self.runs.retain(|run| run.id != id);
-        let seq = self.next;
+        let run = self.next;
         self.next = self.next.wrapping_add(1);
-        self.runs.push(RunningHook { seq, id, message });
-    }
-}
-
-impl ThreadModel {
-    /// The runs under way: the status row names the ones the view has revealed
-    /// ([`summary`]).
-    pub fn running_hooks(&self) -> &[RunningHook] {
-        &self.hooks.runs
+        self.runs.push(RunningHook { run, id, message });
     }
 }
 
