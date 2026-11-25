@@ -6,14 +6,15 @@
 //! in `closed` and after each ingested event, never from a provider read in
 //! the same flush (G14). The dialog itself is `sheets::approvals`'s.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
-use rtwk::AnyWidget;
 use rtwk::app::AppCx;
 use rtwk::app::MemoCx;
 use rtwk::app::ViewRoot;
+use rtwk::binding::{AppBinding, Timer};
+use rtwk::{AnyWidget, Cx, Handler, StatelessWidget, impl_widget};
 
 use codex_tui_core::ids::RequestKey;
 use codex_tui_core::screens::approvals::order::{Family, to_show};
@@ -30,9 +31,49 @@ pub const TYPING_IDLE_DELAY: Duration = Duration::from_secs(1);
 /// one from the handle in the cell then (a replaced home writes its own).
 pub type Place = Rc<Cell<Option<ViewRoot<UiApp>>>>;
 
+/// The clock and the timer of the typing delay: the app's binding (left by the home, which is
+/// built inside the app) and the handler that presents again when the delay is over.
+#[derive(Default)]
+pub struct Delay {
+    binding: RefCell<Option<AppBinding>>,
+    due: RefCell<Option<Handler<()>>>,
+    timer: RefCell<Option<Timer>>,
+}
+
+impl Delay {
+    /// The app clock's time (none while the home has not been built).
+    fn now(&self) -> Option<Duration> {
+        self.binding
+            .borrow()
+            .as_ref()
+            .map(|binding| binding.clock().now())
+    }
+
+    /// Presents again after `left`, instead of any timer armed before.
+    fn arm(&self, left: Duration) {
+        let (binding, due) = (self.binding.borrow(), self.due.borrow());
+        if let (Some(binding), Some(due)) = (binding.as_ref(), due.as_ref()) {
+            if let Some(old) = self.timer.borrow_mut().replace(binding.start_timer(left, due.clone())) {
+                old.cancel();
+            }
+        }
+    }
+}
+
+/// The handle the home carries (equal by identity, so the memo keeps its node).
+#[derive(Clone, Default)]
+pub struct DelayHandle(Rc<Delay>);
+
+impl PartialEq for DelayHandle {
+    fn eq(&self, other: &DelayHandle) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
 /// What the presenter keeps: plain data, UI-only (`UiApp.ui`).
 pub struct Presenter {
     place: Place,
+    delay: DelayHandle,
     /// The request whose dialog is open.
     shown: Option<RequestKey>,
     /// The last request shown: while it is queued it is not shown again (its
@@ -57,6 +98,7 @@ impl Presenter {
     pub fn new() -> Self {
         Self {
             place: Place::default(),
+            delay: DelayHandle::default(),
             shown: None,
             last: None,
             parked: false,
@@ -67,6 +109,11 @@ impl Presenter {
     /// The cell the home leaves its handle in.
     pub fn place(&self) -> Place {
         self.place.clone()
+    }
+
+    /// The clock and timer of the typing delay, which the home fills.
+    pub fn delay(&self) -> DelayHandle {
+        self.delay.clone()
     }
 
     /// The request whose dialog is open.
@@ -117,7 +164,7 @@ impl Presenter {
     /// after it. The composer owner calls this from the keys the oracle counts as activity
     /// (characters, Backspace, Delete, Enter, Tab without ctrl or alt).
     pub fn typed(&mut self, now: Duration) {
-        self.last_typed = Some(now);
+        self.last_typed = self.last_typed.max(Some(now));
     }
 
     /// How long a request of `family` still waits at `now`, `None` when it may be shown: only an
@@ -156,6 +203,25 @@ pub fn present(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
         .map(|request| (request.key.clone(), Family::of(request.prompt.as_deref())))
         .collect();
     let head = to_show(&queue).cloned();
+    // An approval waits for the idle delay after the last key of the composer (the oracle's
+    // `delayed_approval_requests`): presented again by a timer when it is over.
+    let delay = app.ui.presenter.delay.clone();
+    if app.ui.presenter.shown.is_none()
+        && let Some(family) = head
+            .as_ref()
+            .and_then(|key| queue.iter().find(|(queued, _)| queued == key))
+            .map(|(_, family)| *family)
+        && let Some(now) = delay.0.now()
+    {
+        let active = app.core.session().active.clone();
+        if let Some(keyed) = app.ui.thread_ui.get(active.as_ref()).draft.last_keyed() {
+            app.ui.presenter.typed(keyed);
+        }
+        if let Some(left) = app.ui.presenter.wait(family, now) {
+            delay.0.arm(left);
+            return;
+        }
+    }
     let Some(key) = app
         .ui
         .presenter
@@ -188,7 +254,31 @@ pub fn present(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
 /// The `Navigator`'s home: a memo node that leaves its handle in `place`
 /// and is `child`. Its handle is the origin the request dialogs are shown
 /// from.
-pub fn home_node(deps: &(Place, AnyWidget), cx: &mut MemoCx<'_, '_, UiApp>) -> AnyWidget {
+pub fn home_node(
+    deps: &(Place, DelayHandle, AnyWidget),
+    cx: &mut MemoCx<'_, '_, UiApp>,
+) -> AnyWidget {
     deps.0.set(Some(cx.root()));
-    deps.1.clone()
+    *deps.1.0.due.borrow_mut() = Some(cx.on(present));
+    Home {
+        delay: deps.1.clone(),
+        child: deps.2.clone(),
+    }
+    .into()
+}
+
+/// The home's child, which leaves the app's binding where the delay reads its clock.
+#[derive(Clone, PartialEq)]
+struct Home {
+    delay: DelayHandle,
+    child: AnyWidget,
+}
+
+impl_widget!(stateless eq Home);
+
+impl StatelessWidget for Home {
+    fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
+        *self.delay.0.binding.borrow_mut() = AppBinding::maybe_of(cx);
+        self.child.clone()
+    }
 }

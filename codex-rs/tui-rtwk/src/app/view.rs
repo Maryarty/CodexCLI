@@ -134,7 +134,10 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
         }
         .into()
     };
-    let home = cx.memo((app.ui.presenter.place(), child), home_node);
+    let home = cx.memo(
+        (app.ui.presenter.place(), app.ui.presenter.delay(), child),
+        home_node,
+    );
     let tree = MultiProvider::new()
         .with(Provider::value_shared(app.core.session().clone()))
         .with(Provider::value_shared(app.core.active_thread()))

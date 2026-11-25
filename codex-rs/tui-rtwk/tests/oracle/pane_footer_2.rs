@@ -447,32 +447,32 @@ fn ctrl_c_cancels_history_search_without_clearing_draft_or_showing_quit_hint() {
 // ORACLE bottom_pane/mod.rs:3162 overlay_not_shown_above_approval_modal kind=ui owner=ui-pane
 #[test]
 fn overlay_not_shown_above_approval_modal() {
-    kit::pending(
-        Owner::UiPane,
-        "no exec approval modal: no entry chat/approval_exec_request (60x6, `Would you like to run the following command?`); the status overlay must not show above it",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(60, 6)
-        .entry("chat", "approval_exec_request")
+        .script(include_str!("fixtures/pane_footer_2/exec_request.jsonl"))
         .open();
     s.assert_contains("Would you like to run the following command?");
-    // The oracle checks row 0 only; the kit has no row-absent assert (gap).
-    s.assert_absent("Working");
+    // The oracle checks row 0 only.
+    assert!(
+        !s.rows()[0].contains("Working"),
+        "overlay should not render above modal: {:?}",
+        s.rows()[0]
+    );
 }
 
 // ORACLE bottom_pane/mod.rs:3210 approval_request_is_delayed_after_recent_typing kind=ui owner=ui-pane
 #[test]
 fn approval_request_is_delayed_after_recent_typing() {
-    kit::pending(
-        Owner::UiPane,
-        "no delayed exec approval in the live chat: a request pushed while the composer is being typed in waits for the 1 s typing-idle delay (the request arrives as a server message; no seed for it yet)",
-    );
+    // The composer source of the oracle's loop (the warning sources are the warnings strip's).
     let mut s = Screen::build(Owner::UiPane).live().open();
     s.type_text("composer");
+    s.feed(include_str!("fixtures/pane_footer_2/exec_request.jsonl"));
+    // The kit's typing and feed take about 0.3 s of the second; the exact millisecond of the
+    // delay is pinned by `tests/sheets/presenter.rs` (`an_approval_waits_the_idle_delay`).
     s.assert_absent("Would you like to run the following command?");
-    s.wait(999);
+    s.wait(400);
     s.assert_absent("Would you like to run the following command?");
-    s.wait(1);
+    s.wait(600);
     s.assert_contains("Would you like to run the following command?");
 }
 
@@ -491,15 +491,26 @@ fn typed_approval_shortcuts_during_delay_stay_in_composer() {
 // ORACLE bottom_pane/mod.rs:3327 delayed_approval_shortcut_works_after_idle_deadline kind=ui owner=ui-pane
 #[test]
 fn delayed_approval_shortcut_works_after_idle_deadline() {
-    kit::pending(
-        Owner::UiPane,
-        "no delayed exec approval in the live chat: a request past the 1 s typing-idle deadline shows, and `y` answers it",
-    );
     let mut s = Screen::build(Owner::UiPane).live().open();
+    s.type_text("a");
+    s.feed(include_str!("fixtures/pane_footer_2/exec_request.jsonl"));
     s.wait(1000);
     s.assert_contains("Would you like to run the following command?");
     s.keys("y");
     s.assert_absent("Would you like to run the following command?");
+    let accepted: Vec<_> = s
+        .commands()
+        .into_iter()
+        .filter_map(|command| match command {
+            codex_tui_core::app::Command::ResolveRequest { result, .. } => Some(result),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        accepted,
+        vec![serde_json::json!({"decision": "accept"})],
+        "the shortcut answered the request with accept"
+    );
 }
 
 // ORACLE bottom_pane/mod.rs:3415 apply_text_suggestion_updates_matching_prompt_beneath_an_overlay kind=ui owner=ui-pane
@@ -531,15 +542,28 @@ fn completing_top_view_preserves_underlying_view() {
 // ORACLE bottom_pane/mod.rs:3505 composer_shown_after_denied_while_task_running kind=ui owner=ui-pane
 #[test]
 fn composer_shown_after_denied_while_task_running() {
-    kit::pending(
-        Owner::UiPane,
-        "no denied exec approval while a task runs in the live chat: `n` denies the request; row 0 keeps the Working header and the composer shows below (40x6)",
-    );
-    let mut s = Screen::build(Owner::UiPane).size(40, 6).live().open();
+    let mut s = Screen::build(Owner::UiPane)
+        .size(40, 6)
+        .script(include_str!(
+            "fixtures/pane_footer_2/running_exec_request.jsonl"
+        ))
+        .open();
     s.keys("n");
     s.wait(120);
-    s.assert_contains("Working");
+    // The oracle renders the bottom pane alone, its row 0 is the pane's first row: the status
+    // row, with the transcript's blank row above it on the screen.
+    let rows = s.rows();
+    let top = rows
+        .iter()
+        .find(|row| !row.trim().is_empty())
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        top.contains("Working"),
+        "expected Working header after denial on the pane's first row: {top:?}"
+    );
     s.assert_contains("Ask Codex");
+    s.assert_absent("Would you like to run the following command?");
 }
 
 // ORACLE bottom_pane/mod.rs:3574 status_indicator_visible_during_command_execution kind=snap owner=ui-pane snap=status_timer_survives_hidden_row
