@@ -145,6 +145,24 @@ mod copy_mode {
 
     const HINTS: &str = "↑/↓/j/k select · g/G ends · enter copy · esc close";
 
+    /// A prompt whose quote has two paragraphs, then an answer.
+    const QUOTES: &str = concat!(
+        r#"{"step":"seed","seed":"session","thread":"thread-1"}"#,
+        "\n",
+        r#"{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}"#,
+        "\n",
+        r#"{"step":"notify","message":{"method":"item/started","params":{"item":{"type":"userMessage","id":"user-1-0","clientId":null,"content":[{"type":"text","text":"User text\n\n> first\n>\n> second\n\ntail text","text_elements":[]}],"startedAtMs":null,"completedAtMs":null},"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}"#,
+        "\n",
+        r#"{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"summary","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}"#,
+        "\n",
+        r#"{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-2","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}"#,
+        "\n",
+        r#"{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-2","itemId":"msg-2-0","delta":"Done"}}}"#,
+        "\n",
+        r#"{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-2","rootTurnId":null,"items":[],"itemsView":"summary","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}"#,
+        "\n"
+    );
+
     fn chat(script: &'static str, width: u16) -> Screen {
         let mut s = Screen::build(Owner::ChatLive)
             .size(width, 40)
@@ -333,11 +351,10 @@ mod copy_mode {
     }
 
     /// The cursor is the reversed text of its piece. A message of more than one block is a row
-    /// whose mounted cells the list's `ItemTexts` model has to name one by one (the blocks are
-    /// `Text`s joined by one line break; the model joins them by a blank line), so a piece after
-    /// the first block lands late.
+    /// whose mounted cells the list's `ItemTexts` model names one by one (the blocks are `Text`s
+    /// joined by one line break, and the model is the nodes' own texts joined so: a range is a
+    /// node and an offset in it), so a piece after the first block lands where it is.
     #[test]
-    #[ignore = "pending(chat-live): the mounted ItemTexts model of a Markdown row is its blocks joined by a blank line; the row's cells are joined by one line break, so a range after the first block lands late"]
     fn the_cursor_is_the_reversed_text_of_its_piece() {
         let mut s = chat(NAV, 80);
         begin(&mut s);
@@ -363,5 +380,20 @@ mod copy_mode {
         s.keys("up");
         s.keys("esc");
         s.assert_text_style("assistant code", "!reversed");
+    }
+
+    /// A prompt with markup is drawn as Markdown: the paragraphs of a quote are nodes on rows that
+    /// follow each other, so the piece is the quote's two lines and no more (the blank line of
+    /// its source is a line of the drawing only where the drawing has one).
+    #[test]
+    fn a_quote_of_two_paragraphs_in_a_prompt_is_one_piece() {
+        let mut s = chat(QUOTES, 80);
+        begin(&mut s);
+        s.keys("up");
+        s.assert_text_style("first", "reversed");
+        s.assert_text_style("second", "reversed");
+        s.assert_text_style("tail text", "!reversed");
+        s.assert_text_style("User text", "!reversed");
+        s.assert_text_style("Done", "!reversed");
     }
 }

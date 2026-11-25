@@ -14,7 +14,10 @@
 //! What the search reads is the rows of the transcript as text (`RowTexts`, in the order they
 //! are read: the oldest first), through the same `ItemTexts` model the list's selection reads
 //! (`item_text`); a row whose text the cells do not model yet (`cells::text::Gap::Rows`) has
-//! none, so nothing is found in it.
+//! none, so nothing is found in it. A row's text is its `Text`s' own texts joined by a line
+//! break, and nothing between the blocks of a Markdown body: the offsets of a row are a node and
+//! an offset in the node's text (`item_text::mounted_parts`), and what lies between two blocks
+//! is in a copy of a selection across them, which the area derives from the layout.
 //!
 //! Where the oracle reads one entry per frame, bounded, the scan here reads the whole transcript
 //! in the frame the query changed: the rows are in memory and a literal scan of them is the
@@ -22,6 +25,8 @@
 
 use std::borrow::Cow;
 
+use rtwk::gestures::SelectionPoint;
+use rtwk::render::RenderId;
 use rtwk::scroll::ItemTexts;
 
 pub use crate::widgets::finder::{Direction, Finder, Hit, Key, Mode, QUERY_BYTES, Rows, key};
@@ -47,15 +52,27 @@ pub struct RowTexts {
     /// Per row, per line of its text: the line is a gutter (a bullet, a prompt mark) the select
     /// mode's caret never stops on and a copy leaves out. Empty when no row has one.
     gutters: Vec<Vec<bool>>,
+    /// Where each row starts in the text of the list (the rows are joined by a line break).
+    starts: Vec<usize>,
     reverse: bool,
     revision: u64,
 }
 
 impl RowTexts {
     pub fn new(texts: Vec<String>, reverse: bool, revision: u64) -> RowTexts {
+        let mut at = 0;
+        let starts = texts
+            .iter()
+            .map(|text| {
+                let start = at;
+                at += text.len() + 1;
+                start
+            })
+            .collect();
         RowTexts {
             texts,
             gutters: Vec::new(),
+            starts,
             reverse,
             revision,
         }
@@ -89,6 +106,15 @@ impl RowTexts {
     /// The revision of the transcript the rows were read from.
     pub fn revision_of(&self) -> u64 {
         self.revision
+    }
+
+    /// The place in the list's text of the byte `offset` of row `row`, as the selection area
+    /// names it: `list` is the render object of the list (`SelectionAreaController::start`).
+    pub fn point(&self, list: RenderId, row: usize, offset: usize) -> SelectionPoint {
+        SelectionPoint {
+            object: list,
+            offset: self.starts.get(row).copied().unwrap_or(0) + offset,
+        }
     }
 
     /// The `ListController`'s index of row `row` (oldest first): a reverse list counts from its

@@ -21,7 +21,7 @@ use std::rc::Rc;
 use rtwk::editing::TextBuffer;
 use rtwk::focus::{KeyCombo, KeyPress};
 use rtwk::foundation::ValueNotifier;
-use rtwk::gestures::{SelectionPoint, SelectionTarget};
+use rtwk::gestures::SelectionTarget;
 use rtwk::render::RenderId;
 
 use super::TranscriptMode;
@@ -574,16 +574,9 @@ impl Select {
         if from.row == to.row {
             controller.select(SelectionTarget::of(rows), from.row, from.offset, to.offset);
         } else if let Some(list) = self.0.data.borrow().list {
-            let joined = |pos: Pos| (0..pos.row).map(|row| rows.row_text(row).len() + 1).sum::<usize>() + pos.offset;
             controller.select_between(
-                SelectionPoint {
-                    object: list,
-                    offset: joined(from),
-                },
-                SelectionPoint {
-                    object: list,
-                    offset: joined(to),
-                },
+                rows.point(list, from.row, from.offset),
+                rows.point(list, to.row, to.offset),
             );
         } else {
             controller.select(

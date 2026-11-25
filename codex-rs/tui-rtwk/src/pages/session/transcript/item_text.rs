@@ -48,25 +48,56 @@ impl<'a> Reading<'a> {
     }
 }
 
+/// One `Text` of a mounted item: the part, and what a copy puts before it when the text before it
+/// is selected too.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Piece {
+    pub part: Part,
+    /// A line break where the cell's texts follow each other; the nodes of a Markdown body have
+    /// the blank line the view puts between its blocks (`markdown_text::Node::before`).
+    pub before: &'static str,
+}
+
+impl Piece {
+    fn line(part: Part) -> Piece {
+        Piece { part, before: "\n" }
+    }
+
+    /// The nodes of a Markdown body, the first joined to what comes before it by a line break.
+    fn body(nodes: Vec<markdown_text::Node>) -> impl Iterator<Item = Piece> {
+        nodes.into_iter().enumerate().map(|(at, node)| Piece {
+            part: Part::text(node.text),
+            before: if at == 0 { "\n" } else { node.before },
+        })
+    }
+}
+
 /// The text of `item` as a `SelectionArea` over its mounted cell selects it:
 /// the marks the cells draw as gutters (the assistant's bullet too) are in an
-/// `ExcludeSelection` and not in it.
+/// `ExcludeSelection` and not in it; the blank lines between the blocks of a Markdown body are
+/// in it, as the area copies them.
 pub fn item_text(item: &Item, reading: &Reading<'_>) -> Option<String> {
-    mounted_parts(item, reading).map(|parts| {
-        parts
-            .iter()
-            .filter(|part| !part.gutter)
-            .map(|part| part.text.as_str())
-            .collect::<Vec<_>>()
-            .join("\n")
+    mounted_pieces(item, reading).map(|pieces| {
+        let mut out = String::new();
+        let mut first = true;
+        for piece in pieces.iter().filter(|piece| !piece.part.gutter) {
+            if !first {
+                out.push_str(piece.before);
+            }
+            first = false;
+            out.push_str(&piece.part.text);
+        }
+        out
     })
 }
 
 /// The text of `item` as rtwk's `SelectableList` reads its mounted row: every `Text` below the
 /// row, the gutters in their `ExcludeSelection` too (`selectable_nodes` of `selection_text.rs`
-/// walks the render tree without leaving an `ExcludeSelection` out as the area does), the parts
-/// joined by line breaks. What the list's `ItemTexts` model has to say for a range of it to land
-/// on the cells it names; `item_text` is the text that is the item's own (copy).
+/// walks the render tree without leaving an `ExcludeSelection` out as the area does), the texts
+/// joined by line breaks and nothing else: the nodes' own texts are all it knows of the row, so a
+/// range of it is a node and an offset in the node's text. What the list's `ItemTexts` model has
+/// to say for a range of it to land on the cells it names; `item_text` is the text that is the
+/// item's own (copy).
 pub fn mounted_text(item: &Item, reading: &Reading<'_>) -> Option<String> {
     mounted_parts(item, reading).map(|parts| {
         parts
@@ -78,8 +109,14 @@ pub fn mounted_text(item: &Item, reading: &Reading<'_>) -> Option<String> {
 }
 
 /// The parts of [`mounted_text`], each with whether it is a gutter: what the select mode reads
-/// (a caret never stops on a gutter, a copy leaves it out).
+/// (a caret never stops on a gutter, a copy leaves it out). A Markdown body is a part for each
+/// of its `Text`s.
 pub fn mounted_parts(item: &Item, reading: &Reading<'_>) -> Option<Vec<Part>> {
+    mounted_pieces(item, reading).map(|pieces| pieces.into_iter().map(|piece| piece.part).collect())
+}
+
+/// The `Text`s of a mounted item, with what a copy puts before each.
+pub fn mounted_pieces(item: &Item, reading: &Reading<'_>) -> Option<Vec<Piece>> {
     let env = reading.env;
     if reading.raw
         && let Some(lines) = raw::lines(item, env.cells)
@@ -89,25 +126,25 @@ pub fn mounted_parts(item: &Item, reading: &Reading<'_>) -> Option<Vec<Part>> {
             lines
                 .into_iter()
                 .map(|line| {
-                    if line.is_empty() {
+                    Piece::line(if line.is_empty() {
                         Part::text(env.cells.gap)
                     } else {
                         Part::text(line)
-                    }
+                    })
                 })
                 .collect(),
         );
     }
     match texts(item, env) {
-        Texts::Exact(parts) => Some(parts),
-        Texts::Gap(Gap::Markdown) => markdown_parts(item, reading),
+        Texts::Exact(parts) => Some(parts.into_iter().map(Piece::line).collect()),
+        Texts::Gap(Gap::Markdown) => markdown_pieces(item, reading),
         Texts::Gap(Gap::Rows) => None,
     }
 }
 
-/// The parts of an item whose body is Markdown: its gutters and `Text`s, the body a part of its
-/// own (the blocks as the cell draws them).
-fn markdown_parts(item: &Item, reading: &Reading<'_>) -> Option<Vec<Part>> {
+/// The `Text`s of an item whose body is Markdown: its gutters and `Text`s, the body a part for each
+/// of the view's own (the blocks as the cell draws them).
+fn markdown_pieces(item: &Item, reading: &Reading<'_>) -> Option<Vec<Piece>> {
     let env = reading.env;
     let strings = env.cells;
     match item {
@@ -125,12 +162,21 @@ fn markdown_parts(item: &Item, reading: &Reading<'_>) -> Option<Vec<Part>> {
                 parts.push(Part::gap());
             }
             parts.push(Part::gutter(env.chat.prompt.trim_end()));
-            parts.push(Part::text(body));
-            Some(parts)
+            Some(
+                parts
+                    .into_iter()
+                    .map(Piece::line)
+                    .chain(Piece::body(body))
+                    .collect(),
+            )
         }
         Item::Agent { text, .. } => {
             let body = body_of(text, reading)?;
-            Some(vec![Part::gutter(reading.bullet), Part::text(body)])
+            Some(
+                std::iter::once(Piece::line(Part::gutter(reading.bullet)))
+                    .chain(Piece::body(body))
+                    .collect(),
+            )
         }
         // the reasoning cell draws nothing for a body with nothing to say
         Item::Reasoning { .. } => {
@@ -139,43 +185,53 @@ fn markdown_parts(item: &Item, reading: &Reading<'_>) -> Option<Vec<Part>> {
                 return None;
             }
             let body = drawn(crate::widgets::markdown::view(summary))?;
-            Some(vec![Part::gutter(strings.bullet), Part::text(body)])
+            Some(
+                std::iter::once(Piece::line(Part::gutter(strings.bullet)))
+                    .chain(Piece::body(body))
+                    .collect(),
+            )
         }
         Item::Delegated(message) => {
             let attribution = strings.label(strings.delegated_attribution, &message.source);
             let body = drawn(crate::widgets::markdown::view(&message.markdown))?;
-            Some(vec![
-                Part::gutter(strings.bullet),
-                Part::text(attribution),
-                Part::text(body),
-            ])
+            Some(
+                [
+                    Piece::line(Part::gutter(strings.bullet)),
+                    Piece::line(Part::text(attribution)),
+                ]
+                .into_iter()
+                .chain(Piece::body(body))
+                .collect(),
+            )
         }
         // the header is one `Text` (the bullet is a span of it), a blank `Text` and the plan on
         // its surface, a blank row of padding above it
         Item::Plan { text } => {
-            let body = if text.trim().is_empty() {
-                strings.empty_plan.to_owned()
-            } else {
-                body_of(text, reading)?
-            };
-            Some(vec![
-                Part::text([strings.bullet, strings.proposed_plan].concat()),
-                Part::text(strings.gap),
-                Part::gap(),
-                Part::text(body),
-            ])
+            let head = [
+                Piece::line(Part::text([strings.bullet, strings.proposed_plan].concat())),
+                Piece::line(Part::text(strings.gap)),
+                Piece::line(Part::gap()),
+            ];
+            if text.trim().is_empty() {
+                let empty = Piece::line(Part::text(strings.empty_plan));
+                return Some(head.into_iter().chain([empty]).collect());
+            }
+            let body = body_of(text, reading)?;
+            Some(head.into_iter().chain(Piece::body(body)).collect())
         }
         Item::Notice(Notice::SessionInfo(info)) if session_info::has_markdown(info) => {
             let tip = info.tip.as_deref()?;
             let tip = strings.fill(strings.tip_label, &[tip]);
-            let mut parts = vec![Part::text(drawn(crate::widgets::markdown::view(&tip))?)];
+            // the first node starts the card: no line break before it
+            let mut pieces: Vec<Piece> =
+                Piece::body(drawn(crate::widgets::markdown::view(&tip))?).collect();
             let changed = session_info::texts(info, strings);
             if !changed.is_empty() {
                 // the card's parts are a blank row apart
-                parts.push(Part::gap());
-                parts.extend(changed);
+                pieces.push(Piece::line(Part::gap()));
+                pieces.extend(changed.into_iter().map(Piece::line));
             }
-            Some(parts)
+            Some(pieces)
         }
         _ => None,
     }
@@ -195,8 +251,8 @@ pub fn drawn_blocks(item: &Item, reading: &Reading<'_>) -> Vec<Block> {
     }
 }
 
-/// The text of the blocks the cell of a message draws (`citation::cited`).
-fn body_of(source: &str, reading: &Reading<'_>) -> Option<String> {
+/// The nodes of the blocks the cell of a message draws (`citation::cited`).
+fn body_of(source: &str, reading: &Reading<'_>) -> Option<Vec<markdown_text::Node>> {
     let blocks = blocks_of(
         source,
         false,
@@ -204,11 +260,11 @@ fn body_of(source: &str, reading: &Reading<'_>) -> Option<String> {
         reading.env.cells,
         reading.rendering,
     );
-    markdown_text::drawn(&blocks)
+    markdown_text::nodes(&blocks)
 }
 
-/// The text of a view's blocks as drawn.
-fn drawn(view: MarkdownView) -> Option<String> {
+/// The nodes of a view's blocks as drawn.
+fn drawn(view: MarkdownView) -> Option<Vec<markdown_text::Node>> {
     let blocks: Vec<Block> = view.blocks.map(|blocks| blocks.to_vec())?;
-    markdown_text::drawn(&blocks)
+    markdown_text::nodes(&blocks)
 }
