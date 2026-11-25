@@ -284,10 +284,53 @@ fn consumer_chats_keep_missing_rows_and_only_offer_known_metrics() {
 // ORACLE analytics/dashboard_tests.rs:33 dashboard_cards_align_and_keep_stable_summary_heights kind=snap owner=routes-lists
 #[test]
 fn dashboard_cards_align_and_keep_stable_summary_heights() {
-    kit::pending(
-        Owner::RoutesLists,
-        "the snapshot joins the wide and the narrow screen with no label; the kit cannot cut it (tests/pages/usage.rs compares the halves)",
-    );
+    // `z` shows the cards: two columns at 144 (the oracle's snapshot holds the wide screen, a
+    // blank row, then the narrow one at 72x48 with the day moved and the Plugins report
+    // refused); the cards keep their edges whatever their report holds; Enter focuses the
+    // report again with its section, day and grouping
+    let name = "dashboard_cards_align_and_keep_stable_summary_heights";
+    let screen = |entry: &'static str, width, height| {
+        Screen::build(Owner::RoutesLists)
+            .size(width, height)
+            .entry("usage", entry)
+            .open()
+    };
+    let mut wide = screen("dashboard", 144, 64);
+    wide.keys("z");
+    for (left, right) in [
+        ("1 Overview", "2 Usage"),
+        ("3 Messages", "4 Plugins"),
+        ("5 Skills", "6 Chats"),
+    ] {
+        assert!(
+            wide.rows()
+                .iter()
+                .any(|row| row.contains(left) && row.contains(right)),
+            "{left} {right}:\n{}",
+            wide.text()
+        );
+    }
+    wide.assert_absent("Coverage from");
+    wide.assert_snap_state_rows(name, 0, 64);
+    // the edges of the cards: the same before the Plugins report fails and after
+    let edges = |entry: &'static str, keys: &str| {
+        let mut s = screen(entry, 140, 56);
+        s.keys(keys);
+        s.rows()
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| row.trim_start().starts_with(['\u{256d}', '\u{2570}']))
+            .map(|(at, _)| at)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(edges("dashboard", "z"), edges("dashboard_denied", "z left"));
+    let mut narrow = screen("dashboard_denied", 72, 48);
+    narrow.keys("z left");
+    narrow.assert_contains("1 Overview");
+    narrow.assert_snap_state_rows(name, 65, 48);
+    narrow.keys("enter");
+    narrow.assert_absent("Dashboard \u{b7}");
+    narrow.assert_contains("Sep 1 \u{b7} 100 usage units");
 }
 
 // ---- oracle: analytics/navigation_tests.rs (2 screen-level tests here; 7 state tests left to routes-lists)
@@ -432,90 +475,90 @@ fn plan_clocks_follow_preference_and_keep_utc() {
 // ORACLE analytics/plot_tests.rs:178 missing_zero_and_narrow_charts_keep_the_selection_visible kind=snap owner=routes-lists snap=missing_zero_and_narrow_charts_keep_the_selection_visible
 #[test]
 fn missing_zero_and_narrow_charts_keep_the_selection_visible() {
-    kit::pending(
+    kit::na(
         Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's series; the snapshot is the plot alone",
+        "a state test: the oracle calls `chart(days, categories, cursor, width, height, unit)` at the plot's own size and compares its cells and palette runs with the snapshot; the page lays the plot out in the report's room, so no screen holds that size. core/tests/usage/plot.rs::missing_zero_and_narrow_charts_keep_the_selection_visible runs the same case against the oracle's snapshot",
     );
 }
 
 // ORACLE analytics/plot_tests.rs:243 zero_credit_history_uses_a_readable_scale kind=snap owner=routes-lists snap=zero_credit_history_uses_a_readable_scale
 #[test]
 fn zero_credit_history_uses_a_readable_scale() {
-    kit::pending(
+    kit::na(
         Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's series; the snapshot is the plot alone",
+        "a state test: the oracle calls `chart(days, categories, cursor, width, height, unit)` at the plot's own size and compares its cells and palette runs with the snapshot; the page lays the plot out in the report's room, so no screen holds that size. core/tests/usage/plot.rs::zero_credit_history_uses_a_readable_scale runs the same case against the oracle's snapshot",
     );
 }
 
 // ORACLE analytics/plot_tests.rs:271 partial_cells_use_the_midpoint_and_descend_from_the_baseline kind=snap owner=routes-lists snap=partial_cells_use_the_midpoint_and_descend_from_the_baseline
 #[test]
 fn partial_cells_use_the_midpoint_and_descend_from_the_baseline() {
-    kit::pending(
+    kit::na(
         Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's series; the snapshot is the plot alone",
+        "a state test: the oracle calls `chart(days, categories, cursor, width, height, unit)` at the plot's own size and compares its cells and palette runs with the snapshot; the page lays the plot out in the report's room, so no screen holds that size. core/tests/usage/plot.rs::partial_cells_use_the_midpoint_and_descend_from_the_baseline runs the same case against the oracle's snapshot",
     );
 }
 
 // ORACLE analytics/plot_tests.rs:313 oversized_axes_are_hidden_instead_of_truncated kind=snap owner=routes-lists snap=oversized_axes_are_hidden_instead_of_truncated
 #[test]
 fn oversized_axes_are_hidden_instead_of_truncated() {
-    kit::pending(
+    kit::na(
         Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's series; the snapshot is the plot alone",
+        "a state test: the oracle calls `chart(days, categories, cursor, width, height, unit)` at the plot's own size and compares its cells and palette runs with the snapshot; the page lays the plot out in the report's room, so no screen holds that size. core/tests/usage/plot.rs::oversized_axes_are_hidden_instead_of_truncated runs the same case against the oracle's snapshot",
     );
 }
 
 // ORACLE analytics/plot_tests.rs:348 selected_callout_keeps_the_authoritative_daily_total kind=snap owner=routes-lists snap=selected_callout_keeps_the_authoritative_daily_total
 #[test]
 fn selected_callout_keeps_the_authoritative_daily_total() {
-    kit::pending(
+    kit::na(
         Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's series; the snapshot is the plot alone",
+        "a state test: the oracle calls `chart(days, categories, cursor, width, height, unit)` at the plot's own size and compares its cells and palette runs with the snapshot; the page lays the plot out in the report's room, so no screen holds that size. core/tests/usage/plot.rs::selected_callout_keeps_the_authoritative_daily_total runs the same case against the oracle's snapshot",
     );
 }
 
 // ORACLE analytics/plot_tests.rs:369 narrow_long_range_charts_never_truncate_dates kind=snap owner=routes-lists snap=narrow_long_range_charts_never_truncate_dates
 #[test]
 fn narrow_long_range_charts_never_truncate_dates() {
-    kit::pending(
+    kit::na(
         Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's series; the snapshot is the plot alone",
+        "a state test: the oracle calls `chart(days, categories, cursor, width, height, unit)` at the plot's own size and compares its cells and palette runs with the snapshot; the page lays the plot out in the report's room, so no screen holds that size. core/tests/usage/plot.rs::narrow_long_range_charts_never_truncate_dates runs the same case against the oracle's snapshot",
     );
 }
 
 // ORACLE analytics/plot_tests.rs:401 tiny_segments_keep_their_series_color_beside_a_large_day kind=snap owner=routes-lists snap=tiny_segments_keep_their_series_color_beside_a_large_day
 #[test]
 fn tiny_segments_keep_their_series_color_beside_a_large_day() {
-    kit::pending(
+    kit::na(
         Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's series; the snapshot is the plot alone",
+        "a state test: the oracle calls `chart(days, categories, cursor, width, height, unit)` at the plot's own size and compares its cells and palette runs with the snapshot; the page lays the plot out in the report's room, so no screen holds that size. core/tests/usage/plot.rs::tiny_segments_keep_their_series_color_beside_a_large_day runs the same case against the oracle's snapshot",
     );
 }
 
 // ORACLE analytics/plot_tests.rs:442 duplicate_message_dates_render_the_full_other_remainder kind=snap owner=routes-lists snap=duplicate_message_dates_render_the_full_other_remainder
 #[test]
 fn duplicate_message_dates_render_the_full_other_remainder() {
-    kit::pending(
+    kit::na(
         Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's series; the snapshot is the plot alone",
+        "a state test: the oracle calls `chart(days, categories, cursor, width, height, unit)` at the plot's own size and compares its cells and palette runs with the snapshot; the page lays the plot out in the report's room, so no screen holds that size. core/tests/usage/plot.rs::duplicate_message_dates_render_the_full_other_remainder runs the same case against the oracle's snapshot",
     );
 }
 
 // ORACLE analytics/plot_tests.rs:472 seven_day_totals_render_without_selecting_each_bar kind=snap owner=routes-lists snap=seven_day_totals
 #[test]
 fn seven_day_totals_render_without_selecting_each_bar() {
-    kit::pending(
+    kit::na(
         Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's series; the snapshot is the plot alone",
+        "a state test: the oracle calls `chart(days, categories, cursor, width, height, unit)` at the plot's own size and compares its cells and palette runs with the snapshot; the page lays the plot out in the report's room, so no screen holds that size. core/tests/usage/plot.rs::seven_day_totals_render_without_selecting_each_bar runs the same case against the oracle's snapshot",
     );
 }
 
 // ORACLE analytics/plot_tests.rs:501 narrow_equal_height_totals_remain_separate_numbers kind=snap owner=routes-lists snap=narrow_equal_height_totals_remain_separate_numbers
 #[test]
 fn narrow_equal_height_totals_remain_separate_numbers() {
-    kit::pending(
+    kit::na(
         Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's series; the snapshot is the plot alone",
+        "a state test: the oracle calls `chart(days, categories, cursor, width, height, unit)` at the plot's own size and compares its cells and palette runs with the snapshot; the page lays the plot out in the report's room, so no screen holds that size. core/tests/usage/plot.rs::narrow_equal_height_totals_remain_separate_numbers runs the same case against the oracle's snapshot",
     );
 }
 
