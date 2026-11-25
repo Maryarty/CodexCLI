@@ -809,7 +809,7 @@ fn recent_entries_are_reused_and_old_entries_are_evicted() {
 fn fullscreen_image_previews_follow_layout_without_entering_text_surfaces() {
     kit::pending(
         Owner::ChatLive,
-        "the chat's transcript has no image artifact rows (a view-image call and an image generation call with a kitty preview) and no disclosure that expands the inspected pixels",
+        "G4 (conditional, `rtwk-rich` `Image`; the file read is a services effect): the snapshot holds the kitty image placements (`Graphics: [Rect { .. }]`) of a PNG read from disk and the blank rows reserved under `Viewed image` and `Generated Image`, and its local file links; the chat draws the call rows and their `+ Show details` control (equal to the snapshot's text) but reads no file, so it reserves no preview rows and has no placement list",
     );
     let s = Screen::build(Owner::ChatLive).size(60, 20).live().open();
     s.assert_snap("fullscreen_image_artifact_rows");
