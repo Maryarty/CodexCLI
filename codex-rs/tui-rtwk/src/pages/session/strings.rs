@@ -148,6 +148,11 @@ pub struct Strings {
     pub startup_waiting: &'static str,
     pub startup_cancel_key: &'static str,
     pub startup_cancel: &'static str,
+    /// The footer while the empty conversation moves to Cloud and when Cloud refused it
+    /// (`cloud_switch_wait.rs` `show_cloud_switch_hint`).
+    pub cloud_connecting: &'static str,
+    pub cloud_failed: &'static str,
+    pub cloud_failed_action: &'static str,
     /// `PendingChord::guide`, `ShortcutHud::render_overlay`: the block a held editor chord
     /// draws. The key that cancels, between a key and what it does, between the keys of one
     /// action, the rule's head and the cell before its tail, between the title and the cancel
@@ -347,6 +352,9 @@ pub const EN: Strings = Strings {
     startup_waiting: "Waiting for startup",
     startup_cancel_key: "esc",
     startup_cancel: "cancel",
+    cloud_connecting: "Connecting to Cloud…",
+    cloud_failed: "Cloud conversation did not open",
+    cloud_failed_action: "draft kept",
     chord_cancel: "Esc cancel",
     hud_separator: " \u{b7} ",
     hud_key_separator: " / ",

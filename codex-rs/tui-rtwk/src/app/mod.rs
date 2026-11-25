@@ -10,9 +10,11 @@ use codex_tui_core::app::CodexApp;
 use codex_tui_core::app::FirstThread;
 use codex_tui_core::app::Ingress;
 use codex_tui_core::ids::ThreadId;
+use codex_tui_core::kit::vim::VimMode;
 use codex_tui_core::screens::chat::DesktopNotice;
 use rtwk::GlobalKey;
 use rtwk::app::AppCx;
+use rtwk::editing::TextSelection;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
@@ -264,11 +266,27 @@ impl UiApp {
             if switches != self.ui.switches_seen {
                 self.ui.switches_seen = switches;
                 if let Some(from) = self.core.session().switched_from.clone() {
-                    let draft = self.ui.thread_ui.get(Some(&from)).composer.clone();
-                    let text = draft.text().to_string();
+                    let (from, to) = (
+                        self.ui.thread_ui.get(Some(&from)),
+                        self.ui.thread_ui.get(Some(&active)),
+                    );
+                    let text = from.composer.text().to_string();
                     if !text.is_empty() {
-                        self.ui.thread_ui.get(Some(&active)).composer.reset(&text);
-                        draft.clear();
+                        let caret = from.composer.selection().extent_offset;
+                        to.composer.reset(&text);
+                        to.composer
+                            .set_selection(TextSelection::collapsed(caret.min(text.len())));
+                        from.composer.clear();
+                    }
+                    // A Cloud destination continues the draft's Normal mode
+                    // (`restore_cloud_switch_draft`): a Vim Escape the user made while Cloud
+                    // connected is not undone by the new draft's start in Insert.
+                    let agents = &self.core.screens().agents;
+                    let normal = from
+                        .draft
+                        .with_vim(|vim| vim.is_enabled() && vim.mode() == VimMode::Normal);
+                    if normal && agents.is_cloud(agents.displayed) {
+                        to.draft.set_vim_enabled(true);
                     }
                 }
             }

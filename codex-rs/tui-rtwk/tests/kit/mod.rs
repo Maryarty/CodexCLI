@@ -18,6 +18,7 @@ mod oracle_snap;
 
 mod asserts;
 mod compare;
+mod elicitation;
 mod env;
 mod expect;
 mod find;

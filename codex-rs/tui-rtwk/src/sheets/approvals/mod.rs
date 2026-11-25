@@ -13,6 +13,7 @@ mod dismiss;
 mod form;
 mod guardian;
 mod keys;
+mod pager;
 mod present;
 pub mod questions;
 mod tips;
@@ -245,6 +246,26 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "user_verification_long_urls",
             "long URLs in the title and the description",
             include_str!("fixtures/user_verification_long_urls.jsonl"),
+        ),
+        (
+            "app_link_install",
+            "a tool suggestion to install an app, with its reason",
+            include_str!("fixtures/app_link_install.jsonl"),
+        ),
+        (
+            "app_link_enable",
+            "a tool suggestion to enable an installed app, with its reason",
+            include_str!("fixtures/app_link_enable.jsonl"),
+        ),
+        (
+            "app_link_auth",
+            "the sign-in of a connector the apps server asks for",
+            include_str!("fixtures/app_link_auth.jsonl"),
+        ),
+        (
+            "app_link_url",
+            "a URL another server asks to be visited, then its confirmation",
+            include_str!("fixtures/app_link_url.jsonl"),
         ),
     ];
     let mut out: Vec<DebugEntry> = entries

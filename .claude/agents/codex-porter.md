@@ -69,7 +69,10 @@ when stuck on a type). Then, from `codex-rs/tui-rtwk`:
 - the scoped tests of your feature, always with a filter: `~/.cache/rtwk/acargo
   nextest run -p codex-tui-rtwk --test <root> -E 'test(<pattern>)'` (same quiet
   flags; oracle shards: `--profile oracle -E 'test(<shard>::)'`), and the
-  oracle shards you touched, before hand-in. They must be green.
+  oracle shards you touched, before hand-in. They must be green. Add
+  `test(guards::)` to the oracle filter: shards are black box (no
+  `codex_tui_core` import, no own `assert!`/`assert_eq!`; use the kit's
+  expectations or add one in tests/kit) — two landings went red on it.
 No unscoped run (no root without `-E`, no `--workspace`/`--lib`), no pty run,
 no land-check: the orchestrator merges the hand-ins and a waiter runs the whole
 suite on the batch; a red comes back to you by message. A hook refuses the rest.

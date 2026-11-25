@@ -394,7 +394,12 @@ fn clipped_exec_approval_opens_the_complete_command() {
             s.assert_absent("reason_suffix");
             if bound && (width, height) == (80, 14) {
                 s.keys("ctrl+g");
-                // The oracle's FullScreenApprovalRequest event is not drawn; the prompt stays open.
+                // The oracle's FullScreenApprovalRequest opens its pager over the complete
+                // command (`E X E C`); `q` returns to the prompt, still open.
+                s.assert_contains("E X E C");
+                s.assert_absent("Yes, proceed");
+                s.assert_contains("printf benign");
+                s.keys("q");
                 s.assert_contains("Yes, proceed");
             }
         }

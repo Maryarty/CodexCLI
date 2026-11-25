@@ -3,13 +3,14 @@
 //! holds for the request. Enter, the digits and each option's shortcut answer
 //! it; Esc cancels (the oracle's `cancel_current_request`); `o` opens the
 //! thread a request of another thread came from. A request whose prompt the
-//! model does not hold gets the skeleton's dismiss dialog.
+//! model does not hold gets the skeleton's dismiss dialog; a link to open is the app link dialog
+//! of the select sheets.
 
 use std::rc::Rc;
 
 use rtwk::focus::Focus;
 use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding};
-use rtwk::overlay::{Dialog, close_dialog};
+use rtwk::overlay::{Dialog, close_dialog, show_dialog};
 use rtwk::provider::{read, select};
 use rtwk::style::{Attrs, Span, Style, TerminalBrightness};
 use rtwk::text::{Text, TextWrap};
@@ -32,6 +33,8 @@ use super::user_input::UserInputView;
 use crate::app::theme;
 use crate::app::view::Hs;
 use crate::keymap::bind_fixed;
+use crate::pages::session::transcript::pager::{cover_options, covering};
+use crate::sheets::select::app_link::{AppLinkView, Target};
 use crate::widgets::options::{OptionStyles, Options, RichRow};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -53,6 +56,8 @@ pub enum Msg {
     Enter,
     Cancel,
     OpenThread,
+    /// `approval.open_fullscreen`: the request's text in the pager.
+    Fullscreen,
 }
 
 impl StatefulWidget for RequestDialog {
@@ -106,6 +111,17 @@ impl State for RequestDialogState {
                 self.options.step(delta, body.options.len());
                 return Rebuild::No;
             }
+            Msg::Fullscreen => {
+                let doc = super::pager::doc(&prompt, s, super::pager::strings::of(cx));
+                if let Some(doc) = doc {
+                    drop(show_dialog::<(), _>(
+                        cx,
+                        move |_| covering(doc.clone()),
+                        cover_options(),
+                    ));
+                }
+                return Rebuild::No;
+            }
             Msg::OpenThread => {
                 if body.open_thread {
                     cx.emit(&hs.open_thread, w.key.thread.clone());
@@ -154,6 +170,14 @@ impl State for RequestDialogState {
             return FormView {
                 key: w.key.clone(),
                 prompt,
+            }
+            .into();
+        }
+        // A link to open (a tool suggestion, a sign-in, a URL) is the app link dialog; it closes
+        // with the request, which this dialog watches (`did_change_dependencies`).
+        if let Prompt::AppLink(link) = &*prompt {
+            return AppLinkView {
+                target: Target::Request(w.key.clone(), link.clone()),
             }
             .into();
         }
@@ -254,7 +278,7 @@ impl State for RequestDialogState {
             for option in body.options.iter().filter_map(|option| option.key) {
                 focus = focus.bind(option, cx.send(Msg::Cancel));
             }
-            return focus.into();
+            return bind_fullscreen(focus, cx).into();
         }
         // `selection_style`: where the terminal told nothing of its background the cursor row is
         // the terminal's own bold reverse, else the accent.
@@ -307,6 +331,7 @@ impl State for RequestDialogState {
         for press in crate::keymap::presses(&crate::keymap::keymap(cx), LIST_CANCEL) {
             focus = focus.bind(press, cx.send(Msg::Cancel));
         }
+        focus = bind_fullscreen(focus, cx);
         for (id, msg) in [
             (fixed::CONFIRM_PREVIOUS, Msg::Move(-1)),
             (fixed::CONFIRM_NEXT, Msg::Move(1)),
@@ -329,6 +354,15 @@ impl State for RequestDialogState {
         }
         focus.into()
     }
+}
+
+/// The key of `approval.open_fullscreen` (`ctrl+a` by default) on `focus`: it works on any row,
+/// whatever the cursor is on (`try_handle_shortcut`).
+fn bind_fullscreen(mut focus: Focus, cx: &mut Cx<'_, RequestDialogState>) -> Focus {
+    for press in crate::keymap::presses(&crate::keymap::keymap(cx), APPROVAL_OPEN_FULLSCREEN) {
+        focus = focus.bind(press, cx.send(Msg::Fullscreen));
+    }
+    focus
 }
 
 /// The approval's rows: the number, then the label with its shortcut after

@@ -109,6 +109,11 @@ pub struct SessionSlice {
     /// the thread it left: the composer's draft goes with it.
     pub switches: u32,
     pub switched_from: Option<ThreadId>,
+    /// The empty conversation is on its way to a Cloud backend (oracle `CloudSwitchProgress`):
+    /// the draft stays editable and nothing is submitted. `Failed` is the apply that heard the
+    /// refusal: the next one (or the wake it declares) takes it away, as the oracle's failure
+    /// frame lasts until the error is on screen.
+    pub cloud_switch: Option<CloudSwitch>,
     /// How many times the thread of the chat was archived or deleted: the
     /// chat is empty again and the command center takes its place
     /// (`return_to_agents_after_removal`).
@@ -125,6 +130,15 @@ pub struct SessionSlice {
     pub backend_banners: BTreeMap<BackendId, chat::BannerOccurrence>,
     /// What the last account read said of the Luna Reserve, per backend.
     pub reserve: BTreeMap<BackendId, chat::Reserve>,
+}
+
+/// Where the empty conversation's move to a Cloud backend stands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CloudSwitch {
+    /// The start is asked of Cloud and not answered.
+    Connecting,
+    /// Cloud refused the start; the draft stays where it was.
+    Failed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -752,6 +766,7 @@ impl CodexApp {
                 active: None,
                 switches: 0,
                 switched_from: None,
+                cloud_switch: None,
                 removed: 0,
                 fork_failed: BTreeMap::new(),
                 rate_limits: BTreeMap::new(),
@@ -1218,7 +1233,12 @@ pub fn apply_app(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
 pub fn apply_app_from(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
     // Only events that can bring tasks of other directories into the center.
     let lists = matches!(ev, AppEv::Reply(..) | AppEv::Screen(_));
+    // the refusal the last apply heard has been on screen for its frame
+    if app.session.cloud_switch == Some(CloudSwitch::Failed) {
+        Rc::make_mut(&mut app.session).cloud_switch = None;
+    }
     apply_event(app, origin, ev, fx);
+    sync_cloud_switch(app);
     mentions::sync(app, fx);
     drain_popover_asks(app, fx);
     if lists && !app.outgoing.any(is_attach) {
@@ -1231,6 +1251,26 @@ pub fn apply_app_from(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut
         }
     }
     fx.wake = features::wake(app);
+}
+
+/// `SessionSlice::cloud_switch` follows the tickets: connecting while a start asked of a Cloud
+/// backend is unanswered (a dropped ticket ends it with no arm of its own); a refusal the reply
+/// arm set stays for this apply.
+fn sync_cloud_switch(app: &mut CodexApp) {
+    let now = match app.session.cloud_switch {
+        Some(CloudSwitch::Failed) => return,
+        _ if app.outgoing.any(|ctx| {
+            matches!(ctx, AppCtx::StartThread { switch: Some(backend) }
+                if app.screens.agents.is_cloud(*backend))
+        }) =>
+        {
+            Some(CloudSwitch::Connecting)
+        }
+        _ => None,
+    };
+    if app.session.cloud_switch != now {
+        Rc::make_mut(&mut app.session).cloud_switch = now;
+    }
 }
 
 /// The composer's asks of the host (message history, file search, mention usage), taken once per
@@ -1602,22 +1642,35 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         preview: preview.clone(),
                     });
                 }
-                Rc::make_mut(&mut app.requests)
-                    .entries
-                    .push(PendingRequest {
-                        key,
-                        method,
-                        preview,
-                        prompt: approvals::prompt_of(&request).map(|entry| {
-                            let label = approvals::thread_label(
-                                &app.screens.agents.threads,
-                                &entry.thread,
-                                app.session.active.as_ref(),
-                            );
-                            Rc::new(entry.prompt.with_thread_label(label))
-                        }),
-                        request: Rc::from(request),
-                    });
+                if approvals::link::rejected(&request) {
+                    // A link the oracle refuses (an install URL that is not https, a sign-in off
+                    // ChatGPT) is declined as it arrives: no dialog, no queue entry.
+                    let decline = approvals::RequestAnswer::Elicitation {
+                        decision: approvals::Decision::Decline,
+                        content: None,
+                        meta: None,
+                    };
+                    if let Some(result) = requests::answer(&request, None, decline) {
+                        fx.commands.push(Command::ResolveRequest { key, result });
+                    }
+                } else {
+                    Rc::make_mut(&mut app.requests)
+                        .entries
+                        .push(PendingRequest {
+                            key,
+                            method,
+                            preview,
+                            prompt: approvals::prompt_of(&request).map(|entry| {
+                                let label = approvals::thread_label(
+                                    &app.screens.agents.threads,
+                                    &entry.thread,
+                                    app.session.active.as_ref(),
+                                );
+                                Rc::new(entry.prompt.with_thread_label(label))
+                            }),
+                            request: Rc::from(request),
+                        });
+                }
             }
         }
         AppEv::Backend(BackendEv::Lagged(skipped)) => {
@@ -1962,8 +2015,11 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                     (Some(backend), Answer::ThreadStarted { thread, sources }) => {
                         switch_to(app, backend, thread, sources, fx);
                     }
-                    (Some(_), Answer::Failed(error)) => {
+                    (Some(backend), Answer::Failed(error)) => {
                         // The oracle shows the error and stays where it was.
+                        if app.screens.agents.is_cloud(backend) {
+                            Rc::make_mut(&mut app.session).cloud_switch = Some(CloudSwitch::Failed);
+                        }
                         if let Some(active) = app.session.active.clone() {
                             apply_thread(app, &active, ThreadEv::Failure(Failure::from(error)), fx);
                         }
@@ -2363,6 +2419,27 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
         Intent::Screen(ScreenIntent::Approvals(approvals::Intent::Respond { key, answer })) => {
             resolve_request(app, key, answer, fx);
         }
+        Intent::Screen(ScreenIntent::Approvals(approvals::Intent::OpenLink { key })) => {
+            if let Some(link) = app_link(app, &key) {
+                fx.commands.push(Command::OpenUrl { url: link.url });
+            }
+        }
+        Intent::Screen(ScreenIntent::Approvals(approvals::Intent::LinkDone { key })) => {
+            if app_link(app, &key).is_some_and(|link| link.refreshes_apps()) {
+                select::intent(app, crate::screens::select::Intent::RefreshApps, fx);
+            }
+            accept_link(app, key, fx);
+        }
+        Intent::Screen(ScreenIntent::Approvals(approvals::Intent::LinkEnable { key })) => {
+            if let Some(link) = app_link(app, &key) {
+                let intent = crate::screens::select::Intent::SetApp {
+                    id: link.app_id,
+                    enabled: true,
+                };
+                select::intent(app, intent, fx);
+            }
+            accept_link(app, key, fx);
+        }
         Intent::Screen(ScreenIntent::Agents(agents::Intent::CancelOpen)) => {
             if let Some(id) = Rc::make_mut(&mut app.screens).agents.opening.take() {
                 set_open_cancelled(app, &id, true);
@@ -2579,6 +2656,24 @@ fn resolve_request(
     true
 }
 
+/// The app link request `key` holds, while it is queued.
+fn app_link(app: &CodexApp, key: &RequestKey) -> Option<approvals::link::AppLinkPrompt> {
+    match app.requests.get(key)?.prompt.as_deref()? {
+        approvals::Prompt::AppLink(link) => Some(link.clone()),
+        _ => None,
+    }
+}
+
+/// An app link request is accepted with no content (`resolve_elicitation(Accept, None, None)`).
+fn accept_link(app: &mut CodexApp, key: RequestKey, fx: &mut AppFx) {
+    let accept = approvals::RequestAnswer::Elicitation {
+        decision: approvals::Decision::Accept,
+        content: None,
+        meta: None,
+    };
+    resolve_request(app, key, accept, fx);
+}
+
 /// The user chose to verify: one attempt per request, the host runs the device and answers with
 /// `AppEv::Verified`; the dialog shows the waiting state meanwhile.
 fn start_verification(app: &mut CodexApp, key: RequestKey, fx: &mut AppFx) {
@@ -2658,14 +2753,10 @@ fn cancel_requests(app: &mut CodexApp, fx: &mut AppFx) {
     for entry in queued {
         remove_request(app, &entry.key);
     }
-    let cancel = current.prompt.as_deref().and_then(|prompt| {
-        prompt.decisions().into_iter().rev().find(|decision| {
-            matches!(
-                decision,
-                approvals::Decision::Cancel | approvals::Decision::DenyPermissions
-            )
-        })
-    });
+    let cancel = current
+        .prompt
+        .as_deref()
+        .and_then(approvals::Prompt::cancel_decision);
     if let Some(decision) = cancel {
         resolve_request(
             app,
