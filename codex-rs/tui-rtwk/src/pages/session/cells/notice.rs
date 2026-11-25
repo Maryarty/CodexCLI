@@ -35,6 +35,7 @@ pub fn texts(notice: &Notice, strings: &Strings) -> Vec<Part> {
             row([strings.bullet, strings.interrupted_for_steer].concat())
         }
         Notice::NoPreviousMessage => row([strings.bullet, strings.no_previous_message].concat()),
+        Notice::PromptReverted => row([strings.bullet, strings.prompt_reverted].concat()),
         Notice::GoalBudgetReached => row(super::error::line(strings.goal_budget_reached, strings)),
         Notice::EnteredReview(review) => {
             row([strings.review_started.0, review, strings.review_started.1].concat())
@@ -176,6 +177,11 @@ impl StatelessWidget for NoticeCell {
             Notice::NoPreviousMessage => Text::rich(vec![
                 Span::styled(strings.bullet, tokens.dim()),
                 Span::styled(strings.no_previous_message, Style::new()),
+            ])
+            .into(),
+            Notice::PromptReverted => Text::rich(vec![
+                Span::styled(strings.bullet, tokens.dim()),
+                Span::styled(strings.prompt_reverted, Style::new()),
             ])
             .into(),
             // `new_error_event`

@@ -2719,7 +2719,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     model,
                     ThreadEv::Appended {
                         turn: None,
-                        item: Item::Note(Note::from(NoteKey::PromptReverted)),
+                        item: Item::Notice(Notice::PromptReverted),
                     },
                     fx,
                 );

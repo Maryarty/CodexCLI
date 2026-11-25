@@ -230,6 +230,9 @@ pub enum Notice {
     GoalBudgetReached,
     /// Esc Esc with no prompt to edit (`NO_PREVIOUS_MESSAGE_TO_EDIT`).
     NoPreviousMessage,
+    /// The edit of a past prompt reverted the thread, and the history it kept is shown
+    /// (oracle `emit_prompt_edit_thread_event`).
+    PromptReverted,
     /// The e-mail to the owner of the workspace that a banner action asked for ended
     /// (`finish_add_credits_nudge_email_request`).
     AddCreditsNudge {
