@@ -25,6 +25,7 @@ use rtwk::{AnyWidget, Cx};
 use codex_tui_core::app::Intent;
 use codex_tui_core::commands::SlashCommand;
 use codex_tui_core::feature_list;
+use codex_tui_core::features::settings::SettingId;
 use codex_tui_core::features::{
     Feature, FeatureIntent, FeatureInterest, FeatureNote, FeatureTarget, FeatureWish, Scope,
 };
@@ -182,6 +183,9 @@ pub trait FeatureView: Feature {
     fn debug_dir() -> Option<Dir> {
         None
     }
+
+    /// Opens the feature's own sheet from the settings panel's row (`Feature::SETTING`).
+    fn open_setting<S: 'static>(_cx: &mut Cx<'_, S>) {}
 }
 
 /// What a feature that a slash command opens a sheet of adds to its view (`Feature::OPENS`, the
@@ -265,6 +269,23 @@ pub fn open_security_page<S: 'static>(cx: &mut Cx<'_, S>, hs: &Hs) {
 
 macro_rules! view_dispatch {
     ($($name:ident => $variant:ident;)*) => {
+        /// Whether some feature's own sheet is what the settings panel's row `id` opens.
+        #[allow(unused_variables)]
+        pub fn opens_setting(id: SettingId) -> bool {
+            false $(|| <codex_tui_core::features::$name::$variant as Feature>::SETTING == Some(id))*
+        }
+
+        /// Opens the sheet of the feature whose row of the settings panel `id` is; false when no
+        /// feature's is (`Feature::SETTING`): the panel names no slice.
+        #[allow(unused_variables, unreachable_code)]
+        pub fn open_setting<S: 'static>(cx: &mut Cx<'_, S>, id: SettingId) -> bool {
+            $(if <codex_tui_core::features::$name::$variant as Feature>::SETTING == Some(id) {
+                <codex_tui_core::features::$name::$variant as FeatureView>::open_setting(cx);
+                return true;
+            })*
+            false
+        }
+
         /// The words of a feature's note.
         #[allow(unused_variables)]
         pub fn note_words(note: &FeatureNote, words: &SessionStrings) -> String {
