@@ -27,7 +27,7 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::ids::RequestKey;
 use codex_tui_core::keymap::Keymap;
-use codex_tui_core::keymap::actions::{COMPOSER_SUBMIT, LIST_ACCEPT};
+use codex_tui_core::keymap::actions::{COMPOSER_SUBMIT, LIST_ACCEPT, LIST_CANCEL};
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::approvals::form::{Action, Field, FieldInput, Form};
 use codex_tui_core::screens::approvals::{ElicitationPrompt, Entered, Intent, Prompt};
@@ -106,6 +106,8 @@ pub struct FormViewState {
 pub enum Msg {
     /// Esc: the request is cancelled.
     Cancel,
+    /// The list keymap's cancel (`list.cancel`) on a list field; a text field takes the key.
+    ListCancel,
     /// Ctrl+C: clears a typed answer, else cancels.
     CtrlC,
     /// The previous or the next field.
@@ -149,6 +151,9 @@ impl_widget!(stateful eq FormView);
 /// `handle_key_event` does before and in the select branch. A key a list
 /// does not take is ignored by `update` on a text field.
 fn msg_of(keymap: &Keymap, key: &KeyPress) -> Option<Msg> {
+    if crate::keymap::pressed(keymap, LIST_CANCEL, key) {
+        return Some(Msg::ListCancel);
+    }
     match press_of(keymap, key)? {
         Press::Cancel => Some(Msg::Cancel),
         Press::Interrupt => Some(Msg::CtrlC),
@@ -292,6 +297,10 @@ impl State for FormViewState {
         let choices = form.fields[self.current].input.choices();
         match msg {
             Msg::Cancel => {
+                self.respond(w, form.cancel(), cx);
+                return Rebuild::No;
+            }
+            Msg::ListCancel if !text => {
                 self.respond(w, form.cancel(), cx);
                 return Rebuild::No;
             }

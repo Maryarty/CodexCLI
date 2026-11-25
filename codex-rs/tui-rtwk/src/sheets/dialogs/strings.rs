@@ -93,10 +93,16 @@ pub struct Strings {
     pub warnings_title: Msg<3>,
     pub warnings_title_empty: &'static str,
     pub no_warnings: &'static str,
+    /// The viewer's hints are a key and a label: `k` keeps (the viewer's own key), the others
+    /// show the keys of the keymap.
     pub hint_keep: &'static str,
     pub hint_dismiss: &'static str,
+    /// The dismiss key while `list.cancel` is unbound or is the viewer's own `k`.
+    pub hint_dismiss_fallback_key: &'static str,
     pub hint_copy: &'static str,
     pub hint_pages: &'static str,
+    /// Between the previous and the next page key.
+    pub hint_pages_join: &'static str,
     pub hint_separator: &'static str,
     // bottom_pane/feedback_view.rs: `feedback_selection_params`.
     pub feedback_title: &'static str,
@@ -318,9 +324,11 @@ pub const EN: Strings = Strings {
     warnings_title_empty: "Warnings",
     no_warnings: "No warnings",
     hint_keep: "k keep & next",
-    hint_dismiss: "esc dismiss & close",
-    hint_copy: "⌃o copy",
-    hint_pages: "←/→ warning",
+    hint_dismiss: "dismiss & close",
+    hint_dismiss_fallback_key: "⌃c",
+    hint_copy: "copy",
+    hint_pages: "warning",
+    hint_pages_join: "/",
     hint_separator: " · ",
     feedback_title: "How was this?",
     feedback_categories: [

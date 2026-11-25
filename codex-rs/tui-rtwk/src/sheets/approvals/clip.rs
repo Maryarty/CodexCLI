@@ -1,6 +1,6 @@
 //! A header cut to the room the rest of the dialog leaves (the oracle's `list_selection_view`
 //! render and `picker_areas`): a header taller than that room shows its first rows and a dim
-//! `[… N lines] ⌃a view all` row in place of its last one, N being the rows of the whole header.
+//! `[… N lines] ⌃a view all` row (the key the user bound to `approval.open_fullscreen`) in place of its last one, N being the rows of the whole header.
 //!
 //! Flutter writes it as a `Column` whose header is a `Flexible` child under a `ClipRect`, and the
 //! elision shown when the text says it overflows. Here the room is measured (`LayoutBuilder` +
@@ -40,6 +40,9 @@ pub struct Pane {
     pub hint_text: String,
     pub dim: Style,
     pub strings: &'static Strings,
+    /// The label of the key bound to `approval.open_fullscreen` (`⌃a` by default); none when the
+    /// user unbound it: the row then says only how many lines were cut.
+    pub view_all: Option<String>,
 }
 
 /// The two cells the dialog is inset on each side.
@@ -115,10 +118,14 @@ impl Pane {
         .into()
     }
 
-    /// `[… N lines] ⌃a view all`, dim, as the oracle's footer of a clipped header.
+    /// `[… N lines] ⌃a view all`, dim, as the oracle's footer of a clipped header (its key the
+    /// bound one, none when unbound).
     fn elision(&self, rows: usize) -> AnyWidget {
         let s = self.strings;
-        let line = format!("{} {}{}", s.header_cut(rows), s.view_all_key, s.view_all);
+        let line = match &self.view_all {
+            Some(key) => format!("{} {key}{}", s.header_cut(rows), s.view_all),
+            None => s.header_cut(rows).to_string(),
+        };
         Padding::new(
             EdgeInsets::symmetric(INSET, 0),
             Text::new(line).style(self.dim.clone()),

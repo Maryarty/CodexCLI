@@ -18,7 +18,7 @@ use rtwk_rich::highlight::{Highlighter, SyntaxTheme, language_named};
 
 use codex_tui_core::app::RequestQueue;
 use codex_tui_core::ids::RequestKey;
-use codex_tui_core::keymap::actions::LIST_CANCEL;
+use codex_tui_core::keymap::actions::{APPROVAL_OPEN_FULLSCREEN, LIST_CANCEL};
 use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::approvals::{Decision, Intent, Prompt};
@@ -37,6 +37,9 @@ use crate::widgets::options::{OptionStyles, Options, RichRow};
 #[derive(Clone, Debug, PartialEq)]
 pub struct RequestDialog {
     pub key: RequestKey,
+    /// A `request_user_input` that opens on its confirmation of unanswered questions (the
+    /// oracle's `open_unanswered_confirmation`; the debug menu's state).
+    pub confirming: bool,
 }
 
 pub struct RequestDialogState {
@@ -159,6 +162,7 @@ impl State for RequestDialogState {
             return UserInputView {
                 key: w.key.clone(),
                 prompt,
+                confirming: w.confirming,
             }
             .into();
         }
@@ -292,6 +296,7 @@ impl State for RequestDialogState {
             hint_text: body.hint.iter().map(|piece| piece.text.as_str()).collect(),
             dim: tokens.dim(),
             strings: s,
+            view_all: crate::keymap::label(&crate::keymap::keymap(cx), APPROVAL_OPEN_FULLSCREEN),
         };
         let mut focus = Focus::new(Dialog::bare(
             BoxWidget::new().style(Style::new()).child(pane.view()),
