@@ -983,10 +983,6 @@ fn following_origin_returns_to_new_output_in_original_presentation() {
 // ORACLE transcript_view/bookmark_tests.rs:57 cancel_restores_a_group_replaced_during_browsing kind=ui owner=chat-live
 #[test]
 fn cancel_restores_a_group_replaced_during_browsing() {
-    kit::pending(
-        Owner::ChatLive,
-        "no browsing of a group that a turn replaces during the browse: the replacement of the group's rows (replacement group / replacement output) through the kit's feed and the cancel that restores the earlier rows are not built; the visible part is that the restored rows equal the rows before",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(30, 2)
         .script(include_str!("fixtures/transcript_view_1/two_prompts.jsonl"))

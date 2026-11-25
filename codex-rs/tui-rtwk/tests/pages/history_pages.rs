@@ -162,3 +162,29 @@ fn the_page_is_not_news_to_a_reader_who_is_away() {
     assert!(!s.text().contains("New activity"), "{}", s.text());
     s.assert_contains("esc latest");
 }
+
+#[test]
+fn a_page_joining_above_keeps_a_selection_held_elsewhere() {
+    // the transcript alone, as the oracle's page-join tests read it: a row selected by three
+    // clicks, the reader at the top of the loaded rows, a page joining above
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(60, 8)
+        .replay(Vec::new())
+        .view_only()
+        .open();
+    s.partial_history_of(&["one", "two", "three", "four"]);
+    s.wheel_up(0, 0, 100);
+    s.click_text("two");
+    s.click_text("two");
+    s.click_text("two");
+    s.assert_text_style("two", "reversed");
+    let before = s.shot();
+    s.join_older_page(&["older group", "older output"], false);
+    s.assert_same_rows(&before);
+    s.assert_text_style("two", "reversed");
+    // the page is above: the reader goes up to it and the selection stays where it was
+    s.wheel_up(0, 0, 100);
+    s.assert_contains("older group");
+    s.wheel_down(0, 0, 100);
+    s.assert_contains("four");
+}
