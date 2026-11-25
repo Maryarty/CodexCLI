@@ -4,7 +4,7 @@
 //! `apply`; `ingest` creates a thread's controllers after the thread appears.
 
 use std::cell::{Cell, RefCell};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 use rtwk::editing::TextEditingController;
@@ -14,6 +14,7 @@ use rtwk::scroll::ListController;
 
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::kit::backtrack::{Backtrack, Chosen as Selection, EscStep, Targets};
+use codex_tui_core::threads::ItemKey;
 
 use crate::widgets::composer_draft::ComposerDraft;
 use crate::widgets::composer_sparkle::SparkleController;
@@ -48,6 +49,13 @@ impl ThreadUi {
         self.find.held(make)
     }
 
+    /// The cells of this thread's transcript that disclose details and which of them the reader
+    /// opened (`+ Show details`): the controller a tap on a cell's control and a key (F4) both
+    /// go through, made on the first ask like `held`'s.
+    pub fn disclosed(&self) -> Disclosed {
+        self.held(Disclosed::default)
+    }
+
     /// How the transcript takes keys now: Find while it is open (editing the query or reading a
     /// match), else the mode the reader holds (`Modes::input`).
     pub fn input(&self) -> Input {
@@ -56,6 +64,83 @@ impl ThreadUi {
         } else {
             self.modes.input()
         }
+    }
+}
+
+/// The activity cells of a transcript that disclose details and which of them are open (Flutter:
+/// the `ExpansionTileController` of each tile, held for the thread like its scroll controller).
+/// A cell's own `State` cannot be reached from a key; this is, so that a tap on the control, `Enter`
+/// and F4 all come to the same fact. A cell is told which it is by its row
+/// (`cells::disclosure::tile`); a cell outside one keeps its own flag. Equal to its clones.
+#[derive(Clone)]
+pub struct Disclosed(Rc<Cells>);
+
+struct Cells {
+    open: RefCell<BTreeSet<ItemKey>>,
+    /// The cells that have a control, in the order they were first built.
+    known: RefCell<Vec<ItemKey>>,
+    ticks: Rc<ValueNotifier<u32>>,
+}
+
+impl Default for Disclosed {
+    fn default() -> Disclosed {
+        Disclosed(Rc::new(Cells {
+            open: RefCell::default(),
+            known: RefCell::default(),
+            ticks: Rc::new(ValueNotifier::new(0)),
+        }))
+    }
+}
+
+impl PartialEq for Disclosed {
+    fn eq(&self, other: &Disclosed) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Disclosed {
+    /// Whether the cell of `key` is open.
+    pub fn is_open(&self, key: &ItemKey) -> bool {
+        self.0.open.borrow().contains(key)
+    }
+
+    /// Opens or closes the cell of `key`; the cells hear it when it was not so.
+    pub fn set(&self, key: &ItemKey, open: bool) {
+        let changed = if open {
+            self.0.open.borrow_mut().insert(key.clone())
+        } else {
+            self.0.open.borrow_mut().remove(key)
+        };
+        if changed {
+            self.0.ticks.set_value(self.0.ticks.value().wrapping_add(1));
+        }
+    }
+
+    /// Opens a closed cell and closes an open one; whether it is open now.
+    pub fn toggle(&self, key: &ItemKey) -> bool {
+        let open = !self.is_open(key);
+        self.set(key, open);
+        open
+    }
+
+    /// A cell says it has a control (`cells::disclosure::disclosing` does, as it builds). Not a
+    /// change: nothing is told.
+    pub fn note(&self, key: &ItemKey) {
+        let mut known = self.0.known.borrow_mut();
+        if !known.contains(key) {
+            known.push(key.clone());
+        }
+    }
+
+    /// The cells that have a control, in the order they were first built (a list that knows the
+    /// transcript puts them in its own order, as F4's walk needs).
+    pub fn known(&self) -> Vec<ItemKey> {
+        self.0.known.borrow().clone()
+    }
+
+    /// Ticks whenever a cell opens or closes.
+    pub fn listenable(&self) -> Rc<ValueNotifier<u32>> {
+        self.0.ticks.clone()
     }
 }
 

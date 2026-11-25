@@ -871,3 +871,131 @@ mod config_panel_opens_the_live_setups {
         );
     }
 }
+
+/// F4 reaches the cells that disclose details (doors-r3, item 7): their open state is the
+/// thread's controller (`ThreadUi::disclosed`), which a row says (`cells::disclosure::tile`).
+mod disclosed_cells {
+    use rtwk::layout::{Column, CrossAxisAlignment, MainAxisSize};
+    use rtwk::style::Style;
+    use rtwk::widgets::Text;
+    use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
+    use rtwk_test::{Options, Tester};
+
+    use codex_tui_core::ids::{ItemId, TurnId};
+    use codex_tui_core::threads::ItemKey;
+    use codex_tui_rtwk::pages::session::cells::disclosure::{disclosing, expanded, tile};
+    use codex_tui_rtwk::widgets::thread_ui::ThreadUi;
+
+    /// A cell of the kind the transcript has (`ToolRowState`): its flag, its summary, its body
+    /// when open, and the control.
+    #[derive(Clone, PartialEq)]
+    struct Cell;
+
+    #[derive(Default)]
+    struct CellState {
+        open: bool,
+    }
+
+    impl StatefulWidget for Cell {
+        type State = CellState;
+        fn create_state(&self) -> CellState {
+            CellState::default()
+        }
+    }
+
+    impl_widget!(stateful eq Cell);
+
+    impl State for CellState {
+        type Widget = Cell;
+        type Msg = bool;
+
+        fn update(&mut self, open: bool, _: &Cell, _: &mut Cx<'_, Self>) -> Rebuild {
+            self.open = open;
+            Rebuild::Yes
+        }
+
+        fn build(&self, _: &Cell, cx: &mut Cx<'_, Self>) -> AnyWidget {
+            let open = expanded(cx, self.open);
+            let mut content = Column::new()
+                .main_axis_size(MainAxisSize::Min)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(Text::new("summary"));
+            if open {
+                content = content.child(Text::new("the body"));
+            }
+            let label = if open { "Hide details" } else { "Show details" };
+            disclosing(cx, content.into(), label, Style::default(), open)
+        }
+    }
+
+    fn key() -> ItemKey {
+        ItemKey {
+            turn: TurnId::new("turn-1"),
+            item: ItemId::new("call-1"),
+        }
+    }
+
+    fn mount(cell: impl Into<AnyWidget>) -> Tester {
+        let mut t = Tester::with(Options::new().size(24, 6));
+        t.pump_widget(cell);
+        t
+    }
+
+    /// The controller opens the cell the way F4's `Enter` will, and the cell closes again when it
+    /// is told so; the row's control is on the row below the cell's rows.
+    #[test]
+    fn the_controller_opens_and_closes_a_cell_under_a_tile() {
+        let ui = ThreadUi::default();
+        let mut t = mount(tile(&ui.disclosed(), key(), Cell.into()));
+        assert!(t.screen().contains("Show details"), "{}", t.screen());
+        assert!(!t.screen().contains("the body"));
+        ui.disclosed().set(&key(), true);
+        t.pump();
+        assert!(t.screen().contains("the body"), "{}", t.screen());
+        assert!(t.screen().contains("Hide details"));
+        ui.disclosed().set(&key(), false);
+        t.pump();
+        assert!(!t.screen().contains("the body"), "{}", t.screen());
+    }
+
+    /// A tap on the control goes through the controller: it says the cell is open, and names the
+    /// cell among those F4 may walk.
+    #[test]
+    fn a_tap_on_the_control_is_the_controllers() {
+        let ui = ThreadUi::default();
+        let mut t = mount(tile(&ui.disclosed(), key(), Cell.into()));
+        assert!(ui.disclosed().known().contains(&key()));
+        assert!(!ui.disclosed().is_open(&key()));
+        // the control stands a quarter of the width in, on the row below the summary
+        t.click(6, 1);
+        t.pump();
+        assert!(ui.disclosed().is_open(&key()), "{}", t.screen());
+        assert!(t.screen().contains("the body"), "{}", t.screen());
+        // the row of the control moved down with the body
+        t.click(6, 2);
+        t.pump();
+        assert!(!ui.disclosed().is_open(&key()), "{}", t.screen());
+    }
+
+    /// The controller is the thread's: one per `ThreadUi`, shared by its clones, and a key it was
+    /// not told of is closed.
+    #[test]
+    fn each_thread_has_its_own_controller() {
+        let (ui, other) = (ThreadUi::default(), ThreadUi::default());
+        assert!(ui.disclosed() == ui.clone().disclosed());
+        assert!(ui.disclosed() != other.disclosed());
+        ui.disclosed().set(&key(), true);
+        assert!(!other.disclosed().is_open(&key()));
+        assert!(ui.disclosed().toggle(&key()) == false);
+        assert!(ui.disclosed().toggle(&key()));
+    }
+
+    /// A cell outside a tile keeps its own flag, as before.
+    #[test]
+    fn a_cell_outside_a_tile_keeps_its_own_flag() {
+        let mut t = mount(Cell);
+        t.click(6, 1);
+        t.pump();
+        assert!(t.screen().contains("the body"), "{}", t.screen());
+    }
+}
