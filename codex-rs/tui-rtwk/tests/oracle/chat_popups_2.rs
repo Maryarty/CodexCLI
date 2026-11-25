@@ -304,19 +304,44 @@ fn full_access_confirmation_popup_snapshot() {
         .open();
     s.keys("down enter");
     s.assert_contains("Enable full access?");
-    s.assert_contains("When Codex runs with full access, it can edit any file on your computer");
-    s.assert_contains("leaks, or unexpected behavior.");
+    s.assert_contains("When Codex runs with full access, it can edit any file on your");
+    s.assert_contains("computer and run commands with network, without your approval.");
+    s.assert_contains("increases the risk of data loss, leaks, or unexpected behavior.");
     s.assert_contains("› 1. Yes, continue anyway  Apply full access for this session");
     s.assert_contains("  2. Cancel                Go back without enabling full access");
-    kit::pending(
-        Owner::DialogsPane,
-        "the confirmation is a bottom dialog at the screen's edge with its header in one paragraph; the oracle's is indented four columns over the retained composer (`› As` / `GP` at the left edge) with the title, the warning and the caution as three paragraphs (a Centered presentation the select sheet has no option for)",
-    );
-    s.assert_snap_region(
-        "full_access_confirmation_popup",
-        row_of(&s, "Enable full access?"),
-        0,
-    );
+    // the oracle's frame is the dialog over its retained composer: `› As` and `GP` show in the
+    // four columns left of it. Ours is over the debug list, which shows in those four and past
+    // the dialog's right edge; the dialog itself is the rows between.
+    assert_dialog_rows(&s, "full_access_confirmation_popup", 4, 76);
+}
+
+/// The rows of the oracle's snapshot `name` against ours from the row of its first text: the
+/// columns before `from` and from `to` on belong to what is under the dialog in either screen.
+fn assert_dialog_rows(s: &Screen, name: &str, from: usize, to: usize) {
+    let want = kit::snap_rows(name, "");
+    let Some(first) = want.iter().find(|row| !row.trim().is_empty()) else {
+        panic!("the snapshot `{name}` has no text");
+    };
+    let first = first.trim();
+    let ours = s.rows();
+    let top = ours
+        .iter()
+        .position(|row| row.contains(first))
+        .unwrap_or_else(|| panic!("no `{first}` on the screen:\n{}", s.text()));
+    let cut = |row: &str| -> String {
+        row.chars()
+            .skip(from)
+            .take(to - from)
+            .collect::<String>()
+            .trim_end()
+            .to_owned()
+    };
+    let want: Vec<String> = want.iter().map(|row| cut(row)).collect();
+    let have: Vec<String> = (0..want.len())
+        .map(|at| ours.get(top + at).map_or(String::new(), |row| cut(row)))
+        .collect();
+    let want: Vec<&str> = want.iter().map(String::as_str).collect();
+    kit::assert_rows_are(&have, &want);
 }
 
 // ORACLE chatwidget/tests/permissions.rs:907 windows_auto_mode_prompt_requests_enabling_sandbox_feature kind=ui owner=dialogs-pane
@@ -326,11 +351,13 @@ fn windows_auto_mode_prompt_requests_enabling_sandbox_feature() {
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 24)
         .live()
-        .script(
-            r#"{"step":"fact","feature":"windows_sandbox","fact":{"kind":"environment","mode":null,"host":"local"}}"#,
-        )
+        .script(PERMISSION_CATALOG)
         .open();
+    s.feed(
+        r#"{"step":"fact","feature":"windows_sandbox","fact":{"kind":"environment","mode":null,"host":"local"}}"#,
+    );
     s.type_text("/permissions").keys("enter");
+    s.assert_contains("1. Ask for approval");
     s.assert_absent("requires Administrator permissions");
     // the Default pick (Auto, approvals to the user) leads to the enable prompt
     s.keys("enter");

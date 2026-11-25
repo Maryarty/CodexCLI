@@ -993,6 +993,17 @@ fn assert_consent_rows(s: &Screen, name: &str) {
                 .trim_end()
                 .to_owned()
         })
+        // the list's own marker column (`▎`, or blank) is one cell where the oracle's `› ` is
+        // two: the rows are compared from their numbers
+        .map(|row| {
+            let mut chars = row.chars();
+            match (chars.next(), chars.next()) {
+                (Some('\u{258c}' | '\u{258e}' | ' '), Some(digit)) if digit.is_ascii_digit() => {
+                    row.chars().skip(1).collect()
+                }
+                _ => row,
+            }
+        })
         .collect();
     let want: Vec<&str> = want.iter().map(String::as_str).collect();
     kit::assert_rows_are(&have, &want);
