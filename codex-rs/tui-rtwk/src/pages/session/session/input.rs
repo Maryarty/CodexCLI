@@ -314,9 +314,9 @@ pub(super) fn focus(
             focus = focus.bind(key, cx.send(msg.clone()));
         }
     }
-    // Tab queues while a turn runs and submits otherwise, but not a
+    // Tab queues while a task runs and submits otherwise, but not a
     // shell command (`queue_keys` in `handle_key_event_without_popup`).
-    if (frame.run.running() || !state.draft_shell)
+    if (thread.task_running() || !state.draft_shell)
         && !state.draft_empty
         && frame.searching.is_none()
     {

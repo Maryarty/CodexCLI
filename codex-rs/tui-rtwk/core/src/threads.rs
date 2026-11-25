@@ -1559,6 +1559,13 @@ impl ThreadModel {
         self.core.busy() || self.slots.chat.is_compacting()
     }
 
+    /// What the composer calls a task that runs: a turn or its start, a review, a server that
+    /// still starts (`update_task_running_state`, the bottom pane's `is_task_running`). The queue
+    /// key queues on it; a message still goes out unless `busy`.
+    pub fn task_running(&self) -> bool {
+        self.busy() || self.slots.chat.review_mode() || self.slots.chat.mcp.is_starting()
+    }
+
     /// A user turn is running or its start is in flight, or a review runs (oracle
     /// `is_user_turn_pending_or_running`).
     pub fn user_turn_in_flight(&self) -> bool {

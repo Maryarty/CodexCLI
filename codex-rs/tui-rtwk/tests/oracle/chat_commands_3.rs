@@ -268,7 +268,7 @@ fn queued_menu_slash_keeps_agent_turn_complete_notification() {
     // is the terminal's already
     s.assert_contains("Select Model");
     s.assert_no_turn();
-    assert_eq!(s.notifications(), ["Agent turn complete: done"]);
+    kit::assert_rows_are(&s.notifications(), &["Agent turn complete: done"]);
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2833 slash_stop_submits_background_terminal_cleanup kind=ui owner=chat-nav-pane
