@@ -55,6 +55,9 @@ pub(super) struct Modal {
     pub(super) chord: Option<KeyPress>,
     /// The `/` or `?` query being typed.
     pub(super) query: TextEditingController,
+    /// How many edits put text at the start of the draft, and how many of them the composer
+    /// has read (`prefix_insertion_revision`): a `!` there is shell mode.
+    pub(super) prefix: (u64, u64),
 }
 
 impl ComposerDraft {
@@ -105,6 +108,15 @@ impl ComposerDraft {
     /// The field the `/` query is typed in (a handle).
     pub fn vim_query(&self) -> TextEditingController {
         self.0.borrow().vim.query.clone()
+    }
+
+    /// Whether an edit of the engine put text at the draft's start since this was last asked
+    /// (the textarea's `prefix_insertion_revision` moved).
+    pub fn vim_prefix_inserted(&self) -> bool {
+        let mut inner = self.0.borrow_mut();
+        let moved = inner.vim.prefix.0 != inner.vim.prefix.1;
+        inner.vim.prefix.1 = inner.vim.prefix.0;
+        moved
     }
 
     /// The first key of a chord pressed and not completed yet.
@@ -365,6 +377,9 @@ impl VimText for VimHost<'_> {
     fn replace(&mut self, range: Range<usize>, with: &str) {
         let caret = self.cursor();
         let (start, end) = (range.start, range.end);
+        if start == 0 && !with.is_empty() {
+            self.draft.0.borrow_mut().vim.prefix.0 += 1;
+        }
         self.c.replace(start, end, with);
         // the controller leaves the caret after the new text; an edit moves
         // it as the engine's contract says

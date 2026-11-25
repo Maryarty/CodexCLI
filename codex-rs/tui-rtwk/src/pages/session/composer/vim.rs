@@ -446,6 +446,10 @@ pub fn early(
 fn finish(data: &KeyData, c: &TextEditingController) {
     let after = mode(&data.draft);
     if after.normal && after.pending == VimPending::None && !after.searching {
+        // a `!` the command put at the start (`r!`, `.` of it) is shell mode
+        if data.draft.vim_prefix_inserted() {
+            absorb_shell_prefix(&data.draft, &*data.tell, c);
+        }
         data.draft.vim_finish_edit(c);
     }
 }

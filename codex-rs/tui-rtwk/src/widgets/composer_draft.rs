@@ -46,6 +46,13 @@ mod vim;
 pub use mentions::Mentions;
 pub use vim::{Snapshot, VimHost};
 
+/// The register a composer hands to the one of the next session (`KillBufferSnapshot`).
+#[derive(Default)]
+pub struct Handoff {
+    kill: Option<(String, Vec<Element>)>,
+    kind: codex_tui_core::kit::vim::RegisterKind,
+}
+
 /// One atomic element of the text: the bytes `start..end` show `label`
 /// and stand for `payload` on submit.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -654,6 +661,27 @@ impl ComposerDraft {
         inner.kill = Some((text, held));
         // a kill pastes as characters; Vim's linewise yank says otherwise after
         inner.vim.register_kind = Default::default();
+    }
+
+    /// What the next session's composer starts with (`take_kill_buffer_snapshot`): the last
+    /// kill or yank with the elements it held, and how it pastes. This draft keeps none.
+    pub fn take_register(&self) -> Handoff {
+        let mut inner = self.0.borrow_mut();
+        Handoff {
+            kill: inner.kill.take(),
+            kind: std::mem::take(&mut inner.vim.register_kind),
+        }
+    }
+
+    /// The register of the composer before this one (`restore_kill_buffer_snapshot`): an empty
+    /// one leaves what this draft holds.
+    pub fn restore_register(&self, held: Handoff) {
+        if held.kill.is_none() {
+            return;
+        }
+        let mut inner = self.0.borrow_mut();
+        inner.kill = held.kill;
+        inner.vim.register_kind = held.kind;
     }
 
     /// Puts the last kill back at the caret, its elements whole; `false`

@@ -746,23 +746,23 @@ fn deleting_a_selected_remote_image_is_one_undoable_vim_edit() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:322 direct_edits_join_the_active_vim_insert_transaction kind=ui owner=chat-live
 #[test]
 fn direct_edits_join_the_active_vim_insert_transaction() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body (enable_vim_in_insert_mode has no kit call) and no kit seed for remote image URLs (the page draws the rows, tests/pages/composer_images.rs)",
-    );
     let mut s = chat(100, 24);
+    // `vim_composer("abc")`: Normal mode on the first cell; `enable_vim_in_insert_mode`
     vim_draft(&mut s, "abc");
+    s.keys("i");
     s.paste("ABC");
-    // attach_image(example.png): no kit call yet
+    s.attach_image("example.png");
     s.type_text("D");
     s.keys("esc");
     let p = prompt(&s);
-    s.assert_row(p, "› ABCDabc");
+    s.assert_row(p, "› ABC[Image #1]Dabc");
+    // one transaction: a single `u` takes the paste, the image and the typing back, and Ctrl+R
+    // puts them all back
     s.type_text("u");
     s.assert_row(p, "› abc");
     s.assert_absent("[Image #1]");
     s.keys("ctrl+r");
-    s.assert_row(p, "› ABCDabc");
+    s.assert_row(p, "› ABC[Image #1]Dabc");
 }
 
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:339 vim_search_query_paste_does_not_invalidate_draft_redo kind=ui owner=chat-live
@@ -1062,30 +1062,72 @@ fn cancelled_history_search_preserves_literal_bang_draft() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:851 editor_actions_insert_shell_prefixes kind=ui owner=chat-live
 #[test]
 fn editor_actions_insert_shell_prefixes() {
-    kit::pending(
-        Owner::ChatLive,
-        "the Vim part (`r!`, `lr!0.`) needs Vim mode; the body holds only the non-Vim half (a yank of `!` at the start is shell mode), which passes",
-    );
     let mut s = chat(100, 24);
     s.type_text("x!echo hi");
     s.keys("home right ctrl+k backspace ctrl+y");
     // the yank at the start enters shell mode: `!` is the prompt
     s.assert_row(prompt(&s), "! echo hi");
+    // Vim: `r!` and `.` put a `!` at the start of the draft, which is shell mode too
+    for (commands, expected) in [("r!", "! xecho hi"), ("lr!0.", "! !echo hi")] {
+        let mut s = chat(100, 24);
+        vim_draft(&mut s, "xxecho hi");
+        s.type_text(commands);
+        s.assert_row(prompt(&s), expected);
+    }
 }
 
 // ---- oracle: bottom_pane/chat_composer/vim_register_tests.rs (11 screen-level tests here; 4 state tests left to chat-live)
 // ORACLE bottom_pane/chat_composer/vim_register_tests.rs:97 composer_handoff_preserves_only_the_live_rich_register kind=ui owner=chat-live
 #[test]
 fn composer_handoff_preserves_only_the_live_rich_register() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body, no mention, image or paste payload on the chat composer (no kit seeds): the rich register and the handoff of the live one are not drawn",
-    );
-    let mut s = chat(100, 24);
-    s.type_text("new");
+    // the oracle's `rich_composer()`: a `$figma` skill mention, an attached image, a 1001-character
+    // paste, in Normal mode
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .keymap(&[("global.toggle_vim_mode", "f9")])
+        .script(include_str!("fixtures/composer_3/skill_figma.jsonl"))
+        .open();
+    s.keys("f9 i");
+    s.type_text("$figma").keys("tab");
+    let photo = s.attach_image("photo.png");
+    s.paste(&"z".repeat(1001));
     s.keys("esc");
+    s.type_text("0y$A");
+    // Ctrl+Y puts the yank in once more; `yy` then takes the whole line, rich objects and all
+    s.keys("ctrl+y esc");
+    s.type_text("yy");
+    // a new session's composer starts from the old one's register
+    // (`restore_kill_buffer_snapshot`); the old draft is cleared by a selection, not a kill
+    s.keys("f9 home shift+end delete");
+    s.assert_row(prompt(&s), PLACEHOLDER);
+    s.type_text("/new").keys("enter");
+    s.keys("f9 i");
+    s.type_text("new").keys("esc");
+    // nothing to undo or repeat in the fresh composer
+    s.type_text("u.");
+    s.assert_row(prompt(&s), "› new");
     s.type_text("p");
-    s.assert_in_order(&["new", "$skill", "[Image #1]", "[Pasted Content 1001 chars]"]);
+    s.assert_in_order(&["new", "$figma", "[Image #1]", "[Pasted Content 1001 chars]"]);
+    // the pasted line carries its objects over: the submission binds the skill and takes the
+    // image (the oracle counts two of each: fresh numbering of a repeated object is the image
+    // attachment's, `rich_paste_renders_unique_image_and_paste_labels`)
+    s.keys("enter");
+    let turns = s.turns();
+    assert_eq!(turns.len(), 1, "one turn");
+    assert!(
+        turns[0].mentions.iter().any(|m| matches!(
+            m,
+            codex_tui_core::data::mention::ToolMention::Skill { name, path }
+                if name == "figma" && path == "/tmp/user/figma/SKILL.md"
+        )),
+        "the skill the register carried is bound: {:?}",
+        turns[0].mentions
+    );
+    assert!(
+        turns[0].images.iter().any(|image| image.path == photo),
+        "the image the register carried is attached: {:?}",
+        turns[0].images
+    );
 }
 
 // ORACLE bottom_pane/chat_composer/vim_register_tests.rs:137 insert_yank_and_dot_preserve_rich_payloads kind=ui owner=chat-live
