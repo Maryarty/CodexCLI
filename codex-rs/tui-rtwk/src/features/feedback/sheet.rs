@@ -4,7 +4,7 @@
 //! sheet's drawn state; only the submit crosses into the domain, as the verb `Intent::Submit`.
 //! In Flutter it is one `showModalBottomSheet` whose content is swapped by a `PageView`.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use rtwk::editing::TextEditingController;
@@ -15,6 +15,7 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::features::FeatureStates;
 use codex_tui_core::features::feedback::{Audience, Destination, Intent};
+use codex_tui_core::kit::paste_burst::PasteBurst;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::dialogs::Attachments;
 
@@ -40,6 +41,9 @@ pub struct SheetState {
     scroll: i32,
     page: Rc<Cell<i32>>,
     most: Rc<Cell<i32>>,
+    /// The note's burst detector (oracle `FeedbackNoteView.paste_burst`): Enter inside a
+    /// paste is a line of the note, not the send.
+    burst: Rc<RefCell<PasteBurst>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -68,6 +72,7 @@ impl StatefulWidget for FeedbackSheet {
             scroll: 0,
             page: Rc::new(Cell::new(1)),
             most: Rc::new(Cell::new(0)),
+            burst: Rc::new(RefCell::new(PasteBurst::default())),
         }
     }
 }
@@ -170,6 +175,7 @@ impl State for SheetState {
                     scroll: self.scroll,
                     page: self.page.clone(),
                     most: self.most.clone(),
+                    burst: self.burst.clone(),
                 },
                 cx,
             ),

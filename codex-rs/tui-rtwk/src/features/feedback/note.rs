@@ -6,12 +6,13 @@
 //! with the gutter as the indent) because how many there are decides how much room the field
 //! gets.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use rtwk::LayoutBuilder;
-use rtwk::editing::{TextArea, TextEditingController};
-use rtwk::focus::{Focus, FocusNode};
+use rtwk::binding::AppBinding;
+use rtwk::editing::{EditingKeys, TextArea, TextEditingController};
+use rtwk::focus::{Focus, FocusNode, KeyPress};
 use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
 use rtwk::overlay::Dialog;
 use rtwk::style::{Attrs, Span};
@@ -20,12 +21,13 @@ use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::features::feedback::{Audience, Destination};
 use codex_tui_core::keymap::fixed;
+use codex_tui_core::kit::paste_burst::PasteBurst;
 use codex_tui_core::screens::dialogs::FeedbackCategory;
 
 use super::sheet::{Msg, SheetState};
 use super::strings::{self, Piece};
 use crate::app::theme::Tokens;
-use crate::keymap::bind_fixed;
+use crate::keymap::{at_most_shift, bind_fixed, pressed_fixed, unmodified};
 use crate::widgets::measure;
 use crate::widgets::page_keys::{Variant, footer_with};
 
@@ -42,6 +44,8 @@ pub(super) struct NoteView {
     /// and the first row of the last page.
     pub page: Rc<Cell<i32>>,
     pub most: Rc<Cell<i32>>,
+    /// The detector of a paste that arrives as keys.
+    pub burst: Rc<RefCell<PasteBurst>>,
 }
 
 const GUTTER: &str = "\u{258c} ";
@@ -75,8 +79,13 @@ pub(super) fn build(view: NoteView, cx: &mut Cx<'_, SheetState>) -> AnyWidget {
         scroll,
         page,
         most,
+        burst,
         ..
     } = view;
+    // the app's clock is the time, so the kit's fake clock drives the detector; with no app
+    // (a bare widget test) the keys are the field's own
+    let clock = AppBinding::maybe_of(cx).map(|binding| binding.clock());
+    let tell = cx.local_sender();
     let body = LayoutBuilder::new(move |cx, constraints| {
         let seg = segmenter_of(cx);
         let width = constraints.max_width.max(1);
@@ -159,6 +168,31 @@ pub(super) fn build(view: NoteView, cx: &mut Cx<'_, SheetState>) -> AnyWidget {
             .autofocus(true)
             .on_changed(on_changed.clone())
             .on_submitted(on_submitted.clone());
+        // the keys the note reads before its field: a page of the disclosure (the field would
+        // take PageUp for its own caret), and the burst detector's
+        let (clock, burst, pasted, tell) = (clock.clone(), burst.clone(), burst.clone(), tell.clone());
+        let field = field.on_paste(move |_| {
+            pasted.borrow_mut().clear_after_explicit_paste();
+            false
+        });
+        let field: AnyWidget = EditingKeys::new(
+            move |c, key, _| {
+                if pressed_fixed(fixed::FEEDBACK_SCROLL_UP, key) {
+                    tell(Msg::Scroll(-1));
+                    return true;
+                }
+                if pressed_fixed(fixed::FEEDBACK_SCROLL_DOWN, key) {
+                    tell(Msg::Scroll(1));
+                    return true;
+                }
+                clock
+                    .as_ref()
+                    .is_some_and(|clock| take_key(&burst, c, key, clock.now()))
+            },
+            field,
+        )
+        .controller(text.clone())
+        .into();
         let input = Row::new()
             .child(SizedBox::new(Some(2), None, Some(bars.into())))
             .child(Expanded::new(
@@ -229,4 +263,36 @@ pub(super) fn build(view: NoteView, cx: &mut Cx<'_, SheetState>) -> AnyWidget {
         );
     }
     focus.into()
+}
+
+/// Whether the note takes `key` before its field (oracle `FeedbackNoteView::handle_key_event_at`):
+/// an Enter inside a burst is a newline of the note and not the send; a plain char or a Tab
+/// keeps the burst's window; any other key ends it. The field takes the rest as it does.
+fn take_key(
+    burst: &RefCell<PasteBurst>,
+    c: &TextEditingController,
+    key: &KeyPress,
+    now: std::time::Duration,
+) -> bool {
+    let mut burst = burst.borrow_mut();
+    if pressed_fixed(fixed::ENTER, key) {
+        if burst.direct_insert_newline_should_insert(now) {
+            burst.extend_window(now);
+            c.insert("\n");
+            return true;
+        }
+        return false;
+    }
+    if key.ch.is_some() && at_most_shift(key) {
+        if burst.on_plain_char_no_hold(now).is_some() {
+            burst.extend_window(now);
+        }
+    } else if pressed_fixed(fixed::TAB, key) && unmodified(key) {
+        if burst.direct_insert_newline_should_insert(now) {
+            burst.extend_window(now);
+        }
+    } else {
+        burst.clear_after_explicit_paste();
+    }
+    false
 }
