@@ -213,8 +213,10 @@ fn cloud_wait_keeps_draft_editable_without_submitting_to_local() {
             assert_eq!(turns(cloud), 0);
 
             answer(cloud, Reply::failed("Cloud unavailable"));
-            // the frame that heard the refusal says it (the oracle's failure frame)
-            t.pump_for(Duration::from_millis(20));
+            // the frame that heard the refusal says it (the oracle's failure frame): the shell
+            // hands the reply to the app, the clock stands still
+            std::thread::sleep(Duration::from_millis(50));
+            t.pump_for(Duration::ZERO);
             assert!(
                 line(t, "Cloud conversation did not open")
                     .is_some_and(|row| row.contains("Cloud conversation did not open draft kept")),
@@ -222,23 +224,28 @@ fn cloud_wait_keeps_draft_editable_without_submitting_to_local() {
                 t.screen()
             );
             assert!(line(t, "Connecting to Cloud").is_none(), "{}", t.screen());
-            // the draft is kept and the user's again: it takes keys, and Enter is no longer swallowed
-            t.type_text("cc");
-            t.pump_for(Duration::from_millis(50));
-            assert!(line(t, "aacc").is_some(), "{}", t.screen());
-            // the next apply (the wake the app declared) takes the hint away
-            std::thread::sleep(Duration::from_millis(1200));
-            settle(t);
+            // and the next frames do not: the error is on screen and the footer is the passive one
+            t.pump_for(Duration::from_millis(100));
             assert!(
                 line(t, "Cloud conversation did not open").is_none(),
                 "{}",
                 t.screen()
             );
             assert!(
+                line(t, "Failed to start").is_some() || t.screen().contains("Cloud unavailable"),
+                "{}",
+                t.screen()
+            );
+            // the draft is kept and the user's again: it takes keys
+            t.type_text("cc");
+            t.pump_for(Duration::from_millis(50));
+            assert!(line(t, "aacc").is_some(), "{}", t.screen());
+            assert!(
                 t.screen().contains("/review first draft more"),
                 "{}",
                 t.screen()
             );
+            assert_eq!(turns(local), before, "the draft was not submitted");
         },
     );
 }
