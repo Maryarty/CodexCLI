@@ -879,6 +879,8 @@ pub enum ThreadEv {
     DeferredSubmit(Queued),
     /// The session started and what waited went out: the blank thread's queue is empty again.
     DeferredSent,
+    /// The launch's prompt went out: the composer's recall keeps it (`record_local_submission`).
+    Recorded(UserMessage),
     /// The thread tells (`false`) or does not tell (`true`) its transcript that a turn was
     /// interrupted: a side conversation keeps it out (`InterruptedTurnNoticeMode::Suppress`).
     QuietInterrupts(bool),
@@ -1125,6 +1127,9 @@ pub struct ThreadCore {
     /// The ticket of the last submit `apply` accepted: the composer clears
     /// when it changes, never before.
     last_submit: Option<Ticket>,
+    /// A message the composer did not type that went out for the user (the launch's prompt): its
+    /// number and the message, for the composer's recall (`Edge::Recorded`).
+    recorded: Option<(u64, UserMessage)>,
     /// Lines the queue key set aside while a turn runs: one message goes out per turn end, in
     /// order; a command or a shell line is run when its turn comes.
     queue: Vec<Queued>,
@@ -1329,6 +1334,7 @@ impl ThreadModel {
                 turn: TurnState::Idle,
                 outgoing: Pending::default(),
                 last_submit: None,
+                recorded: None,
                 queue: Vec::new(),
                 due: None,
                 due_seq: 0,
@@ -1440,6 +1446,12 @@ impl ThreadModel {
     /// ticket itself is core's.
     pub fn submit_seq(&self) -> Option<u64> {
         self.last_submit.map(Ticket::seq)
+    }
+
+    /// The newest message that went out for the user without the composer: its number (it grows
+    /// with each) and the message.
+    pub fn recorded(&self) -> Option<(u64, &UserMessage)> {
+        self.recorded.as_ref().map(|(seq, message)| (*seq, message))
     }
 
     pub fn queue(&self) -> &[Queued] {
@@ -2682,6 +2694,10 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             model.last_submit = Some(fx.mint());
         }
         ThreadEv::DeferredSent => model.queue.clear(),
+        ThreadEv::Recorded(message) => {
+            let seq = model.recorded.as_ref().map_or(1, |(seq, _)| seq + 1);
+            model.recorded = Some((seq, message));
+        }
         ThreadEv::ConnectionLost if model.has_writer() => {
             model.writer = Writer::Detached;
             // the stream went with the connection: an attach again starts a live one

@@ -30,6 +30,9 @@ pub enum Edge {
     /// The thread's replayed submissions are new to the page (a resume, older turns in front):
     /// the composer's history is seeded from them.
     Replayed,
+    /// A message went out for the user without the composer (the launch's prompt): the
+    /// composer's recall keeps it.
+    Recorded(UserMessage),
     /// The messages the model gave back to the composer (an interrupt, a failed steer, the
     /// edit-queued key).
     Restore(Restore),
@@ -55,6 +58,7 @@ struct Counters {
     thread: ThreadId,
     submitted: Option<u64>,
     replayed: u64,
+    recorded: Option<u64>,
     restore: Option<u64>,
     draft: Option<u64>,
     plan: Option<u64>,
@@ -80,6 +84,7 @@ fn deps<S: 'static>(cx: &mut Cx<'_, S>) -> Deps {
             thread: thread.id().clone(),
             submitted: thread.submit_seq(),
             replayed: thread.replayed_submissions().generation(),
+            recorded: thread.recorded().map(|(seq, _)| seq),
             restore: thread.restore().map(Restore::seq),
             draft: slots.backtrack.restore.as_ref().map(|restore| restore.seq),
             plan: slots.chat.plan.prompt().map(|prompt| prompt.seq),
@@ -165,6 +170,15 @@ impl State for ListenerState {
         let replayed = |c: &Counters| (c.thread.clone(), c.replayed);
         if before.as_ref().map(replayed) != Some(replayed(&now)) && now.replayed > 0 {
             cx.emit(&w.on_edge, Edge::Replayed);
+        }
+        // a prompt the launch sent is on the thread when the page first looks at it: a first
+        // look counts, as for the replayed submissions
+        let recorded = |c: &Counters| (c.thread.clone(), c.recorded);
+        if now.recorded.is_some()
+            && before.as_ref().map(recorded) != Some(recorded(&now))
+            && let Some((_, message)) = read::<ThreadModel, _>(cx).recorded()
+        {
+            cx.emit(&w.on_edge, Edge::Recorded(message.clone()));
         }
         if Self::moved(before.as_ref(), &now, |c| c.draft) {
             let thread = read::<ThreadModel, _>(cx);

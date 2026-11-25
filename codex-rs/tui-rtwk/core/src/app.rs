@@ -611,6 +611,9 @@ enum BeforeThread {
     Message(UserMessage),
     /// A user shell command (`!cmd`).
     Shell(String),
+    /// The prompt of the command line: sent as any message, then kept for the composer's recall
+    /// and the history file (`submit_initial_user_message_if_pending`).
+    Initial(UserMessage),
     /// `/plan <prompt>`: the switch to Plan mode and the prompt, made when the session starts.
     Plan {
         command: crate::commands::SlashCommand,
@@ -622,7 +625,9 @@ impl BeforeThread {
     /// The row the queue draws for the ask while it waits (the oracle's queued input).
     fn queued(&self) -> threads::Queued {
         match self {
-            BeforeThread::Message(message) => threads::Queued::Message(message.clone()),
+            BeforeThread::Message(message) | BeforeThread::Initial(message) => {
+                threads::Queued::Message(message.clone())
+            }
             BeforeThread::Shell(command) => {
                 threads::Queued::Shell(UserMessage::text(format!("!{command}")))
             }
@@ -771,6 +776,13 @@ impl CodexApp {
     /// The renderer `/export` writes the conversation with (`TranscriptText`).
     pub fn with_transcript_text(mut self, text: TranscriptText) -> Self {
         self.transcript_text = Some(text);
+        self
+    }
+
+    /// The prompt of the command line (`codex "prompt"`, `-i image`): it goes out when the first
+    /// thread starts, as the oracle's `initial_user_message`.
+    pub fn with_initial_prompt(mut self, message: UserMessage) -> Self {
+        self.queued_submits.push(BeforeThread::Initial(message));
         self
     }
 
@@ -2930,6 +2942,13 @@ fn send_queued(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx) {
                 session::plan_after_start(app, thread, command, prompt, fx)
             }
             BeforeThread::Message(message) => submit(app, thread, message, fx),
+            BeforeThread::Initial(message) => {
+                let text = message.text.clone();
+                submit(app, thread, message.clone(), fx);
+                apply_thread(app, thread, ThreadEv::Recorded(message), fx);
+                let popovers = &mut Rc::make_mut(&mut app.screens).popovers;
+                screens::popovers::apply_intent(popovers, screens::popovers::Intent::Record(text), fx);
+            }
             BeforeThread::Shell(command) => run_shell(app, thread, command, fx),
         }
     }

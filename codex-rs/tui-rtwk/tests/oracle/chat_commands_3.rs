@@ -14,6 +14,13 @@ const SIDE: &str = include_str!("fixtures/chat_commands_3/side.jsonl");
 /// `mark_fresh_task_for_sparkle`).
 const ASTRA: &str = include_str!("fixtures/chat_commands_3/astra.jsonl");
 /// A thread whose rollout file is `/tmp/codex-test-rollout.jsonl` (`current_rollout_path`).
+/// The server's completion of the turn the fake minted as `turn-{n}` in `thread-1`.
+fn completed(n: usize) -> String {
+    format!(
+        r#"{{"step": "notify", "message": {{"method": "turn/completed", "params": {{"threadId": "thread-1", "turn": {{"id": "turn-{n}", "rootTurnId": null, "items": [], "itemsView": "summary", "status": "completed", "error": null, "startedAt": null, "completedAt": null, "durationMs": null}}}}}}}}"#
+    )
+}
+
 const ROLLOUT: &str = include_str!("fixtures/chat_commands_3/rollout.jsonl");
 
 // ---- oracle: chatwidget/tests/slash_commands.rs (46 screen-level tests here; 22 state tests left to chat-nav-pane)
@@ -728,19 +735,34 @@ fn host_switch_snapshot_preserves_buffered_typing() {
 // ORACLE chatwidget/tests/startup_submission_tests.rs:22 initial_prompt_recall_precedes_cross_session_history kind=snap owner=chat-nav-pane snap=initial_prompt_recalled_composer
 #[test]
 fn initial_prompt_recall_precedes_cross_session_history() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "an initial prompt (CURRENT_A) and its follow-up submission with a history seed (log 7) are not registered; the recall and the shared-history lookup are not reachable black-box",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .message_history(&["FOREIGN_X"])
+        .initial_prompt("CURRENT_A", &[])
+        .open();
+    s.assert_turn_texts(&["CURRENT_A"]);
+    s.feed(&completed(1));
+    s.type_text("CURRENT_B");
+    s.keys("enter");
+    s.feed(&completed(2));
     s.keys("up");
     s.assert_contains("CURRENT_B");
     s.keys("up");
     s.assert_contains("CURRENT_A");
-    s.assert_snap("initial_prompt_recalled_composer");
+    // The oracle's snapshot is the bottom pane: the recalled row, a blank row, and the status
+    // line its config sets (`GPT-5.6-Sol default · /tmp/project`; the kit's session has no
+    // status-line seed, its footer is the key hints).
+    s.assert_has_row("› CURRENT_A");
     s.keys("up");
     s.assert_contains("FOREIGN_X");
-    let mut single = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut single = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .message_history(&["FOREIGN_X"])
+        .initial_prompt("CURRENT_A", &[])
+        .open();
+    single.feed(&completed(1));
     single.keys("up");
     single.assert_contains("CURRENT_A");
     single.keys("up");
@@ -750,31 +772,45 @@ fn initial_prompt_recall_precedes_cross_session_history() {
 // ORACLE chatwidget/tests/startup_submission_tests.rs:105 initial_prompt_image_preparation_preserves_recall_metadata kind=ui owner=chat-nav-pane
 #[test]
 fn initial_prompt_image_preparation_preserves_recall_metadata() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "an initial prompt with an image file (a 1x1 PNG in a temp dir) is not seedable: the kit has no file seed",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    s.keys("up");
-    s.assert_contains("describe [Image #1]");
-    let mut leading = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    leading.keys("up");
-    leading.assert_contains("[Image #1] describe");
-    // The oracle asserts the recalled text, elements and local image attachment, and the UserTurn items: the attachment is visible as the placeholder only.
+    let path = kit::image_file_sized("image.png", 1, 1);
+    for (input, recalled) in [
+        ("describe", "describe [Image #1]"),
+        ("[Image #1] describe", "[Image #1] describe"),
+    ] {
+        let mut s = Screen::build(Owner::ChatNavPane)
+            .size(80, 24)
+            .live()
+            .initial_prompt(input, std::slice::from_ref(&path))
+            .open();
+        s.assert_turn_texts(&[recalled]);
+        s.feed(&completed(1));
+        s.keys("up");
+        s.assert_contains(recalled);
+        // The oracle asserts the recalled text, elements and local image attachment, then a shared
+        // history lookup at offset 0 and the image preparation of the recalled prompt: the
+        // attachment is drawn as the placeholder.
+        s.keys("up");
+        s.keys("enter");
+    }
 }
 
 // ORACLE chatwidget/tests/startup_submission_tests.rs:204 initial_prompt_queued_before_session_is_recalled_once_after_dispatch kind=ui owner=chat-nav-pane
 #[test]
 fn initial_prompt_queued_before_session_is_recalled_once_after_dispatch() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "an initial prompt queued before the session starts (CURRENT_A) is not seedable; the queued-message pane is not registered",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .held_start()
+        .initial_prompt("CURRENT_A", &[])
+        .open();
+    s.assert_no_turn();
+    s.start_thread();
+    s.assert_turn_texts(&["CURRENT_A"]);
+    s.feed(&completed(1));
     s.keys("up");
     s.assert_contains("CURRENT_A");
-    s.keys("up");
     // The oracle then asserts a shared-history lookup at offset 0 (an event, not drawn).
+    s.keys("up");
 }
 
 // ORACLE chatwidget/tests/startup_submission_tests.rs:231 rejected_initial_prompt_is_not_recorded_in_recall_history kind=ui owner=chat-nav-pane

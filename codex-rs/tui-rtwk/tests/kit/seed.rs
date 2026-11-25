@@ -59,6 +59,8 @@ pub struct Open {
     pub(super) remote_images: Vec<String>,
     /// The text the chat's draft starts with (`Open::draft`).
     pub(super) draft: Option<String>,
+    /// The prompt and the image files of the command line (`Open::initial_prompt`).
+    pub(super) initial: Option<(String, Vec<std::path::PathBuf>)>,
     /// What the usage page's host answers (`Open::usage_accounts`, `usage_report`).
     pub(super) usage: super::usage::Host,
 }
@@ -82,12 +84,26 @@ impl Screen {
             env: Env::default(),
             remote_images: Vec::new(),
             draft: None,
+            initial: None,
             usage: super::usage::Host::default(),
         }
     }
 }
 
 impl Open {
+    /// The command line carries this prompt and these image files (`codex "prompt" -i file`):
+    /// it goes out when the session starts.
+    pub fn initial_prompt(mut self, text: &str, images: &[std::path::PathBuf]) -> Open {
+        self.initial = Some((text.to_string(), images.to_vec()));
+        self
+    }
+
+    /// The message history file holds these prompts of other sessions, oldest first.
+    pub fn message_history(mut self, prompts: &[&str]) -> Open {
+        self.env.message_history = prompts.iter().map(|p| p.to_string()).collect();
+        self
+    }
+
     /// The terminal's height, its width the default one.
     pub fn height(mut self, height: u16) -> Open {
         self.height = height;
@@ -225,7 +241,39 @@ impl Open {
 
     /// The app on a terminal made as the env seeds say.
     fn driven(&self, debug: bool) -> Harness {
-        let h = crate::common::start_driven_with(debug, self.env.options(self.width, self.height));
+        let initial = self.initial.clone();
+        let h = crate::common::start_driven_as(
+            debug,
+            self.env.options(self.width, self.height),
+            move |app| match initial {
+                Some((text, images)) => {
+                    // A text that holds a placeholder is the message's own element (the oracle's
+                    // `text_elements`); else the command line appends them
+                    let mut message = codex_tui_core::threads::UserMessage::text(text.clone());
+                    let placeholder = |n: usize| format!("[Image #{n}]");
+                    if images.iter().enumerate().all(|(i, _)| text.contains(&placeholder(i + 1)))
+                        && !images.is_empty()
+                    {
+                        for (i, path) in images.iter().enumerate() {
+                            let start = text.find(&placeholder(i + 1)).expect("placeholder");
+                            message.images.push(codex_tui_core::threads::LocalImage {
+                                path: path.clone(),
+                                range: start..start + placeholder(i + 1).len(),
+                            });
+                        }
+                        app.with_initial_prompt(message)
+                    } else {
+                        let cli = codex_tui_rtwk::Cli {
+                            prompt: Some(text),
+                            images,
+                            ..Default::default()
+                        };
+                        app.with_initial_prompt(cli.initial_message().expect("a prompt"))
+                    }
+                }
+                None => app,
+            },
+        );
         if self.fake_turns {
             h.fake.mint_turns_as("fake-turn-");
         }

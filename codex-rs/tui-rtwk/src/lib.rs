@@ -43,6 +43,10 @@ pub struct Cli {
     pub remote: Option<String>,
     /// `--remote-auth-token-env VAR`: the variable holding its bearer token.
     pub remote_auth_token_env: Option<String>,
+    /// The positional prompt of `codex "prompt"`: it is sent when the first thread starts.
+    pub prompt: Option<String>,
+    /// `-i` / `--image FILE[,FILE...]`: images that go with the prompt.
+    pub images: Vec<std::path::PathBuf>,
     /// `-c key=value` / `--config key=value`, raw, in order (the host parses
     /// them as the oracle does and applies them over the config).
     pub config_overrides: Vec<String>,
@@ -149,8 +153,10 @@ impl Cli {
                     cli.remote = Some(value);
                 }
                 "-i" | "--image" => {
-                    args.next()
+                    let value = args
+                        .next()
                         .ok_or_else(|| anyhow::anyhow!("{arg} needs a value"))?;
+                    cli.images.extend(value.split(',').map(Into::into));
                     prompt_or_images = true;
                 }
                 "--remote-auth-token-env" => {
@@ -183,12 +189,14 @@ impl Cli {
                             other_remote = Some(value.to_string());
                         }
                         cli.remote = Some(value.to_string());
-                    } else if other.starts_with("--image=") {
+                    } else if let Some(value) = other.strip_prefix("--image=") {
+                        cli.images.extend(value.split(',').map(Into::into));
                         prompt_or_images = true;
                     } else if verb.is_some() && session_id.is_none() && !other.starts_with('-') {
                         session_id = Some(other.to_owned());
-                    } else if cli.agents && !other.starts_with('-') {
+                    } else if !other.starts_with('-') && cli.prompt.is_none() {
                         // The positional prompt of `codex`.
+                        cli.prompt = Some(other.to_owned());
                         prompt_or_images = true;
                     } else if let Some(value) = other.strip_prefix("--remote-auth-token-env=") {
                         cli.remote_auth_token_env = Some(value.to_string());
@@ -223,6 +231,29 @@ impl Cli {
             anyhow::bail!(NO_DAEMON_WITH_REMOTE);
         }
         Ok(cli)
+    }
+
+    /// The prompt of the command line as the first message: the text, then the placeholder of
+    /// each image after it (`create_initial_user_message`).
+    pub fn initial_message(&self) -> Option<codex_tui_core::threads::UserMessage> {
+        let mut text = self.prompt.clone().unwrap_or_default();
+        if text.is_empty() && self.images.is_empty() {
+            return None;
+        }
+        let mut message = codex_tui_core::threads::UserMessage::default();
+        for (index, path) in self.images.iter().enumerate() {
+            if !text.is_empty() {
+                text.push(' ');
+            }
+            let start = text.len();
+            text.push_str(&format!("[Image #{}]", index + 1));
+            message.images.push(codex_tui_core::threads::LocalImage {
+                path: path.clone(),
+                range: start..text.len(),
+            });
+        }
+        message.text = text;
+        Some(message)
     }
 
     /// The language to run in: `--locale` if given, else the first of the

@@ -136,6 +136,8 @@ pub(super) struct Env {
     pub(super) thread_start: Option<serde_json::Value>,
     /// `show_raw_agent_reasoning` is on.
     raw_reasoning: bool,
+    /// The prompts of the message history file (other sessions'), oldest first.
+    pub(super) message_history: Vec<String>,
     /// How the run started, as the host says.
     startup: Option<Startup>,
     /// `tui.show_tooltips` is off.
@@ -206,6 +208,12 @@ impl Env {
         if let Some(access) = &self.daybreak {
             h.connect();
             h.inject([AppEv::Daybreak(access.clone())]);
+        }
+        if !self.message_history.is_empty() {
+            h.connect();
+            h.inject([AppEv::Screen(ScreenEv::Popovers(
+                codex_tui_core::screens::popovers::Ev::History(self.message_history.clone()),
+            ))]);
         }
         if self.raw_reasoning {
             h.connect();
