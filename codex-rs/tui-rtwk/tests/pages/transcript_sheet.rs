@@ -42,11 +42,11 @@ fn the_status_row_names_the_select_key_and_the_hints_follow() {
     let s = sheet();
     let rows = s.rows();
     assert_eq!(
-        rows[10].trim(),
+        rows[9].trim(),
         "↑/↓ to scroll · pgup/pgdn to page · home/end to jump"
     );
-    assert_eq!(rows[11].trim(), "q close · f3 find · esc browse prompts");
-    assert!(rows[9].starts_with("⌃space select"), "{}", s.text());
+    assert_eq!(rows[10].trim(), "q close · f3 find · esc browse prompts");
+    assert!(rows[8].starts_with("⌃space select"), "{}", s.text());
 }
 
 #[test]
@@ -54,7 +54,7 @@ fn away_from_the_last_row_the_status_row_names_the_way_back_and_the_hints_give_w
     let mut s = sheet();
     s.keys("home");
     let rows = s.rows();
-    assert_eq!(rows[9].trim(), "end latest", "{}", s.text());
+    assert_eq!(rows[8].trim(), "end latest", "{}", s.text());
     assert_eq!(rows[10].trim(), "", "{}", s.text());
     assert_eq!(rows[11].trim(), "", "{}", s.text());
     // the key is bold, what it does is dim (`navigation_line`)
@@ -62,9 +62,9 @@ fn away_from_the_last_row_the_status_row_names_the_way_back_and_the_hints_give_w
     // back at the last row the select key and the hints return
     s.keys("end");
     let rows = s.rows();
-    assert!(rows[9].starts_with("⌃space select"), "{}", s.text());
+    assert!(rows[8].starts_with("⌃space select"), "{}", s.text());
     assert_eq!(
-        rows[10].trim(),
+        rows[9].trim(),
         "↑/↓ to scroll · pgup/pgdn to page · home/end to jump"
     );
 }
@@ -118,7 +118,7 @@ fn prompts(width: u16) -> Screen {
 #[test]
 fn esc_starts_browsing_and_names_the_keys_in_the_status_row() {
     let mut s = prompts(100);
-    s.assert_row(9, "⌃space select");
+    s.assert_row(8, "⌃space select");
     s.keys("esc");
     s.assert_row(
         9,
@@ -135,8 +135,8 @@ fn esc_starts_browsing_and_names_the_keys_in_the_status_row() {
 fn a_second_esc_ends_browsing() {
     let mut s = prompts(100);
     s.keys("esc esc");
-    s.assert_row(9, "⌃space select");
-    s.assert_row(11, " q close · f3 find · esc browse prompts");
+    s.assert_row(8, "⌃space select");
+    s.assert_row(10, " q close · f3 find · esc browse prompts");
 }
 
 #[test]

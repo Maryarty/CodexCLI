@@ -364,10 +364,16 @@ fn previous_match_continues_through_regrouped_pages_without_revisiting_newer_hit
     s.keys("ctrl+p");
     s.assert_contains("needle middle");
     s.keys("ctrl+p");
-    s.assert_find_footer(80, "Searching earlier history… · full transcript · esc cancel");
+    s.assert_find_footer(
+        80,
+        "Searching earlier history… · full transcript · esc cancel",
+    );
     // the older page has no hit, the reader stays on the middle one and the search goes on
     s.join_older_page(&["earlier context", "older group"], true);
-    s.assert_find_footer(80, "Searching earlier history… · full transcript · esc cancel");
+    s.assert_find_footer(
+        80,
+        "Searching earlier history… · full transcript · esc cancel",
+    );
     s.assert_contains("needle middle");
     // the oldest page has the oldest hit, and the way back down meets each hit once
     s.join_older_page(&["needle oldest"], false);
@@ -413,12 +419,18 @@ fn enter_preserves_the_initial_scan_and_each_older_page_until_the_first_match() 
     s.keys("enter");
     // the oracle's first row, `Searching…`, is the scan of the entry over several frames; the
     // port reads the whole transcript in one, so the first row it says is the one of the history
-    s.assert_find_footer(80, "Searching earlier history… · full transcript · esc cancel");
+    s.assert_find_footer(
+        80,
+        "Searching earlier history… · full transcript · esc cancel",
+    );
     // each older page is confirmed by Enter and joins; the first match is in the oldest page
     s.keys("enter");
     s.join_older_page(&["middle page without a hit"], true);
     s.keys("enter");
-    s.assert_find_footer(80, "Searching earlier history… · full transcript · esc cancel");
+    s.assert_find_footer(
+        80,
+        "Searching earlier history… · full transcript · esc cancel",
+    );
     s.join_older_page(&["LONG T0000 USER"], false);
     s.keys("enter");
     s.assert_contains("LONG T0000 USER");

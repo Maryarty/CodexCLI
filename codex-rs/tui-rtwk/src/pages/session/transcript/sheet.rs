@@ -317,6 +317,11 @@ impl State for SheetState {
             ]);
             ListenableBuilder::new(Rc::new(listenable), move |_, _| {
                 let browsing = modes.browsing();
+                let look = history::Look {
+                    accent: accent.clone(),
+                    dim: dim.clone(),
+                    key: bold.clone(),
+                };
                 let hints = second(modes.selected().is_some(), table);
                 let mut rows = Column::new()
                     .main_axis_size(MainAxisSize::Min)
@@ -345,17 +350,13 @@ impl State for SheetState {
                             follow.unseen(),
                             state,
                             table,
-                            &bold,
-                            &accent,
-                            &dim,
+                            &look,
                         ))
                         // the hints' two rows and the blank one under them stay (`chrome_height` 5)
                         .child(SizedBox::new(None, Some(3), None));
                 } else {
                     rows = rows
-                        .child(status(
-                            false, false, false, state, table, &bold, &accent, &dim,
-                        ))
+                        .child(status(false, false, false, state, table, &look))
                         .child(pager::hint_row(
                             &pager::navigation(table),
                             table,
@@ -556,16 +557,10 @@ fn status(
     news: bool,
     history: HistoryState,
     table: &'static Strings,
-    key: &Style,
-    accent: &Style,
-    dim: &Style,
+    look: &history::Look,
 ) -> AnyWidget {
-    let look = history::Look {
-        accent: accent.clone(),
-        dim: dim.clone(),
-        key: key.clone(),
-    };
-    let (key, dim) = (key.clone(), dim.clone());
+    let look = look.clone();
+    let (key, dim) = (look.key.clone(), look.dim.clone());
     LayoutBuilder::new(move |cx, constraints| {
         let segmenter = segmenter_of(cx);
         let navigation = if away {

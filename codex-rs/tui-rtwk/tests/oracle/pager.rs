@@ -228,7 +228,8 @@ fn highlighting_reveals_prompt_body_when_only_padding_is_visible() {
 fn transcript_overlay_snapshots_paginated_history_states() {
     // the oracle's one cell `recent transcript` is row 1; the thread's own rows (a separator and
     // answers) stand in rows 1 to 5 and are not compared: the chrome around them is
-    let snap = "codex_tui__pager_overlay__transcript_tests__transcript_overlay_paginated_history_states";
+    let snap =
+        "codex_tui__pager_overlay__transcript_tests__transcript_overlay_paginated_history_states";
     let rows = [1, 2, 3, 4, 5];
     let mut s = Screen::build(Owner::ChatLive)
         .size(72, 10)
@@ -321,7 +322,9 @@ fn completing_agent_and_plan_streams_preserves_reading_in_later_fragments() {
 fn navigation_supersedes_home_before_and_after_the_first_draw() {
     // a reader who pressed Home and then a navigation key, once the page arrived, sees what a
     // reader who pressed only the navigation key sees (the oracle's `expected` and `actual`)
-    for key in ["up", "down", "pageup", "pagedown", "ctrl+u", "ctrl+d", "end"] {
+    for key in [
+        "up", "down", "pageup", "pagedown", "ctrl+u", "ctrl+d", "end",
+    ] {
         let open = |home: bool| {
             let mut s = Screen::build(Owner::ChatLive)
                 .size(40, 10)
