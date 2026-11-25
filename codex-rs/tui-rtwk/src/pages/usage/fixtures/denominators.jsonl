@@ -1,0 +1,4 @@
+# `analytics_preserves_full_denominators_and_signed_small_credits` (analytics_tests.rs): a Plus
+# account's Usage report by task start, one day of 100 units with 30 of them goals.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"usage","ev":{"account":{"plan":"plus","today":"2026-09-02","hour24":true},"section":"usage","groups":[{"section":"usage","group":3}],"histories":[{"section":"usage","load":{"ready":{"unit":"relative_usage","updated_at":null,"data":[{"date":"2026-09-02","total":100.0,"values":[{"key":"goal","label":"Goals","value":30.0}]}]}}}]}}

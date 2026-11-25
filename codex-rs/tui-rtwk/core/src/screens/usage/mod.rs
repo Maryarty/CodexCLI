@@ -244,6 +244,10 @@ pub enum Ev {
 pub struct Seed {
     #[serde(default)]
     pub account: Option<AccountReply>,
+    /// The account's name before its plan is known (oracle: `Live::session` is the page's
+    /// identity from the start); a settled account brings its own.
+    #[serde(default)]
+    pub account_label: Option<String>,
     #[serde(default)]
     pub section: Option<Section>,
     /// The group per section, as the user's choices left them.
@@ -473,6 +477,9 @@ impl Model {
     fn seed(&mut self, seed: Seed) {
         self.live = true;
         self.reports_started = true;
+        if let Some(label) = seed.account_label.clone() {
+            self.account_label = Some(label);
+        }
         if let Some(account) = seed.account.clone() {
             self.settle_account(account);
         }

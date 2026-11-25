@@ -1,0 +1,5 @@
+# `report_headlines_and_axes_compact_large_values` (compact_tests.rs): an Enterprise account's
+# Tokens, Plugins and Skills reports of one day with 12,280,365,226 tokens, 9,749 calls and
+# 2,901 uses.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"usage","ev":{"account":{"plan":"enterprise_cbp_usage_based","today":"2026-09-02","hour24":true},"section":"usage","histories":[{"section":"usage","load":{"ready":{"unit":"tokens","updated_at":null,"data":[{"date":"2026-09-02","total":12280365226.0,"values":[{"key":"test","label":"Example","value":12280365226.0}]}]}}},{"section":"plugins","load":{"ready":{"unit":"count","updated_at":null,"data":[{"date":"2026-09-02","total":9749.0,"values":[{"key":"test","label":"Example","value":9749.0}]}]}}},{"section":"skills","load":{"ready":{"unit":"count","updated_at":null,"data":[{"date":"2026-09-02","total":2901.0,"values":[{"key":"test","label":"Example","value":2901.0}]}]}}}]}}

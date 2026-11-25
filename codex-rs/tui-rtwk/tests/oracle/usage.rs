@@ -10,10 +10,25 @@ use crate::kit::{self, Owner, Screen, snap_rows};
 // ORACLE analytics/account_layout_tests.rs:423 navigation_keeps_its_row_when_sections_change kind=ui owner=routes-lists
 #[test]
 fn navigation_keeps_its_row_when_sections_change() {
-    kit::pending(
-        Owner::RoutesLists,
-        "the sections-change test needs an account that changes plan under an open page (no entry with that data)",
-    );
+    // the row of the tabs (the line holding `Overview` and `Usage`) is the same in every section,
+    // at 64 and at 120 cells
+    for width in [64, 120] {
+        let mut s = Screen::build(Owner::RoutesLists)
+            .size(width, 40)
+            .entry("usage", "dashboard")
+            .open();
+        let mut rows = Vec::new();
+        for keys in ["1", "2", "6", "1"] {
+            s.keys(keys);
+            rows.push(
+                s.rows()
+                    .iter()
+                    .position(|row| row.contains("Overview") && row.contains("Usage"))
+                    .unwrap_or_else(|| panic!("no tabs row at {width}:\n{}", s.text())),
+            );
+        }
+        kit::assert_same(rows.clone(), vec![rows[0]; 4], "the tabs row");
+    }
 }
 
 // ---- oracle: analytics/activity_chart/palette_tests.rs (1 screen-level tests here; 5 state tests left to routes-lists)
@@ -165,30 +180,70 @@ fn chats_long_title_keeps_detail_indent_and_counts_missing_estimates() {
 // ORACLE analytics/client_tests.rs:800 live_account_identity_is_visible_and_closing_aborts_pending_loads kind=snap owner=routes-lists snap=live_account_identity_is_visible_and_closing_aborts_pending_loads
 #[test]
 fn live_account_identity_is_visible_and_closing_aborts_pending_loads() {
-    kit::pending(
-        Owner::RoutesLists,
-        "the test drives the oracle's live client (identity check, aborting loads); the page's host side answers only with a real sign-in",
-    );
+    // the page names the signed-in account in its heading before the plan is known, the failed
+    // Usage report is not drawn, and the page says how to leave and to retry; closing the page
+    // aborts its pending loads: core/tests/usage/state.rs
+    // `a_refresh_starts_a_session_and_a_close_drops_every_load`
+    let s = Screen::build(Owner::RoutesLists)
+        .size(100, 24)
+        .entry("usage", "account_label")
+        .open();
+    s.assert_contains("Usage \u{b7} analytics@example.test");
+    s.assert_contains("No history has been reported.");
+    s.assert_contains("esc back");
+    s.assert_contains("R retry");
+    s.assert_snap("live_account_identity_is_visible_and_closing_aborts_pending_loads");
 }
 
 // ---- oracle: analytics/compact_tests.rs (1 screen-level tests here; 0 state tests left to routes-lists)
 // ORACLE analytics/compact_tests.rs:5 report_headlines_and_axes_compact_large_values kind=ui owner=routes-lists
 #[test]
 fn report_headlines_and_axes_compact_large_values() {
-    kit::pending(
-        Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's large values",
-    );
+    // a day of 12,280,365,226 tokens, 9,749 calls and 2,901 uses: the headline compacts, the day's
+    // detail keeps the full amount
+    for (key, headline, full) in [
+        ("3", "12.3B tokens", "12,280,365,226"),
+        ("4", "9.7K calls", "9,749"),
+        ("5", "2.9K uses", "2,901"),
+    ] {
+        let mut s = Screen::build(Owner::RoutesLists)
+            .size(100, 30)
+            .entry("usage", "large_values")
+            .open();
+        s.keys(key);
+        s.assert_contains(headline);
+        s.assert_contains(full);
+    }
 }
 
 // ---- oracle: analytics/connection_tests.rs (1 screen-level tests here; 1 state tests left to routes-lists)
 // ORACLE analytics/connection_tests.rs:183 account_lookup_failure_recovers_on_refresh_with_the_server_plan kind=ui owner=routes-lists
 #[test]
 fn account_lookup_failure_recovers_on_refresh_with_the_server_plan() {
-    kit::pending(
-        Owner::RoutesLists,
-        "the test drives a failing account lookup then a refresh; the fake answers no Usage command",
-    );
+    // the lookup fails (the page says so, no tabs), `R` asks again and the server's plan (an
+    // Enterprise account: Overview, Credits, Tokens, Plugins, Skills) gives the page its tabs and
+    // every report its load (the page's own form: doors.rs `usage_host`)
+    let mut s = Screen::build(Owner::RoutesLists)
+        .size(100, 24)
+        .dir("usage")
+        .usage_accounts(&[
+            Err("503 Service Unavailable"),
+            Ok(r#"{"plan":"enterprise","today":"2026-09-09"}"#),
+        ])
+        .usage_report(Ok(r#"{"history":null}"#))
+        .open();
+    s.assert_contains("503 Service Unavailable");
+    s.assert_absent("Credits");
+    s.keys("R");
+    s.wait_for("Credits");
+    s.assert_absent("503 Service Unavailable");
+    s.assert_in_order(&["Overview", "Credits", "Tokens", "Plugins", "Skills"]);
+    s.assert_absent("Chats");
+    // every report the account shows has its answer: none is still loading
+    for key in ["2", "3", "4", "5"] {
+        s.keys(key);
+        s.assert_absent("Loading");
+    }
 }
 
 // ---- oracle: analytics/consumer_refresh_tests.rs (1 screen-level tests here; 1 state tests left to routes-lists)
@@ -278,19 +333,64 @@ fn dashboard_cards_align_and_keep_stable_summary_heights() {
 // ORACLE analytics/navigation_tests.rs:237 configured_question_mark_keeps_its_action_and_hides_help_hint kind=ui owner=routes-lists
 #[test]
 fn configured_question_mark_keeps_its_action_and_hides_help_hint() {
-    kit::pending(
-        Owner::RoutesLists,
-        "needs a keymap with a configured `?` / key events with modifiers and release; the kit has no release events",
-    );
+    // the oracle's `?` bound to the list's cancel (and its Shift spelling): the footer hints no
+    // help, the help page has no `toggle this help`, and the key closes the page; the page's
+    // own form of it is doors.rs `kit_usage::a_configured_question_mark_cancels_and_hides_its_help_hint`
+    for binding in ["?", "shift+?"] {
+        let keymap: &'static [(&'static str, &'static str)] = if binding == "?" {
+            &[("list.cancel", "?")]
+        } else {
+            &[("list.cancel", "shift+?")]
+        };
+        let mut s = Screen::build(Owner::RoutesLists)
+            .size(120, 32)
+            .entry("usage", "credits_refund")
+            .keymap(keymap)
+            .open();
+        s.assert_contains("Product");
+        s.assert_absent("? help");
+        s.assert_absent("toggle this help");
+        s.keys("?");
+        s.assert_absent("Product");
+        s.assert_absent("toggle this help");
+    }
 }
 
 // ORACLE analytics/navigation_tests.rs:301 horizontal_aliases_ignore_modifiers_and_release_but_accept_repeat kind=ui owner=routes-lists
 #[test]
 fn horizontal_aliases_ignore_modifiers_and_release_but_accept_repeat() {
-    kit::pending(
-        Owner::RoutesLists,
-        "needs a keymap with a configured `?` / key events with modifiers and release; the kit has no release events",
-    );
+    // `h` / `l` move the selected day only as a plain press or a repeat: Alt, Shift,
+    // Ctrl+Alt and the release of the key leave it; the day is the row `<date> · N usage units`
+    let day = |s: &Screen| -> String {
+        s.rows()
+            .iter()
+            .find(|row| row.contains(" \u{b7} ") && row.contains(" usage units"))
+            .unwrap_or_else(|| panic!("no selected day row:\n{}", s.text()))
+            .trim()
+            .to_string()
+    };
+    let mut s = Screen::build(Owner::RoutesLists)
+        .size(100, 40)
+        .entry("usage", "dashboard")
+        .open();
+    s.keys("2 home right right right");
+    let third = day(&s);
+    for (alias, other) in [("h", "l"), ("l", "h")] {
+        for keys in [
+            format!("alt+{alias}"),
+            format!("shift+{alias}"),
+            format!("ctrl+alt+{alias}"),
+        ] {
+            s.keys(&keys);
+            kit::assert_same(day(&s), third.clone(), &keys);
+        }
+        s.key_release(alias);
+        kit::assert_same(day(&s), third.clone(), "the release");
+        s.key_repeat(alias);
+        assert_ne!(day(&s), third, "the repeat of `{alias}` moves the day");
+        s.key_repeat(other);
+        kit::assert_same(day(&s), third.clone(), "the repeat back");
+    }
 }
 
 // ---- oracle: analytics/plan_tests.rs (6 screen-level tests here; 2 state tests left to routes-lists)
@@ -500,29 +600,88 @@ fn narrow_equal_height_totals_remain_separate_numbers() {
 // ORACLE analytics/recovery_tests.rs:19 twelve_hour_metadata_keeps_utc_across_renderers kind=snap owner=routes-lists
 #[test]
 fn twelve_hour_metadata_keeps_utc_across_renderers() {
-    kit::pending(
-        Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's report data and clock preference",
-    );
+    // the 12-hour clock changes the spelling of the time, never its zone: the controls, the
+    // report's own line, the help and the Chats list say `4:00 PM UTC`
+    let s = Screen::build(Owner::RoutesLists)
+        .size(40, 16)
+        .entry("usage", "business_updated_12h")
+        .open();
+    s.assert_contains(" Updated \u{b7} Sep 2 4:00 PM UTC");
+    // the card keeps its time row when the screen leaves it room (the oracle draws the card at
+    // its own size): a wide, tall screen shows the card and the help whole
+    let mut s = Screen::build(Owner::RoutesLists)
+        .size(144, 64)
+        .entry("usage", "business_updated_12h")
+        .open();
+    s.keys("z");
+    s.assert_contains("Updated Sep 2 4:00 PM UTC");
+    s.keys("?");
+    s.assert_contains("Report updated Sep 2 4:00 PM UTC");
+    let s = Screen::build(Owner::RoutesLists)
+        .size(80, 20)
+        .entry("usage", "tasks_updated_12h")
+        .open();
+    s.assert_contains("Updated Sep 2 4:00 PM UTC \u{b7} recent activity may be delayed");
 }
 
 // ORACLE analytics/recovery_tests.rs:55 tall_reports_use_available_height_and_wide_reports_put_details_beside_plot kind=snap owner=routes-lists
 #[test]
 fn tall_reports_use_available_height_and_wide_reports_put_details_beside_plot() {
-    kit::pending(
-        Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's report data and clock preference",
-    );
+    // a Team account's Tokens report fills a tall screen (more than 14 plot rows) and shows the
+    // day's 731,000 tokens without a scroll hint; at 180 cells the details sit beside the plot
+    // (the `4.4M tokens` headline row has a rule) and the screen is the oracle's snapshot
+    for (width, height) in [(80, 60), (180, 60)] {
+        let s = Screen::build(Owner::RoutesLists)
+            .size(width, height)
+            .entry("usage", "business_tokens")
+            .open();
+        let plot_rows = s.rows().iter().filter(|row| row.contains('\u{2588}')).count();
+        assert!(plot_rows > 14, "only {plot_rows} plot rows at {width} columns");
+        s.assert_contains("731,000 tokens");
+        s.assert_absent("scroll");
+        if width == 180 {
+            assert!(
+                s.rows()
+                    .iter()
+                    .any(|row| row.contains("4.4M tokens") && row.contains('\u{2500}')),
+                "no headline row with a rule:\n{}",
+                s.text()
+            );
+            s.assert_snap("tall_reports_use_available_height_and_wide_reports_put_details_beside_plot");
+        }
+    }
 }
 
 // ---- oracle: analytics/redesign_tests.rs (2 screen-level tests here; 1 state tests left to routes-lists)
 // ORACLE analytics/redesign_tests.rs:6 reports_keep_tabs_fixed_and_expose_data_on_small_screens kind=snap owner=routes-lists
 #[test]
 fn reports_keep_tabs_fixed_and_expose_data_on_small_screens() {
-    kit::pending(
-        Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's report; the help snapshot is not an entry",
-    );
+    // the tab rows stay where they are when the Tokens report fails (`business_tokens_failed`),
+    // whatever the size; the report names its data (`tokens`, `Sep 2`), the failure is the
+    // report's own text, and at 40x16 the oracle's snapshot joins the two screens
+    let name = "reports_keep_tabs_fixed_and_expose_data_on_small_screens";
+    for (width, height) in [(120, 36), (80, 24), (40, 16)] {
+        let screen = |entry: &'static str| {
+            Screen::build(Owner::RoutesLists)
+                .size(width, height)
+                .entry("usage", entry)
+                .open()
+        };
+        let tokens = screen("business_tokens");
+        tokens.assert_contains("tokens");
+        tokens.assert_contains("Sep 2");
+        let failed = screen("business_tokens_failed");
+        failed.assert_contains("Couldn't load tokens.");
+        kit::assert_same(
+            failed.rows().into_iter().take(3).collect::<Vec<_>>(),
+            tokens.rows().into_iter().take(3).collect::<Vec<_>>(),
+            "the tab rows",
+        );
+        if width == 40 {
+            tokens.assert_snap_state_rows(name, 0, 16);
+            failed.assert_snap_state_rows(name, 17, 16);
+        }
+    }
 }
 
 // ORACLE analytics/redesign_tests.rs:25 keyboard_tabs_and_help_preserve_report_reading_position kind=snap owner=routes-lists
@@ -585,10 +744,28 @@ fn partial_summary_keeps_missing_values_and_zero() {
 // ORACLE analytics_tests.rs:65 analytics_narrow_charts_and_small_terminals_keep_valid_cursors kind=ui owner=routes-lists
 #[test]
 fn analytics_narrow_charts_and_small_terminals_keep_valid_cursors() {
-    kit::pending(
-        Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the oracle test's data",
-    );
+    // the Usage, Messages and Plugins reports over 30 days at 28x12: the cursor walks from the
+    // first day to the last (Sep 2) and stays there; then tiny sizes draw without a panic
+    let mut s = Screen::build(Owner::RoutesLists)
+        .size(28, 12)
+        .entry("usage", "dashboard_month")
+        .open();
+    for section in ["2", "3", "4"] {
+        s.keys(section);
+        s.keys("home");
+        for _ in 0..30 {
+            s.keys("right");
+        }
+        s.assert_contains("Sep 2");
+        s.keys("right");
+        s.assert_contains("Sep 2");
+    }
+    for _ in 0..2 {
+        for width in [1, 4, 32, 107, 108] {
+            s.resize(width, 1);
+        }
+    }
+    s.resize(0, 0);
 }
 
 // ORACLE analytics_tests.rs:128 analytics_loading_errors_and_empty_reports_stay_independent kind=snap owner=routes-lists snap=analytics_loading_errors_and_empty_reports_stay_independent
