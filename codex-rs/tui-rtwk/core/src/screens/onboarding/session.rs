@@ -34,6 +34,25 @@ impl Start {
     }
 }
 
+/// What the read found of the session.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Found {
+    /// The directory it recorded (none where the server gave none).
+    pub cwd: Option<String>,
+    /// The thread's provider and whether the server holds it in memory.
+    pub thread: Option<Resumed>,
+}
+
+/// The provider of a thread the launch resumes: the device-code sign-in is
+/// for it when the launch chose none, or when the server still has the thread
+/// loaded (`device_login::start_if_needed`: a thread in memory is reattached
+/// with its current provider).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Resumed {
+    pub provider: String,
+    pub loaded: bool,
+}
+
 /// Where the launch stands with that session.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) enum Phase {
@@ -45,8 +64,8 @@ pub(super) enum Phase {
     Wanted(Start),
     /// `thread/read` is out.
     Reading(Start),
-    /// Read: the directory it recorded (none where the server gave none).
-    Read(Start, Option<String>),
+    /// Read.
+    Read(Start, Found),
     /// Nothing is saved under that id: the launch ends once its screens are.
     Missing(Start),
     /// Read, with the opening decided: the directory (`None`: the server's),
@@ -55,6 +74,7 @@ pub(super) enum Phase {
         start: Start,
         cwd: Option<String>,
         prompt: Option<crate::screens::startup::CwdPrompt>,
+        thread: Option<Resumed>,
     },
     /// The launch ends with a message (asked of the host once).
     Ended,
@@ -85,15 +105,15 @@ pub fn to_read(model: &mut Model) -> Option<Start> {
     Some(start)
 }
 
-/// The read's answer: the directory the session recorded, or why it could not
-/// be read (an id nothing is saved under).
-pub fn read(model: &mut Model, answer: Result<Option<String>, ()>, fx: &mut AppFx) {
+/// The read's answer: what the session recorded, or why it could not be read
+/// (an id nothing is saved under).
+pub fn read(model: &mut Model, answer: Result<Found, ()>, fx: &mut AppFx) {
     let Phase::Reading(start) = &model.session else {
         return;
     };
     let start = start.clone();
     model.session = match answer {
-        Ok(cwd) => Phase::Read(start, cwd),
+        Ok(found) => Phase::Read(start, found),
         Err(()) => Phase::Missing(start),
     };
     super::follow(model, fx);
@@ -103,6 +123,32 @@ pub fn read(model: &mut Model, answer: Result<Option<String>, ()>, fx: &mut AppF
 pub(super) fn lost(model: &mut Model) {
     if let Phase::Reading(start) = &model.session {
         model.session = Phase::Wanted(start.clone());
+    }
+}
+
+/// What the device-code sign-in waits for.
+pub(super) enum Provider {
+    /// A resumed session is not read yet: its provider is not known.
+    Wait,
+    /// Ask now: the resumed thread's provider (none for a new thread, a fork,
+    /// or a session that could not be read).
+    Ask(Option<Resumed>),
+}
+
+/// The provider of a resumed thread, for the device ask: the oracle reads the
+/// thread before it asks (`device_login::start_if_needed`); a fork does not.
+pub(super) fn provider(model: &Model) -> Provider {
+    match &model.session {
+        Phase::Wanted(start) | Phase::Reading(start) if start.action == Action::Resume => {
+            Provider::Wait
+        }
+        Phase::Read(start, found) if start.action == Action::Resume => {
+            Provider::Ask(found.thread.clone())
+        }
+        Phase::Planned { start, thread, .. } if start.action == Action::Resume => {
+            Provider::Ask(thread.clone())
+        }
+        _ => Provider::Ask(None),
     }
 }
 
@@ -138,13 +184,18 @@ pub(super) fn follow(model: &mut Model, fx: &mut AppFx) -> Step {
             model.session = Phase::Ended;
             Step::Wait
         }
-        Phase::Read(start, session) => {
+        Phase::Read(start, found) => {
+            let Found {
+                cwd: session,
+                thread,
+            } = found;
             match cwd::plan(start.action, &model.resume, session.as_deref()) {
                 Plan::Open(cwd) => {
                     model.session = Phase::Planned {
                         start,
                         cwd,
                         prompt: None,
+                        thread,
                     };
                     Step::Go
                 }
@@ -154,6 +205,7 @@ pub(super) fn follow(model: &mut Model, fx: &mut AppFx) -> Step {
                         start,
                         cwd: None,
                         prompt: Some(prompt),
+                        thread,
                     };
                     Step::Go
                 }
@@ -171,9 +223,7 @@ pub(super) fn follow(model: &mut Model, fx: &mut AppFx) -> Step {
 /// prompt, the answer is the last of the startup screen's answers.
 pub fn opening(model: &Model, answers: &[Answer]) -> Option<Opening> {
     let Phase::Planned {
-        start,
-        cwd,
-        prompt,
+        start, cwd, prompt, ..
     } = &model.session
     else {
         return None;

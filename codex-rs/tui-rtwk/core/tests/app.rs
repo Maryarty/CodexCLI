@@ -10,7 +10,7 @@ use codex_tui_core::app::{
 };
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::rpc::Reply;
-use codex_tui_core::screens::onboarding::session::Start;
+use codex_tui_core::screens::onboarding::session::{Resumed, Start};
 use codex_tui_core::screens::onboarding::{
     Ask, Ev, Facts, Intent as StartupIntent, TrustAsk, TrustDecision,
 };
@@ -56,7 +56,7 @@ fn launch_ask(app: &mut CodexApp, fx: &AppFx) -> u64 {
         .iter()
         .find_map(|c| match c {
             Command::Startup {
-                ask: Ask::GatewayDevice { request },
+                ask: Ask::GatewayDevice { request, .. },
                 ..
             } => Some(*request),
             _ => None,
@@ -581,6 +581,95 @@ fn a_forked_session_opens_the_copy() {
     assert_eq!(app.session().active, Some(ThreadId::new("copy-1")));
 }
 
+// The device-code sign-in of `resume <id>` is for the provider of the thread
+// (`device_login::start_if_needed` reads the thread first); a fork reads none.
+
+/// The device ask in `fx`, with the thread provider it carries.
+fn device_ask(fx: &AppFx) -> Option<Option<Resumed>> {
+    fx.commands().iter().find_map(|c| match c {
+        Command::Startup {
+            ask: Ask::GatewayDevice { thread, .. },
+            ..
+        } => Some(thread.clone()),
+        _ => None,
+    })
+}
+
+/// Connected and the facts in, the read of `named` not answered: returns the
+/// read's ticket and the effects of the facts.
+fn facts_before_the_read(app: &mut CodexApp) -> (codex_tui_core::ids::Ticket, AppFx) {
+    let fx = run(app, AppEv::Connected);
+    let (ticket, _) = thread_asks(&fx).remove(0);
+    let fx = facts(app, session_facts(Some(ResumeMode::Session)));
+    (ticket, fx)
+}
+
+fn answer_read(
+    app: &mut CodexApp,
+    ticket: codex_tui_core::ids::Ticket,
+    provider: &str,
+    loaded: bool,
+) -> AppFx {
+    let mut saved = saved_thread("saved-1");
+    saved.model_provider = provider.into();
+    saved.status = if loaded {
+        codex_app_server_protocol::ThreadStatus::Idle
+    } else {
+        codex_app_server_protocol::ThreadStatus::NotLoaded
+    };
+    run(
+        app,
+        AppEv::Reply(
+            ticket,
+            Reply::screen(ScreenReply::Agents(agents::Reply::Read {
+                thread: Box::new(saved),
+                unread: false,
+            })),
+        ),
+    )
+}
+
+#[test]
+fn resume_reads_the_provider_before_the_device_ask() {
+    let mut app = named(Action::Resume);
+    let (ticket, fx) = facts_before_the_read(&mut app);
+    assert_eq!(
+        device_ask(&fx),
+        None,
+        "nothing is asked while the read is out"
+    );
+    let fx = answer_read(&mut app, ticket, "ollama", false);
+    assert_eq!(
+        device_ask(&fx),
+        Some(Some(Resumed {
+            provider: "ollama".into(),
+            loaded: false
+        })),
+        "the thread's provider goes with the ask"
+    );
+}
+
+#[test]
+fn a_loaded_thread_is_told_to_the_host_as_loaded() {
+    let mut app = named(Action::Resume);
+    let (ticket, _) = facts_before_the_read(&mut app);
+    let fx = answer_read(&mut app, ticket, "company", true);
+    assert_eq!(
+        device_ask(&fx),
+        Some(Some(Resumed {
+            provider: "company".into(),
+            loaded: true
+        }))
+    );
+}
+
+#[test]
+fn fork_never_reads_the_provider() {
+    let mut app = named(Action::Fork);
+    let (_ticket, fx) = facts_before_the_read(&mut app);
+    assert_eq!(device_ask(&fx), Some(None), "the ask goes out at once");
+}
+
 // The directory differs and nothing is remembered: the cwd prompt comes
 // first, before the launch's prompts, and the answer picks the directory.
 #[test]
@@ -694,7 +783,7 @@ fn an_unknown_id_ends_the_launch_with_the_oracles_message() {
         .iter()
         .find_map(|c| match c {
             Command::Startup {
-                ask: Ask::GatewayDevice { request },
+                ask: Ask::GatewayDevice { request, .. },
                 ..
             } => Some(*request),
             _ => None,

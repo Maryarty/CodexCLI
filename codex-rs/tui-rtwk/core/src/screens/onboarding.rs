@@ -214,7 +214,11 @@ pub enum Ask {
     /// sign-in and a device code is the way (`device_login::start_if_needed`),
     /// answered with `Ev::GatewayDevice`. A read that fails ends the launch
     /// with its message.
-    GatewayDevice { request: Request },
+    GatewayDevice {
+        request: Request,
+        /// The provider of the thread a `resume <id>` launch reads first.
+        thread: Option<session::Resumed>,
+    },
     /// End the launch with `message` (the oracle returns the error from
     /// `run_ratatui_app`); not answered.
     FailLaunch { message: String },
@@ -1553,7 +1557,13 @@ mod tests {
         // reloaded config.
         assert_eq!(
             answered(&mut m, Ev::TrustSaved { request: 2 }),
-            [Ask::ReloadConfig, Ask::GatewayDevice { request: 3 }]
+            [
+                Ask::ReloadConfig,
+                Ask::GatewayDevice {
+                    request: 3,
+                    thread: None
+                }
+            ]
         );
         // A repeated or stale answer asks nothing more.
         assert_eq!(answered(&mut m, Ev::TrustSaved { request: 2 }), []);
@@ -1595,7 +1605,13 @@ mod tests {
     #[test]
     fn a_launch_with_no_step_due_asks_for_its_startup_prompts() {
         let (mut m, asked) = read(Facts::default());
-        assert_eq!(asked, [Ask::GatewayDevice { request: 2 }]);
+        assert_eq!(
+            asked,
+            [Ask::GatewayDevice {
+                request: 2,
+                thread: None
+            }]
+        );
         assert!(m.awaits_launch() && !m.settled() && !m.due());
         assert_eq!(no_device_code(&mut m, 2), [Ask::Launch { request: 3 }]);
         assert!(m.awaits_launch() && !m.settled() && !m.due());
@@ -1708,7 +1724,13 @@ mod tests {
         // (No step is due: the launch's prompts are asked after it.)
         assert_eq!(
             answered(&mut m, facts(true)),
-            [Ask::RefreshUpdateCache, Ask::GatewayDevice { request: 2 }]
+            [
+                Ask::RefreshUpdateCache,
+                Ask::GatewayDevice {
+                    request: 2,
+                    thread: None
+                }
+            ]
         );
         // The answer was taken: a repeat asks nothing more.
         assert_eq!(answered(&mut m, facts(true)), []);
@@ -1716,7 +1738,10 @@ mod tests {
         connected(&mut m, &mut AppFx::default());
         assert_eq!(
             answered(&mut m, facts(false)),
-            [Ask::GatewayDevice { request: 2 }]
+            [Ask::GatewayDevice {
+                request: 2,
+                thread: None
+            }]
         );
     }
 

@@ -67,12 +67,17 @@ impl Phase {
 pub(super) fn follow(model: &mut Model, fx: &mut AppFx) -> bool {
     match model.device {
         Phase::Idle => {
+            // The oracle reads a resumed thread first: its provider decides.
+            let thread = match super::session::provider(model) {
+                super::session::Provider::Wait => return false,
+                super::session::Provider::Ask(thread) => thread,
+            };
             let request = mint(model);
             model.device = Phase::Asking {
                 request,
                 seen: Vec::new(),
             };
-            ask(fx, Ask::GatewayDevice { request });
+            ask(fx, Ask::GatewayDevice { request, thread });
             false
         }
         Phase::Done => true,

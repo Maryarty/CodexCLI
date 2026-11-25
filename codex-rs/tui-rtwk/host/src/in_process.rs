@@ -184,6 +184,10 @@ pub struct InProcess {
     pub done: oneshot::Sender<AppServerClient>,
     /// `--model`: the model of the thread, over the config's.
     pub model: Option<String>,
+    /// `--oss`: the launch runs on a local provider.
+    pub oss: bool,
+    /// `--local-provider`: which one, over the config's and the probe's.
+    pub oss_provider: Option<String>,
     /// `--cd`: the working root of the agent, over the process's directory.
     pub cwd: Option<std::path::PathBuf>,
     /// `-c key=value`, raw: applied over the config as the oracle does.
@@ -231,6 +235,8 @@ async fn run(
         mut mode,
         done,
         model,
+        oss,
+        oss_provider,
         cwd,
         config_overrides,
         startup_warning,
@@ -247,7 +253,7 @@ async fn run(
         let _ = failed.send(error.clone());
         emit(&ingress, epoch, AppEv::StartFailed(error));
     };
-    let cli_overrides = match (codex_utils_cli::CliConfigOverrides {
+    let mut cli_overrides = match (codex_utils_cli::CliConfigOverrides {
         raw_overrides: config_overrides,
     })
     .parse_overrides()
@@ -263,10 +269,37 @@ async fn run(
     };
     // Loaded here, after the first frame: config, state DB, environment manager.
     let startup_cwd = cwd.clone();
-    let overrides = ConfigOverrides {
+    let mut overrides = ConfigOverrides {
         cwd,
         ..Default::default()
     };
+    // `--oss`: the provider (flag, config, or the one running server), its
+    // default model and raw reasoning, as session flags every reload keeps.
+    let mut model = model;
+    let mut launch_provider = None;
+    if oss {
+        let codex_home = match codex_core::config::find_codex_home() {
+            Ok(home) => home,
+            Err(error) => return fail(format!("loading the config: {error}")),
+        };
+        let config_cwd = startup_cwd
+            .as_deref()
+            .and_then(|cwd| AbsolutePathBuf::relative_to_current_dir(cwd).ok());
+        match crate::oss::choose(
+            oss_provider.as_deref(),
+            &codex_home,
+            config_cwd.as_ref(),
+            cli_overrides.clone(),
+        )
+        .await
+        {
+            Ok(provider) => {
+                model = crate::oss::apply(&provider, model, &mut cli_overrides, &mut overrides);
+                launch_provider = Some(provider);
+            }
+            Err(error) => return fail(error),
+        }
+    }
     // The launch's own way of loading the config, kept for the reload once
     // the folder is trusted.
     let reload: crate::startup::Reload = {
@@ -292,6 +325,12 @@ async fn run(
         Ok(config) => Arc::new(config),
         Err(error) => return fail(format!("loading the config: {error}")),
     };
+    // `ensure_oss_provider_ready`: the models are there, the service answers.
+    if let Some(provider) = &launch_provider
+        && let Err(error) = crate::oss::ensure_ready(provider.clone(), config.clone()).await
+    {
+        return fail(error);
+    }
     // The server, and whether its workspace is this machine's (oracle:
     // `worktrees_enabled`: a local workspace, and no cloud list).
     let (client, local) = match connect_first(&mode, &config, arg0_paths.clone()).await {
@@ -353,6 +392,7 @@ async fn run(
             _ => None,
         },
         cwd_override: startup_cwd.is_some(),
+        oss_provider: launch_provider,
         launch_prompt,
         update: update.clone(),
         failure: startup_failure,

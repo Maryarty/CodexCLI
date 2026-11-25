@@ -1737,7 +1737,10 @@ person gave you this code, cancel.
     fn the_device_code_is_asked_once_the_facts_are_read() {
         let (h, _) = asked();
         assert!(
-            asks(&h).contains(&Ask::GatewayDevice { request: 2 }),
+            asks(&h).contains(&Ask::GatewayDevice {
+                request: 2,
+                thread: None
+            }),
             "{:?}",
             asks(&h)
         );

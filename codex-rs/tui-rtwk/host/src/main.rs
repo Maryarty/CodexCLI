@@ -14,6 +14,7 @@ mod gateway;
 mod import;
 mod in_process;
 mod launch;
+mod oss;
 mod providers;
 mod security_setup;
 mod settings;
@@ -127,6 +128,8 @@ async fn launch(cli: &Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<Laun
         mode,
         done: done_tx,
         model: cli.model.clone(),
+        oss: cli.oss,
+        oss_provider: cli.oss_provider.clone(),
         cwd: cli.cwd.clone(),
         config_overrides: cli.config_overrides.clone(),
         startup_warning,
