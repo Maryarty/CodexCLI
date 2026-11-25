@@ -312,16 +312,25 @@ fn daybreak_status_surfaces_follow_the_thread_preference() {
 // ORACLE chatwidget/tests/terminal_title.rs:38 goal_clock_refresh_redraws_only_when_elapsed_label_changes kind=snap owner=ui-pane
 #[test]
 fn goal_clock_refresh_redraws_only_when_elapsed_label_changes() {
-    kit::pending(
-        Owner::UiPane,
-        "no goal fact (ThreadPart.goal from `thread/goal/updated`, chunk-live's): the indicator's clock (`Pursuing goal (1m)`) is drawn by the footer once it exists",
-    );
+    // oracle: an active goal with 60 s used, no budget, on a running turn: the indicator reads the
+    // elapsed time, redrawn when its label changes (each minute), not on every tick. The goal and
+    // the turn start at the moment the app's clock says (the wall clock, which the shell tells the
+    // app when the app asks to be woken), so the minute passes by the `clock` step.
+    let now = kit::unix_now();
     let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
-    // Visible half: the goal indicator label in the bottom pane advances by the minute.
+    s.feed(&format!(
+        r#"{{"step":"clock","secs":{now}}}
+{{"step":"notify","message":{{"method":"thread/goal/updated","params":{{"threadId":"thread-1","turnId":null,"goal":{{"threadId":"thread-1","objective":"Keep improving the benchmark","status":"active","tokenBudget":null,"tokensUsed":0,"timeUsedSeconds":60,"createdAt":{now},"updatedAt":{now}}}}}}}}}
+{{"step":"notify","message":{{"method":"turn/started","params":{{"threadId":"thread-1","turn":{{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":{now},"completedAt":null,"durationMs":null}}}}}}}}
+"#
+    ));
     s.assert_contains("Pursuing goal (1m)");
-    s.wait(60_000);
+    s.feed(&format!("{{\"step\":\"clock\",\"secs\":{}}}\n", now + 59));
+    s.assert_contains("Pursuing goal (1m)");
+    s.feed(&format!("{{\"step\":\"clock\",\"secs\":{}}}\n", now + 60));
     s.assert_contains("Pursuing goal (2m)");
-    // (the draw requests and the refresh deadline are state, not drawn)
+    // (the draw requests and the refresh deadline are state, not drawn: `core/tests/goal.rs`
+    // `goal_clock_wakes_when_the_elapsed_label_changes`)
 }
 
 // ORACLE chatwidget/tests/terminal_title.rs:96 terminal_title_shows_action_required_while_exec_approval_is_pending kind=ui owner=ui-pane

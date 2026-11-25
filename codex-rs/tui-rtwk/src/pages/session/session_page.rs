@@ -16,6 +16,7 @@
 //! - `title`    the terminal title
 //! - `overlay`  the blank sheet of a window too small to draw
 //! - `send`     Enter, Tab's queue, a picked command, the edit-queued key
+//! - `questions` the editor of the model's questions in the composer's place
 //! - `escape`   Esc's ladder
 //! - `leave`    Ctrl+C and Ctrl+D a feature takes first (the return from a side conversation)
 //! - `presets`  the shortcut menu of `/presets` over the composer: its keys and its verbs
@@ -29,6 +30,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use rtwk::binding::{AppBinding, ScreenMode};
 use rtwk::editing::TextEditingController;
 use rtwk::focus::FocusNode;
 use rtwk::layout::{Stack, StackFit};
@@ -74,12 +76,16 @@ mod msg;
 mod overlay;
 #[path = "session/presets.rs"]
 mod presets;
+#[path = "session/questions.rs"]
+mod questions;
 #[path = "session/reader.rs"]
 mod reader;
 #[path = "session/send.rs"]
 mod send;
 #[path = "session/slot.rs"]
 mod slot;
+#[path = "session/startup_confirm.rs"]
+mod startup_confirm;
 #[path = "session/title.rs"]
 mod title;
 
@@ -103,6 +109,8 @@ pub struct ChatState {
     /// The handler the listener tells the page's edges on, made once so the listener's widget
     /// stays equal across the page's rebuilds.
     edges: Option<Handler<Edge>>,
+    /// The editor of the model's questions: open or not, and its drafts.
+    asking: questions::Asking,
     /// A queued command opened a sheet: the queue goes on when the page is in front again.
     resume: bool,
     /// The read-only thread this page asked to fork and heard no answer of
@@ -112,6 +120,8 @@ pub struct ChatState {
     /// The shortcut overlay is expanded above the composer (the oracle's
     /// `FooterMode::ShortcutOverlay`).
     shortcuts: bool,
+    /// Enter confirmed the startup draft: it is submitted when the session is ready.
+    startup_confirm: Option<startup_confirm::Confirmed>,
     draft_empty: bool,
     /// The revision of the composer's reverse history search (Ctrl+R) this
     /// page drew: its footer stands in the key footer's place, and a change of
@@ -161,6 +171,9 @@ struct BannerBlocked {
     running: bool,
     /// The shortcut overlay is open: Esc closes it.
     overlay: bool,
+    /// Questions wait (the editor is closed) or messages are queued: the edit-queued key is the
+    /// chat's before it is the field's (`Shift+Left` would select).
+    edit: bool,
 }
 
 impl StatefulWidget for Chat {
@@ -169,9 +182,11 @@ impl StatefulWidget for Chat {
     fn create_state(&self) -> ChatState {
         ChatState {
             edges: None,
+            asking: questions::Asking::default(),
             resume: false,
             forking: None,
             shortcuts: false,
+            startup_confirm: None,
             draft_empty: self.ui.composer.text().is_empty(),
             search_rev: self.ui.draft.search_rev(),
             draft_shell: self.ui.draft.shell(),
@@ -205,6 +220,7 @@ struct Forking {
 #[derive(PartialEq)]
 struct Shown {
     shortcuts: bool,
+    confirmed: bool,
     primed: bool,
     draft_empty: bool,
     draft_shell: bool,
@@ -224,6 +240,7 @@ impl ChatState {
     fn shown(&self, modes: &Modes) -> Shown {
         Shown {
             shortcuts: self.shortcuts,
+            confirmed: self.startup_confirm.is_some(),
             primed: modes.primed(),
             draft_empty: self.draft_empty,
             draft_shell: self.draft_shell,
@@ -297,7 +314,8 @@ impl State for ChatState {
             }
             ChatMsg::Browse(step) => reader::browsed(w, cx, &hs, step),
             ChatMsg::QueueDraft => self.queue_draft(w, cx, &hs),
-            ChatMsg::EditQueued => send::edit_queued(cx, &hs),
+            ChatMsg::EditQueued => return self.edit_key(cx, &hs),
+            ChatMsg::Question(outcome) => return self.outcome(outcome, cx, &hs),
             ChatMsg::Reasoning(direction) => reasoning_shortcut(cx, &hs, direction),
             ChatMsg::Picked(text) => self.picked(&text, w, cx, &hs),
             ChatMsg::RetryWriter => lock::retry(cx, &hs),
@@ -328,6 +346,7 @@ impl State for ChatState {
             ChatMsg::Edge(_) => {}
             ChatMsg::Changed(text) => {
                 self.sync_draft(w);
+                self.startup_edited(w);
                 // a paste or an edit while prompts are browsed ends browsing
                 modes.leave_browsing();
                 if self.shortcuts && !text.is_empty() {
@@ -365,11 +384,13 @@ impl State for ChatState {
         self.tell(w, &frame);
         // the sections, top to bottom: the transcript, the composer's place and the bottom pane
         // around it, the terminal title, and the blank sheet a window too small to draw lays over
-        let transcript = reader::pane(self, w, &frame);
+        let inline_draft = super::transcript_header::startup_draft(&frame.session)
+            && AppBinding::maybe_of(cx).is_some_and(|binding| binding.mode() == ScreenMode::Inline);
+        let transcript = reader::pane(self, w, &frame, inline_draft);
         let slot = slot::slot(self, w, cx, &frame);
         let body = bottom::body(self, w, cx, &frame, slot);
         let body = bottom::with_titles(&frame, body, title::titles(cx, &frame));
-        let page = overlay::page(transcript, body);
+        let page = overlay::page(transcript, body, inline_draft);
         let focus = input::focus(self, cx, &frame, page);
         // The listener stands outside the keyed focus: a key that changes in the same flush as a
         // directive (the continue key ends the lock and gives the words in one step) would end its

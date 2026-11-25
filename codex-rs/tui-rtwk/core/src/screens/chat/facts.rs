@@ -27,8 +27,8 @@ use serde::Deserialize;
 use super::{Model, StatusFacts, ThreadPart};
 use crate::commands::ServiceTierCommand;
 use crate::format::{format_goal_elapsed_seconds, format_tokens_compact};
-use crate::screens::select::models::Catalog;
 use crate::screens::ThreadSlots;
+use crate::screens::select::models::Catalog;
 use crate::threads::{Goal, GoalStatus, ThreadModel, TurnState};
 
 /// How long a workspace headline is kept before it is read again
@@ -66,7 +66,9 @@ pub struct GitSummary {
 impl GitSummary {
     /// The `pull-request-number` item's text (`PR #42`).
     pub fn pull_request_text(&self) -> Option<String> {
-        self.pull_request.as_ref().map(|pr| format!("PR #{}", pr.number))
+        self.pull_request
+            .as_ref()
+            .map(|pr| format!("PR #{}", pr.number))
     }
 
     /// The `branch-changes` item's text (`+3 -1`, `No changes`).
@@ -168,7 +170,10 @@ pub enum Ev {
     /// The answer of `Probe::GitSummary { request, .. }`.
     GitSummary { request: u64, summary: GitSummary },
     /// The answer of `Probe::Headline { request }`.
-    Headline { request: u64, answer: HeadlineAnswer },
+    Headline {
+        request: u64,
+        answer: HeadlineAnswer,
+    },
     /// The side conversation's footer label, or none (`set_side_conversation_context_label`:
     /// `Side from main thread · …`, `ctrl-/ for side`).
     SideLabel(Option<String>),
@@ -193,7 +198,9 @@ enum Lookup {
     /// Not asked yet (or the cwd changed since).
     #[default]
     Idle,
-    Pending { request: u64 },
+    Pending {
+        request: u64,
+    },
     Done(GitSummary),
 }
 
@@ -321,7 +328,9 @@ impl Facts {
         if uses(status, &["pull-request-number", "branch-changes"]) {
             if self.git == Lookup::Idle && self.cwd.is_some() {
                 self.issued += 1;
-                self.git = Lookup::Pending { request: self.issued };
+                self.git = Lookup::Pending {
+                    request: self.issued,
+                };
             }
         } else {
             self.git = Lookup::Idle;
@@ -344,16 +353,20 @@ impl Facts {
         self.headline.pending.is_none()
             && !self.headline.disabled
             && signed_in
-            && self.headline.last_requested.is_none_or(|last| {
-                self.now.saturating_sub(last) >= HEADLINE_REFRESH_SECS
-            })
+            && self
+                .headline
+                .last_requested
+                .is_none_or(|last| self.now.saturating_sub(last) >= HEADLINE_REFRESH_SECS)
     }
 
     /// The reads asked and not yet answered, oldest first.
     pub fn probes(&self) -> Vec<Probe> {
         let mut probes = Vec::new();
         if let (Lookup::Pending { request }, Some(cwd)) = (&self.git, &self.cwd) {
-            probes.push(Probe::GitSummary { request: *request, cwd: cwd.clone() });
+            probes.push(Probe::GitSummary {
+                request: *request,
+                cwd: cwd.clone(),
+            });
         }
         if let Some(request) = self.headline.pending {
             probes.push(Probe::Headline { request });
@@ -386,7 +399,9 @@ impl Facts {
         if self.headline.disabled || self.headline.pending.is_some() {
             return None;
         }
-        self.headline.last_requested.map(|last| last + HEADLINE_REFRESH_SECS)
+        self.headline
+            .last_requested
+            .map(|last| last + HEADLINE_REFRESH_SECS)
     }
 }
 
@@ -410,13 +425,19 @@ pub fn agent_label(
         return Some(picker_name(None, None, is_primary));
     };
     if !is_primary
-        && let SessionSource::SubAgent(SubAgentSource::ThreadSpawn { agent_path: Some(path), .. }) =
-            &thread.source
+        && let SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
+            agent_path: Some(path),
+            ..
+        }) = &thread.source
         && !path.to_string().trim().is_empty()
     {
         return Some(format!("`{path}`"));
     }
-    Some(picker_name(thread.agent_nickname.as_deref(), thread.agent_role.as_deref(), is_primary))
+    Some(picker_name(
+        thread.agent_nickname.as_deref(),
+        thread.agent_role.as_deref(),
+        is_primary,
+    ))
 }
 
 fn picker_name(nickname: Option<&str>, role: Option<&str>, is_primary: bool) -> String {
@@ -442,10 +463,13 @@ pub fn model_display_name(catalog: &Catalog, model: Option<&str>) -> String {
     };
     match catalog.presets.iter().find(|preset| preset.model == model) {
         Some(preset) => preset.name.clone(),
-        None => StatusFacts { model: Some(model.to_string()), ..StatusFacts::default() }
-            .model_name()
-            .unwrap_or(model)
-            .to_string(),
+        None => StatusFacts {
+            model: Some(model.to_string()),
+            ..StatusFacts::default()
+        }
+        .model_name()
+        .unwrap_or(model)
+        .to_string(),
     }
 }
 
@@ -522,7 +546,8 @@ pub fn effective_service_tier(
     if configured == Some("flex") {
         return configured.map(str::to_owned);
     }
-    let preset = model.and_then(|model| catalog.presets.iter().find(|preset| preset.model == model));
+    let preset =
+        model.and_then(|model| catalog.presets.iter().find(|preset| preset.model == model));
     let Some(preset) = preset else {
         return configured.filter(|tier| enabled(tier)).map(str::to_owned);
     };
@@ -531,7 +556,10 @@ pub fn effective_service_tier(
         Some("default") => configured.map(str::to_owned),
         Some(tier) if offers(tier) => Some(tier.to_owned()),
         Some(_) => None,
-        None => preset.default_service_tier.clone().filter(|tier| offers(tier)),
+        None => preset
+            .default_service_tier
+            .clone()
+            .filter(|tier| offers(tier)),
     }
     .filter(|tier| enabled(tier))
 }
@@ -651,11 +679,17 @@ pub struct GoalUsage {
 
 impl GoalUsage {
     fn plain(figure: String) -> Self {
-        Self { figure, tokens: false }
+        Self {
+            figure,
+            tokens: false,
+        }
     }
 
     fn of_tokens(figure: String) -> Self {
-        Self { figure, tokens: true }
+        Self {
+            figure,
+            tokens: true,
+        }
     }
 }
 
@@ -698,19 +732,45 @@ impl GoalIndicator {
     }
 }
 
-/// The goal indicator of the thread at `now` (epoch seconds, 0 while the clock is unknown): an
-/// active goal counts the seconds of the running turn since the goal was last updated or the turn
-/// began, whichever is later (`active_turn_started_at`).
-pub fn goal_indicator(thread: &ThreadModel, now: i64) -> Option<GoalIndicator> {
-    let goal = thread.goal()?;
-    let running = match thread.turn() {
+/// The seconds an active goal has run on the running turn at `now` (epoch seconds, 0 while the
+/// clock is unknown): since the goal was last updated or the turn began, whichever is later
+/// (`active_turn_started_at`).
+fn running_secs(thread: &ThreadModel, goal: &Goal, now: i64) -> i64 {
+    match thread.turn() {
         TurnState::Running(turn) if goal.status == GoalStatus::Active && now > 0 => {
             let since = goal.updated_at.max(turn.started_at.unwrap_or(0));
             now.saturating_sub(since)
         }
         _ => 0,
-    };
-    Some(GoalIndicator::of(goal, running))
+    }
+}
+
+/// The goal indicator of the thread at `now` (epoch seconds, 0 while the clock is unknown): an
+/// active goal counts the seconds of the running turn since the goal was last updated or the turn
+/// began, whichever is later (`active_turn_started_at`).
+pub fn goal_indicator(thread: &ThreadModel, now: i64) -> Option<GoalIndicator> {
+    let goal = thread.goal()?;
+    Some(GoalIndicator::of(goal, running_secs(thread, goal, now)))
+}
+
+/// The seconds from `now` (epoch seconds) until the elapsed label of the thread's goal indicator
+/// changes (`GoalStatusState` redraws the footer only then): each second under a minute, each
+/// minute after. None: the indicator shows no elapsed time (no active goal on a running turn, a
+/// token budget, an unknown clock).
+pub fn goal_label_change_in(thread: &ThreadModel, now: i64) -> Option<i64> {
+    let goal = thread.goal()?;
+    if goal.status != GoalStatus::Active
+        || goal.token_budget.is_some()
+        || !thread.is_running()
+        || now <= 0
+    {
+        return None;
+    }
+    let elapsed = goal
+        .time_used_seconds
+        .saturating_add(running_secs(thread, goal, now))
+        .max(0);
+    Some(if elapsed < 60 { 1 } else { 60 - elapsed % 60 })
 }
 
 #[cfg(test)]
@@ -735,15 +795,21 @@ mod goal_tests {
         let usage = |goal: Goal| GoalIndicator::of(&goal, 0);
         assert_eq!(
             usage(goal(GoalStatus::Active, Some(50_000), 40_000, 0)),
-            GoalIndicator::Active { usage: Some(GoalUsage::plain("40K / 50K".into())) }
+            GoalIndicator::Active {
+                usage: Some(GoalUsage::plain("40K / 50K".into()))
+            }
         );
         assert_eq!(
             usage(goal(GoalStatus::Active, None, 0, 125)),
-            GoalIndicator::Active { usage: Some(GoalUsage::plain("2m".into())) }
+            GoalIndicator::Active {
+                usage: Some(GoalUsage::plain("2m".into()))
+            }
         );
         assert_eq!(
             usage(goal(GoalStatus::BudgetLimited, Some(50_000), 50_000, 0)),
-            GoalIndicator::BudgetLimited { usage: Some(GoalUsage::of_tokens("50K / 50K".into())) }
+            GoalIndicator::BudgetLimited {
+                usage: Some(GoalUsage::of_tokens("50K / 50K".into()))
+            }
         );
         assert_eq!(
             usage(goal(GoalStatus::BudgetLimited, None, 5, 0)),
@@ -751,13 +817,20 @@ mod goal_tests {
         );
         assert_eq!(
             usage(goal(GoalStatus::Complete, None, 0, 3_700)),
-            GoalIndicator::Complete { usage: Some(GoalUsage::plain("1h 1m".into())) }
+            GoalIndicator::Complete {
+                usage: Some(GoalUsage::plain("1h 1m".into()))
+            }
         );
         assert_eq!(
             usage(goal(GoalStatus::Complete, Some(100), 70, 9)),
-            GoalIndicator::Complete { usage: Some(GoalUsage::of_tokens("70".into())) }
+            GoalIndicator::Complete {
+                usage: Some(GoalUsage::of_tokens("70".into()))
+            }
         );
-        assert_eq!(usage(goal(GoalStatus::Paused, None, 0, 0)), GoalIndicator::Paused);
+        assert_eq!(
+            usage(goal(GoalStatus::Paused, None, 0, 0)),
+            GoalIndicator::Paused
+        );
     }
 
     /// The seconds a running turn adds count only for an active goal.
@@ -766,7 +839,9 @@ mod goal_tests {
         let active = goal(GoalStatus::Active, None, 0, 10);
         assert_eq!(
             GoalIndicator::of(&active, 5),
-            GoalIndicator::Active { usage: Some(GoalUsage::plain("15s".into())) }
+            GoalIndicator::Active {
+                usage: Some(GoalUsage::plain("15s".into()))
+            }
         );
         let paused = goal(GoalStatus::Paused, None, 0, 10);
         assert_eq!(GoalIndicator::of(&paused, 5), GoalIndicator::Paused);

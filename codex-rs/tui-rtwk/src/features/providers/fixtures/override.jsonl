@@ -1,0 +1,4 @@
+# Model providers: the client's launch settings select the default for new chats.
+# Oracle data: app/provider.rs list (`client_override`)
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"fact","feature":"providers","fact":{"kind":"override","id":"gateway"}}

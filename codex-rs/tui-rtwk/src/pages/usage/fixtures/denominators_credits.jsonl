@@ -1,0 +1,4 @@
+# `analytics_preserves_full_denominators_and_signed_small_credits` (analytics_tests.rs): an
+# Enterprise account's Credits report, one day of -0.000004 credits (CLI).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"usage","ev":{"account":{"plan":"enterprise_cbp_usage_based","today":"2026-09-02","hour24":true},"section":"credits","histories":[{"section":"credits","load":{"ready":{"unit":"credits","updated_at":null,"data":[{"date":"2026-09-02","total":-4e-06,"values":[{"key":"CLI","label":"CLI","value":-4e-06}]}]}}}]}}

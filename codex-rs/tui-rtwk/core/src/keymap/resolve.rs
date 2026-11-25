@@ -314,6 +314,9 @@ struct Slot {
     /// Whether the user set this action (an empty list counts).
     configured: bool,
     bound: Vec<Bound>,
+    /// The first binding the user wrote, chord or not (what `bound` loses when singles are
+    /// ordered before chords): the oracle's `primary_hint` is the first configured spec.
+    primary: Option<Binding>,
 }
 
 /// The resolved key bindings of every action, per context: what Flutter
@@ -408,6 +411,15 @@ impl Keymap {
         self.slot(id)
             .and_then(|slot| slot.bound.first())
             .map(|bound| bound.binding.label())
+    }
+
+    /// The binding the oracle's `primary_hint` shows: the first spec the user wrote for the
+    /// action (a chord when it is written first), else the first binding.
+    pub fn primary(&self, id: ActionId) -> Option<Binding> {
+        self.slot(id).and_then(|slot| {
+            slot.primary
+                .or_else(|| slot.bound.first().map(|bound| bound.binding))
+        })
     }
 
     /// The labels of all bindings, in order.
@@ -568,6 +580,9 @@ impl Keymap {
         keymap.add_implicit_chords(spec);
         // Single keys before chords, as a hint lists them.
         for slot in &mut keymap.slots {
+            if slot.configured {
+                slot.primary = slot.bound.first().map(|bound| bound.binding);
+            }
             slot.bound
                 .sort_by_key(|bound| matches!(bound.binding, Binding::Chord { .. }));
         }

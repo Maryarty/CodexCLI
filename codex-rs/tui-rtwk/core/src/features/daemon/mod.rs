@@ -2,8 +2,8 @@
 //! `RunDaemonRestart`): the maintenance menu of the local background server. Core keeps what IO
 //! needs and the decisions: the connection the host reports (`Fact`, `Facts`), the probe of
 //! whether the server is a managed daemon (`Ask::BackgroundServer(Verify)`), the restart that runs
-//! (`Ask::BackgroundServer(Restart)`), and the update that ends Codex (`State::update_wanted`, which the
-//! shell reads once Codex has exited). The sheet, its rows' words and its confirmations are the UI
+//! (`Ask::BackgroundServer(Restart)`), and the update that ends Codex (`Ask::BackgroundServer(Update)`:
+//! the host keeps it and the app ends once the host says it did). The sheet, its rows' words and its confirmations are the UI
 //! half's (`src/features/daemon/`): it reads `State::page`, says the user's choice as a `Verb`
 //! and shows the `Wish::Menu` pages the feature asks for.
 
@@ -32,6 +32,8 @@ pub enum Ctx {
     Verify,
     /// The restart of the server.
     Restart,
+    /// The update the host keeps for after the exit: the app ends when it answers.
+    Update,
 }
 
 /// The page the surface is asked to open (`Scope::Thread` of the thread in use).
@@ -68,6 +70,9 @@ feature! {
                     Some(Step::Ask(DaemonAsk::Restart)) => {
                         cx.effect(Ask::BackgroundServer(DaemonAsk::Restart), Ctx::Restart)
                     }
+                    Some(Step::Ask(ask @ DaemonAsk::Update(_))) => {
+                        cx.effect(Ask::BackgroundServer(ask), Ctx::Update)
+                    }
                     None => {}
                 }
             }
@@ -87,6 +92,9 @@ feature! {
                         if let Some(error) = state.restarted(result) {
                             cx.note(None, Note::RestartFailed(error));
                         }
+                    }
+                    (Ctx::Update, Done::BackgroundServer(DaemonDone::UpdateQueued)) => {
+                        cx.end_app();
                     }
                     _ => {}
                 }

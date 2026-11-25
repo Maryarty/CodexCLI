@@ -16,6 +16,7 @@ pub mod ids;
 pub mod keymap;
 pub mod kit;
 pub mod protocol;
+pub mod question_reply;
 pub mod rpc;
 pub mod screens;
 pub mod thread_color;

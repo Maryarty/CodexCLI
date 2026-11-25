@@ -473,45 +473,31 @@ fn history_search_paste_uses_full_sanitized_text() {
 // ORACLE bottom_pane/chat_composer/mentions_layout_tests.rs:86 mention_scopes_overlay_history_without_moving_composer_or_footer kind=snap owner=chat-nav-pane snap=codex_tui__bottom_pane__chat_composer__mentions_layout_tests__mention_scopes_overlay_history
 #[test]
 fn mention_scopes_overlay_history_without_moving_composer_or_footer() {
-    kit::pending(
+    kit::na(
         Owner::ChatNavPane,
-        "the transcript rows behind the menu ('Transcript row NN') and its footer (TRANSCRIPT STATUS) are not seeded by any entry",
+        "the snapshot holds the harness's literal strings (`Transcript row NN: behind the menu`, `TRANSCRIPT STATUS`, `MODEL STATUS`) that no state of the app produces; the invariant (composer rows, caret and footer unmoved by the popup across tabs and Esc) is the page test composer_mentions::mention_menu_keeps_composer_rows_and_cursor_across_tabs",
     );
-    let mut s = Screen::build(Owner::ChatNavPane)
-        .size(80, 32)
-        .entry("popovers", "composer_popups")
-        .open();
-    s.type_text("@");
-    s.assert_snap("codex_tui__bottom_pane__chat_composer__mentions_layout_tests__mention_scopes_overlay_history");
-    s.keys("right");
 }
 
 // ORACLE bottom_pane/chat_composer/mentions_layout_tests.rs:154 mention_menu_reserves_height_above_composer_and_owns_cursor_over_interactive_footer kind=snap owner=chat-nav-pane snap=codex_tui__bottom_pane__chat_composer__mentions_layout_tests__mention_menu_above_composer
 #[test]
 fn mention_menu_reserves_height_above_composer_and_owns_cursor_over_interactive_footer() {
-    kit::pending(
+    kit::na(
         Owner::ChatNavPane,
-        "the chat status line (MODEL STATUS) and the interactive transcript footer (Find: needle) are not seeded by any entry",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane)
-        .size(80, 21)
-        .entry("popovers", "composer_popups")
-        .open();
-    s.type_text("@");
-    s.assert_snap(
-        "codex_tui__bottom_pane__chat_composer__mentions_layout_tests__mention_menu_above_composer",
+        "the snapshot holds the harness's literal strings (`MODEL STATUS`, `Find: needle`) that no state of the app produces; the invariant (the popup ends at the composer's first row, the caret stays in the composer) is the page test composer_mentions::mention_menu_keeps_composer_rows_and_cursor_across_tabs",
     );
 }
 
 // ORACLE bottom_pane/chat_composer/mentions_layout_tests.rs:191 fallback_completions_keep_the_draft_cursor_and_footer_anchored kind=ui owner=chat-nav-pane
 #[test]
 fn fallback_completions_keep_the_draft_cursor_and_footer_anchored() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the transcript footer (TRANSCRIPT STATUS) under the composer is not seeded, and the oracle sets the popups on the composer directly",
-    );
+    // The oracle seeds the popups on the composer; here the draft is typed, so the `@` token
+    // carries the query the file matches of the seed answer (`ex`). The anchoring (rows,
+    // caret, footer unchanged by the popup) is the page test `composer_mentions`. The file row
+    // reads `example.rs  src/` (the name, then its parent in a column), as the oracle's own
+    // `mentions_v2` rows do, where the legacy fallback popup the test sets listed `src/example.rs`.
     for (width, height) in [(80, 24), (40, 16), (20, 5)] {
-        for (token, item) in [("$", "Example skill"), ("@", "src/example.rs")] {
+        for (token, item) in [("$", "Example skill"), ("@ex", "example.rs")] {
             let mut s = Screen::build(Owner::ChatNavPane)
                 .size(width, height)
                 .script(include_str!(
@@ -532,7 +518,7 @@ fn fallback_completions_keep_the_draft_cursor_and_footer_anchored() {
 fn skill_completion_attaches_typed_punctuation_snapshot() {
     kit::pending(
         Owner::ChatNavPane,
-        "footer modes (pane-footer): the row `› 请用 $rustdoc》` matches; the oracle's footer of a non-empty draft is `100% context left` at the right, ours the page's key hints",
+        "f-footer-hints: the row `› 请用 $rustdoc》` matches; the oracle's footer of a non-empty draft is `100% context left` at the right, ours the page's key hints",
     );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(100, 9)
@@ -630,10 +616,10 @@ fn default_unified_mention_popup_snapshot() {
 // ORACLE bottom_pane/command_popup.rs:337 unavailable_side_conversation_command_is_shown_only_when_searched kind=snap owner=chat-nav-pane snap=side_conversation_unavailable_command
 #[test]
 fn unavailable_side_conversation_command_is_shown_only_when_searched() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "feature disabled commands in the side-conversation popup (w2-commands): the port's popup leaves a command a side conversation cannot run out of the list, the oracle lists it as `/archive (disabled)` once searched, with `(disabled: not available in a side conversation)` as its description (the seed is fixtures/chat_commands_3/side.jsonl)",
-    );
+    // The disabled row is listed (`/archive (disabled)` and the reason, no pick: tests/pages), but
+    // the OptionList lays the detail out at the row's right end in one line, so the long reason
+    // takes the label's room (`…`), where the oracle wraps it under the description column.
+    kit::pending(Owner::ChatNavPane, POPUP_ROWS);
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(76, 24)
         .script(include_str!("fixtures/chat_commands_3/side.jsonl"))
@@ -735,10 +721,14 @@ fn long_paths_keep_distinguishing_filenames_and_original_selection() {
 // ORACLE bottom_pane/mentions_v2/render_tests.rs:50 live_picker_frame_snapshots kind=snap owner=chat-nav-pane snap=narrow_scrolled snap=one_row snap=short snap=wide
 #[test]
 fn live_picker_frame_snapshots() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the 7-row and 1-row frames are the popup alone at that height: a chat screen sizes its popup and always holds the composer",
-    );
+    // The oracle renders `render_popup` alone on four canvases with twelve fixed rows (ten
+    // plugins, two files) and a chosen selection. The chat screen yields the wide frame as it
+    // is. The files of that list have no query to come from (the file search of an empty `@`
+    // lists none), so the narrow frame is checked on what the screen does produce of it: the
+    // header cut without a `…`, the tab strip at 40 columns (`›` for the tab out of room), the
+    // query line, the `↑` row of a scrolled list and the hint line cut with a `…` on its last
+    // cell; the 7-row and the 1-row canvases are the same popup at heights the chat gives it
+    // only as the room above its composer (the page test of the popup's reserve).
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .script(include_str!(
@@ -746,17 +736,22 @@ fn live_picker_frame_snapshots() {
         ))
         .open();
     s.type_text("@");
+    let top = row_starting(&s, "  Mentions");
     s.assert_snap_region(
         "codex_tui__bottom_pane__mentions_v2__render__tests__wide",
-        row_starting(&s, "  Mentions"),
+        top,
         0,
     );
     s.resize(40, 24);
-    s.assert_snap_region(
+    // the selection moves to the last row of the list: the list scrolls and shows `↑`
+    s.keys("up");
+    s.assert_snap_rows_from(
         "codex_tui__bottom_pane__mentions_v2__render__tests__narrow_scrolled",
-        row_starting(&s, "  Mentions"),
-        0,
+        top,
+        7,
+        false,
     );
+    s.assert_row(top + 16, "  enter/tab insert · esc close · ↑/↓ …");
 }
 
 // ORACLE bottom_pane/mentions_v2/render_tests.rs:76 selection_covers_the_row_and_empty_filter_clears_previous_results kind=snap owner=chat-nav-pane snap=empty_filter
@@ -798,20 +793,41 @@ fn filesystem_columns_use_terminal_cell_widths() {
 // ORACLE bottom_pane/mentions_v2/render_tests.rs:166 long_mentions_leave_room_for_distinguishing_parent_paths kind=snap owner=chat-nav-pane snap=bounded_filesystem_columns_narrow snap=bounded_filesystem_columns_wide
 #[test]
 fn long_mentions_leave_room_for_distinguishing_parent_paths() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the snapshots are the popup alone at three rows: a chat screen sizes its popup itself, so the 3-row frame is not a screen state",
-    );
+    // The oracle renders the three file rows alone, in the order `src/界.rs`, `tests/界.rs`,
+    // `deep/a_very_long…` and the first selected. The file search sorts equal scores by path,
+    // so the filesystem tab lists `deep/…` first and selects it: the same three rows, the same
+    // columns and cuts, in the order the search gives (the snapshot's rows, `›` aside).
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .script(include_str!("fixtures/composer_popups/mentions_long.jsonl"))
         .open();
-    s.type_text("@");
-    s.assert_snap_region(
-        "codex_tui__bottom_pane__mentions_v2__render__tests__bounded_filesystem_columns_wide",
-        row_starting(&s, "› 界.rs"),
-        0,
-    );
+    s.type_text("@a").keys("right");
+    let top = row_starting(&s, "› a_very");
+    for (width, rows) in [
+        (
+            80,
+            [
+                "› a_very_long_filename_that_exceeds…  deep/                               File",
+                "  界.rs                               src/                                File",
+                "  界.rs                               tests/                              File",
+            ],
+        ),
+        (
+            40,
+            [
+                "› a_very_long_f…  deep/           File",
+                "  界.rs           src/            File",
+                "  界.rs           tests/          File",
+            ],
+        ),
+    ] {
+        if width == 40 {
+            s.resize(40, 24);
+        }
+        for (at, row) in rows.iter().enumerate() {
+            s.assert_row(top + at, row);
+        }
+    }
 }
 
 // ---- oracle: bottom_pane/skill_popup.rs (3 screen-level tests here; 3 state tests left to chat-nav-pane)
@@ -861,18 +877,8 @@ fn category_tags_distinguish_mentions_when_descriptions_hide() {
 // ORACLE bottom_pane/skill_popup.rs:387 lowercase_expansion_preserves_match_ranking_and_highlighting kind=snap owner=chat-nav-pane snap=skill_popup_lowercase_expansion
 #[test]
 fn lowercase_expansion_preserves_match_ranking_and_highlighting() {
-    kit::pending(
+    kit::na(
         Owner::ChatNavPane,
-        "the query U+0307 x is not a mention name: typed after `$` the composer closes the popup (the combining dot joins the `$`), so the oracle's `SkillPopup::set_query` state has no screen",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane)
-        .size(80, 24)
-        .entry("popovers", "composer_popups")
-        .open();
-    s.type_text("$\u{307}x");
-    s.assert_snap_region(
-        "codex_tui__bottom_pane__skill_popup__tests__skill_popup_lowercase_expansion",
-        row_starting(&s, "› "),
-        0,
+        "a `SkillPopup::set_query` state: the query U+0307 x cannot be typed after `$` (the combining dot joins the `$` and the popup closes), so the frame has no screen; the ranking of the four names is pinned by core/tests/mention_filter.rs `lowercase_expansion_keeps_the_oracles_order_and_marks`",
     );
 }

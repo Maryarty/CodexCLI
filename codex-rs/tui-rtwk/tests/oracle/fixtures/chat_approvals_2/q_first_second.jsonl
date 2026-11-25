@@ -1,0 +1,3 @@
+# state_tests.rs:11 editor(): First, Second with one choice (tools/rtwk-port/async-questions/fixtures.py)
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"agentMessage","moderation":null,"id":"message","text":"First\n\nSecond\n- Named","phase":"final_answer","memoryCitation":null,"delivery":null,"questions":[{"title":"First","options":null},{"title":"Second","options":["Named"]}],"startedAtMs":null,"completedAtMs":null},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}

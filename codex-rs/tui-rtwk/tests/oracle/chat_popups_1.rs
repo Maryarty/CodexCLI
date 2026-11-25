@@ -30,6 +30,32 @@ fn on_catalog(width: u16, height: u16, model: &str, catalog: &str) -> Screen {
     s
 }
 
+/// The objective of the oracle's `test_goal`.
+const GOAL: &str = "Keep improving the bare goal command until it feels calm and useful.";
+
+/// A live chat whose server answers `thread/goal/get` with the goal of the oracle's
+/// `test_goal` (90 s, 12.5K tokens) in `status`, with `budget`.
+fn with_goal(width: u16, height: u16, status: &str, budget: Option<i64>) -> Screen {
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(width, height)
+        .live()
+        .open();
+    let budget = budget.map_or("null".to_owned(), |b| b.to_string());
+    s.feed(&format!(
+        r#"{{"step":"respond","method":"thread/goal/get","result":{{"goal":{{"threadId":"thread-1","objective":"{GOAL}","status":"{status}","tokenBudget":{budget},"tokensUsed":12500,"timeUsedSeconds":90,"createdAt":1776272400,"updatedAt":1776272460}}}}}}"#
+    ));
+    s
+}
+
+/// The screen row of the goal summary's heading: the oracle builds the cell alone, the transcript
+/// here sits above the composer, so the snapshot is compared from there.
+fn goal_row(s: &Screen) -> usize {
+    s.rows()
+        .iter()
+        .rposition(|row| row.trim_end() == "Goal")
+        .unwrap_or_else(|| panic!("the goal summary is not on the screen:\n{}", s.text()))
+}
+
 // ---- oracle: chatwidget/tests/bedrock_catalog_tests.rs (3 screen-level tests here; 0 state tests left to dialogs-pane)
 // ORACLE chatwidget/tests/bedrock_catalog_tests.rs:11 bedrock_astra_model_and_reasoning_pickers kind=snap owner=dialogs-pane snap=bedrock_mantle_astra_advanced_reasoning
 #[test]
@@ -224,72 +250,75 @@ fn copy_export_picker_custom_keys_preserve_payloads_and_composer_draft() {
 // ORACLE chatwidget/tests/goal_menu.rs:4 goal_menu_active_snapshot kind=snap owner=dialogs-pane snap=goal_menu_active
 #[test]
 fn goal_menu_active_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no goal in the port: no goal summary history cell (the bare `/goal` status) and no thread goal seed (objective, status, budget 80000, usage)",
-    );
-    // the goal summary is a history cell: its rows are compared at the top of the screen
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    let mut s = with_goal(80, 24, "active", Some(80_000));
     s.type_text("/goal").keys("enter");
-    s.assert_snap_region("goal_menu_active", 0, 0);
+    s.assert_snap_region("goal_menu_active", goal_row(&s), 0);
 }
 
 // ORACLE chatwidget/tests/goal_menu.rs:18 goal_menu_paused_snapshot kind=snap owner=dialogs-pane snap=goal_menu_paused
 #[test]
 fn goal_menu_paused_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no goal in the port: no goal summary history cell and no paused thread goal seed (no budget)",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    let mut s = with_goal(80, 24, "paused", None);
     s.type_text("/goal").keys("enter");
-    s.assert_snap_region("goal_menu_paused", 0, 0);
+    s.assert_snap_region("goal_menu_paused", goal_row(&s), 0);
 }
 
 // ORACLE chatwidget/tests/goal_menu.rs:32 goal_menu_budget_limited_snapshot kind=snap owner=dialogs-pane snap=goal_menu_budget_limited
 #[test]
 fn goal_menu_budget_limited_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no goal in the port: no goal summary history cell and no budget-limited thread goal seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    let mut s = with_goal(80, 24, "budgetLimited", Some(80_000));
     s.type_text("/goal").keys("enter");
-    s.assert_snap_region("goal_menu_budget_limited", 0, 0);
+    s.assert_snap_region("goal_menu_budget_limited", goal_row(&s), 0);
 }
 
 // ORACLE chatwidget/tests/goal_menu.rs:46 resume_paused_goal_prompt_snapshot kind=snap owner=dialogs-pane snap=resume_paused_goal_prompt
 #[test]
 fn resume_paused_goal_prompt_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no resume-paused-goal prompt in the port (the bottom popup with the objective `Keep improving the bare goal command until it feels calm and useful.`)",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(100, 9).live().open();
-    s.type_text("/goal").keys("enter");
-    s.assert_snap("resume_paused_goal_prompt");
+    // the resumed thread's goal stopped: the resume asks for it and offers to go on
+    // The oracle's snapshot is the confirmation over its composer, which holds the first 14
+    // columns of the rows: the dialog's own columns are the rest (as in `chat_popups_3`), and the
+    // oracle wraps the subtitle at the width the dialog has beside that composer, which a screen
+    // of 74 columns gives ours.
+    let s = Screen::build(Owner::DialogsPane)
+        .size(74, 10)
+        .replay(Vec::new())
+        .goal(GOAL, "paused", None)
+        .open();
+    let top = s
+        .rows()
+        .iter()
+        .position(|row| row.contains("Resume paused goal?"))
+        .unwrap_or_else(|| panic!("no question on the screen:\n{}", s.text()));
+    let want: Vec<String> = kit::snap_rows("resume_paused_goal_prompt", "")
+        .iter()
+        .map(|row| {
+            row.chars()
+                .skip(14)
+                .collect::<String>()
+                .trim_end()
+                .to_owned()
+        })
+        .collect();
+    let have: Vec<String> = s.rows()[top..top + want.len()]
+        .iter()
+        .map(|row| row.trim_end().to_owned())
+        .collect();
+    kit::assert_rows_are(&have, &want.iter().map(String::as_str).collect::<Vec<_>>());
 }
 
 // ORACLE chatwidget/tests/goal_menu.rs:62 goal_edit_prompt_snapshot kind=snap owner=dialogs-pane snap=goal_edit_prompt
 #[test]
 fn goal_edit_prompt_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no goal edit prompt in the port (the bottom popup for an active goal with budget 80000)",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(100, 5).live().open();
+    // the oracle's snapshot has its blank first row cut: the prompt is a blank row and five more
+    let mut s = with_goal(100, 6, "active", Some(80_000));
     s.type_text("/goal edit").keys("enter");
-    s.assert_snap("goal_edit_prompt");
+    s.assert_snap_region("goal_edit_prompt", 1, 0);
 }
 
 // ORACLE chatwidget/tests/goal_menu.rs:82 goal_edit_prompt_submits_preserved_status_and_budget kind=ui owner=dialogs-pane
 #[test]
 fn goal_edit_prompt_submits_preserved_status_and_budget() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no goal edit prompt in the port; the visible half is the pasted text in the prompt and the prompt closing after Enter (the submitted draft and status are events, not drawn)",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(100, 5).live().open();
+    let mut s = with_goal(100, 6, "paused", Some(80_000));
     let base = s.shot();
     s.type_text("/goal edit").keys("enter");
     s.paste(" with clearer wording");

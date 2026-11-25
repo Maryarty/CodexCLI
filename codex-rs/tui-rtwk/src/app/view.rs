@@ -128,11 +128,11 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
     let child: AnyWidget = if app.ui.debug {
         child
     } else {
-        StartupGate {
+        let gate = StartupGate {
             child,
             awaits_facts: app.ui.awaits_facts,
-        }
-        .into()
+        };
+        super::consent::ConsentGate { child: gate.into() }.into()
     };
     let home = cx.memo(
         (app.ui.presenter.place(), app.ui.presenter.delay(), child),

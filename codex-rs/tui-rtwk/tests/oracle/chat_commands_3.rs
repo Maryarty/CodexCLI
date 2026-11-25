@@ -20,6 +20,13 @@ const SIDE: &str = include_str!("fixtures/chat_commands_3/side.jsonl");
 /// `mark_fresh_task_for_sparkle`).
 const ASTRA: &str = include_str!("fixtures/chat_commands_3/astra.jsonl");
 /// A thread whose rollout file is `/tmp/codex-test-rollout.jsonl` (`current_rollout_path`).
+/// The server's completion of the turn the fake minted as `turn-{n}` in `thread-1`.
+fn completed(n: usize) -> String {
+    format!(
+        r#"{{"step": "notify", "message": {{"method": "turn/completed", "params": {{"threadId": "thread-1", "turn": {{"id": "turn-{n}", "rootTurnId": null, "items": [], "itemsView": "summary", "status": "completed", "error": null, "startedAt": null, "completedAt": null, "durationMs": null}}}}}}}}"#
+    )
+}
+
 const ROLLOUT: &str = include_str!("fixtures/chat_commands_3/rollout.jsonl");
 
 // ---- oracle: chatwidget/tests/slash_commands.rs (46 screen-level tests here; 22 state tests left to chat-nav-pane)
@@ -775,19 +782,34 @@ fn host_switch_snapshot_preserves_buffered_typing() {
 // ORACLE chatwidget/tests/startup_submission_tests.rs:22 initial_prompt_recall_precedes_cross_session_history kind=snap owner=chat-nav-pane snap=initial_prompt_recalled_composer
 #[test]
 fn initial_prompt_recall_precedes_cross_session_history() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "an initial prompt (CURRENT_A) and its follow-up submission with a history seed (log 7) are not registered; the recall and the shared-history lookup are not reachable black-box",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .message_history(&["FOREIGN_X"])
+        .initial_prompt("CURRENT_A", &[])
+        .open();
+    s.assert_turn_texts(&["CURRENT_A"]);
+    s.feed(&completed(1));
+    s.type_text("CURRENT_B");
+    s.keys("enter");
+    s.feed(&completed(2));
     s.keys("up");
     s.assert_contains("CURRENT_B");
     s.keys("up");
     s.assert_contains("CURRENT_A");
-    s.assert_snap("initial_prompt_recalled_composer");
+    // The oracle's snapshot is the bottom pane: the recalled row, a blank row, and the status
+    // line its config sets (`GPT-5.6-Sol default · /tmp/project`; the kit's session has no
+    // status-line seed, its footer is the key hints).
+    s.assert_has_row("› CURRENT_A");
     s.keys("up");
     s.assert_contains("FOREIGN_X");
-    let mut single = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut single = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .message_history(&["FOREIGN_X"])
+        .initial_prompt("CURRENT_A", &[])
+        .open();
+    single.feed(&completed(1));
     single.keys("up");
     single.assert_contains("CURRENT_A");
     single.keys("up");
@@ -797,31 +819,45 @@ fn initial_prompt_recall_precedes_cross_session_history() {
 // ORACLE chatwidget/tests/startup_submission_tests.rs:105 initial_prompt_image_preparation_preserves_recall_metadata kind=ui owner=chat-nav-pane
 #[test]
 fn initial_prompt_image_preparation_preserves_recall_metadata() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "an initial prompt with an image file (a 1x1 PNG in a temp dir) is not seedable: the kit has no file seed",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    s.keys("up");
-    s.assert_contains("describe [Image #1]");
-    let mut leading = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    leading.keys("up");
-    leading.assert_contains("[Image #1] describe");
-    // The oracle asserts the recalled text, elements and local image attachment, and the UserTurn items: the attachment is visible as the placeholder only.
+    let path = kit::image_file_sized("image.png", 1, 1);
+    for (input, recalled) in [
+        ("describe", "describe [Image #1]"),
+        ("[Image #1] describe", "[Image #1] describe"),
+    ] {
+        let mut s = Screen::build(Owner::ChatNavPane)
+            .size(80, 24)
+            .live()
+            .initial_prompt(input, std::slice::from_ref(&path))
+            .open();
+        s.assert_turn_texts(&[recalled]);
+        s.feed(&completed(1));
+        s.keys("up");
+        s.assert_contains(recalled);
+        // The oracle asserts the recalled text, elements and local image attachment, then a shared
+        // history lookup at offset 0 and the image preparation of the recalled prompt: the
+        // attachment is drawn as the placeholder.
+        s.keys("up");
+        s.keys("enter");
+    }
 }
 
 // ORACLE chatwidget/tests/startup_submission_tests.rs:204 initial_prompt_queued_before_session_is_recalled_once_after_dispatch kind=ui owner=chat-nav-pane
 #[test]
 fn initial_prompt_queued_before_session_is_recalled_once_after_dispatch() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "an initial prompt queued before the session starts (CURRENT_A) is not seedable; the queued-message pane is not registered",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .held_start()
+        .initial_prompt("CURRENT_A", &[])
+        .open();
+    s.assert_no_turn();
+    s.start_thread();
+    s.assert_turn_texts(&["CURRENT_A"]);
+    s.feed(&completed(1));
     s.keys("up");
     s.assert_contains("CURRENT_A");
-    s.keys("up");
     // The oracle then asserts a shared-history lookup at offset 0 (an event, not drawn).
+    s.keys("up");
 }
 
 // ORACLE chatwidget/tests/startup_submission_tests.rs:231 rejected_initial_prompt_is_not_recorded_in_recall_history kind=ui owner=chat-nav-pane
@@ -849,33 +885,76 @@ fn startup_submission_waits_for_session_and_sends_exactly_once() {
 // ORACLE chatwidget/tests/startup_submission_tests.rs:288 startup_submission_escape_restores_editing_without_submitting kind=snap owner=chat-nav-pane
 #[test]
 fn startup_submission_escape_restores_editing_without_submitting() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "feature startup draft (w2-composer, startup): not in the port (keep the draft, cursor 4) and the rejected-startup Disconnected restricted input are not reachable black-box",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .held_start()
+        .open();
     s.type_text("keep the draft");
-    s.keys("esc");
+    s.keys("left left left left left left left left left left");
+    let cursor = s.grid().cursor;
+    // Enter confirms it: the text stays and the footer says what it waits for
+    s.keys("enter");
     s.assert_contains("keep the draft");
-    let mut rejected = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    rejected.keys("esc");
-    rejected.assert_contains("  ⌃c quit");
+    s.assert_last_row_has("  Waiting for startup  · esc cancel");
+    // Esc cancels only the intent: the draft and its cursor are kept
+    s.keys("esc");
+    s.assert_absent("Waiting for startup");
+    s.assert_composer("keep the draft");
+    kit::assert_same(s.grid().cursor, cursor, "the cursor stayed");
+    // the session starts: nothing was confirmed, nothing goes out
+    s.start_thread();
+    s.assert_no_turn();
+    s.assert_composer("keep the draft");
+    // The oracle's second round pauses a rejected startup (a reconnect that is refused while the
+    // startup draft waits) and presses Esc on its restricted composer, which ends in `⌃c quit`;
+    // the port has no restricted composer (the draft is edited as ever while reconnecting), so
+    // that round has no counterpart, as in `disconnected_sparkle_edits_are_tracked_between_renders`.
 }
 
 // ORACLE chatwidget/tests/startup_submission_tests.rs:321 startup_submission_waits_for_protected_view_and_preserves_paste_provenance kind=ui owner=chat-nav-pane
 #[test]
 fn startup_submission_waits_for_protected_view_and_preserves_paste_provenance() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "a startup submission held behind an open approvals popup (open_approvals_popup) with a multi-line paste is not seedable black-box",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    s.paste("!echo hi\n# visible tail");
-    s.assert_contains("!echo hi");
-    s.assert_contains("# visible tail");
-    s.keys("esc");
-    s.keys("enter");
-    // The oracle's other payloads (leading spaces; 1000 x's) and its RunUserShellCommand / UserTurn ops are not drawn here.
+    let literal = format!("!echo {}", "x".repeat(1000));
+    let visible = "!echo hi\n# visible tail";
+    for payload in ["  !echo hi\n# visible tail", visible, literal.as_str()] {
+        let mut s = Screen::build(Owner::ChatNavPane)
+            .size(80, 24)
+            .live()
+            .held_start()
+            .open();
+        s.paste(payload);
+        s.keys("enter");
+        // a view over the chat (the oracle's approvals popup) holds the confirmed draft
+        s.keys("f12");
+        s.start_thread();
+        s.assert_no_turn();
+        // the page is in front again: the draft goes out as what it is
+        s.keys("esc");
+        if payload == visible {
+            // a draft that shows a shell command is not run by the startup: it stays for Enter
+            s.assert_no_turn();
+            kit::assert_same(
+                s.shell_commands(),
+                Vec::<String>::new(),
+                "no shell command ran",
+            );
+            s.assert_contains("! echo hi");
+            s.assert_contains("# visible tail");
+            s.keys("enter");
+            kit::assert_same(
+                s.shell_commands(),
+                vec!["echo hi\n# visible tail".to_string()],
+                "the second Enter runs the command",
+            );
+        } else {
+            // leading spaces or a hidden paste: a literal prompt, trimmed
+            s.assert_turn_texts(&[payload.trim()]);
+        }
+    }
+    // The oracle then pauses the rejected startup and presses Null, Left, Right and Enter on its
+    // restricted composer (nothing is sent, the confirmation stays); that pause has no
+    // counterpart here, see the test above.
 }
 
 // ORACLE chatwidget/tests/startup_submission_tests.rs:367 startup_submission_edit_or_disconnect_cancels_without_losing_draft kind=ui owner=chat-nav-pane
@@ -894,12 +973,15 @@ fn startup_submission_edit_or_disconnect_cancels_without_losing_draft() {
 // ORACLE startup_draft_layout_tests.rs:6 owned_startup_keeps_the_live_bottom_geometry kind=snap owner=chat-nav-pane snap=owned_startup_layout
 #[test]
 fn owned_startup_keeps_the_live_bottom_geometry() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the startup-owned layout (OwnedStartupLayout, status line and footer hint override) is not a screen the kit can seed",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(48, 16).live().open();
-    s.type_text("first line\nsecond line");
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(48, 16)
+        .live()
+        .held_start()
+        .open();
+    s.type_text("first line");
+    s.keys("shift+enter");
+    s.type_text("second line");
+    s.keys("enter");
     s.assert_snap("owned_startup_layout");
 }
 
@@ -908,7 +990,7 @@ fn owned_startup_keeps_the_live_bottom_geometry() {
 fn new_startup_decoration_tracks_draft_and_session_action() {
     kit::pending(
         Owner::ChatNavPane,
-        "feature startup blossom decoration (w2-composer, startup): not in the port per draft and session action is not reachable black-box; the kit has no any-braille-glyph assertion (kit gap)",
+        "the startup blossom decoration is not in the port, its pending state is the Enter-confirm startup submission (absent: Enter before the session queues the prompt), and the kit has no any-braille-glyph assertion",
     );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 32).live().open();
     s.type_text(" ");
@@ -931,18 +1013,64 @@ fn configured_welcome_opt_out_disables_blossom_and_clicks() {
 // ORACLE startup_draft_tests.rs:69 startup_draft_renders_full_empty_and_multiline_composer_frames kind=snap owner=chat-nav-pane snap=empty snap=startup_draft_full_frames
 #[test]
 fn startup_draft_renders_full_empty_and_multiline_composer_frames() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "feature pre-session startup draft (w2-composer, startup): not in the port (session actions New, Resume, Fork; a 18-column narrow frame) is not reachable black-box",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(48, 24).live().open();
-    s.assert_snap_section("startup_draft_full_frames", "empty (48 columns)");
-    s.assert_snap_section("startup_draft_full_frames", "configured (48 columns)");
-    s.assert_snap_section("startup_draft_full_frames", "resuming (48 columns)");
-    s.assert_snap_section("startup_draft_full_frames", "forking (48 columns)");
-    s.assert_snap_section("startup_draft_full_frames", "multiline (48 columns)");
-    s.resize(18, 24);
-    s.assert_snap_section("startup_draft_full_frames", "narrow (18 columns)");
+    // The oracle renders the draft pump six times (a session action, a width, a text); each is
+    // one chat here, opened before its session starts, inline under no shell rows.
+    const LABELS: [&str; 6] = [
+        "empty (48 columns)",
+        "configured (48 columns)",
+        "resuming (48 columns)",
+        "forking (48 columns)",
+        "multiline (48 columns)",
+        "narrow (18 columns)",
+    ];
+    let startup = |width: u16| {
+        Screen::build(Owner::ChatNavPane)
+            .size(width, 24)
+            .live()
+            .held_start()
+            .inline(&[])
+    };
+    startup(48)
+        .open()
+        .snap("startup_draft_full_frames")
+        .labelled(&LABELS)
+        .frame("empty (48 columns)")
+        .assert();
+    let mut configured = startup(48).open();
+    configured.configured_cwd("workspace");
+    configured
+        .snap("startup_draft_full_frames")
+        .labelled(&LABELS)
+        .frame("configured (48 columns)")
+        .assert();
+    startup(48)
+        .resume("saved")
+        .open()
+        .snap("startup_draft_full_frames")
+        .labelled(&LABELS)
+        .frame("resuming (48 columns)")
+        .assert();
+    let mut forking = startup(48).fork("saved").open();
+    forking.type_text("draft while loading");
+    forking
+        .snap("startup_draft_full_frames")
+        .labelled(&LABELS)
+        .frame("forking (48 columns)")
+        .assert();
+    let mut multiline = startup(48).open();
+    multiline.paste("first startup line\nsecond startup line");
+    multiline
+        .snap("startup_draft_full_frames")
+        .labelled(&LABELS)
+        .frame("multiline (48 columns)")
+        .assert();
+    let mut narrow = startup(18).open();
+    narrow.paste("first startup line\nsecond startup line");
+    narrow
+        .snap("startup_draft_full_frames")
+        .labelled(&LABELS)
+        .frame("narrow (18 columns)")
+        .assert();
 }
 
 // ORACLE startup_draft_tests.rs:148 terminal_app_ssh_fallback_renders_inline_startup kind=snap owner=chat-nav-pane snap=terminal_app_ssh_startup
@@ -985,13 +1113,26 @@ fn startup_draft_clears_loading_status_when_starting_fresh() {
 // ORACLE startup_draft_tests.rs:294 startup_draft_hydrates_its_header_without_moving_the_composer kind=ui owner=chat-nav-pane
 #[test]
 fn startup_draft_hydrates_its_header_without_moving_the_composer() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "feature startup header (w2-composer, startup): not in the port's directory line (loading, then the configured cwd) is not reachable black-box",
-    );
-    let s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    s.assert_contains("directory: loading");
-    // The oracle then asserts the directory line equals the configured cwd, and that the composer height did not move: the cwd is not known to the kit.
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .held_start()
+        .inline(&[])
+        .open();
+    s.assert_has_row("     loading");
+    let composer = |s: &Screen| {
+        s.rows()
+            .iter()
+            .position(|row| row.starts_with("› "))
+            .expect("the composer")
+    };
+    let before = composer(&s);
+    // The host has read the config: the heading's directory is the configured one, on the same
+    // row, and the composer did not move.
+    s.configured_cwd("workspace");
+    s.assert_has_row("     workspace");
+    s.assert_absent("loading");
+    kit::assert_same(composer(&s), before, "the composer did not move");
 }
 
 // ORACLE startup_draft_tests.rs:690 startup_draft_applies_super_editor_keymap_without_inserting_pending_newline kind=snap owner=chat-nav-pane snap=startup_draft_safe_chord_guide
@@ -999,7 +1140,7 @@ fn startup_draft_hydrates_its_header_without_moving_the_composer() {
 fn startup_draft_applies_super_editor_keymap_without_inserting_pending_newline() {
     kit::pending(
         Owner::ChatNavPane,
-        "feature startup draft (w2-composer, startup): not in the port with a super-z editor keymap and the F12 chord guide need the keymap seed (not registered) and the startup draft",
+        "needs multi-key editor chords (`f12 e` as editor.move_line_end, `f12 h` as history search) and the safe-chord guide drawn after the reveal delay, plus a `super+z` single-key editor binding applied while the startup draft is open (a pending paste newline must not be inserted); the startup draft itself is built (Enter confirms it, f-startup-confirm), the editor-chord ladder is f-find-core's, the guide is follow-up f-startup-chords",
     );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("draft");

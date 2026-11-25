@@ -32,6 +32,7 @@ use codex_tui_rtwk::Cli;
 use codex_tui_rtwk::app::UiApp;
 use codex_tui_rtwk::app::run::run_on;
 use codex_tui_rtwk::services::shell::Backend;
+use codex_tui_rtwk::services::startup::UpdateAction;
 
 /// How long `main` waits for the backend future to hand the client back.
 const SHUTDOWN_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -100,6 +101,7 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
         startup_warning,
         failed: failed_tx,
         agents: cli.agents,
+        launch_prompt: cli.prompt.as_ref().is_some_and(|prompt| !prompt.is_empty()),
         update: update.clone(),
         startup_failure: startup_failure.clone(),
     }));
@@ -117,9 +119,13 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
         .with_start_agents(cli.agents)
         .with_start_resume(cli.resume)
         .with_awaited_facts(true)
+        .with_folder_consent(true)
         .with_lang(cli.lang(&rtwk::l10n::requested()));
     if let Some(start) = cli.session.clone() {
         app = app.with_start_session(start);
+    }
+    if let Some(message) = cli.initial_message(cli.lang(&rtwk::l10n::requested())) {
+        app = app.with_initial_prompt(message);
     }
     let result = run_on(app, !cli.no_alt_screen);
     // Quitting aborted the backend future (rtwk unmounts the app and aborts
@@ -139,8 +145,14 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
         anyhow::bail!(message);
     }
     let chosen = update.lock().ok().and_then(|mut slot| slot.take());
-    if let Some(action) = chosen {
-        update::run_update(action).map_err(anyhow::Error::msg)?;
+    match chosen {
+        Some(UpdateAction::Daemon(source)) => {
+            update::run_daemon_update(daemon::update_output(source, cli.config_overrides.clone()))
+                .await
+                .map_err(anyhow::Error::msg)?;
+        }
+        Some(action) => update::run_update(action).map_err(anyhow::Error::msg)?,
+        None => {}
     }
     Ok(())
 }

@@ -18,6 +18,11 @@ pub fn assert_same<T: PartialEq + std::fmt::Debug>(got: T, want: T, why: &str) {
     pretty_assertions::assert_eq!(got, want, "{why}");
 }
 
+/// `got` is not `other`, `why` says which.
+pub fn assert_differs<T: PartialEq + std::fmt::Debug>(got: T, other: T, why: &str) {
+    pretty_assertions::assert_ne!(got, other, "{why}");
+}
+
 impl Screen {
     /// The chart's rows as the oracle draws them (`chart_lines` at a graph width, trailing blanks
     /// cut), found anywhere on the screen: the first row is the one that ends with the first

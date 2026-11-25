@@ -388,6 +388,8 @@ pub enum Out {
     Chat(ChatFacts),
     /// A verb of the whitelist for the one that owns it (`PublicVerb`): the app routes it.
     Verb(PublicVerb),
+    /// The app ends now (`ExitMode::Immediate`): what the host kept for after the exit runs.
+    End,
 }
 
 /// What the chat's footer and its command gate read of the thread in use, said by the feature that
@@ -483,6 +485,12 @@ impl<'a> AppCx<'a> {
     /// owner's own step, nothing goes through the UI.
     pub fn verb(&mut self, verb: PublicVerb) {
         self.out.push(Out::Verb(verb));
+    }
+
+    /// Ends the app (`ExitMode::Immediate`): the view quits, the host runs what it kept for after
+    /// the exit (a daemon update).
+    pub fn end_app(&mut self) {
+        self.out.push(Out::End);
     }
 
     /// Shows `thread`, resuming it when this process does not hold it (`Feature::thread_opened`

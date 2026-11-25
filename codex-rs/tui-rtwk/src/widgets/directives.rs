@@ -18,9 +18,9 @@ use rtwk::navigation::Route;
 use rtwk::provider::{read, select};
 use rtwk::{AnyWidget, Cx, Handler, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::app::SessionSlice;
+use codex_tui_core::app::{Session, SessionSlice};
 use codex_tui_core::ids::ThreadId;
-use codex_tui_core::threads::{DueCommand, Restore, ThreadModel, UserMessage};
+use codex_tui_core::threads::{DueCommand, Restore, ThreadModel, UserMessage, startup};
 
 /// What changed in the model that the page acts on once.
 #[derive(Clone, Debug, PartialEq)]
@@ -30,6 +30,9 @@ pub enum Edge {
     /// The thread's replayed submissions are new to the page (a resume, older turns in front):
     /// the composer's history is seeded from them.
     Replayed,
+    /// A message went out for the user without the composer (the launch's prompt): the
+    /// composer's recall keeps it.
+    Recorded(UserMessage),
     /// The messages the model gave back to the composer (an interrupt, a failed steer, the
     /// edit-queued key).
     Restore(Restore),
@@ -43,6 +46,9 @@ pub enum Edge {
     /// The page is the route in front again after it was not (a sheet over it closed): what the
     /// queue waited for may be over.
     Front,
+    /// The session is configured and its thread takes input (a turn pending or running, a
+    /// model known to be empty, a held queue are over): what waited for the session may go on.
+    Ready,
     /// A thread was archived or deleted and the page is in front.
     Removed,
     /// The server refused a fork (the copy never opens): the page stops waiting on it.
@@ -55,6 +61,7 @@ struct Counters {
     thread: ThreadId,
     submitted: Option<u64>,
     replayed: u64,
+    recorded: Option<u64>,
     restore: Option<u64>,
     draft: Option<u64>,
     plan: Option<u64>,
@@ -69,6 +76,8 @@ struct Deps {
     fork_failed: u32,
     /// The page is the route in front: a removal waits until it is.
     current: bool,
+    /// The session is configured and its thread idle (`startup::confirm_ready`).
+    ready: bool,
 }
 
 /// The one list of what the listener selects (asked by its `did_change_dependencies` and its
@@ -80,6 +89,7 @@ fn deps<S: 'static>(cx: &mut Cx<'_, S>) -> Deps {
             thread: thread.id().clone(),
             submitted: thread.submit_seq(),
             replayed: thread.replayed_submissions().generation(),
+            recorded: thread.recorded().map(|(seq, _)| seq),
             restore: thread.restore().map(Restore::seq),
             draft: slots.backtrack.restore.as_ref().map(|restore| restore.seq),
             plan: slots.chat.plan.prompt().map(|prompt| prompt.seq),
@@ -91,11 +101,14 @@ fn deps<S: 'static>(cx: &mut Cx<'_, S>) -> Deps {
     let fork_failed = select::<SessionSlice, u32, _>(cx, move |session| {
         session.fork_failed.get(&thread).copied().unwrap_or(0)
     });
+    let idle = select::<ThreadModel, bool, _>(cx, startup::thread_idle);
+    let started = select::<SessionSlice, bool, _>(cx, |session| session.status == Session::Ready);
     Deps {
         counters,
         removed,
         fork_failed,
         current: Route::is_current_of(cx),
+        ready: idle && started,
     }
 }
 
@@ -114,6 +127,8 @@ pub struct ListenerState {
     removed: Option<u32>,
     /// Whether the page was in front at the last look.
     front: bool,
+    /// Whether the session was ready at the last look.
+    ready: bool,
 }
 
 impl StatefulWidget for Listener {
@@ -150,8 +165,15 @@ impl State for ListenerState {
             removed,
             fork_failed,
             current,
+            ready,
         } = deps(cx);
         let before = self.seen.replace(now.clone());
+        // false to true: what waited for the session goes on, once (a model that arrives later,
+        // or a turn that ends, is such a change too)
+        if ready && !std::mem::replace(&mut self.ready, ready) {
+            cx.emit(&w.on_edge, Edge::Ready);
+        }
+        self.ready = ready;
         if Self::moved(before.as_ref(), &now, |c| c.submitted) {
             cx.emit(&w.on_edge, Edge::Submitted);
         }
@@ -165,6 +187,15 @@ impl State for ListenerState {
         let replayed = |c: &Counters| (c.thread.clone(), c.replayed);
         if before.as_ref().map(replayed) != Some(replayed(&now)) && now.replayed > 0 {
             cx.emit(&w.on_edge, Edge::Replayed);
+        }
+        // a prompt the launch sent is on the thread when the page first looks at it: a first
+        // look counts, as for the replayed submissions
+        let recorded = |c: &Counters| (c.thread.clone(), c.recorded);
+        if now.recorded.is_some()
+            && before.as_ref().map(recorded) != Some(recorded(&now))
+            && let Some((_, message)) = read::<ThreadModel, _>(cx).recorded()
+        {
+            cx.emit(&w.on_edge, Edge::Recorded(message.clone()));
         }
         if Self::moved(before.as_ref(), &now, |c| c.draft) {
             let thread = read::<ThreadModel, _>(cx);

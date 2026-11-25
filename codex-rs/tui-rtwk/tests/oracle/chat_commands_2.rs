@@ -222,13 +222,9 @@ fn bare_goal_slash_command_drains_pending_submission_state() {
 // ORACLE chatwidget/tests/slash_commands.rs:885 goal_control_slash_commands_emit_goal_events kind=ui owner=chat-nav-pane
 #[test]
 fn goal_control_slash_commands_emit_goal_events() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "/goal is not available yet in the port, and the vim-mode composer seed is missing: the keys leave 'x.' where the oracle has 'xx'",
-    );
     // The oracle enables the Goals feature and vim mode before each case.
     for command in ["/goal clear", "/goal pause", "/goal resume"] {
-        let mut s = Screen::build(Owner::ChatNavPane).live().open();
+        let mut s = Screen::build(Owner::ChatNavPane).live().vim_mode().open();
         s.type_text(command).keys("esc enter");
         s.keys("x right esc .");
         s.assert_has_row("› xx");
@@ -238,16 +234,17 @@ fn goal_control_slash_commands_emit_goal_events() {
 // ORACLE chatwidget/tests/slash_commands.rs:938 goal_control_slash_command_without_thread_shows_full_usage kind=snap owner=chat-nav-pane
 #[test]
 fn goal_control_slash_command_without_thread_shows_full_usage() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "/goal is not available yet in the port ('/goal' is not available yet.): the Goals feature is not built and the test enables it",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).live().open();
+    // no thread yet; the oracle's cell is one line (`new_info_event`: the hint follows the
+    // message), wide enough here not to wrap
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(120, 24)
+        .live()
+        .held_start()
+        .open();
     s.type_text("/goal pause").keys("esc enter");
-    s.assert_in_order(&[
-        "• Usage: /goal [<objective>|clear|edit|pause|resume]",
-        "The session must start before you can change a goal.",
-    ]);
+    s.assert_has_row(
+        "• Usage: /goal [<objective>|clear|edit|pause|resume] The session must start before you can change a goal.",
+    );
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:1015 queued_goal_slash_command_restores_large_paste_for_edit kind=ui owner=chat-nav-pane

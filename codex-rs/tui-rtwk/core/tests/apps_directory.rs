@@ -7,6 +7,7 @@
 //! `Apps::scope`; oracle `refresh_connector_directory_after_notification`,
 //! `invalidate_connector_scope`, `connectors_for_mentions`).
 
+use codex_tui_core::app::AppEv;
 use codex_tui_core::fixtures::sandbox::Sandbox;
 use codex_tui_core::screens::select::apps::Cache;
 use serde_json::json;
@@ -90,4 +91,55 @@ fn an_account_change_forgets_the_directory_and_ends_the_apps_sheet() {
         1,
         "the sheet over the directory is of another scope now"
     );
+}
+
+fn list_apps(sandbox: &mut Sandbox) {
+    sandbox.send(AppEv::Intent(codex_tui_core::app::Intent::Screen(
+        codex_tui_core::screens::ScreenIntent::Popovers(
+            codex_tui_core::screens::popovers::Intent::ListApps,
+        ),
+    )));
+}
+
+/// The first `$` popup reads the directory once (the oracle reads it eagerly): a second one while
+/// it is read or held asks nothing more.
+#[test]
+fn the_first_dollar_popup_reads_the_directory_once() {
+    let mut sandbox = Sandbox::play(SESSION).expect("plays");
+    assert!(sandbox.app().screens().select.apps.pending.is_none());
+    list_apps(&mut sandbox);
+    let asked = sandbox.app().screens().select.apps.pending;
+    assert!(asked.is_some(), "app/list is asked");
+    list_apps(&mut sandbox);
+    assert_eq!(sandbox.app().screens().select.apps.pending, asked);
+}
+
+/// With the apps feature off nothing is asked.
+#[test]
+fn the_dollar_popup_asks_no_directory_without_the_apps_feature() {
+    let script = [
+        SESSION.to_string(),
+        r#"{"step":"screen","dir":"chat","ev":{"flags":{"connectors_enabled":false}}}"#.to_string(),
+    ]
+    .join("\n");
+    let mut sandbox = Sandbox::play(&script).expect("plays");
+    list_apps(&mut sandbox);
+    assert!(sandbox.app().screens().select.apps.pending.is_none());
+}
+
+/// A new scope forgets the directory: the next `$` reads it again.
+#[test]
+fn the_dollar_popup_reads_the_directory_again_after_a_scope_change() {
+    let script = [
+        SESSION.to_string(),
+        r#"{"step":"notify","message":{"method":"account/updated","params":{"authMode":null,"planType":null}}}"#.to_string(),
+    ]
+    .join("\n");
+    let mut sandbox = Sandbox::play(&script).expect("plays");
+    assert_eq!(
+        sandbox.app().screens().select.apps.cache,
+        Cache::Uninitialized
+    );
+    list_apps(&mut sandbox);
+    assert!(sandbox.app().screens().select.apps.pending.is_some());
 }

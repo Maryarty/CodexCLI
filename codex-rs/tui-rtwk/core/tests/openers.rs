@@ -304,15 +304,48 @@ fn a_restart_is_confirmed_asked_once_and_reports_its_failure() {
 }
 
 #[test]
-fn an_update_is_confirmed_then_left_for_the_shell() {
+fn an_update_asks_the_host_and_ends_the_app_when_it_is_queued() {
     let mut app = ready();
     told(&mut app, local(true, Some(cli(true))));
     verb(&mut app, Verb::ConfirmUpdate(Source::ThisCli));
     assert_eq!(menus(&app), vec![Menu::ConfirmUpdate(Source::ThisCli)]);
-    assert_eq!(state(&app).update_wanted(), None);
     let fx = verb(&mut app, Verb::Update(Source::ThisCli));
-    assert_eq!(asks(&fx), vec![], "the update runs after Codex exits");
-    assert_eq!(state(&app).update_wanted(), Some(Source::ThisCli));
+    let asked = asks(&fx);
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert_eq!(
+        asked[0].1,
+        Ask::BackgroundServer(DaemonAsk::Update(Source::ThisCli))
+    );
+    assert!(
+        !fx.ends_app(),
+        "the app ends when the host has kept the update"
+    );
+    // A second choice while the first is out asks nothing more.
+    let again = verb(&mut app, Verb::Update(Source::PublicStable));
+    assert_eq!(asks(&again), vec![]);
+    let fx = run(
+        &mut app,
+        AppEv::Effect {
+            request: asked[0].0,
+            done: Done::BackgroundServer(DaemonDone::UpdateQueued),
+        },
+    );
+    assert!(fx.ends_app());
+}
+
+#[test]
+fn a_reconnect_keeps_the_daemon_the_probe_proved() {
+    let mut daemon = State::default();
+    daemon.told(local(true, Some(cli(true))));
+    // The host tells the connection again, as it does not know the probe's answer.
+    daemon.told(local(false, Some(cli(true))));
+    assert_eq!(daemon.verb(Verb::Open), Some(Step::Show(Menu::Main)));
+    assert!(!daemon.page().rows[2].disabled);
+    // Another server is not the proved one.
+    let mut other = local(false, Some(cli(true)));
+    other.connection.as_mut().unwrap().local_daemon = false;
+    daemon.told(other);
+    assert!(daemon.page().rows[2].disabled);
 }
 
 #[test]

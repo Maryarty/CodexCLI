@@ -255,7 +255,10 @@ impl MentionSession {
             }
         }
         match &mut self.active {
-            Active::At(popup) => popup.set_query(&query),
+            Active::At(popup) => {
+                popup.set_candidates(build_search_catalog(src.mentions, src.tasks));
+                popup.set_query(&query);
+            }
             _ => {
                 self.active = Active::At(Popup::new(
                     build_search_catalog(src.mentions, src.tasks),

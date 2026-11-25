@@ -150,9 +150,10 @@ pub(super) fn run(
     flags.service_tier_commands_enabled = !tiers.is_empty();
     let facts = DispatchCx {
         flags,
-        task_running: thread.is_running(),
+        task_running: thread.busy(), // a turn running or a start in flight
         side_conversation: states.chat.flags.side_conversation_active,
         review_mode: thread.screen_slots().chat.review_mode(),
+        queued_follow_up: !thread.queue().is_empty() || !thread.rejected_steers().is_empty(),
         thread_started: matches!(session.status, Session::Ready),
         has_backend_auth: states.chat.signed_in,
     };
@@ -229,7 +230,7 @@ pub(super) fn run(
                 record(cx);
                 let message = queue::message(line, w, cx, &states);
                 // (the queue key and the drain left before dispatch)
-                cx.emit(&hs.submit, message);
+                queue::send(cx, hs, message, session.active.clone());
             }
         }
         // A feature's own sheet (`/plugins`, a bare `/export`): its UI half opens it with the

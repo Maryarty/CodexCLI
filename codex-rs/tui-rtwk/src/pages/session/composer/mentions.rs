@@ -11,6 +11,7 @@ use rtwk::editing::TextEditingController;
 use rtwk::focus::KeyPress;
 use rtwk::provider::read;
 
+use codex_tui_core::data::files::FileSearchAsk;
 use codex_tui_core::kit::mentions::session::{Active, MentionPick, PickAction};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, popovers};
 
@@ -77,17 +78,37 @@ pub(super) fn sync(w: &Composer, states: &ScreenStates, cx: &mut Cx<'_, Composer
         || draft.searching()
         || vim::mode(draft).searching
         || draft.history_browsing(c, &states.popovers.history);
+    let dollar = || {
+        draft
+            .mentions()
+            .read(|session| matches!(session.active(), Active::Dollar(_)))
+    };
+    let was_dollar = dollar();
     let synced = if closes {
         draft.mentions().close()
     } else {
         draft.sync_mentions(c, &states.popovers.sources())
     };
+    // the first `$` popup asks the app for the directory of apps it lists
+    if !was_dollar && dollar() {
+        emit(cx, vec![popovers::Intent::ListApps]);
+    }
+    // the `@` token's query also searches the user's other tasks
+    let tasks: Vec<_> = synced
+        .asks
+        .iter()
+        .filter_map(|ask| match ask {
+            FileSearchAsk::Query(query) => Some(popovers::Intent::SearchTasks(query.clone())),
+            FileSearchAsk::Stop => None,
+        })
+        .collect();
     let asks = synced
         .asks
         .into_iter()
         .map(popovers::Intent::SearchFiles)
         .collect();
     emit(cx, asks);
+    emit(cx, tasks);
     if synced.changed {
         draft.mentions().notify();
     }

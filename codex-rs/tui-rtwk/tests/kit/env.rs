@@ -128,6 +128,8 @@ pub(super) struct Env {
     replay: Option<Vec<serde_json::Value>>,
     /// The resumed thread's own status is `active` (a thread that is really running).
     replay_active: bool,
+    /// The goal the server holds for the resumed thread (`thread/goal/get`).
+    goal: Option<serde_json::Value>,
     /// What the host announces to the first conversation.
     announced: Vec<Notice>,
     /// What the host knows of the account's cyber access.
@@ -136,6 +138,8 @@ pub(super) struct Env {
     pub(super) thread_start: Option<serde_json::Value>,
     /// `show_raw_agent_reasoning` is on.
     raw_reasoning: bool,
+    /// The prompts of the message history file (other sessions'), oldest first.
+    pub(super) message_history: Vec<String>,
     /// How the run started, as the host says.
     startup: Option<Startup>,
     /// `tui.show_tooltips` is off.
@@ -207,6 +211,12 @@ impl Env {
             h.connect();
             h.inject([AppEv::Daybreak(access.clone())]);
         }
+        if !self.message_history.is_empty() {
+            h.connect();
+            h.inject([AppEv::Screen(ScreenEv::Popovers(
+                codex_tui_core::screens::popovers::Ev::History(self.message_history.clone()),
+            ))]);
+        }
         if self.raw_reasoning {
             h.connect();
             h.inject([AppEv::Screen(ScreenEv::Cells(CellsEv::RawReasoning(true)))]);
@@ -266,10 +276,15 @@ impl Env {
             // recorded turns: the chat replays them as history
             let turns = turns.clone();
             let active = self.replay_active;
-            h.fake.respond(move |request| {
-                (request["method"] == "thread/resume")
-                    .then(|| Ok(resume_response(REPLAYED, &turns, active)))
-            });
+            let goal = self.goal.clone();
+            h.fake
+                .respond(move |request| match request["method"].as_str() {
+                    Some("thread/resume") => Some(Ok(resume_response(REPLAYED, &turns, active))),
+                    Some("thread/goal/get") => goal
+                        .clone()
+                        .map(|goal| Ok(serde_json::json!({ "goal": goal }))),
+                    _ => None,
+                });
             h.connect();
             h.quiesce();
             let listed = Page {
@@ -364,6 +379,24 @@ impl Open {
     /// `replay_thread_turns` / `initial_messages`.
     pub fn replay(mut self, turns: Vec<serde_json::Value>) -> Open {
         self.env.replay = Some(turns);
+        self
+    }
+
+    /// The server holds a goal for the thread [`Open::replay`] resumes (the oracle's `test_goal`:
+    /// 90 s and 12.5K tokens used) in `status` (`active`, `paused`, `budgetLimited`..), with
+    /// `token_budget`: the resume asks for it (`thread/goal/get`) and a paused one offers
+    /// `Resume paused goal?`.
+    pub fn goal(mut self, objective: &str, status: &str, token_budget: Option<i64>) -> Open {
+        self.env.goal = Some(serde_json::json!({
+            "threadId": REPLAYED,
+            "objective": objective,
+            "status": status,
+            "tokenBudget": token_budget,
+            "tokensUsed": 12_500,
+            "timeUsedSeconds": 90,
+            "createdAt": 1_776_272_400,
+            "updatedAt": 1_776_272_460,
+        }));
         self
     }
 

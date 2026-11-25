@@ -19,7 +19,7 @@ pub struct UserPrompt {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Shown<'a> {
     pub text: Cow<'a, str>,
-    pub elements: &'a [Range<usize>],
+    pub elements: Cow<'a, [Range<usize>]>,
 }
 
 /// The marker the prompt of a request with context carries before the user's own words
@@ -49,13 +49,33 @@ impl UserPrompt {
     /// elements, their byte ranges no longer fit it. The text itself, which
     /// the model has and steers are matched by, is not touched.
     pub fn shown(&self) -> Shown<'_> {
+        // an answer to an async question shows as the question quoted over the answer
+        // (`display_replies`), whoever sent it
+        if let Some(text) = crate::question_reply::display_text(&self.text) {
+            return Shown {
+                text: Cow::Owned(without_controls(&text).into_owned()),
+                elements: Cow::Borrowed(&[]),
+            };
+        }
         let text = without_controls(&self.text);
         let elements = if matches!(text, Cow::Borrowed(_)) {
             self.elements.as_slice()
         } else {
             &[]
         };
-        Shown { text, elements }
+        // a task mention was sent as its link: the history shows the `@title` the user typed
+        // (`decode_task_links`)
+        if !elements.is_empty() && text.contains("thread://") {
+            let (decoded, moved) = crate::kit::mentions::decode_task_links(&text, elements);
+            return Shown {
+                text: Cow::Owned(decoded),
+                elements: Cow::Owned(moved),
+            };
+        }
+        Shown {
+            text,
+            elements: Cow::Borrowed(elements),
+        }
     }
 
     pub(super) fn from_input(content: &[UserInput]) -> Self {

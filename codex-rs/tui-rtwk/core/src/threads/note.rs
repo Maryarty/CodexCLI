@@ -33,7 +33,7 @@ pub enum Toggle {
 }
 
 /// Why `/cd` did not change the directory.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CdRefusal {
     /// The session has not started (`request_working_directory_change`).
     NotStarted,
@@ -42,6 +42,8 @@ pub enum CdRefusal {
     NotIdle,
     /// The conversation has no saved history to carry over.
     HistoryNotSaved,
+    /// The folder's trust could not be read (`Unable to check folder trust`): the error.
+    TrustCheck(String),
 }
 
 /// Why `/archive` or `/delete` did not remove the thread.

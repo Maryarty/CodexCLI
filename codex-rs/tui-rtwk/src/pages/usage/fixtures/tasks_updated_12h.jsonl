@@ -1,0 +1,4 @@
+# `twelve_hour_metadata_keeps_utc_across_renderers` (recovery_tests.rs): a Plus account's Chats
+# report, one chat without usage, listed at 16:00 UTC, on a 12-hour clock.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"usage","ev":{"account":{"plan":"plus","today":"2026-09-02","hour24":false},"section":"chats","histories":[],"tasks":{"ready":{"rows":[{"title":"Clock fixture"}],"updated_at":1788364800}}}}

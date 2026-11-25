@@ -3,6 +3,19 @@
 //! query leaves of them, what picking a row puts in the draft and the tools a message names.
 //! Plain values (`core::data`); looks (tag colours) are the view's.
 
+use std::ops::Range;
+
+use crate::ids::ThreadId;
+
+/// A task an `@` mention of the message names: where `@title` stands in the text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TaskRef {
+    pub range: Range<usize>,
+    pub title: String,
+    /// The thread's id (the path is `thread://<id>`).
+    pub thread: ThreadId,
+}
+
 /// What a mention is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MentionKind {

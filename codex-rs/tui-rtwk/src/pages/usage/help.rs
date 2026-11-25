@@ -75,7 +75,8 @@ pub(super) fn body(lines: Vec<String>) -> AnyWidget {
     Column::new()
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .children(lines.into_iter().map(|line| -> AnyWidget {
-            Text::line(line)
+            // Text::new breaks at words and shows every line (`Text::line` would cut with `…`)
+            Text::new(line)
                 .style(Style::default())
                 .wrap(TextWrap::Word)
                 .into()

@@ -7,7 +7,8 @@
 
 use rtwk::l10n::NumSyms;
 use rtwk::layout::{
-    Center, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row, SizedBox,
+    Center, Column, CrossAxisAlignment, CustomPaint, EdgeInsets, Expanded, MainAxisSize, Padding,
+    Row, SizedBox,
 };
 use rtwk::style::{Span, Style};
 use rtwk::text::{Text, TextAlign, TextWrap};
@@ -22,6 +23,7 @@ use codex_tui_core::screens::usage::{Load, Section, TokenActivityView, View};
 
 use super::Look;
 use super::cards::{Fit, Item};
+use super::palette::{ActivityPainter, Glyphs, Seg, Source};
 use super::strings::Strings;
 use super::{gap, line, nothing};
 
@@ -252,53 +254,91 @@ fn chart(
             CHART_LEFT_WIDTH as i32,
             line(chart.months.clone(), look.dim.clone()).into(),
         ));
-    for (row, cells) in chart.rows.iter().enumerate() {
-        let mut spans = vec![Span::styled(gutter(view, row, strings), look.dim.clone())];
-        for (at, cell) in cells.iter().enumerate() {
-            if at > 0 {
-                spans.push(Span::styled(strings.cell_gap, Style::default()));
+    let glyphs = Glyphs {
+        empty: strings.cell_empty,
+        active: strings.cell_active,
+        bar: strings.cell_bar,
+        gap: strings.cell_gap,
+    };
+    let source = Source::of(look, glyphs, view);
+    let rows: Vec<Vec<Seg>> = chart
+        .rows
+        .iter()
+        .enumerate()
+        .map(|(row, cells)| {
+            let mut segs = vec![Seg::Text(gutter(view, row, strings), look.dim.clone())];
+            for (at, cell) in cells.iter().enumerate() {
+                if at > 0 {
+                    segs.push(Seg::Text(strings.cell_gap.to_owned(), Style::default()));
+                }
+                segs.push(Seg::Cell(*cell));
             }
-            spans.push(glyph(view, *cell, strings, look));
-        }
-        column = column.child(Text::rich(spans).wrap(TextWrap::None).max_lines(1));
-    }
+            segs
+        })
+        .collect();
+    column = column.child(SizedBox::new(
+        None,
+        Some(chart.rows.len() as i32),
+        Some(
+            CustomPaint::new()
+                .painter(ActivityPainter {
+                    source: source.clone(),
+                    rows,
+                })
+                .into(),
+        ),
+    ));
     column = column.child(gap());
-    let caption = match chart.caption {
+    let caption: AnyWidget = match chart.caption {
         Caption::Legend => {
-            let mut spans = vec![
-                Span::styled(strings.caption_indent, look.dim.clone()),
-                Span::styled(strings.less, look.dim.clone()),
-                Span::styled(strings.cell_gap, look.dim.clone()),
+            let mut segs = vec![
+                Seg::Text(strings.caption_indent.to_owned(), look.dim.clone()),
+                Seg::Text(strings.less.to_owned(), look.dim.clone()),
+                Seg::Text(strings.cell_gap.to_owned(), look.dim.clone()),
             ];
             for level in 0..=4 {
                 if level > 0 {
-                    spans.push(Span::styled(strings.cell_gap, Style::default()));
+                    segs.push(Seg::Text(strings.cell_gap.to_owned(), Style::default()));
                 }
-                spans.push(glyph(
-                    TokenActivityView::Daily,
-                    Square::Level(level),
-                    strings,
-                    look,
-                ));
+                segs.push(Seg::Cell(Square::Level(level)));
             }
-            spans.push(Span::styled(strings.cell_gap, look.dim.clone()));
-            spans.push(Span::styled(strings.more, look.dim.clone()));
-            Text::rich(spans)
+            segs.push(Seg::Text(strings.cell_gap.to_owned(), look.dim.clone()));
+            segs.push(Seg::Text(strings.more.to_owned(), look.dim.clone()));
+            SizedBox::new(
+                None,
+                Some(1),
+                Some(
+                    CustomPaint::new()
+                        .painter(ActivityPainter {
+                            source: Source {
+                                view: TokenActivityView::Daily,
+                                ..source
+                            },
+                            rows: vec![segs],
+                        })
+                        .into(),
+                ),
+            )
+            .into()
         }
         Caption::Peak { lead, peak } => Text::rich([
             Span::styled(strings.caption_indent, look.dim.clone()),
             Span::styled(lead, look.dim.clone()),
             Span::styled(compact_amount(peak as f64), look.accent.clone()),
-        ]),
+        ])
+        .wrap(TextWrap::None)
+        .into(),
         Caption::NoActivity => Text::rich([
             Span::styled(strings.caption_indent, look.dim.clone()),
             Span::styled(strings.no_activity, look.dim.clone()),
-        ]),
+        ])
+        .wrap(TextWrap::None)
+        .into(),
     };
     let _ = num;
     // The months, the rows, a blank row and the caption.
     let rows = chart.rows.len() + 3;
-    Item::new(column.child(caption.wrap(TextWrap::None)), rows)
+    Item::new(column.child(caption), rows)
 }
 
 /// The left gutter of a row: weekday names, or the axis of the bar views.
@@ -311,22 +351,6 @@ fn gutter(view: TokenActivityView, row: usize, strings: &Strings) -> String {
         6 => strings.axis_zero.to_owned(),
         _ => strings.axis_none.to_owned(),
     }
-}
-
-/// A cell: the hollow glyph for an empty day, the full one for the others;
-/// bars are full blocks (oracle: `palette.rs`, the low-colour spelling).
-fn glyph(view: TokenActivityView, cell: Square, strings: &Strings, look: &Look) -> Span {
-    let level = match cell {
-        Square::Blank => return Span::styled(strings.cell_gap, Style::default()),
-        Square::Level(level) => level,
-    };
-    let (shown, style) = match (view, level) {
-        (TokenActivityView::Daily, 0) => (strings.cell_empty, look.dim.clone()),
-        (TokenActivityView::Daily, _) => (strings.cell_active, look.accent.clone()),
-        (_, 0) => (strings.cell_gap, look.dim.clone()),
-        (_, _) => (strings.cell_bar, look.accent.clone()),
-    };
-    Span::styled(shown, style)
 }
 
 /// A label at the left and its value at the right of the room it gets.

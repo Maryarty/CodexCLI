@@ -16,6 +16,7 @@ use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, StatelessWidget, impl_widget};
 
 use codex_tui_core::keymap::actions::{CHAT_EDIT_QUEUED_MESSAGE, CHAT_INTERRUPT_TURN};
+use codex_tui_core::question_reply as reply;
 use codex_tui_core::threads::ThreadModel;
 
 use crate::widgets::measure;
@@ -42,17 +43,17 @@ impl Pending {
             steers: thread
                 .pending_steers()
                 .iter()
-                .map(|steer| steer.message().text.clone())
+                .map(|steer| shown(&steer.message().text))
                 .collect(),
             rejected: thread
                 .rejected_steers()
                 .iter()
-                .map(|message| message.text.clone())
+                .map(|message| shown(&message.text))
                 .collect(),
             queued: thread
                 .queue()
                 .iter()
-                .map(|message| message.text.clone())
+                .map(|message| shown(&message.text))
                 .collect(),
         }
     }
@@ -62,21 +63,31 @@ impl Pending {
     }
 }
 
+/// What the preview shows of a message: an answer to an async question as the question quoted
+/// over the answer.
+fn shown(text: &str) -> String {
+    reply::display_text(text).unwrap_or_else(|| text.to_owned())
+}
+
 #[derive(Clone, Debug, PartialEq)]
-pub(in crate::pages::session) struct PendingInput;
+pub(in crate::pages::session) struct PendingInput {
+    /// Questions wait: the queue's header stays on show, and the edit hint gives way to theirs.
+    pub questions: bool,
+}
 
 impl_widget!(stateless eq PendingInput);
 
 impl StatelessWidget for PendingInput {
     fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
         let pending = select::<ThreadModel, Pending, _>(cx, Pending::of);
-        if pending.is_empty() {
+        if pending.is_empty() && !self.questions {
             return SizedBox::shrink().into();
         }
+        let questions = self.questions;
         let strings = strings::of(cx);
         let keymap = crate::keymap::keymap(cx);
         let interrupt = crate::keymap::label(&keymap, CHAT_INTERRUPT_TURN);
-        let edit = crate::keymap::label(&keymap, CHAT_EDIT_QUEUED_MESSAGE);
+        let edit = crate::keymap::primary_label(&keymap, CHAT_EDIT_QUEUED_MESSAGE);
         LayoutBuilder::new(move |cx, constraints| {
             // the oracle draws nothing under four columns
             if constraints.max_width < 4 {
@@ -124,7 +135,7 @@ impl StatelessWidget for PendingInput {
                     .collect();
                 column = section(column, header, rows);
             }
-            if !pending.queued.is_empty() {
+            if !pending.queued.is_empty() || questions {
                 let header = vec![Span::styled(strings.queued_header, Style::new())];
                 let italic = dim.clone().attrs(Attrs::ITALIC);
                 let rows = pending
@@ -135,7 +146,7 @@ impl StatelessWidget for PendingInput {
                     })
                     .collect();
                 column = section(column, header, rows);
-                if let Some(key) = &edit {
+                if let Some(key) = edit.as_ref().filter(|_| !questions) {
                     column = column.child(Row::new().child(Text::rich_line(vec![
                         Span::styled(strings.item_hang, Style::new()),
                         Span::styled(key.clone(), super::bold()),

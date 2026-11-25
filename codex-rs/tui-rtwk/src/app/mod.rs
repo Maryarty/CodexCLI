@@ -15,6 +15,7 @@ use rtwk::GlobalKey;
 use rtwk::app::AppCx;
 use std::rc::Rc;
 
+mod consent;
 pub mod debug;
 mod export_text;
 pub mod presenters;
@@ -131,6 +132,12 @@ impl UiApp {
         self
     }
 
+    /// The prompt of the command line (`codex "prompt"`): sent when the first thread starts.
+    pub fn with_initial_prompt(mut self, message: codex_tui_core::threads::UserMessage) -> Self {
+        self.core = self.core.with_initial_prompt(message);
+        self
+    }
+
     /// When the first thread starts follows from the command line: a page
     /// (`codex agents`, `codex resume`) opens instead of one, a host that
     /// answers the startup facts has it wait for the startup steps, any
@@ -153,6 +160,13 @@ impl UiApp {
     pub fn with_awaited_facts(mut self, on: bool) -> Self {
         self.ui.awaits_facts = on;
         self.with_synced_first_thread()
+    }
+
+    /// The host answers the folder trust of `/cd`: a folder whose trust is undecided asks the
+    /// question over the chat before the session starts there.
+    pub fn with_folder_consent(mut self, on: bool) -> Self {
+        self.core = self.core.with_folder_consent(on);
+        self
     }
 
     /// The shell reads the time from `clock` (the default is the wall clock): a test hands it a

@@ -331,6 +331,21 @@ impl Feature for Goal {
         ask(cx, thread, Ask::Get, Flow::AfterResume);
     }
 
+    /// `pause_active_goal_for_interrupt`: Esc or Ctrl+C over a running turn of an active goal
+    /// pauses the goal.
+    fn on_interrupt(_state: &mut (), thread: &ThreadId, cx: &mut AppCx<'_>) {
+        let active = cx.view().thread(thread).is_some_and(|view| {
+            view.is_running()
+                && view
+                    .core()
+                    .goal()
+                    .is_some_and(|goal| goal.status == GoalStatus::Active)
+        });
+        if active {
+            set_status(cx, thread, GoalStatus::Paused);
+        }
+    }
+
     fn wire(command: &Ask, thread: &ThreadId, id: RequestId) -> ClientRequest {
         command.request(thread, id)
     }

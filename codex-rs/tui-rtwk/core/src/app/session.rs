@@ -6,6 +6,7 @@ use std::sync::Arc;
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread};
 use crate::ids::{BackendId, ThreadId};
 use crate::rpc::Answer;
+use crate::screens::onboarding::consent::{self, Then};
 use crate::screens::select::{Confirm, Picked};
 use crate::screens::{
     ScreenCommand, ScreenReply, ScreenThreadIntent, agents, chat, select, status,
@@ -382,9 +383,14 @@ fn plan(
     prompt: Option<String>,
     fx: &mut AppFx,
 ) {
-    use crate::screens::select::collaboration::plan_mask;
-    use crate::threads::ModeNote;
+    use super::BeforeThread;
     let Some(thread) = source else {
+        // Before the first thread: the prompt waits for it, the switch is made then
+        // (the oracle queues the line, `queue_user_message_with_options_and_source`).
+        if let Some(prompt) = prompt {
+            super::queue_before_thread(app, BeforeThread::Plan { command, prompt }, fx);
+            return;
+        }
         return session_note(
             app,
             None,
@@ -392,6 +398,29 @@ fn plan(
             fx,
         );
     };
+    plan_on(app, thread, command, prompt, fx)
+}
+
+/// What waited for the session goes out: `/plan <prompt>` on the thread that started.
+pub(super) fn plan_after_start(
+    app: &mut CodexApp,
+    thread: &ThreadId,
+    command: crate::commands::SlashCommand,
+    prompt: String,
+    fx: &mut AppFx,
+) {
+    plan_on(app, thread.clone(), command, Some(prompt), fx)
+}
+
+fn plan_on(
+    app: &mut CodexApp,
+    thread: ThreadId,
+    command: crate::commands::SlashCommand,
+    prompt: Option<String>,
+    fx: &mut AppFx,
+) {
+    use crate::screens::select::collaboration::plan_mask;
+    use crate::threads::ModeNote;
     let refusal = if !app.screens.chat.flags.collaboration_modes_enabled {
         Some(ModeNote::Disabled)
     } else if plan_mask(&app.modes).is_none() {
@@ -549,6 +578,7 @@ fn change_directory(app: &mut CodexApp, source: Option<ThreadId>, path: &str, fx
         &base,
         app.screens.agents.home.as_deref(),
     ));
+    let folder = cwd.clone().unwrap_or_default();
     let ask = if has_history {
         ThreadAsk::ForkAt {
             thread: thread.to_string(),
@@ -558,8 +588,32 @@ fn change_directory(app: &mut CodexApp, source: Option<ThreadId>, path: &str, fx
     } else {
         ThreadAsk::Start { cwd }
     };
+    // A folder whose trust is undecided is asked about first (`confirm_directory_trust`).
+    let then = Then::Cd { source, ask };
+    if consent::begin(
+        &mut Rc::make_mut(&mut app.screens).onboarding,
+        then.clone(),
+        folder,
+        fx,
+    ) {
+        return;
+    }
+    let Then::Cd { source, ask } = then;
+    start_in(app, source, ask, fx);
+}
+
+/// The session goes on in the directory `/cd` chose: `ask` is the fork or the fresh thread, which
+/// takes the screen as `/new` does.
+pub(super) fn start_in(
+    app: &mut CodexApp,
+    source: Option<ThreadId>,
+    ask: ThreadAsk,
+    fx: &mut AppFx,
+) {
     let ticket = app.mint.next();
-    let backend = app.screens.agents.owner_of(thread.as_str());
+    let backend = source.as_ref().map_or_else(BackendId::default, |thread| {
+        app.screens.agents.owner_of(thread.as_str())
+    });
     app.outgoing.insert(
         ticket,
         AppCtx::NewConversation {

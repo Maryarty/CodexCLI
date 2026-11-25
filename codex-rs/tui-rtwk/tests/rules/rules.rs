@@ -643,6 +643,10 @@ const R15_GAPS: &[(&str, &str)] = &[
         "ours: carried oracle pure fns (transition_line_at, tier_label_line, truncate_line_to_width): one status row at a time of the run",
     ),
     (
+        "src/sheets/approvals/questions/measure.rs",
+        "ours: carried oracle pure fns (the footer tips packed into rows, the word-boundary ellipsis cut) and the row counts of the oracle's layout, measured by segmenter_of widths",
+    ),
+    (
         "src/widgets/measure.rs",
         "measure, not a gap: break_lines is the TextPainter of the oracle's row count",
     ),

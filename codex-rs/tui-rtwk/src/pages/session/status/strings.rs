@@ -30,9 +30,16 @@ pub struct Strings {
     pub rejected_header: &'static str,
     pub queued_header: &'static str,
     pub edit_rest: &'static str,
+    /// The questions that wait, under the preview: `  ? `, `N question(s)`, and what follows the key.
+    pub question_mark: &'static str,
+    pub questions_one: Msg<1>,
+    pub questions_many: Msg<1>,
+    pub answer_rest: &'static str,
     /// `  ↳ `, the hanging indent under it, and the clipped-rows mark.
     pub item_prefix: &'static str,
     pub item_hang: &'static str,
+    /// ` · 15s`: the countdown of the questions that wait.
+    pub countdown: Msg<1>,
     pub ellipsis: &'static str,
     /// `N background terminal(s) running · /ps to view · /stop to close`.
     pub terminals_one: Msg<1>,
@@ -42,6 +49,21 @@ pub struct Strings {
 }
 
 impl Strings {
+    /// `N question(s)` of the summary of the questions that wait (`question_summary`).
+    pub fn questions(&self, count: usize) -> String {
+        let table = if count == 1 {
+            self.questions_one
+        } else {
+            self.questions_many
+        };
+        Fmt::new(table, [Arg::Text(&count.to_string())], &self.num).to_string()
+    }
+
+    /// ` · 15s` after the count of the questions that wait.
+    pub fn countdown(&self, seconds: u64) -> String {
+        Fmt::new(self.countdown, [Arg::Text(&seconds.to_string())], &self.num).to_string()
+    }
+
     /// The summary of `count` background terminals (`UnifiedExecFooter::summary_text`).
     pub fn terminals(&self, count: usize) -> String {
         let table = if count == 1 {
@@ -68,8 +90,13 @@ pub const EN: Strings = Strings {
     rejected_header: "Messages to be submitted at end of turn",
     queued_header: "Queued follow-up inputs",
     edit_rest: " edit last queued message",
+    question_mark: "  ? ",
+    questions_one: msg!("{0} question"),
+    questions_many: msg!("{0} questions"),
+    answer_rest: " to answer",
     item_prefix: "  \u{21b3} ",
     item_hang: "    ",
+    countdown: msg!(" \u{b7} {0}s"),
     ellipsis: "\u{2026}",
     terminals_one: msg!("{0} background terminal running \u{b7} /ps to view \u{b7} /stop to close"),
     terminals_many: msg!(

@@ -19,9 +19,12 @@ use rtwk_rich::markdown::MarkdownTheme;
 use rtwk_rich::style::{Style as MarkdownStyle, Theme as RichTheme};
 
 pub(crate) mod effort;
+mod literal;
 mod syntax;
 
+pub(crate) use literal::{bold, color, fg, rgb_of};
 pub use syntax::SyntaxPalette;
+pub(crate) use syntax::readable_on;
 
 /// The theme of the app's root: the terminal's own colours, dark until the
 /// terminal says otherwise.
@@ -75,6 +78,12 @@ impl Tokens {
             data,
             terminal_bg,
         }
+    }
+
+    /// The colour of the first of `scopes` the syntax theme in force colours, as the theme
+    /// gives it (`foreground_style_for_scopes`).
+    pub(crate) fn scope_color(&self, scopes: &[&str]) -> Option<Color> {
+        self.syntax.foreground(scopes)
     }
 
     /// How a web link's destination is written (`cells::Model::link_display`, the host's fact about

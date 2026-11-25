@@ -222,6 +222,7 @@ pub(super) fn footer(footer: Footer) -> AnyWidget {
                 .into()
             };
             Column::new()
+                .overflow_intended(true)
                 .main_axis_size(MainAxisSize::Min)
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
                 .child(row(first))

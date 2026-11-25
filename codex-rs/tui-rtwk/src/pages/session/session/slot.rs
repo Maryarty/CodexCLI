@@ -35,6 +35,9 @@ pub(super) struct Slot {
     pub hints: Option<Footer>,
     /// What the empty draft says (the sparkle keeps its dots off the words).
     pub placeholder: &'static str,
+    /// The composer's place is the editor of the model's questions (it brings its own surface
+    /// and no footer).
+    pub editing: bool,
 }
 
 pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, frame: &Frame) -> Slot {
@@ -42,6 +45,11 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
     let searching = &frame.searching;
     let mut hints: Option<Footer> = None;
     let mut placeholder = frame.strings.chat.placeholder;
+    let editing = !frame.forking
+        && frame.provider.is_none()
+        && !thread.read_only()
+        && frame.run.asking > 0
+        && state.editing(frame.run.asking);
     let (composer, footer): (AnyWidget, AnyWidget) = if frame.forking {
         // `bottom_pane_renderable` while `fork_in_progress`
         (
@@ -62,6 +70,8 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
             external_writer::notice(cx, chat_strings, tokens),
             external_writer::footer(cx, chat_strings, tokens),
         )
+    } else if editing && let Some(editor) = state.editor(cx, thread, &w.ui) {
+        (editor, SizedBox::shrink().into())
     } else {
         let mut composer = Composer::new(w.ui.clone(), state.node.clone())
             .on_changed(cx.map(ChatMsg::Changed))
@@ -107,7 +117,9 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
             };
             let props = Footer {
                 line,
-                agents: composer_vim::agents_key_available(&w.ui.draft, &crate::keymap::keymap(cx)),
+                // the startup draft has no agents page to go to yet
+                agents: !super::super::transcript_header::startup_draft(&frame.session)
+                    && composer_vim::agents_key_available(&w.ui.draft, &crate::keymap::keymap(cx)),
                 draft_empty: state.draft_empty,
                 shell: state.draft_shell,
                 vim: w
@@ -115,7 +127,17 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
                     .draft
                     .with_vim(|vim| vim.is_enabled().then(|| vim.mode())),
                 // the menu of `/presets` takes the hints away (`set_footer_hint_override`)
-                hint_override: state.banner.quick_menu.get().then(Vec::new),
+                hint_override: state.banner.quick_menu.get().then(Vec::new).or_else(|| {
+                    state.startup_waiting(&frame.session).then(|| {
+                        vec![
+                            (chat_strings.startup_waiting.to_owned(), String::new()),
+                            (
+                                chat_strings.startup_cancel_key.to_owned(),
+                                chat_strings.startup_cancel.to_owned(),
+                            ),
+                        ]
+                    })
+                }),
                 flash: None,
                 on_queue: Some(cx.send(ChatMsg::QueueDraft)),
                 on_warnings: Some(cx.send(ChatMsg::Action(Action::Warnings))),
@@ -171,5 +193,6 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
         footer,
         hints,
         placeholder,
+        editing,
     }
 }

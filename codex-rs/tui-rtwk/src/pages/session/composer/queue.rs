@@ -5,11 +5,13 @@ use rtwk::Cx;
 
 use codex_tui_core::commands::SlashCommand;
 use codex_tui_core::ids::ThreadId;
+use codex_tui_core::question_reply::Intent as QuestionIntent;
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, ScreenThreadIntent, chat, popovers};
 use codex_tui_core::threads::queue::Dispatched;
 use codex_tui_core::threads::{DueCommand, Queued, Ran, UserMessage};
 
 use crate::app::view::Hs;
+use crate::features;
 use crate::pages::session::actions::run;
 use crate::pages::session::composer::strings;
 use crate::pages::session::session_page::{Chat, ChatState};
@@ -43,6 +45,20 @@ pub(in crate::pages::session) fn message(
         draft
     } else {
         UserMessage::text(line)
+    }
+}
+
+/// A message of the user's own: it goes to the thread and answers the questions that wait there
+/// (`clear_pending_questions`).
+pub(in crate::pages::session) fn send(
+    cx: &mut Cx<'_, ChatState>,
+    hs: &Hs,
+    message: UserMessage,
+    thread: Option<ThreadId>,
+) {
+    cx.emit(&hs.submit, message);
+    if let Some(thread) = thread {
+        features::verb(cx, QuestionIntent::Superseded { thread });
     }
 }
 

@@ -117,8 +117,13 @@ impl Suggest {
     fn step(&self, by: usize) {
         let mut inner = self.0.borrow_mut();
         let n = inner.items.len();
-        if n > 0 {
-            inner.highlighted = (inner.highlighted + by) % n;
+        // a row a side conversation cannot run is listed, not selectable
+        for k in 1..=n {
+            let at = (inner.highlighted + by * k) % n;
+            if inner.items[at].enabled {
+                inner.highlighted = at;
+                return;
+            }
         }
     }
 
@@ -126,6 +131,9 @@ impl Suggest {
     /// closes the popup; the text it put in.
     pub fn pick(&self, c: &TextEditingController, at: usize) -> Option<Rc<str>> {
         let item = self.0.borrow().items.get(at)?.clone();
+        if !item.enabled {
+            return None;
+        }
         let text = c.text();
         let caret = c.selection().extent_offset;
         // Only the word being completed is rewritten, from where the pick
@@ -169,7 +177,12 @@ impl Suggest {
         }
         let (at, naming) = {
             let inner = self.0.borrow();
-            let naming = !inner.items.is_empty()
+            // a muted row (a command a side conversation cannot run) is no completion: the `/`
+            // is typed
+            let naming = inner
+                .items
+                .get(inner.highlighted)
+                .is_some_and(|i| i.enabled)
                 && inner.query.starts_with('/')
                 && !inner.query.contains(char::is_whitespace);
             (inner.highlighted, naming)
@@ -202,18 +215,19 @@ impl Suggest {
         };
         let plain = unmodified(key);
         let ctrl = only_ctrl(key);
+        let usable = self.0.borrow().items.get(at).is_some_and(|i| i.enabled);
         // Up and Down are the plain keys, Ctrl+P and Ctrl+N the control characters
         let is = |id| pressed(keymap, id, key) && (plain || (ctrl && key.ch.is_some()));
         match () {
             () if is(POPUP_PREVIOUS) => self.step(n - 1),
             () if is(POPUP_NEXT) => self.step(1),
-            () if is(POPUP_ACCEPT) && plain => {
+            () if is(POPUP_ACCEPT) && plain && usable => {
                 if let Some(text) = self.pick(c, at) {
                     tell(ComposerMsg::Picked(text));
                 }
                 return true;
             }
-            () if is(POPUP_COMPLETE) && plain => {
+            () if is(POPUP_COMPLETE) && plain && usable => {
                 // `/skills` is the one command Tab runs, as Enter does
                 let runs = self
                     .0

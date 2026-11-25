@@ -53,8 +53,10 @@ pub(super) struct Run {
     terminals: usize,
     /// What the running hooks say (`ThreadModel::hook_status`).
     hook: Option<String>,
-    /// The user's input that waits: steers, refused steers, the queue.
+    /// The user's input that waits: steers, refused steers, the queue, the model's questions.
     pending: bool,
+    /// How many questions the model asked that wait.
+    pub asking: usize,
 }
 
 impl Run {
@@ -73,7 +75,15 @@ impl Run {
             terminals: thread.terminals().len(),
             hook: thread.hook_status(),
             pending: !Pending::of(thread).is_empty(),
+            asking: 0,
         }
+    }
+
+    /// The same, with `count` questions waiting: they keep the preview's group on show.
+    pub(super) fn asking(mut self, count: usize) -> Run {
+        self.asking = count;
+        self.pending |= count > 0;
+        self
     }
 
     pub(super) fn running(&self) -> bool {
@@ -137,6 +147,13 @@ impl StatelessWidget for StatusSlot {
         let composer_strings = super::composer::strings::of(cx);
         let session = watch::<SessionSlice, _>(cx);
         let run = select::<ThreadModel, Run, _>(cx, Run::of);
+        let asking = {
+            let thread = run.id.clone();
+            select::<FeatureStates, usize, _>(cx, move |features| {
+                features.async_questions.of(&thread).len()
+            })
+        };
+        let run = run.asking(asking);
         let setting_up =
             select::<FeatureStates, bool, _>(cx, |features| features.windows_sandbox.setting_up());
         if run.read_only {
@@ -183,7 +200,9 @@ impl StatelessWidget for StatusSlot {
                     .into(),
             )
         } else if session.status == Session::Starting {
-            Some(Text::new(strings.chat.starting).style(tokens.dim()).into())
+            // the startup draft has no status row of its own: the heading says `loading`
+            let draft = super::transcript_header::startup_draft(&session);
+            (!draft).then(|| Text::new(strings.chat.starting).style(tokens.dim()).into())
         } else if setting_up {
             // `show_windows_sandbox_setup_status`: its own header and details, no interrupt, a
             // clock that starts when the setup does (a new key on the run of the setup)
@@ -311,7 +330,9 @@ impl StatelessWidget for StatusSlot {
             if above {
                 column = column.child(blank());
             }
-            column = column.child(PendingInput);
+            column = column.child(PendingInput {
+                questions: run.asking > 0,
+            });
         }
         column.into()
     }

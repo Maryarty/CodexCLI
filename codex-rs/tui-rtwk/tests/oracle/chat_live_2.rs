@@ -345,11 +345,7 @@ fn goal_slash_command_preserves_large_pasted_objective() {
 // ORACLE chatwidget/tests/goal_validation.rs:159 goal_slash_command_emits_only_inserted_paste_text_element kind=ui owner=chat-live
 #[test]
 fn goal_slash_command_emits_only_inserted_paste_text_element() {
-    kit::pending(
-        Owner::ChatLive,
-        "no `/goal` command on the chat screen (feature Goals) and no goal draft; the literal placeholder typed in the objective and the inserted paste placeholder are composer text, not built",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive).size(120, 24).live().open();
     s.type_text("/goal keep literal [Pasted Content 1001 chars] and ");
     s.paste(&"x".repeat(1_001));
     s.assert_contains("keep literal [Pasted Content 1001 chars] and [Pasted Content 1001 chars]");

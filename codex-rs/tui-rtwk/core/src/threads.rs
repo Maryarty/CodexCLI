@@ -27,6 +27,7 @@ pub mod processes;
 pub mod queue;
 pub mod replay;
 pub mod safety;
+pub mod startup;
 pub mod status;
 pub mod stream_preview;
 pub mod structured;
@@ -46,7 +47,7 @@ pub use codex_protocol::models::MessagePhase;
 pub use collab::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind};
 pub use decision::ReviewLine;
 pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
-pub use message::{LocalImage, ToolMention, UserMessage};
+pub use message::{LocalImage, TaskRef, ToolMention, UserMessage};
 pub use note::{CdRefusal, ModeNote, Note, NoteKey, RemoveNote, Stub, Toggle, Tone};
 pub use processes::{Terminal, WaitStreak};
 pub use queue::{DueCommand, Queued, Ran};
@@ -871,11 +872,23 @@ pub enum CommandEv {
     Interaction { process: String, stdin: String },
 }
 
+/// What the thread is told of the asks made before it started.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Deferred {
+    /// A startup draft was accepted while the thread is pending: it waits on the blank thread's
+    /// queue, drawn as a queued row, until the session starts.
+    Submit(Queued),
+    /// The session started and what waited went out: the blank thread's queue is empty again.
+    Sent,
+    /// The launch's prompt went out: the composer's recall keeps it (`record_local_submission`).
+    Recorded(UserMessage),
+}
+
 /// An event of one thread.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadEv {
-    /// A startup draft was accepted while an attached thread is pending.
-    DeferredSubmit,
+    /// What was asked before the thread started (`Deferred`).
+    Deferred(Deferred),
     /// The thread tells (`false`) or does not tell (`true`) its transcript that a turn was
     /// interrupted: a side conversation keeps it out (`InterruptedTurnNoticeMode::Suppress`).
     QuietInterrupts(bool),
@@ -1122,6 +1135,9 @@ pub struct ThreadCore {
     /// The ticket of the last submit `apply` accepted: the composer clears
     /// when it changes, never before.
     last_submit: Option<Ticket>,
+    /// A message the composer did not type that went out for the user (the launch's prompt): its
+    /// number and the message, for the composer's recall (`Edge::Recorded`).
+    recorded: Option<(u64, UserMessage)>,
     /// Lines the queue key set aside while a turn runs: one message goes out per turn end, in
     /// order; a command or a shell line is run when its turn comes.
     queue: Vec<Queued>,
@@ -1326,6 +1342,7 @@ impl ThreadModel {
                 turn: TurnState::Idle,
                 outgoing: Pending::default(),
                 last_submit: None,
+                recorded: None,
                 queue: Vec::new(),
                 due: None,
                 due_seq: 0,
@@ -1439,6 +1456,12 @@ impl ThreadModel {
         self.last_submit.map(Ticket::seq)
     }
 
+    /// The newest message that went out for the user without the composer: its number (it grows
+    /// with each) and the message.
+    pub fn recorded(&self) -> Option<(u64, &UserMessage)> {
+        self.recorded.as_ref().map(|(seq, message)| (*seq, message))
+    }
+
     pub fn queue(&self) -> &[Queued] {
         &self.queue
     }
@@ -1505,11 +1528,6 @@ impl ThreadModel {
         self.last_error.as_ref()
     }
 
-    /// The thread's goal, none when it has none.
-    pub fn goal(&self) -> Option<&Goal> {
-        self.goal.as_ref()
-    }
-
     pub fn last_ended(&self) -> Option<&TurnId> {
         self.last_ended.as_ref()
     }
@@ -1542,6 +1560,11 @@ impl ThreadModel {
 }
 
 impl ThreadCore {
+    /// The thread's goal, none when it has none.
+    pub fn goal(&self) -> Option<&Goal> {
+        self.goal.as_ref()
+    }
+
     pub fn id(&self) -> &ThreadId {
         &self.id
     }
@@ -1880,7 +1903,7 @@ impl ThreadAsk {
                 request_id,
                 params: codex_app_server_protocol::TurnSteerParams {
                     thread_id: thread.clone(),
-                    input: crate::protocol::turn_input(message),
+                    input: crate::protocol::turn_input_in(message, Some(thread.as_str())),
                     expected_turn_id: turn.clone(),
                     ..Default::default()
                 },
@@ -2674,7 +2697,15 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             let warnings = model.slots.chat.mcp.finish_after_lag();
             add_startup_warnings(model, warnings, fx);
         }
-        ThreadEv::DeferredSubmit => model.last_submit = Some(fx.mint()),
+        ThreadEv::Deferred(Deferred::Submit(queued)) => {
+            model.queue.push(queued);
+            model.last_submit = Some(fx.mint());
+        }
+        ThreadEv::Deferred(Deferred::Sent) => model.queue.clear(),
+        ThreadEv::Deferred(Deferred::Recorded(message)) => {
+            let seq = model.recorded.as_ref().map_or(1, |(seq, _)| seq + 1);
+            model.recorded = Some((seq, message));
+        }
         ThreadEv::ConnectionLost if model.has_writer() => {
             model.writer = Writer::Detached;
             // the stream went with the connection: an attach again starts a live one
@@ -2814,6 +2845,22 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         }
         // a misalignment stop rejects what starts a turn: only a new chat goes on
         ThreadEv::Submit { .. } if model.safety.blocks_input() => {}
+        // a thread whose model is known to be empty sends nothing: the error says so and the
+        // line stays where it was typed (`submit_user_message`; the queue's drain gives its
+        // message back instead)
+        ThreadEv::Submit { .. }
+            if model.has_writer()
+                && startup::model_unavailable(model.slots.chat.model.as_deref()) =>
+        {
+            apply_ev(
+                model,
+                ThreadEv::Appended {
+                    turn: None,
+                    item: Item::Note(Note::from(crate::commands::Notice::ThreadModelUnavailable)),
+                },
+                fx,
+            )
+        }
         ThreadEv::Submit { message } if model.has_writer() => {
             // The decision is here (R10). Enter during a running turn steers
             // it (`turn/steer`); while the turn is only starting (no turn id
@@ -3656,9 +3703,12 @@ fn merge_messages(messages: Vec<UserMessage>) -> UserMessage {
                 merged.mentions.push(mention);
             }
         }
+        let base = merged.text.len();
         let mut images = message.images;
         images.sort_by_key(|image| image.range.start);
         let mut cursor = 0;
+        // (end in the message's text, bytes the renumbering added) of each image taken
+        let mut grown: Vec<(usize, isize)> = Vec::new();
         for image in images {
             let range = image.range;
             if range.start < cursor || range.end > message.text.len() {
@@ -3674,9 +3724,29 @@ fn merge_messages(messages: Vec<UserMessage>) -> UserMessage {
                 path: image.path,
                 range: start..merged.text.len(),
             });
+            grown.push((
+                range.end,
+                (merged.text.len() - start) as isize - range.len() as isize,
+            ));
             cursor = range.end;
         }
         merged.text.push_str(&message.text[cursor..]);
+        // the tasks' ranges move with the text before them
+        let mut tasks = std::mem::take(&mut merged.tasks).into_vec();
+        tasks.extend(message.tasks.into_vec().into_iter().map(|task| {
+            let delta: isize = grown
+                .iter()
+                .filter(|(end, _)| *end <= task.range.start)
+                .map(|(_, delta)| *delta)
+                .sum();
+            let start = (base + task.range.start).saturating_add_signed(delta);
+            let end = start + task.range.len();
+            TaskRef {
+                range: start..end,
+                ..task
+            }
+        }));
+        merged.tasks = tasks.into();
     }
     merged
 }

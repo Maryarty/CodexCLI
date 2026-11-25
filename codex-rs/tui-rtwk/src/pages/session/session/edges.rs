@@ -11,7 +11,7 @@ use codex_tui_core::threads::{Ran, ThreadModel};
 use crate::app::view::Hs;
 use crate::pages::session::composer::clear_sent;
 use crate::pages::session::composer::queue::run_due;
-use crate::pages::session::live::{plan_mode, put_back, seed_history};
+use crate::pages::session::live::{plan_mode, put_back, recalled_entry, seed_history};
 use crate::pages::session::open::open;
 use crate::widgets::directives::Edge;
 
@@ -32,8 +32,11 @@ impl ChatState {
             // The composer clears when the model accepted (or queued) the message, not when it
             // was sent.
             Edge::Submitted => {
-                clear_sent(&w.ui);
-                self.sync_draft(w);
+                // an answer to a question is no send of the composer: its draft stays
+                if !self.answer_sent() {
+                    clear_sent(&w.ui);
+                    self.sync_draft(w);
+                }
                 Rebuild::Yes
             }
             // Messages the model gave back (an interrupt, a failed steer, the edit-queued key)
@@ -41,12 +44,16 @@ impl ChatState {
             Edge::Restore(restore) => {
                 let table = crate::pages::session::composer::strings::of(cx);
                 let states = read::<ScreenStates, _>(cx);
-                let draft = w.ui.draft.submission_with(
-                    &w.ui.composer,
-                    |n| table.image(n),
-                    states.popovers.sources().mentions,
-                );
-                put_back(&w.ui, &restore.onto(draft), |n| table.image(n));
+                // behind an open reverse search the draft is the one it kept aside (Esc brings it
+                // back with the messages in front), not the preview shown in its place
+                w.ui.draft.edit_stored(&w.ui.composer, || {
+                    let draft = w.ui.draft.submission_with(
+                        &w.ui.composer,
+                        |n| table.image(n),
+                        states.popovers.sources().mentions,
+                    );
+                    put_back(&w.ui, &restore.onto(draft), |n| table.image(n));
+                });
                 self.sync_draft(w);
                 Rebuild::Yes
             }
@@ -57,10 +64,17 @@ impl ChatState {
                 seed_history(&w.ui, model.replayed_submissions());
                 Rebuild::No
             }
+            // The prompt of the command line went out: Up recalls it (`record_local_submission`).
+            Edge::Recorded(message) => {
+                w.ui.draft.replayed(recalled_entry(&message));
+                Rebuild::No
+            }
             // The prompt an edit of the backtrack put back (`restore_user_message_to_composer`).
             Edge::Draft(message) => {
                 let table = crate::pages::session::composer::strings::of(cx);
-                put_back(&w.ui, &message, |n| table.image(n));
+                w.ui.draft.edit_stored(&w.ui.composer, || {
+                    put_back(&w.ui, &message, |n| table.image(n))
+                });
                 self.sync_draft(w);
                 Rebuild::Yes
             }
@@ -83,8 +97,12 @@ impl ChatState {
                     let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::QueueResume);
                     cx.emit(&hs.thread_screen, (thread, intent));
                 }
-                Rebuild::No
+                // a confirmed startup draft that waited for the page to be in front
+                self.startup_ready(w, cx)
             }
+            // The session is configured and its thread takes input: the draft Enter confirmed
+            // before goes out, once.
+            Edge::Ready => self.startup_ready(w, cx),
             Edge::Plan => {
                 plan_mode::ask(cx);
                 Rebuild::No

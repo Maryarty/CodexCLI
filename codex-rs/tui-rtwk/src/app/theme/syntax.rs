@@ -13,6 +13,7 @@
 use rtwk::style::color_mix::contrast_rgb;
 use rtwk_core::style::Color;
 
+mod models;
 mod scopes;
 
 /// What a theme paints a scope with (syntect's colour with bat's alpha encoding
@@ -47,6 +48,7 @@ impl SyntaxPalette {
             Some("") => Self(&NO_SCOPES),
             Some(name) => scopes::THEMES
                 .iter()
+                .chain(models::THEMES)
                 .find(|(theme, _)| *theme == name)
                 .map_or_else(|| Self::adaptive(terminal_bg), |(_, scopes)| Self(scopes)),
             None => Self::adaptive(terminal_bg),

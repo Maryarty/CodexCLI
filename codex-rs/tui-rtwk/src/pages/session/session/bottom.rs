@@ -23,12 +23,15 @@ use crate::pages::session::banners::{BackendBanners, NoticeLine, ReserveSelector
 use crate::pages::session::footer::{Sparkle, StatusRows};
 use crate::pages::session::live::limits;
 use crate::pages::session::popovers::mention;
+use crate::pages::session::status::QuestionSummary;
 use crate::pages::session::status_surfaces::{line_interests, raise};
 use crate::pages::session::transcript;
 use crate::sheets::approvals::PendingThreadsBanner;
 use crate::sheets::dialogs::shortcut_panel;
 use crate::sheets::select::hud;
 use crate::widgets::status_line::{SEPARATOR, status_spans, thread_color};
+
+use codex_tui_core::screens::startup::Action;
 
 use super::frame::Frame;
 use super::slot::Slot;
@@ -44,6 +47,7 @@ pub(super) fn body(
     let (tokens, thread, session) = (&frame.tokens, &frame.thread, &frame.session);
     let (run, facts, searching) = (&frame.run, &frame.drawn.status, &frame.searching);
     let running = run.running();
+    let startup = super::super::transcript_header::startup_draft(session);
     let (panel, _) = shortcut_panel(cx, running);
     let chat_strings = frame.chat_strings;
     let Slot {
@@ -51,13 +55,14 @@ pub(super) fn body(
         footer,
         hints,
         placeholder,
+        editing,
     } = slot;
     // Whether `StatusSlot` shows a row: the reader's gap then sets itself
     // apart from it with a blank row.
     let status_above = !run.read_only
         && (run.word(session, frame.reconnecting) != "Ready"
             || run.has_activity_rows()
-            || matches!(session.status, Session::Starting));
+            || (matches!(session.status, Session::Starting) && !startup));
     // The reader's gap above the composer is a flexible row, the first thing a short window clips.
     // The menu of `/presets` stands over the whole pane (`above_composer`); where it is closed a
     // blank child keeps the others' places, so their state is not lost.
@@ -72,6 +77,15 @@ pub(super) fn body(
             SizedBox::shrink().into()
         })
         .child(StatusSlot)
+        // `  ? N questions`: the questions that wait while the editor is closed
+        .child(if run.asking > 0 && !editing {
+            AnyWidget::from(QuestionSummary {
+                count: run.asking,
+                countdown: super::questions::countdown(cx, thread.id()),
+            })
+        } else {
+            SizedBox::shrink().into()
+        })
         .child(NoticeLine)
         .child(EditWatch);
     if state.shortcuts && searching.is_none() {
@@ -122,6 +136,12 @@ pub(super) fn body(
     state.banner_blocked.set(BannerBlocked {
         running,
         overlay: state.shortcuts,
+        edit: !editing
+            && !menu
+            && !state.shortcuts
+            && (run.asking > 0
+                || !thread.queue().is_empty()
+                || !thread.rejected_steers().is_empty()),
     });
     // the threads that wait for an approval, right above the composer (`bottom_pane`)
     let body = body.child(PendingThreadsBanner);
@@ -134,7 +154,7 @@ pub(super) fn body(
     } else {
         // the row the reader's control takes (`composer_gap`); a popup
         // above the draft takes the rows before it does
-        body.child({
+        let body = body.child({
             // the usage notice takes the row while the reader is at the end (`composer_hint`)
             let model = thread.screen_slots().chat.model.as_deref().or(frame
                 .drawn
@@ -142,52 +162,71 @@ pub(super) fn body(
                 .model
                 .as_deref());
             let notice = limits::notice_of(session, frame.drawn.owner, model).map(AnyWidget::from);
-            let gap = transcript::follow::gap(cx, w.ui.follow.clone(), status_above, notice);
+            let gap = match (startup, session.launching) {
+                // the named session opening: its line stands in the reader's gap
+                (true, Some(action)) => Text::new(match action {
+                    Action::Resume => chat_strings.resuming_session,
+                    Action::Fork => chat_strings.forking_session,
+                })
+                .style(tokens.dim())
+                .into(),
+                _ => transcript::follow::gap(cx, w.ui.follow.clone(), status_above, notice),
+            };
             let mentions = w.ui.draft.mentions();
             ListenableBuilder::new(mentions.listenable(), move |_, _| {
-                if mentions.is_open() {
+                // the editor's own surface leaves the blank row (`menu_surface_inset`)
+                if editing || mentions.is_open() {
                     SizedBox::shrink().into()
                 } else {
                     gap.clone()
                 }
             })
-        })
-        // the `@`/`$` popup stands right above the draft and takes the
-        // rows the draft leaves, 17 at most (`ActivePopup::MentionV2`
-        // above the composer: the draft first, then what remains)
-        .child(mention::slot(w.ui.clone()))
-        .child(
-            // keyed: the blank rows and the status come and go above it
-            // and the footer's type changes below, and an unkeyed child
-            // between two changed neighbours is a new element (its state,
-            // and the messages queued for it, lost)
-            AnyWidget::from(Sparkle {
-                ui: w.ui.clone(),
-                focus: state.node.clone(),
-                eligible: thread.screen_slots().chat.sparkle_eligible(facts),
-                // the footer's overlay and search row, and a turn that runs,
-                // take the stage (`render_sparkle_at`)
-                hidden: state.shortcuts || running || searching.is_some(),
-                placeholder,
-                child: BoxWidget::new()
-                    .style(tokens.prompt_surface(cx, false))
-                    .padding(EdgeInsets::only(0, 1, 1, 1))
-                    .child(composer)
-                    .into(),
-            })
-            .with_key(Key::value("composer")),
-        )
+        });
+        // the editor of the model's questions stands in the composer's place
+        if editing {
+            body.child(composer)
+        } else {
+            // the `@`/`$` popup stands right above the draft and takes the
+            // rows the draft leaves, 17 at most (`ActivePopup::MentionV2`
+            // above the composer: the draft first, then what remains)
+            body.child(mention::slot(w.ui.clone())).child(
+                // keyed: the blank rows and the status come and go above it
+                // and the footer's type changes below, and an unkeyed child
+                // between two changed neighbours is a new element (its state,
+                // and the messages queued for it, lost)
+                AnyWidget::from(Sparkle {
+                    ui: w.ui.clone(),
+                    focus: state.node.clone(),
+                    eligible: thread.screen_slots().chat.sparkle_eligible(facts),
+                    // the footer's overlay and search row, and a turn that runs,
+                    // take the stage (`render_sparkle_at`)
+                    hidden: state.shortcuts || running || searching.is_some(),
+                    placeholder,
+                    child: BoxWidget::new()
+                        .style(tokens.prompt_surface(cx, false))
+                        .padding(EdgeInsets::only(0, 1, 1, 1))
+                        .child(composer)
+                        .into(),
+                })
+                .with_key(Key::value("composer")),
+            )
+        }
     };
     // a status line that names the credits or the cost wants them, whether or not it shows them
     // yet (`thread_usage_selected`): without a figure the line is empty
     let wanted = line_interests(facts);
-    let rows = (!line.is_empty() && !thread.read_only() && frame.provider.is_none()).then(|| {
-        AnyWidget::from(StatusRows {
-            spans: line,
-            composer: w.ui.composer.clone(),
-            hints,
-        })
-    });
+    let rows = (!line.is_empty()
+        && !startup
+        && !thread.read_only()
+        && frame.provider.is_none()
+        && !editing)
+        .then(|| {
+            AnyWidget::from(StatusRows {
+                spans: line,
+                composer: w.ui.composer.clone(),
+                hints,
+            })
+        });
     body = match (rows, wanted.is_empty()) {
         (Some(rows), true) => body.child(rows),
         (rows, false) => body.child(raise(

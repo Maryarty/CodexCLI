@@ -60,6 +60,15 @@ impl Popup {
         self.refresh_rows();
     }
 
+    /// The catalog changed under an open popup (skills, plugins or tasks listed afresh): its rows
+    /// follow (`refresh_mentions_v2_popup_candidates`).
+    pub fn set_candidates(&mut self, candidates: Vec<Candidate>) {
+        if self.candidates != candidates {
+            self.candidates = candidates;
+            self.refresh_rows();
+        }
+    }
+
     pub fn set_file_matches(&mut self, query: &str, matches: Vec<FileMatch>) {
         self.file_search.set_matches(query, matches);
         self.refresh_rows();

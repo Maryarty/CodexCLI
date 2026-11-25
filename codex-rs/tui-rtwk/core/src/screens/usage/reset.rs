@@ -113,11 +113,7 @@ pub fn options(summary: &ResetCredits) -> Vec<CreditOption> {
         .filter(|credit| credit.status == CreditStatus::Available)
         .collect();
     available.sort_by_key(|credit| credit.expires_at.unwrap_or(i64::MAX));
-    let mut options: Vec<CreditOption> = available
-        .into_iter()
-        .take(limit)
-        .map(option_of)
-        .collect();
+    let mut options: Vec<CreditOption> = available.into_iter().take(limit).map(option_of).collect();
     if options.is_empty() {
         options.push(CreditOption {
             credit_id: None,
@@ -203,7 +199,10 @@ pub enum Next {
     /// Read the account's limits for this origin's sake (`RateLimitOrigin`).
     Read,
     /// Ask the host to redeem.
-    Redeem { key: String, credit_id: Option<String> },
+    Redeem {
+        key: String,
+        credit_id: Option<String>,
+    },
 }
 
 /// The app-scoped state of the reset flow.
@@ -220,6 +219,11 @@ pub struct State {
     availability_read: Option<u64>,
     /// The startup check for the hint that is out.
     hint_check: Option<u64>,
+    /// The count of the startup hint that waits for active output to settle before it is told
+    /// (oracle `pending_rate_limit_reset_hint`).
+    pending_hint: Option<i64>,
+    /// Counts the account changes (`clear`): a view opened for an account closes when it moves.
+    epoch: u64,
     next_request: u64,
     next_key: u64,
 }
@@ -259,7 +263,7 @@ impl State {
     /// The usage menu opened (oracle `open_usage_menu`): a hint that is waiting goes, and a count
     /// known to be zero is checked again (the read of the returned request).
     pub fn open_menu(&mut self) -> Option<u64> {
-        self.hint_check = None;
+        self.drop_hint();
         if self.available != Some(0) {
             return None;
         }
@@ -282,7 +286,7 @@ impl State {
     /// The reset flow opened (oracle `show_rate_limit_reset_loading_popup`): the key of an
     /// earlier attempt is dropped and the credits are read; the request number of the read.
     pub fn open_resets(&mut self) -> u64 {
-        self.hint_check = None;
+        self.drop_hint();
         self.redemption = None;
         let request = self.request();
         self.listing = Listing::Checking(request);
@@ -317,6 +321,7 @@ impl State {
         if self.redeeming() {
             return Next::Nothing;
         }
+        self.drop_hint();
         self.next_key = self.next_key.wrapping_add(1);
         let key = [self.next_request.to_string(), self.next_key.to_string()].join("-");
         self.redemption = Some(Redemption {
@@ -407,6 +412,7 @@ impl State {
 
     /// The startup check for the reset hint begins: the request number of the read.
     pub fn start_hint(&mut self) -> u64 {
+        self.pending_hint = None;
         let request = self.request();
         self.hint_check = Some(request);
         request
@@ -428,10 +434,40 @@ impl State {
         (count > 0).then_some(count)
     }
 
+    /// How many times the account changed; the popups of an account are dismissed when it moves
+    /// (oracle `dismiss_view_by_id` in `clear_pending_rate_limit_reset_requests`).
+    pub fn epoch(&self) -> u64 {
+        self.epoch
+    }
+
+    /// The hint is overtaken (oracle `clear_pending_rate_limit_reset_hint`): the check that is
+    /// out and the count that waits are both dropped.
+    fn drop_hint(&mut self) {
+        self.hint_check = None;
+        self.pending_hint = None;
+    }
+
+    /// The hint's count is read but active output is on screen: it waits (oracle
+    /// `usage_history_insertion_blocked`).
+    pub fn park_hint(&mut self, count: i64) {
+        self.pending_hint = Some(count);
+    }
+
+    /// Whether a hint waits for the output to settle.
+    pub fn hint_waits(&self) -> bool {
+        self.pending_hint.is_some()
+    }
+
+    /// The count of the hint that waited, once the output has settled: it is told once.
+    pub fn take_hint(&mut self) -> Option<i64> {
+        self.pending_hint.take()
+    }
+
     /// The account changed (oracle `clear_pending_rate_limit_reset_requests`): nothing asked
     /// of the old one is the new one's.
     pub fn clear(&mut self) {
         *self = Self {
+            epoch: self.epoch.wrapping_add(1),
             next_request: self.next_request,
             next_key: self.next_key,
             ..Self::default()

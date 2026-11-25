@@ -24,7 +24,7 @@ use rtwk::overlay::{DialogOptions, close_dialog};
 use rtwk::scroll::{ScrollController, SingleChildScrollView};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextOverflow};
-use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::keymap::actions::{
     PAGER_CLOSE, PAGER_HALF_PAGE_DOWN, PAGER_HALF_PAGE_UP, PAGER_JUMP_BOTTOM, PAGER_JUMP_TOP,
@@ -43,6 +43,9 @@ use crate::app::debug::{DebugEntry, EntryOpen};
 pub struct StaticPager {
     doc: PagerDoc,
     host: Host,
+    /// Said when the document's action is taken (Enter on `EditConfiguration`): the opener's
+    /// verb, then the pager closes.
+    on_action: Option<Handler<()>>,
 }
 
 /// What the pager is shown in, so what closing it pops.
@@ -58,7 +61,15 @@ impl StaticPager {
         StaticPager {
             doc,
             host: Host::Dialog,
+            on_action: None,
         }
+    }
+
+    /// The pager tells `handler` when its action is taken (provider details: `Edit
+    /// configuration`), before it closes.
+    pub fn on_action(mut self, handler: Handler<()>) -> StaticPager {
+        self.on_action = Some(handler);
+        self
     }
 
     /// The pager over `doc`, a page pushed on a navigator: `q` pops it.
@@ -66,6 +77,7 @@ impl StaticPager {
         StaticPager {
             doc,
             host: Host::Route,
+            on_action: None,
         }
     }
 }
@@ -73,10 +85,12 @@ impl StaticPager {
 /// The pager the size of the screen: the alternate screen is cleared (`enter_alt_screen`), so
 /// nothing of the chat shows through the cells the pager leaves blank.
 pub fn covering(doc: PagerDoc) -> AnyWidget {
-    BoxWidget::new()
-        .style(Style::new())
-        .child(StaticPager::over(doc))
-        .into()
+    covering_with(StaticPager::over(doc))
+}
+
+/// `covering` over a pager made by the caller (one with an `on_action`).
+pub fn covering_with(pager: StaticPager) -> AnyWidget {
+    BoxWidget::new().style(Style::new()).child(pager).into()
 }
 
 /// The dialog options of `covering`: no barrier to click away, no fade.
@@ -147,12 +161,17 @@ impl State for PagerState {
             Msg::Bottom => self.scroll.jump_to(i64::MAX),
             // the action's effect is the opener's, a later verb of its feature; closing is
             // the pager's, popping what it was shown in
-            Msg::Close | Msg::Action => match w.host {
-                Host::Dialog => close_dialog::<_, ()>(cx, None),
-                Host::Route => {
-                    Navigator::maybe_pop(cx);
+            Msg::Close | Msg::Action => {
+                if let (Msg::Action, Some(handler)) = (&msg, &w.on_action) {
+                    cx.emit(handler, ());
                 }
-            },
+                match w.host {
+                    Host::Dialog => close_dialog::<_, ()>(cx, None),
+                    Host::Route => {
+                        Navigator::maybe_pop(cx);
+                    }
+                }
+            }
         }
         Rebuild::No
     }

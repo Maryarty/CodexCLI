@@ -52,14 +52,9 @@ pub struct Facts {
     pub offline: bool,
 }
 
-/// Where an update comes from (`DaemonUpdateSource`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Source {
-    /// `Install latest public stable`.
-    PublicStable,
-    /// `Use this CLI build`.
-    ThisCli,
-}
+/// Where an update comes from (`DaemonUpdateSource`): the host runs it after the exit, so the
+/// type is the app's (`effects`), the feature's name for it.
+pub use crate::app::effects::DaemonSource as Source;
 
 /// The page the sheet opens on, or goes to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -206,7 +201,7 @@ pub struct State {
     pub restarting: bool,
     /// The probe is out; the menu opens when it answers.
     verifying: bool,
-    /// `RunDaemonUpdate`: the shell exits and runs this update.
+    /// `RunDaemonUpdate` is out: the host keeps this update and the app ends when it answers.
     update: Option<Source>,
 }
 
@@ -216,8 +211,13 @@ impl State {
         self.facts.page(self.restarting)
     }
 
-    /// The host told the server's state (a connection made or lost).
-    pub fn told(&mut self, facts: Facts) {
+    /// The host told the server's state (a connection made or lost). A reconnect to the local
+    /// daemon keeps what the probe proved of it (`reconnect.rs`: `is_managed_daemon` carries over).
+    pub fn told(&mut self, mut facts: Facts) {
+        let proved = self.facts.managed();
+        if let Some(connection) = facts.connection.as_mut() {
+            connection.managed |= connection.local_daemon && proved;
+        }
         self.facts = facts;
     }
 
@@ -249,8 +249,11 @@ impl State {
                 && !matches!(self.facts.target, Target::Remote | Target::Cloud))
             .then_some(Step::Show(Menu::ConfirmUpdate(source))),
             Verb::Update(source) => {
+                if self.update.is_some() {
+                    return None;
+                }
                 self.update = Some(source);
-                None
+                Some(Step::Ask(DaemonAsk::Update(source)))
             }
         }
     }
@@ -272,16 +275,5 @@ impl State {
     pub fn restarted(&mut self, result: Result<(), String>) -> Option<String> {
         self.restarting = false;
         result.err()
-    }
-
-    /// The update the shell runs once Codex has exited (`RunDaemonUpdate`); the shell reads it
-    /// and takes it with `Verb::Update`'s consumer, `take_update`.
-    pub fn update_wanted(&self) -> Option<Source> {
-        self.update
-    }
-
-    /// The shell took the update (once).
-    pub fn take_update(&mut self) -> Option<Source> {
-        self.update.take()
     }
 }

@@ -122,6 +122,20 @@ pub(super) fn wake(app: &CodexApp) -> Option<Wake> {
         crate::screens::agents::wake_at(&app.screens.agents, app.now),
     );
     next = nearest(next, crate::screens::chat::wake_at(&app.screens.chat));
+    // the footer's goal clock: the thread in use is told the time when its elapsed label changes
+    next = nearest(
+        next,
+        app.session
+            .active
+            .as_ref()
+            .and_then(|id| app.threads.get(id))
+            .and_then(|model| {
+                crate::screens::chat::facts::goal_label_change_in(model, app.now.secs())
+            })
+            .map(|secs| {
+                Now::at_secs(app.now.secs().saturating_add(secs)).in_zone(app.now.utc_offset_secs())
+            }),
+    );
     next = nearest(next, app.structured.wake_at());
     next.map(|at| Wake::new(app.now, at))
 }
@@ -157,6 +171,7 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
         Out::Lifecycle(lifecycle) => super::lifecycle::carry(app, lifecycle, fx),
         Out::Chat(facts) => chat_facts(app, facts, fx),
         Out::Verb(verb) => super::verbs::carry(app, verb, fx),
+        Out::End => fx.ends = true,
         Out::Settled { thread } => {
             let intent = FeatureThreadIntent::Settled;
             apply_thread(app, &thread, ThreadEv::FeatureIntent(intent), fx);
@@ -351,6 +366,13 @@ pub(super) fn fact(app: &mut CodexApp, fact: FeatureFact, fx: &mut AppFx) {
 pub(super) fn resumed(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx) {
     run(app, fx, |states, cx| {
         features::on_resumed(states, thread, cx)
+    });
+}
+
+/// The user interrupted the running turn of `thread`: every feature's `on_interrupt`.
+pub(super) fn interrupted(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx) {
+    run(app, fx, |states, cx| {
+        features::on_interrupt(states, thread, cx)
     });
 }
 

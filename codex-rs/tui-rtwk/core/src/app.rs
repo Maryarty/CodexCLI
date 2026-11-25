@@ -9,6 +9,7 @@
 mod banners;
 mod clock;
 mod connection;
+mod consent;
 pub mod effects;
 pub mod facts;
 pub(crate) mod features;
@@ -94,6 +95,9 @@ pub enum Session {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionSlice {
     pub status: Session,
+    /// The command line names a session to resume or fork and it is not open yet: the startup
+    /// draft says `Resuming session…` / `Forking session…`.
+    pub launching: Option<crate::screens::startup::Action>,
     /// The first backend's connection epoch (`BackendId::default()`); the
     /// other backends' are `epochs`.
     pub epoch: ConnEpoch,
@@ -497,8 +501,8 @@ pub enum Command {
 #[derive(Debug, Default, PartialEq)]
 pub struct AppFx {
     pub(crate) commands: Vec<Command>,
-    /// The app cannot go on: the connection did not start (the oracle ends
-    /// with the error, `run_main_inner` returning it).
+    /// The app ends: the connection did not start (the oracle ends with the error,
+    /// `run_main_inner` returning it), or a feature ended it (`AppCx::end_app`).
     pub(crate) ends: bool,
     pub(crate) desktop_notice: Option<chat::DesktopNotice>,
     /// The nearest moment the app wants the clock told (`AppEv::Clock`), as of the end of the
@@ -521,7 +525,7 @@ impl AppFx {
         self.commands
     }
 
-    /// Whether the app ends: its connection did not start.
+    /// Whether the app ends: its connection did not start, or a feature ended it.
     pub fn ends_app(&self) -> bool {
         self.ends
     }
@@ -611,6 +615,42 @@ enum BeforeThread {
     Message(UserMessage),
     /// A user shell command (`!cmd`).
     Shell(String),
+    /// The prompt of the command line: sent as any message, then kept for the composer's recall
+    /// and the history file (`submit_initial_user_message_if_pending`).
+    Initial(UserMessage),
+    /// `/plan <prompt>`: the switch to Plan mode and the prompt, made when the session starts.
+    Plan {
+        command: crate::commands::SlashCommand,
+        prompt: String,
+    },
+}
+
+impl BeforeThread {
+    /// The row the queue draws for the ask while it waits (the oracle's queued input).
+    fn queued(&self) -> threads::Queued {
+        match self {
+            BeforeThread::Message(message) | BeforeThread::Initial(message) => {
+                threads::Queued::Message(message.clone())
+            }
+            BeforeThread::Shell(command) => {
+                threads::Queued::Shell(UserMessage::text(format!("!{command}")))
+            }
+            BeforeThread::Plan { command, prompt } => threads::Queued::Command(UserMessage::text(
+                format!("/{} {prompt}", command.command()),
+            )),
+        }
+    }
+}
+
+/// Keeps `ask` until the first thread exists; the blank thread's queue shows it meanwhile.
+fn queue_before_thread(app: &mut CodexApp, ask: BeforeThread, fx: &mut AppFx) {
+    let queued = ask.queued();
+    app.queued_submits.push(ask);
+    threads::apply(
+        app.threads.blank_mut(),
+        ThreadEv::Deferred(threads::Deferred::Submit(queued)),
+        &mut ThreadFx::new(&ThreadId::default(), fx, &mut app.mint),
+    );
 }
 
 /// The model.
@@ -697,6 +737,7 @@ impl CodexApp {
         Self {
             session: Rc::new(SessionSlice {
                 status: Session::Starting,
+                launching: None,
                 epoch: ConnEpoch::default(),
                 epochs: BTreeMap::new(),
                 active: None,
@@ -743,6 +784,13 @@ impl CodexApp {
         self
     }
 
+    /// The prompt of the command line (`codex "prompt"`, `-i image`): it goes out when the first
+    /// thread starts, as the oracle's `initial_user_message`.
+    pub fn with_initial_prompt(mut self, message: UserMessage) -> Self {
+        self.queued_submits.push(BeforeThread::Initial(message));
+        self
+    }
+
     pub fn with_first_thread(mut self, when: FirstThread) -> Self {
         self.first_thread = when;
         self
@@ -754,9 +802,20 @@ impl CodexApp {
     /// of a fresh thread. The first thread starts after the launch.
     pub fn with_start_session(mut self, start: crate::screens::onboarding::session::Start) -> Self {
         self.first_thread = FirstThread::AfterLaunch;
+        Rc::make_mut(&mut self.session).launching = Some(start.action);
         crate::screens::onboarding::session::want(
             &mut Rc::make_mut(&mut self.screens).onboarding,
             start,
+        );
+        self
+    }
+
+    /// The host answers the folder trust of `/cd` (`Ask::CheckConsent`): `/cd` into a folder whose
+    /// trust is undecided asks the question before the session starts there.
+    pub fn with_folder_consent(mut self, on: bool) -> Self {
+        crate::screens::onboarding::consent::arm(
+            &mut Rc::make_mut(&mut self.screens).onboarding,
+            on,
         );
         self
     }
@@ -1748,6 +1807,7 @@ fn start_thread(app: &CodexApp, ticket: Ticket, backend: BackendId) -> Command {
 /// launch prompts). Checked after every event and intent that can end the
 /// last of them.
 fn release_held_start(app: &mut CodexApp, fx: &mut AppFx) {
+    consent::follow(app, fx);
     if app.start_held
         && app.screens.onboarding.launched()
         && !app.screens.onboarding.due()
@@ -2172,13 +2232,28 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 None => {
                     // Before the first thread: kept until it exists; the
                     // composer's draft clears (the blank projection's ticket).
-                    app.queued_submits.push(BeforeThread::Message(message));
-                    threads::apply(
-                        app.threads.blank_mut(),
-                        ThreadEv::DeferredSubmit,
-                        &mut ThreadFx::new(&ThreadId::default(), fx, &mut app.mint),
-                    );
+                    queue_before_thread(app, BeforeThread::Message(message), fx);
                 }
+            }
+        }
+        Intent::Screen(ScreenIntent::Popovers(crate::screens::popovers::Intent::ListApps)) => {
+            mentions::list_apps(app, fx)
+        }
+        // the task search is the thread in use's: its RPCs carry the thread
+        Intent::Screen(ScreenIntent::Popovers(crate::screens::popovers::Intent::SearchTasks(
+            query,
+        ))) => {
+            if let Some(thread) = app.session.active.clone() {
+                let ev = crate::screens::popovers::ThreadEv::SearchTasks {
+                    query,
+                    current: thread.clone(),
+                };
+                apply_thread(
+                    app,
+                    &thread,
+                    ThreadEv::Screen(ScreenThreadEv::Popovers(ev)),
+                    fx,
+                );
             }
         }
         Intent::Screen(ScreenIntent::Usage(intent)) if reset::intent(app, &intent, fx) => {}
@@ -2190,7 +2265,10 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 fx,
             )
         }
-        Intent::Interrupt(thread) => apply_thread(app, &thread, ThreadEv::Interrupt, fx),
+        Intent::Interrupt(thread) => {
+            apply_thread(app, &thread, ThreadEv::Interrupt, fx);
+            features::interrupted(app, &thread, fx);
+        }
         Intent::ThreadScreen { thread, intent } => {
             apply_thread(app, &thread, ThreadEv::ScreenIntent(intent), fx)
         }
@@ -2292,7 +2370,7 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             match thread.or_else(|| app.session.active.clone()) {
                 Some(thread) => run_shell(app, &thread, command, fx),
                 // Before the first thread: kept in order with the messages.
-                None => app.queued_submits.push(BeforeThread::Shell(command)),
+                None => queue_before_thread(app, BeforeThread::Shell(command), fx),
             }
         }
         // a verb of the thread's safety state: the thread's own, not the screen's
@@ -2890,9 +2968,36 @@ fn note_instruction_sources(
 
 /// What was asked before the first thread existed goes out on it.
 fn send_queued(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx) {
-    for ask in std::mem::take(&mut app.queued_submits) {
+    let asks = std::mem::take(&mut app.queued_submits);
+    if !asks.is_empty() {
+        threads::apply(
+            app.threads.blank_mut(),
+            ThreadEv::Deferred(threads::Deferred::Sent),
+            &mut ThreadFx::new(&ThreadId::default(), fx, &mut app.mint),
+        );
+    }
+    for ask in asks {
         match ask {
+            BeforeThread::Plan { command, prompt } => {
+                session::plan_after_start(app, thread, command, prompt, fx)
+            }
             BeforeThread::Message(message) => submit(app, thread, message, fx),
+            BeforeThread::Initial(message) => {
+                let text = message.text.clone();
+                submit(app, thread, message.clone(), fx);
+                apply_thread(
+                    app,
+                    thread,
+                    ThreadEv::Deferred(threads::Deferred::Recorded(message)),
+                    fx,
+                );
+                let popovers = &mut Rc::make_mut(&mut app.screens).popovers;
+                screens::popovers::apply_intent(
+                    popovers,
+                    screens::popovers::Intent::Record(text),
+                    fx,
+                );
+            }
             BeforeThread::Shell(command) => run_shell(app, thread, command, fx),
         }
     }
@@ -2910,6 +3015,7 @@ fn session_opened(
     fx: &mut AppFx,
 ) {
     use crate::screens::startup::Action;
+    Rc::make_mut(&mut app.session).launching = None;
     match answer {
         Answer::Screen(ScreenReply::Agents(
             agents::Reply::Resumed(opened) | agents::Reply::Forked(opened),
@@ -3220,4 +3326,5 @@ pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mu
                 )),
         );
     }
+    reset::settle_hint(app, thread, fx);
 }

@@ -24,6 +24,7 @@ use rtwk::editing::{TextBuffer, TextEditingController, TextSelection};
 use codex_tui_core::data::history::{Lookup, Store};
 use codex_tui_core::data::mention::Mention;
 use codex_tui_core::data::task::valid_thread_path;
+use codex_tui_core::ids::ThreadId;
 use codex_tui_core::kit::history::{
     HistoryEntry, MentionBinding, PromptWalk as Prompts, TextElement,
 };
@@ -32,7 +33,7 @@ use codex_tui_core::kit::mentions::session::ComposerBinding;
 use codex_tui_core::kit::mentions::tool_mentions;
 use codex_tui_core::kit::paste as paste_rules;
 use codex_tui_core::kit::paste_burst::PasteBurst;
-use codex_tui_core::threads::{LocalImage, UserMessage};
+use codex_tui_core::threads::{LocalImage, TaskRef, UserMessage};
 
 use crate::services::images;
 
@@ -331,6 +332,12 @@ impl ComposerDraft {
         true
     }
 
+    /// Puts `text` at the caret, as if typed (`insert_str`): what a sheet hands over.
+    pub fn insert_text(&self, c: &TextEditingController, text: &str) {
+        self.sync(c);
+        c.insert(text);
+    }
+
     /// Puts an element showing `label` for `payload` in place of the
     /// selection, the caret after it.
     pub fn insert_element(&self, c: &TextEditingController, label: &str, payload: &str) {
@@ -525,6 +532,19 @@ impl ComposerDraft {
             .iter()
             .filter_map(|(_, e)| e.binding.clone())
             .collect();
+        // the `@title` elements bound to a `thread://` path name a task
+        let tasks: Vec<TaskRef> = placed
+            .iter()
+            .filter_map(|(range, e)| {
+                let binding = e.binding.as_ref()?;
+                let thread = binding.path.strip_prefix("thread://")?;
+                Some(TaskRef {
+                    range: range.clone(),
+                    title: binding.mention.clone(),
+                    thread: ThreadId::new(thread),
+                })
+            })
+            .collect();
         let mut images: Vec<(u64, LocalImage)> = placed
             .into_iter()
             .filter_map(|(range, e)| {
@@ -544,6 +564,7 @@ impl ComposerDraft {
             images: images.into_iter().map(|(_, image)| image).collect(),
             remote_images: self.remote_images(),
             mentions: tool_mentions(&bindings, catalog),
+            tasks: tasks.into(),
         }
     }
 
@@ -886,11 +907,40 @@ impl ComposerDraft {
         entry
     }
 
+    /// [`kept_entry`](Self::kept_entry) with the outer whitespace of `shown` cut off, the
+    /// placeholders' ranges moved with it (`trim_text_elements`).
+    fn kept_entry_trimmed(&self, c: &TextEditingController, shown: &str) -> HistoryEntry {
+        let mut entry = self.kept_entry(c);
+        let text = shown.trim();
+        let head = shown.len() - shown.trim_start().len();
+        entry.text = text.to_string();
+        entry.text_elements = entry
+            .text_elements
+            .into_iter()
+            .filter_map(|e| {
+                let (start, end) = (e.start.checked_sub(head)?, e.end.checked_sub(head)?);
+                (end <= text.len()).then_some(TextElement { start, end, ..e })
+            })
+            .collect();
+        entry
+    }
+
     /// The draft as the submit sends it, as a history entry: pastes
     /// expanded, the image placeholders kept (`prepare_submission_text`
     /// records the expanded text).
     fn sent_entry(&self, c: &TextEditingController) -> HistoryEntry {
         let (text, placed) = self.expand(c);
+        // A paste that only reads as `!cmd` once expanded stays a paste in the recall, or Up
+        // would turn it into a shell command (`preserve_literal_paste`).
+        let shown = if self.shell() {
+            format!("!{}", c.text())
+        } else {
+            c.text().to_string()
+        };
+        if !self.is_plain() && text.trim().starts_with('!') && !shown.trim_start().starts_with('!')
+        {
+            return self.kept_entry_trimmed(c, &shown);
+        }
         let mut entry = HistoryEntry::new(text);
         for (range, e) in placed {
             if let Some(path) = &e.image {
@@ -1001,6 +1051,18 @@ impl ComposerDraft {
         if !inner.prompts.local().contains(&entry) {
             inner.prompts.record_replayed_submission(entry);
         }
+    }
+
+    /// The messages this draft's recall holds, oldest first (what an owner of another draft
+    /// copies: the answers of the async questions recall what the chat's composer sent).
+    pub fn local_history(&self) -> Vec<HistoryEntry> {
+        self.0.borrow().prompts.local().to_vec()
+    }
+
+    /// The walk of Up and Down starts over from the draft as it is (the draft is shown again
+    /// after another took the field: `restore_inline_draft`).
+    pub fn forget_walk(&self) {
+        self.0.borrow_mut().prompts.reset_navigation();
     }
 
     /// Ctrl+C on a draft (`clear_for_ctrl_c`): the draft is kept for Up and

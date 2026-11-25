@@ -2,9 +2,12 @@
 - w2-settings/keymap_press.py: moves the KeyCode reading of the keymap editor to src/keymap/press.rs (ADR-006); for the owner of src/keymap to run (UNTESTED: written when the area rule forbade running it).
 - doors-r1/span_link.py: `link: None` in every struct literal of the picker `Span { text, role }` (a `link` field on the picker run, doors-r1 item 6).
 - w2-status/usage_fixtures.py: writes the usage debug entries credits_days and credits_exact (src/pages/usage/fixtures) from the oracle's `fixture::history(1,0,0)` with the edits its tests make.
+- w2-status/usage_oracle_fixtures.py: writes the usage debug entries dashboard_month, usage_month_other, denominators(_credits), business_tokens, business_updated_12h, tasks_updated_12h, enterprise_all, large_values, chat_padding, business_chat_padding and activity_ada (src/pages/usage/fixtures) from the oracle's `analytics/test_fixtures.rs` (`view/history/tokens/chats`) with the edits its tests make.
+- w2-status/model_themes.py: writes src/app/theme/syntax/models.rs, the scopes of the six model themes (ada, ...) the oracle's `codex.accent` and chart anchors read, from the oracle's theme data.
 - w2-status/activity_fixtures.py: writes the usage debug entries activity_daily/weekly/cumulative/empty, chats_balance and summary_partial (src/pages/usage/fixtures) from overview.jsonl and tasks.jsonl with the edits the oracle's tests make.
 - doors-r2/NOTES.md: no script; the notes of the doors-r2 round (item 12 finding, the pane_footer fact table, the Needs left to the packages).
 - doors-r3/NOTES.md: no script; the notes of the doors-r3 round (where each door is, the item 8 finding, what each door opens per package).
 - w2-live/gap_reasons.py: names the gap row (G61 math, G73 tables and list spacing) in the pending reason of the markdown_streaming tests that say what the chat lacks, in the sources and in pending-tests.tsv.
 - `f-settings-lists/unpend.py [shard::test ...]`: removes the kit::pending marker of the named oracle tests (default: the 13 of f-settings-lists), their tsv rows, reruns map-full/build.py.
 - `f-approval-decisions/pending_tsv.py`: drops the pending-tests.tsv rows of that task's tests that pass, refreshes the reason of those still pending; then map-full build.py + check.py.
+- async-questions/fixtures.py: writes the q_*.jsonl fixtures of the async-question tests of tests/oracle/chat_approvals_2.rs (an agent message with questions, the running turn, the reply of another client).

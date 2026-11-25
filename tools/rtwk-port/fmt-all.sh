@@ -13,6 +13,14 @@ files=$( { git diff --name-only --diff-filter=d "$base" -- codex-rs/tui-rtwk; \
            git ls-files --others --exclude-standard -- codex-rs/tui-rtwk; } \
          | grep '\.rs$' | grep -v -e '/fixtures/' -e '/snapshots/' | sort -u)
 [ -n "$files" ] || { echo "fmt-all: no changed .rs files"; exit 0; }
-echo "$files" | tr '\n' '\0' | xargs -0 rustfmt --edition 2024 "$@" 2>&1 | grep -v "^Warning: can't set" || true
-[ "${1:-}" = --check ] && { echo "$files" | tr '\n' '\0' | xargs -0 rustfmt --edition 2024 --check >/dev/null 2>&1 || exit 1; }
-exit 0
+# One file at a time through stdin: rustfmt given a PATH also formats every out-of-line `mod x;` child
+# of it (a changed lib.rs / mod.rs reformatted untouched files); from stdin it formats that file only.
+rc=0; tmp=$(mktemp)
+for f in $files; do
+  [ -f "$f" ] || continue
+  if ! rustfmt --edition 2024 --config-path codex-rs/tui-rtwk/rustfmt.toml --emit stdout < "$f" > "$tmp" 2>/dev/null; then echo "fmt-all: rustfmt failed on $f"; rc=1; continue; fi
+  cmp -s "$f" "$tmp" && continue
+  if [ "${1:-}" = --check ]; then echo "fmt-all: not formatted: $f"; rc=1; else cat "$tmp" > "$f"; fi
+done
+rm -f "$tmp"
+exit $rc

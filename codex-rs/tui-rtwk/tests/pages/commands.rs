@@ -439,3 +439,156 @@ fn a_refusal_of_the_server_is_said_in_the_chat_and_the_chat_stays() {
         h.t.screen()
     );
 }
+
+/// `/cd` into a folder whose trust is undecided: the oracle's question over the chat
+/// (`app/working_directory.rs:262-292`), asked of the host and answered by hand here (the
+/// scripted server reads no trust).
+mod consent {
+    use codex_tui_core::app::{AppEv, Command};
+    use codex_tui_core::screens::onboarding::{Ask, Ev, TrustAsk, TrustCancel};
+    use codex_tui_core::screens::{ScreenCommand, ScreenEv, agents};
+    use codex_tui_core::threads::ThreadAsk;
+
+    use crate::common::{Harness, ms, start_app};
+
+    fn armed() -> Harness {
+        let mut h = start_app(|app| app.with_folder_consent(true));
+        h.wait_idle();
+        h
+    }
+
+    fn type_cd(h: &mut Harness, line: &str) {
+        h.t.type_text(line);
+        h.press("enter");
+        h.t.pump_for(ms(400));
+    }
+
+    fn inject(h: &Harness, ev: Ev) {
+        let Some(epoch) = h.fake.epoch() else {
+            panic!("the app is not attached to the scripted server");
+        };
+        h.fake
+            .inject(epoch, AppEv::Screen(ScreenEv::Onboarding(ev)));
+    }
+
+    fn startup_asks(h: &Harness) -> Vec<Ask> {
+        h.fake
+            .commands()
+            .into_iter()
+            .filter_map(|command| match command {
+                Command::Startup { ask, .. } => Some(ask),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The request number of the trust read the app asked of the host.
+    fn read_request(h: &mut Harness) -> u64 {
+        h.wait_until("the trust read", |h| {
+            startup_asks(h)
+                .iter()
+                .any(|ask| matches!(ask, Ask::CheckConsent { .. }))
+        });
+        startup_asks(h)
+            .into_iter()
+            .find_map(|ask| match ask {
+                Ask::CheckConsent { request, .. } => Some(request),
+                _ => None,
+            })
+            .expect("a trust read")
+    }
+
+    fn question() -> TrustAsk {
+        TrustAsk {
+            cwd: "/tmp".into(),
+            target: "/tmp".into(),
+            cancel: TrustCancel::CurrentTask,
+            ..TrustAsk::default()
+        }
+    }
+
+    /// The question on screen: `/cd /tmp` typed, the host's answer injected.
+    fn asked() -> Harness {
+        let mut h = armed();
+        type_cd(&mut h, "/cd /tmp");
+        let request = read_request(&mut h);
+        let ask = Some(question());
+        inject(&h, Ev::Consent { request, ask });
+        h.wait_for("the question", |s| s.contains("Folder access"));
+        h
+    }
+
+    /// The session was asked to start in /tmp (the command, or the request it became).
+    fn started_in_tmp(h: &Harness) -> bool {
+        let asked = h.fake.commands().iter().any(|c| {
+            matches!(
+                c,
+                Command::Screen {
+                    command: ScreenCommand::Agents(agents::Command::Thread(
+                        ThreadAsk::Start { cwd: Some(cwd) }
+                    )),
+                    ..
+                } if cwd == "/tmp"
+            )
+        });
+        asked
+            || h.fake
+                .requests()
+                .iter()
+                .any(|r| r["method"] == "thread/start" && r["params"]["cwd"] == "/tmp")
+    }
+
+    #[test]
+    fn cd_into_an_undecided_folder_shows_the_trust_page_over_the_chat() {
+        let h = asked();
+        let screen = h.t.screen();
+        assert!(screen.contains("› 1. Trust and continue"), "{screen}");
+        assert!(screen.contains("2. Keep current directory"), "{screen}");
+        assert!(!started_in_tmp(&h), "nothing starts before the answer");
+    }
+
+    #[test]
+    fn trusting_the_folder_starts_the_session_there() {
+        let mut h = asked();
+        h.press("enter");
+        h.wait_until("the trust write", |h| {
+            startup_asks(h)
+                .iter()
+                .any(|ask| matches!(ask, Ask::WriteTrust { .. }))
+        });
+        assert!(!started_in_tmp(&h), "the thread waits for the write");
+        let write = startup_asks(&h)
+            .into_iter()
+            .find_map(|ask| match ask {
+                Ask::WriteTrust { request, target } => Some((request, target)),
+                _ => None,
+            })
+            .expect("a write");
+        assert_eq!(write.1, "/tmp");
+        inject(&h, Ev::TrustSaved { request: write.0 });
+        h.wait_until("thread/start in /tmp", |h| started_in_tmp(h));
+        h.wait_for("the page gone", |s| !s.contains("Folder access"));
+    }
+
+    #[test]
+    fn keep_current_directory_returns_to_the_chat_and_starts_nothing() {
+        for keys in [&["down", "enter"][..], &["esc"][..]] {
+            let mut h = asked();
+            for key in keys {
+                h.press(key);
+            }
+            h.wait_for("the chat again", |s| !s.contains("Folder access"));
+            h.t.pump_for(ms(300));
+            assert!(!started_in_tmp(&h), "{keys:?}");
+            assert!(
+                !startup_asks(&h)
+                    .iter()
+                    .any(|ask| matches!(ask, Ask::WriteTrust { .. })),
+                "{keys:?}"
+            );
+            h.t.type_text("hello");
+            h.t.pump_for(ms(200));
+            assert!(h.t.screen().contains("› hello"), "{}", h.t.screen());
+        }
+    }
+}

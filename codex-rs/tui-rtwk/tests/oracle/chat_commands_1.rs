@@ -10,6 +10,13 @@ const SESSION: &str = include_str!("fixtures/chat_commands_2/session.jsonl");
 const RUNNING: &str = include_str!("fixtures/chat_commands_2/running.jsonl");
 const INTERRUPTED: &str = include_str!("fixtures/chat_commands_2/interrupted.jsonl");
 const COMPLETED: &str = include_str!("fixtures/chat_commands_1/completed.jsonl");
+/// The live chat with one task the `@` search found (`task_mentions_enabled`).
+const TASK_SEED: &str = concat!(
+    r#"{"step":"seed","seed":"session","thread":"thread-1"}"#,
+    "\n",
+    r#"{"step":"screen","dir":"popovers","ev":{"tasks":[{"thread":"task-123","title":"Review database migration","cwd":"/workspace/project"}]}}"#,
+    "\n",
+);
 /// A thread its parent controls: the server says it takes no direct input (`set_parent_owned_thread`).
 const PARENT_OWNED: &str = include_str!("fixtures/chat_commands_3/parent_owned.jsonl");
 
@@ -68,10 +75,6 @@ fn hidden_shell_paste_submits_literal_prompt() {
 // ORACLE chatwidget/tests/composer_submission.rs:158 hidden_shell_paste_recalled_from_history_submits_literal_prompt kind=ui owner=chat-nav-pane
 #[test]
 fn hidden_shell_paste_recalled_from_history_submits_literal_prompt() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "screen feature (composer history): Up recalls the payload as the plain text `!echo xxx...` (the oracle's history keeps the large-paste placeholder and its pending paste), and Enter on it sends no turn; the kit reads the sent turns (`assert_turn_texts`)",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .script(SESSION)
@@ -162,31 +165,40 @@ fn hidden_shell_paste_restored_after_image_rejection_submits_literal_prompt() {
 #[test]
 fn hidden_shell_paste_restored_after_unavailable_model_submits_literal_prompt() {
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.set_thread_model("");
     s.paste(&hidden_shell_payload());
     s.assert_contains("[Pasted Content 1006 chars]");
     s.keys("enter");
+    s.assert_contains("Thread model is unavailable.");
+    s.assert_no_turn();
     // The oracle restores the model, then Enter submits the literal payload.
+    s.set_thread_model("gpt-5.2");
     s.keys("enter");
+    s.assert_turn_texts(&[&hidden_shell_payload()]);
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:263 rejected_hidden_shell_paste_preserves_colliding_draft_paste kind=ui owner=chat-nav-pane
 #[test]
 fn rejected_hidden_shell_paste_preserves_colliding_draft_paste() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no seed for an unavailable model (set_model(\"\")) and no earlier prompt in the history (record_replayed_user_message_history) for the ctrl+r recall; the sent text is read by `assert_turn_texts`",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .script(RUNNING)
+        .message_history(&["earlier prompt"])
         .open();
     s.paste(&hidden_shell_payload());
     s.assert_contains("[Pasted Content 1006 chars]");
     s.keys("tab");
     s.paste(&format!("draft {}", "y".repeat(1000)));
+    // the model goes away while the turn runs (`set_model("")`), then a search is open
+    s.set_thread_model("");
     s.keys("ctrl+r");
     s.type_text("e");
+    // the turn ends: the drain refuses the queued prompt and gives it back to the composer,
+    // merged onto the draft that has a paste of the same size
     s.feed(COMPLETED);
+    s.assert_contains("Thread model is unavailable.");
+    s.assert_no_turn();
+    s.set_thread_model("gpt-5.2");
     s.keys("esc enter");
     let draft = "y".repeat(1000);
     s.assert_turn_texts(&[&format!("{}\ndraft {draft}", hidden_shell_payload())]);
@@ -195,14 +207,17 @@ fn rejected_hidden_shell_paste_preserves_colliding_draft_paste() {
 // ORACLE chatwidget/tests/composer_submission.rs:289 hidden_shell_paste_queued_before_session_submits_literal_prompt kind=ui owner=chat-nav-pane
 #[test]
 fn hidden_shell_paste_queued_before_session_submits_literal_prompt() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no seed for submissions queued until the session is configured (set_queue_submissions_until_session_configured); the live chat starts configured",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .held_start()
+        .open();
     s.paste(&hidden_shell_payload());
     s.keys("enter");
+    s.assert_no_turn();
     // The oracle configures the thread, then sends the queued input.
+    s.start_thread();
+    s.assert_turn_texts(&[&hidden_shell_payload()]);
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:302 parent_owned_thread_blocks_all_direct_input_entry_points kind=snap owner=chat-nav-pane snap=parent_owned_thread_rejects_input
@@ -455,19 +470,10 @@ fn startup_draft_handoff_merges_existing_prompt_images_and_large_pastes() {
 // ORACLE chatwidget/tests/composer_submission.rs:1491 startup_draft_handoff_rebases_cursor_around_colliding_large_pastes kind=ui owner=chat-nav-pane
 #[test]
 fn startup_draft_handoff_rebases_cursor_around_colliding_large_pastes() {
-    kit::pending(
+    kit::na(
         Owner::ChatNavPane,
-        "no seed for a startup draft handed over with colliding large pastes (restore_startup_draft) into a chat with its own pastes; the cursor is not a row",
+        "the port has one composer: the startup draft is never handed from a pump to a chat composer, so there is no restore around the cursor to collide with its pastes; the oracle asserts the draft snapshot, not rows",
     );
-    for (marker, added) in [("é", 0), (" 中 ", 3), (" tail", 6)] {
-        let _ = (marker, added);
-        let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-        s.paste(&"a".repeat(1001));
-        s.type_text(" ");
-        s.paste(&"b".repeat(1002));
-        // The oracle restores the startup draft around the cursor, then inserts ✓ at it.
-        s.assert_contains("é[Pasted Content 1001 chars] #2 中 [Pasted Content 1002 chars] #2 tail");
-    }
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:1536 startup_draft_handoff_preserves_cleared_history_across_session_configuration kind=ui owner=chat-nav-pane
@@ -510,14 +516,10 @@ fn startup_draft_handoff_keeps_vim_insert_mode_for_nonempty_drafts() {
 // ORACLE chatwidget/tests/composer_submission.rs:1642 startup_draft_file_search_waits_for_protected_view_and_enabled_input kind=ui owner=chat-nav-pane
 #[test]
 fn startup_draft_file_search_waits_for_protected_view_and_enabled_input() {
-    kit::pending(
+    kit::na(
         Owner::ChatNavPane,
-        "no seed for a startup draft waiting behind an open approvals popup and a disabled composer; the file-search request is an event, not a row",
+        "the port has one composer: no startup draft waits to be restored behind a protected view, so no file search starts at the restore; the oracle asserts the search request, not rows",
     );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    // The oracle opens the approvals popup first: the view is active and the draft waits.
-    s.keys("esc");
-    // Closed, with input disabled the draft still waits; enabled, it restores and the file search starts for `src`.
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:1773 interrupted_turn_restore_keeps_active_mode_for_resubmission kind=ui owner=chat-nav-pane
@@ -697,18 +699,27 @@ fn user_message_display_from_inputs_hides_prompt_context() {
 // ORACLE chatwidget/tests/composer_submission.rs:2564 task_mention_submission_and_transcript_preserve_the_visible_title kind=snap owner=chat-nav-pane snap=task_mention_transcript
 #[test]
 fn task_mention_submission_and_transcript_preserve_the_visible_title() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no seed for a task mention (@ a task title, thread://task-123) with task mentions enabled; the transcript snapshot is the submitted turn's rows",
+    // The oracle submits a message holding the task binding (its `enabled = false` half is a
+    // thread resumed from a directory without the capability file: a state the port cannot
+    // have, every thread is a task-mentions thread here). The port picks the task from the `@`
+    // popup, as the user does.
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(TASK_SEED)
+        .open();
+    s.type_text("Inspect @Review");
+    s.keys("enter");
+    s.keys("enter");
+    s.assert_last_turn_text(
+        &["MUST call `read_thread`", "\"threadId\":\"task-123\""],
+        "Inspect [@Review database migration](thread://task-123)",
     );
-    for enabled in [false, true] {
-        let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-        s.type_text("Inspect @Review database migration");
-        s.keys("enter");
-        if enabled {
-            s.assert_snap("task_mention_transcript");
-        }
-    }
+    let row = s
+        .rows()
+        .iter()
+        .position(|row| row.starts_with("› Inspect"))
+        .unwrap_or(usize::MAX);
+    s.assert_snap_region("task_mention_transcript", row, 0);
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:2617 committed_user_message_with_hidden_prompt_context_renders_local_images kind=ui owner=chat-nav-pane

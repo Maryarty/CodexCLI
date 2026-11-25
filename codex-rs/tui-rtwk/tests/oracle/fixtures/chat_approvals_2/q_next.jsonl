@@ -1,0 +1,2 @@
+# questions_tests.rs:7 push_async_questions(next) (tools/rtwk-port/async-questions/fixtures.py)
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"agentMessage","moderation":null,"id":"next","text":"Which way?","phase":"final_answer","memoryCitation":null,"delivery":null,"questions":[{"title":"Which way?","options":null}],"startedAtMs":null,"completedAtMs":null},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}

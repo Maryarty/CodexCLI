@@ -13,6 +13,21 @@ use crate::services::cli_help;
 
 use super::strings::Strings;
 
+/// The chat is the startup draft (`startup_draft_renderable`): the session has not started, so
+/// the heading stands over the composer with no transcript, no status row and no agents hint.
+pub(super) fn startup_draft(session: &codex_tui_core::app::SessionSlice) -> bool {
+    session.status == codex_tui_core::app::Session::Starting
+}
+
+/// The directory the startup heading names: the configured one once the host has read the config,
+/// `loading` before (`startup_session_header`).
+pub(super) fn startup_dir<'a>(thread_cwd: Option<&'a str>, facts: &'a StatusFacts) -> &'a str {
+    thread_cwd
+        .or(facts.cwd.as_deref())
+        .filter(|cwd| !cwd.is_empty())
+        .unwrap_or("loading")
+}
+
 pub(super) fn header(
     cwd: &str,
     facts: &StatusFacts,
@@ -37,6 +52,8 @@ pub(super) fn header(
     }
     let mut column = Column::new()
         .main_axis_size(MainAxisSize::Min)
+        // the startup draft puts it where the first layout pass gives it one row
+        .overflow_intended(true)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(Padding::new(
             EdgeInsets::only(2, 1, 0, 0),
