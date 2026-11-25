@@ -1,0 +1,4 @@
+# The composer alone with the status line on (the default items): the footer has no context meter.
+# Oracle data: chat_composer/agents_navigation_tests.rs agents_navigation_hint_snapshots
+# (`set_status_line_enabled(true)`, `set_status_line(Some("model · project"))`).
+{"step":"seed","seed":"session","thread":"thread-1"}

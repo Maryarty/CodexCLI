@@ -48,7 +48,13 @@ pub(super) fn body(
     let (run, facts, searching) = (&frame.run, &frame.drawn.status, &frame.searching);
     let running = run.running();
     let startup = super::super::transcript_header::startup_draft(session);
-    let (panel, _) = shortcut_panel(cx, running);
+    // the empty prompt's `←` opens the agents page: the overlay names it as the footer does
+    let agents = !startup
+        && crate::pages::session::composer::vim::agents_key_available(
+            &w.ui.draft,
+            &crate::keymap::keymap(cx),
+        );
+    let (panel, _) = shortcut_panel(cx, running, agents);
     let chat_strings = frame.chat_strings;
     let Slot {
         composer,

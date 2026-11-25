@@ -424,7 +424,7 @@ fn composer_paste_releases_selection_and_retains_normal_cursor_movement() {
 fn external_writer_escape_returns_to_command_center_without_editing() {
     kit::pending(
         Owner::ChatLive,
-        "Esc and Left leave the read-only chat for the command center (built); the snapshots differ by what the kit cannot stage: the oracle's list is still `Loading tasks…` (the foreign_writer seed lists the thread, which the chat needs to open it) and the offline variant needs a lost connection (`Reconnecting…`, stale list), for which the kit has no step",
+        "G-new-external-writer-state: Esc and Left leave the read-only chat for the command center (built); the snapshots differ by what the kit cannot stage: the oracle's list is still `Loading tasks…` (the foreign_writer seed lists the thread, which the chat needs to open it) and the offline variant needs a lost connection (`Reconnecting…`, stale list), for which the kit has no step",
     );
     for (detailed, scrolled, offline) in [
         (false, false, false),
@@ -725,7 +725,7 @@ fn find_owns_editor_chords_without_changing_the_composer_draft() {
 fn offline_find_closes_before_the_next_ctrl_c_quits() {
     kit::pending(
         Owner::ChatLive,
-        "no offline state (reconnect pause) on the owned transcript with a Find query: the 'Find: needle' query row, the hidden '⌃c quit' hint, and ctrl+c closing Find before quitting are not built; the quit exit is not visible",
+        "G-new-offline-composer-screen: no offline state (reconnect pause) on the owned transcript with a Find query: the 'Find: needle' query row, the hidden '⌃c quit' hint, and ctrl+c closing Find before quitting are not built; the quit exit is not visible",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)

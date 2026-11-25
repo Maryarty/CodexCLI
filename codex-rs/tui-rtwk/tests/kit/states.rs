@@ -104,6 +104,32 @@ impl Screen {
         self
     }
 
+    /// The thread is controlled by its parent (the oracle's `set_parent_owned_thread`): the server
+    /// says it takes no direct input (`canAcceptDirectInput: false` in its `thread/started`). The
+    /// live chat only.
+    pub fn parent_owned(&mut self) -> &mut Screen {
+        assert!(!self.entry, "a thread belongs to the live app");
+        let thread = self.active_thread();
+        let notification = serde_json::json!({
+            "step": "notify",
+            "message": {"method": "thread/started", "params": {"thread": {
+                "id": thread.as_str(), "environments": null, "extra": null,
+                "sessionId": thread.as_str(), "forkedFromId": null, "attachedToThreadId": null,
+                "parentThreadId": null, "preview": "", "ephemeral": false, "section": null,
+                "sectionEnteredAt": null, "projectId": null, "historyMode": "legacy",
+                "modelProvider": "openai", "model": null, "reasoningEffort": null,
+                "createdAt": 0, "updatedAt": 0, "recencyAt": 0, "status": {"type": "idle"},
+                "path": null, "cwd": "/tmp/project", "cliVersion": "0.0.0", "originator": null,
+                "source": "cli", "canAcceptDirectInput": false, "threadSource": null,
+                "agentNickname": null, "agentRole": null, "gitInfo": null, "name": null,
+                "daybreakEnabled": null, "turns": []
+            }}}
+        });
+        self.feed(&notification.to_string());
+        self.h.advance(100);
+        self
+    }
+
     /// The images of what the user sends are still being prepared: the turn's start is held in
     /// flight (the host prepares them before it sends), so the composer is already free and the
     /// message is not on the server. `fail_image_preparation` ends the wait.
@@ -147,28 +173,33 @@ pub fn image_file_sized(name: &str, width: u32, height: u32) -> std::path::PathB
     path
 }
 
+/// The server's `thread/start` answer: the thread `model` runs on (`""`: none).
+fn thread_start_answer(model: &str) -> serde_json::Value {
+    serde_json::json!({
+        "thread": {
+            "id": "thread-1", "environments": null, "extra": null, "sessionId": "thread-1",
+            "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
+            "preview": "", "ephemeral": false, "section": null, "sectionEnteredAt": null,
+            "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
+            "model": null, "reasoningEffort": null, "createdAt": 0, "updatedAt": 0,
+            "recencyAt": 0, "status": {"type": "idle"}, "path": null, "cwd": "/tmp/project",
+            "cliVersion": "0.0.0", "originator": null, "source": "cli",
+            "canAcceptDirectInput": true, "threadSource": null, "agentNickname": null,
+            "agentRole": null, "gitInfo": null, "name": null, "daybreakEnabled": null,
+            "turns": []
+        },
+        "model": model, "modelProvider": "openai", "serviceTier": null,
+        "cwd": "/tmp/project", "instructionSources": [],
+        "approvalPolicy": "on-request", "approvalsReviewer": "user",
+        "sandbox": {"type": "dangerFullAccess"}, "reasoningEffort": null
+    })
+}
+
 impl Open {
     /// The session's thread has no model (the oracle's `set_model("")`): the server's
     /// `thread/start` answer names an empty one.
     pub fn unavailable_model(self) -> Open {
-        self.thread_start(serde_json::json!({
-            "thread": {
-                "id": "thread-1", "environments": null, "extra": null, "sessionId": "thread-1",
-                "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
-                "preview": "", "ephemeral": false, "section": null, "sectionEnteredAt": null,
-                "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
-                "model": null, "reasoningEffort": null, "createdAt": 0, "updatedAt": 0,
-                "recencyAt": 0, "status": {"type": "idle"}, "path": null, "cwd": "/tmp/project",
-                "cliVersion": "0.0.0", "originator": null, "source": "cli",
-                "canAcceptDirectInput": true, "threadSource": null, "agentNickname": null,
-                "agentRole": null, "gitInfo": null, "name": null, "daybreakEnabled": null,
-                "turns": []
-            },
-            "model": "", "modelProvider": "openai", "serviceTier": null,
-            "cwd": "/tmp/project", "instructionSources": [],
-            "approvalPolicy": "on-request", "approvalsReviewer": "user",
-            "sandbox": {"type": "dangerFullAccess"}, "reasoningEffort": null
-        }))
+        self.thread_start(thread_start_answer(""))
     }
 
     /// The composer rendered alone in the area (the oracle's `ChatComposer` tests draw it into a

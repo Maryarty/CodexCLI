@@ -265,16 +265,18 @@ fn non_ascii_burst_buffers_large_multiline_mixed_ascii_and_unicode() {
 // ORACLE bottom_pane/chat_composer.rs:8862 ascii_burst_treats_enter_as_newline_even_when_parent_owned kind=ui owner=chat-live
 #[test]
 fn ascii_burst_treats_enter_as_newline_even_when_parent_owned() {
-    kit::pending(
-        Owner::ChatLive,
-        "no parent-owned thread seed (set_parent_owned_thread) on the chat composer: the body holds the plain variant, which passes; the parent-owned one is not drawn differently, so a pass would be a half pass",
-    );
-    let mut s = ready(100, 24);
-    s.type_burst("hi\nthere");
-    s.wait(50);
-    let p = prompt(&s);
-    s.assert_row(p, "› hi");
-    s.assert_row(p + 1, "  there");
+    // the oracle runs it plain and with `set_parent_owned_thread()`
+    for parent_owned in [false, true] {
+        let mut s = ready(100, 24);
+        if parent_owned {
+            s.parent_owned();
+        }
+        s.type_burst("hi\nthere");
+        s.wait(50);
+        let p = prompt(&s);
+        s.assert_row(p, "› hi");
+        s.assert_row(p + 1, "  there");
+    }
 }
 
 // ORACLE bottom_pane/chat_composer.rs:8956 slash_context_enter_ignores_paste_burst_enter_suppression kind=ui owner=chat-live
