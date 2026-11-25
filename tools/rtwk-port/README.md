@@ -4,3 +4,4 @@
 - w2-status/usage_fixtures.py: writes the usage debug entries credits_days and credits_exact (src/pages/usage/fixtures) from the oracle's `fixture::history(1,0,0)` with the edits its tests make.
 - w2-status/activity_fixtures.py: writes the usage debug entries activity_daily/weekly/cumulative/empty, chats_balance and summary_partial (src/pages/usage/fixtures) from overview.jsonl and tasks.jsonl with the edits the oracle's tests make.
 - doors-r2/NOTES.md: no script; the notes of the doors-r2 round (item 12 finding, the pane_footer fact table, the Needs left to the packages).
+- w2-live/gap_reasons.py: names the gap row (G61 math, G73 tables and list spacing) in the pending reason of the markdown_streaming tests that say what the chat lacks, in the sources and in pending-tests.tsv.

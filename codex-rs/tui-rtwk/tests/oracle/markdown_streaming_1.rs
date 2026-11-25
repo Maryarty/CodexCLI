@@ -414,7 +414,7 @@ fn wrap_cell_preserves_hard_break_lines() {
     // known to produce that cell on the screen yet: the source is chosen with the markdown slice.
     kit::pending(
         Owner::ChatLive,
-        "the chat draws no table: a cell with a hard break (two rows in one cell) has no markdown source and no table layout",
+        "G73: the chat draws no table: a cell with a hard break (two rows in one cell) has no markdown source and no table layout",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)
@@ -430,7 +430,7 @@ fn blank_table_continuations_do_not_repeat_the_first_cell() {
     // compared as screen rows here. The cell source is built by hand in the oracle, see above.
     kit::pending(
         Owner::ChatLive,
-        "the chat draws no table: blank continuation rows of a two-column cell have no markdown source and no table layout",
+        "G73: the chat draws no table: blank continuation rows of a two-column cell have no markdown source and no table layout",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)
@@ -474,7 +474,7 @@ fn key_value_table_keeps_web_annotations() {
     // call that checks the links of a row whose text wraps is missing: kit gap, reported.
     kit::pending(
         Owner::ChatLive,
-        "the chat draws no table: a six-column table at width 20 is not laid out as key-value records with links; probe: the body passes without it (it checks less than the oracle claims)",
+        "G73: the chat draws no table: a six-column table at width 20 is not laid out as key-value records with links; probe: the body passes without it (it checks less than the oracle claims)",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(20, 24)
@@ -508,7 +508,7 @@ fn pipe_table_fallback_keeps_web_annotations() {
     // the label, and no link on the code span. Wrapped texts at width 5 are not in the oracle.
     kit::pending(
         Owner::ChatLive,
-        "the chat draws no pipe-table fallback: the table's links are not drawn at width 5",
+        "G73: the chat draws no pipe-table fallback: the table's links are not drawn at width 5",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(5, 24)
@@ -735,7 +735,7 @@ fn list_spacing_is_uniform_per_list_and_preserves_item_paragraphs() {
     // shows one spacing. The stage split is a kit gap, reported. The five sources are five turns.
     kit::pending(
         Owner::ChatLive,
-        "the chat has no list spacing choice (Compact or Uniform): one spacing is drawn, and the oracle snapshot joins ten stages",
+        "G73: the chat has no list spacing choice (Compact or Uniform): one spacing is drawn, and the oracle snapshot joins ten stages",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(24, 120)
@@ -768,7 +768,7 @@ fn list_spacing_preserves_links_and_source_when_removing_separators() {
 fn unicode_math_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "the chat has no math renderer: LaTeX display and inline math are drawn as their source",
+        "G61: the chat has no math renderer: LaTeX display and inline math are drawn as their source",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 60)
@@ -784,7 +784,7 @@ fn unicode_math_snapshot() {
 fn issue_48403_renders_zero_and_multiline_display() {
     kit::pending(
         Owner::ChatLive,
-        "the chat has no math renderer: the zero and multiline display formula is drawn as its source",
+        "G61: the chat has no math renderer: the zero and multiline display formula is drawn as its source",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 60)
@@ -800,7 +800,7 @@ fn issue_48403_renders_zero_and_multiline_display() {
 fn unicode_math_schrodinger_equation_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "the chat has no math renderer: the display equation is drawn as its source",
+        "G61: the chat has no math renderer: the display equation is drawn as its source",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(100, 60)
@@ -816,7 +816,7 @@ fn unicode_math_schrodinger_equation_snapshot() {
 fn unicode_math_optimization_model() {
     kit::pending(
         Owner::ChatLive,
-        "the chat has no math renderer: the boxed aligned model is drawn with its LaTeX commands",
+        "G61: the chat has no math renderer: the boxed aligned model is drawn with its LaTeX commands",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(240, 60)
@@ -838,7 +838,7 @@ fn unicode_math_display_limits() {
     // bare one: internal results and equalities, not drawn; the snapshot is the visible half.
     kit::pending(
         Owner::ChatLive,
-        "the chat has no math renderer: display limits are drawn as their source",
+        "G61: the chat has no math renderer: display limits are drawn as their source",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(100, 60)
@@ -854,7 +854,7 @@ fn unicode_math_display_limits() {
 fn unicode_math_grouped_scripts_and_annotations() {
     kit::pending(
         Owner::ChatLive,
-        "the chat has no math renderer: inline grouped scripts and annotations are drawn as their source",
+        "G61: the chat has no math renderer: inline grouped scripts and annotations are drawn as their source",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(100, 60)
@@ -872,7 +872,7 @@ fn integral_limits_and_parenthesized_matrices() {
     // renders compared, not drawn; the snapshot is the visible half.
     kit::pending(
         Owner::ChatLive,
-        "the chat has no math renderer: integral limits and parenthesized matrices are drawn as their source",
+        "G61: the chat has no math renderer: integral limits and parenthesized matrices are drawn as their source",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 60)
@@ -891,7 +891,7 @@ fn unicode_math_aligned_fraction_and_narrow_fallback() {
     // joined snapshot: kit gap, reported.
     kit::pending(
         Owner::ChatLive,
-        "the chat has no math renderer: the aligned fraction is drawn as its source at width 80 and 12",
+        "G61: the chat has no math renderer: the aligned fraction is drawn as its source at width 80 and 12",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 60)
@@ -907,7 +907,7 @@ fn unicode_math_aligned_fraction_and_narrow_fallback() {
 fn unicode_math_aligned_preserves_fraction_geometry() {
     kit::pending(
         Owner::ChatLive,
-        "the chat has no math renderer: aligned fractions are drawn as their source",
+        "G61: the chat has no math renderer: aligned fractions are drawn as their source",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 60)
@@ -932,7 +932,7 @@ fn unicode_math_structured_bounds_and_invalid_input() {
     // visible half is the sixteen-row aligned block, drawn as sixteen `x =1` rows.
     kit::pending(
         Owner::ChatLive,
-        "the chat has no math renderer: the sixteen-row aligned block is drawn as its LaTeX source",
+        "G61: the chat has no math renderer: the sixteen-row aligned block is drawn as its LaTeX source",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 40)
@@ -950,7 +950,7 @@ fn unicode_math_narrow_layout_stays_meaningful() {
     // and that a too-wide fraction stays source: equalities of two renders, not drawn.
     kit::pending(
         Owner::ChatLive,
-        "the chat has no math renderer: at width 12 a display fraction is drawn as its source, wrapped as text",
+        "G61: the chat has no math renderer: at width 12 a display fraction is drawn as its source, wrapped as text",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(12, 60)
@@ -968,7 +968,7 @@ fn unicode_math_nested_fractions_and_oversized_pending_stay_source() {
     // display is internal. The visible half: the nested fractions stay as typed source.
     kit::pending(
         Owner::ChatLive,
-        "the chat has no math renderer: nested fractions are drawn as their source; the oversized pending display is not built; probe: the body passes without it (it checks less than the oracle claims)",
+        "G61: the chat has no math renderer: nested fractions are drawn as their source; the oversized pending display is not built; probe: the body passes without it (it checks less than the oracle claims)",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)
