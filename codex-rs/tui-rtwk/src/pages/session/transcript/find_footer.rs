@@ -493,8 +493,24 @@ impl State for QueryState {
                 }
             });
         let keys = finder.clone();
+        let caret = select::of(&finder);
         let field = EditingKeys::new(
-            move |_, key, _| find::key(keys.mode(), key).is_some_and(|taken| keys.take(taken)),
+            move |_, key, _| {
+                let Some(taken) = find::key(keys.mode(), key) else {
+                    return false;
+                };
+                // Enter on an empty query in select mode is the search accepted there once more:
+                // Find closes and `n` and `N` go on with it (`restore_saved_select_search`)
+                let taken = if taken == find::Key::Accept
+                    && keys.query().text().is_empty()
+                    && caret.remembers()
+                {
+                    find::Key::Cancel
+                } else {
+                    taken
+                };
+                keys.take(taken)
+            },
             field,
         )
         .controller(finder.query());

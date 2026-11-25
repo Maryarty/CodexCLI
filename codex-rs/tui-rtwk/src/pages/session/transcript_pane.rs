@@ -710,10 +710,13 @@ impl State for ViewportState {
             // the caret goes where an accepted match is, and Find is done (`accept_search_into_select_mode`)
             if caret.read(texts) && search.reading() {
                 if let Some(hit) = search.current() {
-                    caret.land(Pos {
-                        row: hit.row,
-                        offset: hit.range.start,
-                    });
+                    caret.land(
+                        Pos {
+                            row: hit.row,
+                            offset: hit.range.start,
+                        },
+                        &search.query().text(),
+                    );
                 }
                 search.cancel();
             }

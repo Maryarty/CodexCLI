@@ -32,6 +32,69 @@ use rtwk::scroll::ItemTexts;
 pub use crate::widgets::finder::{Direction, Finder, Hit, Key, Mode, QUERY_BYTES, Rows, key};
 use crate::widgets::thread_ui::ThreadUi;
 
+/// The next match of `query` (lowercased, as the finder holds it) from `from`, a row and a byte of
+/// its text, in `direction`, never wrapping: select mode's `n` and `N` look from the caret, where
+/// the finder's own step goes on from its match. The finder's scan (`widgets::finder`, private
+/// there) over the rows of the transcript.
+pub fn repeat(
+    rows: &RowTexts,
+    query: &str,
+    from: (usize, usize),
+    direction: Direction,
+) -> Option<Hit> {
+    let count = rows.row_count();
+    if count == 0 || query.is_empty() {
+        return None;
+    }
+    let first = from.0.min(count - 1);
+    let mut row = first;
+    loop {
+        let text = rows.row_text(row);
+        let window = if row == first {
+            let mut at = from.1.min(text.len());
+            while !text.is_char_boundary(at) {
+                at -= 1;
+            }
+            match direction {
+                Direction::Older => 0..at,
+                Direction::Newer => at..text.len(),
+            }
+        } else {
+            0..text.len()
+        };
+        if let Some(found) = literal(&text[window.clone()], query, direction) {
+            return Some(Hit {
+                row,
+                range: window.start + found.start..window.start + found.end,
+            });
+        }
+        row = match direction {
+            Direction::Older => row.checked_sub(1)?,
+            Direction::Newer => (row + 1 < count).then_some(row + 1)?,
+        };
+    }
+}
+
+/// The first match of the folded `query` in `text` from `direction` (the last when older), as
+/// bytes of `text` itself: the lowercase of a character can be longer or shorter than it.
+fn literal(text: &str, query: &str, direction: Direction) -> Option<std::ops::Range<usize>> {
+    let mut folded = String::new();
+    let mut spans = Vec::new();
+    for (start, character) in text.char_indices() {
+        for lowercase in character.to_lowercase() {
+            folded.push(lowercase);
+            spans.push((folded.len(), start..start + character.len_utf8()));
+        }
+    }
+    let start = match direction {
+        Direction::Older => folded.rfind(query),
+        Direction::Newer => folded.find(query),
+    }?;
+    let first = spans.partition_point(|(end, _)| *end <= start);
+    let last = spans.partition_point(|(end, _)| *end < start + query.len());
+    Some(spans.get(first)?.1.start..spans.get(last)?.1.end)
+}
+
 /// The finder of a thread's controllers (the one `begin` opens and the pane reads).
 pub fn finder(ui: &ThreadUi) -> Finder {
     ui.find.clone()

@@ -123,7 +123,7 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
         let caret = caret::of(&finder);
         if caret.active()
             && !finder.active()
-            && let Some(step) = caret.key(&key)
+            && let Some(step) = caret.key(&keymap.borrow(), &key)
         {
             let selection = selection.borrow().clone();
             match step {

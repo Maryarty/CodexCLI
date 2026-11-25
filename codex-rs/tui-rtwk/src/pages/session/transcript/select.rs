@@ -13,7 +13,13 @@
 //!
 //! Positions are a row of the list (oldest first) and a byte of its text; a caret stops on the
 //! lines of the text that are not gutters. The oracle moves over display rows (a wrapped line is
-//! several): this moves over the lines of the text, a gap row of the pack.
+//! several): this moves over the lines of the text, a gap row of the pack. A page is the rows in
+//! view of the list, less one (`area.height - 1`), and half a page half of them, rounded up; the
+//! pager's keys (rebound or not) move the caret where the mode's own do not name them.
+//!
+//! A Find accepted in the mode closes and leaves its query here (the oracle keeps it open and
+//! reading, and shows the mode's footer all the same): `n` looks for the match before the caret,
+//! `N` for the one after the grapheme it is on, and the caret goes to it (`find::repeat`).
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -24,8 +30,15 @@ use rtwk::foundation::ValueNotifier;
 use rtwk::gestures::SelectionTarget;
 use rtwk::render::RenderId;
 
+use codex_tui_core::keymap::actions::{
+    PAGER_HALF_PAGE_DOWN, PAGER_HALF_PAGE_UP, PAGER_JUMP_BOTTOM, PAGER_JUMP_TOP, PAGER_PAGE_DOWN,
+    PAGER_PAGE_UP, PAGER_SCROLL_DOWN, PAGER_SCROLL_UP,
+};
+use codex_tui_core::keymap::{ActionId, Keymap};
+
 use super::TranscriptMode;
-use super::find::{Finder, RowTexts};
+use super::find::{self, Direction, Finder, RowTexts};
+use crate::keymap::pressed;
 use crate::widgets::thread_ui::{Follow, TextSelection};
 
 /// A place in the transcript: a row of the list (oldest first) and a byte of its text.
@@ -92,6 +105,10 @@ enum Do {
     Repeat(bool),
     Extend(Motion),
     Go(Motion),
+    /// A page of the list's height, less one row, towards the sign's end.
+    Page(isize),
+    /// Half the list's height, rounded up.
+    Half(isize),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -107,10 +124,6 @@ enum Motion {
     Beginning,
     End,
 }
-
-/// Rows a page and half a page move by, where the list's height is not known.
-const PAGE: isize = 8;
-const HALF: isize = 4;
 
 fn table() -> Vec<(&'static str, Do)> {
     use Motion::{Beginning, End, LineEnd, LineStart, Rows, WordBackward, WordEnd, WordForward};
@@ -152,12 +165,12 @@ fn table() -> Vec<(&'static str, Do)> {
         ("end", Do::Go(LineEnd)),
         ("$", Do::Go(LineEnd)),
         ("shift+$", Do::Go(LineEnd)),
-        ("pageup", Do::Go(Rows(-PAGE))),
-        ("ctrl+b", Do::Go(Rows(-PAGE))),
-        ("pagedown", Do::Go(Rows(PAGE))),
-        ("ctrl+f", Do::Go(Rows(PAGE))),
-        ("ctrl+u", Do::Go(Rows(-HALF))),
-        ("ctrl+d", Do::Go(Rows(HALF))),
+        ("pageup", Do::Page(-1)),
+        ("ctrl+b", Do::Page(-1)),
+        ("pagedown", Do::Page(1)),
+        ("ctrl+f", Do::Page(1)),
+        ("ctrl+u", Do::Half(-1)),
+        ("ctrl+d", Do::Half(1)),
         ("g", Do::Go(Beginning)),
         ("ctrl+home", Do::Go(Beginning)),
         ("shift+g", Do::Go(End)),
@@ -183,6 +196,9 @@ struct Data {
     /// The caret moved: the pane scrolls it into view.
     reveal: bool,
     watched: bool,
+    /// The query of the Find that was accepted in this mode, lowercased: what `n` and `N` look for
+    /// (the oracle keeps that Find open and reading; here it closes and leaves its query).
+    query: String,
 }
 
 struct Inner {
@@ -217,6 +233,7 @@ impl Default for Select {
                 list: None,
                 reveal: false,
                 watched: false,
+                query: String::new(),
             }),
             ticks: Rc::new(ValueNotifier::new(0)),
             attached: Cell::new(false),
@@ -238,6 +255,24 @@ fn what(key: &KeyPress) -> Option<Do> {
             .filter(|combo| combo.accepts_press(key))
             .map(|_| what)
     })
+}
+
+/// What the pager's keys (`keymap.pager`: rebound or not) do in select mode: they move the caret
+/// where the mode's own keys do not name them (`pager_motion`).
+fn pager(keymap: &Keymap, key: &KeyPress) -> Option<Do> {
+    let is = |id: ActionId| pressed(keymap, id, key);
+    [
+        (PAGER_JUMP_TOP, Do::Go(Motion::Beginning)),
+        (PAGER_JUMP_BOTTOM, Do::Go(Motion::End)),
+        (PAGER_SCROLL_UP, Do::Go(Motion::Rows(-1))),
+        (PAGER_SCROLL_DOWN, Do::Go(Motion::Rows(1))),
+        (PAGER_PAGE_UP, Do::Page(-1)),
+        (PAGER_PAGE_DOWN, Do::Page(1)),
+        (PAGER_HALF_PAGE_UP, Do::Half(-1)),
+        (PAGER_HALF_PAGE_DOWN, Do::Half(1)),
+    ]
+    .into_iter()
+    .find_map(|(id, what)| is(id).then_some(what))
 }
 
 impl Select {
@@ -279,6 +314,7 @@ impl Select {
             data.mark = None;
             data.column = None;
             data.shown = None;
+            data.query.clear();
             data.follow = Some(follow.clone());
         }
         self.notify();
@@ -295,9 +331,17 @@ impl Select {
             data.mark = None;
             data.shown = None;
             data.rows = None;
+            data.query.clear();
         }
         selection.controller().clear();
         self.notify();
+    }
+
+    /// Whether a Find was accepted in this mode: its query is what `n` and `N` look for, and what
+    /// Enter on an empty query goes back to.
+    pub fn remembers(&self) -> bool {
+        let data = self.0.data.borrow();
+        data.active && !data.query.is_empty()
     }
 
     /// What the footer says: the keys of the mode, by whether a range is marked.
@@ -306,16 +350,16 @@ impl Select {
         data.active.then_some(data.mark.is_some())
     }
 
-    /// The caret goes to the match of an accepted Find (`accept_search_into_select_mode`), the
-    /// range that was marked gone.
-    pub fn land(&self, hit: Pos) {
+    /// The caret goes to the match of an accepted Find (`accept_search_into_select_mode`; a range
+    /// that was marked stays, its active end moves), and `query` is what `n` and `N` look for.
+    pub fn land(&self, hit: Pos, query: &str) {
         {
             let mut data = self.0.data.borrow_mut();
             if !data.active {
                 return;
             }
+            data.query = query.chars().flat_map(char::to_lowercase).collect();
             data.cursor = hit;
-            data.mark = None;
             data.column = None;
             data.reveal = true;
             data.shown = None;
@@ -324,11 +368,11 @@ impl Select {
     }
 
     /// A key of the mode: what the page does of it, or `None` where the key is not the mode's.
-    pub fn key(&self, key: &KeyPress) -> Option<Step> {
+    pub fn key(&self, keymap: &Keymap, key: &KeyPress) -> Option<Step> {
         if !self.active() {
             return None;
         }
-        let what = what(key)?;
+        let what = what(key).or_else(|| pager(keymap, key))?;
         let rows = self.0.data.borrow().rows.clone()?;
         let step = match what {
             Do::Copy => {
@@ -363,7 +407,10 @@ impl Select {
                 self.swap();
                 Step::Moved
             }
-            Do::Repeat(_) => Step::Moved,
+            Do::Repeat(newer) => {
+                self.repeat(&rows, newer);
+                Step::Moved
+            }
             Do::Extend(motion) => {
                 if !self.marked() {
                     self.mark(Unit::Character);
@@ -373,6 +420,16 @@ impl Select {
             }
             Do::Go(motion) => {
                 self.go(&rows, motion);
+                Step::Moved
+            }
+            Do::Page(pages) => {
+                let page = (self.height() - 1).max(1);
+                self.go(&rows, Motion::Rows(pages * page));
+                Step::Moved
+            }
+            Do::Half(pages) => {
+                let half = ((self.height() + 1) / 2).max(1);
+                self.go(&rows, Motion::Rows(pages * half));
                 Step::Moved
             }
         };
@@ -422,6 +479,21 @@ impl Select {
         }
     }
 
+    /// The rows in view: the list's own height, where it has been laid out (a page and half a
+    /// page are `area.height` in the oracle's select mode).
+    fn height(&self) -> isize {
+        let follow = self.0.data.borrow().follow.clone();
+        let Some(follow) = follow else {
+            return 0;
+        };
+        let scroll = follow.scroll();
+        let height = scroll
+            .as_scroll_controller()
+            .try_position()
+            .map_or(0, |position| position.viewport_dimension());
+        isize::try_from(height).unwrap_or(0)
+    }
+
     fn go(&self, rows: &RowTexts, motion: Motion) {
         let lines = lines(rows);
         let (cursor, column) = {
@@ -432,6 +504,42 @@ impl Select {
         let mut data = self.0.data.borrow_mut();
         data.cursor = to;
         data.column = keep;
+        data.shown = None;
+        data.reveal = true;
+    }
+
+    /// `n` (older) and `N` (newer): the next match of the accepted Find's query from the caret
+    /// (`repeat_select_search`): before it for older, after the grapheme it is on for newer, never
+    /// wrapping. The caret goes to the match, a range marked going on from it.
+    fn repeat(&self, rows: &RowTexts, newer: bool) {
+        let (query, cursor) = {
+            let data = self.0.data.borrow();
+            (data.query.clone(), data.cursor)
+        };
+        if query.is_empty() {
+            return;
+        }
+        let (from, direction) = if newer {
+            let text = rows.row_text(cursor.row);
+            let after = TextBuffer::new(text).character_end_after(cursor.offset.min(text.len()));
+            (after, Direction::Newer)
+        } else {
+            (cursor.offset, Direction::Older)
+        };
+        let Some(hit) = find::repeat(rows, &query, (cursor.row, from), direction) else {
+            return;
+        };
+        let to = place(
+            rows,
+            &lines(rows),
+            Pos {
+                row: hit.row,
+                offset: hit.range.start,
+            },
+        );
+        let mut data = self.0.data.borrow_mut();
+        data.cursor = to;
+        data.column = None;
         data.shown = None;
         data.reveal = true;
     }
@@ -605,6 +713,7 @@ impl Select {
             data.mark = None;
             data.shown = None;
             data.rows = None;
+            data.query.clear();
         }
         self.notify();
     }
@@ -635,6 +744,38 @@ fn lines(rows: &RowTexts) -> Vec<Line> {
     lines
 }
 
+/// Where a caret stands for a match that starts at `at`: on the grapheme there, where that is a
+/// stop; the end of a line is not (the match began on its line break): the next line's start, or
+/// the last grapheme where none follows (`move_select_cursor_to_search_match`).
+fn place(rows: &RowTexts, lines: &[Line], at: Pos) -> Pos {
+    let after = |at: Pos| {
+        lines
+            .iter()
+            .find(|line| (line.row, line.start) > (at.row, at.offset))
+    };
+    let Some(line) = lines
+        .iter()
+        .find(|line| line.row == at.row && (line.start..=line.end).contains(&at.offset))
+    else {
+        // a match in a gutter: the next line there is a stop on
+        return after(at)
+            .or(lines.last())
+            .map_or(at, at_line);
+    };
+    if line.empty() {
+        return at_line(line);
+    }
+    if at.offset >= line.end {
+        return after(at).map_or_else(|| last_grapheme(rows, line), at_line);
+    }
+    let buffer = TextBuffer::new(rows.row_text(at.row));
+    let end = buffer.character_end_after(at.offset);
+    Pos {
+        row: at.row,
+        offset: buffer.character_start_before(end).max(line.start),
+    }
+}
+
 fn index_of(lines: &[Line], pos: Pos) -> usize {
     lines
         .iter()
@@ -642,7 +783,7 @@ fn index_of(lines: &[Line], pos: Pos) -> usize {
         .unwrap_or(0)
 }
 
-fn at(line: &Line) -> Pos {
+fn at_line(line: &Line) -> Pos {
     Pos {
         row: line.row,
         offset: line.start,
@@ -749,7 +890,7 @@ fn moved(
             lines[here + 1..]
                 .iter()
                 .find(|line| !line.empty())
-                .map_or(stay, |line| (at(line), None))
+                .map_or(stay, |line| (at_line(line), None))
         }
         Motion::Rows(by) => {
             let target = here
@@ -768,9 +909,9 @@ fn moved(
                 Some(column),
             )
         }
-        Motion::LineStart => (at(&line), None),
+        Motion::LineStart => (at_line(&line), None),
         Motion::LineEnd => (last_grapheme(rows, &line), None),
-        Motion::Beginning => (at(&lines[0]), None),
+        Motion::Beginning => (at_line(&lines[0]), None),
         Motion::End => (last_grapheme(rows, &lines[lines.len() - 1]), None),
         Motion::WordForward => {
             let buffer = TextBuffer::new(text);
@@ -789,7 +930,7 @@ fn moved(
             lines[here + 1..]
                 .iter()
                 .find(|line| !line.empty())
-                .map_or(stay, |line| (at(line), None))
+                .map_or(stay, |line| (at_line(line), None))
         }
         Motion::WordBackward => {
             let buffer = TextBuffer::new(text);
