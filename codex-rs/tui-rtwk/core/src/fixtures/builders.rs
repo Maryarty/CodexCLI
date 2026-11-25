@@ -24,6 +24,17 @@ fn note(notification: ServerNotification) -> BackendEv {
     BackendEv::Notification(Box::new(notification))
 }
 
+/// A notification as the wire has it (`{"method":..,"params":..}`): what a script's `notify` step
+/// holds, built here for the shapes that have no builder of their own.
+fn wire(method: &str, params: serde_json::Value) -> Result<BackendEv, String> {
+    serde_json::from_value::<ServerNotification>(serde_json::json!({
+        "method": method,
+        "params": params,
+    }))
+    .map(note)
+    .map_err(|err| format!("{method}: {err}"))
+}
+
 fn turn(id: &str, status: TurnStatus) -> Turn {
     Turn {
         id: id.to_string(),
@@ -199,4 +210,103 @@ pub fn turns_page(
         backwards_cursor: backwards_cursor.map(str::to_string),
     })
     .unwrap_or(serde_json::Value::Null)
+}
+
+/// `item/completed` of a reasoning item whose summary is `summary` (one part, Markdown): the
+/// model's reasoning, which only the detailed transcript shows.
+pub fn reasoning_completed(
+    thread: &str,
+    turn_id: &str,
+    item: &str,
+    summary: &str,
+) -> Result<BackendEv, String> {
+    wire(
+        "item/completed",
+        serde_json::json!({
+            "item": {"type": "reasoning", "id": item, "summary": [summary], "content": []},
+            "threadId": thread, "turnId": turn_id, "completedAtMs": 0,
+        }),
+    )
+}
+
+/// `item/completed` of a proposed plan (`text`, Markdown).
+pub fn plan_completed(
+    thread: &str,
+    turn_id: &str,
+    item: &str,
+    text: &str,
+) -> Result<BackendEv, String> {
+    wire(
+        "item/completed",
+        serde_json::json!({
+            "item": {"type": "plan", "id": item, "text": text},
+            "threadId": thread, "turnId": turn_id, "completedAtMs": 0,
+        }),
+    )
+}
+
+/// `turn/plan/updated`: the `update_plan` report, each step with its status (`pending`,
+/// `inProgress`, `completed`).
+pub fn plan_updated(
+    thread: &str,
+    turn_id: &str,
+    explanation: Option<&str>,
+    steps: &[(&str, &str)],
+) -> Result<BackendEv, String> {
+    let plan: Vec<_> = steps
+        .iter()
+        .map(|(step, status)| serde_json::json!({"step": step, "status": status}))
+        .collect();
+    wire(
+        "turn/plan/updated",
+        serde_json::json!({
+            "threadId": thread, "turnId": turn_id,
+            "explanation": explanation, "plan": plan,
+        }),
+    )
+}
+
+/// `item/started` of a command that is running (no output, no exit code yet).
+pub fn command_started(
+    thread: &str,
+    turn_id: &str,
+    item: &str,
+    command: &str,
+) -> Result<BackendEv, String> {
+    wire(
+        "item/started",
+        serde_json::json!({
+            "item": {
+                "type": "commandExecution", "id": item, "command": command, "cwd": "/workspace",
+                "processId": null, "source": "agent", "status": "inProgress",
+                "commandActions": [], "aggregatedOutput": null, "exitCode": null,
+                "durationMs": null,
+            },
+            "threadId": thread, "turnId": turn_id, "startedAtMs": 0,
+        }),
+    )
+}
+
+/// `item/completed` of a command: its `output` (stdout and stderr as one text) and its exit code.
+pub fn command_completed(
+    thread: &str,
+    turn_id: &str,
+    item: &str,
+    command: &str,
+    output: &str,
+    exit_code: i32,
+) -> Result<BackendEv, String> {
+    let status = if exit_code == 0 { "completed" } else { "failed" };
+    wire(
+        "item/completed",
+        serde_json::json!({
+            "item": {
+                "type": "commandExecution", "id": item, "command": command, "cwd": "/workspace",
+                "processId": null, "source": "agent", "status": status,
+                "commandActions": [], "aggregatedOutput": output, "exitCode": exit_code,
+                "durationMs": null,
+            },
+            "threadId": thread, "turnId": turn_id, "completedAtMs": 0,
+        }),
+    )
 }

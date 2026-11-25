@@ -36,6 +36,7 @@ mod sparkle;
 mod states;
 mod usage;
 mod verdict;
+mod view;
 mod worktrees;
 
 #[allow(unused_imports)]

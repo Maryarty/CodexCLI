@@ -36,6 +36,17 @@
 //!   for a refusal). A reply is not an event of the script's timeline, so it is
 //!   not a [`Step`]: `parse` collects the lines into [`Script::replies`] and a
 //!   tester's fake backend takes from the queue as the requests arrive.
+//! - `entry`: one entry of the transcript, in the shorthand the transcript tests write instead of
+//!   the notifications that make it: `{"step":"entry","kind":"agent","text":"top"}`. `kind` is
+//!   `agent`, `user`, `reasoning`, `plan` (the proposed plan, `text`), `plan_update` (`steps`:
+//!   `[["Write it","completed"]]`, `explanation`), `exec` (`command`, `output`, `exit`, or
+//!   `running`) or `recap` (`summary`, `next`). The entry is a turn of its own (`turn/started`, the
+//!   item, `turn/completed`; `turn` names it, else `entry-<line>`); `"end":false` leaves the turn
+//!   open, so an `agent` entry is the live tail, and `"start":false` adds to the open turn `turn`
+//!   names. `text` is the text as the model said it, a tab and Markdown included. `thread` is
+//!   `thread-1` unless the step says.
+//! - `commit`: the end of an open turn (`{"step":"commit","turn":"turn-2"}`): the live tail is
+//!   committed to the transcript (`turn/completed`).
 //! - `key` and `resize`: inputs for a tester; the model has no use for them,
 //!   `play` hands them back in order.
 //!
@@ -56,6 +67,7 @@ use crate::app::Ingress;
 use crate::app::Intent;
 use crate::app::Now;
 use crate::app::Session;
+use crate::fixtures::builders;
 use crate::ids::ThreadId;
 use crate::rpc::Reply;
 use crate::screens;
@@ -102,6 +114,14 @@ pub enum Step {
     /// "input":"/status","label":"Status","origin":"user"}]}`); a step replaces the set.
     Presets {
         slots: Vec<PresetLine>,
+    },
+    /// An entry of the transcript (see the module docs).
+    Entry(Entry),
+    /// The end of an open turn: its live tail is committed (`turn/completed`).
+    Commit {
+        #[serde(default)]
+        thread: Option<String>,
+        turn: String,
     },
     Notify {
         message: Box<ServerNotification>,
@@ -172,7 +192,160 @@ impl PresetLine {
     }
 }
 
+fn yes() -> bool {
+    true
+}
+
+/// An `entry` step: one entry of the transcript in a turn.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Entry {
+    /// The thread; none is `thread-1`, the one scripts seed.
+    #[serde(default)]
+    pub thread: Option<String>,
+    /// The turn the entry is in; none is a turn of its own, named by the line.
+    #[serde(default)]
+    pub turn: Option<String>,
+    /// The turn begins with this entry (`turn/started`).
+    #[serde(default = "yes")]
+    pub start: bool,
+    /// The turn ends with this entry (`turn/completed`): false leaves the live tail open.
+    #[serde(default = "yes")]
+    pub end: bool,
+    #[serde(flatten)]
+    pub shape: Shape,
+}
+
+/// What an entry is.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Shape {
+    /// An agent message (`item/agentMessage/delta`: it is live until its turn ends).
+    Agent { text: String },
+    /// The user's prompt.
+    User { text: String },
+    /// The model's reasoning (its summary, Markdown).
+    Reasoning { text: String },
+    /// A proposed plan (Markdown).
+    Plan { text: String },
+    /// The `update_plan` report: `[step, status]` pairs (`pending`, `inProgress`, `completed`).
+    PlanUpdate {
+        steps: Vec<(String, String)>,
+        #[serde(default)]
+        explanation: Option<String>,
+    },
+    /// A shell command: running (no output yet), or finished with `output` and `exit`.
+    Exec {
+        command: String,
+        #[serde(default)]
+        output: String,
+        #[serde(default)]
+        exit: i32,
+        #[serde(default)]
+        running: bool,
+    },
+    /// The recap `/recap` says (oracle `ThreadRecapHistoryCell`): what happened, and what next.
+    Recap {
+        summary: String,
+        #[serde(default)]
+        next: Option<String>,
+    },
+}
+
+impl Entry {
+    /// The events that make the entry, in order; `line` names the turn and the item when the step
+    /// does not.
+    fn events(&self, line: usize) -> Result<Vec<AppEv>, String> {
+        let thread = self.thread.as_deref().unwrap_or(DEFAULT_THREAD);
+        let turn = self
+            .turn
+            .clone()
+            .unwrap_or_else(|| format!("entry-{line}"));
+        let item = format!("item-{line}");
+        let backend = |ev: BackendEv| AppEv::Backend(ev);
+        let mut events = Vec::new();
+        if self.start {
+            events.push(backend(builders::turn_started(thread, &turn)));
+        }
+        match &self.shape {
+            Shape::Agent { text } => {
+                events.push(backend(builders::agent_delta(thread, &turn, &item, text)));
+            }
+            Shape::User { text } => {
+                events.push(backend(builders::user_item(thread, &turn, &item, text)));
+            }
+            Shape::Reasoning { text } => events.push(backend(builders::reasoning_completed(
+                thread, &turn, &item, text,
+            )?)),
+            Shape::Plan { text } => events.push(backend(builders::plan_completed(
+                thread, &turn, &item, text,
+            )?)),
+            Shape::PlanUpdate { steps, explanation } => {
+                let steps: Vec<_> = steps
+                    .iter()
+                    .map(|(step, status)| (step.as_str(), status.as_str()))
+                    .collect();
+                events.push(backend(builders::plan_updated(
+                    thread,
+                    &turn,
+                    explanation.as_deref(),
+                    &steps,
+                )?));
+            }
+            Shape::Exec {
+                command,
+                output,
+                exit,
+                running,
+            } => {
+                events.push(backend(builders::command_started(
+                    thread, &turn, &item, command,
+                )?));
+                if !running {
+                    events.push(backend(builders::command_completed(
+                        thread, &turn, &item, command, output, *exit,
+                    )?));
+                }
+            }
+            Shape::Recap { summary, next } => {
+                let note = crate::features::recap::Note::Recap {
+                    summary: summary.clone(),
+                    next_action: next.clone(),
+                };
+                events.push(AppEv::Intent(Intent::Screen(ScreenIntent::Chat(
+                    chat::Intent::Note {
+                        // in the thread's transcript: with no thread a note is the chat's own
+                        thread: Some(ThreadId::new(thread)),
+                        note: Note::from(NoteKey::Feature(note.into())),
+                    },
+                ))));
+            }
+        }
+        if self.end {
+            events.push(backend(builders::turn_completed(thread, &turn)));
+        }
+        Ok(events)
+    }
+}
+
+/// The thread a script's `entry` and `commit` steps are for when they name none.
+const DEFAULT_THREAD: &str = "thread-1";
+
 impl Step {
+    /// The events an `entry` or `commit` step is, in order; none for any other step. `line` is the
+    /// step's line in its script. The error is the shape's refusal of its JSON.
+    pub fn events(&self, line: usize) -> Option<Result<Vec<AppEv>, String>> {
+        match self {
+            Step::Entry(entry) => Some(entry.events(line)),
+            Step::Commit { thread, turn } => {
+                let thread = thread.as_deref().unwrap_or(DEFAULT_THREAD);
+                Some(Ok(vec![AppEv::Backend(builders::turn_completed(
+                    thread, turn,
+                ))]))
+            }
+            _ => None,
+        }
+    }
+
     /// The event a `note` or `presets` step is, for the router (`ingest`) of a script or the
     /// events a test injects; none for any other step. The error is the feature's own refusal of
     /// the note's JSON (`SeedError`).
@@ -472,6 +645,18 @@ impl Script {
                             message,
                         })?;
                     ingest(app, ev);
+                }
+                Step::Entry(_) | Step::Commit { .. } => {
+                    let events = step
+                        .events(*line)
+                        .ok_or_else(|| fail("an `entry` or `commit` step is events"))?
+                        .map_err(|message| ScriptError {
+                            line: *line,
+                            message,
+                        })?;
+                    for ev in events {
+                        ingest(app, ev);
+                    }
                 }
                 Step::Fact { feature, fact } => {
                     let fact =
