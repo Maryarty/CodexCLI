@@ -874,8 +874,11 @@ pub enum CommandEv {
 /// An event of one thread.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadEv {
-    /// A startup draft was accepted while an attached thread is pending.
-    DeferredSubmit,
+    /// A startup draft was accepted while an attached thread is pending: it waits on the
+    /// blank thread's queue, drawn as a queued row, until the session starts.
+    DeferredSubmit(Queued),
+    /// The session started and what waited went out: the blank thread's queue is empty again.
+    DeferredSent,
     /// The thread tells (`false`) or does not tell (`true`) its transcript that a turn was
     /// interrupted: a side conversation keeps it out (`InterruptedTurnNoticeMode::Suppress`).
     QuietInterrupts(bool),
@@ -2674,7 +2677,11 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             let warnings = model.slots.chat.mcp.finish_after_lag();
             add_startup_warnings(model, warnings, fx);
         }
-        ThreadEv::DeferredSubmit => model.last_submit = Some(fx.mint()),
+        ThreadEv::DeferredSubmit(queued) => {
+            model.queue.push(queued);
+            model.last_submit = Some(fx.mint());
+        }
+        ThreadEv::DeferredSent => model.queue.clear(),
         ThreadEv::ConnectionLost if model.has_writer() => {
             model.writer = Writer::Detached;
             // the stream went with the connection: an attach again starts a live one

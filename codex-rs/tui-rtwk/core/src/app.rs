@@ -611,6 +611,37 @@ enum BeforeThread {
     Message(UserMessage),
     /// A user shell command (`!cmd`).
     Shell(String),
+    /// `/plan <prompt>`: the switch to Plan mode and the prompt, made when the session starts.
+    Plan {
+        command: crate::commands::SlashCommand,
+        prompt: String,
+    },
+}
+
+impl BeforeThread {
+    /// The row the queue draws for the ask while it waits (the oracle's queued input).
+    fn queued(&self) -> threads::Queued {
+        match self {
+            BeforeThread::Message(message) => threads::Queued::Message(message.clone()),
+            BeforeThread::Shell(command) => {
+                threads::Queued::Shell(UserMessage::text(format!("!{command}")))
+            }
+            BeforeThread::Plan { command, prompt } => threads::Queued::Command(UserMessage::text(
+                format!("/{} {prompt}", command.command()),
+            )),
+        }
+    }
+}
+
+/// Keeps `ask` until the first thread exists; the blank thread's queue shows it meanwhile.
+fn queue_before_thread(app: &mut CodexApp, ask: BeforeThread, fx: &mut AppFx) {
+    let queued = ask.queued();
+    app.queued_submits.push(ask);
+    threads::apply(
+        app.threads.blank_mut(),
+        ThreadEv::DeferredSubmit(queued),
+        &mut ThreadFx::new(&ThreadId::default(), fx, &mut app.mint),
+    );
 }
 
 /// The model.
@@ -2172,12 +2203,7 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 None => {
                     // Before the first thread: kept until it exists; the
                     // composer's draft clears (the blank projection's ticket).
-                    app.queued_submits.push(BeforeThread::Message(message));
-                    threads::apply(
-                        app.threads.blank_mut(),
-                        ThreadEv::DeferredSubmit,
-                        &mut ThreadFx::new(&ThreadId::default(), fx, &mut app.mint),
-                    );
+                    queue_before_thread(app, BeforeThread::Message(message), fx);
                 }
             }
         }
@@ -2292,7 +2318,7 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             match thread.or_else(|| app.session.active.clone()) {
                 Some(thread) => run_shell(app, &thread, command, fx),
                 // Before the first thread: kept in order with the messages.
-                None => app.queued_submits.push(BeforeThread::Shell(command)),
+                None => queue_before_thread(app, BeforeThread::Shell(command), fx),
             }
         }
         // a verb of the thread's safety state: the thread's own, not the screen's
@@ -2890,8 +2916,19 @@ fn note_instruction_sources(
 
 /// What was asked before the first thread existed goes out on it.
 fn send_queued(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx) {
-    for ask in std::mem::take(&mut app.queued_submits) {
+    let asks = std::mem::take(&mut app.queued_submits);
+    if !asks.is_empty() {
+        threads::apply(
+            app.threads.blank_mut(),
+            ThreadEv::DeferredSent,
+            &mut ThreadFx::new(&ThreadId::default(), fx, &mut app.mint),
+        );
+    }
+    for ask in asks {
         match ask {
+            BeforeThread::Plan { command, prompt } => {
+                session::plan_after_start(app, thread, command, prompt, fx)
+            }
             BeforeThread::Message(message) => submit(app, thread, message, fx),
             BeforeThread::Shell(command) => run_shell(app, thread, command, fx),
         }
