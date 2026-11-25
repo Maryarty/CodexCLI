@@ -637,10 +637,14 @@ fn summary_modes_reflow_and_keep_selection_across_tabs() {
 // ORACLE analytics/summary_tests.rs:55 partial_summary_keeps_missing_values_and_zero kind=snap owner=routes-lists
 #[test]
 fn partial_summary_keeps_missing_values_and_zero() {
-    kit::pending(
-        Owner::RoutesLists,
-        "feature usage debug entry (w2-status, src/pages/usage): the page is built, its slice registers entry missing with the partial profile of the test",
-    );
+    // the profile failed (the upstream error is never shown) and holds zeros: the Overview keeps
+    // the zero values and the missing ones apart, 100x40
+    let s = Screen::build(Owner::RoutesLists)
+        .size(100, 40)
+        .entry("usage", "summary_partial")
+        .open();
+    s.assert_absent("sensitive upstream error");
+    s.assert_snap("summary_partial");
 }
 
 // ---- oracle: analytics_tests.rs (7 screen-level tests here; 7 state tests left to routes-lists)

@@ -168,6 +168,12 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
         },
         DebugEntry {
+            name: "summary_partial",
+            description: "a Business account's Overview over a profile that failed, with zero values",
+            script: include_str!("fixtures/summary_partial.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| Screen::seeded(false, seeded).into()),
+        },
+        DebugEntry {
             name: "chats_balance",
             description: "a Plus account's Chats report with only the balance known: three chats, one a refund",
             script: include_str!("fixtures/chats_balance.jsonl"),

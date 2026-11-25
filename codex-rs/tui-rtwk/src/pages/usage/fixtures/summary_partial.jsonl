@@ -1,0 +1,3 @@
+# `partial_summary_keeps_missing_values_and_zero` (summary_tests.rs): a Business account's Overview over a failed profile with zero values.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"usage","ev":{"account":{"plan":"team","today":"2026-09-02"},"section":"summary","profile":{"ready":{"metadata":{"stats_error":"sensitive upstream error"},"stats":{"lifetime_tokens":0,"fast_mode_usage_percentage":0,"total_threads":0,"top_invocations":[]}}}}}

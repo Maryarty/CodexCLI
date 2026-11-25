@@ -2,7 +2,8 @@
 """Writes the usage debug entries of the oracle's activity chart tests and of the consumer
 chats test (src/pages/usage/fixtures): activity_daily, activity_weekly, activity_cumulative,
 activity_empty (analytics/activity_chart_tests.rs: today 2026-05-29, the buckets of each test)
-and chats_balance (analytics/consumer_refresh_tests.rs, the chats as the test opens them).
+chats_balance (analytics/consumer_refresh_tests.rs, the chats as the test opens them) and
+summary_partial (analytics/summary_tests.rs, the partial profile of a Business account).
 
     cd codex-rs/tui-rtwk && python3 -I ../../tools/rtwk-port/w2-status/activity_fixtures.py
 """
@@ -54,4 +55,24 @@ note = [
 ]
 (fx / "chats_balance.jsonl").write_text(
     "\n".join(note + [tasks[1], json.dumps(ev, separators=(",", ":"))]) + "\n"
+)
+
+
+# summary_partial: a Business account's Overview over a profile that failed (`stats_error`) and has zeros.
+ev = json.loads(json.dumps(screen))
+ev["ev"]["account"] = {"plan": "team", "today": "2026-09-02"}
+ev["ev"]["profile"] = {
+    "ready": {
+        "metadata": {"stats_error": "sensitive upstream error"},
+        "stats": {
+            "lifetime_tokens": 0,
+            "fast_mode_usage_percentage": 0,
+            "total_threads": 0,
+            "top_invocations": [],
+        },
+    }
+}
+note = "# `partial_summary_keeps_missing_values_and_zero` (summary_tests.rs): a Business account's Overview over a failed profile with zero values."
+(fx / "summary_partial.jsonl").write_text(
+    "\n".join([note, seed, json.dumps(ev, separators=(",", ":"))]) + "\n"
 )
