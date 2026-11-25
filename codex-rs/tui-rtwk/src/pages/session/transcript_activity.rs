@@ -7,7 +7,8 @@ use std::sync::Arc;
 
 use rtwk::gestures::ExcludeSelection;
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row};
-use rtwk::style::Attrs;
+use rtwk::style::{Attrs, Style};
+use rtwk::text::DefaultTextStyle;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 use rtwk_rich::highlight::SyntaxTheme;
@@ -17,6 +18,7 @@ use codex_tui_core::threads::{McpCall, ToolActivity, ToolKind};
 use crate::app::theme::Tokens;
 
 use super::cells::disclosure::{self, disclosing};
+use super::cells::strings::Strings;
 use super::cells::tool_rows::{BULLET, Env, Parts};
 use super::cells::{computer_activity, exec, tool_call};
 
@@ -25,6 +27,17 @@ pub(super) struct ToolRow {
     pub first: Arc<ToolActivity>,
     pub rest: Vec<Arc<ToolActivity>>,
     pub detailed: bool,
+}
+
+/// Whether the row of `calls` (the tool items of a row, the first one's the row's) draws a control
+/// while it is closed: a shell call with more to show (`exec::has_control`), an MCP, dynamic or
+/// computer call always. F4 walks the cells that have one.
+pub fn has_control(calls: &[&ToolActivity], strings: &Strings) -> bool {
+    match calls.first().map(|call| &call.kind) {
+        Some(ToolKind::Shell { .. }) => exec::has_control(calls, strings),
+        Some(ToolKind::Mcp(_) | ToolKind::Dynamic(_)) => true,
+        None => false,
+    }
 }
 
 impl ToolRow {
@@ -90,10 +103,17 @@ impl State for ToolRowState {
                 None => content,
             },
             Parts::Rows(rows) => {
+                // the cell the reader has the focus on (F4) has its first row underlined (oracle
+                // `render_disclosure`)
+                let header = if disclosure::focused(cx) && !widget.detailed {
+                    DefaultTextStyle::new(Style::new().attrs(Attrs::UNDERLINE), rows.header).into()
+                } else {
+                    rows.header
+                };
                 let mut content = Column::new()
                     .main_axis_size(MainAxisSize::Min)
                     .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                    .child(rows.header);
+                    .child(header);
                 for row in rows.body {
                     content = content.child(row);
                 }

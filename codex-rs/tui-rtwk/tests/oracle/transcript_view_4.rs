@@ -495,25 +495,36 @@ fn legacy_search_shortcuts_navigate_in_both_directions_without_wrapping() {
 // ORACLE transcript_view/search_tests.rs:1066 find_expands_only_the_match_and_preserves_manual_disclosures kind=snap owner=chat-live snap=find_selective_expansion
 #[test]
 fn find_expands_only_the_match_and_preserves_manual_disclosures() {
-    kit::pending(
-        Owner::ChatLive,
-        "F4 walks the folds of turns only (`activity_focus.rs`), not the disclosing cells of the tool rows (f-activity-cells): the manual disclosures the oracle makes with F4, Enter, Home, End, Up, Right and Left have no key; the Find half (only the cell of the match opens, ctrl+p and ctrl+n swap which one) is built and held by `find_tool_text::only_the_matching_cell_expands_and_leaving_it_collapses`",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!("fixtures/transcript_view_4/find_exec.jsonl"))
         .view_compact()
         .open();
+    // F4 focuses the last cell with a control, and Enter opens it: a disclosure of the reader's
     s.keys("f4");
     s.keys("enter");
+    s.assert_contains("hidden manual");
     s.keys("/");
     s.type_text("needle");
+    // only the matching cell expands (the oracle's per-entry expansion): the newest match first,
+    // ctrl+p and ctrl+n swap which one
+    s.assert_contains("hidden newer needle");
+    s.assert_absent("hidden older needle");
+    s.assert_absent("hidden unrelated");
     s.keys("ctrl+p");
-    // only the matching cells expand: `hidden` shows for the needle entries (the oracle's per-entry expansion)
     s.assert_contains("hidden older needle");
     s.assert_absent("hidden newer needle");
-    s.assert_snap("find_selective_expansion");
+    s.keys("ctrl+n");
+    s.assert_contains("hidden newer needle");
+    s.assert_absent("hidden older needle");
+    s.assert_contains("hidden manual");
+    // the oracle's frame (`find_selective_expansion`) is of cells it builds itself: a command that
+    // is one quoted argument, `Running` with a finished output, no turn between them. The
+    // protocol gives none of that (a command is a script, a finished one `Ran`, each turn a
+    // `Worked for` row), so the frame is not compared; what it shows, the match's cell and the
+    // reader's open and the others shut, is what the assertions above read.
     s.keys("enter");
+    // Reading keeps the result and lets the normal activity controls open another block
     s.keys("f4");
     s.keys("home");
     s.keys("enter");
@@ -522,10 +533,22 @@ fn find_expands_only_the_match_and_preserves_manual_disclosures() {
     s.keys("f4");
     s.keys("end");
     s.keys("up");
-    s.keys("right");
-    s.assert_contains("hidden newer needle");
-    s.keys("left");
+    s.assert_contains("enter collapse");
+    for opens in [true, false, true, false] {
+        s.keys(if opens { "right" } else { "left" });
+        if opens {
+            s.assert_contains("hidden newer needle");
+        } else {
+            s.assert_absent("hidden newer needle");
+        }
+    }
     s.keys("esc");
+    // Find leaves: the match's own expansion goes, the reader's two stay
+    s.keys("esc");
+    s.assert_contains("hidden unrelated");
+    s.assert_contains("hidden manual");
+    s.assert_absent("hidden older needle");
+    s.assert_absent("hidden newer needle");
 }
 
 // ORACLE transcript_view/search_tests.rs:1202 find_searches_hidden_live_content_and_collapses_it_when_leaving_the_match kind=ui owner=chat-live

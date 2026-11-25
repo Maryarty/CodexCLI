@@ -24,6 +24,7 @@ use crate::pages::session::transcript::select::{self as caret, Step};
 use crate::pages::session::transcript::selection::Key as SelectionKey;
 use crate::pages::session::transcript::{self, find};
 use crate::sheets::select::hud::Step as PresetStep;
+use crate::widgets::finder::Mode as FindMode;
 use crate::widgets::thread_ui::Input;
 
 use super::frame::Frame;
@@ -60,6 +61,18 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
         // `Ctrl+C` are Find's (`handle_search_key`), whatever the composer holds
         let finder = finder.borrow().clone();
         let activity = activity_focus::of(&finder);
+        // a fold or a cell of the transcript in focus (F4): the keys of a list, any other key lets
+        // go of it and goes on to the field (`handle_disclosure_key`). They come before Find's
+        // while a match is read, and not while its query is edited.
+        if finder.mode() != FindMode::Editing
+            && !modes.borrow().detailed()
+            && let Some(step) = activity.key(&keymap.borrow(), &key)
+        {
+            return match step {
+                ActivityStep::Taken => KeyEventResult::Handled,
+                ActivityStep::Left => KeyEventResult::Ignored,
+            };
+        }
         if finder.reading()
             && let Some(taken) = find::key(finder.mode(), &key)
             && finder.take(taken)
@@ -92,17 +105,6 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
                 CopyStep::Page(pages) => send(ChatMsg::Page(pages)),
             }
             return KeyEventResult::Handled;
-        }
-        // a fold of the turn details in focus (F4): the keys of a list, any other key lets go of it
-        // and goes on to the field (`handle_disclosure_key`)
-        if !finder.active()
-            && !modes.borrow().detailed()
-            && let Some(step) = activity.key(&keymap.borrow(), &key)
-        {
-            return match step {
-                ActivityStep::Taken => KeyEventResult::Handled,
-                ActivityStep::Left => KeyEventResult::Ignored,
-            };
         }
         // select mode: the caret's keys come before the field's, while Find is not asking
         // (`handle_select_mode_key`); a key of the mode ends here, one that is not goes on

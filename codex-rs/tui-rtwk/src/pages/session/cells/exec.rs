@@ -131,6 +131,23 @@ pub fn parts(calls: &[&ToolActivity], env: &Env<'_>) -> Parts {
     })
 }
 
+/// Whether the shell row of `calls` draws a control while it is closed (what `parts` reads to
+/// decide it): a command of several lines, an exploration, an output the three-line tail cuts.
+pub fn has_control(calls: &[&ToolActivity], strings: &Strings) -> bool {
+    let Some(head) = Headline::of(calls, strings) else {
+        return false;
+    };
+    if head.multiline() || head.exploring {
+        return true;
+    }
+    let output = calls[0]
+        .output
+        .as_deref()
+        .unwrap_or_default()
+        .trim_end_matches(['\r', '\n']);
+    output.lines().count() > PREVIEW_LINES
+}
+
 /// What the header of a shell row says, in words: the one place the title, the count of failures
 /// and the command line are decided, for the row that draws them (`parts`) and for the text Find
 /// reads (`texts`).

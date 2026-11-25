@@ -190,3 +190,115 @@ fn without_folds_the_key_does_nothing() {
     s.wait(50);
     s.assert_absent("esc back");
 }
+
+/// Four finished commands, each `echo visible` over a hidden second line that names it: the
+/// cells that disclose (`+ Show details`), with no turn fold between them.
+const CELLS: &str = r#"{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"entry","kind":"exec","turn":"t1","item":"c1","command":"echo visible\necho hidden first","exit":0}
+{"step":"entry","kind":"exec","turn":"t2","item":"c2","command":"echo visible\necho hidden second","exit":0}
+{"step":"entry","kind":"exec","turn":"t3","item":"c3","command":"echo visible\necho hidden third","exit":0}
+{"step":"entry","kind":"exec","turn":"t4","item":"c4","command":"echo visible\necho hidden fourth","exit":0}
+"#;
+
+/// The cells as the compact transcript view shows them alone (the oracle's harness), or in the
+/// chat with its composer and footer.
+fn cells(width: u16, view: bool) -> Screen {
+    let open = Screen::build(Owner::ChatLive).size(width, 30).script(CELLS);
+    if view {
+        open.view_compact().open()
+    } else {
+        open.open()
+    }
+}
+
+#[test]
+fn f4_walks_the_cells_that_disclose_and_enter_opens_the_one_in_focus() {
+    for view in [true, false] {
+        let mut s = cells(80, view);
+        s.assert_absent(HINTS);
+        s.keys("f4");
+        s.assert_contains(HINTS);
+        // the last cell has the focus: Enter opens it, the others stay shut
+        s.keys("enter");
+        s.assert_contains("hidden fourth");
+        s.assert_absent("hidden third");
+        s.assert_contains("enter collapse");
+        s.assert_contains("− Hide details");
+        s.keys("up");
+        s.assert_contains("enter expand");
+        s.keys("enter");
+        s.assert_contains("hidden third");
+        s.assert_contains("hidden fourth");
+        s.keys("home");
+        s.keys("enter");
+        s.assert_contains("hidden first");
+        s.assert_absent("hidden second");
+        // the ends stop
+        s.keys("up");
+        s.keys("enter");
+        s.assert_absent("hidden first");
+        s.keys("end");
+        s.keys("down");
+        s.keys("enter");
+        s.assert_absent("hidden fourth");
+    }
+}
+
+#[test]
+fn right_opens_a_cell_and_left_closes_it_and_neither_toggles_twice() {
+    for view in [true, false] {
+        let mut s = cells(80, view);
+        s.keys("f4");
+        s.keys("left");
+        s.assert_absent("hidden fourth");
+        s.keys("right");
+        s.assert_contains("hidden fourth");
+        s.keys("right");
+        s.assert_contains("hidden fourth");
+        s.keys("left");
+        s.assert_absent("hidden fourth");
+    }
+}
+
+#[test]
+fn the_cell_in_focus_is_drawn_in_focus_and_esc_gives_the_keys_back() {
+    for view in [true, false] {
+        let mut s = cells(80, view);
+        s.keys("f4");
+        s.keys("home");
+        // the cell in focus: its first row underlined, its control the accent in bold
+        s.assert_text_style("echo visible …", "underlined");
+        s.assert_text_style("+ Show details", "bold");
+        s.keys("end");
+        s.assert_text_style("echo visible …", "!underlined");
+        s.assert_text_style("+ Show details", "!bold");
+        s.keys("esc");
+        s.assert_absent(HINTS);
+    }
+}
+
+#[test]
+fn a_tap_on_the_control_of_a_cell_opens_it_and_focuses_it() {
+    for view in [true, false] {
+        let mut s = cells(80, view);
+        s.click_text("+ Show details");
+        s.wait(50);
+        s.assert_contains("hidden first");
+        s.assert_contains("enter collapse");
+        s.keys("esc");
+        s.assert_contains("hidden first");
+        s.assert_absent("enter collapse");
+    }
+}
+
+#[test]
+fn any_other_key_lets_go_of_a_cell_and_goes_on_to_the_composer() {
+    // the chat only: the view alone has no composer
+    let mut s = cells(80, false);
+    s.keys("f4");
+    s.type_text("hello");
+    s.wait(50);
+    s.assert_absent(HINTS);
+    s.assert_contains("hello");
+    s.assert_absent("hidden fourth");
+}
