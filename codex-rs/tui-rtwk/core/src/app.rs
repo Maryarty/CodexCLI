@@ -3326,4 +3326,5 @@ pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mu
                 )),
         );
     }
+    reset::settle_hint(app, thread, fx);
 }

@@ -193,3 +193,63 @@ fn the_picker_lists_available_credits_soonest_expiry_first_up_to_the_count() {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].credit_id, None);
 }
+
+#[test]
+fn the_startup_hint_waits_for_active_output_and_is_dropped_by_the_menu() {
+    let mut state = State::default();
+    let request = state.start_hint();
+    let count = state
+        .hint_read(request, Ok(Some(credits(2))))
+        .expect("a hint");
+    // the app found active output: the count waits, and is told once
+    state.park_hint(count);
+    assert!(state.hint_waits());
+    assert_eq!(state.take_hint(), Some(2));
+    assert_eq!(state.take_hint(), None);
+
+    // opening the menu, the reset flow or a redemption drops what waits (oracle
+    // `clear_pending_rate_limit_reset_hint`), as does a new startup check
+    state.park_hint(2);
+    state.open_menu();
+    assert!(!state.hint_waits());
+    state.park_hint(2);
+    state.open_resets();
+    assert!(!state.hint_waits());
+    state.park_hint(2);
+    key_of(state.redeem(None));
+    assert!(!state.hint_waits());
+    state.park_hint(2);
+    state.start_hint();
+    assert!(!state.hint_waits());
+    state.park_hint(2);
+    state.clear();
+    assert_eq!(state.take_hint(), None);
+}
+
+#[test]
+fn a_read_that_lands_while_the_popup_is_covered_stays_in_the_state_and_clear_drops_a_stale_key() {
+    // oracle `rate_limit_reset_*_updates_popup_beneath_overlay` and
+    // `account_change_dismisses_reset_popup_beneath_overlay`: the popup is drawn from this state,
+    // so what lands under a cover is shown when the cover goes; an account change drops the key
+    let mut state = State::default();
+    let request = state.open_resets();
+    // (a cover opens here in the oracle: the state does not know of it)
+    state.list_read(request, Ok(Some(credits(2))));
+    assert_eq!(state.available, Some(2));
+
+    let key = key_of(state.redeem(None));
+    assert_eq!(state.redeemed(&key, Ok(Outcome::Reset)), Next::Read);
+    state.after_reset_read(Ok(Some(credits(1))));
+    assert_eq!(state.available, Some(1));
+    assert_eq!(
+        step(&state),
+        Progress::Settled(Settled::Reset { left: Some(1) })
+    );
+
+    let key = key_of(state.redeem(None));
+    state.clear();
+    assert_eq!(state.redemption, None);
+    assert_eq!(state.redeemed(&key, Ok(Outcome::Reset)), Next::Nothing);
+    assert_eq!(state.redemption, None);
+    assert_eq!(state.available, None);
+}

@@ -114,6 +114,18 @@ fn view_of(states: &ScreenStates) -> View {
 struct PageState {
     /// A confirmation is open over this page.
     confirming: bool,
+    /// The account the page was opened for (`reset::State::epoch`).
+    account: Option<u64>,
+}
+
+/// Closes the dialog when the account it was opened for is gone: what the popups showed was the
+/// old account's (oracle `clear_pending_rate_limit_reset_requests` dismisses the three views,
+/// whatever is open above them).
+fn close_with_account<S: 'static>(account: &mut Option<u64>, cx: &mut Cx<'_, S>) {
+    let now = select::<ScreenStates, u64, _>(cx, |states| states.usage.reset.epoch());
+    if *account.get_or_insert(now) != now {
+        close_dialog::<_, ()>(cx, None);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -127,7 +139,10 @@ impl StatefulWidget for Page {
     type State = PageState;
 
     fn create_state(&self) -> PageState {
-        PageState { confirming: false }
+        PageState {
+            confirming: false,
+            account: None,
+        }
     }
 }
 
@@ -191,6 +206,10 @@ impl State for PageState {
     type Widget = Page;
     type Msg = Msg;
 
+    fn did_change_dependencies(&mut self, _: &Page, cx: &mut Cx<'_, Self>) {
+        close_with_account(&mut self.account, cx);
+    }
+
     fn update(&mut self, msg: Msg, w: &Page, cx: &mut Cx<'_, Self>) -> Rebuild {
         match msg {
             Msg::Picked(Event::Choose(id)) => self.choose(w, &id, cx),
@@ -244,13 +263,15 @@ struct Confirmation {
     on_leave: Handler<()>,
 }
 
-struct ConfirmationState;
+struct ConfirmationState {
+    account: Option<u64>,
+}
 
 impl StatefulWidget for Confirmation {
     type State = ConfirmationState;
 
     fn create_state(&self) -> ConfirmationState {
-        ConfirmationState
+        ConfirmationState { account: None }
     }
 }
 
@@ -264,6 +285,10 @@ enum ConfirmMsg {
 impl State for ConfirmationState {
     type Widget = Confirmation;
     type Msg = ConfirmMsg;
+
+    fn did_change_dependencies(&mut self, _: &Confirmation, cx: &mut Cx<'_, Self>) {
+        close_with_account(&mut self.account, cx);
+    }
 
     fn update(&mut self, msg: ConfirmMsg, w: &Confirmation, cx: &mut Cx<'_, Self>) -> Rebuild {
         let ConfirmMsg::Picked(event) = msg;
