@@ -59,4 +59,6 @@ pub enum ChatMsg {
     Changed(Rc<str>),
     /// One of the model's one-shots the listener told (`widgets/directives.rs`).
     Edge(Edge),
+    /// The reveal delay of a hook run passed: the status row may name it now.
+    HookRevealed,
 }

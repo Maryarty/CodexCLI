@@ -56,8 +56,8 @@ pub(super) struct Run {
     /// The process the model keeps polling with nothing to write (`ThreadModel::terminal_wait`):
     /// it owns the row's header and details while it lasts.
     wait: Option<WaitStreak>,
-    /// What the running hooks say (`ThreadModel::hook_status`).
-    hook: Option<String>,
+    /// What the running hooks say once the reveal delay passed (`hook_reveal::Reveal`).
+    pub(super) hook: Option<String>,
     /// The user's input that waits: steers, refused steers, the queue, the model's questions.
     pending: bool,
     /// How many questions the model asked that wait.
@@ -79,10 +79,16 @@ impl Run {
             reviews: thread.screen_slots().approvals.reviews.clone(),
             terminals: thread.terminals().len(),
             wait: thread.terminal_wait().cloned(),
-            hook: thread.hook_status(),
+            hook: None,
             pending: !Pending::of(thread).is_empty(),
             asking: 0,
         }
+    }
+
+    /// The same, with the hooks `hook` says shown in the row.
+    pub(super) fn hooked(mut self, hook: Option<String>) -> Run {
+        self.hook = hook;
+        self
     }
 
     /// The same, with `count` questions waiting: they keep the preview's group on show.
@@ -142,7 +148,10 @@ impl Run {
 /// nothing when none of them is there (and a one-row gap above the status
 /// row once the transcript has rows).
 #[derive(Clone, Debug, PartialEq)]
-pub(super) struct StatusSlot;
+pub(super) struct StatusSlot {
+    /// What the running hooks say once the reveal delay passed (the page times it).
+    pub hook: Option<String>,
+}
 
 impl_widget!(stateless eq StatusSlot);
 
@@ -161,7 +170,7 @@ impl StatelessWidget for StatusSlot {
                 features.async_questions.of(&thread).len()
             })
         };
-        let run = run.asking(asking);
+        let run = run.asking(asking).hooked(self.hook.clone());
         let setting_up =
             select::<FeatureStates, bool, _>(cx, |features| features.windows_sandbox.setting_up());
         if run.read_only {

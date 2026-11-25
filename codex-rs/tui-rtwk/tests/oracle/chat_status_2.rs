@@ -41,6 +41,192 @@ const BREAKDOWN: &str = r#"{"estimatedUsageCreditsMicros":50000000,"estimatedUsa
 /// 50 credits and no dollars, one group.
 const CREDITS_ONLY: &str = r#"{"estimatedUsageCreditsMicros":50000000,"estimatedUsageUsdMicros":null,"groups":[{"model":"gpt-5.4","reasoningEffort":"high","speed":"fast","estimatedUsageCreditsMicros":50000000,"netNewInputTokens":80,"cachedInputTokens":20,"inputTokens":100,"outputTokens":40,"totalTokens":140}]}"#;
 
+/// The turn thinks: a reasoning summary part began (`set_status_header("Thinking")`).
+const THINKING: &str = r#"{"step":"notify","message":{"method":"item/reasoning/summaryPartAdded","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"reasoning-1","summaryIndex":0}}}"#;
+
+/// The server completed an assistant message (`complete_assistant_message`).
+fn assistant_message(id: &str, text: &str) -> String {
+    format!(
+        r#"{{"step":"notify","message":{{"method":"item/completed","params":{{"threadId":"thread-1","turnId":"turn-1","completedAtMs":0,"item":{{"type":"agentMessage","id":"{id}","text":"{text}","phase":null,"moderation":null}}}}}}}}"#
+    )
+}
+
+/// How many rows of the screen say `text`.
+fn rows_with(s: &Screen, text: &str) -> usize {
+    s.rows().iter().filter(|row| row.contains(text)).count()
+}
+
+/// The chat of the oracle's `make_chatwidget_manual`: agents navigation off, the status line of
+/// its footer (the model and the directory).
+const BASE: &str = r#"{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}
+{"step":"screen","dir":"chat","ev":{"status":{"model":"GPT-5.6-Sol","cwd":"/tmp/project","items":["model-with-reasoning","current-dir"]}}}
+{"step":"seed","seed":"session","thread":"thread-1"}"#;
+
+/// The turn `turn-1` under way (`chat.on_task_started()`).
+const TURN: &str = r#"{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}"#;
+
+/// The hook run of the oracle's `hook_run_summary`: `status` is `running` or how it ended,
+/// `message` its status message, `entries` the JSON of its output entries.
+fn hook_run(id: &str, event: &str, status: &str, message: Option<&str>, entries: &str) -> String {
+    let message = message.map_or("null".to_string(), |text| format!("{text:?}"));
+    let (completed_at, duration) = if status == "running" {
+        ("null", "null")
+    } else {
+        ("11", "10")
+    };
+    format!(
+        r#""run":{{"id":"{id}","eventName":"{event}","handlerType":"command","executionMode":"sync","scope":"turn","sourcePath":"/tmp/hooks.json","source":"user","displayOrder":0,"status":"{status}","statusMessage":{message},"startedAt":1,"completedAt":{completed_at},"durationMs":{duration},"entries":{entries}}}"#
+    )
+}
+
+/// The server's `hook/started` of a hook that says `message` (`handle_hook_started`).
+fn hook_started(id: &str, event: &str, message: Option<&str>) -> String {
+    let run = hook_run(id, event, "running", message, "[]");
+    format!(
+        r#"{{"step":"notify","message":{{"method":"hook/started","params":{{"threadId":"thread-1","turnId":null,{run}}}}}}}"#
+    )
+}
+
+/// The server's `hook/completed` (`handle_hook_completed`): `status` is `completed`, `failed`,
+/// `blocked` or `stopped`, `entries` are `(kind, text)` pairs.
+fn hook_completed(
+    id: &str,
+    event: &str,
+    status: &str,
+    message: Option<&str>,
+    entries: &[(&str, &str)],
+) -> String {
+    let entries: Vec<String> = entries
+        .iter()
+        .map(|(kind, text)| format!(r#"{{"kind":"{kind}","text":{text:?}}}"#))
+        .collect();
+    let run = hook_run(id, event, status, message, &format!("[{}]", entries.join(",")));
+    format!(
+        r#"{{"step":"notify","message":{{"method":"hook/completed","params":{{"threadId":"thread-1","turnId":null,{run}}}}}}}"#
+    )
+}
+
+/// A `hook/started` or `hook/completed` of the turn `turn-1` (the notification carries its turn).
+fn in_turn(line: String) -> String {
+    line.replace(r#""turnId":null"#, r#""turnId":"turn-1""#)
+}
+
+/// The end of the turn `turn-1` (`handle_turn_interrupted`, `handle_turn_completed`): `status`
+/// is `interrupted` or `completed`.
+fn turn_ended(status: &str) -> String {
+    format!(
+        r#"{{"step":"notify","message":{{"method":"turn/completed","params":{{"threadId":"thread-1","turn":{{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"{status}","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}}}}}"#
+    )
+}
+
+/// The chat of the oracle's `make_chatwidget_manual`, no turn yet.
+fn chat() -> Screen {
+    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    s.feed(BASE);
+    s
+}
+
+/// A row as the oracle's tests normalise it (`normalize_working_snapshot`): the status row's
+/// bullet blinks with the clock and its elapsed time grows with it, so both are the first
+/// frame's (`• Working (0s`).
+fn steady(row: &str) -> String {
+    let row = row.trim_end();
+    let row = match row.strip_prefix('◦') {
+        Some(rest) => format!("•{rest}"),
+        None => row.to_string(),
+    };
+    let Some(at) = row.find(" (") else {
+        return row;
+    };
+    let tail = &row[at + 2..];
+    let digits = tail.chars().take_while(char::is_ascii_digit).count();
+    if digits > 0 && tail[digits..].starts_with("s ") {
+        format!("{} (0s{}", &row[..at], &tail[digits + 1..])
+    } else {
+        row
+    }
+}
+
+/// The renders of an oracle snapshot its test glued under labels of its own (`before interrupt:`,
+/// `activity:`, `history:`; none for a snapshot of one render), compared with the screen's rows.
+struct Frames {
+    name: &'static str,
+    labels: &'static [&'static str],
+}
+
+impl Frames {
+    /// The rows of render `k` (from 0, in the order the test wrote them): the lines between the
+    /// labels, the first label being the snapshot's own first line.
+    fn rows(&self, k: usize) -> Vec<String> {
+        let mut all: Vec<String> = kit::snap_rows(self.name, "")
+            .iter()
+            .map(|row| row.trim_end().to_string())
+            .collect();
+        let rows = if self.labels.is_empty() {
+            all
+        } else {
+            let bare = |row: &str| row.trim_end_matches(':').to_string();
+            // the kit takes a first label for the snapshot's header and leaves it out
+            if all.first().is_none_or(|row| bare(row) != bare(self.labels[0])) {
+                all.insert(0, self.labels[0].to_string());
+            }
+            let mut chunks: Vec<Vec<String>> = Vec::new();
+            for row in all {
+                if self.labels.iter().any(|label| bare(label) == bare(&row)) {
+                    chunks.push(Vec::new());
+                } else if let Some(last) = chunks.last_mut() {
+                    last.push(row);
+                }
+            }
+            chunks
+                .into_iter()
+                .nth(k)
+                .unwrap_or_else(|| panic!("{}: no render {k}", self.name))
+        };
+        let mut rows = rows;
+        while rows.last().is_some_and(String::is_empty) {
+            rows.pop();
+        }
+        rows
+    }
+
+    /// Render `k` equals the screen's rows from `top` on (the status row's bullet and elapsed
+    /// time aside, `steady`).
+    fn region(&self, s: &Screen, k: usize, top: usize) {
+        let want = self.rows(k);
+        let ours = s.rows();
+        let got: Vec<String> = (0..want.len())
+            .map(|at| steady(ours.get(top + at).map_or("", String::as_str)))
+            .collect();
+        assert!(
+            got.iter().map(String::as_str).eq(want.iter().map(String::as_str)),
+            "{} / render {k}: ours (left) differs from the oracle's (right):\n{}\n{got:#?}\n{want:#?}",
+            self.name,
+            s.text()
+        );
+    }
+
+    /// Render `k` is the bottom pane: its first row is `above` rows above the composer's.
+    fn pane(&self, s: &Screen, k: usize, above: usize) {
+        let composer = s
+            .rows()
+            .iter()
+            .rposition(|row| row.starts_with("› "))
+            .unwrap_or_else(|| panic!("no composer row:\n{}", s.text()));
+        self.region(s, k, composer - above);
+    }
+
+    /// Render `k` is history: it starts at the row `first` says.
+    fn history(&self, s: &Screen, k: usize, first: &str) {
+        let top = s
+            .rows()
+            .iter()
+            .position(|row| row.trim_end() == first)
+            .unwrap_or_else(|| panic!("no `{first}` row:\n{}", s.text()));
+        self.region(s, k, top);
+    }
+}
+
 /// The screen row the `Thread usage:` rows start at.
 fn usage_row(s: &Screen) -> usize {
     s.rows()
@@ -49,7 +235,6 @@ fn usage_row(s: &Screen) -> usize {
         .unwrap_or_else(|| panic!("no `Thread usage:` row:\n{}", s.text()))
 }
 
-/// How many rows of the screen say `text`.
 // ---- oracle: chatwidget/tests/status_and_layout.rs (47 screen-level tests here; 40 state tests left to ui-pane)
 // ORACLE chatwidget/tests/status_and_layout.rs:3171 unsupported_code_mode_warning_renders_as_warning_history_cell kind=snap owner=ui-pane
 #[test]
@@ -210,25 +395,42 @@ fn status_line_workspace_headline_renders_cached_value() {
 // ORACLE chatwidget/tests/status_and_layout.rs:4210 interrupted_turn_clears_visible_running_hook kind=snap owner=ui-pane snap=interrupted_turn_clears_visible_running_hook
 #[test]
 fn interrupted_turn_clears_visible_running_hook() {
-    kit::pending(
-        Owner::UiPane,
-        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: turn started, hook started (run post-tool-use), turn interrupted
-    s.assert_snap("interrupted_turn_clears_visible_running_hook");
+    // a task started, a PreToolUse hook that says what it checks, revealed; the interrupt
+    // clears the run though the hook never ended
+    let frames = Frames {
+        name: "interrupted_turn_clears_visible_running_hook",
+        labels: &["before interrupt:", "after interrupt:"],
+    };
+    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    s.feed(BASE).feed(TURN).feed(&hook_started(
+        "pre-tool-use:0:/tmp/hooks.json",
+        "preToolUse",
+        Some("checking command policy"),
+    ));
+    s.wait(300);
+    frames.pane(&s, 0, 4);
+    s.feed(&turn_ended("interrupted"));
+    frames.pane(&s, 1, 2);
+    s.assert_absent("checking command policy");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4237 completed_turn_clears_visible_running_hook kind=snap owner=ui-pane snap=completed_turn_clears_visible_running_hook
 #[test]
 fn completed_turn_clears_visible_running_hook() {
-    kit::pending(
-        Owner::UiPane,
-        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: turn started, hook started, turn completed
-    s.assert_snap("completed_turn_clears_visible_running_hook");
+    // the same with a hook that says nothing of itself (`Running hook`) and a completed turn
+    let frames = Frames {
+        name: "completed_turn_clears_visible_running_hook",
+        labels: &["before completion:", "after completion:"],
+    };
+    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    s.feed(BASE)
+        .feed(TURN)
+        .feed(&hook_started("post-tool-use:0:/tmp/hooks.json", "postToolUse", None));
+    s.wait(300);
+    frames.pane(&s, 0, 4);
+    s.feed(&turn_ended("completed"));
+    frames.pane(&s, 1, 2);
+    s.assert_absent("Running hook");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4264 status_line_processing_tier_updates_with_selection kind=snap owner=ui-pane
@@ -543,100 +745,202 @@ fn reasoning_delta_restores_recreated_status_indicator_header() {
 // ORACLE chatwidget/tests/status_and_layout.rs:5296 user_prompt_submit_app_server_hook_notifications_render_snapshot kind=snap owner=ui-pane snap=user_prompt_submit_app_server_hook_notifications_render_snapshot
 #[test]
 fn user_prompt_submit_app_server_hook_notifications_render_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: hook/started and hook/completed notifications of UserPromptSubmit
-    s.assert_snap("user_prompt_submit_app_server_hook_notifications_render_snapshot");
+    // UserPromptSubmit starts and stops within the turn's input: the stop is written to history
+    // and no activity row is left
+    let frames = Frames {
+        name: "user_prompt_submit_app_server_hook_notifications_render_snapshot",
+        labels: &[],
+    };
+    let id = "user-prompt-submit:0:/tmp/hooks.json";
+    let message = "checking go-workflow input policy";
+    let mut s = chat();
+    s.feed(&format!(
+        "{}\n{}",
+        in_turn(hook_started(id, "userPromptSubmit", Some(message))),
+        in_turn(hook_completed(
+            id,
+            "userPromptSubmit",
+            "stopped",
+            Some(message),
+            &[
+                ("warning", "go-workflow must start from PlanMode"),
+                ("stop", "prompt blocked"),
+            ],
+        )),
+    ));
+    frames.history(&s, 0, "• Hook stopped");
+    s.assert_absent(message);
+    s.assert_absent("Working");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5372 hook_events_render_consistently kind=ui owner=ui-pane
 #[test]
 fn hook_events_render_consistently() {
-    kit::pending(
-        Owner::UiPane,
-        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
-    );
-    for status_message in [
-        "cleaning up the interrupted turn", // Interrupt
-        "warming the shell",                // PreToolUse
-        "warming the shell",                // PostToolUse
-        "warming the shell",                // SessionStart
+    for (event, id, message) in [
+        ("interrupt", "interrupt:0:/tmp/hooks.json", "cleaning up the interrupted turn"),
+        ("preToolUse", "pre-tool-use:0:/tmp/hooks.json", "warming the shell"),
+        ("postToolUse", "post-tool-use:0:/tmp/hooks.json", "warming the shell"),
+        ("sessionStart", "session-start:0:/tmp/hooks.json", "warming the shell"),
     ] {
-        // seed: the hook of the case, started with that status message
-        let s = Screen::build(Owner::UiPane).live().open();
-        s.assert_contains(status_message);
+        let mut s = chat();
+        s.feed(&format!("{TURN}\n{}", hook_started(id, event, Some(message))));
+        // the start updates the live row, nothing is written to history; the row waits for its delay
+        s.assert_absent("Hook");
+        s.assert_absent(message);
+        s.wait(150);
+        assert!(
+            s.rows()
+                .iter()
+                .any(|row| row.contains("Working") && row.contains(message)),
+            "the hook start renders its status in the activity row:\n{}",
+            s.text()
+        );
+        s.assert_absent("Hook");
+        let mut entries = vec![("warning", "Heads up from the hook")];
+        if event != "interrupt" {
+            entries.push(("context", "Remember the startup checklist."));
+        }
+        s.feed(&hook_completed(id, event, "completed", Some(message), &entries));
+        // the output for the user is the one history row; the context is the model's
+        s.assert_has_row_trimmed("↳ Hook · Heads up from the hook");
+        s.assert_absent("startup checklist");
+        assert_eq!(rows_with(&s, "Hook"), 1, "{}", s.text());
     }
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5400 quiet_hook_cleanup_starts_when_the_hook_is_revealed kind=ui owner=ui-pane
 #[test]
 fn quiet_hook_cleanup_starts_when_the_hook_is_revealed() {
-    kit::pending(
-        Owner::UiPane,
-        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: PostToolUse hook 'checking output policy' started, revealed (immediately or after a delayed redraw), then completed
-    // the linger expires: the hook row is gone and no history is written
-    s.assert_absent("checking output policy");
+    let id = "post-tool-use:0:/tmp/hooks.json";
+    let quiet = hook_completed(id, "postToolUse", "completed", None, &[]);
+    for delayed_redraw in [false, true] {
+        let mut s = chat();
+        s.feed(&hook_started(id, "postToolUse", Some("checking output policy")));
+        // held back for its delay: no row yet
+        s.assert_absent("Checking output policy");
+        // revealed (a redraw at the deadline, or one that comes late)
+        s.wait(if delayed_redraw { 1000 } else { 150 });
+        s.assert_contains("Checking output policy");
+        s.feed(&quiet);
+        // a quiet end leaves no row and writes no history, then or later
+        s.assert_absent("Checking output policy");
+        s.wait(700);
+        s.assert_absent("Checking output policy");
+        s.assert_absent("Hook");
+    }
+    // a hook that is over before its delay never shows
+    let mut s = chat();
+    s.feed(&hook_started(id, "postToolUse", Some("checking output policy")));
+    s.feed(&quiet);
+    s.wait(700);
+    s.assert_absent("Checking output policy");
+    s.assert_absent("Hook");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5440 blocked_and_failed_hooks_render_feedback_and_errors kind=snap owner=ui-pane snap=hook_blocked_failed_feedback_history_snapshot
 #[test]
 fn blocked_and_failed_hooks_render_feedback_and_errors() {
-    kit::pending(
-        Owner::UiPane,
-        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: two completed hooks: one blocked with feedback, one failed with exit code 7
+    let frames = Frames {
+        name: "hook_blocked_failed_feedback_history_snapshot",
+        labels: &[],
+    };
+    let mut s = chat();
+    s.feed(&hook_completed(
+        "pre-tool-use:0:/tmp/hooks.json",
+        "preToolUse",
+        "blocked",
+        None,
+        &[("feedback", "run tests before touching the fixture")],
+    ));
+    s.feed(&hook_completed(
+        "post-tool-use:1:/tmp/hooks.json",
+        "postToolUse",
+        "failed",
+        None,
+        &[("error", "hook exited with code 7")],
+    ));
     s.assert_in_order(&[
         "Blocked by hook",
         "run tests before touching the fixture",
         "Hook failed",
         "hook exited with code 7",
     ]);
-    s.assert_snap("hook_blocked_failed_feedback_history_snapshot");
+    frames.history(&s, 0, "• Blocked by hook");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5484 completed_hook_with_output_flushes_immediately kind=snap owner=ui-pane snap=completed_hook_with_output_flushes_immediately_snapshot
 #[test]
 fn completed_hook_with_output_flushes_immediately() {
-    kit::pending(
-        Owner::UiPane,
-        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: a hook started and completed with output; the output flushes into history at once
-    s.assert_snap("completed_hook_with_output_flushes_immediately_snapshot");
+    let frames = Frames {
+        name: "completed_hook_with_output_flushes_immediately_snapshot",
+        labels: &["running", "completed", "activity:", "history:"],
+    };
+    let id = "pre-tool-use:0:/tmp/hooks.json:tool-call-1";
+    let mut s = chat();
+    s.feed(&hook_started(id, "preToolUse", Some("checking command")));
+    s.wait(150);
+    // running: an activity row, nothing in history
+    frames.pane(&s, 1, 4);
+    s.assert_absent("Blocked by hook");
+    // completed with output: the output is in history at once
+    s.feed(&hook_completed(
+        id,
+        "preToolUse",
+        "blocked",
+        None,
+        &[("feedback", "command blocked by policy")],
+    ));
+    frames.pane(&s, 4, 2);
+    frames.history(&s, 5, "• Blocked by hook");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5523 completed_hook_output_precedes_following_assistant_message kind=snap owner=ui-pane snap=completed_hook_output_precedes_following_assistant_message_snapshot
 #[test]
 fn completed_hook_output_precedes_following_assistant_message() {
-    kit::pending(
-        Owner::UiPane,
-        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: a completed hook with output, then the assistant message
-    s.assert_snap("completed_hook_output_precedes_following_assistant_message_snapshot");
+    let frames = Frames {
+        name: "completed_hook_output_precedes_following_assistant_message_snapshot",
+        labels: &[],
+    };
+    let id = "pre-tool-use:0:/tmp/hooks.json:tool-call-1";
+    let mut s = chat();
+    s.feed(&hook_started(id, "preToolUse", Some("checking command")));
+    s.wait(150);
+    s.feed(&hook_completed(
+        id,
+        "preToolUse",
+        "blocked",
+        None,
+        &[("feedback", "command blocked by policy")],
+    ));
+    s.feed(&assistant_message("msg-after-hook", "The hook feedback was applied."));
+    s.assert_in_order(&["Blocked by hook", "The hook feedback was applied."]);
+    frames.history(&s, 0, "• Blocked by hook");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5577 completed_same_id_hook_output_survives_restart kind=snap owner=ui-pane snap=completed_same_id_hook_output_survives_restart_snapshot
 #[test]
 fn completed_same_id_hook_output_survives_restart() {
-    kit::pending(
-        Owner::UiPane,
-        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: hook completed, same id started again (restart), with stop output 'continue with more context'
+    let frames = Frames {
+        name: "completed_same_id_hook_output_survives_restart_snapshot",
+        labels: &["restarted", "activity:", "history:"],
+    };
+    let id = "stop:0:/tmp/hooks.json";
+    let mut s = chat();
+    s.feed(&hook_started(id, "stop", Some("checking stop condition")));
+    s.wait(150);
+    s.feed(&hook_completed(
+        id,
+        "stop",
+        "stopped",
+        None,
+        &[("stop", "continue with more context")],
+    ));
+    // the same id starts again: its first run's output stays in history
+    s.feed(&hook_started(id, "stop", Some("checking stop condition")));
+    s.wait(150);
     s.assert_in_order(&["Hook stopped", "continue with more context"]);
-    s.assert_snap("completed_same_id_hook_output_survives_restart_snapshot");
+    frames.pane(&s, 1, 4);
+    frames.history(&s, 2, "• Hook stopped");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5627 running_hooks_fit_around_background_activity_and_finish_without_history_snapshot kind=snap owner=ui-pane snap=long_running_hook_below_background_activity_row snap=mixed_running_hooks_share_background_activity_row snap=running_hooks_share_background_activity_row
@@ -659,28 +963,57 @@ fn running_hooks_fit_around_background_activity_and_finish_without_history_snaps
 // ORACLE chatwidget/tests/status_and_layout.rs:5694 session_end_hook_has_standalone_activity_row kind=snap owner=ui-pane snap=session_end_hook_activity snap=session_end_hook_activity_without_message
 #[test]
 fn session_end_hook_has_standalone_activity_row() {
-    kit::pending(
-        Owner::UiPane,
-        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: a SessionEnd hook started and completed, with and without a message
-    s.assert_snap("session_end_hook_activity");
-    // without a message: a second state
-    s.assert_snap("session_end_hook_activity_without_message");
+    for (message, name) in [
+        (Some("saving session summary"), "session_end_hook_activity"),
+        (None, "session_end_hook_activity_without_message"),
+    ] {
+        let frames = Frames {
+            name,
+            labels: &["before reveal:", "running:", "completed:"],
+        };
+        let mut s = chat();
+        s.feed(&hook_started("session-end", "sessionEnd", message));
+        frames.pane(&s, 0, 2);
+        s.wait(150);
+        frames.pane(&s, 1, 4);
+        s.feed(&hook_completed("session-end", "sessionEnd", "completed", None, &[]));
+        frames.pane(&s, 2, 2);
+        // no history is written
+        s.assert_absent("Hook");
+    }
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5732 overlapping_hook_live_cell_tracks_parallel_quiet_hooks kind=snap owner=ui-pane snap=overlapping_hook_live_cell_snapshot
 #[test]
 fn overlapping_hook_live_cell_tracks_parallel_quiet_hooks() {
-    kit::pending(
-        Owner::UiPane,
-        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: a task started; two parallel quiet hooks start and complete; the status header stays 'Thinking'
-    s.assert_contains("Thinking");
-    s.assert_snap("overlapping_hook_live_cell_snapshot");
+    let frames = Frames {
+        name: "overlapping_hook_live_cell_snapshot",
+        labels: &[
+            "pre running",
+            "post running",
+            "pre completed",
+            "all completed",
+            "activity:",
+            "history:",
+        ],
+    };
+    let pre = "pre-tool-use:0:/tmp/hooks.json";
+    let post = "post-tool-use:1:/tmp/hooks.json";
+    let mut s = chat();
+    // a task that is thinking (`set_status_header("Thinking")`)
+    s.feed(&format!("{TURN}\n{THINKING}"));
+    s.feed(&hook_started(pre, "preToolUse", Some("checking command policy")));
+    s.wait(150);
+    frames.pane(&s, 1, 4);
+    s.feed(&hook_started(post, "postToolUse", Some("checking output policy")));
+    s.wait(150);
+    frames.pane(&s, 4, 4);
+    s.feed(&hook_completed(pre, "preToolUse", "completed", None, &[]));
+    frames.pane(&s, 7, 4);
+    s.feed(&hook_completed(post, "postToolUse", "completed", None, &[]));
+    frames.pane(&s, 10, 4);
+    // nothing is written to history
+    s.assert_absent("Hook");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5806 running_hook_does_not_displace_active_exec_cell kind=snap owner=ui-pane snap=hook_runs_while_exec_active_snapshot
@@ -698,13 +1031,29 @@ fn running_hook_does_not_displace_active_exec_cell() {
 // ORACLE chatwidget/tests/status_and_layout.rs:5913 stopped_hook_hides_model_context_and_preserves_stop_reason_snapshot kind=snap owner=ui-pane snap=stopped_hook_hides_model_context_and_preserves_stop_reason
 #[test]
 fn stopped_hook_hides_model_context_and_preserves_stop_reason_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: a stopped hook with a stop reason 'continue with more context'; the model context is hidden
-    s.assert_snap("stopped_hook_hides_model_context_and_preserves_stop_reason");
+    let frames = Frames {
+        name: "stopped_hook_hides_model_context_and_preserves_stop_reason",
+        labels: &[],
+    };
+    let mut s = chat();
+    s.feed(&hook_completed(
+        "session-start:0:/tmp/hooks.json",
+        "sessionStart",
+        "stopped",
+        None,
+        &[
+            (
+                "context",
+                "This hook context is intentionally long enough to wrap across several terminal rows while keeping the complete value available in the transcript overlay. The main conversation should stay compact even when a hook injects a large block of instructions for the model.",
+            ),
+            (
+                "stop",
+                "The hook stopped this turn for an important reason.\nThis second line must remain visible in full.",
+            ),
+        ],
+    ));
+    frames.history(&s, 0, "• Hook stopped");
+    s.assert_absent("intentionally long");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:6029 chatwidget_exec_and_status_layout_vt100_snapshot kind=snap owner=ui-pane snap=chatwidget_exec_and_status_layout_vt100_snapshot
