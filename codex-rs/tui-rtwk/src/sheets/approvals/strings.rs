@@ -142,7 +142,6 @@ pub struct Strings {
     pub auto_resolves_in: Msg<1>,
     /// The row that stands for the header rows that did not fit (`[… 7 lines] ⌃a view all`).
     pub clipped_lines: Msg<1>,
-    pub view_all_key: &'static str,
     pub view_all: &'static str,
     /// The marks of a decision cell and who decided (`history_cell/approvals.rs`).
     pub approved_mark: &'static str,
@@ -362,7 +361,6 @@ pub const EN: Strings = Strings {
     countdown_separator: " \u{b7} ",
     auto_resolves_in: msg!("auto-resolves in {0}"),
     clipped_lines: msg!("[\u{2026} {0} lines]"),
-    view_all_key: "\u{2303}a",
     view_all: " view all",
     // The marks of a decision cell and who decided (`history_cell/approvals.rs`).
     approved_mark: "\u{2714} ",

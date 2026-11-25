@@ -359,15 +359,6 @@ fn enter_sets_last_selected_index_without_dismissing() {
 // ORACLE bottom_pane/approval_overlay/clipping_tests.rs:8 clipped_exec_approval_opens_the_complete_command kind=snap owner=dialogs-pane snap=codex_tui__bottom_pane__approval_overlay__clipping_tests__clipped_exec_approval_opens_the_complete_command
 #[test]
 fn clipped_exec_approval_opens_the_complete_command() {
-    kit::pending(
-        Owner::DialogsPane,
-        "feature configured approval.open_fullscreen chord (w2-approvals): the clipped header's `[… N lines] ⌃a view all` row draws the fixed `⌃a` where the oracle shows the configured `⌃g` (`.keymap(..)` is seeded, the frame is read by `Snap::labelled`: the rows equal the oracle's otherwise); the other seven frames (40x10, 40x8, 40x7 and the unbound ones) are not written yet",
-    );
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(80, 14)
-        .entry("approvals", "exec_clipped")
-        .keymap(&[("approval.open_fullscreen", "ctrl+g")])
-        .open();
     // the oracle test joined its frames under `bound={bool} {W}x{H}` lines
     let labels = [
         "bound=true 80x14",
@@ -379,18 +370,41 @@ fn clipped_exec_approval_opens_the_complete_command() {
         "bound=false 40x8",
         "bound=false 40x7",
     ];
-    s.snap("codex_tui__bottom_pane__approval_overlay__clipping_tests__clipped_exec_approval_opens_the_complete_command")
-        .labelled(&labels)
-        .frame("bound=true 80x14")
-        .assert();
-    s.assert_contains("⌃g view all");
-    s.assert_absent("destructive_suffix");
-    s.assert_absent("reason_suffix");
-    s.assert_contains("Yes, proceed");
-    s.keys("ctrl+g");
-    // The oracle's FullScreenApprovalRequest event is not drawn; the prompt stays open.
-    s.assert_contains("Yes, proceed");
-    // The other frames (40x10, 40x8, 40x7, and the unbound variant) are not written yet.
+    let snap = "codex_tui__bottom_pane__approval_overlay__clipping_tests__clipped_exec_approval_opens_the_complete_command";
+    for bound in [true, false] {
+        for (width, height) in [(80, 14), (40, 10), (40, 8), (40, 7)] {
+            let label = format!("bound={bound} {width}x{height}");
+            let keymap: &'static [(&str, &str)] = if bound {
+                &[("approval.open_fullscreen", "ctrl+g")]
+            } else {
+                &[("approval.open_fullscreen", "")]
+            };
+            let mut s = Screen::build(Owner::DialogsPane)
+                .size(width, height)
+                .entry("approvals", "exec_clipped")
+                .keymap(keymap)
+                .open();
+            s.snap(snap).labelled(&labels).frame(&label).assert();
+            let rows = s.rows();
+            // the oracle's own assertions at each size
+            let elision = rows.iter().find(|row| row.contains("[\u{2026}")).unwrap();
+            assert_eq!(elision.contains("\u{2303}g view all"), bound, "{label}");
+            assert!(rows.iter().any(|row| row.contains("Yes, proceed")), "{label}");
+            assert!(
+                !rows.iter().any(|row| row.contains("destructive_suffix")),
+                "{label}"
+            );
+            assert!(
+                !rows.iter().any(|row| row.contains("reason_suffix")),
+                "{label}"
+            );
+            if bound && (width, height) == (80, 14) {
+                s.keys("ctrl+g");
+                // The oracle's FullScreenApprovalRequest event is not drawn; the prompt stays open.
+                s.assert_contains("Yes, proceed");
+            }
+        }
+    }
 }
 
 // ---- oracle: bottom_pane/async_questions/state_tests.rs (19 screen-level tests here; 1 state tests left to dialogs-pane)
