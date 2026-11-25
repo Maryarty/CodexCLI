@@ -999,3 +999,74 @@ mod disclosed_cells {
         assert!(t.screen().contains("the body"), "{}", t.screen());
     }
 }
+
+/// The chat in a window of 4 to 6 rows (doors-r3, item 8). The bottom pane is the oracle's
+/// (`bottom_pane_renderable`: the reader's gap, the composer's blank row over and under its line,
+/// the footer) and the list takes what it leaves; where the window is shorter than the pane, the
+/// gap is cut first and the footer stays.
+mod small_windows {
+    use crate::kit::{Owner, Screen};
+
+    const TWO: &str = include_str!("../oracle/fixtures/transcript_view_4/sm_entry_1.jsonl");
+    const PROMPT: &str = include_str!("../oracle/fixtures/transcript_view_5/one_prompt.jsonl");
+    const FOOTER: &str = "for shortcuts";
+
+    fn open(width: u16, height: u16, script: &'static str) -> Screen {
+        Screen::build(Owner::ChatLive)
+            .size(width, height)
+            .script(script)
+            .open()
+    }
+
+    /// Six rows: the pane's five (gap, blank, composer, blank, footer) and one for the list.
+    #[test]
+    fn six_rows_leave_the_list_one_row_over_the_pane() {
+        let s = open(32, 6, TWO);
+        let rows = s.rows();
+        assert_eq!(rows.len(), 6, "{}", s.text());
+        assert!(!rows[0].is_empty(), "the list's row\n{}", s.text());
+        assert!(rows[1].is_empty(), "the gap\n{}", s.text());
+        assert!(rows[5].contains(FOOTER), "the footer\n{}", s.text());
+    }
+
+    /// Five rows are the pane's: the list has none, and nothing of it shows over the gap.
+    #[test]
+    fn five_rows_are_the_pane_and_no_list() {
+        let s = open(32, 5, TWO);
+        let rows = s.rows();
+        assert_eq!(rows.len(), 5, "{}", s.text());
+        assert!(rows[0].is_empty(), "the gap\n{}", s.text());
+        assert!(rows[4].contains(FOOTER), "the footer\n{}", s.text());
+        s.assert_absent("Worked for");
+        s.assert_absent("bottom");
+    }
+
+    /// Four rows cut the gap, not the footer: the composer's blank row, its line, its blank row
+    /// and the footer.
+    #[test]
+    fn four_rows_cut_the_gap_and_keep_the_footer() {
+        let s = open(32, 4, TWO);
+        let rows = s.rows();
+        assert_eq!(rows.len(), 4, "{}", s.text());
+        assert!(rows[3].contains(FOOTER), "the footer\n{}", s.text());
+        assert!(rows[0].is_empty(), "the composer's blank row\n{}", s.text());
+        s.assert_absent("Worked for");
+    }
+
+    /// The hint of the first Esc is a line of 34 cells: in a window of 32 columns it is cut at the
+    /// right edge, after the indent, and the row does not overflow (the footer is `Paragraph`'s
+    /// clipped line in the oracle).
+    #[test]
+    fn the_esc_hint_is_cut_at_the_edge_of_a_narrow_window() {
+        let mut s = open(32, 8, PROMPT);
+        s.keys("esc");
+        let rows = s.rows();
+        let last = rows.last().expect("rows");
+        assert!(
+            last.starts_with("  esc again to edit previous"),
+            "{}",
+            s.text()
+        );
+        assert!(last.chars().count() <= 32, "{last:?}");
+    }
+}

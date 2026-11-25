@@ -7,7 +7,7 @@
 
 use rtwk::foundation::ListenableBuilder;
 use rtwk::layout::{
-    BoxWidget, Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Row, SizedBox,
+    BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Flexible, MainAxisSize, Row, SizedBox,
 };
 use rtwk::provider::select;
 use rtwk::style::Span;
@@ -141,13 +141,19 @@ pub(super) fn body(
             let notice = limits::notice_of(session, frame.drawn.owner, model).map(AnyWidget::from);
             let gap = transcript::follow::gap(cx, w.ui.follow.clone(), status_above, notice);
             let mentions = w.ui.draft.mentions();
-            ListenableBuilder::new(mentions.listenable(), move |_, _| {
-                if mentions.is_open() {
-                    SizedBox::shrink().into()
-                } else {
-                    gap.clone()
-                }
-            })
+            // flexible: a window with no room over the composer and the footer cuts the gap's
+            // rows, the first the oracle clips (`bottom_pane_renderable`: the gap is a flex-1
+            // item over the composer's flex-0 one), where a fixed row would push the footer out
+            Flexible::new(
+                1,
+                ListenableBuilder::new(mentions.listenable(), move |_, _| {
+                    if mentions.is_open() {
+                        SizedBox::shrink().into()
+                    } else {
+                        gap.clone()
+                    }
+                }),
+            )
         })
         // the `@`/`$` popup stands right above the draft and takes the
         // rows the draft leaves, 17 at most (`ActivePopup::MentionV2`

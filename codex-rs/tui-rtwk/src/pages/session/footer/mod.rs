@@ -32,7 +32,7 @@ use std::rc::Rc;
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
 use rtwk::provider::{Provider, select};
 use rtwk::style::Span;
-use rtwk::text::segmenter_of;
+use rtwk::text::{TextOverflow, segmenter_of};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, StatelessWidget, impl_widget};
 
@@ -311,11 +311,18 @@ fn close_row(cx: &mut Cx<'_>, on_tap: Option<Handler<()>>) -> AnyWidget {
     .into()
 }
 
-/// One line of spans, `INDENT` cells in.
+/// One line of spans, `INDENT` cells in, cut at the right edge where it is longer than the
+/// window (the oracle's `render_footer_line` is a `Paragraph` the area clips): the text is the
+/// row's `Expanded`, so a row as wide as the text never overflows by the indent.
 fn transient(spans: Vec<Span>) -> AnyWidget {
     Row::new()
         .child(SizedBox::new(Some(INDENT), None, None))
-        .child(Text::rich_line(spans))
+        .child(Expanded::new(
+            1,
+            Text::rich_line(spans)
+                .max_lines(Some(1))
+                .overflow(TextOverflow::Clip),
+        ))
         .into()
 }
 
