@@ -5,7 +5,7 @@
 use codex_tui_core::app::{AppEv, Command};
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::rpc::Reply;
-use codex_tui_core::screens::{ScreenEv, chat};
+use codex_tui_core::screens::{ScreenCommand, ScreenEv, chat};
 
 use super::Screen;
 
@@ -30,6 +30,40 @@ impl Screen {
         );
         self.h.advance(100);
         self
+    }
+
+    /// The thread's settings name `model` (`thread/settings/updated`): the empty name is the
+    /// oracle's `set_model("")`, a thread with no model to send with.
+    pub fn set_thread_model(&mut self, model: &str) -> &mut Screen {
+        let step = serde_json::json!({"step": "notify", "message": {
+            "method": "thread/settings/updated",
+            "params": {"threadId": "thread-1", "threadSettings": {
+                "cwd": "/tmp/project", "approvalPolicy": "on-request", "approvalsReviewer": "user",
+                "sandboxPolicy": {"type": "dangerFullAccess"}, "activePermissionProfile": null,
+                "model": model, "modelProvider": "openai", "serviceTier": null, "effort": null,
+                "summary": null, "personality": null,
+                "collaborationMode": {"mode": "default", "settings": {
+                    "model": model, "reasoning_effort": null, "developer_instructions": null}}
+            }}
+        }});
+        self.feed(&step.to_string())
+    }
+
+    /// The `!cmd` lines the app asked the screen to run as the user's own shell commands
+    /// (`submit_shell_command`), oldest first, without the `!`.
+    pub fn shell_commands(&self) -> Vec<String> {
+        self.h
+            .fake
+            .commands()
+            .into_iter()
+            .filter_map(|c| match c {
+                Command::Screen {
+                    command: ScreenCommand::Chat(chat::Command::Shell(command)),
+                    ..
+                } => Some(command),
+                _ => None,
+            })
+            .collect()
     }
 }
 

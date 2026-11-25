@@ -31,6 +31,10 @@ impl ChatState {
         // bare `!` is the help line (`submit_shell_command`). Remote
         // images alone are a message of their own.
         self.composer_sends();
+        // Enter on the startup draft confirms it: it is sent when the session is ready
+        if self.confirm_startup(text, w, cx) {
+            return;
+        }
         if !w.ui.composer.text().is_empty() || w.ui.draft.shell() || w.ui.draft.remote_count() > 0 {
             run_line(text, w, cx, hs, Delivery::Submit);
             // a command that took the line cleared the composer
@@ -45,6 +49,7 @@ impl ChatState {
     /// Tab: queues behind a running turn and submits otherwise.
     pub(super) fn queue_draft(&mut self, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs) {
         self.composer_sends();
+        self.startup_confirm = None;
         let draft = submission(&w.ui);
         if !draft.is_empty() || w.ui.draft.remote_count() > 0 {
             let running = read::<ThreadModel, _>(cx).is_running();

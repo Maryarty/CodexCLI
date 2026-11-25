@@ -27,6 +27,7 @@ pub mod processes;
 pub mod queue;
 pub mod replay;
 pub mod safety;
+pub mod startup;
 pub mod status;
 pub mod stream_preview;
 pub mod structured;
@@ -2844,6 +2845,22 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         }
         // a misalignment stop rejects what starts a turn: only a new chat goes on
         ThreadEv::Submit { .. } if model.safety.blocks_input() => {}
+        // a thread whose model is known to be empty sends nothing: the error says so and the
+        // line stays where it was typed (`submit_user_message`; the queue's drain gives its
+        // message back instead)
+        ThreadEv::Submit { .. }
+            if model.has_writer()
+                && startup::model_unavailable(model.slots.chat.model.as_deref()) =>
+        {
+            apply_ev(
+                model,
+                ThreadEv::Appended {
+                    turn: None,
+                    item: Item::Note(Note::from(crate::commands::Notice::ThreadModelUnavailable)),
+                },
+                fx,
+            )
+        }
         ThreadEv::Submit { message } if model.has_writer() => {
             // The decision is here (R10). Enter during a running turn steers
             // it (`turn/steer`); while the turn is only starting (no turn id

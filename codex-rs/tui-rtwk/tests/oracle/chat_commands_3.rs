@@ -885,33 +885,76 @@ fn startup_submission_waits_for_session_and_sends_exactly_once() {
 // ORACLE chatwidget/tests/startup_submission_tests.rs:288 startup_submission_escape_restores_editing_without_submitting kind=snap owner=chat-nav-pane
 #[test]
 fn startup_submission_escape_restores_editing_without_submitting() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "needs the Enter-confirm startup submission (Enter on a startup draft waits, Esc cancels it and keeps the draft); the port queues the prompt at Enter before the session instead, and the rejected-startup Disconnected restricted input has no seed",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .held_start()
+        .open();
     s.type_text("keep the draft");
-    s.keys("esc");
+    s.keys("left left left left left left left left left left");
+    let cursor = s.grid().cursor;
+    // Enter confirms it: the text stays and the footer says what it waits for
+    s.keys("enter");
     s.assert_contains("keep the draft");
-    let mut rejected = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    rejected.keys("esc");
-    rejected.assert_contains("  ⌃c quit");
+    s.assert_last_row_has("  Waiting for startup  · esc cancel");
+    // Esc cancels only the intent: the draft and its cursor are kept
+    s.keys("esc");
+    s.assert_absent("Waiting for startup");
+    s.assert_composer("keep the draft");
+    kit::assert_same(s.grid().cursor, cursor, "the cursor stayed");
+    // the session starts: nothing was confirmed, nothing goes out
+    s.start_thread();
+    s.assert_no_turn();
+    s.assert_composer("keep the draft");
+    // The oracle's second round pauses a rejected startup (a reconnect that is refused while the
+    // startup draft waits) and presses Esc on its restricted composer, which ends in `⌃c quit`;
+    // the port has no restricted composer (the draft is edited as ever while reconnecting), so
+    // that round has no counterpart, as in `disconnected_sparkle_edits_are_tracked_between_renders`.
 }
 
 // ORACLE chatwidget/tests/startup_submission_tests.rs:321 startup_submission_waits_for_protected_view_and_preserves_paste_provenance kind=ui owner=chat-nav-pane
 #[test]
 fn startup_submission_waits_for_protected_view_and_preserves_paste_provenance() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "needs the Enter-confirm startup submission held behind an open approvals popup; the port queues the prompt at Enter before the session instead",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    s.paste("!echo hi\n# visible tail");
-    s.assert_contains("!echo hi");
-    s.assert_contains("# visible tail");
-    s.keys("esc");
-    s.keys("enter");
-    // The oracle's other payloads (leading spaces; 1000 x's) and its RunUserShellCommand / UserTurn ops are not drawn here.
+    let literal = format!("!echo {}", "x".repeat(1000));
+    let visible = "!echo hi\n# visible tail";
+    for payload in ["  !echo hi\n# visible tail", visible, literal.as_str()] {
+        let mut s = Screen::build(Owner::ChatNavPane)
+            .size(80, 24)
+            .live()
+            .held_start()
+            .open();
+        s.paste(payload);
+        s.keys("enter");
+        // a view over the chat (the oracle's approvals popup) holds the confirmed draft
+        s.keys("f12");
+        s.start_thread();
+        s.assert_no_turn();
+        // the page is in front again: the draft goes out as what it is
+        s.keys("esc");
+        if payload == visible {
+            // a draft that shows a shell command is not run by the startup: it stays for Enter
+            s.assert_no_turn();
+            kit::assert_same(
+                s.shell_commands(),
+                Vec::<String>::new(),
+                "no shell command ran",
+            );
+            s.assert_contains("! echo hi");
+            s.assert_contains("# visible tail");
+            s.keys("enter");
+            kit::assert_same(
+                s.shell_commands(),
+                vec!["echo hi\n# visible tail".to_string()],
+                "the second Enter runs the command",
+            );
+        } else {
+            // leading spaces or a hidden paste: a literal prompt, trimmed
+            s.assert_turn_texts(&[payload.trim()]);
+        }
+    }
+    // The oracle then pauses the rejected startup and presses Null, Left, Right and Enter on its
+    // restricted composer (nothing is sent, the confirmation stays); that pause has no
+    // counterpart here, see the test above.
 }
 
 // ORACLE chatwidget/tests/startup_submission_tests.rs:367 startup_submission_edit_or_disconnect_cancels_without_losing_draft kind=ui owner=chat-nav-pane
@@ -930,12 +973,15 @@ fn startup_submission_edit_or_disconnect_cancels_without_losing_draft() {
 // ORACLE startup_draft_layout_tests.rs:6 owned_startup_keeps_the_live_bottom_geometry kind=snap owner=chat-nav-pane snap=owned_startup_layout
 #[test]
 fn owned_startup_keeps_the_live_bottom_geometry() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the startup draft frames are ported (inline); this one is the alt-screen startup-owned layout, whose footer hint override (`Waiting for startup`) belongs to the Enter-confirm startup submission, which the port lacks (Enter before the session queues the prompt)",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(48, 16).live().open();
-    s.type_text("first line\nsecond line");
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(48, 16)
+        .live()
+        .held_start()
+        .open();
+    s.type_text("first line");
+    s.keys("shift+enter");
+    s.type_text("second line");
+    s.keys("enter");
     s.assert_snap("owned_startup_layout");
 }
 
@@ -1094,7 +1140,7 @@ fn startup_draft_hydrates_its_header_without_moving_the_composer() {
 fn startup_draft_applies_super_editor_keymap_without_inserting_pending_newline() {
     kit::pending(
         Owner::ChatNavPane,
-        "feature startup draft (w2-composer, startup): not in the port with a super-z editor keymap and the F12 chord guide need the keymap seed (not registered) and the startup draft",
+        "needs multi-key editor chords (`f12 e` as editor.move_line_end, `f12 h` as history search) and the safe-chord guide drawn after the reveal delay, plus a `super+z` single-key editor binding applied while the startup draft is open (a pending paste newline must not be inserted); the startup draft itself is built (Enter confirms it, f-startup-confirm), the editor-chord ladder is f-find-core's, the guide is follow-up f-startup-chords",
     );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("draft");

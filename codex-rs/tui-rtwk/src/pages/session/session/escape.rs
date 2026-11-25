@@ -30,6 +30,10 @@ impl ChatState {
             self.shortcuts = false;
             return Some(Rebuild::Yes);
         }
+        // Esc cancels the confirmed startup draft: the text stays (`cancel_startup_submission`)
+        if self.startup_confirm.take().is_some() {
+            return Some(Rebuild::Yes);
+        }
         // the editor of the model's questions goes back to the composer
         if self.close_editor() {
             return Some(Rebuild::Yes);

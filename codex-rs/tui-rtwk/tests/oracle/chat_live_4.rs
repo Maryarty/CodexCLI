@@ -226,13 +226,14 @@ fn submit_user_message_with_mode_errors_when_mode_changes_during_running_turn() 
 // ORACLE chatwidget/tests/plan_mode.rs:708 submit_user_message_blocks_when_thread_model_is_unavailable kind=ui owner=chat-live
 #[test]
 fn submit_user_message_blocks_when_thread_model_is_unavailable() {
-    kit::pending(
-        Owner::ChatLive,
-        "no seed for a thread without a model (set_model empty): the port's session always has one, so the unavailable-model refusal is not drawn",
-    );
     let mut s = Screen::build(Owner::ChatLive).live().open();
+    // the thread's model is gone (`set_model("")`)
+    s.set_thread_model("");
     s.type_text("hello").keys("enter");
     s.assert_contains("Thread model is unavailable.");
+    s.assert_no_turn();
+    // the line stays in the composer
+    s.assert_composer("hello");
 }
 
 // ORACLE chatwidget/tests/plan_mode.rs:788 plan_implementation_popup_skips_replayed_turn_complete kind=ui owner=chat-live

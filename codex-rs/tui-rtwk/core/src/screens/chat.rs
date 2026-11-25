@@ -644,13 +644,18 @@ impl ThreadPart {
         let previous = (self.mode, self.model.clone(), self.effort.clone());
         self.mode = effective.mode;
         self.error = None;
-        self.model = Some(effective.settings.model.clone());
+        let named = Some(effective.settings.model.clone());
+        // a model nobody has named stays unknown (`None`), it is not an empty one: the thread
+        // whose model is KNOWN empty sends nothing (`threads::startup::model_unavailable`)
+        self.model = named
+            .clone()
+            .filter(|model| previous.1.is_some() || !model.is_empty());
         self.effort = effective
             .settings
             .reasoning_effort
             .as_ref()
             .map(|effort| effort.as_str().to_string());
-        let changed = previous.0 != self.mode && (previous.1 != self.model || previous.2 != self.effort);
+        let changed = previous.0 != self.mode && (previous.1 != named || previous.2 != self.effort);
         let change = changed.then(|| ModelChange {
             model: effective.settings.model.clone(),
             effort: collaboration::effort_label(

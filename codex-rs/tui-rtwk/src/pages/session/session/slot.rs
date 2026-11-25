@@ -127,7 +127,17 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
                     .draft
                     .with_vim(|vim| vim.is_enabled().then(|| vim.mode())),
                 // the menu of `/presets` takes the hints away (`set_footer_hint_override`)
-                hint_override: state.banner.quick_menu.get().then(Vec::new),
+                hint_override: state.banner.quick_menu.get().then(Vec::new).or_else(|| {
+                    state.startup_waiting(&frame.session).then(|| {
+                        vec![
+                            (chat_strings.startup_waiting.to_owned(), String::new()),
+                            (
+                                chat_strings.startup_cancel_key.to_owned(),
+                                chat_strings.startup_cancel.to_owned(),
+                            ),
+                        ]
+                    })
+                }),
                 flash: None,
                 on_queue: Some(cx.send(ChatMsg::QueueDraft)),
                 on_warnings: Some(cx.send(ChatMsg::Action(Action::Warnings))),
