@@ -258,23 +258,22 @@ fn resizing_a_read_find_result_preserves_relative_navigation() {
 // ORACLE transcript_view/search_tests.rs:389 reading_a_find_result_loads_older_context kind=ui owner=chat-live
 #[test]
 fn reading_a_find_result_loads_older_context() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no transcript find and no older-history load: the kit has no step that marks the history partial and answers a page request",
-    );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(30, 3)
-        .script(include_str!(
-            "fixtures/transcript_view_4/find_history.jsonl"
-        ))
+        .size(30, 6)
+        .replay(Vec::new())
+        .view_only()
         .open();
+    s.partial_history_of(&["needle", "latest context"]);
     s.keys("/");
     s.type_text("needle");
     s.keys("pageup");
-    // the oracle asks for older history twice (needs_history); the request itself is not drawn, the query stays
+    // the oracle asks for older history (needs_history); here the app has asked the server
+    s.assert_page_requests(2);
     s.keys("enter");
     s.keys("pageup");
-    s.assert_contains("needle");
+    // the request is still the one in flight, and the query stays
+    s.assert_page_requests(2);
+    s.assert_find_query("needle");
 }
 
 // ORACLE transcript_view/search_tests.rs:410 paging_below_a_live_find_result_resumes_current_output kind=snap owner=chat-live
@@ -301,19 +300,27 @@ fn paging_below_a_live_find_result_resumes_current_output() {
 // ORACLE transcript_view/search_tests.rs:579 empty_find_keeps_following_new_output_after_a_page_join kind=snap owner=chat-live snap=empty_find_follows_output_after_page_join
 #[test]
 fn empty_find_keeps_following_new_output_after_a_page_join() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no transcript find with an empty query, and the kit has no step that joins an older page of history under a live answer",
-    );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(40, 8)
-        .script(include_str!(
-            "fixtures/transcript_view_4/page_join_follow.jsonl"
-        ))
+        .size(40, 16)
+        .replay(Vec::new())
+        .view_only()
         .open();
+    s.partial_history_of(&["previous computer action", "latest answer"]);
     s.keys("/");
-    // the oracle joins an older page (`older computer action`, then `joined computer actions`) and a new answer before this frame: those are feed and history steps the kit does not have yet
-    s.assert_snap("empty_find_follows_output_after_page_join");
+    s.live_tail("stream before page");
+    s.join_older_page(&["older computer action"], false);
+    // a new answer commits and the stream goes on, with Find still open and empty
+    s.replace_live_tail("new committed answer");
+    s.commit_live_tail();
+    s.live_tail("stream after page");
+    // the oracle's frame ends on the stream, the page joined above out of view: the reader
+    // follows the end (its cells have no `Worked for` rows between, nor the older entries it
+    // regroups into one)
+    s.assert_absent("older computer action");
+    s.assert_contains("new committed answer");
+    s.assert_contains("stream after page");
+    s.assert_row(15, "• stream after page");
+    s.assert_find_query("");
 }
 
 // ORACLE transcript_view/search_tests.rs:625 empty_find_preserves_reading_inside_a_joined_group kind=ui owner=chat-live
@@ -343,23 +350,28 @@ fn empty_find_preserves_reading_inside_a_joined_group() {
 // ORACLE transcript_view/search_tests.rs:663 previous_match_continues_through_regrouped_pages_without_revisiting_newer_hits kind=snap owner=chat-live
 #[test]
 fn previous_match_continues_through_regrouped_pages_without_revisiting_newer_hits() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no transcript find over a partial history: no `Searching earlier history` status and no older page can join while the find runs",
-    );
+    // a page holds whole turns and a group of tool calls is of one turn, so no entry of the
+    // first page regroups with one of the older: the oracle's `replace_group` of `older group`
+    // with its neighbour is the page's join here, its hits and its status are the same
     let mut s = Screen::build(Owner::ChatLive)
-        .size(80, 24)
-        .script(include_str!(
-            "fixtures/transcript_view_4/regroup_hits.jsonl"
-        ))
+        .size(80, 4)
+        .replay(Vec::new())
+        .view_only()
         .open();
+    s.partial_history_of(&["newer group", "needle middle", "needle newest"]);
     s.keys("/");
     s.type_text("needle");
     s.keys("ctrl+p");
     s.assert_contains("needle middle");
     s.keys("ctrl+p");
-    s.assert_contains("Searching earlier history… · full transcript · esc cancel");
-    // the oracle then joins `earlier context`, `older group` and `needle oldest`, a regrouped page: those are history steps the kit does not have yet
+    s.assert_find_footer(80, "Searching earlier history… · full transcript · esc cancel");
+    // the older page has no hit, the reader stays on the middle one and the search goes on
+    s.join_older_page(&["earlier context", "older group"], true);
+    s.assert_find_footer(80, "Searching earlier history… · full transcript · esc cancel");
+    s.assert_contains("needle middle");
+    // the oldest page has the oldest hit, and the way back down meets each hit once
+    s.join_older_page(&["needle oldest"], false);
+    s.assert_contains("needle oldest");
     s.keys("ctrl+n");
     s.assert_contains("needle middle");
     s.keys("ctrl+n");
@@ -369,22 +381,20 @@ fn previous_match_continues_through_regrouped_pages_without_revisiting_newer_hit
 // ORACLE transcript_view/search_tests.rs:734 previous_match_finds_the_prepended_part_of_a_regrouped_entry kind=ui owner=chat-live
 #[test]
 fn previous_match_finds_the_prepended_part_of_a_regrouped_entry() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no transcript find and no regrouped entry: a page join that prepends to a group is not a kit step, and no match is drawn reversed",
-    );
+    // the older entry joins above as its own entry (a group of tool calls is of one turn, so
+    // nothing prepends to an entry of the first page): the match in it is found and drawn
     let mut s = Screen::build(Owner::ChatLive)
-        .size(30, 3)
-        .script(include_str!(
-            "fixtures/transcript_view_4/regroup_prefix.jsonl"
-        ))
+        .size(30, 4)
+        .replay(Vec::new())
+        .view_only()
         .open();
+    s.partial_history_of(&["newer group", "needle newest"]);
     s.keys("/");
     s.type_text("needle");
     s.keys("ctrl+p");
-    // the older prefix joins the group in the oracle: the join is not a kit step yet
-    s.assert_contains("needle older prefix and newer group");
-    s.assert_style(0, 0, "reversed");
+    s.join_older_page(&["needle older prefix"], false);
+    s.assert_contains("needle older prefix");
+    s.assert_text_style("needle", "reversed");
     s.keys("ctrl+n");
     s.assert_contains("needle newest");
 }
@@ -392,41 +402,46 @@ fn previous_match_finds_the_prepended_part_of_a_regrouped_entry() {
 // ORACLE transcript_view/search_tests.rs:787 enter_preserves_the_initial_scan_and_each_older_page_until_the_first_match kind=snap owner=chat-live
 #[test]
 fn enter_preserves_the_initial_scan_and_each_older_page_until_the_first_match() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no transcript find, no scanning status line and no older-page loads: an 18 KiB entry scans in the oracle over several frames, and the kit has no older page to join",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 4)
-        .script(include_str!("fixtures/transcript_view_4/scan_long.jsonl"))
+        .replay(Vec::new())
+        .view_only()
         .open();
+    s.partial_history_of(&[&"recent text ".repeat(1500)]);
     s.keys("/");
     s.type_text("LONG T0000 USER");
     s.keys("enter");
-    s.assert_contains("Searching… · full transcript · esc cancel");
-    s.wait_for("Searching earlier history… · full transcript · esc cancel");
-    s.assert_contains("Searching earlier history… · full transcript · esc cancel");
-    // the oracle then confirms each older page (`middle page without a hit`, `LONG T0000 USER`), which join by history steps the kit does not have yet
+    // the oracle's first row, `Searching…`, is the scan of the entry over several frames; the
+    // port reads the whole transcript in one, so the first row it says is the one of the history
+    s.assert_find_footer(80, "Searching earlier history… · full transcript · esc cancel");
+    // each older page is confirmed by Enter and joins; the first match is in the oldest page
+    s.keys("enter");
+    s.join_older_page(&["middle page without a hit"], true);
+    s.keys("enter");
+    s.assert_find_footer(80, "Searching earlier history… · full transcript · esc cancel");
+    s.join_older_page(&["LONG T0000 USER"], false);
     s.keys("enter");
     s.assert_contains("LONG T0000 USER");
+    s.assert_text_style("LONG T0000 USER", "reversed");
 }
 
 // ORACLE transcript_view/search_tests.rs:922 search_finds_the_first_older_entry_after_replaying_the_session_header kind=ui owner=chat-live
 #[test]
 fn search_finds_the_first_older_entry_after_replaying_the_session_header() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no transcript find over a partial history and no session replay: the replayed header and the older page are kit steps that do not exist yet",
-    );
+    // the oracle parks the view and replays the thread (the session header, then the recent
+    // entry); the port's thread keeps its history across the replay: the header is the first
+    // entry the older page joins under
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 4)
-        .script(include_str!("fixtures/transcript_view_4/find_replay.jsonl"))
+        .replay(Vec::new())
+        .view_only()
         .open();
+    s.partial_history_of(&["recent needle"]);
     s.keys("/");
     s.type_text("needle");
     s.keys("enter");
     s.keys("ctrl+p");
-    // the oracle replays the header, then an older page (`oldest needle`, `older messages`) joins above it: a history step the kit does not have yet
+    s.join_older_page(&["oldest needle", "older messages"], false);
     s.assert_contains("oldest needle");
 }
 
@@ -706,22 +721,22 @@ fn live_match_stays_displayed_after_commit_and_a_fresh_query_searches_current_co
 // ORACLE transcript_view/search_tests.rs:1664 leaving_a_regrouped_search_match_restarts_from_current_history kind=ui owner=chat-live
 #[test]
 fn leaving_a_regrouped_search_match_restarts_from_current_history() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no transcript find over a regrouped history: a held match does not survive a join, and the chat draws no reversed match in a merged group",
-    );
+    // no entry regroups when a page joins (see the two tests before), so the match is not
+    // retired: it stays the one the join found it in, and a step from it searches the history
+    // as it is now
     let mut s = Screen::build(Owner::ChatLive)
-        .size(30, 3)
-        .script(include_str!(
-            "fixtures/transcript_view_4/regroup_leave.jsonl"
-        ))
+        .size(40, 4)
+        .replay(Vec::new())
+        .view_only()
         .open();
+    s.partial_history_of(&["retired needle", &"trailing words ".repeat(20)]);
     s.keys("/");
     s.type_text("needle");
-    // the oracle joins `surviving before` and `older group` and merges the group into `merged needle`: those are history steps the kit does not have yet
+    s.join_older_page(&["surviving before", "older group"], false);
     s.keys("ctrl+n");
-    s.assert_contains("merged needle");
-    s.assert_style(7, 1, "reversed");
+    s.keys("ctrl+n");
+    s.assert_contains("retired needle");
+    s.assert_text_style("needle", "reversed");
 }
 
 // ORACLE transcript_view/search_tests.rs:1721 refining_a_query_restores_the_reading_position_while_history_loads kind=ui owner=chat-live
@@ -1243,20 +1258,19 @@ fn accepted_find_pins_an_expanded_match_before_select_mode_exits() {
 // ORACLE transcript_view/select_mode_tests.rs:617 beginning_motion_finishes_at_the_first_grapheme_after_paging kind=ui owner=chat-live
 #[test]
 fn beginning_motion_finishes_at_the_first_grapheme_after_paging() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no partial history load: g starts no beginning load, and the older entry is not paged in under the select cursor",
-    );
-    // the oracle starts with `newer` only (partial history); g loads `older` and the caret finishes on its first grapheme
+    // the oracle starts with `newer` only (partial history); g asks for the older pages, and once
+    // the last is in the caret is on the first grapheme of the first row
     let mut s = Screen::build(Owner::ChatLive)
         .size(32, 6)
-        .script(include_str!(
-            "fixtures/transcript_view_4/sm_beginning.jsonl"
-        ))
+        .replay(Vec::new())
+        .view_only()
         .open();
+    s.partial_history_of(&["newer"]);
     s.keys("leader [");
     s.keys("g");
-    s.wait_for("older");
+    s.assert_page_requests(2);
+    s.history_page(kit::turns_of("older", 0..1), None);
+    s.assert_contains("older 0");
     s.keys("v");
     s.assert_text_style("o", "reversed");
 }
@@ -1735,21 +1749,21 @@ fn released_arrows_preserve_selection_and_reading_position() {
 // ORACLE transcript_view/selection_tests.rs:600 loading_older_history_extends_the_snapshot_without_adopting_new_commits kind=ui owner=chat-live
 #[test]
 fn loading_older_history_extends_the_snapshot_without_adopting_new_commits() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no history load under a selection: an older page is not prepended with the selection held, and the frame keeps `selected` reversed",
-    );
+    // the oracle's snapshot is the cells the selection was made in; the port selects in the live
+    // list, so the selection stays on its text through a commit below and a page above
     let mut s = Screen::build(Owner::ChatLive)
-        .size(32, 5)
-        .script(include_str!("fixtures/transcript_view_4/sl_loading.jsonl"))
+        .size(32, 12)
+        .replay(Vec::new())
+        .view_only()
         .open();
-    s.double_click(4, 2);
+    s.partial_history_of(&["header", "selected"]);
+    s.double_click_text("selected");
     s.assert_text_style("selected", "reversed");
-    // a new commit arrives and an older entry is prepended: `selected` stays the one selected, the new commit is not adopted into the snapshot
-    s.feed(include_str!(
-        "fixtures/transcript_view_4/sl_loading_older.jsonl"
-    ));
-    s.resize(32, 6);
+    // a new commit arrives and an older entry is prepended: `selected` stays the one selected
+    s.live_tail("new commit");
+    s.commit_live_tail();
+    s.join_older_page(&["older"], false);
+    s.resize(32, 14);
     s.assert_text_style("selected", "reversed");
 }
 

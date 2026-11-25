@@ -789,14 +789,25 @@ impl State for ViewportState {
                 Rebuild::No
             }
             Msg::Beginning(thread, state) => {
-                if widget.follow.beginning() {
+                // the reader's wait for the first row, and the caret's of select mode (`g`)
+                let caret = select::of(&widget.find);
+                let (reading, selecting) = (widget.follow.beginning(), caret.beginning());
+                if reading || selecting {
                     match state {
                         HistoryState::Partial => {
                             let handlers = read::<Hs, _>(cx);
                             cx.emit(&handlers.load_history, thread);
                         }
-                        HistoryState::Complete => widget.follow.finish_beginning(),
-                        HistoryState::Failed => widget.follow.cancel_beginning(),
+                        HistoryState::Complete => {
+                            if reading {
+                                widget.follow.finish_beginning();
+                            }
+                            caret.finish_beginning();
+                        }
+                        HistoryState::Failed => {
+                            widget.follow.cancel_beginning();
+                            caret.cancel_beginning();
+                        }
                         HistoryState::Loading => {}
                     }
                 }
@@ -1030,7 +1041,7 @@ impl State for ViewportState {
             HistoryState::Complete => More::None,
         };
         let load = cx.local_sender();
-        if widget.follow.beginning() {
+        if widget.follow.beginning() || caret.beginning() {
             load(Msg::Beginning(thread.id().clone(), thread.history_state()));
         }
         let (texts, targets) = if reads {
