@@ -284,3 +284,91 @@ mod popup {
         assert!(rows(&t).iter().all(String::is_empty));
     }
 }
+
+fn side() -> Screen {
+    Screen::build(Owner::ChatNavPane)
+        .size(120, 24)
+        .script(include_str!("../oracle/fixtures/chat_commands_3/side.jsonl"))
+        .open()
+}
+
+/// The rows from the composer's prompt to the screen's end.
+fn composer_rows(s: &Screen) -> Vec<String> {
+    s.rows()[prompt(s)..].to_vec()
+}
+
+/// The oracle's `mention_menu_reserves_height_above_composer_and_owns_cursor_over_interactive_footer`
+/// and `mention_scopes_overlay_history_without_moving_composer_or_footer`: the popup of any tab
+/// sits above the composer, which keeps its rows, its caret and its footer, at every size.
+#[test]
+fn mention_menu_keeps_composer_rows_and_cursor_across_tabs() {
+    for (width, height) in [
+        (80, 32),
+        (80, 12),
+        (80, 7),
+        (80, 6),
+        (80, 5),
+        (40, 32),
+        (40, 12),
+        (40, 7),
+        (40, 6),
+        (40, 5),
+    ] {
+        let mut s = Screen::build(Owner::ChatNavPane)
+            .size(width, height)
+            .script(include_str!(
+                "../oracle/fixtures/composer_popups/mentions_state.jsonl"
+            ))
+            .open();
+        s.type_text("@");
+        let at = prompt(&s);
+        let rows = composer_rows(&s);
+        s.assert_cursor(3, at);
+        for key in ["right", "right", "left", "left", "left"] {
+            s.keys(key);
+            assert_eq!(prompt(&s), at, "{width}x{height} after {key}");
+            assert_eq!(composer_rows(&s), rows, "{width}x{height} after {key}");
+            s.assert_cursor(3, at);
+        }
+        // Esc closes the popup: the composer stays where it was
+        s.keys("esc");
+        assert_eq!(prompt(&s), at, "{width}x{height} after esc");
+        assert_eq!(composer_rows(&s), rows, "{width}x{height} after esc");
+        s.assert_cursor(3, at);
+    }
+}
+
+/// `/skills` `List skills` puts `$` in the composer (`insert_str("$")`) and its popup opens; Esc
+/// closes the popup and leaves the `$`; leaving the menu with Esc inserts nothing.
+#[test]
+fn list_skills_puts_a_dollar_in_the_draft_and_opens_the_skill_popup() {
+    let mut s = skills();
+    s.type_text("/skills").keys("enter");
+    s.assert_contains("List skills");
+    s.keys("enter");
+    s.assert_row(prompt(&s), "› $");
+    s.assert_contains("rustdoc");
+    s.keys("esc");
+    s.assert_row(prompt(&s), "› $");
+    s.assert_absent("rustdoc");
+
+    let mut s = skills();
+    s.type_text("/skills").keys("enter");
+    s.keys("esc");
+    s.assert_row(prompt(&s), "› Ask Codex to do anything");
+    s.assert_absent("rustdoc");
+}
+
+/// A command a side conversation cannot run is listed after a search with its reason, and is no
+/// pick: Down stays off it, Enter does not complete it.
+#[test]
+fn a_disabled_slash_command_is_listed_and_picks_nothing() {
+    let mut s = side();
+    s.type_text("/");
+    s.assert_absent("/archive");
+    s.type_text("arch");
+    s.assert_contains("not available in a side conversation");
+    s.keys("down");
+    s.keys("enter");
+    s.assert_absent("› /archive ");
+}
