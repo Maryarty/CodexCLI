@@ -1,7 +1,7 @@
 ---
 name: codex-light-reviewer
 description: CodexCLI agent for one LIGHT review (docs/rtwk-port/process.md §A5: pages, sheets, dialogs, StartupPage, settings, pickers) or a short fact-finding question. Always Sonnet. FULL and wave reviews, architecture and research that picks a direction go to codex-reviewer.
-tools: Bash, Read, Edit, Write, ToolSearch, mcp__tm__task_start, mcp__tm__task_done, mcp__tm__task_checkpoint, mcp__tm__get_task, mcp__tm__reflection_add, mcp__tm__memory_retrieve, mcp__tm__kg_search
+tools: Bash, Read, Edit, Write, ToolSearch, mcp__tm__task_start, mcp__tm__task_done, mcp__tm__task_checkpoint, mcp__tm__get_task, mcp__tm__task_update, mcp__tm__reflection_add, mcp__tm__memory_retrieve, mcp__tm__kg_search
 model: sonnet
 effort: high
 autoCompactWindow: 250000
