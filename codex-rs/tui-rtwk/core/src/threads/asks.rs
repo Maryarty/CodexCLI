@@ -39,6 +39,11 @@ pub struct ListQuery {
 impl Eq for ListQuery {}
 
 impl ListQuery {
+    /// Encode this read for the caller's request ID.
+    pub fn wire(self, request_id: wire::RequestId) -> wire::ClientRequest {
+        ThreadAsk::list(self).wire(request_id)
+    }
+
     fn params(&self) -> wire::ThreadListParams {
         wire::ThreadListParams {
             include_attached_threads: false,
@@ -169,9 +174,9 @@ crate::rpc_list! {
         => ThreadBackgroundTerminalsClean(wire::ThreadBackgroundTerminalsCleanParams { thread_id: thread.clone() })
         -> wire::ThreadBackgroundTerminalsCleanResponse, |_| ThreadReply::Done;
     /// A page of the resumed thread's live background terminals.
-    ListTerminals { thread: String, cursor: Option<String> }, Self::ListTerminals { thread, cursor }
+    ListTerminals { thread: ThreadId, cursor: Option<String> }, Self::ListTerminals { thread, cursor }
         => ThreadBackgroundTerminalsList(wire::ThreadBackgroundTerminalsListParams {
-            thread_id: thread.clone(), cursor: cursor.clone(), limit: None,
+            thread_id: thread.to_string(), cursor: cursor.clone(), limit: None,
         })
         -> wire::ThreadBackgroundTerminalsListResponse, |answer| ThreadReply::Terminals {
             data: answer.data.into_iter().map(|terminal| super::Listed {
@@ -209,7 +214,7 @@ crate::rpc_list! {
     StartTemporary(Box<structured::Temporary>), Self::StartTemporary(temporary)
         => ThreadStart(start_temporary(temporary))
         -> wire::ThreadStartResponse, |answer| ThreadReply::Temporary {
-            as_asked: temporary.started_as_asked(&answer), thread: answer.thread.id,
+            as_asked: temporary.started_as_asked(&answer), thread: ThreadId::new(answer.thread.id),
         };
     StructuredTurn {
         thread: String,
@@ -219,10 +224,10 @@ crate::rpc_list! {
         effort: Option<codex_protocol::openai_models::ReasoningEffort>,
     }, Self::StructuredTurn { thread, kind, prompt, schema, effort }
         => TurnStart(structured_turn(thread, *kind, prompt, schema, effort.clone()))
-        -> wire::TurnStartResponse, |answer| ThreadReply::StructuredTurn { turn: answer.turn.id };
+        -> wire::TurnStartResponse, |answer| ThreadReply::StructuredTurn { turn: TurnId::new(answer.turn.id) };
     List(Box<ListQuery>), Self::List(query)
         => ThreadList(query.params())
-        -> wire::ThreadListResponse, |answer| ThreadReply::Listed(Box::new(answer));
+        -> wire::ThreadListResponse as listed, |answer| ThreadReply::Listed(Box::new(answer));
     Search { term: String, limit: u32 }, Self::Search { term, limit }
         => ThreadSearch(wire::ThreadSearchParams {
             include_attached_threads: false,
@@ -239,18 +244,18 @@ crate::rpc_list! {
     Loaded, Self::Loaded
         => ThreadLoadedList(wire::ThreadLoadedListParams { cursor: None, limit: None })
         -> wire::ThreadLoadedListResponse, |answer| ThreadReply::Loaded(answer.data);
-    Archive { thread: String }, Self::Archive { thread }
-        => ThreadArchive(wire::ThreadArchiveParams { thread_id: thread.clone() })
+    Archive { thread: ThreadId }, Self::Archive { thread }
+        => ThreadArchive(wire::ThreadArchiveParams { thread_id: thread.to_string() })
         -> Value, |_| ThreadReply::Done;
-    Unarchive { thread: String }, Self::Unarchive { thread }
-        => ThreadUnarchive(wire::ThreadUnarchiveParams { thread_id: thread.clone() })
+    Unarchive { thread: ThreadId }, Self::Unarchive { thread }
+        => ThreadUnarchive(wire::ThreadUnarchiveParams { thread_id: thread.to_string() })
         -> wire::ThreadUnarchiveResponse, |answer| ThreadReply::Unarchived(Box::new(answer.thread));
-    Delete { thread: String }, Self::Delete { thread }
-        => ThreadDelete(wire::ThreadDeleteParams { thread_id: thread.clone() })
+    Delete { thread: ThreadId }, Self::Delete { thread }
+        => ThreadDelete(wire::ThreadDeleteParams { thread_id: thread.to_string() })
         -> Value, |_| ThreadReply::Done;
-    MoveSection { thread: String, section: Option<String> }, Self::MoveSection { thread, section }
+    MoveSection { thread: ThreadId, section: Option<String> }, Self::MoveSection { thread, section }
         => ThreadSectionMove(wire::ThreadSectionMoveParams {
-            thread_id: thread.clone(), section_id: section.clone(), before_thread_id: None,
+            thread_id: thread.to_string(), section_id: section.clone(), before_thread_id: None,
         })
         -> Value, |_| ThreadReply::Done;
 }
@@ -294,11 +299,11 @@ pub enum ThreadReply {
     Prepared(String),
     McpServers(serde_json::Map<String, Value>),
     Temporary {
-        thread: String,
+        thread: ThreadId,
         as_asked: bool,
     },
     StructuredTurn {
-        turn: String,
+        turn: TurnId,
     },
     Listed(Box<wire::ThreadListResponse>),
     Searched(Vec<wire::ThreadSearchResult>),
@@ -330,19 +335,19 @@ impl<M: Borrow<UserMessage>> ThreadRpc<M> {
             | Self::Steer { thread, .. }
             | Self::Compact { thread }
             | Self::CleanTerminals { thread }
-            | Self::ListTerminals { thread, .. }
             | Self::Shell { thread, .. }
             | Self::Rename { thread, .. }
             | Self::Review { thread, .. }
             | Self::SettingsUpdate { thread, .. }
             | Self::PrepareApprovedPlan { thread, .. }
             | Self::StructuredTurn { thread, .. }
-            | Self::Unsubscribe { thread }
+            | Self::Unsubscribe { thread } => Some(thread),
+            Self::StartUserTurn { thread, .. }
+            | Self::ListTerminals { thread, .. }
             | Self::Archive { thread }
             | Self::Unarchive { thread }
             | Self::Delete { thread }
-            | Self::MoveSection { thread, .. } => Some(thread),
-            Self::StartUserTurn { thread, .. } => Some(thread.as_str()),
+            | Self::MoveSection { thread, .. } => Some(thread.as_str()),
             Self::Start { .. }
             | Self::StartSession { .. }
             | Self::McpServers { .. }

@@ -1,6 +1,7 @@
 //! The wire form of the screen's RPCs and their replies, and a script's seed.
 //! Oracle: `agents_overview_discovery.rs` (list), `agents_overview_actions.rs`.
 
+use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::screens::agents::Command;
 use crate::screens::agents::Ev;
@@ -41,15 +42,15 @@ pub(crate) fn wire_request(command: &Command, request_id: RequestId) -> ClientRe
         }
         .wire(request_id),
         Command::Archive { thread } => ThreadAsk::Archive {
-            thread: thread.clone(),
+            thread: ThreadId::new(thread),
         }
         .wire(request_id),
         Command::Delete { thread } => ThreadAsk::Delete {
-            thread: thread.clone(),
+            thread: ThreadId::new(thread),
         }
         .wire(request_id),
         Command::Pin { thread, pinned } => ThreadAsk::MoveSection {
-            thread: thread.clone(),
+            thread: ThreadId::new(thread),
             section: pinned.then(|| PINNED_SECTION.to_owned()),
         }
         .wire(request_id),
@@ -168,8 +169,13 @@ pub(crate) fn from_thread(reply: ThreadReply) -> Result<Reply, RpcError> {
         ThreadReply::LatestTurn(turn) => turn_previews(turn.as_deref()),
         ThreadReply::History { turns, next } => Reply::History { turns, next },
         ThreadReply::McpServers(servers) => Reply::McpServers(servers),
-        ThreadReply::Temporary { thread, as_asked } => Reply::Temporary { thread, as_asked },
-        ThreadReply::StructuredTurn { turn } => Reply::StructuredTurn { turn },
+        ThreadReply::Temporary { thread, as_asked } => Reply::Temporary {
+            thread: thread.to_string(),
+            as_asked,
+        },
+        ThreadReply::StructuredTurn { turn } => Reply::StructuredTurn {
+            turn: turn.to_string(),
+        },
         ThreadReply::Loaded(threads) => Reply::Loaded(threads),
         ThreadReply::ActiveTurn(turn) => Reply::ActiveTurn(turn),
         ThreadReply::Done | ThreadReply::Interrupted => Reply::Done,

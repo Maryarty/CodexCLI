@@ -9,7 +9,6 @@ use super::catalog;
 use super::hooks::{Hook, HookIssue, Hooks};
 use super::resume::{Listed, display_label};
 use crate::ids::ThreadId;
-use crate::threads::ThreadAsk;
 use crate::threads::asks::{self, ListQuery};
 
 /// The most pages of the experimental features one listing reads (`MAX_PAGES`).
@@ -71,7 +70,7 @@ crate::rpc_list! {
         -> serde_json::Value, |_| Reply::Written;
     /// `thread/list`, one page of the sessions `/resume <name>` looks a label up in.
     Sessions { cursor: Option<String> }, Self::Sessions { cursor }
-        => Reuse(ThreadAsk::list(ListQuery {
+        => Reuse(ListQuery {
             current_account_only: false,
             cursor: cursor.clone(),
             limit: Some(PAGE),
@@ -82,7 +81,7 @@ crate::rpc_list! {
             archived: Some(false),
             use_state_db_only: true,
             ..ListQuery::default()
-        }))
+        })
         -> wire::ThreadListResponse as asks::listed, |page| Reply::Sessions {
             rows: page.data.iter().map(listed).collect(),
             next: page.next_cursor,

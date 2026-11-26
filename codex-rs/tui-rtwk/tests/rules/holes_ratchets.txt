@@ -16,7 +16,8 @@ ratchet holes_core_prose core/src/features/settings/keymap.rs 1
 ratchet holes_core_prose core/src/fixtures/script.rs 2
 ratchet holes_core_prose core/src/keymap/resolve.rs 29
 ratchet holes_core_prose core/src/kit/mentions/session.rs 1
-ratchet holes_core_prose core/src/protocol/agents.rs 4
+ratchet holes_core_prose core/src/protocol/agents.rs 3
+ratchet holes_core_prose core/src/threads/asks.rs 1
 ratchet holes_core_prose core/src/protocol/mod.rs 1
 ratchet holes_core_prose core/src/screens/agents/refresh.rs 2
 ratchet holes_core_prose core/src/screens/agents/sources.rs 1
@@ -61,8 +62,8 @@ ratchet holes_string_ids core/src/screens/select/agent_picker.rs:hidden 1
 ratchet holes_string_ids core/src/screens/select/agent_picker.rs:removed 1
 ratchet holes_string_ids core/src/screens/select/apps.rs:thread 1
 ratchet holes_string_ids core/src/screens/startup.rs:thread 1
-ratchet holes_string_ids core/src/threads.rs:thread 21
-ratchet holes_string_ids core/src/threads.rs:turn 2
+ratchet holes_string_ids core/src/threads/asks.rs:thread 21
+ratchet holes_string_ids core/src/threads/asks.rs:turn 2
 exempt holes_string_ids core/src/screens/agents/mod.rs:dirs keyed by cwd, not by thread
 exempt holes_string_ids core/src/screens/agents/mod.rs:dirs_asked cwds, not thread ids
 exempt holes_string_ids core/src/screens/chat/mcp.rs:last MCP server names

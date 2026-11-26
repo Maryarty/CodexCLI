@@ -58,11 +58,11 @@ pub(super) fn wire(command: &Command, id: RequestId) -> ClientRequest {
         })
         .wire(id),
         Command::Archive { thread, .. } => ThreadAsk::Archive {
-            thread: thread.to_string(),
+            thread: thread.clone(),
         }
         .wire(id),
         Command::Unarchive { thread, .. } => ThreadAsk::Unarchive {
-            thread: thread.to_string(),
+            thread: thread.clone(),
         }
         .wire(id),
     }
@@ -96,7 +96,7 @@ pub(super) fn decode(command: &Command, result: serde_json::Value) -> Result<Rep
         Command::Archive { .. } => Ok(Reply::Archived),
         Command::Unarchive { thread, .. } => {
             match (ThreadAsk::Unarchive {
-                thread: thread.to_string(),
+                thread: thread.clone(),
             })
             .decode(result)?
             {

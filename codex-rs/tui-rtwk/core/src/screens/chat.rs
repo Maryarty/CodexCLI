@@ -1247,7 +1247,7 @@ fn thread_ask<'a>(command: &'a Command, thread: &ThreadId) -> ThreadRpc<&'a User
             thread: thread.to_string(),
         },
         Command::ListTerminals { cursor } => ThreadRpc::ListTerminals {
-            thread: thread.to_string(),
+            thread: thread.clone(),
             cursor: cursor.clone(),
         },
         Command::Review(target) => ThreadRpc::Review {

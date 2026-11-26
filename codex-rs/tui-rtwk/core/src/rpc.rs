@@ -186,10 +186,15 @@ impl Reply {
                 ThreadReply::McpServers(servers)
             }
             ScreenReply::Agents(agents::Reply::Temporary { thread, as_asked }) => {
-                ThreadReply::Temporary { thread, as_asked }
+                ThreadReply::Temporary {
+                    thread: ThreadId::new(thread),
+                    as_asked,
+                }
             }
             ScreenReply::Agents(agents::Reply::StructuredTurn { turn }) => {
-                ThreadReply::StructuredTurn { turn }
+                ThreadReply::StructuredTurn {
+                    turn: TurnId::new(turn),
+                }
             }
             ScreenReply::Agents(agents::Reply::Done) => ThreadReply::Done,
             reply => return Self::new(Answer::Screen(reply)),

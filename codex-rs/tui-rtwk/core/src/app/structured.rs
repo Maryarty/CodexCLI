@@ -172,11 +172,14 @@ pub(super) fn answered(app: &mut CodexApp, id: u64, answer: Answer, fx: &mut App
             start(app, id, servers, fx)
         }
         (Phase::Starting, crate::threads::ThreadReply::Temporary { thread, as_asked }) => {
-            started(app, id, thread, as_asked, fx);
+            started(app, id, thread.to_string(), as_asked, fx);
         }
         (Phase::Beginning { thread }, crate::threads::ThreadReply::StructuredTurn { turn }) => {
             if let Some(run) = app.structured.runs.get_mut(&id) {
-                run.phase = Phase::Waiting { thread, turn };
+                run.phase = Phase::Waiting {
+                    thread,
+                    turn: turn.to_string(),
+                };
                 run.deadline = deadline(app.now);
             }
             settle(app, id, fx);

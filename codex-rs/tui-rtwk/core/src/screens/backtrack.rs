@@ -552,10 +552,11 @@ fn rpc_message(error: &RpcError) -> String {
 /// The wire request of `command` for `thread`: the thread RPCs are the
 /// thread's own (ADR-003, `threads::ThreadAsk`), this screen only names which.
 pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
-    thread_ask(command, thread.to_string()).wire(id)
+    thread_ask(command, thread).wire(id)
 }
 
-fn thread_ask(command: &Command, thread: String) -> ThreadAsk {
+fn thread_ask(command: &Command, thread: &ThreadId) -> ThreadAsk {
+    let thread = thread.to_string();
     match command {
         Command::Read { .. } => ThreadAsk::ReadTurns { thread },
         Command::Revert { before_turn } => ThreadAsk::Revert {
@@ -567,7 +568,10 @@ fn thread_ask(command: &Command, thread: String) -> ThreadAsk {
 
 /// The reply `result` (the JSON result of the request) is for `command`.
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-    match (command, thread_ask(command, String::new()).decode(result)?) {
+    match (
+        command,
+        thread_ask(command, &ThreadId::default()).decode(result)?,
+    ) {
         (Command::Read { key }, ThreadReply::ReadTurns(turns)) => {
             Ok(Reply::Resolved(revert_before_turn(&turns, key)))
         }
