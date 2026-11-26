@@ -641,6 +641,12 @@ milestone trend against the original's baseline. The baseline of the
 original (S1, S2, S5, S9, S10 at 120x40) is taken first, before any port
 code. No speed claim from a microbenchmark alone.
 
+While a turn only waits on a background terminal, the status row and the
+window title keep their activity marks still. The elapsed display updates
+once per second. New output renders when it arrives, and active reply or
+plan output restores animation. This is the accepted performance
+departure tracked by `fix-status-idle-redraw`.
+
 ## ADR-009 — Migration order
 
 Wave labels match design.md §10.
