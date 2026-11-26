@@ -900,14 +900,21 @@ fn hover_links_match_wrapped_click_targets_and_refresh_after_scrolling() {
 fn shift_click_extends_a_double_clicked_word_in_both_directions() {
     kit::pending(
         Owner::ChatLive,
-        "the chat's transcript has no shift-click extension of a double-clicked word in both directions",
+        "G-new-sel-point: the pinned SelectionArea does not expose a pointer cell as a SelectionPoint or recognize Shift-click to extend the existing word range",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(24, 8)
         .script(include_str!("fixtures/transcript_view_2/alpha.jsonl"))
+        .view_only()
         .open();
-    s.double_click(11, 1);
+    s.selection_copy_policy(false, false);
+    let row = u16::try_from(s.row_of("alpha beta gamma")).unwrap();
+    s.double_click_text("beta");
     s.assert_text_style("beta", "reversed");
+    s.shift_click(3, row);
+    s.assert_text_style("alpha beta", "reversed");
+    s.shift_click(15, row);
+    s.assert_text_style("beta gamma", "reversed");
     s.assert_snap("shift_click_extends_a_double_clicked_word_in_both_directions");
 }
 

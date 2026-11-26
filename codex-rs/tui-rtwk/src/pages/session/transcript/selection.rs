@@ -142,6 +142,7 @@ impl State for HostState {
         if let Some(text) = &feedback.clear_after
             && w.selection.controller().text() == *text
         {
+            super::select::of(&w.find).end_extension();
             w.selection.controller().clear();
         }
         if feedback.follow {
@@ -157,6 +158,7 @@ impl State for HostState {
             }
             // a press that is not a copy is the reader selecting: not Find's match any more
             Msg::Press(press) => {
+                super::select::of(&w.find).end_extension();
                 if press.button == 0 {
                     self.empty_press = if w.selection.controller().has_selection() {
                         None

@@ -210,6 +210,7 @@ impl State for SheetState {
                 let held = w.selection.controller();
                 let text = held.text();
                 if key == selection::Key::Clear {
+                    select::of(&w.find).end_extension();
                     held.clear();
                 } else if !text.is_empty() {
                     let hs = read::<Hs, _>(cx);
@@ -381,6 +382,19 @@ impl State for SheetState {
         let activity = (w.chrome == Chrome::Compact).then(|| activity_focus::of(&w.find));
         let keymap = crate::keymap::keymap(cx);
         let held = keymap.clone();
+        let pager_keys = pager::bindings(&keymap, false);
+        let pager_scroll: Vec<_> = pager_keys
+            .iter()
+            .filter(|(_, msg)| !matches!(msg, pager::Msg::Close | pager::Msg::Action))
+            .map(|(key, _)| key.clone())
+            .collect();
+        let jumps = [
+            (fixed::TRANSCRIPT_TOP, Msg::Beginning),
+            (fixed::TRANSCRIPT_TOP_ALT, Msg::Beginning),
+            (fixed::TRANSCRIPT_LATEST, Msg::Latest),
+            (fixed::TRANSCRIPT_LATEST_ALT, Msg::Latest),
+        ];
+        let jump_keys = jumps.each_ref().map(|(id, _)| *id);
         let back: Rc<RefCell<Option<FocusNode>>> = Rc::default();
         self.listen_select(&caret, send.clone());
         let mut focus = Focus::new(column)
@@ -405,7 +419,9 @@ impl State for SheetState {
                     *back.borrow_mut() = node.manager().and_then(|manager| manager.primary_focus());
                     node.request_focus();
                 }
-                let result = if reading.paused()
+                let result = if !caret.active()
+                    && (reading.paused()
+                        || (!reading.active() && (selection.held() || caret.extending())))
                     && let Some(step) = selection::key(&key)
                 {
                     send(Msg::Selection(step));
@@ -418,7 +434,8 @@ impl State for SheetState {
                     }
                     Step::Exit => send(Msg::Left),
                     Step::Moved | Step::Find => {}
-                }) {
+                }) || (!reading.active() && caret.extend(&key, &selection))
+                {
                     KeyEventResult::Handled
                 } else if reading.mode() != FindMode::Editing
                     && let Some(step) = activity
@@ -445,6 +462,17 @@ impl State for SheetState {
                 {
                     KeyEventResult::Handled
                 } else {
+                    if !reading.active()
+                        && !caret.active()
+                        && (selection.held() || caret.extending())
+                        && !pager_scroll.contains(&key)
+                        && !jump_keys
+                            .iter()
+                            .any(|id| crate::keymap::pressed(&held, *id, &key))
+                    {
+                        caret.end_extension();
+                        selection.controller().clear();
+                    }
                     KeyEventResult::Ignored
                 };
                 if !focusing && stops_let_go(node, activity.as_ref()) {
@@ -452,7 +480,7 @@ impl State for SheetState {
                 }
                 result
             });
-        for (key, msg) in pager::bindings(&keymap, false) {
+        for (key, msg) in pager_keys {
             focus = focus.bind(key, cx.send(Msg::Pager(msg)));
         }
         let step = |id, msg: Msg| {
@@ -476,13 +504,10 @@ impl State for SheetState {
             step(fixed::BROWSE_NEWER, Msg::Newer),
             step(fixed::BROWSE_NEWER_VIM, Msg::Newer),
             step(fixed::ENTER, Msg::Confirm),
-            step(fixed::TRANSCRIPT_TOP, Msg::Beginning),
-            step(fixed::TRANSCRIPT_TOP_ALT, Msg::Beginning),
-            step(fixed::TRANSCRIPT_LATEST, Msg::Latest),
-            step(fixed::TRANSCRIPT_LATEST_ALT, Msg::Latest),
         ]
         .into_iter()
         .flatten()
+        .chain(jumps.into_iter().flat_map(|(id, msg)| step(id, msg)))
         {
             focus = focus.bind(key, cx.send(msg));
         }

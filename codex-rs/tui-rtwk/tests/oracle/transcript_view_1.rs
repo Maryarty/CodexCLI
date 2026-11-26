@@ -167,10 +167,6 @@ fn follow_control_click_preserves_draft_caret_and_composer_geometry() {
 // ORACLE app/owned_transcript_input_tests.rs:71 configured_ctrl_space_submit_wins_over_transcript_selection kind=ui owner=chat-live
 #[test]
 fn configured_ctrl_space_submit_wins_over_transcript_selection() {
-    kit::pending(
-        Owner::ChatLive,
-        "no keymap seed: composer.submit = ctrl-space, f9 is read from a config the port does not load (the keymap slice), so the configured submit chord cannot be set",
-    );
     for running in [false, true] {
         let mut s = Screen::build(Owner::ChatLive)
             .size(80, 12)
@@ -179,6 +175,7 @@ fn configured_ctrl_space_submit_wins_over_transcript_selection() {
             ))
             .keymap(&[("composer.submit", "ctrl+space")])
             .open();
+        s.selection_copy_policy(false, false);
         if running {
             s.feed(include_str!(
                 "fixtures/transcript_view_1/turn_started.jsonl"
@@ -186,8 +183,17 @@ fn configured_ctrl_space_submit_wins_over_transcript_selection() {
         }
         let text = if running { "steer once" } else { "send once" };
         s.type_text(text);
+        s.double_click_text("transcript");
+        s.assert_text_style("transcript", "reversed");
         s.keys("ctrl+space");
-        s.assert_contains(text);
+        if running {
+            // This backend defers the accepted draft until the running turn finishes.
+            s.assert_contains("↳ steer once");
+            s.assert_contains("› Ask Codex to do anything");
+        } else {
+            s.assert_turn_texts(&[text]);
+        }
+        s.assert_copies_asked(&[]);
     }
 }
 

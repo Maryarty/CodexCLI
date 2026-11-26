@@ -25,6 +25,7 @@ use super::{Chat, ChatState};
 pub(super) fn selected(w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs, key: SelectionKey) {
     let selection = w.ui.selection.controller();
     if key == SelectionKey::Clear {
+        super::super::transcript::select::of(&w.ui.find).end_extension();
         selection.clear();
         return;
     }

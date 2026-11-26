@@ -739,6 +739,14 @@ impl Screen {
         );
     }
 
+    /// Clipboard delivery is still pending for the latest request.
+    pub fn answer_copy_pending(&mut self, id: u64) {
+        self.answer_latest_effect(
+            |ask| matches!(ask, Effect::Copy { .. }),
+            Done::Copy(Ok(codex_tui_core::app::effects::CopyStatus::Pending(id))),
+        );
+    }
+
     pub fn assert_copies_asked(&self, expected: &[&str]) {
         let copies: Vec<_> = self
             .commands()

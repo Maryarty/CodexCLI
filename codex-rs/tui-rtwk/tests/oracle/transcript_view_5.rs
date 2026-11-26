@@ -894,24 +894,29 @@ fn selected_latest_content_keeps_new_activity_visible() {
 fn live_reader_survives_commit_new_tail_resize_and_selection_then_rejoins_latest() {
     kit::pending(
         Owner::ChatLive,
-        "no live tail that commits into history and streams a new tail, and no selection of live rows in the chat yet",
+        "G-new-sel-reveal: resizing a reading anchor inside a multiline entry loses its in-item display row; the viewport returns to the preceding entry instead of the same live line",
     );
-    let mut s = Screen::build(Owner::ChatLive).size(20, 2).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(20, 4)
+        .replay(Vec::new())
+        .view_only()
+        .open();
+    s.selection_copy_policy(false, false);
+    s.partial_history_of(&["before"]);
+    s.live_tail("live zero\nlive one\nlive two\nlive three\nlive four\nlive five");
     s.wheel_up(0, 0, 2);
     let before = s.shot();
-    // The live tail commits to history and a new tail streams: no script shape yet.
+    s.commit_live_tail();
+    s.live_tail("new tail");
     s.assert_same_rows(&before);
-    s.resize(9, 2);
-    s.assert_contains("New activity");
-    s.click(0, 0);
-    s.click(0, 0);
-    s.click(0, 0);
-    s.resize(20, 2);
+    s.resize(9, 4);
+    let row = u16::try_from(s.row_of("live two")).unwrap();
+    s.triple_click(4, row);
+    s.assert_text_style("live two", "reversed");
     s.keys("esc");
-    s.assert_same_rows(&before);
+    s.assert_text_style("live two", "!reversed");
     s.keys("ctrl+end");
-    s.assert_row(0, "");
-    s.assert_row(1, "new tail");
+    s.assert_contains("new tail");
 }
 
 // ORACLE transcript_view_tests.rs:1109 scrolling_out_of_held_live_content_releases_its_revision kind=ui owner=chat-live

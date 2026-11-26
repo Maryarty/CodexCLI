@@ -976,7 +976,7 @@ impl State for ViewportState {
         // the widget of that is not the plain list, and the one that takes the place of the other
         // starts at the end. A reader who was away from the last row is put back after the frame
         // that swaps them (before the move Find's own close asks for).
-        let reads = search.active() || caret.active() || copier.active();
+        let reads = search.active() || caret.active() || caret.extending() || copier.active();
         if reads != self.texted.replace(reads)
             && widget.follow.away()
             && self.restoring.is_none()
@@ -1139,8 +1139,12 @@ impl State for ViewportState {
                         .scroll()
                         .ensure_index_visible(texts.index_of(row));
                 }
-            } else if caret.active() {
-                caret.show(texts, &widget.selection);
+            } else if caret.active() || caret.extending() {
+                if caret.active() {
+                    caret.show(texts, &widget.selection);
+                } else {
+                    caret.show_extension(texts, &widget.selection);
+                }
                 if let Some(row) = caret.reveal() {
                     widget
                         .follow

@@ -21,6 +21,9 @@
 //! reading, and shows the mode's footer all the same): `n` looks for the match before the caret,
 //! `N` for the one after the grapheme it is on, and the caret goes to it (`find::repeat`).
 
+#[path = "select/keyboard.rs"]
+mod keyboard;
+
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
@@ -181,6 +184,7 @@ fn table() -> Vec<(&'static str, Do)> {
 
 struct Data {
     active: bool,
+    keyboard: Option<keyboard::Range>,
     /// The caret has not been placed: the pane does it with the first rows it reads.
     placed: bool,
     /// The first frame of select mode can take over the native area's range.
@@ -231,6 +235,7 @@ impl Default for Select {
         Select(Rc::new(Inner {
             data: RefCell::new(Data {
                 active: false,
+                keyboard: None,
                 placed: false,
                 adopt: false,
                 cursor: Pos::default(),
@@ -347,6 +352,7 @@ impl Select {
                 return;
             }
             data.active = true;
+            data.keyboard = None;
             data.placed = false;
             data.adopt = true;
             data.list = None;
@@ -581,7 +587,7 @@ impl Select {
             let data = self.0.data.borrow();
             (data.cursor, data.column)
         };
-        let (to, keep) = moved(rows, &lines, cursor, column, motion);
+        let (to, keep) = moved(rows, &lines, cursor, column, motion, false);
         let mut data = self.0.data.borrow_mut();
         data.cursor = to;
         data.column = keep;
@@ -773,27 +779,38 @@ impl Select {
             }));
         }
         let entering = std::mem::take(&mut self.0.data.borrow_mut().adopt);
-        if entering {
-            if let Some((start, end)) = controller.start().zip(controller.end())
-                && let Some((mark, cursor)) = mouse_mark(
-                    rows,
-                    &controller.text(),
-                    (start.object == end.object).then_some(start.offset),
-                )
-            {
-                let mut data = self.0.data.borrow_mut();
-                data.mark = Some(mark);
-                data.cursor = cursor;
-                data.reveal = false;
-            }
-        } else if self.0.data.borrow().list.is_none()
+        if entering
+            && let Some((start, end)) = controller.start().zip(controller.end())
+            && let Some((mark, cursor)) = mouse_mark(
+                rows,
+                &controller.text(),
+                (start.object == end.object).then_some(start.offset),
+            )
+        {
+            let mut data = self.0.data.borrow_mut();
+            data.mark = Some(mark);
+            data.cursor = cursor;
+            data.reveal = false;
+        }
+        self.show_range(rows, selection, self.range(rows), !entering);
+    }
+
+    fn show_range(
+        &self,
+        rows: &Rc<RowTexts>,
+        selection: &TextSelection,
+        wanted: Option<(Pos, Pos)>,
+        learn_list: bool,
+    ) {
+        let controller = selection.controller();
+        if learn_list
+            && self.0.data.borrow().list.is_none()
             && let Some(point) = controller.start()
         {
             // Once the mode's selectable list has applied a range, its render object can be
             // used for ranges extending across rows.
             self.0.data.borrow_mut().list = Some(point.object);
         }
-        let wanted = self.range(rows);
         let key = wanted.map(|(from, to)| (from, to, rows.revision_of()));
         {
             let data = self.0.data.borrow();
@@ -814,12 +831,9 @@ impl Select {
                 rows.point(list, to.row, to.offset),
             );
         } else {
-            controller.select(
-                SelectionTarget::of(rows),
-                to.row,
-                0,
-                rows.row_text(to.row).len(),
-            );
+            // Seed the selectable list's render object by selecting a nonempty part of it.
+            let row = if to.offset == 0 { from.row } else { to.row };
+            controller.select(SelectionTarget::of(rows), row, 0, rows.row_text(row).len());
             self.notify();
             return;
         }
@@ -861,6 +875,23 @@ impl Select {
 /// logical text of the select mode, excluding gutters. A renderer's byte offset can identify
 /// repeated words on one line; repeated matches at the same offset have no unambiguous anchor.
 fn mouse_mark(rows: &RowTexts, selected: &str, offset: Option<usize>) -> Option<(Mark, Pos)> {
+    let (from, to, whole_lines) = mouse_range(rows, selected, offset)?;
+    let mark = Mark {
+        anchor: from,
+        unit: if whole_lines {
+            Unit::Line
+        } else {
+            Unit::Character
+        },
+    };
+    let cursor = Pos {
+        row: to.row,
+        offset: TextBuffer::new(rows.row_text(to.row)).character_start_before(to.offset),
+    };
+    Some((mark, cursor))
+}
+
+fn mouse_range(rows: &RowTexts, selected: &str, offset: Option<usize>) -> Option<(Pos, Pos, bool)> {
     let selected = selected.trim_end_matches('\n');
     if selected.is_empty() {
         return None;
@@ -903,23 +934,17 @@ fn mouse_mark(rows: &RowTexts, selected: &str, offset: Option<usize>) -> Option<
     };
     let (first, from) = locate(start);
     let (last, to) = locate(start + selected.len());
-    let unit = if from == first.start && to == last.end {
-        Unit::Line
-    } else {
-        Unit::Character
-    };
-    let mark = Mark {
-        anchor: Pos {
+    Some((
+        Pos {
             row: first.row,
             offset: from,
         },
-        unit,
-    };
-    let cursor = Pos {
-        row: last.row,
-        offset: TextBuffer::new(rows.row_text(last.row)).character_start_before(to),
-    };
-    Some((mark, cursor))
+        Pos {
+            row: last.row,
+            offset: to,
+        },
+        from == first.start && to == last.end,
+    ))
 }
 
 /// The lines of the text a caret can stop on, in the order of the text.
@@ -1023,7 +1048,7 @@ fn column_of(rows: &RowTexts, line: &Line, offset: usize) -> usize {
 }
 
 /// The byte of `line` at display column `column`, or its last grapheme.
-fn offset_at(rows: &RowTexts, line: &Line, column: usize) -> usize {
+fn offset_at(rows: &RowTexts, line: &Line, column: usize, boundary: bool) -> usize {
     let text = rows.row_text(line.row);
     let mut offset = line.start;
     while offset < line.end {
@@ -1032,7 +1057,11 @@ fn offset_at(rows: &RowTexts, line: &Line, column: usize) -> usize {
             break;
         }
         if next >= line.end {
-            return last_grapheme(rows, line).offset;
+            return if boundary {
+                line.end
+            } else {
+                last_grapheme(rows, line).offset
+            };
         }
         offset = next;
     }
@@ -1046,6 +1075,7 @@ fn moved(
     cursor: Pos,
     column: Option<usize>,
     motion: Motion,
+    boundary: bool,
 ) -> (Pos, Option<usize>) {
     let here = index_of(lines, cursor);
     let line = lines[here];
@@ -1070,11 +1100,21 @@ fn moved(
                 .iter()
                 .rev()
                 .find(|line| !line.empty())
-                .map_or(stay, |line| (last_grapheme(rows, line), None))
+                .map_or(stay, |line| {
+                    let to = if boundary {
+                        Pos {
+                            row: line.row,
+                            offset: line.end,
+                        }
+                    } else {
+                        last_grapheme(rows, line)
+                    };
+                    (to, None)
+                })
         }
         Motion::Right => {
             let next = grapheme_end(text, cursor.offset, line.end);
-            if next < line.end {
+            if next < line.end || (boundary && next > cursor.offset) {
                 return (
                     Pos {
                         row: line.row,
@@ -1100,7 +1140,7 @@ fn moved(
             (
                 Pos {
                     row: to.row,
-                    offset: offset_at(rows, &to, column),
+                    offset: offset_at(rows, &to, column, boundary),
                 },
                 Some(column),
             )

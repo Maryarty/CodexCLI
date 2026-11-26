@@ -140,9 +140,12 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
                 None => send(ChatMsg::Browse(Browse::Leave)),
             }
         }
-        // the copy keys and Esc are the selection's while something is selected
-        // (`handle_selection_key`): they come before the field's
-        if selection.borrow().controller().has_selection()
+        // The mouse range owns arrows as well as its copy and clear keys while it is held.
+        if !finder.active() && caret.extend(&key, &selection.borrow()) {
+            return KeyEventResult::Handled;
+        }
+        if !caret.active()
+            && (selection.borrow().held() || caret.extending())
             && let Some(step) = transcript::selection::key(&key)
         {
             send(ChatMsg::Selection(step));
@@ -230,6 +233,10 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
         if let Some(jump) = jump_of(&key) {
             send(jump);
             return KeyEventResult::Handled;
+        }
+        if !finder.active() && !caret.active() && (selection.borrow().held() || caret.extending()) {
+            caret.end_extension();
+            selection.borrow().controller().clear();
         }
         // The banner's numbers and Esc: only on an empty composer, off a
         // paste, with no turn running and no modifier
