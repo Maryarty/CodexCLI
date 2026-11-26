@@ -44,7 +44,13 @@ const RIGHT_BUTTON: u8 = 2;
 
 /// The selected reading revision belongs to the same thread as its native range.
 #[derive(Clone, Default)]
-pub(in crate::pages::session) struct SelectedRevision(Rc<RefCell<Option<Rc<ThreadModel>>>>);
+pub(in crate::pages::session) struct SelectedRevision(Rc<RefCell<ReadingRevision>>);
+
+#[derive(Default)]
+struct ReadingRevision {
+    range: Option<u64>,
+    held: Option<Rc<ThreadModel>>,
+}
 
 impl SelectedRevision {
     pub(in crate::pages::session) fn of(finder: &Finder) -> Self {
@@ -58,7 +64,13 @@ impl SelectedRevision {
         selection: &TextSelection,
         ordinary: bool,
     ) -> Option<Rc<ThreadModel>> {
-        let mut held = self.0.borrow_mut();
+        let mut reading = self.0.borrow_mut();
+        // A range the active mode already showed stays the mode's when it leaves it behind.
+        // A fresh range can start even if a clear and a second selection share one frame.
+        let range = selection.range_started_at();
+        let started = range.is_some() && range != reading.range;
+        reading.range = range;
+        let held = &mut reading.held;
         if !follow.holding_selection() {
             held.take();
         }
@@ -78,14 +90,15 @@ impl SelectedRevision {
         }
         // An older page updates the selected reader. Tail appends and deltas preserve the
         // displayed revision and its copy payload.
-        if held.as_ref().is_some_and(|before| {
+        let earlier = held.as_ref().is_some_and(|before| {
             before.transcript().get(0).map(|(key, _)| key)
                 != live.transcript().get(0).map(|(key, _)| key)
-        }) {
+        });
+        if earlier {
             follow.release_selection();
             held.take();
         }
-        if held.is_none() && selection.held() {
+        if held.is_none() && (started || (earlier && range.is_some())) {
             follow.hold_selection(selection);
             *held = Some(live.clone());
         }

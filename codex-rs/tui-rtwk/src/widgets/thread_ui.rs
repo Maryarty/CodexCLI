@@ -212,6 +212,7 @@ struct Selected {
 struct CopySelectionState {
     surface: Option<Eid>,
     revision: u64,
+    range_started: u64,
 }
 
 /// The mounted area and selection revision at the time a copy was asked for.
@@ -245,8 +246,12 @@ impl Default for TextSelection {
         controller.add_listener(Rc::new(move || {
             let mut state = copy.get();
             state.revision = state.revision.wrapping_add(1);
+            let held = watched.has_selection();
+            if held && !notifier.value() {
+                state.range_started = state.revision;
+            }
             copy.set(state);
-            notifier.set_value(watched.has_selection());
+            notifier.set_value(held);
         }));
         TextSelection(Rc::new(Selected {
             controller,
@@ -265,6 +270,12 @@ impl TextSelection {
     /// Whether something is selected.
     pub fn held(&self) -> bool {
         self.0.held.value()
+    }
+
+    /// The beginning of the current native range, including one formed after a clear in
+    /// the same frame.
+    pub fn range_started_at(&self) -> Option<u64> {
+        self.held().then(|| self.0.copy_state.get().range_started)
     }
 
     /// Notifies when something comes to be selected and when nothing is any more.
