@@ -12,14 +12,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use codex_tui_core::app::AppEv;
-use codex_tui_core::app::Command;
-use codex_tui_core::app::effects::Ask;
 use codex_tui_core::app::effects::CopyDestination;
 use codex_tui_core::app::effects::CopyFormat;
 use codex_tui_core::app::effects::CopyStatus;
 use codex_tui_core::app::effects::Done;
 use codex_tui_core::app::effects::HostDoors;
 use codex_tui_core::app::effects::run_ask;
+use codex_tui_core::app::effects::{Ask, BrowserReport};
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::popovers;
@@ -57,6 +56,25 @@ pub struct Ran {
 impl Ran {
     fn of(ev: AppEv) -> Self {
         Self { ev, terminal: None }
+    }
+}
+
+/// A handled capability. An event can intentionally be absent; the outer
+/// `Option` from `HostDoors` reserves `None` for an unimplemented capability.
+pub enum Outcome {
+    Effect(Done, Option<String>),
+    Event(Option<AppEv>),
+}
+
+impl Outcome {
+    pub fn finish(self, request: u64) -> Option<Ran> {
+        match self {
+            Self::Effect(done, terminal) => Some(Ran {
+                ev: AppEv::Effect { request, done },
+                terminal,
+            }),
+            Self::Event(event) => event.map(Ran::of),
+        }
     }
 }
 
@@ -103,49 +121,23 @@ impl Services {
         popover_ev(self.mentions.load().await)
     }
 
-    /// Runs `command` if this machine answers it; `None` for every other command (and for the
-    /// asks that have no answer: an append, a file search, a recorded mention). `exec` runs the
-    /// workspace's commands (the diff).
-    pub async fn run(&self, command: Command, exec: &dyn WorkspaceExec) -> Option<Ran> {
-        match command {
-            Command::Effect { request, ask, .. } => self.effect(request, ask, exec).await,
-            Command::Popovers { ask, thread, .. } => {
-                let conversation = thread.as_ref().map_or("", |thread| thread.as_str());
-                self.popovers(ask, conversation).await.map(Ran::of)
-            }
-            Command::OpenUrl { url, .. } => self.open_url(url).await.map(Ran::of),
-            _ => None,
-        }
-    }
-
     /// One ask of `Intent::Effect`, answered under `request`; `None` for the asks of the
     /// app-server (the title, the config).
     pub async fn effect(&self, request: u64, ask: Ask, exec: &dyn WorkspaceExec) -> Option<Ran> {
-        let (done, terminal) = run_ask(
+        run_ask(
             &Doors {
                 services: self,
                 exec,
             },
             ask,
         )
-        .await?;
-        Some(Ran {
-            ev: AppEv::Effect { request, done },
-            terminal,
-        })
+        .await?
+        .finish(request)
     }
 
-    /// The browser opens `url`; a failure is the app's to show.
+    /// Opens a browser for an app action, reporting only a failure.
     pub async fn open_url(&self, url: String) -> Option<AppEv> {
-        open_url::open_url(Arc::clone(&self.browser), url)
-            .await
-            .err()
-            .map(|failure| AppEv::ErrorLine {
-                message: format!(
-                    "Failed to open browser for {}: {}",
-                    failure.url, failure.error
-                ),
-            })
+        browser_error(open_url::open_url(Arc::clone(&self.browser), url).await)
     }
 
     /// One ask of the composer's popovers (`conversation` is the thread the entry belongs to).
@@ -190,7 +182,7 @@ pub struct Doors<'a> {
 }
 
 impl HostDoors for Doors<'_> {
-    type Out = (Done, Option<String>);
+    type Out = Outcome;
 
     async fn copy(
         &self,
@@ -205,12 +197,15 @@ impl HostDoors for Doors<'_> {
             .copy(Arc::from(text), format, destination_of(destination))
             .await;
         let status = done.result.map(status_of);
-        Some((Done::Copy(status), done.terminal))
+        Some(Outcome::Effect(Done::Copy(status), done.terminal))
     }
 
     async fn git_diff(&self, cwd: Option<String>) -> Option<Self::Out> {
         let cwd = cwd.map_or_else(|| PathBuf::from("."), PathBuf::from);
-        Some((Done::GitDiff(git_diff(self.exec, &cwd).await), None))
+        Some(Outcome::Effect(
+            Done::GitDiff(git_diff(self.exec, &cwd).await),
+            None,
+        ))
     }
 
     async fn export(
@@ -223,27 +218,46 @@ impl HostDoors for Doors<'_> {
         let written = transcript_file::export(PathBuf::from(cwd), PathBuf::from(path), markdown)
             .await
             .map(|path| path.display().to_string());
-        Some((Done::Export(written), None))
+        Some(Outcome::Effect(Done::Export(written), None))
     }
 
     async fn clipboard_text(&self) -> Option<Self::Out> {
         let text = TextReader::new(&environment())
             .read_within(READ_WITHIN)
             .await;
-        Some((Done::ClipboardText(text), None))
+        Some(Outcome::Effect(Done::ClipboardText(text), None))
     }
 
     async fn open_desktop(&self, thread: ThreadId) -> Option<Self::Out> {
         let opened = open_url::open_desktop_thread(thread.to_string()).await;
-        Some((Done::Opened(opened), None))
+        Some(Outcome::Effect(Done::Opened(opened), None))
     }
 
-    async fn open_url(&self, url: String) -> Option<Self::Out> {
-        let opened = open_url::open_url(Arc::clone(&self.services.browser), url)
-            .await
-            .map_err(|failure| failure.error);
-        Some((Done::Opened(opened), None))
+    async fn open_url(&self, url: String, report: BrowserReport) -> Option<Self::Out> {
+        let opened = open_url::open_url(Arc::clone(&self.services.browser), url).await;
+        Some(match report {
+            BrowserReport::Effect => {
+                Outcome::Effect(Done::Opened(opened.map_err(|failure| failure.error)), None)
+            }
+            BrowserReport::ErrorLine => Outcome::Event(browser_error(opened)),
+        })
     }
+
+    async fn popovers(&self, ask: popovers::Ask, thread: Option<ThreadId>) -> Option<Self::Out> {
+        let conversation = thread.as_ref().map_or("", ThreadId::as_str);
+        Some(Outcome::Event(
+            self.services.popovers(ask, conversation).await,
+        ))
+    }
+}
+
+fn browser_error(result: Result<(), open_url::OpenFailure>) -> Option<AppEv> {
+    result.err().map(|failure| AppEv::ErrorLine {
+        message: format!(
+            "Failed to open browser for {}: {}",
+            failure.url, failure.error
+        ),
+    })
 }
 
 fn popover_ev(ev: popovers::Ev) -> AppEv {

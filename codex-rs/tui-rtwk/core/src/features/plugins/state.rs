@@ -389,7 +389,7 @@ impl State {
                     .and_then(|setup| setup.apps.iter().find(|entry| entry.id == app))
                     .and_then(|entry| entry.url.clone());
                 if let Some(url) = url {
-                    cx.effect(Ask::OpenUrl { url: url.clone() }, Ctx::Page { url });
+                    cx.effect(Ask::open_url(url.clone()), Ctx::Page { url });
                 }
             }
             Intent::EndSetup { key, how } => {

@@ -939,7 +939,7 @@ fn an_app_link_dialog_asks_the_app_to_open_the_page_switch_and_read_again() {
     // the page opens in the browser; an app with no page opens nothing
     let fx = open(&mut app, SelectIntent::OpenAppPage("a".into()));
     assert!(
-        matches!(fx.commands(), [Command::OpenUrl { url, .. }] if url == "https://x/a"),
+        matches!(fx.commands(), [Command::Effect { ask: codex_tui_core::app::effects::Ask::OpenUrl { url, .. }, .. }] if url == "https://x/a"),
         "{:?}",
         fx.commands()
     );

@@ -232,7 +232,7 @@ impl Screen {
     }
 
     /// The pages the app asked the browser to open (`AppEvent::OpenUrlInBrowser`), oldest first:
-    /// the app's own `Command::OpenUrl` and a feature's `Ask::OpenUrl` effect.
+    /// the common browser capability, including links opened by a feature.
     pub fn opened_urls(&self) -> Vec<String> {
         use codex_tui_core::app::effects::Ask;
         self.h
@@ -240,9 +240,8 @@ impl Screen {
             .commands()
             .into_iter()
             .filter_map(|c| match c {
-                codex_tui_core::app::Command::OpenUrl { url, .. } => Some(url),
                 codex_tui_core::app::Command::Effect {
-                    ask: Ask::OpenUrl { url },
+                    ask: Ask::OpenUrl { url, .. },
                     ..
                 } => Some(url),
                 _ => None,

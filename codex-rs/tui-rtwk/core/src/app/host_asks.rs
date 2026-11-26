@@ -2,6 +2,7 @@
 //! A gateway install can itself replace the transport before acknowledging its setup ask.
 
 use super::{AppEv, AppFx, BackendId, CodexApp, Command, ScreenEv, ScreenStates};
+use crate::app::effects::Ask as HostAsk;
 use crate::ids::Ticket;
 use crate::rpc::Address;
 use crate::screens::{import, onboarding, startup};
@@ -62,8 +63,8 @@ impl ReplyKind {
     }
 
     pub(super) fn of_command(command: &Command) -> Option<(Ticket, Self)> {
-        let (request, kind) = match command {
-            Command::Startup { ask } => match ask {
+        let (request, kind) = match command.host_ask()? {
+            HostAsk::Startup { ask } => match ask {
                 Ask::Facts { request } => (request, Self::Facts),
                 Ask::WriteTrust { request, .. } => (request, Self::TrustWrite),
                 Ask::CheckConsent { request, .. } => (request, Self::Consent),
@@ -88,7 +89,7 @@ impl ReplyKind {
                 | Ask::FailLaunch { .. }
                 | Ask::RefreshUpdateCache => return None,
             },
-            Command::Import { ask } => match ask {
+            HostAsk::Import { ask } => match ask {
                 import::Request::Detect { request, .. } => (request, Self::Detect),
                 import::Request::Import { request, .. } => (request, Self::Import),
             },
@@ -146,10 +147,10 @@ fn connector(app: &CodexApp) -> Address {
 
 pub(super) fn uses_transport_without_reply(command: &Command) -> bool {
     matches!(
-        command,
-        Command::Startup {
+        command.host_ask(),
+        Some(HostAsk::Startup {
             ask: Ask::CancelLogin { .. } | Ask::CancelGatewayOAuth
-        }
+        })
     )
 }
 

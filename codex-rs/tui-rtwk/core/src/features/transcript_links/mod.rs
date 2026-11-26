@@ -37,7 +37,7 @@ feature! {
                 if cx.view().thread(&intent.thread).is_some()
                     && let Some(url) = web_destination(&intent.url)
                 {
-                    cx.effect(Ask::OpenUrl { url: url.clone() }, Ctx { thread: intent.thread, url });
+                    cx.effect(Ask::open_url(url.clone()), Ctx { thread: intent.thread, url });
                 }
             }
 

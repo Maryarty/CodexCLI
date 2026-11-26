@@ -67,9 +67,8 @@ pub(super) enum Step {
 impl Step {
     pub(super) fn create(app: &mut CodexApp, cwd: Option<String>, fx: &mut AppFx) {
         let backend = app.screens.agents.displayed;
-        Self::Creating { chat: None }.ask(app, backend, fx, |ticket| Command::CreateWorktree {
-            ticket,
-            cwd,
+        Self::Creating { chat: None }.ask(app, backend, fx, |ticket| {
+            Command::host(crate::app::effects::Ask::CreateWorktree { ticket, cwd })
         });
     }
 
@@ -129,9 +128,8 @@ impl Step {
             fork: fork && has_history,
             name,
         });
-        Self::Creating { chat }.ask(app, backend, fx, |ticket| Command::CreateWorktree {
-            ticket,
-            cwd,
+        Self::Creating { chat }.ask(app, backend, fx, |ticket| {
+            Command::host(crate::app::effects::Ask::CreateWorktree { ticket, cwd })
         });
     }
 
@@ -199,11 +197,13 @@ impl Step {
                     thread: id.clone(),
                     chat,
                 }
-                .ask(app, backend, fx, |ticket| Command::BindWorktree {
-                    ticket,
-                    checkout,
-                    thread: id,
-                    cwd,
+                .ask(app, backend, fx, |ticket| {
+                    Command::host(crate::app::effects::Ask::BindWorktree {
+                        ticket,
+                        checkout,
+                        thread: id,
+                        cwd,
+                    })
                 });
             }
             (Self::Starting { checkout, chat }, answer) => {

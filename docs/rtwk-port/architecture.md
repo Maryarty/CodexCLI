@@ -1033,22 +1033,23 @@ notice: a side conversation's. Two selectors keep the hub from naming a slice: t
 the presenter asks `FeatureView::in_place(wish, thread_ui)` (the copy mode that `/copy` begins on
 a transcript the chat owns, instead of the picker).
 
-**The host's doors: `host_capability_list!` (fw-hubs-c, P6).** `AppCx::effect` takes an
-`effects::Ask`, and `Ask` is the one enum of what the host can do for the app. It is written once, as
-a list (`core/src/app/effects.rs`, the macro in `effects/capability.rs`): a line is a capability, with
-the `Ask` variant and its fields, the `Done` variant that answers it (`new Answer(..)`, or `shared`
-for the one two asks answer with), the method name of its executor and, for an ask about a thread,
-`by <field>` (the owner's connection runs it: `Ask::thread`, read by `CodexApp::backend_of`). The
-macro generates `Ask`, `Done`, `Ask::thread`, the trait `HostDoors` (one method per capability whose
-default answers `None`, "not this host's"), `run_ask` (the dispatch) and `Chain` (two sets of
-executors as one: the first that answers wins). The host's executors are therefore `impl HostDoors`
-blocks: the library's services (`services::effects::Doors`: clipboard, diff, export, Desktop link,
-browser) and the host's own (`host/src/effects.rs` `Own`: git lists, background server, editor,
-config file, worktrees; the last two through the `Link` of the connection). The six capabilities the
-W3 packages need, named in port-map `fw-core-hubs`, are lines of the list with no executor yet:
-`audio`, `suspend`, `notify`, `screen_mode`, `probe`, `session_lock`; the package that builds one
-writes the method of its executor and edits no enum. The hub budget counts the list (`list core/src/app/effects.rs
-host_capability_list 19`), which rises only by a decision.
+**The host's doors (`host_capability_list!`, fw-hubs-c P6 and C2 F5).** The app emits
+`Command::Effect` with a named `effects::Ask`. Features use `AppCx::effect` and receive
+`AppEv::Effect` under their request number. The capability catalog in `core/src/app/effects.rs`
+generates `Ask`, `Done`, `Ask::thread`, `HostDoors`, and the dispatcher. A field marked
+`by <field>` selects the owning connection for a thread effect. A capability with its own
+continuation keeps that continuation's typed event or ticket. An executor can handle a command
+without emitting an event, which also prevents the dispatcher from trying another executor.
+The local services, the connection, and the fake each implement `HostDoors`.
+
+Startup and import continue to register their typed requests before dispatch. An ask using the
+app-server handle carries its physical transport epoch. Connector-owned setup can replace that
+handle and pass the restart acknowledgement to its original continuation. Popovers carry the
+conversation captured at submission. The browser door reports either its feature result or an
+error line. The account's reset-credit mutation uses the ordinary RPC queue with the picker's
+backend, the original idempotency key on retry, and the existing timeout. The tests switch
+backends and replace the transport before accepting the current receipt. The hub budget allows
+10 `Command` variants and 29 entries in the capability catalog.
 
 **The host's feeds: `host_feed_list!` (fw-hubs-c, P7).** What the host tells a slice unasked (the
 config's facts at start and after a write, the account's, the notices the server holds) is the slice's

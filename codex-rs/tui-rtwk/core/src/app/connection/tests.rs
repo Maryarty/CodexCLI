@@ -16,6 +16,7 @@ fn kind(ctx: &AppCtx) -> &'static str {
         AppCtx::Resume(_) => "Resume",
         AppCtx::Select(_) => "Select",
         AppCtx::RateLimits { .. } => "RateLimits",
+        AppCtx::Redemption { .. } => "Redemption",
         AppCtx::Nudge { .. } => "Nudge",
         AppCtx::NewConversation { .. } => "NewConversation",
         AppCtx::Removal { .. } => "Removal",
@@ -29,7 +30,7 @@ fn kind(ctx: &AppCtx) -> &'static str {
     }
 }
 
-const KINDS: usize = 15;
+const KINDS: usize = 16;
 
 /// One ask of every kind, all on the first backend.
 fn samples() -> Vec<AppCtx> {
@@ -48,6 +49,10 @@ fn samples() -> Vec<AppCtx> {
         AppCtx::RateLimits {
             backend,
             origin: status::RateLimitOrigin::Startup,
+        },
+        AppCtx::Redemption {
+            key: "redeem".to_owned(),
+            backend,
         },
         AppCtx::Nudge {
             backend,

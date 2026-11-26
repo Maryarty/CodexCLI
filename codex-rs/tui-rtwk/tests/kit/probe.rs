@@ -38,8 +38,14 @@ impl Screen {
             .fake
             .commands()
             .iter()
-            .map(|c| format!("{c:?}"))
-            .filter(|text| text.starts_with(name))
+            .filter_map(|command| {
+                let text = format!("{command:?}");
+                (text.starts_with(name)
+                    || command
+                        .host_ask()
+                        .is_some_and(|ask| ask.name().starts_with(name)))
+                .then_some(text)
+            })
             .collect()
     }
 

@@ -693,8 +693,12 @@ impl Screen {
                 .commands()
                 .into_iter()
                 .find_map(|command| match command {
-                    Command::Startup {
-                        ask: Ask::Facts { request },
+                    Command::Effect {
+                        ask:
+                            codex_tui_core::app::effects::Ask::Startup {
+                                ask: Ask::Facts { request },
+                                ..
+                            },
                         ..
                     } => Some(request),
                     _ => None,
@@ -735,11 +739,15 @@ impl Screen {
                 .into_iter()
                 .rev()
                 .find_map(|command| match command {
-                    Command::Startup {
+                    Command::Effect {
                         ask:
-                            Ask::Login {
-                                request,
-                                login: Login::Provider(Setup::BedrockDiscover),
+                            codex_tui_core::app::effects::Ask::Startup {
+                                ask:
+                                    Ask::Login {
+                                        request,
+                                        login: Login::Provider(Setup::BedrockDiscover),
+                                    },
+                                ..
                             },
                         ..
                     } => Some(request),

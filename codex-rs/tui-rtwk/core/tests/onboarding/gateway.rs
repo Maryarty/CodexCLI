@@ -17,7 +17,10 @@ fn asks_of(app: &mut CodexApp, ev: AppEv) -> Vec<Ask> {
     fx.into_commands()
         .into_iter()
         .filter_map(|command| match command {
-            Command::Startup { ask, .. } => Some(ask),
+            Command::Effect {
+                ask: codex_tui_core::app::effects::Ask::Startup { ask, .. },
+                ..
+            } => Some(ask),
             _ => None,
         })
         .collect()
@@ -181,7 +184,7 @@ fn host_asks_setup_ack_survives_a_new_transport_and_checks_the_full_continuation
         .expect("the setup acknowledgement");
     assert!(effects.commands().iter().any(|command| matches!(
         command,
-        Command::Startup { ask: Ask::GatewayLogins { request: next, .. }, .. } if *next != request
+        Command::Effect { ask: codex_tui_core::app::effects::Ask::Startup { ask: Ask::GatewayLogins { request: next, .. }, .. }, .. } if *next != request
     )));
     assert!(app.ingest(Ingress::new(epoch, answer())).is_none());
 }
@@ -215,8 +218,12 @@ fn host_asks_a_direct_connector_attach_reissues_the_old_setup_owner() {
         .into_commands()
         .into_iter()
         .filter_map(|command| match command {
-            Command::Startup {
-                ask: ask @ Ask::SelectGateway { .. },
+            Command::Effect {
+                ask:
+                    codex_tui_core::app::effects::Ask::Startup {
+                        ask: ask @ Ask::SelectGateway { .. },
+                        ..
+                    },
                 ..
             } => Some(ask),
             _ => None,

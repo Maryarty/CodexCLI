@@ -23,7 +23,6 @@ mod startup;
 mod state_db;
 mod target;
 mod update;
-mod usage;
 mod viewer;
 mod windows_sandbox;
 mod workspace;

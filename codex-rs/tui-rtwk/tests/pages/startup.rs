@@ -13,7 +13,10 @@ fn startup_request(fake: &FakeHandle, read: impl Fn(&Ask) -> Option<u64>) -> Opt
         .iter()
         .rev()
         .find_map(|command| match command {
-            Command::Startup { ask, .. } => read(ask),
+            Command::Effect {
+                ask: codex_tui_core::app::effects::Ask::Startup { ask, .. },
+                ..
+            } => read(ask),
             _ => None,
         })
 }

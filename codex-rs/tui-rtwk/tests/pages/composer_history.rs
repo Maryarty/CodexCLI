@@ -68,7 +68,10 @@ fn asks(h: &Harness) -> Vec<Ask> {
         .commands()
         .into_iter()
         .filter_map(|command| match command {
-            Command::Popovers { ask, .. } => Some(ask),
+            Command::Effect {
+                ask: codex_tui_core::app::effects::Ask::Popovers { ask, .. },
+                ..
+            } => Some(ask),
             _ => None,
         })
         .collect()

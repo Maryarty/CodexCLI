@@ -159,7 +159,7 @@ feature! {
                 let Intent::Open = intent;
                 if let Some(notice) = &state.notice {
                     let url = notice.action.url.clone();
-                    cx.effect(Ask::OpenUrl { url: url.clone() }, Ctx::Page { url });
+                    cx.effect(Ask::open_url(url.clone()), Ctx::Page { url });
                 }
             }
 

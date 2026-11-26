@@ -222,9 +222,13 @@ fn connected_starts_the_first_thread() {
     // collaboration modes `/plan` and Shift+Tab choose from.
     assert_eq!(fx.commands().len(), 4);
     assert!(
-        fx.commands()
-            .iter()
-            .any(|c| matches!(c, Command::Startup { .. })),
+        fx.commands().iter().any(|c| matches!(
+            c,
+            Command::Effect {
+                ask: codex_tui_core::app::effects::Ask::Startup { .. },
+                ..
+            }
+        )),
         "{:?}",
         fx.commands()
     );
@@ -1794,7 +1798,7 @@ fn choosing_a_banner_row_opens_its_page_and_keeps_the_banner() {
     assert!(
         matches!(
             fx.commands(),
-            [Command::OpenUrl { url, .. }] if url == "https://chatgpt.com/settings/usage"
+            [Command::Effect { ask: codex_tui_core::app::effects::Ask::OpenUrl { url, .. }, .. }] if url == "https://chatgpt.com/settings/usage"
         ),
         "{:?}",
         fx.commands()
@@ -1954,7 +1958,7 @@ fn a_reserve_selector_closes_on_a_pick_or_on_escape_and_stays_closed() {
                     "https://chatgpt.com/?cta_tab=personal&highlight_plan=plus#pricing",
                 ];
                 assert!(
-                    matches!(fx.commands(), [Command::OpenUrl { url, .. }] if url == urls[row]),
+                    matches!(fx.commands(), [Command::Effect { ask: codex_tui_core::app::effects::Ask::OpenUrl { url, .. }, .. }] if url == urls[row]),
                     "{:?}",
                     fx.commands()
                 );

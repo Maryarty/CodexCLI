@@ -34,7 +34,10 @@ fn asks(h: &crate::common::Harness) -> Vec<Ask> {
         .commands()
         .into_iter()
         .filter_map(|command| match command {
-            Command::Startup { ask, .. } => Some(ask),
+            Command::Effect {
+                ask: codex_tui_core::app::effects::Ask::Startup { ask, .. },
+                ..
+            } => Some(ask),
             _ => None,
         })
         .collect()
@@ -299,8 +302,11 @@ fn only_an_accepted_startup_failure_reaches_the_process_exit_slot() {
             .find(|command| {
                 matches!(
                     command,
-                    Command::Startup {
-                        ask: Ask::Facts { .. },
+                    Command::Effect {
+                        ask: codex_tui_core::app::effects::Ask::Startup {
+                            ask: Ask::Facts { .. },
+                            ..
+                        },
                         ..
                     }
                 )
@@ -309,8 +315,12 @@ fn only_an_accepted_startup_failure_reaches_the_process_exit_slot() {
         let epoch = h.fake.epoch().expect("attached");
         let message = "account/read failed";
         if stale {
-            let Command::Startup {
-                ask: Ask::Facts { request },
+            let Command::Effect {
+                ask:
+                    codex_tui_core::app::effects::Ask::Startup {
+                        ask: Ask::Facts { request },
+                        ..
+                    },
                 ..
             } = facts
             else {

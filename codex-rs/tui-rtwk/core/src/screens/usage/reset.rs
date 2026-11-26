@@ -7,14 +7,14 @@
 //! this state. The words are the UI's string tables'.
 //!
 //! The reads themselves are `account/rateLimits/read` with a `RateLimitOrigin` (the app starts
-//! them: `app/reset.rs`); the redemption is a host ask (`AskKind::Redeem`, answered by
-//! `Ev::Redeemed`).
+//! them: `app/reset.rs`); the redemption is an app-scoped account RPC.
 
 use codex_app_server_protocol::ConsumeAccountRateLimitResetCreditOutcome as WireOutcome;
 use codex_app_server_protocol::{
     ConsumeAccountRateLimitResetCreditParams, ConsumeAccountRateLimitResetCreditResponse,
 };
 
+use crate::ids::BackendId;
 use crate::screens::status::{CreditStatus, ResetCredit, ResetCredits};
 
 /// What the backend said of one redemption (`ConsumeAccountRateLimitResetCreditOutcome`).
@@ -42,7 +42,7 @@ impl From<WireOutcome> for Outcome {
 }
 
 crate::rpc_list! {
-    /// The one RPC of a redemption, which the host sends (it owns the timeout).
+    /// The account RPC of a redemption.
     pub enum Consume => Outcome;
     /// `account/rateLimitResetCredit/consume` under the idempotency key core chose.
     Redeem { key: String, credit_id: Option<String> }, Self::Redeem { key, credit_id }
@@ -189,6 +189,8 @@ pub enum Settled {
 pub struct Redemption {
     pub key: String,
     pub credit_id: Option<String>,
+    /// The account on which this idempotency key was first sent.
+    pub(crate) backend: Option<BackendId>,
     pub step: Progress,
 }
 
@@ -214,6 +216,8 @@ pub struct State {
     /// The credits of the read the picker was built from.
     pub credits: Option<ResetCredits>,
     pub listing: Listing,
+    /// The backend used for the current picker, retained through confirmation.
+    pub(crate) picker_backend: Option<BackendId>,
     pub redemption: Option<Redemption>,
     /// The usage menu's availability read that is out (its request number).
     availability_read: Option<u64>,
@@ -327,6 +331,7 @@ impl State {
         self.redemption = Some(Redemption {
             key: key.clone(),
             credit_id: credit_id.clone(),
+            backend: None,
             step: Progress::Asking,
         });
         Next::Redeem { key, credit_id }

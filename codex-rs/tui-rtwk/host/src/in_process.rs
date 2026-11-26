@@ -36,9 +36,10 @@ use codex_tui_core::app::BackendEv;
 use codex_tui_core::app::Command;
 use codex_tui_core::app::Ingress;
 use codex_tui_core::app::effects::ConfigEdit;
+use codex_tui_core::app::effects::{Ask as HostAsk, HostDoors, run_ask};
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::ids::RequestKey;
-use codex_tui_core::ids::Ticket;
+use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::protocol;
 use codex_tui_core::rpc::{Reply, ServerError};
 use codex_tui_core::screens::agents::Ev as AgentsEv;
@@ -62,6 +63,7 @@ use codex_tui_rtwk::services::agents::workspace::{bind_worktree, create_worktree
 use codex_tui_rtwk::services::backend::reconnect;
 use codex_tui_rtwk::services::backend::rpc::Ids;
 use codex_tui_rtwk::services::backend::rpc::answer;
+use codex_tui_rtwk::services::effects::Outcome;
 use codex_tui_rtwk::services::exec::AppServerExec;
 use codex_tui_rtwk::services::shell::BackendTask;
 use codex_tui_rtwk::services::shell::Connector;
@@ -693,32 +695,45 @@ async fn run(
                             None
                         }));
                     }
-                    let exec = AppServerExec::new(sender(handle.clone()), ids.clone());
-                    let link = crate::effects::Link {
-                        startup: startup.clone(),
-                        ids: ids.clone(),
-                        handle: handle.clone(),
-                        ingress: ingress.clone(),
-                        epoch,
-                        codex_home: config.codex_home.to_path_buf(),
-                    };
-                    let job = match effects.run(&command, exec, Some(link)) {
-                        Some(job) => job,
-                        None => work(
+                    let job = match &command {
+                        Command::Effect { request, ask, .. } => {
+                            let exec = AppServerExec::new(sender(handle.clone()), ids.clone());
+                            let link = crate::effects::Link {
+                                startup: startup.clone(),
+                                ids: ids.clone(),
+                                handle: handle.clone(),
+                                ingress: ingress.clone(),
+                                epoch,
+                                codex_home: config.codex_home.to_path_buf(),
+                            };
+                            effects.run(
+                                *request,
+                                ask.clone(),
+                                exec,
+                                Some(link),
+                                ConnectionDoors {
+                                    startup: Some(startup.clone()),
+                                    handle: handle.clone(),
+                                    ids: ids.clone(),
+                                    workspace: workspace.clone(),
+                                },
+                            )
+                        }
+                        _ => work(
                             command.clone(),
                             handle.clone(),
                             ids.clone(),
                             facts,
                             workspace.clone(),
                             model.clone(),
-                            Some(startup.clone()),
+                            None,
                         ),
                     };
                     let job = latest.wrap(&command, job);
                     let ticket = command.host_ticket();
                     if reply_epoch.is_some() {
                         transport_work.push(Box::pin(async move { (ticket, job.await) }));
-                    } else if matches!(command, Command::Startup { .. }) {
+                    } else if matches!(command.host_ask(), Some(HostAsk::Startup { .. })) {
                         connector_work.push(Box::pin(async move { (ticket, job.await) }));
                     } else {
                         inflight.push(job);
@@ -1201,6 +1216,68 @@ fn emit_version(
     }
 }
 
+/// Capabilities supplied by the selected connection or its workspace.
+struct ConnectionDoors {
+    startup: Option<crate::startup::Startup>,
+    handle: AppServerRequestHandle,
+    ids: Ids,
+    workspace: Arc<dyn Workspace>,
+}
+
+impl HostDoors for ConnectionDoors {
+    type Out = Outcome;
+
+    async fn startup(&self, ask: codex_tui_core::screens::onboarding::Ask) -> Option<Outcome> {
+        let startup = self.startup.clone()?;
+        let event =
+            crate::startup::run(startup, ask, self.ids.clone(), sender(self.handle.clone())).await;
+        Some(Outcome::Event(event))
+    }
+
+    async fn import(&self, ask: codex_tui_core::screens::import::Request) -> Option<Outcome> {
+        let startup = self.startup.clone()?;
+        let event =
+            crate::import::run(startup, ask, self.ids.clone(), sender(self.handle.clone())).await;
+        Some(Outcome::Event(event))
+    }
+
+    async fn usage(&self, ask: codex_tui_core::screens::usage::Ask) -> Option<Outcome> {
+        let startup = self.startup.clone()?;
+        let event =
+            crate::analytics::run(startup, ask, self.ids.clone(), sender(self.handle.clone()))
+                .await;
+        Some(Outcome::Event(event))
+    }
+
+    async fn directories(&self, cwds: Vec<String>) -> Option<Outcome> {
+        Some(Outcome::Event(Some(
+            directories(self.workspace.clone(), cwds).await,
+        )))
+    }
+
+    async fn save_grouping(&self, grouping: String) -> Option<Outcome> {
+        Some(Outcome::Event(
+            save_grouping(self.workspace.clone(), grouping).await,
+        ))
+    }
+
+    async fn create_worktree(&self, ticket: Ticket, cwd: Option<String>) -> Option<Outcome> {
+        let event = create_worktree(self.workspace.clone(), ticket, cwd).await;
+        Some(Outcome::Event(Some(event)))
+    }
+
+    async fn bind_worktree(
+        &self,
+        ticket: Ticket,
+        checkout: codex_tui_core::app::worktree::Checkout,
+        thread: ThreadId,
+        cwd: String,
+    ) -> Option<Outcome> {
+        let event = bind_worktree(self.workspace.clone(), ticket, checkout, thread, cwd).await;
+        Some(Outcome::Event(Some(event)))
+    }
+}
+
 /// The work a command of ours asks, as one boxed future (the pump holds many
 /// of them; boxing keeps its type, and its stack, small) and the event the
 /// app is waiting for, if any. Core's `wire` makes the requests and reads the
@@ -1217,41 +1294,26 @@ pub(crate) fn work(
 ) -> Boxed<Option<AppEv>> {
     let send = sender(handle.clone());
     match command {
-        // The startup page's asks; a backend with no startup side (Cloud)
-        // answers none.
-        Command::Startup { ask, .. } => {
-            Box::pin(async move { crate::startup::run(startup?, ask, ids, send).await })
+        // Secondary connectors have no local services or launch controller.
+        Command::Effect { request, ask, .. } => {
+            let doors = ConnectionDoors {
+                handle,
+                ids,
+                startup,
+                workspace,
+            };
+            Box::pin(async move {
+                run_ask(&doors, ask)
+                    .await?
+                    .finish(request)
+                    .map(|ran| ran.ev)
+            })
         }
-        // The import flow's asks; a backend with no startup side (Cloud)
-        // answers none.
-        Command::Import { ask, .. } => {
-            Box::pin(async move { crate::import::run(startup?, ask, ids, send).await })
-        }
-        // The usage page's loads; a backend with no startup side (Cloud)
-        // answers none.
-        Command::Usage { ask, .. } => {
-            Box::pin(async move { crate::analytics::run(startup?, ask, ids, send).await })
-        }
-        Command::Directories { cwds, .. } => {
-            Box::pin(async move { Some(directories(workspace, cwds).await) })
-        }
-        Command::SaveGrouping { grouping, .. } => {
-            Box::pin(async move { save_grouping(workspace, grouping).await })
-        }
-        Command::CreateWorktree { ticket, cwd, .. } => {
-            Box::pin(async move { Some(create_worktree(workspace, ticket, cwd).await) })
-        }
-        Command::BindWorktree {
-            ticket,
-            checkout,
-            thread,
-            cwd,
+        // The secondary Cloud connector has no usage-limit reset capability.
+        Command::Screen {
+            command: ScreenCommand::Usage(_),
             ..
-        } => {
-            Box::pin(
-                async move { Some(bind_worktree(workspace, ticket, checkout, thread, cwd).await) },
-            )
-        }
+        } if facts.cloud => Box::pin(async { None }),
         command @ (Command::StartTurn { ticket, .. }
         | Command::Screen {
             ticket,
@@ -1382,8 +1444,12 @@ mod tests {
             .commands()
             .iter()
             .find_map(|command| match command {
-                Command::Startup {
-                    ask: Ask::Facts { request },
+                Command::Effect {
+                    ask:
+                        codex_tui_core::app::effects::Ask::Startup {
+                            ask: Ask::Facts { request },
+                            ..
+                        },
                     ..
                 } => Some(*request),
                 _ => None,
@@ -1406,8 +1472,12 @@ mod tests {
             .into_commands()
             .into_iter()
             .find_map(|command| match &command {
-                Command::Startup {
-                    ask: Ask::SelectGateway { request, .. },
+                Command::Effect {
+                    ask:
+                        codex_tui_core::app::effects::Ask::Startup {
+                            ask: Ask::SelectGateway { request, .. },
+                            ..
+                        },
                     ..
                 } => Some((command.clone(), *request)),
                 _ => None,
@@ -1426,8 +1496,12 @@ mod tests {
                 .into_commands()
                 .into_iter()
                 .find_map(|command| match &command {
-                    Command::Import {
-                        ask: import::Request::Detect { request, .. },
+                    Command::Effect {
+                        ask:
+                            codex_tui_core::app::effects::Ask::Import {
+                                ask: import::Request::Detect { request, .. },
+                                ..
+                            },
                         ..
                     } => Some((command.clone(), *request)),
                     _ => None,
@@ -1455,7 +1529,7 @@ mod tests {
             .expect("connector-owned work");
         assert!(stamp.is_none());
         assert!(
-            matches!(setup, Command::Startup { ask: Ask::SelectGateway { request, .. }, .. } if request == gateway_request)
+            matches!(setup, Command::Effect { ask: codex_tui_core::app::effects::Ask::Startup { ask: Ask::SelectGateway { request, .. }, .. }, .. } if request == gateway_request)
         );
         emit_command_done(
             &ingress,
@@ -1473,8 +1547,11 @@ mod tests {
             .expect("current setup ack");
         assert!(continuation.commands().iter().any(|command| matches!(
             command,
-            Command::Startup {
-                ask: Ask::GatewayLogins { .. },
+            Command::Effect {
+                ask: codex_tui_core::app::effects::Ask::Startup {
+                    ask: Ask::GatewayLogins { .. },
+                    ..
+                },
                 ..
             }
         )));
@@ -1558,7 +1635,15 @@ mod tests {
         let local = effects
             .into_commands()
             .into_iter()
-            .find(|command| matches!(command, Command::SaveGrouping { .. }))
+            .find(|command| {
+                matches!(
+                    command,
+                    Command::Effect {
+                        ask: codex_tui_core::app::effects::Ask::SaveGrouping { .. },
+                        ..
+                    }
+                )
+            })
             .expect("host-local grouping write");
         assert!(queued.send(Dispatch::new(local.clone(), None)).is_ok());
 

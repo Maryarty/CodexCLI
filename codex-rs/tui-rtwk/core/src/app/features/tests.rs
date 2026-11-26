@@ -108,7 +108,7 @@ fn browser_failure_belongs_to_the_source_thread_even_after_switching() {
         let [
             Command::Effect {
                 request,
-                ask: Ask::OpenUrl { url: opened },
+                ask: Ask::OpenUrl { url: opened, .. },
             },
         ] = fx.commands()
         else {

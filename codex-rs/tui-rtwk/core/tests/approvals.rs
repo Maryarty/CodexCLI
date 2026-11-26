@@ -986,7 +986,13 @@ mod user_verification {
         apply_app(&mut app, ev, &mut fx);
         assert_eq!(app.requests().entries.len(), 1);
         assert!(
-            matches!(fx.commands(), [Command::VerifyUser { .. }]),
+            matches!(
+                fx.commands(),
+                [Command::Effect {
+                    ask: codex_tui_core::app::effects::Ask::VerifyUser { .. },
+                    ..
+                }]
+            ),
             "{:?}",
             fx.commands()
         );

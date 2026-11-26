@@ -27,8 +27,8 @@ use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
 pub mod activity;
-pub mod dashboard;
 pub mod chats;
+pub mod dashboard;
 pub mod data;
 pub mod date;
 pub mod models;
@@ -36,18 +36,18 @@ pub mod normalize;
 pub mod plan;
 pub mod plot;
 pub mod profile;
-pub mod reset;
 pub mod report;
 pub mod report_data;
+pub mod reset;
 pub mod sections;
 pub mod tokens;
 
+pub use crate::usage_choice::{Chosen, UsageChoice, View};
 pub use activity::TokenActivityView;
 pub use data::{GroupName, Load, LoadError, Note, ReportKey, Stamp};
 pub use date::NaiveDate;
 pub use models::{AccountAnalyticsHistory as History, AccountKind};
 pub use sections::{Control, RangeGroup, Section};
-pub use crate::usage_choice::{Chosen, UsageChoice, View};
 
 pub const NAME: &str = "usage";
 pub const ID: &str = "S20";
@@ -121,7 +121,7 @@ impl Default for Model {
 }
 
 /// What the host is asked, answered with the matching `Ev` under the same
-/// session and stamp. The host runs `Ask`s as `Command::Usage { ask }`.
+/// session and stamp. The host runs `Ask`s as `effects::Ask::Usage`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ask {
     pub session: u32,
@@ -150,10 +150,6 @@ pub enum AskKind {
     Chats,
     /// The recent root chats with their task usage (a consumer account).
     Tasks,
-    /// Redeem a usage-limit reset (`account/rateLimitResetCredit/consume`) under the idempotency
-    /// `key`; `credit_id` none lets the backend choose. Answered by `Ev::Redeemed`, whatever the
-    /// session: the redemption is the account's, not the page's.
-    Redeem { key: String, credit_id: Option<String> },
 }
 
 /// The settled account: the plan, and what the host knows of the session.
@@ -224,11 +220,6 @@ pub enum Ev {
         session: u32,
         stamp: Stamp,
         result: Result<Option<chats::TaskList>, LoadError>,
-    },
-    /// The backend's answer to the redemption of `key`, or why the ask failed.
-    Redeemed {
-        key: String,
-        result: Result<reset::Outcome, String>,
     },
     /// The signed-in identity changed under the session: everything again
     /// (oracle: `identity_invalidated` -> `refresh`).
@@ -339,17 +330,6 @@ impl Model {
     fn next_stamp(&mut self) -> Stamp {
         self.next_stamp += 1;
         Stamp(self.next_stamp)
-    }
-
-    /// The host ask a reset step made, if it made one.
-    pub fn redemption_asks(&mut self, next: reset::Next) -> Vec<Ask> {
-        match next {
-            reset::Next::Redeem { key, credit_id } => {
-                let stamp = self.next_stamp();
-                vec![self.ask(stamp, AskKind::Redeem { key, credit_id })]
-            }
-            reset::Next::Nothing | reset::Next::Read => Vec::new(),
-        }
     }
 
     fn ask(&self, stamp: Stamp, what: AskKind) -> Ask {
@@ -522,14 +502,7 @@ pub fn step(model: &mut Model, intent: Intent) -> Vec<Ask> {
         Intent::RefreshRateLimits => Vec::new(),
         // The reads are the app's (`app/reset.rs` runs these two before it gets here).
         Intent::Menu | Intent::Resets => Vec::new(),
-        Intent::Redeem { credit_id } => {
-            let next = model.reset.redeem(credit_id);
-            model.redemption_asks(next)
-        }
-        Intent::Retry => {
-            let next = model.reset.retry();
-            model.redemption_asks(next)
-        }
+        Intent::Redeem { .. } | Intent::Retry => Vec::new(),
         Intent::Open | Intent::Refresh => model.open_session(),
         Intent::Leave => {
             model.live = false;
@@ -551,11 +524,6 @@ pub fn settle(model: &mut Model, ev: Ev) -> Vec<Ask> {
     match ev {
         Ev::Seed(seed) => {
             model.seed(*seed);
-            Vec::new()
-        }
-        Ev::Redeemed { key, result } => {
-            // The app reads the credits again after a reset (`app/reset.rs` takes this first).
-            model.reset.redeemed(&key, result);
             Vec::new()
         }
         Ev::Invalidated { session } if session == model.session && model.live => {
@@ -613,9 +581,10 @@ pub fn settle(model: &mut Model, ev: Ev) -> Vec<Ask> {
             stamp,
             result,
         } if session == model.session => {
-            model
-                .profile
-                .settle(stamp, result.map(|profile| profile.map(|profile| Rc::new(*profile))));
+            model.profile.settle(
+                stamp,
+                result.map(|profile| profile.map(|profile| Rc::new(*profile))),
+            );
             Vec::new()
         }
         Ev::Plan {
@@ -627,7 +596,9 @@ pub fn settle(model: &mut Model, ev: Ev) -> Vec<Ask> {
                 Some(data) => plan::Report::parse(data).map_err(LoadError::from),
                 None => Ok(None),
             });
-            model.plan.settle(stamp, result.map(|report| report.map(Rc::new)));
+            model
+                .plan
+                .settle(stamp, result.map(|report| report.map(Rc::new)));
             Vec::new()
         }
         Ev::Chats {
@@ -659,11 +630,12 @@ pub fn settle(model: &mut Model, ev: Ev) -> Vec<Ask> {
     }
 }
 
-/// Sends the asks to the host as `Command::Usage { ask }`, answered with the
+/// Sends the asks to the host as `effects::Ask::Usage`, answered with the
 /// matching `Ev` under the ask's session and stamp.
 fn emit(fx: &mut AppFx, asks: Vec<Ask>) {
-    fx.commands
-        .extend(asks.into_iter().map(|ask| crate::app::Command::Usage { ask }));
+    for ask in asks {
+        fx.host(crate::app::effects::Ask::Usage { ask });
+    }
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -685,14 +657,17 @@ pub struct ThreadPart {}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadEv {}
 
-/// The RPCs of this screen: requested with `ThreadFx::request`, which stamps
-/// the thread and the ticket; the shell sends them through `wire`.
+/// Account RPCs, registered by the app's reset continuation.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Command {}
+pub enum Command {
+    Redeem(reset::Consume),
+}
 
 /// The replies of those RPCs, decoded by `decode`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Reply {}
+pub enum Reply {
+    Redeemed(reset::Outcome),
+}
 
 /// What an outgoing RPC of this screen was for, kept with its ticket.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -715,14 +690,17 @@ pub fn apply_reply(
 
 /// The wire request of `command` for `thread`.
 pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
-    let _ = (thread, id);
-    match *command {}
+    let _ = thread;
+    match command {
+        Command::Redeem(consume) => consume.request(id),
+    }
 }
 
 /// The reply `result` (the JSON result of the request) is for `command`.
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-    let _ = result;
-    match *command {}
+    match command {
+        Command::Redeem(consume) => consume.reply(result).map(Reply::Redeemed),
+    }
 }
 
 /// A script's `screen` step for this directory: the seed's serde form.

@@ -71,8 +71,12 @@ fn saving() -> (CodexApp, u64) {
         .commands()
         .iter()
         .find_map(|command| match command {
-            Command::Startup {
-                ask: Ask::WriteTrust { request, .. },
+            Command::Effect {
+                ask:
+                    codex_tui_core::app::effects::Ask::Startup {
+                        ask: Ask::WriteTrust { request, .. },
+                        ..
+                    },
                 ..
             } => Some(*request),
             _ => None,
@@ -143,8 +147,12 @@ fn update_running() -> (CodexApp, u64) {
         .commands()
         .iter()
         .find_map(|command| match command {
-            Command::Startup {
-                ask: Ask::RunUpdate { request },
+            Command::Effect {
+                ask:
+                    codex_tui_core::app::effects::Ask::Startup {
+                        ask: Ask::RunUpdate { request },
+                        ..
+                    },
                 ..
             } => Some(*request),
             _ => None,
@@ -233,8 +241,12 @@ fn host_asks_a_cancelled_login_still_cleans_up_its_late_server_attempt() {
         .commands()
         .iter()
         .find_map(|command| match command {
-            Command::Startup {
-                ask: Ask::Facts { request },
+            Command::Effect {
+                ask:
+                    codex_tui_core::app::effects::Ask::Startup {
+                        ask: Ask::Facts { request },
+                        ..
+                    },
                 ..
             } => Some(*request),
             _ => None,
@@ -263,8 +275,12 @@ fn host_asks_a_cancelled_login_still_cleans_up_its_late_server_attempt() {
         fx.into_commands()
             .into_iter()
             .find_map(|command| match command {
-                Command::Startup {
-                    ask: Ask::Login { request, .. },
+                Command::Effect {
+                    ask:
+                        codex_tui_core::app::effects::Ask::Startup {
+                            ask: Ask::Login { request, .. },
+                            ..
+                        },
                     ..
                 } => Some(request),
                 _ => None,
@@ -301,7 +317,7 @@ fn host_asks_a_cancelled_login_still_cleans_up_its_late_server_attempt() {
         .ingest(Ingress::new(epoch, old_answer.clone()))
         .expect("late login can require cleanup");
     assert!(
-        matches!(stale.commands(), [Command::Startup { ask: Ask::CancelLogin { login_id }, .. }] if login_id == "old")
+        matches!(stale.commands(), [Command::Effect { ask: codex_tui_core::app::effects::Ask::Startup { ask: Ask::CancelLogin { login_id }, .. }, .. }] if login_id == "old")
     );
     assert!(app.ingest(Ingress::new(epoch, old_answer)).is_none());
     let current = app
@@ -309,8 +325,11 @@ fn host_asks_a_cancelled_login_still_cleans_up_its_late_server_attempt() {
         .expect("live attempt");
     assert!(matches!(
         current.commands(),
-        [Command::Startup {
-            ask: Ask::OpenBrowser { .. },
+        [Command::Effect {
+            ask: codex_tui_core::app::effects::Ask::Startup {
+                ask: Ask::OpenBrowser { .. },
+                ..
+            },
             ..
         }]
     ));

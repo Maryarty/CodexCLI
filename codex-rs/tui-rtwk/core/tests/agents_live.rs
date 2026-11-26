@@ -466,7 +466,10 @@ fn directories(fx: &AppFx) -> Vec<Vec<String>> {
     fx.commands()
         .iter()
         .filter_map(|command| match command {
-            Command::Directories { cwds, .. } => Some(cwds.clone()),
+            Command::Effect {
+                ask: codex_tui_core::app::effects::Ask::Directories { cwds, .. },
+                ..
+            } => Some(cwds.clone()),
             _ => None,
         })
         .collect()

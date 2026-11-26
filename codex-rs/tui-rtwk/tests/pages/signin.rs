@@ -24,8 +24,12 @@ fn logins(h: &Harness) -> Vec<Ask> {
         .commands()
         .into_iter()
         .filter_map(|command| match command {
-            Command::Startup {
-                ask: ask @ (Ask::Login { .. } | Ask::CancelLogin { .. }),
+            Command::Effect {
+                ask:
+                    codex_tui_core::app::effects::Ask::Startup {
+                        ask: ask @ (Ask::Login { .. } | Ask::CancelLogin { .. }),
+                        ..
+                    },
                 ..
             } => Some(ask),
             _ => None,
@@ -387,8 +391,11 @@ absolute path";
         h.fake.commands().iter().any(|command| {
             matches!(
                 command,
-                Command::Startup {
-                    ask: Ask::GatewayDevice { .. },
+                Command::Effect {
+                    ask: codex_tui_core::app::effects::Ask::Startup {
+                        ask: Ask::GatewayDevice { .. },
+                        ..
+                    },
                     ..
                 }
             )

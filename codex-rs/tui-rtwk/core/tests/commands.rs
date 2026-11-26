@@ -1872,7 +1872,7 @@ mod effects {
         assert!(
             fx.commands().iter().any(|c| matches!(
                 c,
-                Command::OpenUrl { url, .. } if url == "codex://threads/thread-1"
+                Command::Effect { ask: codex_tui_core::app::effects::Ask::OpenUrl { url, .. }, .. } if url == "codex://threads/thread-1"
             )),
             "{:?}",
             fx.commands()

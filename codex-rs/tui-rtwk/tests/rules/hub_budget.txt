@@ -75,13 +75,15 @@ enum core/src/app.rs AppEv 19
 # fix-stream-lost: `Command::ReconnectIdleThread`, the one ask a lost stream makes of the host (the
 # oracle's `reconnect_idle_thread`: an RPC-less call on the Cloud handle whose refusal sends the error
 # back as a notification); it is not a feature's and no thread RPC (`ThreadAsk` is wire requests): 20 -> 21.
-enum core/src/app.rs Command 21
+# c2-host-effect-channels: eleven host variants fold into Effect.
+enum core/src/app.rs Command 10
 # fw-hubs-b (P5): `AppCtx::Opening`, the read of a thread a feature asked to open (`AppCx::open_thread`,
 # the feature's own `FeatureCtx` rides in it): 13 -> 14. `NewConversation.side` (a slice's type) is
 # `spawned` (the generic `FeatureCtx`), rule `app_ctx_names_no_feature`.
 # fix-recap-title: `AppCtx::Structured`, the RPC in flight of a structured turn's run (the feature's
 # own `FeatureCtx` rides in the run, not in the ticket): 14 -> 15.
-enum core/src/app.rs AppCtx 15
+# c2-host-effect-channels: the reset credit mutation now has an app RPC continuation.
+enum core/src/app.rs AppCtx 16
 enum core/src/threads/note.rs NoteKey 16
 enum core/src/screens/chat.rs ThreadIntent 16
 # fw-hubs-c: the chat screen's `ThreadEv` (the thread facts the screen takes, screens/chat.rs): the
@@ -104,7 +106,9 @@ enum core/src/rpc.rs Answer 8
 # the 13 above and the six named in port-map `fw-core-hubs` (audio, suspend, notify, screen_mode,
 # probe, session_lock), listed with no host executor yet (`HostDoors` answers `None` by default).
 # list <file> <macro> <entries>
-list core/src/app/effects.rs host_capability_list 19
+# c2-host-effect-channels: ten standalone capabilities join the dispatcher.
+# Browser links share OpenUrl, with the receipt chosen by the caller.
+list core/src/app/effects.rs host_capability_list 29
 # The framework's own hub: what a feature can say (`Out`) and the generated root's variants that
 # are no feature's. A new one is a decision with an ADR-012 paragraph (a hook is added only for
 # a thread or app lifecycle fact, never for one producer and one consumer), and raises its line.
