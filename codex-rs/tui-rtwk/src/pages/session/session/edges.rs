@@ -57,6 +57,9 @@ impl ChatState {
                 if !self.answer_sent() {
                     clear_sent(&w.ui);
                     self.sync_draft(w);
+                    if w.ui.follow.away() || w.ui.follow.beginning() {
+                        w.ui.follow.jump_to_latest();
+                    }
                 }
                 Rebuild::Yes
             }

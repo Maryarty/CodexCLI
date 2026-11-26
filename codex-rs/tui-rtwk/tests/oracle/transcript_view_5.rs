@@ -236,14 +236,25 @@ fn scrolled_plaintext_selection_matches_painted_tab_and_word_boundaries() {
 // ORACLE transcript_view/text_tests.rs:105 visible_rows_preserve_styles_and_wrapped_hyperlinks kind=ui owner=chat-live
 #[test]
 fn visible_rows_preserve_styles_and_wrapped_hyperlinks() {
-    kit::pending(
-        Owner::ChatLive,
-        "no entry with a cyan hyperlinked word after plain text, and no one-row scroll that starts on the wrapped link",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(8, 2).live().open();
-    s.wheel_down(0, 0, 1);
-    s.assert_text_style("document", "fg=Cyan");
+    const SOURCE: &str = r#"
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"entry","kind":"agent","text":"prefix at top **[document](https://example.com/docs)** after the link","end":false}
+"#;
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(13, 2)
+        .script(SOURCE)
+        .view_only()
+        .open();
+    s.keys("ctrl+home");
+    s.assert_contains("prefix at");
+    s.assert_absent("document");
+    s.keys("down down");
+    s.assert_contains("document");
+    s.assert_text_style("document", "bold");
     s.assert_link("document", "https://example.com/docs");
+    s.assert_opened_urls(&[]);
+    s.click_text("document");
+    s.assert_opened_urls(&["https://example.com/docs"]);
 }
 
 // ORACLE transcript_view/text_tests.rs:123 selection_highlights_wide_graphemes_without_trailing_padding kind=ui owner=chat-live
@@ -325,12 +336,23 @@ fn selected_revision_rewraps_both_directions_with_styles_and_indents() {
 // ORACLE transcript_view/text_tests.rs:284 narrow_wrapping_keeps_joined_emoji_whole kind=ui owner=chat-live
 #[test]
 fn narrow_wrapping_keeps_joined_emoji_whole() {
-    kit::pending(
-        Owner::ChatLive,
-        "no entry with a joined emoji and a letter at two columns: no script shape yet",
-    );
-    let s = Screen::build(Owner::ChatLive).size(2, 2).live().open();
-    s.assert_text_at(0, 0, "👩‍💻");
+    const SOURCE: &str = r#"
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"entry","kind":"agent","text":"👩‍💻Z","end":false}
+"#;
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(5, 4)
+        .script(SOURCE)
+        .view_only()
+        .open();
+    s.assert_in_order(&["👩‍💻", "Z"]);
+    let row = s.row_of("👩‍💻");
+    s.assert_row_ends_with(row, "👩‍💻");
+    let y = u16::try_from(row).expect("emoji row");
+    s.selection_copy_policy(false, false);
+    s.drag(2, y, 3, y);
+    s.keys("ctrl+c");
+    s.assert_copies_asked(&["👩‍💻"]);
 }
 
 // ORACLE transcript_view/text_tests.rs:302 fullscreen_markdown_keeps_a_fitting_url_on_one_row kind=snap owner=chat-live
@@ -423,19 +445,42 @@ fn prompt_adjacency_uses_cached_retained_presentations() {
 // ORACLE transcript_view_tests.rs:186 page_keys_follow_pager_scroll_bindings kind=snap owner=chat-live snap=page_keys_follow_pager_scroll_bindings
 #[test]
 fn page_keys_follow_pager_scroll_bindings() {
-    kit::pending(
-        Owner::ChatLive,
-        "the oracle's frames are the view alone (8 rows) under the default, half-page, single-row and unbound pager keymaps, which the kit cannot set in config; at 20x8 the chat screen has 3 transcript rows above the gap row, composer and footer. PageUp/PageDown by a page less one row are built: tests/pages/transcript_follow.rs",
-    );
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(20, 8)
-        .script(include_str!("fixtures/transcript_view_5/rows30.jsonl"))
-        .open();
-    let pre_scroll = s.shot();
-    s.keys("pageup");
-    s.assert_snap("page_keys_follow_pager_scroll_bindings");
-    s.keys("pagedown");
-    s.assert_same_rows(&pre_scroll);
+    let configurations: [(&[(&str, &str)], u16); 4] = [
+        (&[], 7),
+        (
+            &[
+                ("pager.page_up", "f9"),
+                ("pager.page_down", "f10"),
+                ("pager.half_page_up", "page-up"),
+                ("pager.half_page_down", "page-down"),
+            ],
+            4,
+        ),
+        (
+            &[
+                ("pager.page_up", "f9"),
+                ("pager.page_down", "f10"),
+                ("pager.scroll_up", "page-up"),
+                ("pager.scroll_down", "page-down"),
+            ],
+            1,
+        ),
+        (&[("pager.page_up", "f9"), ("pager.page_down", "f10")], 0),
+    ];
+    for (bindings, delta) in configurations {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(36, 8)
+            .script(include_str!("fixtures/transcript_view_5/rows30.jsonl"))
+            .view_only()
+            .keymap(bindings)
+            .open();
+        s.assert_row_ends_with(0, "row 25");
+        let pre_scroll = s.shot();
+        s.keys("pageup");
+        s.assert_row_ends_with(0, &format!("row {}", 25 - delta));
+        s.keys("pagedown");
+        s.assert_same_rows(&pre_scroll);
+    }
 }
 
 // ORACLE transcript_view_tests.rs:257 terminal_output_disclosure_follows_live_history_and_keymap kind=ui owner=chat-live
@@ -878,15 +923,24 @@ fn mutable_history_formats_once_per_frame_and_refreshes_the_next_frame() {
 fn selected_latest_content_keeps_new_activity_visible() {
     kit::pending(
         Owner::ChatLive,
-        "no selection of the last entry and no status line with the navigation hint ('New activity · Enter/Ctrl+C copy · Esc clear selection') in the chat",
+        "The real range keeps its copy hint after a live append, but the reader follows the append at the tail, where no unseen-activity indicator is raised. The oracle holds its selected reader.",
     );
-    let mut s = Screen::build(Owner::ChatLive).size(24, 3).live().open();
-    s.click(0, 0);
-    s.click(0, 0);
-    s.click(0, 0);
-    s.wheel_down(0, 0, 10);
-    // New output arrives while the selection is held: no script shape yet.
-    s.assert_contains("New activity · Enter/Ctrl+C copy · Esc clear selection");
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 13)
+        .script(include_str!(
+            "fixtures/transcript_view_4/sl_command_c.jsonl"
+        ))
+        .open();
+    s.selection_copy_policy(false, false);
+    s.double_click_text("selected");
+    s.assert_text_style("selected", "reversed");
+    s.wheel_down(0, 2, 10);
+    s.live_tail("new output");
+    s.assert_contains("New activity");
+    s.assert_contains("⌃c copy");
+    s.assert_text_style("selected", "reversed");
+    s.keys("ctrl+c");
+    s.assert_copies_asked(&["selected"]);
 }
 
 // ORACLE transcript_view_tests.rs:1050 live_reader_survives_commit_new_tail_resize_and_selection_then_rejoins_latest kind=snap owner=chat-live

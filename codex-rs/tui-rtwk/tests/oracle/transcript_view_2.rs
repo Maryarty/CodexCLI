@@ -221,16 +221,26 @@ fn copy_source_survives_raw_rich_rendering_and_whitespace_normalization() {
 // ORACLE transcript_view/copy_mode_tests.rs:347 copy_completion_keeps_payload_count_and_follow_intent kind=snap owner=chat-live
 #[test]
 fn copy_completion_keeps_payload_count_and_follow_intent() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's composer gap has no copy feedback (`Copied 8 chars to host clipboard`) and no copy completion path yet",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(40, 5)
-        .script(include_str!("fixtures/transcript_view_2/completion.jsonl"))
-        .open();
-    // the oracle: a confirmed copy (or a pending one finished) shows the feedback in the composer gap
-    s.assert_contains("Copied 8 chars to host clipboard");
+    for pending in [false, true] {
+        let mut s = chat(
+            include_str!("fixtures/transcript_view_2/completion.jsonl"),
+            80,
+            8,
+        );
+        begin_copy_mode(&mut s);
+        s.keys("enter");
+        s.assert_copies_asked(&["**bold**"]);
+        if pending {
+            s.answer_copy_pending(7);
+            s.assert_contains("Copying 8 chars");
+        }
+        s.answer_copy(Ok(()));
+        s.assert_contains("Copied 8 chars to host clipboard");
+        s.feed(include_str!("fixtures/transcript_view_1/new_output.jsonl"));
+        s.assert_contains("new output");
+        s.assert_absent("Back to bottom");
+        s.assert_copies_asked(&["**bold**"]);
+    }
 }
 
 // ORACLE transcript_view/copy_mode_tests.rs:395 find_and_shift_click_release_copy_payload kind=ui owner=chat-live
@@ -522,34 +532,36 @@ fn annotated_diff_preserves_the_existing_hard_wrapped_visual_output() {
 // ORACLE transcript_view/follow_control_tests.rs:106 empty_viewport_does_not_show_back_to_bottom kind=snap owner=chat-live snap=empty_viewport_does_not_show_back_to_bottom
 #[test]
 fn empty_viewport_does_not_show_back_to_bottom() {
-    kit::pending(
-        Owner::ChatLive,
-        "a 1-row window: the chat's bottom pane (composer, footer) is laid out in a Column and overflows it (RenderFlex overflow, fail_on_overflow) where the oracle clips the pane to the window; the control itself hides at a zero-row viewport (Follow::at_tail)",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(40, 1)
-        .script(include_str!("fixtures/transcript_view_2/sel_text.jsonl"))
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 12)
+        .script(include_str!("fixtures/transcript_view_2/rows60.jsonl"))
         .open();
-    // the oracle: a zero-height transcript draws nothing and shows no control
+    s.keys("pageup");
+    s.assert_contains("Back to bottom");
+    s.resize(40, 1);
+    s.wheel_up(0, 0, 2);
     s.assert_absent("Back to bottom");
+    s.assert_absent("latest");
 }
 
 // ORACLE transcript_view/follow_control_tests.rs:123 copying_selection_at_bottom_does_not_show_back_to_bottom kind=snap owner=chat-live snap=copying_selection_at_bottom_does_not_show_back_to_bottom
 #[test]
 fn copying_selection_at_bottom_does_not_show_back_to_bottom() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no follow control and no double-click word selection at the bottom to copy",
-    );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(40, 5)
+        .size(80, 14)
         .script(include_str!(
             "fixtures/transcript_view_2/needle_bottom.jsonl"
         ))
         .open();
-    s.double_click(0, 2);
-    s.assert_absent("Back to bottom");
+    s.selection_copy_policy(false, true);
     s.assert_in_order(&["three", "four", "needle"]);
+    s.double_click_text("needle");
+    s.keys("ctrl+c");
+    s.assert_copies_asked(&["needle"]);
+    s.answer_copy(Ok(()));
+    s.assert_contains("Copied 6 chars");
+    s.assert_text_style("needle", "!reversed");
+    s.assert_absent("Back to bottom");
 }
 
 // ORACLE transcript_view/follow_control_tests.rs:158 closing_find_at_bottom_does_not_show_back_to_bottom kind=ui owner=chat-live
@@ -571,17 +583,13 @@ fn closing_find_at_bottom_does_not_show_back_to_bottom() {
 // ORACLE transcript_view/follow_control_tests.rs:179 enlarging_paused_view_hides_back_to_bottom_when_tail_fits kind=snap owner=chat-live snap=enlarging_paused_view_hides_back_to_bottom_when_tail_fits
 #[test]
 fn enlarging_paused_view_hides_back_to_bottom_when_tail_fits() {
-    kit::pending(
-        Owner::ChatLive,
-        "G63: the fixture's rows are joined by single newlines, which MarkdownView joins into one paragraph (the oracle breaks the line), so the rows never scroll (five.jsonl is `one\\ntwo\\n...`), and the oracle test drives the view alone (5 rows, then 6), while at 40x5 the port's gap row, composer and footer leave the transcript no row",
-    );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(40, 5)
+        .size(80, 8)
         .script(include_str!("fixtures/transcript_view_2/five.jsonl"))
         .open();
-    s.wheel_up(0, 0, 2);
+    s.keys("pageup");
     s.assert_contains("Back to bottom");
-    s.resize(40, 6);
+    s.resize(80, 17);
     s.assert_absent("Back to bottom");
     s.assert_in_order(&["one", "two", "three", "four", "five"]);
 }
@@ -589,36 +597,44 @@ fn enlarging_paused_view_hides_back_to_bottom_when_tail_fits() {
 // ORACLE transcript_view/follow_control_tests.rs:252 control_tracks_pause_activity_hover_resize_and_click kind=snap owner=chat-live snap=follow_control
 #[test]
 fn control_tracks_pause_activity_hover_resize_and_click() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no follow control: its pause, activity, hover, resize and click states are not built",
-    );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(80, 5)
-        .script(include_str!("fixtures/transcript_view_2/five.jsonl"))
+        .size(80, 12)
+        .script(include_str!("fixtures/transcript_view_2/rows60.jsonl"))
         .open();
-    s.wheel_up(0, 0, 2);
-    s.assert_snap_section("follow_control", "paused");
-    s.feed(include_str!("fixtures/transcript_view_2/new_output.jsonl"));
-    s.assert_snap_section("follow_control", "activity at 80");
-    s.assert_snap_section("follow_control", "activity at 20");
-    s.assert_snap_section("follow_control", "hover");
+    s.assert_absent("Back to bottom");
+    s.keys("pageup");
+    s.assert_contains("Back to bottom");
+    s.assert_absent("New activity");
+    s.feed(include_str!("fixtures/transcript_view_1/new_output.jsonl"));
+    s.assert_contains("New activity · ↓ Back to bottom");
+    let y = u16::try_from(s.row_of("Back to bottom")).expect("control row");
+    s.mouse_drag(40, y);
+    s.assert_style(40, usize::from(y), "reversed bold");
+    s.resize(20, 12);
+    s.assert_contains("↓ Bottom");
+    s.click_text("↓ Bottom");
+    s.assert_contains("new output");
+    s.assert_absent("↓ Bottom");
 }
 
 // ORACLE transcript_view/follow_control_tests.rs:296 hidden_control_does_not_consume_clicks_and_drag_out_cancels kind=ui owner=chat-live
 #[test]
 fn hidden_control_does_not_consume_clicks_and_drag_out_cancels() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no follow control to click or drag out of; a hidden control must not take the click",
-    );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(40, 4)
-        .script(include_str!("fixtures/transcript_view_2/four.jsonl"))
+        .size(80, 12)
+        .script(include_str!("fixtures/transcript_view_2/rows60.jsonl"))
         .open();
-    s.wheel_up(0, 0, 1);
-    // the oracle: a press on the hidden control's cell is not consumed; a drag out of the control cancels
-    // (the control's cell coordinates come from the oracle's follow_control area, not drawn when hidden)
+    s.keys("pageup");
+    let y = u16::try_from(s.row_of("Back to bottom")).expect("control row");
+    s.mouse_down(40, y).mouse_up(40, 2);
+    s.assert_contains("Back to bottom");
+    s.keys("esc");
+    s.assert_absent("Back to bottom");
+    let tail = s.shot();
+    s.click(40, y);
+    s.assert_same_rows(&tail);
+    s.type_text("composer still focused");
+    s.assert_composer("composer still focused");
 }
 
 // ORACLE transcript_view/follow_control_tests.rs:334 height_changes_backfill_after_empty_click_but_preserve_deliberate_pause kind=ui owner=chat-live
@@ -660,17 +676,30 @@ fn selection_at_bottom_restores_footer_without_resuming_following() {
 fn selection_hints_follow_selected_text_instead_of_mouse_down() {
     kit::pending(
         Owner::ChatLive,
-        "the chat's transcript has no selection hint footer that follows the selected text (the threshold of one character)",
+        "A one-character drag shows the copy footer in the regular reader. When Find is active the same character visibly becomes selected, but the search hints still take priority over copy hints.",
     );
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(80, 3)
-        .script(include_str!("fixtures/transcript_view_2/sel_hint.jsonl"))
-        .open();
-    s.mouse_down(0, 0);
-    s.mouse_drag(1, 0);
-    s.mouse_drag(0, 0);
-    s.mouse_up(0, 0);
-    s.assert_snap("selection_hint_threshold");
+    for searching in [false, true] {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(80, 14)
+            .script(include_str!("fixtures/transcript_view_2/sel_hint.jsonl"))
+            .open();
+        s.selection_copy_policy(false, false);
+        if searching {
+            s.keys("f3");
+        }
+        let row = s.row_of("é selection");
+        let y = u16::try_from(row).expect("selection row");
+        s.mouse_down(2, y);
+        s.assert_absent("⌃c copy");
+        s.assert_style(2, row, "!reversed");
+        s.mouse_drag(3, y);
+        s.assert_style(2, row, "reversed");
+        s.assert_contains("⌃c copy");
+        s.mouse_drag(2, y);
+        s.mouse_up(2, y);
+        s.assert_absent("⌃c copy");
+        s.assert_copies_asked(&[]);
+    }
 }
 
 // ORACLE transcript_view/footer_tests.rs:173 loading_preserves_selected_content_and_copy_action kind=snap owner=chat-live snap=loading_preserves_selected_content_and_copy_action
@@ -748,17 +777,34 @@ fn reading_a_find_result_shows_history_loading_and_failure() {
 // ORACLE transcript_view/footer_tests.rs:313 loading_completion_restores_unseen_activity_and_failure_stops_motion kind=snap owner=chat-live snap=loading_completion_restores_unseen_activity_and_failure_stops_motion
 #[test]
 fn loading_completion_restores_unseen_activity_and_failure_stops_motion() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no unseen-activity footer (`New activity`) and no loading completion that restores it",
-    );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(80, 3)
-        .script(include_str!("fixtures/transcript_view_2/four.jsonl"))
+        .size(94, 15)
+        .replay(Vec::new())
         .open();
-    s.wheel_up(0, 0, 1);
-    s.feed(include_str!("fixtures/transcript_view_2/new_output.jsonl"));
-    s.assert_contains("New activity · esc latest");
+    s.at_the_top_of_a_partial_history(15, kit::Page::Loading);
+    s.live_tail("new output");
+    s.assert_contains("Loading earlier messages");
+    s.assert_contains("New activity");
+    s.assert_absent("new output");
+
+    s.history_failed("earlier history unavailable");
+    s.assert_absent("Loading earlier messages");
+    s.assert_contains("Retry history");
+    s.assert_contains("New activity");
+    let retry = s.row_of("Retry history");
+    let failed = s.shot();
+    s.wait(500);
+    s.assert_same_rows_in(&failed, retry..retry + 1);
+
+    s.keys("ctrl+home");
+    s.assert_page_requests(3);
+    s.history_page(vec![kit::agent_turn("older-page", &["older result"])], None);
+    s.assert_absent("Loading earlier messages");
+    s.assert_absent("Retry history");
+    s.assert_contains("New activity");
+    s.keys("esc");
+    s.assert_contains("new output");
+    s.assert_absent("New activity");
 }
 
 // ORACLE transcript_view/footer_tests.rs:354 passive_footer_keeps_jump_actions_in_one_row kind=snap owner=chat-live snap=compact_navigation_hints
