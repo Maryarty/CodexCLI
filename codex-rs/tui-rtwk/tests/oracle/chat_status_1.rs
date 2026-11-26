@@ -1142,13 +1142,25 @@ fn answer_phase_controls_working_status_snapshot() {
         (Some("final_answer"), false),
         (Some("partial_answer"), true),
         (Some("commentary"), true),
-        (None, true),
+        (None, false),
     ] {
         let mut s = Screen::build(Owner::UiPane)
             .size(40, 10)
             .script(include_str!("fixtures/chat_status_1/running_turn.jsonl"))
             .open();
         s.assert_contains("Working");
+        s.feed(
+            &serde_json::json!({"step": "notify", "message": {
+                "method": "item/started", "params": {
+                    "threadId": "thread-1", "turnId": "turn-1",
+                    "item": {"type": "agentMessage", "id": "msg-1", "text": "", "phase": phase},
+                    "startedAtMs": 0
+                }
+            }})
+            .to_string(),
+        );
+        s.assert_contains("Working");
+        s.assert_absent("The answer is one.");
         s.feed(&serde_json::json!({"step": "notify", "message": {
             "method": "item/completed", "params": {
                 "threadId": "thread-1", "turnId": "turn-1",
@@ -1164,7 +1176,7 @@ fn answer_phase_controls_working_status_snapshot() {
         s.keys("tab");
         s.assert_composer("");
         s.assert_contains("queued submission");
-        s.assert_no_request("turn/start");
+        s.assert_no_turn();
         s.assert_present("Working", working);
         if !working {
             s.feed(r#"{"step":"notify","message":{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"commandExecution","id":"after-final","command":"echo done","cwd":"/tmp","processId":null,"source":"agent","status":"inProgress","commandActions":[{"type":"unknown","command":"echo done"}],"aggregatedOutput":null,"exitCode":null,"durationMs":null},"startedAtMs":0}}}"#);

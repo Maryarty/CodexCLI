@@ -10,7 +10,8 @@ use std::rc::Rc;
 
 use linkify::{LinkFinder, LinkKind};
 use rtwk::layout::{
-    Column, CrossAxisAlignment, EdgeInsets, IntrinsicHeight, MainAxisSize, Padding, SizedBox,
+    Column, CrossAxisAlignment, EdgeInsets, Flexible, IntrinsicHeight, MainAxisSize, Padding,
+    SizedBox,
 };
 use rtwk::provider::{read, select, watch};
 use rtwk::style::{Attrs, Span, Style};
@@ -129,7 +130,7 @@ impl BannerId {
 }
 
 /// What the banner shows now, for the page's key handler (a `ValueNotifier`
-/// the widget writes while it builds): the numbers it takes and whether Esc
+/// the widget writes for its actual layout): the numbers it takes and whether Esc
 /// dismisses it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct BannerKeys {
@@ -224,7 +225,7 @@ impl State for BackendBannersState {
             (
                 thread.id().clone(),
                 thread.screen_slots().chat.model.clone(),
-                thread.is_running(),
+                thread.task_running(),
             )
         });
         let place = place_of(cx, &id);
@@ -280,7 +281,10 @@ impl State for BackendBannersState {
                 BannerHint::of(!labels.is_empty(), occurrence.is_dismissible()),
                 labels,
             );
-            column = column.child(block.with_key(Key::value(occurrence.ticket)));
+            column = column.child(Flexible::new(
+                1,
+                block.with_key(Key::value(occurrence.ticket)),
+            ));
         } else if !running && let Some((notice, occurrence)) = security {
             // the reminder shows while no banner of the backend applies and the user has not
             // dismissed this occurrence of it (`show_security_setup`)
@@ -294,7 +298,10 @@ impl State for BackendBannersState {
                 BannerHint::ChooseOrDismiss,
                 vec![format!("1. {}", notice.action.label)],
             );
-            column = column.child(block.with_key(Key::value(("security", occurrence))));
+            column = column.child(Flexible::new(
+                1,
+                block.with_key(Key::value(("security", occurrence))),
+            ));
         }
         if let Some(notice) = session.backend_notices.get(&backend) {
             column = column.child(Text::new(notice.clone()).style(tokens.dim()));
@@ -331,16 +338,39 @@ fn banner_block(
             gate.keys.set(BannerKeys::default());
             return SizedBox::shrink().into();
         }
-        let (header, header_rows) = header(cx, &copy, &tokens, constraints.max_width);
+        let (header, header_rows) = header(cx, &copy, &tokens, constraints.max_width, available);
+        let columns = usize::try_from(constraints.max_width)
+            .unwrap_or_default()
+            .max(1);
+        let segmenter = segmenter_of(cx);
+        let option_heights: Vec<_> = labels
+            .iter()
+            .map(|label| {
+                measure::rows(segmenter, &format!("› {label}"), columns)
+                    .len()
+                    .max(1)
+            })
+            .collect();
+        let desired: usize = option_heights.iter().sum();
         // A clipped banner prioritizes the visible actions over its decorations and heading.
-        let compact = available < header_rows + 2 + labels.len();
-        let actions = available.min(labels.len());
+        let compact = available < header_rows + 2 + desired;
+        let mut action_rows = 0;
+        let actions = option_heights
+            .iter()
+            .take_while(|&&height| {
+                if action_rows >= available {
+                    return false;
+                }
+                action_rows += height;
+                true
+            })
+            .count();
         gate.keys.set(BannerKeys {
             backend: Some(id),
             actions: actions.min(9),
             dismissible: matches!(hint, BannerHint::Dismiss | BannerHint::ChooseOrDismiss),
         });
-        let hint = (available >= header_rows + 4 + labels.len())
+        let hint = (available >= header_rows + 4 + desired)
             .then(|| words.banner_hint(hint))
             .flatten();
         if actions == 0 {
@@ -379,7 +409,7 @@ fn banner_block(
             // A tight viewport gives Options its real room on the first layout.
             SizedBox::new(
                 None,
-                Some(i32::try_from(actions).unwrap_or(i32::MAX)),
+                Some(i32::try_from(action_rows.min(available)).unwrap_or(i32::MAX)),
                 Some(list.into()),
             )
             .into()
@@ -627,6 +657,7 @@ fn header(
     (title, description): &(String, String),
     tokens: &theme::Tokens,
     width: i32,
+    available: usize,
 ) -> (AnyWidget, usize) {
     let (bold, plain, dim) = (tokens.bold(), Style::new(), tokens.dim());
     let seg = segmenter_of(cx);
@@ -639,8 +670,9 @@ fn header(
         }
     };
     let (title_rows, description_rows) = (rows(title), rows(description));
-    let cut = title_rows + description_rows > 8;
-    let budget = if cut { 7 } else { usize::MAX };
+    let limit = available.min(8);
+    let cut = title_rows + description_rows > limit && limit > 1;
+    let budget = limit - usize::from(cut);
     let title_shown = title_rows.min(budget);
     let description_shown = description_rows.min(budget - title_shown.min(budget));
     let part = |text: &str, lines: usize, style| -> Option<AnyWidget> {
@@ -664,7 +696,7 @@ fn header(
         column = column.child(piece);
     }
     if cut {
-        column = column.child(Text::line("…".to_owned()).style(dim.clone()));
+        column = column.child(Text::line("…".to_owned()).style(dim));
     }
     let height = title_shown + description_shown + usize::from(cut);
     (inset(column.into()), height)

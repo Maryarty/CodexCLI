@@ -81,7 +81,7 @@ impl ChatState {
             if crate::keymap::press_for(fixed::ESCAPE)
                 .is_some_and(|esc| crate::keymap::pressed(&keymap, CHAT_INTERRUPT_TURN, &esc))
             {
-                interrupt(&thread, cx, hs);
+                return Some(interrupt(&thread, cx, hs));
             }
             return Some(Rebuild::No);
         }
@@ -106,9 +106,9 @@ impl ChatState {
 
 /// Interrupting with steers waiting sends them together. The core also handles a waiting
 /// rejected steer in a review turn.
-pub(super) fn interrupt(thread: &ThreadModel, cx: &mut Cx<'_, ChatState>, hs: &Hs) {
+pub(super) fn interrupt(thread: &ThreadModel, cx: &mut Cx<'_, ChatState>, hs: &Hs) -> Rebuild {
     if !thread.can_interrupt() {
-        return;
+        return Rebuild::No;
     }
     let waiting = !thread.pending_steers().is_empty()
         || (thread.screen_slots().chat.review_mode() && !thread.rejected_steers().is_empty());
@@ -118,4 +118,5 @@ pub(super) fn interrupt(thread: &ThreadModel, cx: &mut Cx<'_, ChatState>, hs: &H
     } else {
         cx.emit(&hs.interrupt, thread.id().clone());
     }
+    Rebuild::No
 }

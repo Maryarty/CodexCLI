@@ -721,7 +721,7 @@ fn esc_dismisses_slash_command_popup_without_interrupting_task() {
     s.assert_absent("/review");
     s.assert_composer("/rev");
     s.assert_contains("Working");
-    s.assert_no_request("turn/interrupt");
+    s.assert_interrupts(0);
 }
 
 // ORACLE bottom_pane/mod.rs:4010 esc_with_agent_command_without_popup_does_not_interrupt_task kind=ui owner=ui-pane
@@ -1079,6 +1079,22 @@ fn partially_clipped_banner_preserves_hidden_action_shortcuts() {
     s.keys("2");
     s.assert_composer("2");
     s.assert_opened_urls(&["https://chatgpt.com/settings/usage"]);
+
+    let mut s = usage_banner(
+        "dismissible",
+        "",
+        serde_json::json!([
+            {"action":"view_usage","label":"Keep working and choose a different model"},
+            {"action":"open_plus_pricing_web","label":"View plans"},
+        ]),
+    );
+    s.resize(28, 7);
+    s.assert_contains("Keep working");
+    s.assert_contains("different model");
+    s.assert_absent("View plans");
+    s.keys("2");
+    s.assert_composer("2");
+    s.assert_opened_urls(&[]);
 }
 
 // ORACLE bottom_pane/tests/actionable_banner_tests.rs:195 banner_hidden_during_task_waits_for_redraw_before_accepting_dismissal kind=ui owner=ui-pane
@@ -1095,15 +1111,34 @@ fn banner_hidden_during_task_waits_for_redraw_before_accepting_dismissal() {
     s.keys("esc");
     s.assert_absent("Usage limit reached");
     s.assert_interrupts(1);
+
+    let mut s = usage_banner(
+        "dismissible",
+        "",
+        serde_json::json!([{"action":"view_usage","label":"View usage"}]),
+    );
+    let _reply = s.hold_request("thread/compact/start");
+    s.type_text("/compact").keys("enter");
+    s.assert_contains("Compacting");
+    s.assert_absent("Usage limit reached");
+    s.assert_no_turn();
+    s.keys("1");
+    s.assert_composer("1");
+    s.assert_opened_urls(&[]);
 }
 
 // ORACLE bottom_pane/tests/actionable_banner_tests.rs:221 information_banner_preserves_input_and_honors_dismissal kind=snap owner=ui-pane
 #[test]
 fn information_banner_preserves_input_and_honors_dismissal() {
     for (presentation, dismissible) in [("inline", false), ("dismissible", true)] {
-        let description = "You can change models or request more usage.";
+        let description = "You can change models or request more usage.\nYour drafts will remain.\nCheck settings first.";
         let mut s = usage_banner(presentation, description, serde_json::json!([]));
-        s.assert_contains(description);
+        s.assert_contains("You can change models or request more usage.");
+        s.resize(70, 6);
+        s.assert_contains("Usage limit reached");
+        s.assert_absent("Check settings first.");
+        s.resize(70, 16);
+        s.assert_contains("Check settings first.");
         s.assert_absent("no matches");
         s.assert_absent("Press a number");
         s.assert_present("esc to dismiss", dismissible);
@@ -1113,6 +1148,20 @@ fn information_banner_preserves_input_and_honors_dismissal() {
         s.assert_composer("1");
         s.assert_opened_urls(&[]);
     }
+    let mut s = usage_banner(
+        "dismissible",
+        "This banner and the config notice share the chat footer.",
+        serde_json::json!([]),
+    );
+    s.feed(r#"{"step":"notify","message":{"method":"configWarning","params":{"summary":"Config diagnostic"}}}"#);
+    s.assert_contains("Config diagnostic");
+    s.assert_contains("Usage limit reached");
+    s.resize(70, 6);
+    s.assert_contains("Config diagnostic");
+    s.assert_absent("Usage limit reached");
+    s.keys("esc");
+    s.resize(70, 16);
+    s.assert_contains("Usage limit reached");
 }
 
 // ORACLE bottom_pane/tests/actionable_banner_tests.rs:263 banner_copy_preserves_wrapped_url_destinations kind=snap owner=ui-pane

@@ -45,7 +45,7 @@ pub(super) struct Run {
     pub can_interrupt: bool,
     pub read_only: bool,
     transcript_empty: bool,
-    /// A completed final answer can replace the Working row while input still queues for the turn.
+    /// A completed final or legacy answer takes the Working row while input still queues.
     final_answer: bool,
     /// The thread's last failure, or the one the chat screen keeps.
     failure: Option<Failure>,
@@ -75,7 +75,11 @@ impl Run {
     pub(super) fn of(thread: &ThreadModel) -> Run {
         let screen_error = thread.screen_slots().chat.error.clone().map(Failure::from);
         let transcript = thread.transcript();
-        let final_answer = if let TurnState::Running(running) = thread.turn() {
+        // The oracle restores the indicator for partial/commentary answers and for pending input
+        // that needs the active turn's status, even after an otherwise final answer.
+        let final_answer = if let TurnState::Running(running) = thread.turn()
+            && thread.pending_steers().is_empty()
+        {
             (0..transcript.len())
                 .rev()
                 .filter_map(|at| transcript.get(at))
@@ -90,14 +94,15 @@ impl Run {
                             | Item::Status { .. }
                     )
                 })
-                .is_some_and(|(_, item)| {
+                .is_some_and(|(key, item)| {
                     matches!(
                         item,
                         Item::Agent {
-                            phase: Some(MessagePhase::FinalAnswer),
-                            ..
-                        }
-                    )
+                            text,
+                            phase: None | Some(MessagePhase::FinalAnswer),
+                            questions: None,
+                        } if !text.trim().is_empty()
+                    ) && thread.received_item_completion(key)
                 })
         } else {
             false

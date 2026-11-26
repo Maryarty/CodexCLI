@@ -142,7 +142,7 @@ pub(super) fn body(
         );
     }
     state.banner_blocked.set(BannerBlocked {
-        running,
+        running: thread.task_running(),
         overlay: state.shortcuts,
         edit: !editing
             && !menu
