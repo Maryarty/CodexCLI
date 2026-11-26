@@ -279,6 +279,14 @@ pub fn open_security_page<S: 'static>(cx: &mut Cx<'_, S>, hs: &Hs) {
     );
 }
 
+/// The browser action of a clicked link in a particular transcript.
+pub fn open_transcript_link<S: 'static>(cx: &mut Cx<'_, S>, thread: ThreadId, url: String) {
+    verb(
+        cx,
+        codex_tui_core::features::transcript_links::Intent { thread, url },
+    );
+}
+
 macro_rules! view_dispatch {
     ($($name:ident => $variant:ident;)*) => {
         /// Whether some feature's own sheet is what the settings panel's row `id` opens.

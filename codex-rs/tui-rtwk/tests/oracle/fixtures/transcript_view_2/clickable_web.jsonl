@@ -1,0 +1,5 @@
+# Bare URL, titled Markdown link and non-web links.
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "notify", "message": {"method": "turn/started", "params": {"threadId": "thread-1", "turn": {"id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "full", "status": "inProgress", "error": null, "startedAt": null, "completedAt": null, "durationMs": null}}}}
+{"step": "notify", "message": {"method": "item/agentMessage/delta", "params": {"threadId": "thread-1", "turnId": "turn-1", "itemId": "msg-1-0", "delta": "https://example.org/plain\n[docs](https://example.com/docs \"Browser docs\")\n[mail](mailto:team@example.org)\n[local](/tmp/source.rs)"}}}
+{"step": "notify", "message": {"method": "turn/completed", "params": {"threadId": "thread-1", "turn": {"id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "summary", "status": "completed", "error": null, "startedAt": null, "completedAt": null, "durationMs": null}}}}

@@ -455,10 +455,6 @@ fn copy_on_select_copies_word_and_line_on_release_without_dragging() {
 // ORACLE transcript_view/copy_on_select_tests.rs:179 copy_on_select_preserves_link_activation_and_ignores_empty_drags kind=ui owner=chat-live
 #[test]
 fn copy_on_select_preserves_link_activation_and_ignores_empty_drags() {
-    kit::pending(
-        Owner::ChatLive,
-        "Needs: f-link-open, a stationary click opens the link on release",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(36, 6)
         .script(include_str!("fixtures/transcript_view_2/link.jsonl"))
@@ -871,10 +867,6 @@ fn decimal_mouse_scroll_speeds_preserve_whole_rows() {
 // ORACLE transcript_view/input_tests.rs:134 hover_links_match_wrapped_click_targets_and_refresh_after_scrolling kind=ui owner=chat-live
 #[test]
 fn hover_links_match_wrapped_click_targets_and_refresh_after_scrolling() {
-    kit::pending(
-        Owner::ChatLive,
-        "Needs: f-link-open, Ctrl-click activates visible wrapped link cells",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(20, 8)
         .script(include_str!("fixtures/transcript_view_2/links.jsonl"))
@@ -921,15 +913,26 @@ fn shift_click_extends_a_double_clicked_word_in_both_directions() {
 // ORACLE transcript_view/input_tests.rs:270 ordinary_click_opens_bare_and_markdown_links_on_release kind=ui owner=chat-live
 #[test]
 fn ordinary_click_opens_bare_and_markdown_links_on_release() {
-    // 12 rows: a live completion ends with the "Worked for" separator (the oracle's status-timer
-    // fallback, `FinalMessageSeparator::from_turn_once`), four more rows under the message.
     let mut s = Screen::build(Owner::ChatLive)
-        .size(12, 12)
-        .script(include_str!("fixtures/transcript_view_2/docs.jsonl"))
+        .size(72, 14)
+        .script(include_str!(
+            "fixtures/transcript_view_2/clickable_web.jsonl"
+        ))
+        .view_only()
         .open();
-    s.assert_link("docs", "https://example.com/docs");
-    s.click(1, 0);
-    s.assert_contains("docs");
+    let mut opened = Vec::new();
+    for (label, url) in [
+        ("https://example.org/plain", "https://example.org/plain"),
+        ("docs", "https://example.com/docs"),
+    ] {
+        s.assert_link(label, url);
+        let y = u16::try_from(s.row_of(label)).unwrap();
+        s.mouse_down(3, y);
+        s.assert_opened_urls(&opened);
+        s.mouse_up(3, y);
+        opened.push(url);
+        s.assert_opened_urls(&opened);
+    }
 }
 
 // ORACLE transcript_view/input_tests.rs:310 selection_mouse_does_not_open_links kind=ui owner=chat-live
@@ -947,6 +950,10 @@ fn selection_mouse_does_not_open_links() {
     s.ctrl_click(3, row);
     s.assert_opened_urls(&[]);
     s.assert_contains("enter/q close");
+    s.keys("q");
+    s.wait(350);
+    s.click(3, u16::try_from(s.row_of("docs")).unwrap());
+    s.assert_opened_urls(&["https://example.com/docs"]);
 }
 
 // ---- oracle: transcript_view/layout_tests.rs (3 screen-level tests here; 0 state tests left to chat-live)
