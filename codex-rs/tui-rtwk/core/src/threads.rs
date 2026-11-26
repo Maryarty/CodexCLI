@@ -892,6 +892,13 @@ pub enum Deferred {
     Recorded(UserMessage),
 }
 
+/// The submission ID echoed by a live user item, or the content key of a legacy completion.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UserItemEcho {
+    ClientId(String),
+    Legacy { text: String, images: usize },
+}
+
 /// An event of one thread.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadEv {
@@ -964,12 +971,12 @@ pub enum ThreadEv {
     ItemStarted {
         key: ItemKey,
         item: Item,
-        receipt: Option<String>,
+        receipt: Option<UserItemEcho>,
     },
     ItemUpsert {
         key: ItemKey,
         item: Item,
-        receipt: Option<String>,
+        receipt: Option<UserItemEcho>,
     },
     /// An `update_plan` report: a new entry of the turn, whatever came before.
     PlanUpdated {
@@ -2695,6 +2702,17 @@ fn item_upsert(
     completed: bool,
 ) -> Option<(ThreadId, ThreadEv)> {
     let (id, entry) = item_entry(&item.payload, completed)?;
+    let receipt = match &item.payload {
+        ThreadItemPayload::UserMessage {
+            client_id: Some(client_id),
+            ..
+        } => Some(UserItemEcho::ClientId(client_id.clone())),
+        ThreadItemPayload::UserMessage { content, .. } if completed => {
+            let (text, images) = legacy_steer_key(content);
+            Some(UserItemEcho::Legacy { text, images })
+        }
+        _ => None,
+    };
     Some((
         ThreadId::new(thread),
         ThreadEv::ItemUpsert {
@@ -2703,7 +2721,7 @@ fn item_upsert(
                 item: id,
             },
             item: entry,
-            receipt: receipt_id(&item.payload).cloned(),
+            receipt,
         },
     ))
 }
@@ -3325,10 +3343,10 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::ItemStarted { key, item, receipt } => {
             processes::track(model, &key, &item);
             note_review(model, &item);
-            let (echo, released) = receipt
-                .as_deref()
-                .map(|id| reconcile_id(model, id))
-                .unwrap_or_default();
+            let (echo, released) = match receipt {
+                Some(UserItemEcho::ClientId(id)) => reconcile_id(model, &id),
+                _ => (false, false),
+            };
             if !model.finished_turns.contains(&key.turn)
                 && model.transcript.item(&key).is_none()
                 && !review_prompt(model, &item, echo)
@@ -3343,10 +3361,13 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::ItemUpsert { key, item, receipt } => {
             processes::track(model, &key, &item);
             note_review(model, &item);
-            let (echo, released) = receipt
-                .as_deref()
-                .map(|id| reconcile_id(model, id))
-                .unwrap_or_default();
+            let (echo, released) = match receipt {
+                Some(UserItemEcho::ClientId(id)) => reconcile_id(model, &id),
+                Some(UserItemEcho::Legacy { text, images }) => {
+                    (reconcile_legacy_steer(model, &key, (text, images)), false)
+                }
+                None => (false, false),
+            };
             let turn_finished = model.finished_turns.contains(&key.turn);
             if !model.authoritative_turns.contains(&key.turn)
                 && !processes::draws_nothing(&item, turn_finished)
@@ -3769,6 +3790,43 @@ fn hold_unconfirmed(model: &mut ThreadModel) {
                 | ThreadCtx::Screen(ScreenCtx::Chat(screens::chat::Ctx::Steer { .. }))
         )
     });
+}
+
+/// The oracle compares the concatenated wire text and attachment count on legacy servers.
+fn legacy_steer_key(input: &[codex_app_server_protocol::UserInput]) -> (String, usize) {
+    use codex_app_server_protocol::UserInput;
+    let mut text = String::new();
+    let mut images = 0;
+    for item in input {
+        match item {
+            UserInput::Text { text: part, .. } => text.push_str(part),
+            UserInput::Image { .. } | UserInput::LocalImage { .. } => images += 1,
+            _ => {}
+        }
+    }
+    (text, images)
+}
+
+/// Legacy completions can retire the first live steer. Recovering submissions require IDs.
+fn reconcile_legacy_steer(model: &mut ThreadModel, item: &ItemKey, key: (String, usize)) -> bool {
+    if !model.has_writer()
+        || model.stream_lost
+        || model.reconciling_submissions
+        || model.finished_turns.contains(&item.turn)
+        || !model.completed_items.insert(item.clone())
+    {
+        return false;
+    }
+    let matches = model.pending_steers.first().is_some_and(|steer| {
+        key == legacy_steer_key(&crate::protocol::turn_input_in(
+            &steer.message,
+            Some(model.id().as_str()),
+        ))
+    });
+    if matches {
+        model.pending_steers.remove(0);
+    }
+    matches
 }
 
 /// A server item confirms only the submission that supplied this client ID.

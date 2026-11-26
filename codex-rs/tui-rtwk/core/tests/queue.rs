@@ -7,7 +7,8 @@
 //! reports, a shell line runs, a bare `!` says how to use it.
 
 use codex_app_server_protocol::{
-    ClientRequest, ErrorNotification, RequestId, ServerNotification, ThreadItemPayload, TurnError,
+    ClientRequest, ErrorNotification, ItemCompletedNotification, RequestId, ServerNotification,
+    ThreadItem, ThreadItemPayload, TurnError, UserInput,
 };
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app, apply_app_from};
 use codex_tui_core::commands::{
@@ -857,6 +858,126 @@ fn a_live_receipt_before_transport_loss_leaves_only_the_unsent_follow_up() {
     assert!(thread(&app).queue().is_empty());
 }
 
+fn completed_user_item(
+    item: &str,
+    client_id: Option<&str>,
+    parts: &[&str],
+    image: Option<&str>,
+) -> BackendEv {
+    let content = parts
+        .iter()
+        .map(|text| UserInput::Text {
+            text: (*text).to_owned(),
+            text_elements: Vec::new(),
+        })
+        .chain(image.map(|path| UserInput::LocalImage {
+            path: path.into(),
+            detail: None,
+        }))
+        .collect();
+    BackendEv::Notification(Box::new(ServerNotification::ItemCompleted(
+        ItemCompletedNotification {
+            item: ThreadItem::untimed(ThreadItemPayload::UserMessage {
+                id: item.to_owned(),
+                client_id: client_id.map(str::to_owned),
+                content,
+            }),
+            thread_id: T.to_owned(),
+            turn_id: "turn-1".to_owned(),
+            content_token_count: None,
+            completed_at_ms: 0,
+        },
+    )))
+}
+
+#[test]
+fn a_legacy_live_completion_matches_only_the_oldest_steers_wire_content() {
+    let mut app = running();
+    submit(&mut app, "first message");
+    submit(&mut app, "second message");
+    let pending = |app: &CodexApp| {
+        thread(app)
+            .pending_steers()
+            .iter()
+            .map(|steer| steer.message().text.clone())
+            .collect::<Vec<_>>()
+    };
+    for completion in [
+        completed_user_item("other-id", Some("unrelated"), &["first message"], None),
+        completed_user_item(
+            "other-image-count",
+            None,
+            &["first message"],
+            Some("/tmp/other.png"),
+        ),
+        completed_user_item("second", None, &["second message"], None),
+    ] {
+        notify(&mut app, completion);
+        assert_eq!(pending(&app), ["first message", "second message"]);
+    }
+    notify(
+        &mut app,
+        completed_user_item("first", None, &["first ", "message"], None),
+    );
+    assert_eq!(pending(&app), ["second message"]);
+    notify(
+        &mut app,
+        completed_user_item("second", None, &["second message"], None),
+    );
+    assert_eq!(
+        pending(&app),
+        ["second message"],
+        "a duplicate completion cannot retire a different steer"
+    );
+    notify(
+        &mut app,
+        completed_user_item("second-new", None, &["second message"], None),
+    );
+    assert!(pending(&app).is_empty());
+}
+
+#[test]
+fn an_open_reuses_the_writer_until_recovery_history_fails_or_the_stream_is_lost() {
+    for stream_lost in [false, true] {
+        let mut app = ready();
+        let (_, client_id) = submission_id(&submit(&mut app, "first message"));
+        submit_or_queue_follow_up(&mut app, true);
+        run(
+            &mut app,
+            AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnecting)),
+        );
+        let previous_page = reattach(&mut app);
+        let open = || AppEv::Intent(Intent::OpenThread(ThreadId::new(T)));
+        assert!(
+            run(&mut app, open()).commands().is_empty(),
+            "the recovery page is in flight"
+        );
+        assert_eq!(queued(&app), ["first message", "follow-up"]);
+
+        if stream_lost {
+            notify(&mut app, lost(T));
+        } else {
+            run(
+                &mut app,
+                AppEv::Reply(previous_page, Reply::failed("history unavailable")),
+            );
+        }
+        let fx = run(&mut app, open());
+        let fresh_page = resume_history(&mut app, &fx);
+        if stream_lost {
+            let fx = reply_history(&mut app, previous_page, Some(client_id.clone()));
+            assert!(
+                started_texts(&fx).is_empty(),
+                "the lost stream's history is stale"
+            );
+            assert_eq!(queued(&app), ["first message", "follow-up"]);
+        }
+        let fx = reply_history(&mut app, fresh_page, Some(client_id));
+        assert_eq!(started_texts(&fx), ["follow-up"]);
+        assert!(thread(&app).queue().is_empty());
+    }
+}
+
 #[test]
 fn same_thread_reattach_reconciles_only_an_exact_start_or_steer_receipt() {
     for pending_start in [false, true] {
@@ -994,6 +1115,12 @@ fn assert_submission_recovery(pending_start: bool, exact_receipt: Option<bool>, 
         assert!(started_texts(&fx).is_empty());
         assert_eq!(queued(&app), ["first message", "follow-up"]);
         assert!(notice);
+        let fx = notify(
+            &mut app,
+            completed_user_item("legacy-live", None, &["first message"], None),
+        );
+        assert!(started_texts(&fx).is_empty());
+        assert_eq!(queued(&app), ["first message", "follow-up"]);
         let fx = notify(
             &mut app,
             user_item_with_receipt(

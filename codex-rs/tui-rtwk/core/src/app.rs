@@ -3032,10 +3032,21 @@ fn open_verified(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) -> bool {
     true
 }
 
-/// A writer can be reused while its stream and history are current.
+/// A live writer can be reused while its history is current or the recovery page is in flight.
 fn thread_held(app: &CodexApp, id: &ThreadId) -> bool {
     app.threads.get(id).is_some_and(|thread| {
-        thread.has_writer() && !thread.stream_lost() && !thread.history_may_be_incomplete()
+        thread.has_writer()
+            && !thread.stream_lost()
+            && (!thread.history_may_be_incomplete()
+                || app.outgoing.any(|ctx| {
+                    matches!(
+                        ctx,
+                        AppCtx::Agents(agents::Ctx::History {
+                            thread: requested,
+                            read: agents::HistoryRead::SubmissionRecovery,
+                        }) if requested == id.as_str()
+                    )
+                }))
     })
 }
 
