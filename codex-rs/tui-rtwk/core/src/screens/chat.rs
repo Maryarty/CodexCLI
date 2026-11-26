@@ -110,6 +110,8 @@ pub struct StatusFacts {
     pub fast_mode: bool,
     /// `Feature::UltrafastMode`: the `ultrafast` tier needs it.
     pub ultrafast_mode: bool,
+    /// `Feature::Collab`: whether new subagents may be started.
+    pub collab_enabled: bool,
     /// The name of the project root (the git root's directory).
     pub project_root: Option<String>,
     pub branch: Option<String>,
@@ -155,6 +157,7 @@ impl Default for StatusFacts {
             service_tier: None,
             fast_mode: true,
             ultrafast_mode: true,
+            collab_enabled: true,
             project_root: None,
             branch: None,
             items: None,

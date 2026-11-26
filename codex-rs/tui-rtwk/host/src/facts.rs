@@ -120,6 +120,7 @@ pub async fn status(config: &Config) -> StatusFacts {
         ultrafast_mode: config
             .features
             .enabled(codex_features::Feature::UltrafastMode),
+        collab_enabled: config.features.enabled(codex_features::Feature::Collab),
         project_root: project_root_name(cwd, home.as_deref()),
         branch: codex_git_utils::current_branch_name(cwd).await,
         items: config.tui_status_line.clone(),

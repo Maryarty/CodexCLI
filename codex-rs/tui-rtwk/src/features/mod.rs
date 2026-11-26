@@ -287,6 +287,30 @@ pub fn open_transcript_link<S: 'static>(cx: &mut Cx<'_, S>, thread: ThreadId, ur
     );
 }
 
+pub fn report_no_subagents<S: 'static>(cx: &mut Cx<'_, S>, source: Option<ThreadId>) {
+    verb(
+        cx,
+        codex_tui_core::features::subagents::Intent::NoAgents(source),
+    );
+}
+
+pub fn report_subagents<S: 'static>(
+    cx: &mut Cx<'_, S>,
+    source: ThreadId,
+    picker: codex_tui_core::screens::select::agent_picker::PickerKey,
+) {
+    verb(
+        cx,
+        codex_tui_core::features::subagents::Intent::Report { source, picker },
+    );
+}
+
+pub fn offer_enable_subagents<S: 'static>(cx: &mut Cx<'_, S>, hs: &Hs) {
+    use codex_tui_core::features::settings::{Intent, Which};
+
+    verb_by(cx, hs, Intent::Open(Which::EnableSubagents));
+}
+
 macro_rules! view_dispatch {
     ($($name:ident => $variant:ident;)*) => {
         /// Whether some feature's own sheet is what the settings panel's row `id` opens.

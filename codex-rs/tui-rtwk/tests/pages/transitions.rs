@@ -159,6 +159,249 @@ fn slash_subagents_opens_the_agent_picker_not_the_command_center() {
     assert!(h.t.screen().contains("Subagents"), "{}", h.t.screen());
 }
 
+/// A saved descendant is discoverable from chat without opening Agent Center first.
+#[test]
+fn slash_subagents_reads_the_active_roots_descendants_across_sparse_and_repeated_cursors() {
+    use serde_json::json;
+
+    let mut h = chat();
+    disable_collab(&mut h);
+    let root =
+        h.t.read_app(|app: &codex_tui_rtwk::app::UiApp| app.core.session().active.clone());
+    let Some(root) = root else {
+        panic!("the chat has an active thread");
+    };
+    let id = "00000000-0000-0000-0000-000000000021";
+    let request_root = root.to_string();
+    h.fake.respond(move |request| {
+        let params = &request["params"];
+        if request["method"] != "thread/list"
+            || params["ancestorThreadId"] != request_root
+            || params["sourceKinds"] != json!(["subAgentThreadSpawn"])
+            || params["useStateDbOnly"] != true
+        {
+            return None;
+        }
+        let (threads, next) = if params["archived"] == true {
+            (Vec::new(), None)
+        } else if params["cursor"].is_null() {
+            (Vec::new(), Some("after-empty"))
+        } else {
+            (
+                vec![subagent_thread(id, &request_root, "Saved worker")],
+                Some("after-empty"),
+            )
+        };
+        Some(Ok(json!({"data": threads, "nextCursor": next})))
+    });
+    run_command(&mut h, "/subagents");
+    h.wait_for("the descendant read from the backend", |screen| {
+        screen.contains("Saved worker [worker]")
+    });
+    assert!(!h.t.screen().contains("Enable subagents?"));
+    let actual: Vec<_> = h
+        .fake
+        .requests()
+        .into_iter()
+        .filter(|request| {
+            request["method"] == "thread/list"
+                && request["params"]["ancestorThreadId"] == root.as_str()
+        })
+        .map(|request| {
+            let params = &request["params"];
+            (params["archived"].clone(), params["cursor"].clone())
+        })
+        .collect();
+    assert_eq!(
+        actual,
+        [
+            (json!(false), json!(null)),
+            (json!(false), json!("after-empty")),
+            (json!(true), json!(null))
+        ]
+    );
+}
+
+/// Sparse pages may advance, but distinct empty pages cannot hold the picker forever.
+#[test]
+fn slash_subagents_bounds_empty_pages_and_reaches_the_collab_prompt() {
+    use serde_json::json;
+
+    let mut h = self::chat();
+    disable_collab(&mut h);
+    h.fake.respond(|request| {
+        let params = &request["params"];
+        if request["method"] != "thread/list" || params["ancestorThreadId"].is_null() {
+            return None;
+        }
+        let next = params["cursor"]
+            .as_str()
+            .and_then(|cursor| cursor.parse::<u64>().ok())
+            .unwrap_or_default()
+            + 1;
+        Some(Ok(json!({"data": [], "nextCursor": next.to_string()})))
+    });
+    run_command(&mut h, "/subagents");
+    h.wait_until("the last bounded archived request", |h| {
+        h.fake.requests().iter().any(|request| {
+            request["method"] == "thread/list"
+                && request["params"]["archived"] == true
+                && request["params"]["cursor"] == "99"
+        })
+    });
+    h.wait_for(
+        "the offer to enable subagents after both bounded reads",
+        |screen| screen.contains("Enable subagents?"),
+    );
+    let requests = h.fake.requests();
+    for archived in [false, true] {
+        let cursors = requests
+            .iter()
+            .filter(|request| {
+                request["method"] == "thread/list"
+                    && !request["params"]["ancestorThreadId"].is_null()
+                    && request["params"]["archived"] == archived
+            })
+            .map(|request| request["params"]["cursor"].as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(cursors.len(), 100);
+        assert_eq!(cursors.first(), Some(&None));
+        assert_eq!(cursors.last(), Some(&Some("99")));
+    }
+}
+
+fn disable_collab(h: &mut Harness) {
+    use codex_tui_core::app::AppEv;
+    use codex_tui_core::screens::{ScreenEv, chat};
+    h.inject([AppEv::Screen(ScreenEv::Chat(chat::Ev::Status(Box::new(
+        chat::StatusFacts {
+            collab_enabled: false,
+            ..chat::StatusFacts::default()
+        },
+    ))))]);
+    assert!(!h.t.read_app(|app: &codex_tui_rtwk::app::UiApp| {
+        app.core.screens().chat.status.collab_enabled
+    }));
+}
+
+fn subagent_thread(id: &str, root: &str, name: &str) -> serde_json::Value {
+    serde_json::json!({
+        "id": id, "sessionId": root, "parentThreadId": root,
+        "name": name, "agentNickname": name, "agentRole": "worker",
+        "preview": "", "ephemeral": false, "historyMode": "legacy", "modelProvider": "openai",
+        "createdAt": 1700000000, "updatedAt": 1700000000,
+        "status": {"type": "idle"}, "cwd": "/tmp/project",
+        "cliVersion": "0.0.0", "source": "cli", "canAcceptDirectInput": false, "turns": []
+    })
+}
+
+#[test]
+fn slash_subagents_places_the_path_backed_status_in_the_live_transcript() {
+    use codex_tui_core::app::AppEv;
+    use codex_tui_core::fixtures::builders::{agent_completed, turn_failed, turn_started};
+    use codex_tui_core::ids::{BackendId, ThreadId};
+    use codex_tui_core::screens::{ScreenEv, agents};
+    use serde_json::json;
+
+    let mut h = chat();
+    let root = "11111111-1111-4111-8111-111111111111";
+    let id = "33333333-3333-4333-8333-333333333333";
+    let mut primary = subagent_thread(root, root, "Primary");
+    primary["parentThreadId"] = json!(null);
+    let Ok(primary) = serde_json::from_value(primary) else {
+        panic!("valid primary thread fixture");
+    };
+    h.inject([
+        AppEv::Screen(ScreenEv::Agents(agents::Ev::ListedBy(
+            BackendId::default(),
+            agents::Page {
+                threads: vec![primary],
+                unread: Vec::new(),
+                next_cursor: None,
+                append: true,
+                pins: None,
+            },
+        ))),
+        AppEv::Screen(ScreenEv::Agents(agents::Ev::Current(Some(ThreadId::new(
+            root,
+        ))))),
+    ]);
+    h.fake.respond(move |request| {
+        let params = &request["params"];
+        if request["method"] != "thread/list" || params["ancestorThreadId"] != root {
+            return None;
+        }
+        let mut child = subagent_thread(id, root, "Live worker");
+        child["status"] = json!({"type": "active", "activeFlags": []});
+        child["source"] = json!({"subAgent": {"thread_spawn": {
+            "parent_thread_id": root, "agent_path": "/root/live_worker", "depth": 1
+        }}});
+        let data = if params["archived"] == true {
+            Vec::new()
+        } else {
+            vec![child]
+        };
+        Some(Ok(json!({"data": data, "nextCursor": null})))
+    });
+    run_command(&mut h, "/subagents");
+    h.wait_for("the freshly discovered path-backed agent", |screen| {
+        screen.contains("Live worker [worker]")
+    });
+    h.press("escape");
+    h.wait_for("the status cell in the active transcript", |screen| {
+        screen.contains("Sub-agents running")
+            && screen.contains("/root/live_worker")
+            && screen.contains("No recent activity yet.")
+    });
+
+    let earlier = format!("discarded preview prefix {}", "middle ".repeat(29));
+    h.inject([
+        AppEv::Screen(ScreenEv::Agents(agents::Ev::Current(Some(ThreadId::new(
+            id,
+        ))))),
+        AppEv::Backend(turn_started(id, "child-turn")),
+        AppEv::Backend(agent_completed(id, "child-turn", "older-item", &earlier)),
+        AppEv::Backend(agent_completed(
+            id,
+            "child-turn",
+            "last-item",
+            "latest child activity",
+        )),
+        AppEv::Screen(ScreenEv::Agents(agents::Ev::Current(Some(ThreadId::new(
+            root,
+        ))))),
+    ]);
+    run_command(&mut h, "/subagents");
+    h.wait_for("the picker for the active child", |screen| {
+        screen.contains("Live worker [worker]")
+    });
+    h.press("escape");
+    h.wait_for("the running child's most recent activity", |screen| {
+        screen.contains("latest child activity")
+    });
+    let screen = h.t.screen();
+    assert!(!screen.contains("discarded preview prefix"), "{screen}");
+    assert_eq!(
+        screen
+            .lines()
+            .filter(|line| line.contains("middle"))
+            .count(),
+        2,
+        "{screen}"
+    );
+
+    h.inject([AppEv::Backend(turn_failed(id, "child-turn"))]);
+    run_command(&mut h, "/subagents");
+    h.wait_for("the picker after the child's turn failed", |screen| {
+        screen.contains("Live worker [worker]")
+    });
+    h.press("escape");
+    h.wait_for(
+        "live terminal evidence overriding the backend's stale Active row",
+        |screen| screen.contains("No sub-agents running."),
+    );
+}
+
 /// The command typed in the popup and picked with Enter, not typed in full.
 #[test]
 fn a_command_picked_in_the_popup_opens_its_screen() {

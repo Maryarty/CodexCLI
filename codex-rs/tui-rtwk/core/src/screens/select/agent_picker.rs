@@ -10,11 +10,30 @@
 //! waits for an approval is listed first. A thread archived or removed (`Model::hidden`,
 //! `removed`) is not listed.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use codex_app_server_protocol::{Thread, ThreadStatus};
 
-use crate::ids::ThreadId;
+use crate::ids::{BackendId, ThreadId};
+
+/// Correlates an open and a close of one picker. Backend reads have a core-issued generation.
+#[derive(Clone, Debug)]
+pub struct PickerKey(Arc<()>);
+
+impl Default for PickerKey {
+    fn default() -> Self {
+        Self(Arc::new(()))
+    }
+}
+
+impl PartialEq for PickerKey {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for PickerKey {}
 
 /// How a row names its agent (`format_agent_picker_item_name`); the words are the view's.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -48,6 +67,7 @@ impl Name {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Facts {
     threads: Vec<Thread>,
+    owners: BTreeMap<ThreadId, BackendId>,
     hidden: BTreeSet<String>,
     removed: BTreeSet<String>,
 }
@@ -58,6 +78,7 @@ impl Facts {
         let agents = &screens.agents;
         Facts {
             threads: agents.threads.clone(),
+            owners: agents.owners.clone(),
             hidden: agents.hidden.clone(),
             removed: agents.removed.clone(),
         }
@@ -70,11 +91,21 @@ impl Facts {
         waiting: &[ThreadId],
         live: impl Fn(&ThreadId) -> bool,
     ) -> Vec<Row> {
-        rows(
+        let Some(active) = active else {
+            return Vec::new();
+        };
+        let Some(owner) = self.owners.get(active) else {
+            return Vec::new();
+        };
+        let owns = |id: &str| self.owners.get(id) == Some(owner);
+        let Some(root) = root_of(&self.threads, active.as_str(), owns) else {
+            return Vec::new();
+        };
+        rows_for(
             &self.threads,
             &self.hidden,
             &self.removed,
-            active,
+            Conversation { active, root, owns },
             waiting,
             live,
         )
@@ -110,26 +141,41 @@ fn clean(text: Option<&str>) -> Option<String> {
 }
 
 /// The root of `active` in the thread list: the primary thread of the tree.
-fn root_of<'a>(threads: &'a [Thread], active: &'a str) -> &'a str {
+pub(crate) fn root_of<'a>(
+    threads: &'a [Thread],
+    active: &'a str,
+    owns: impl Fn(&str) -> bool,
+) -> Option<&'a str> {
     let mut at = active;
     // A parent chain is short; the bound only guards a list that loops.
     for _ in 0..threads.len() + 1 {
+        if !owns(at) {
+            return None;
+        }
         match threads
             .iter()
             .find(|thread| thread.id == at)
             .and_then(|thread| thread.parent_thread_id.as_deref())
         {
             Some(parent) => at = parent,
-            None => break,
+            None => return Some(at),
         }
     }
-    at
+    None
 }
 
 /// Whether `thread` descends from `root`.
-fn descends(threads: &[Thread], thread: &Thread, root: &str) -> bool {
+pub(crate) fn descends(
+    threads: &[Thread],
+    thread: &Thread,
+    root: &str,
+    owns: impl Fn(&str) -> bool,
+) -> bool {
     let mut at = thread;
     for _ in 0..threads.len() + 1 {
+        if !owns(&at.id) {
+            return false;
+        }
         let Some(parent) = at.parent_thread_id.as_deref() else {
             return false;
         };
@@ -142,6 +188,12 @@ fn descends(threads: &[Thread], thread: &Thread, root: &str) -> bool {
         }
     }
     false
+}
+
+struct Conversation<'a, O> {
+    active: &'a ThreadId,
+    root: &'a str,
+    owns: O,
 }
 
 /// The rows of the picker. `threads` is the agents screen's list; `hidden` and `removed` its sets
@@ -159,7 +211,29 @@ pub fn rows(
     let Some(active) = active else {
         return Vec::new();
     };
-    let root = root_of(threads, active.as_str()).to_owned();
+    let owns = |_: &str| true;
+    let Some(root) = root_of(threads, active.as_str(), owns) else {
+        return Vec::new();
+    };
+    rows_for(
+        threads,
+        hidden,
+        removed,
+        Conversation { active, root, owns },
+        waiting,
+        live,
+    )
+}
+
+fn rows_for(
+    threads: &[Thread],
+    hidden: &BTreeSet<String>,
+    removed: &BTreeSet<String>,
+    conversation: Conversation<'_, impl Fn(&str) -> bool>,
+    waiting: &[ThreadId],
+    live: impl Fn(&ThreadId) -> bool,
+) -> Vec<Row> {
+    let Conversation { active, root, owns } = conversation;
     let listed = |id: &str| !hidden.contains(id) && !removed.contains(id);
     let mut rows = Vec::new();
     let mut push = |id: &str, name: Name, status: Option<&ThreadStatus>| {
@@ -175,11 +249,10 @@ pub fn rows(
     };
     // The primary is listed whether or not the backend's list has it.
     let primary = threads.iter().find(|thread| thread.id == root);
-    push(&root, Name::Main, primary.map(|thread| &thread.status));
-    for thread in threads
-        .iter()
-        .filter(|thread| thread.id != root && listed(&thread.id) && descends(threads, thread, &root))
-    {
+    push(root, Name::Main, primary.map(|thread| &thread.status));
+    for thread in threads.iter().filter(|thread| {
+        thread.id != root && listed(&thread.id) && descends(threads, thread, root, &owns)
+    }) {
         let name = Name::Agent {
             nickname: clean(thread.agent_nickname.as_deref()),
             role: clean(thread.agent_role.as_deref()),

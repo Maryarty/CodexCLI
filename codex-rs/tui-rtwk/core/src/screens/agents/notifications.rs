@@ -30,6 +30,7 @@ pub fn observes(notification: &ServerNotification) -> bool {
 /// and `track_agents_overview_activity`. The tasks it changed are read again
 /// (oracle: `refresh_thread_ids`), as the RPCs returned.
 pub fn observe(model: &mut Model, notification: &ServerNotification) -> Vec<Out> {
+    let descendant_read = super::refresh::descendant_changed(model, notification);
     let id = changed_thread(notification);
     let held = |model: &Model, id: &str| model.threads.iter().any(|held| held.id == id);
     // The read of a held task is asked first: what the notification sets is
@@ -47,6 +48,7 @@ pub fn observe(model: &mut Model, notification: &ServerNotification) -> Vec<Out>
     {
         outs = super::reads::want(model, [id.to_owned()]);
     }
+    outs.extend(descendant_read);
     outs
 }
 
@@ -68,6 +70,7 @@ fn apply(model: &mut Model, notification: &ServerNotification) {
         ServerNotification::ThreadStarted(started) => {
             if !started.thread.ephemeral {
                 model.removed.remove(&started.thread.id);
+                model.descendant_archives.remove(started.thread.id.as_str());
                 let mut thread = started.thread.clone();
                 thread.turns.clear();
                 let thread = normalize(thread);
@@ -95,6 +98,7 @@ fn apply(model: &mut Model, notification: &ServerNotification) {
         }
         ServerNotification::ThreadUnarchived(back) => {
             model.removed.remove(&back.thread_id);
+            model.descendant_archives.remove(back.thread_id.as_str());
         }
         ServerNotification::ThreadSettingsUpdated(update) => {
             let settings = &update.thread_settings;
@@ -180,6 +184,7 @@ fn overlay<'a>(model: &'a mut Model, thread: &str) -> Option<&'a mut super::Over
 }
 
 fn remove(model: &mut Model, id: &str) {
+    model.descendant_archives.remove(id);
     model.remove_subtree(id);
     model.usage.remove(id);
 }

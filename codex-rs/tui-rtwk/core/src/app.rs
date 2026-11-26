@@ -1426,6 +1426,7 @@ impl CodexApp {
                 read_session(self, &mut fx);
             }
             finish_apply(self, false, &mut fx);
+            sync_picker_root(self);
             return Some(fx);
         };
         let address = Address {
@@ -1485,12 +1486,38 @@ pub fn apply_app_from(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut
 fn apply_at(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
     // Only events that can bring tasks of other directories into the center.
     let lists = matches!(ev, AppEv::Reply(..) | AppEv::Screen(_));
+    let ancestry = matches!(ev, AppEv::Reply(..) | AppEv::Screen(ScreenEv::Agents(_)))
+        || matches!(&ev, AppEv::Backend(BackendEv::Notification(note)) if matches!(
+            &**note,
+            ServerNotification::ThreadStarted(_)
+                | ServerNotification::ThreadArchived(_)
+                | ServerNotification::ThreadDeleted(_)
+        ));
+    let previous = Rc::clone(&app.session);
     // the refusal the last apply heard has been on screen for its frame
     if app.session.cloud_switch == Some(CloudSwitch::Failed) {
         Rc::make_mut(&mut app.session).cloud_switch = None;
     }
     apply_event(app, origin, ev, fx);
     finish_apply(app, lists, fx);
+    if ancestry || (!Rc::ptr_eq(&previous, &app.session) && previous.active != app.session.active) {
+        sync_picker_root(app);
+    }
+}
+
+fn sync_picker_root(app: &mut CodexApp) {
+    let model = &app.screens.agents;
+    let root = app
+        .session
+        .active
+        .as_ref()
+        .and_then(|active| model.descendants_root(active));
+    if model.descendant_root != root {
+        let model = &mut Rc::make_mut(&mut app.screens).agents;
+        model.descendant_root = root;
+        model.descendant_root_visit = model.descendant_root_visit.wrapping_add(1);
+        model.descendants = None;
+    }
 }
 
 fn finish_apply(app: &mut CodexApp, lists: bool, fx: &mut AppFx) {
@@ -2768,7 +2795,31 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 set_open_cancelled(app, &id, true);
             }
         }
+        Intent::Screen(ScreenIntent::Agents(agents::Intent::ChooseDescendant {
+            picker,
+            thread,
+        })) => {
+            if app.screens.agents.can_choose_descendant(
+                app.session.active.as_ref(),
+                &picker,
+                &thread,
+            ) {
+                open_thread(app, &thread, fx);
+            }
+        }
         Intent::Screen(ScreenIntent::Agents(intent)) => {
+            if let agents::Intent::ReadDescendants {
+                active, root_visit, ..
+            } = &intent
+            {
+                let agents = &app.screens.agents;
+                if *root_visit != agents.descendant_root_visit
+                    || agents.descendant_root.is_none()
+                    || agents.descendant_root != agents.descendants_root(active)
+                {
+                    return;
+                }
+            }
             let screens = Rc::make_mut(&mut app.screens);
             let outs = agents::update(&mut screens.agents, intent);
             send_agents(app, outs, fx);
@@ -3464,6 +3515,13 @@ fn screen_answer(
     answer: Answer,
     fx: &mut AppFx,
 ) {
+    if !app
+        .screens
+        .agents
+        .accepts_descendants(&ctx, app.session.active.as_ref())
+    {
+        return;
+    }
     let other_backend = app.screens.agents.displayed != backend;
     // An older start can still attach to its backend without taking the newly displayed view.
     let background_start =
