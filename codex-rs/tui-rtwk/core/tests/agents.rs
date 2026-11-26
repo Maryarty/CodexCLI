@@ -2531,7 +2531,7 @@ fn an_answered_resume_asks_for_the_history() {
     let effects = resumed(&mut app, ticket, Ok(Reply::Resumed(Box::new(task))));
     // the thread's goal is read after a resume (`/goal`: a stopped goal asks to resume), and
     // the lists the `@` and `$` popups show (skills, plugins) are asked for; the history is
-    // asked for besides
+    // asked for besides, and the thread's live background terminals (the restore)
     let asked: Vec<_> = effects
         .commands()
         .iter()
@@ -2543,6 +2543,11 @@ fn an_answered_resume_asks_for_the_history() {
                     ..
                 } | AppCommand::Screen {
                     command: ScreenCommand::Popovers(_),
+                    ..
+                } | AppCommand::Screen {
+                    command: ScreenCommand::Chat(
+                        codex_tui_core::screens::chat::Command::ListTerminals { .. }
+                    ),
                     ..
                 }
             )

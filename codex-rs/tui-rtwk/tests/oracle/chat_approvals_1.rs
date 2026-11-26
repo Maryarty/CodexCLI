@@ -184,16 +184,48 @@ fn external_writer_snapshot_freezes_active_command_and_mcp_rows() {
 // ORACLE chatwidget/tests/exec_flow.rs:51 replayed_background_terminals_belong_to_the_displayed_thread kind=snap owner=dialogs-pane
 #[test]
 fn replayed_background_terminals_belong_to_the_displayed_thread() {
-    kit::pending(
-        Owner::DialogsPane,
-        "NEED (f-unified-exec): nothing asks `thread/backgroundTerminals/list` when a thread is resumed. The restore is a core door: a `screens::chat` Command/Reply for the list (decode), `threads::apply` writing `ThreadCore.processes` (a feature slice cannot: ThreadCx is read-only), `app.rs` sending it after `features::resumed`, and the terminals that ended while it was in flight skipped. /ps and the footer already read ThreadModel::terminals",
+    // The fork replays the inherited command (`sleep 100`, a terminal of the parent) as history
+    // and restores its own: the server lists `sleep 200` (live) and `sleep 300`, which ends while
+    // the list is in flight.
+    let unified_exec = |id: &str, process: &str, command: &str, status: &str| {
+        serde_json::json!({
+            "type": "commandExecution", "id": id, "pluginId": null, "scriptPath": null,
+            "command": command, "cwd": "/tmp/project", "processId": process,
+            "source": "unifiedExecStartup", "status": status, "commandActions": [],
+            "aggregatedOutput": null, "exitCode": null, "durationMs": null,
+            "startedAtMs": 0, "completedAtMs": null
+        })
+    };
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .replay(vec![kit::replay_turn(
+            "turn-1",
+            serde_json::json!([unified_exec(
+                "parent-call",
+                "42",
+                "bash -lc 'sleep 100'",
+                "inProgress"
+            )]),
+        )])
+        .open();
+    s.wait_for("Ask Codex to do anything");
+    // the end of `sleep 300` is seen before the list arrives
+    let ended = unified_exec("exited-call", "44", "sleep 300", "completed");
+    s.feed(
+        &serde_json::json!({"step": "notify", "message": {"method": "item/completed", "params": {
+            "threadId": kit::REPLAYED, "turnId": "turn-1", "item": ended, "completedAtMs": 0}}})
+        .to_string(),
     );
-    // oracle: the fork's /ps lists only its own live terminal; the exited one is not listed.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: a replayed inherited terminal (sleep 100), restore of the fork's terminals (sleep 200 live, sleep 300 exited), then /ps
+    s.terminals_listed(&[
+        ("child-call", "43", "sleep 200"),
+        ("exited-call", "44", "sleep 300"),
+    ]);
+    s.type_text("/ps");
+    s.keys("enter");
     s.assert_in_order(&["/ps", "Background terminals", "• sleep 200"]);
     s.assert_absent("sleep 300");
     s.assert_absent("sleep 100");
+    s.assert_contains("1 background terminal running");
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:95 replayed_command_completion_preserves_tracking_without_duplicate_starts kind=ui owner=dialogs-pane

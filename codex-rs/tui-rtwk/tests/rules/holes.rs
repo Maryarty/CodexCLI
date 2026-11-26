@@ -462,6 +462,7 @@ const THREAD_RPCS: &[(&str, &[&str])] = &[
     ("TurnSteer", CORE_THREAD),
     ("ReviewStart", CORE_THREAD),
     ("ThreadBackgroundTerminalsClean", CORE_THREAD),
+    ("ThreadBackgroundTerminalsList", SLICE),
     ("ThreadPrepareApprovedPlan", CORE_THREAD),
     (
         "ThreadSettingsUpdate",

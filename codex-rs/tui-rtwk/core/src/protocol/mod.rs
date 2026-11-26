@@ -417,3 +417,40 @@ pub(crate) fn turn_input_in(message: &UserMessage, current: Option<&str>) -> Vec
     }));
     input
 }
+
+/// `thread/backgroundTerminals/list`: one page of the thread's live background terminals (the
+/// restore of a resumed thread, `threads::processes`).
+pub(crate) fn list_terminals(
+    thread: &ThreadId,
+    cursor: Option<String>,
+    request_id: RequestId,
+) -> ClientRequest {
+    ClientRequest::ThreadBackgroundTerminalsList {
+        request_id,
+        params: codex_app_server_protocol::ThreadBackgroundTerminalsListParams {
+            thread_id: thread.to_string(),
+            cursor,
+            limit: None,
+        },
+    }
+}
+
+/// What the server listed: the terminals of the page and the cursor of the next.
+pub(crate) fn terminals_listed(
+    result: serde_json::Value,
+) -> Result<(Vec<crate::threads::Listed>, Option<String>), RpcError> {
+    let page = serde_json::from_value::<
+        codex_app_server_protocol::ThreadBackgroundTerminalsListResponse,
+    >(result)
+    .map_err(|error| RpcError::Malformed(error.to_string()))?;
+    let data = page
+        .data
+        .into_iter()
+        .map(|terminal| crate::threads::Listed {
+            item: terminal.item_id,
+            process: terminal.process_id,
+            command: terminal.command,
+        })
+        .collect();
+    Ok((data, page.next_cursor))
+}

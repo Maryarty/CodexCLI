@@ -32,6 +32,14 @@ pub struct Terminal {
     pub recent: Vec<String>,
 }
 
+/// A terminal the server lists (`thread/backgroundTerminals/list`), as it listed it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Listed {
+    pub item: String,
+    pub process: String,
+    pub command: String,
+}
+
 /// The empty polls of one process that follow each other (oracle `UnifiedExecWaitStreak`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WaitStreak {
@@ -45,6 +53,10 @@ pub struct WaitStreak {
 pub struct Processes {
     terminals: Vec<Terminal>,
     streak: Option<WaitStreak>,
+    /// A restore asked of the server (oracle `pending_terminal_restore`): its id and the items
+    /// whose command ended while the list was in flight.
+    restoring: Option<(u32, Vec<String>)>,
+    restore_seq: u32,
 }
 
 impl Processes {
@@ -58,7 +70,38 @@ impl Processes {
 
     /// `/stop`: the processes are gone (oracle `clear_background_terminals`).
     pub(super) fn clear(&mut self) {
+        self.restoring = None;
         self.terminals.clear();
+    }
+
+    /// A resumed thread asks for its live terminals (oracle `begin_background_terminal_restore`):
+    /// a second ask makes the answer of the first stale.
+    pub(super) fn begin_restore(&mut self) -> u32 {
+        self.restore_seq += 1;
+        self.restoring = Some((self.restore_seq, Vec::new()));
+        self.restore_seq
+    }
+
+    /// The server's list arrived (oracle `restore_background_terminals`): a terminal whose item
+    /// ended meanwhile or whose process is held already is not added; the command stays as
+    /// listed. An answer of a restore that is not the pending one is dropped.
+    pub(super) fn restore(&mut self, id: u32, listed: Vec<Listed>) {
+        let Some((_, ended)) = self.restoring.take_if(|(pending, _)| *pending == id) else {
+            return;
+        };
+        for terminal in listed {
+            if ended.contains(&terminal.item)
+                || self.terminals.iter().any(|t| t.key == terminal.process)
+            {
+                continue;
+            }
+            self.terminals.push(Terminal {
+                key: terminal.process,
+                call_id: terminal.item,
+                command: terminal.command,
+                recent: Vec::new(),
+            });
+        }
     }
 
     /// The command as the user reads it (oracle `strip_bash_lc_and_escape`).
@@ -88,6 +131,9 @@ impl Processes {
 
     /// Its command ended (oracle `track_unified_exec_process_end`).
     fn end(&mut self, call_id: &str, process: Option<&str>) {
+        if let Some((_, ended)) = &mut self.restoring {
+            ended.push(call_id.to_owned());
+        }
         let key = process.unwrap_or(call_id);
         self.terminals.retain(|terminal| terminal.key != key);
     }
@@ -245,5 +291,89 @@ pub(super) fn turn_ended(model: &mut ThreadModel, turn: &TurnId, end: TurnEnd) {
     match end {
         TurnEnd::Completed => flush(model, Some(turn.clone())),
         TurnEnd::Interrupted | TurnEnd::Failed => model.processes.streak = None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    fn listed(item: &str, process: &str, command: &str) -> Listed {
+        Listed {
+            item: item.to_owned(),
+            process: process.to_owned(),
+            command: command.to_owned(),
+        }
+    }
+
+    fn commands(processes: &Processes) -> Vec<String> {
+        processes
+            .terminals()
+            .iter()
+            .map(|terminal| terminal.command.clone())
+            .collect()
+    }
+
+    #[test]
+    fn restore_keeps_a_listed_terminal() {
+        let mut processes = Processes::default();
+        let id = processes.begin_restore();
+        processes.restore(id, vec![listed("c1", "43", "sleep 200")]);
+        assert_eq!(commands(&processes), ["sleep 200"]);
+        assert_eq!(processes.terminals()[0].key, "43");
+        assert_eq!(processes.terminals()[0].call_id, "c1");
+    }
+
+    #[test]
+    fn restore_skips_the_terminal_that_ended_while_pending() {
+        let mut processes = Processes::default();
+        let id = processes.begin_restore();
+        processes.end("c2", Some("44"));
+        processes.restore(
+            id,
+            vec![
+                listed("c1", "43", "sleep 200"),
+                listed("c2", "44", "sleep 300"),
+            ],
+        );
+        assert_eq!(commands(&processes), ["sleep 200"]);
+    }
+
+    #[test]
+    fn restore_skips_a_process_already_held() {
+        let mut processes = Processes::default();
+        processes.begin("live", Some("43"), "sleep 200");
+        let id = processes.begin_restore();
+        processes.restore(id, vec![listed("c1", "43", "sleep 200 again")]);
+        assert_eq!(commands(&processes), ["sleep 200"]);
+    }
+
+    #[test]
+    fn a_second_restore_makes_the_first_answer_stale() {
+        let mut processes = Processes::default();
+        let first = processes.begin_restore();
+        let second = processes.begin_restore();
+        processes.restore(first, vec![listed("c1", "43", "sleep 200")]);
+        assert_eq!(commands(&processes), Vec::<String>::new());
+        processes.restore(second, vec![listed("c1", "43", "sleep 200")]);
+        assert_eq!(commands(&processes), ["sleep 200"]);
+    }
+
+    #[test]
+    fn clean_forgets_a_pending_restore() {
+        let mut processes = Processes::default();
+        let id = processes.begin_restore();
+        processes.clear();
+        processes.restore(id, vec![listed("c1", "43", "sleep 200")]);
+        assert_eq!(commands(&processes), Vec::<String>::new());
+    }
+
+    #[test]
+    fn restore_keeps_the_listed_command_unstripped() {
+        let mut processes = Processes::default();
+        let id = processes.begin_restore();
+        processes.restore(id, vec![listed("c1", "43", "bash -lc 'sleep 200'")]);
+        assert_eq!(commands(&processes), ["bash -lc 'sleep 200'"]);
     }
 }
