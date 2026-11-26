@@ -121,7 +121,7 @@ fn receive(
     id: &str,
     request: ClientRequest,
     result: Result<CloudUserMessageReceipt, TypedRequestError>,
-) -> AppFx {
+) -> Option<AppFx> {
     let params = cloud_submit_params(request)
         .unwrap_or_else(|| panic!("expected native submission parameters"));
     assert_eq!(params.thread_id, THREAD);
@@ -138,9 +138,7 @@ fn receive(
         .try_recv()
         .unwrap_or_else(|error| panic!("reply at host ingress: {error}"));
     assert_eq!(event.epoch, epoch);
-    let fx = app
-        .ingest(event)
-        .unwrap_or_else(|| panic!("current Cloud reply"));
+    let fx = app.ingest(event);
     app.assert_consistent();
     fx
 }
@@ -201,7 +199,7 @@ fn cloud_admission_decides_whether_input_starts_or_steers() {
         } else {
             CloudUserMessageReceipt::Steered(active("admitted"))
         };
-        receive(&mut app, ticket, id, request, Ok(receipt));
+        assert!(receive(&mut app, ticket, id, request, Ok(receipt)).is_some());
         let thread = app.active_thread();
         assert!(matches!(
             thread.turn(),
@@ -241,8 +239,7 @@ fn cloud_duplicate_and_unknown_wait_for_exact_live_confirmation() {
         assert_eq!(app.active_thread().pending_steers().len(), 1);
         assert!(
             receive(&mut app, ticket, id, request, receipt)
-                .commands()
-                .is_empty()
+                .is_some_and(|fx| fx.commands().is_empty())
         );
         assert!(matches!(
             app.active_thread().turn(),
@@ -303,7 +300,8 @@ fn cloud_preflight_rejection_returns_the_draft_without_replaying_it() {
                     [Queued::Unconfirmed { .. }]
                 ));
             }
-            let fx = receive(&mut app, ticket, id, request, Err(server_error(-32602)));
+            let fx = receive(&mut app, ticket, id, request, Err(server_error(-32602)))
+                .unwrap_or_else(|| panic!("live admission ticket"));
             assert!(fx.commands().is_empty());
             let thread = app.active_thread();
             assert!(thread.queue().is_empty());
@@ -372,8 +370,7 @@ fn the_whole_cloud_connection_retires_lost_stream_admission_tickets() {
     assert!(app.active_thread().view().stream_lost());
     step(&mut app, AppEv::Disconnected);
     assert!(!app.active_thread().busy());
-    let fx = receive(&mut app, ticket, id, request, Err(server_error(-32602)));
-    assert!(fx.commands().is_empty());
+    assert!(receive(&mut app, ticket, id, request, Err(server_error(-32602))).is_none());
     assert!(matches!(
         app.active_thread().queue(),
         [Queued::Unconfirmed { client_id, .. }] if client_id == id
@@ -413,7 +410,8 @@ fn cloud_turn_end_waits_for_admission_without_draining_or_merging_input() {
             if echo_first {
                 assert!(step(&mut app, exact_echo(id)).commands().is_empty());
             }
-            let fx = receive(&mut app, ticket, id, request, Err(server_error(-32000)));
+            let fx = receive(&mut app, ticket, id, request, Err(server_error(-32000)))
+                .unwrap_or_else(|| panic!("live admission ticket"));
             let fx = if echo_first {
                 fx
             } else {
@@ -454,12 +452,15 @@ fn a_cloud_steer_receipt_preserves_the_active_turn_safety_check() {
         ))),
     );
     assert!(app.active_thread().safety().is_waiting());
-    receive(
-        &mut app,
-        ticket,
-        id,
-        request,
-        Ok(CloudUserMessageReceipt::Steered(active("previous"))),
+    assert!(
+        receive(
+            &mut app,
+            ticket,
+            id,
+            request,
+            Ok(CloudUserMessageReceipt::Steered(active("previous"))),
+        )
+        .is_some()
     );
     assert!(app.active_thread().safety().is_waiting());
 }
