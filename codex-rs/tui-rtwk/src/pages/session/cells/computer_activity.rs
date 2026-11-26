@@ -18,8 +18,9 @@ use crate::app::theme::Tokens;
 use crate::widgets::dots::dots_end;
 
 use super::strings::Strings;
-use super::tool_call::{mcp_mark, transcript};
-use super::tool_rows::{BULLET_COLUMNS, Env, Parts, Rows, glyph_row};
+use super::text::{Env as TextEnv, Part, Room};
+use super::tool_call::{mcp_mark, text_room, transcript, transcript_parts};
+use super::tool_rows::{BULLET, BULLET_COLUMNS, Env, Parts, Rows, glyph_row};
 
 /// The calls shown when more than three are done (oracle: two and the
 /// `N more` row).
@@ -65,6 +66,32 @@ pub fn parts(calls: &[&McpCall], env: &Env<'_>) -> Parts {
         }
         return Parts::Plain(column.into(), disclosure);
     }
+    let (label, counted, failed, shown) = compact(calls, strings);
+    let mut header = vec![
+        Span::styled(label, tokens.bold()),
+        Span::styled(counted, tokens.dim().attrs(Attrs::DIM)),
+    ];
+    if let Some(failed) = failed {
+        header.push(Span::styled(failed, tokens.error()));
+    }
+    let last = shown.len().saturating_sub(1);
+    let body = shown
+        .iter()
+        .enumerate()
+        .map(|(row, &index)| summary(calls[index], row == last, strings, tokens))
+        .collect();
+    Parts::Rows(Rows {
+        mark: tokens.dim().attrs(Attrs::DIM),
+        header: Text::rich(header).into(),
+        body,
+        disclosure,
+    })
+}
+
+fn compact(
+    calls: &[&McpCall],
+    strings: &Strings,
+) -> (&'static str, String, Option<String>, Vec<usize>) {
     let active = calls.iter().rposition(|call| call.result.is_none());
     let failures = calls
         .iter()
@@ -84,20 +111,12 @@ pub fn parts(calls: &[&McpCall], env: &Env<'_>) -> Parts {
         },
         &count.to_string(),
     );
-    let mut header = vec![
-        Span::styled(label, tokens.bold()),
-        Span::styled(counted, tokens.dim().attrs(Attrs::DIM)),
-    ];
-    if failures > 0 {
-        header.push(Span::styled(
-            strings.label(strings.computer_failed_count, &failures.to_string()),
-            tokens.error(),
-        ));
-    }
+    let failed =
+        (failures > 0).then(|| strings.label(strings.computer_failed_count, &failures.to_string()));
     let shown = match active {
         Some(index) => vec![index],
         None => {
-            let mut indices: Vec<usize> = (0..count).collect();
+            let mut indices: Vec<_> = (0..count).collect();
             // A failure first, then an image, then the later call.
             indices.sort_by_key(|&index| {
                 let call = calls[index];
@@ -108,32 +127,117 @@ pub fn parts(calls: &[&McpCall], env: &Env<'_>) -> Parts {
             } else {
                 SHOWN
             });
+            indices.sort_unstable();
             indices
         }
     };
-    let mut shown = shown;
-    shown.sort_unstable();
-    let last = shown.len().saturating_sub(1);
-    let body = shown
-        .iter()
-        .enumerate()
-        .map(|(row, &index)| summary(calls[index], row == last, strings, tokens))
-        .collect();
-    Parts::Rows(Rows {
-        mark: tokens.dim().attrs(Attrs::DIM),
-        header: Text::rich(header).into(),
-        body,
-        disclosure,
-    })
+    (label, counted, failed, shown)
+}
+
+fn label(call: &McpCall, strings: &Strings) -> String {
+    one_line(
+        call.action_title()
+            .unwrap_or(strings.computer_default_title),
+    )
+}
+
+fn preview(call: &McpCall, title: &str, strings: &Strings) -> String {
+    if call.has_image() {
+        strings.label(strings.computer_screenshot, title)
+    } else {
+        title.to_owned()
+    }
+}
+
+pub(super) fn texts(calls: &[&McpCall], env: &TextEnv<'_>, room: Room) -> Vec<Part> {
+    let strings = env.cells;
+    let expanded = env.expanded || env.detailed;
+    let mut parts = Vec::new();
+    let room = text_room(room);
+    if expanded {
+        for call in calls {
+            parts.push(Part::text(BULLET));
+            parts.extend(transcript_parts(call, strings, room));
+        }
+    } else {
+        let (verb, count, failed, shown) = compact(calls, strings);
+        parts.push(Part::gutter(BULLET));
+        parts.push(Part::text(format!(
+            "{verb}{count}{}",
+            failed.as_deref().unwrap_or_default()
+        )));
+        for (position, &index) in shown.iter().enumerate() {
+            let branch = if position + 1 == shown.len() {
+                "└ "
+            } else {
+                "├ "
+            };
+            parts.push(Part::gutter(branch));
+            parts.extend(summary_parts(calls[index], strings, room.after(branch)));
+        }
+    }
+    if !env.detailed {
+        parts.push(Part::gutter(if expanded {
+            strings.hide_details
+        } else {
+            strings.show_details
+        }));
+    }
+    parts
+}
+
+fn summary_parts(call: &McpCall, strings: &Strings, room: Room) -> Vec<Part> {
+    fn line(parts: &mut Vec<Part>, text: String, room: Room) {
+        let cut = room.cuts(&text);
+        parts.push(Part::text(text));
+        if cut {
+            parts.push(Part::gutter("…"));
+        }
+    }
+
+    let title = label(call, strings);
+    let mut parts = Vec::new();
+    if call.success() != Some(false) {
+        line(&mut parts, preview(call, &title, strings), room);
+        return parts;
+    }
+    let error = call.error_preview().map(one_line);
+    let width = room.width + BRANCH_COLUMNS + BULLET_COLUMNS;
+    let prefix = strings.computer_failed_prefix;
+    if let Some(error) = error.as_ref().filter(|_| width >= WIDE_FAILURE_FROM) {
+        let title_room = Room {
+            width: width / 3,
+            ..room
+        };
+        let used = title_room
+            .width
+            .min(i32::try_from(room.segmenter.width(&title)).unwrap_or(i32::MAX));
+        let gap = strings.computer_title_error_gap;
+        parts.push(Part::text(prefix));
+        line(&mut parts, title, title_room);
+        parts.push(Part::text(gap));
+        line(
+            &mut parts,
+            error.clone(),
+            Room {
+                width: room.after(prefix).after(gap).width.saturating_sub(used),
+                ..room
+            },
+        );
+    } else {
+        line(
+            &mut parts,
+            format!("{prefix}{}", error.as_deref().unwrap_or(&title)),
+            room,
+        );
+    }
+    parts
 }
 
 /// One shown call: its title, or why it failed, on one row (oracle `preview`:
 /// the cut keeps the blanks before its `…`, `dots_end`).
 fn summary(call: &McpCall, last: bool, strings: &'static Strings, tokens: &Tokens) -> AnyWidget {
-    let title = one_line(
-        call.action_title()
-            .unwrap_or(strings.computer_default_title),
-    );
+    let title = label(call, strings);
     let dim = tokens.dim().attrs(Attrs::DIM);
     let failed = call.success() == Some(false);
     let body: AnyWidget = if failed {
@@ -164,13 +268,8 @@ fn summary(call: &McpCall, last: bool, strings: &'static Strings, tokens: &Token
             }
         })
         .into()
-    } else if call.has_image() {
-        dots_end(
-            strings.label(strings.computer_screenshot, &title),
-            dim.clone(),
-        )
     } else {
-        dots_end(title, dim.clone())
+        dots_end(preview(call, &title, strings), dim.clone())
     };
     glyph_row(if last { "└ " } else { "├ " }, body, dim)
 }

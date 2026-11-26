@@ -21,8 +21,9 @@ use crate::widgets::dots::dots_spans_kept;
 
 use super::exploration;
 use super::strings::Strings;
-use super::text::{self, Part};
-use super::tool_rows::{BRANCH, BULLET, Env, Parts, Rows, ansi_row, plain_text};
+use super::text::{self, Part, Room};
+use super::tool_call::text_room;
+use super::tool_rows::{BRANCH, BULLET, Env, Parts, Rows, ansi_row, compact_output, plain_text};
 
 const PREVIEW_LINES: usize = 3;
 const PREVIEW_LINE_BYTES: usize = 16 * 1024;
@@ -98,16 +99,8 @@ pub fn parts(calls: &[&ToolActivity], env: &Env<'_>, output_lines: Option<usize>
     }
     let disclosure = if expanded {
         Some(strings.hide_details.to_owned())
-    } else if hidden > 0 {
-        Some(if hidden == 1 {
-            strings.hidden_output_line.to_owned()
-        } else {
-            strings.label(strings.hidden_output_lines, &hidden.to_string())
-        })
-    } else if head.has_command_control() {
-        Some(strings.show_details.to_owned())
     } else {
-        None
+        closed_disclosure(&head, hidden, strings)
     };
     // Oracle `compact_command_lines`: a non-zero exit draws a plain bold bullet (no red); the
     // exploration header's is a dim one.
@@ -124,6 +117,18 @@ pub fn parts(calls: &[&ToolActivity], env: &Env<'_>, output_lines: Option<usize>
         body,
         disclosure,
     })
+}
+
+fn closed_disclosure(head: &Headline<'_>, hidden: usize, strings: &Strings) -> Option<String> {
+    if hidden == 1 {
+        Some(strings.hidden_output_line.to_owned())
+    } else if hidden > 1 {
+        Some(strings.label(strings.hidden_output_lines, &hidden.to_string()))
+    } else if head.has_command_control() {
+        Some(strings.show_details.to_owned())
+    } else {
+        None
+    }
 }
 
 fn preview_output(tool: &ToolActivity) -> &str {
@@ -280,16 +285,20 @@ impl<'a> Headline<'a> {
 
 /// The texts of the shell row of `calls`, one part for each `Text` its cell builds, in tree order
 /// (`text_contract` holds them to the mounted cell): the detailed transcript's form, or the
-/// expanded one (what Find reads of a cell it opens). The compact form follows the room (its
-/// rows are cut to a tail and by width): no text, `None`, as for a call that is not a shell's.
+/// expanded one (what Find reads of a cell it opens), or the compact shell output tail.
 pub fn texts(calls: &[&ToolActivity], env: &text::Env<'_>) -> Option<Vec<Part>> {
+    texts_at(calls, env, Room::default())
+}
+
+pub(super) fn texts_at(
+    calls: &[&ToolActivity],
+    env: &text::Env<'_>,
+    room: Room,
+) -> Option<Vec<Part>> {
     let strings = env.cells;
     let head = Headline::of(calls, strings)?;
     if env.detailed {
         return Some(detailed_texts(calls, strings));
-    }
-    if !env.expanded {
-        return None;
     }
     // the `…` of the header's cut is a node whether the room cuts it or not (`dots_spans_kept`)
     let mut parts = vec![
@@ -297,6 +306,32 @@ pub fn texts(calls: &[&ToolActivity], env: &text::Env<'_>) -> Option<Vec<Part>> 
         Part::text(head.text()),
         Part::gutter("\u{2026}"),
     ];
+    if !env.expanded {
+        if head.exploring {
+            parts.extend(exploration::texts(calls, strings, text_room(room)));
+            parts.push(Part::gutter(strings.show_details));
+            return Some(parts);
+        }
+        let output = preview_output(calls[0]);
+        let tail: Vec<_> = output.lines().rev().take(PREVIEW_LINES).collect();
+        for (index, line) in tail.into_iter().rev().enumerate() {
+            parts.push(Part::gutter(if index == 0 { BRANCH } else { "  " }));
+            parts.push(Part::text(plain_text(&compact_output(
+                line,
+                PREVIEW_LINE_BYTES,
+            ))));
+        }
+        if output.is_empty() && calls[0].status != ToolStatus::Running {
+            parts.push(Part::gutter(BRANCH));
+            parts.push(Part::text(strings.tool_no_output));
+        }
+        if let Some(disclosure) =
+            closed_disclosure(&head, hidden_output_lines(output.lines().count()), strings)
+        {
+            parts.push(Part::gutter(disclosure));
+        }
+        return Some(parts);
+    }
     for call in calls {
         let ToolKind::Shell { command, .. } = &call.kind else {
             continue;

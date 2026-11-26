@@ -30,6 +30,7 @@ use crate::app::theme::Tokens;
 
 use super::dispatch::{CellEnv, Place, below};
 use super::strings::Strings;
+use super::text::{Env, Part};
 use codex_tui_core::threads::Item;
 
 /// oracle activity_preview.rs `DETAIL_PREVIEW_LINES`.
@@ -145,47 +146,26 @@ pub fn patch(
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Stretch);
     let counts: Vec<_> = activity.changes.iter().map(PatchChange::counts).collect();
-    let mut header = vec![Span::styled(strings.bullet, tokens.dim())];
-    if let [change] = activity.changes.as_slice() {
-        let verb = match change.kind {
-            PatchKind::Add => strings.added,
-            PatchKind::Delete => strings.deleted,
-            PatchKind::Update { .. } => strings.edited,
-        };
-        header.push(Span::styled(verb, tokens.bold()));
-        header.push(Span::new(strings.gap));
-        header.extend(path_spans(change, styles));
-        header.push(Span::new(strings.gap));
-        header.extend(count_spans(counts[0], styles));
-    } else {
-        let (added, removed) = counts
-            .iter()
-            .fold((0, 0), |(a, r), (added, removed)| (a + added, r + removed));
-        let noun = if activity.changes.len() == 1 {
-            strings.file
-        } else {
-            strings.files
-        };
-        header.push(Span::styled(strings.edited, tokens.bold()));
-        header.push(Span::new(strings.gap));
-        header.push(Span::new(activity.changes.len().to_string()));
-        header.push(Span::new(strings.gap));
-        header.push(Span::new(noun));
-        header.push(Span::new(strings.gap));
-        header.extend(count_spans((added, removed), styles));
-    }
-    column = column.child(Text::rich(header));
+    column = column.child(Text::rich(header_spans(
+        activity,
+        &counts,
+        styles.cwd,
+        strings,
+        Some(tokens),
+    )));
     let single = activity.changes.len() == 1;
     for (index, change) in activity.changes.iter().enumerate() {
         if index > 0 {
             column = column.child(SizedBox::new(None, Some(1), None));
         }
         if !single {
-            let mut row = vec![Span::styled(strings.file_branch, tokens.dim())];
-            row.extend(path_spans(change, styles));
-            row.push(Span::new(strings.gap));
-            row.extend(count_spans(counts[index], styles));
-            column = column.child(Text::rich(row));
+            column = column.child(Text::rich(file_spans(
+                change,
+                counts[index],
+                styles.cwd,
+                strings,
+                Some(tokens),
+            )));
         }
         let lines = change_lines(change, styles, preview.is_some());
         match preview {
@@ -215,14 +195,79 @@ pub fn patch(
     column.into()
 }
 
-fn path_spans(change: &PatchChange, styles: &PatchStyles<'_>) -> Vec<Span> {
-    let mut spans = vec![Span::new(display_path(&change.path, styles.cwd))];
+fn header_spans(
+    activity: &PatchActivity,
+    counts: &[(usize, usize)],
+    cwd: Option<&str>,
+    strings: &Strings,
+    tokens: Option<&Tokens>,
+) -> Vec<Span> {
+    let mut header = vec![Span::styled(
+        strings.bullet,
+        tokens.map(Tokens::dim).unwrap_or_default(),
+    )];
+    if let [change] = activity.changes.as_slice() {
+        let verb = match change.kind {
+            PatchKind::Add => strings.added,
+            PatchKind::Delete => strings.deleted,
+            PatchKind::Update { .. } => strings.edited,
+        };
+        header.push(Span::styled(
+            verb,
+            tokens.map(Tokens::bold).unwrap_or_default(),
+        ));
+        header.push(Span::new(strings.gap));
+        header.extend(path_spans(change, cwd, strings));
+        header.push(Span::new(strings.gap));
+        header.extend(count_spans(counts[0], strings, tokens));
+    } else {
+        let (added, removed) = counts
+            .iter()
+            .fold((0, 0), |(a, r), (added, removed)| (a + added, r + removed));
+        let noun = if activity.changes.len() == 1 {
+            strings.file
+        } else {
+            strings.files
+        };
+        header.push(Span::styled(
+            strings.edited,
+            tokens.map(Tokens::bold).unwrap_or_default(),
+        ));
+        header.push(Span::new(strings.gap));
+        header.push(Span::new(activity.changes.len().to_string()));
+        header.push(Span::new(strings.gap));
+        header.push(Span::new(noun));
+        header.push(Span::new(strings.gap));
+        header.extend(count_spans((added, removed), strings, tokens));
+    }
+    header
+}
+
+fn file_spans(
+    change: &PatchChange,
+    counts: (usize, usize),
+    cwd: Option<&str>,
+    strings: &Strings,
+    tokens: Option<&Tokens>,
+) -> Vec<Span> {
+    let mut row = vec![Span::styled(
+        strings.file_branch,
+        tokens.map(Tokens::dim).unwrap_or_default(),
+    )];
+    row.extend(path_spans(change, cwd, strings));
+    row.push(Span::new(strings.gap));
+    row.extend(count_spans(counts, strings, tokens));
+    row
+}
+
+fn path_spans(change: &PatchChange, cwd: Option<&str>, strings: &Strings) -> Vec<Span> {
+    let mut spans = vec![Span::new(display_path(&change.path, cwd))];
     if let PatchKind::Update {
         move_path: Some(to),
     } = &change.kind
     {
-        spans.push(Span::new(styles.strings.moved_to));
-        spans.push(Span::new(display_path(to, styles.cwd)));
+        spans.push(Span::new(strings.moved_to));
+        spans.push(Span::new(display_path(to, cwd)));
     }
     spans
 }
@@ -238,15 +283,20 @@ fn display_path(path: &str, cwd: Option<&str>) -> String {
 }
 
 /// oracle `render_line_count_summary`: `(+a -r)`, the numbers green and red.
-fn count_spans((added, removed): (usize, usize), styles: &PatchStyles<'_>) -> Vec<Span> {
-    let strings = styles.strings;
+fn count_spans(
+    (added, removed): (usize, usize),
+    strings: &Strings,
+    tokens: Option<&Tokens>,
+) -> Vec<Span> {
+    let added_style = tokens.map(Tokens::success).unwrap_or_default();
+    let removed_style = tokens.map(Tokens::error).unwrap_or_default();
     vec![
         Span::new(strings.count_open),
-        Span::styled(strings.plus, styles.tokens.success()),
-        Span::styled(added.to_string(), styles.tokens.success()),
+        Span::styled(strings.plus, added_style.clone()),
+        Span::styled(added.to_string(), added_style.clone()),
         Span::new(strings.gap),
-        Span::styled(strings.minus, styles.tokens.error()),
-        Span::styled(removed.to_string(), styles.tokens.error()),
+        Span::styled(strings.minus, removed_style.clone()),
+        Span::styled(removed.to_string(), removed_style.clone()),
         Span::new(strings.count_close),
     ]
 }
@@ -285,6 +335,107 @@ fn change_lines(
         .rsplit_once('.')
         .map(|(_, extension)| language_named(extension));
     let mut out = Vec::new();
+    with_numbered_hunks(change, |hunks| {
+        let widest = hunks
+            .iter()
+            .flatten()
+            .map(|line| line.number)
+            .max()
+            .unwrap_or_default();
+        let gutter = widest.max(1).to_string().len();
+        let strings = styles.strings;
+        for (index, hunk) in hunks.iter().enumerate() {
+            if index > 0 {
+                let left = (strings.diff_indent.len() + gutter + 1) as i32;
+                out.push(
+                    Padding::new(
+                        EdgeInsets::only(left, 0, 0, 0),
+                        Text::new(strings.hunk_gap).style(styles.tokens.dim()),
+                    )
+                    .into(),
+                );
+            }
+            let source: String = hunk
+                .iter()
+                .map(|line| line.text.as_ref())
+                .collect::<Vec<_>>()
+                .join("\n");
+            let highlighted = language.map(|language| {
+                let lexer = Highlighter::new(language, &source);
+                (0..hunk.len())
+                    .map(|row| {
+                        let text = hunk[row].text.as_ref();
+                        styles
+                            .syntax
+                            .spans(text, lexer.tokens(row))
+                            .into_iter()
+                            .map(|span| Span::styled(span.text, span.style))
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>()
+            });
+            for (row, line) in hunk.iter().enumerate() {
+                // The preview leaves the context out (diff_render.rs
+                // `render_change_with_preview`), after it measured and
+                // highlighted the whole hunk.
+                if changed_only && line.kind == DiffLineKind::Context {
+                    continue;
+                }
+                let sign = line_sign(line.kind, strings);
+                let sign_style = match line.kind {
+                    DiffLineKind::Added => styles.tokens.success(),
+                    DiffLineKind::Removed => styles.tokens.error(),
+                    DiffLineKind::Context => Style::new(),
+                };
+                let body = match highlighted.as_ref().and_then(|rows| rows.get(row)) {
+                    Some(spans) if !spans.is_empty() => spans.clone(),
+                    _ => vec![Span::styled(line.text.to_string(), sign_style.clone())],
+                };
+                // Fixed columns: the indent, the number aligned right, its blank
+                // and the sign (a line's trailing blanks take no room).
+                let width = |columns: usize, child: AnyWidget| {
+                    SizedBox::new(Some(columns as i32), None, Some(child))
+                };
+                let row_widget: AnyWidget = Row::new()
+                    .cross_axis_alignment(CrossAxisAlignment::Start)
+                    .child(width(
+                        strings.diff_indent.len(),
+                        Text::new(strings.gap).into(),
+                    ))
+                    .child(width(
+                        gutter,
+                        Text::new(line.number.to_string())
+                            .style(styles.tokens.dim())
+                            .text_align(TextAlign::Right)
+                            .into(),
+                    ))
+                    .child(width(
+                        2,
+                        Text::rich(vec![
+                            Span::new(strings.gap),
+                            Span::styled(sign, sign_style.clone()),
+                        ])
+                        .into(),
+                    ))
+                    .child(Expanded::new(1, Text::rich(body).wrap(TextWrap::Grapheme)))
+                    .into();
+                // oracle `style_line_bg_for`: the whole row, indent to the right edge, is tinted.
+                out.push(match line.kind {
+                    DiffLineKind::Added => {
+                        ColoredBox::new(styles.tokens.diff_line(true), row_widget).into()
+                    }
+                    DiffLineKind::Removed => {
+                        ColoredBox::new(styles.tokens.diff_line(false), row_widget).into()
+                    }
+                    DiffLineKind::Context => row_widget,
+                });
+            }
+        }
+        out
+    })
+}
+
+fn with_numbered_hunks<R>(change: &PatchChange, read: impl FnOnce(&[Vec<Numbered<'_>>]) -> R) -> R {
     let mut hunks: Vec<Vec<Numbered<'_>>> = Vec::new();
     let parsed;
     match change.kind {
@@ -329,101 +480,85 @@ fn change_lines(
             }
         }
     }
-    let widest = hunks
-        .iter()
-        .flatten()
-        .map(|line| line.number)
-        .max()
-        .unwrap_or_default();
-    let gutter = widest.max(1).to_string().len();
-    let strings = styles.strings;
-    for (index, hunk) in hunks.iter().enumerate() {
-        if index > 0 {
-            let left = (strings.diff_indent.len() + gutter + 1) as i32;
-            out.push(
-                Padding::new(
-                    EdgeInsets::only(left, 0, 0, 0),
-                    Text::new(strings.hunk_gap).style(styles.tokens.dim()),
-                )
-                .into(),
-            );
+    read(&hunks)
+}
+
+fn line_sign(kind: DiffLineKind, strings: &Strings) -> &'static str {
+    match kind {
+        DiffLineKind::Added => strings.plus,
+        DiffLineKind::Removed => strings.minus,
+        DiffLineKind::Context => strings.gap,
+    }
+}
+
+/// Every text node of the full diff, in the virtual list's selection order.
+pub(super) fn texts(
+    activity: &PatchActivity,
+    cwd: Option<&str>,
+    env: &Env<'_>,
+) -> Option<Vec<Part>> {
+    let strings = env.cells;
+    let changes = &activity.changes;
+    let span_text = |spans: Vec<Span>| {
+        Part::text(
+            spans
+                .into_iter()
+                .map(|span| span.text.to_string())
+                .collect::<String>(),
+        )
+    };
+    let mut parts = Vec::new();
+    if !changes.is_empty() {
+        let counts: Vec<_> = changes.iter().map(PatchChange::counts).collect();
+        parts.push(span_text(header_spans(
+            activity, &counts, cwd, strings, None,
+        )));
+        if !env.detailed && !env.expanded {
+            // The remaining nodes are clipped by painted rows per file. The
+            // summary is a selectable prefix at every width.
+            return Some(parts);
         }
-        let source: String = hunk
-            .iter()
-            .map(|line| line.text.as_ref())
-            .collect::<Vec<_>>()
-            .join("\n");
-        let highlighted = language.map(|language| {
-            let lexer = Highlighter::new(language, &source);
-            (0..hunk.len())
-                .map(|row| {
-                    let text = hunk[row].text.as_ref();
-                    styles
-                        .syntax
-                        .spans(text, lexer.tokens(row))
-                        .into_iter()
-                        .map(|span| Span::styled(span.text, span.style))
-                        .collect::<Vec<_>>()
-                })
-                .collect::<Vec<_>>()
-        });
-        for (row, line) in hunk.iter().enumerate() {
-            // The preview leaves the context out (diff_render.rs
-            // `render_change_with_preview`), after it measured and
-            // highlighted the whole hunk.
-            if changed_only && line.kind == DiffLineKind::Context {
-                continue;
+        for (index, change) in changes.iter().enumerate() {
+            if changes.len() > 1 {
+                parts.push(span_text(file_spans(
+                    change,
+                    counts[index],
+                    cwd,
+                    strings,
+                    None,
+                )));
             }
-            let (sign, sign_style) = match line.kind {
-                DiffLineKind::Added => (strings.plus, styles.tokens.success()),
-                DiffLineKind::Removed => (strings.minus, styles.tokens.error()),
-                DiffLineKind::Context => (strings.gap, Style::new()),
-            };
-            let body = match highlighted.as_ref().and_then(|rows| rows.get(row)) {
-                Some(spans) if !spans.is_empty() => spans.clone(),
-                _ => vec![Span::styled(line.text.to_string(), sign_style.clone())],
-            };
-            // Fixed columns: the indent, the number aligned right, its blank
-            // and the sign (a line's trailing blanks take no room).
-            let width = |columns: usize, child: AnyWidget| {
-                SizedBox::new(Some(columns as i32), None, Some(child))
-            };
-            let row_widget: AnyWidget = Row::new()
-                .cross_axis_alignment(CrossAxisAlignment::Start)
-                .child(width(
-                    strings.diff_indent.len(),
-                    Text::new(strings.gap).into(),
-                ))
-                .child(width(
-                    gutter,
-                    Text::new(line.number.to_string())
-                        .style(styles.tokens.dim())
-                        .text_align(TextAlign::Right)
-                        .into(),
-                ))
-                .child(width(
-                    2,
-                    Text::rich(vec![
-                        Span::new(strings.gap),
-                        Span::styled(sign, sign_style.clone()),
-                    ])
-                    .into(),
-                ))
-                .child(Expanded::new(1, Text::rich(body).wrap(TextWrap::Grapheme)))
-                .into();
-            // oracle `style_line_bg_for`: the whole row, indent to the right edge, is tinted.
-            out.push(match line.kind {
-                DiffLineKind::Added => {
-                    ColoredBox::new(styles.tokens.diff_line(true), row_widget).into()
+            with_numbered_hunks(change, |hunks| {
+                for (index, hunk) in hunks.iter().enumerate() {
+                    if index != 0 {
+                        parts.push(Part::text(strings.hunk_gap));
+                    }
+                    for line in hunk {
+                        parts.extend([
+                            Part::text(strings.gap),
+                            Part::text(line.number.to_string()),
+                            Part::text(format!("{}{}", strings.gap, line_sign(line.kind, strings))),
+                            Part::text(line.text.as_ref()),
+                        ]);
+                    }
                 }
-                DiffLineKind::Removed => {
-                    ColoredBox::new(styles.tokens.diff_line(false), row_widget).into()
-                }
-                DiffLineKind::Context => row_widget,
             });
         }
+        if !env.detailed {
+            parts.push(Part::gutter(strings.hide_details));
+        }
     }
-    out
+    if activity.status == ToolStatus::Failed {
+        if !changes.is_empty() {
+            parts.push(Part::text(strings.gap));
+        }
+        parts.push(Part::text(strings.patch_failed));
+        parts.push(Part::text(format!(
+            "{}{}",
+            strings.file_branch, strings.error_unavailable
+        )));
+    }
+    Some(parts)
 }
 
 /// A file edit.

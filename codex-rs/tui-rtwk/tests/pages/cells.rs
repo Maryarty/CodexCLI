@@ -3338,6 +3338,224 @@ mod text_contract {
         )
     }
 
+    /// The virtual list addresses every selectable render node, including gutters.
+    fn logical_nodes(items: &[Item], width: u16, detailed: bool, expanded: bool) -> Vec<String> {
+        let mut t = rtwk_test::Tester::with(
+            rtwk_test::Options::new()
+                .size(width, 60)
+                .fail_on_overflow(false),
+        );
+        t.pump_widget(
+            rtwk::provider::Provider::value(codex_tui_core::features::FeatureStates::default())
+                .child(run_cell(items, detailed)),
+        );
+        if expanded && !detailed {
+            let row = t
+                .lines()
+                .iter()
+                .position(|line| line.contains("Show details"))
+                .expect("expand control");
+            t.click(6, u16::try_from(row).unwrap_or_default());
+            t.pump();
+        }
+        let tree = t.tree().expect("mounted").render_tree();
+        rendered_nodes(tree, tree.root().expect("render root"))
+    }
+
+    fn rendered_nodes(tree: &rtwk_render::RenderTree, root: rtwk_render::RenderId) -> Vec<String> {
+        fn collect(
+            tree: &rtwk_render::RenderTree,
+            node: rtwk_render::RenderId,
+            out: &mut Vec<String>,
+        ) {
+            if let Some(selectable) = tree.selectable(node) {
+                out.push(selectable.selectable_text());
+            } else {
+                for child in tree.children(node) {
+                    collect(tree, child, out);
+                }
+            }
+        }
+        let mut nodes = Vec::new();
+        collect(tree, root, &mut nodes);
+        nodes
+    }
+
+    fn model_nodes(item: &Item, width: u16, detailed: bool, expanded: bool) -> Vec<String> {
+        use codex_tui_rtwk::pages::session::transcript::item_text::{Reading, mounted_parts};
+        let env = env(detailed, expanded);
+        let mut reading = Reading::new(&env, "• ");
+        reading.room.width = i32::from(width);
+        mounted_parts(item, &reading)
+            .expect("model nodes")
+            .into_iter()
+            .map(|part| part.text)
+            .collect()
+    }
+
+    #[test]
+    fn dynamic_and_mcp_nodes_agree_before_and_after_reflow() {
+        use codex_tui_core::threads::{DynamicCall, DynamicOutput, McpCall};
+        let calls = [
+            ToolKind::Mcp(McpCall {
+                server: "server".into(),
+                tool: "inspect".into(),
+                arguments: serde_json::json!({"path": "values"}),
+                result: Some(Err(
+                    "please inspect the extraordinarily long failure explanation".into(),
+                )),
+            }),
+            ToolKind::Dynamic(DynamicCall {
+                name: "sample.inspect".into(),
+                arguments: serde_json::json!({"path": "values"}),
+                status: ToolStatus::Completed,
+                output: Some(vec![DynamicOutput::Text(
+                    "one\ntwo\nthree\nlong result should be truncated on a narrow window".into(),
+                )]),
+                duration_ms: Some(25),
+                interrupted: false,
+            }),
+        ];
+        for kind in calls {
+            let item = Item::Tool(Arc::new(ToolActivity {
+                kind,
+                status: ToolStatus::Completed,
+                output: None,
+            }));
+            for width in [80, 20] {
+                for (detailed, expanded) in [(false, false), (false, true), (true, false)] {
+                    assert_eq!(
+                        model_nodes(&item, width, detailed, expanded),
+                        logical_nodes(std::slice::from_ref(&item), width, detailed, expanded),
+                        "width={width}, detailed={detailed}, expanded={expanded}: {item:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_computer_group_reads_every_expanded_call_and_exact_compact_nodes() {
+        use codex_tui_core::ids::{ItemId, TurnId};
+        use codex_tui_core::threads::{ItemKey, McpCall, Transcript};
+        use codex_tui_rtwk::pages::session::transcript::item_text::{Reading, row_parts};
+        use codex_tui_rtwk::pages::session::transcript::turn_details::{Kind, Row};
+
+        let items = ["first long error output", "last long error output"].map(|message| {
+            Item::Tool(Arc::new(ToolActivity {
+                kind: ToolKind::Mcp(McpCall {
+                    server: "cua_repl".into(),
+                    tool: "js".into(),
+                    arguments: serde_json::json!({"title": "Inspect computer screen"}),
+                    result: Some(Err(message.into())),
+                }),
+                status: ToolStatus::Failed,
+                output: None,
+            }))
+        });
+        let mut transcript = Transcript::default();
+        for (n, item) in items.iter().enumerate() {
+            transcript.upsert(
+                ItemKey {
+                    turn: TurnId::new("t"),
+                    item: ItemId::new(n.to_string()),
+                },
+                item.clone(),
+            );
+        }
+        for width in [20, 80] {
+            for expanded in [false, true] {
+                let env = env(false, expanded);
+                let mut reading = Reading::new(&env, "• ");
+                reading.room.width = i32::from(width);
+                let row = Row {
+                    range: 0..2,
+                    kind: Kind::Cell,
+                };
+                let modeled: Vec<_> = row_parts(&transcript, &row, &reading)
+                    .expect("computer group")
+                    .into_iter()
+                    .map(|part| part.text)
+                    .collect();
+                assert_eq!(
+                    modeled,
+                    logical_nodes(&items, width, false, expanded),
+                    "width={width}, expanded={expanded}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn diff_nodes_include_numbered_lines_and_a_failure() {
+        use codex_tui_core::threads::{PatchActivity, PatchChange, PatchKind};
+        let item = Item::Patch(Arc::new(PatchActivity {
+            changes: vec![PatchChange {
+                path: "notes.txt".into(),
+                kind: PatchKind::Add,
+                diff: "\tline one\nline two\n".into(),
+            }],
+            status: ToolStatus::Failed,
+        }));
+        assert_eq!(
+            model_nodes(&item, 80, true, false),
+            logical_nodes(std::slice::from_ref(&item), 80, true, false)
+        );
+        assert_eq!(
+            model_nodes(&item, 80, false, true),
+            logical_nodes(std::slice::from_ref(&item), 80, false, true)
+        );
+    }
+
+    #[test]
+    fn status_and_review_nodes_agree_in_wide_and_flowing_layouts() {
+        use codex_tui_core::screens::approvals::decided::{Decided, Grant};
+        use codex_tui_core::threads::ReviewLine;
+        let status_event =
+            include_str!("../../src/pages/session/cells/status/fixtures/reasoning_details.jsonl")
+                .lines()
+                .find(|line| line.contains("status_card"))
+                .expect("status card");
+        let value: serde_json::Value = serde_json::from_str(status_event).expect("status fixture");
+        let card = serde_json::from_value(value["ev"].clone()).expect("card");
+        let status = Item::Status {
+            card: Arc::new(card),
+            request: None,
+        };
+        let items = [
+            Item::Decision(Decided::Permissions(Grant::Session)),
+            Item::Review(ReviewLine::NoDenials),
+        ];
+        for width in [80, 12] {
+            use codex_tui_core::app::AppEv;
+            use codex_tui_rtwk::pages::session::cells::status::StatusCell;
+            let mut h = crate::common::start_driven_clipping(false, width, 60);
+            h.wait_idle();
+            let event = codex_tui_core::screens::seed_ev("status", value["ev"].clone())
+                .expect("status event");
+            h.inject([AppEv::Screen(event)]);
+            let tree = h.t.tree().expect("app tree");
+            let cell =
+                h.t.app_elements()
+                    .into_iter()
+                    .find(|element| tree.widget(*element).is::<StatusCell>())
+                    .expect("status cell");
+            let render = tree.render_object_of(cell).expect("status render");
+            assert_eq!(
+                model_nodes(&status, width, false, false),
+                rendered_nodes(tree.render_tree(), render),
+                "status width={width}"
+            );
+            for item in &items {
+                assert_eq!(
+                    model_nodes(item, width, false, false),
+                    logical_nodes(std::slice::from_ref(item), width, false, false),
+                    "width={width}: {item:?}"
+                );
+            }
+        }
+    }
+
     /// What a drag over the whole run selects, once its control opened it (the detailed
     /// transcript's has none).
     fn run_selected(items: &[Item], width: u16, detailed: bool) -> String {
@@ -3420,8 +3638,12 @@ mod text_contract {
         );
         // no output: no branch
         run_agrees(&[shell("echo one\necho two", "", Some(0), None)], 80, false);
-        // the compact form follows the room: no text
-        assert!(run_parts(&item, false, false).is_none());
+        // The compact node model keeps the visible output tail.
+        let compact = texts(&item[0], &env(false, false))
+            .joined(false)
+            .expect("compact shell texts");
+        assert!(compact.contains("echo one"));
+        assert!(!compact.contains("echo two"));
     }
 
     #[test]

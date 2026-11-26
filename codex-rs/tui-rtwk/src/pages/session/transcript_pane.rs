@@ -15,12 +15,14 @@ use rtwk::scroll::{
     ItemTexts, ListView, OverscrollNotification, ScrollController, ScrollNotification,
 };
 use rtwk::style::{Attrs, Style};
+use rtwk::text::segmenter_of;
 use rtwk::{
-    AnyWidget, BuildCx, Cx, Key, NotificationListener, Rebuild, State, StatefulWidget,
-    StatelessWidget, impl_widget,
+    AnyWidget, BuildCx, Cx, Key, LayoutBuilder, NotificationListener, Rebuild, State,
+    StatefulWidget, StatelessWidget, impl_widget,
 };
 
 use codex_tui_core::app::facts::TuiSettings;
+use codex_tui_core::features::FeatureStates;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::backtrack::nth_user;
@@ -31,24 +33,24 @@ use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
 use crate::widgets::finder::More;
 use crate::widgets::thread_scope::thread_scope;
-use crate::widgets::thread_ui::{Follow, TextSelection};
+use crate::widgets::thread_ui::{Disclosed, Follow, TextSelection};
 
 use super::cells::disclosure::tile;
 use super::cells::strings as cells_strings;
-use super::cells::text::Env;
+use super::cells::text::{Env, Room};
 use super::cells::user;
 use super::cells::{CellEnv, Place, cell};
 use super::strings as chat_strings;
 use super::transcript::activity_focus::{self, Activity, Stop, Walk};
 use super::transcript::copy::{self as copying, Targets};
-use super::transcript::find::{Finder, Held, RowTexts};
+use super::transcript::find::{Finder, Held, Hit, RowTexts, SelectedTool};
 use super::transcript::item_text::{Reading, body_nodes, mounted_parts, row_parts};
 use super::transcript::markdown_copy::{self, Marks};
 use super::transcript::select::{self, Pos, Select};
 use super::transcript::selection::SelectionHost;
 use super::transcript::strings as transcript_strings;
 use super::transcript::turn_details::{
-    Anchor, FoldRow, Kind, Plan, PromptFold, Row, Words, arrow, prompt_label,
+    Anchor, FoldRow, Kind, Plan, PromptFold, Row, Words, arrow, prompt_label, reveal,
 };
 use super::transcript_activity::{ActivityStamp, has_control};
 
@@ -87,6 +89,10 @@ pub(super) struct ViewportState {
     shown: RefCell<Option<ItemKey>>,
     /// The first row the list showed, to see rows come in above it.
     first: RefCell<Option<(ThreadId, ItemKey)>>,
+    /// Actual constraints of the pane, supplied by its layout builder.
+    width: i32,
+    revealed_rows: RefCell<Option<RevealedRows>>,
+    scan_first: RefCell<Option<(ThreadId, ItemKey, usize)>>,
     /// Where each reader that was left scrolled up stood (Flutter's `PageStorage` bucket of a
     /// `PageStorageKey` per list): a thread's reader is its own, so it is as it was when the
     /// reader comes back (#57499).
@@ -120,9 +126,6 @@ pub(super) struct ViewportState {
     /// it is updated, so a jump to an item asked for while the count changes names the wrong
     /// child (the reverse list counts its children from the top).
     counted: Cell<usize>,
-    /// The rows before the transcript's own that the list was last built with (the session
-    /// header): Find counts them as rows.
-    led: Cell<usize>,
     /// The row the list was last put at its top for, when older rows joined above the reader at
     /// the start of the transcript: kept while the reader does not move, to put the list there
     /// again where a pixel offset is no longer the place (another list is built with other
@@ -186,6 +189,12 @@ struct ActivityLayout {
     walk: Rc<Walk>,
 }
 
+struct RevealedRows {
+    base: Rc<[Row]>,
+    keys: Vec<ItemKey>,
+    rows: Rc<[Row]>,
+}
+
 /// The rows of the list and the plan of the folds they were made from.
 #[derive(Clone)]
 struct Shown {
@@ -195,6 +204,7 @@ struct Shown {
 
 /// What the list's state is told: older history is wanted, or a fold was tapped.
 pub(super) enum Msg {
+    Room(i32),
     Load(ThreadId),
     /// The reader waits for the first row (`Follow::beginning`) and the history is now in this
     /// state: the next page is asked for, the last one takes the reader to the first row, a
@@ -422,6 +432,11 @@ impl ViewportState {
         let lead = usize::from(header);
         let mut targets = Targets::default();
         for (at, row) in rows.iter().enumerate() {
+            if let Kind::Tools(group) = &row.kind
+                && !group.is_lone_search(transcript)
+            {
+                continue;
+            }
             let Some((_, item)) = transcript.get(row.range.start) else {
                 continue;
             };
@@ -434,53 +449,71 @@ impl ViewportState {
         targets
     }
 
-    /// The rows of the list as text, what Find reads and the selection area selects its match in:
-    /// the same model while the texts are the same.
-    fn row_texts(
-        &self,
-        thread: &ThreadModel,
-        rows: &[Row],
-        header: bool,
-        reverse: bool,
-        reading: &Reading<'_>,
-    ) -> Rc<RowTexts> {
-        let transcript = thread.transcript();
-        let mut texts: Vec<String> = Vec::with_capacity(rows.len() + usize::from(header));
-        let mut keys = Vec::with_capacity(texts.capacity());
-        // per row, per line: a gutter (the caret of select mode skips it); a row with no text
-        // (the cells that have none yet) is one line the caret skips too
-        let mut gutters: Vec<Vec<bool>> = Vec::with_capacity(texts.capacity());
-        if header {
-            texts.push(String::new());
-            keys.push(None);
-            gutters.push(vec![true]);
+    fn with_reveals(&self, base: Rc<[Row]>, thread: &ThreadModel, keys: Vec<ItemKey>) -> Rc<[Row]> {
+        let mut kept = self.revealed_rows.borrow_mut();
+        if keys.is_empty() {
+            kept.take();
+            return base;
         }
-        for row in rows {
-            keys.push(transcript.get(row.range.start).map(|(key, _)| key.clone()));
-            match row_parts(transcript, row, reading) {
-                Some(parts) => {
-                    texts.push(
-                        parts
-                            .iter()
-                            .map(|part| part.text.as_str())
-                            .collect::<Vec<_>>()
-                            .join("\n"),
-                    );
-                    gutters.push(
-                        parts
-                            .iter()
-                            .flat_map(|part| part.text.split('\n').map(|_| part.gutter))
-                            .collect(),
-                    );
-                }
-                None => {
-                    texts.push(String::new());
-                    gutters.push(vec![true]);
-                }
+        if let Some(old) = kept.as_ref()
+            && Rc::ptr_eq(&old.base, &base)
+            && old.keys == keys
+        {
+            return old.rows.clone();
+        }
+        let mut rows = base.to_vec();
+        for (index, (key, _)) in thread.transcript().iter().enumerate() {
+            if keys.contains(key) {
+                reveal(&mut rows, index);
             }
         }
-        let fresh =
-            RowTexts::new(texts, keys, reverse, transcript.layout_revision()).with_gutters(gutters);
+        let rows: Rc<[Row]> = rows.into();
+        *kept = Some(RevealedRows {
+            base,
+            keys,
+            rows: rows.clone(),
+        });
+        rows
+    }
+
+    /// A prepend shifts the raw candidates independently of the mounted rows.
+    fn reconcile_scan(
+        &self,
+        thread: &ThreadModel,
+        scan: &[Row],
+        lead: usize,
+        reverse: bool,
+        search: &Finder,
+    ) {
+        let transcript = thread.transcript();
+        let now = scan
+            .first()
+            .and_then(|row| transcript.get(row.range.start))
+            .map(|(key, _)| (thread.id().clone(), key.clone(), lead));
+        let Some((before_thread, key, before_lead)) = self.scan_first.replace(now) else {
+            return;
+        };
+        if &before_thread != thread.id() {
+            return;
+        }
+        let Some(at) = scan.iter().position(|row| {
+            transcript
+                .get(row.range.start)
+                .is_some_and(|(at, _)| *at == key)
+        }) else {
+            return;
+        };
+        let added = (at + lead).saturating_sub(before_lead);
+        if added > 0 {
+            if !reverse {
+                search.forget_place();
+            }
+            search.rows_joined(added);
+        }
+    }
+
+    /// Keeps the same selectable text model while the mounted text stays equal.
+    fn keep_texts(&self, fresh: RowTexts) -> Rc<RowTexts> {
         let mut kept = self.texts.borrow_mut();
         if let Some(old) = kept.as_ref()
             && **old == fresh
@@ -491,6 +524,65 @@ impl ViewportState {
         *kept = Some(fresh.clone());
         fresh
     }
+}
+
+fn row_texts(
+    thread: &ThreadModel,
+    rows: &[Row],
+    header: bool,
+    reverse: bool,
+    reading: &Reading<'_>,
+    disclosed: Option<&Disclosed>,
+) -> RowTexts {
+    let transcript = thread.transcript();
+    let mut texts: Vec<String> = Vec::with_capacity(rows.len() + usize::from(header));
+    let mut keys = Vec::with_capacity(texts.capacity());
+    let mut gutters: Vec<Vec<bool>> = Vec::with_capacity(texts.capacity());
+    if header {
+        texts.push(String::new());
+        keys.push(None);
+        gutters.push(vec![true]);
+    }
+    for row in rows {
+        let key = transcript.get(row.range.start).map(|(key, _)| key);
+        keys.push(key.cloned());
+        let reading = Reading {
+            revealed: disclosed.map_or(true, |disclosed| {
+                key.is_some_and(|key| disclosed.is_open(key))
+            }),
+            ..*reading
+        };
+        match row_parts(transcript, row, &reading) {
+            Some(parts) => {
+                texts.push(
+                    parts
+                        .iter()
+                        .map(|part| {
+                            if disclosed.is_none() && part.gutter {
+                                std::borrow::Cow::Owned(
+                                    std::iter::repeat_n('\0', part.text.len()).collect(),
+                                )
+                            } else {
+                                std::borrow::Cow::Borrowed(part.text.as_str())
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                );
+                gutters.push(
+                    parts
+                        .iter()
+                        .flat_map(|part| part.text.split('\n').map(|_| part.gutter))
+                        .collect(),
+                );
+            }
+            None => {
+                texts.push(String::new());
+                gutters.push(vec![true]);
+            }
+        }
+    }
+    RowTexts::new(texts, keys, reverse, transcript.layout_revision()).with_gutters(gutters)
 }
 
 impl ViewportState {
@@ -547,7 +639,6 @@ impl ViewportState {
             .and_then(|row| transcript.get(row.range.start))
             .map(|(key, _)| (thread.id().clone(), key.clone()));
         let before = self.first.replace(first.clone());
-        let led = self.led.replace(lead);
         let (Some(before), Some(now)) = (before, first) else {
             return false;
         };
@@ -562,18 +653,6 @@ impl ViewportState {
                 .get(row.range.start)
                 .is_some_and(|(key, _)| *key == before.1)
         });
-        if widget.find.active() {
-            if !reverse {
-                widget.find.forget_place();
-            }
-            // the match is the row it was, the rows that joined further on
-            if let Some(added) = moved
-                .map(|moved| (moved + lead).saturating_sub(led))
-                .filter(|added| *added > 0)
-            {
-                widget.find.rows_joined(added);
-            }
-        }
         if reverse || !widget.follow.away() {
             return false;
         }
@@ -616,6 +695,15 @@ fn is_terminal_interaction(item: &Item) -> bool {
 
 /// The item of `key` is of the turn that is running: the live tail (oracle `EntryKey::Live`, the
 /// active cell).
+fn shown_hit(hit: Hit, scan: &[Row], shown: &[Row], lead: usize) -> Option<Hit> {
+    let item = scan.get(hit.row.checked_sub(lead)?)?.range.start;
+    let row = shown.iter().position(|row| row.range.start == item)?;
+    Some(Hit {
+        row: lead + row,
+        ..hit
+    })
+}
+
 fn in_running_turn(thread: &ThreadModel, key: &ItemKey) -> bool {
     matches!(thread.turn(), TurnState::Running(running) if running.turn == key.turn)
 }
@@ -684,6 +772,9 @@ impl StatefulWidget for Pane {
             activity: RefCell::default(),
             shown: RefCell::default(),
             first: RefCell::default(),
+            width: Room::default().width,
+            revealed_rows: RefCell::default(),
+            scan_first: RefCell::default(),
             left: Vec::new(),
             restoring: None,
             finding: RefCell::default(),
@@ -695,7 +786,6 @@ impl StatefulWidget for Pane {
             texts: RefCell::default(),
             texted: Cell::new(false),
             counted: Cell::new(0),
-            led: Cell::new(0),
             anchor: Cell::new(None),
             targets: RefCell::default(),
         }
@@ -754,6 +844,13 @@ impl State for ViewportState {
 
     fn update(&mut self, msg: Msg, widget: &Pane, cx: &mut Cx<'_, Self>) -> Rebuild {
         match msg {
+            Msg::Room(width) => {
+                if self.width == width {
+                    return Rebuild::No;
+                }
+                self.width = width;
+                Rebuild::Yes
+            }
             Msg::Load(thread) => {
                 let handlers = read::<Hs, _>(cx);
                 cx.emit(&handlers.load_history, thread);
@@ -882,7 +979,11 @@ impl State for ViewportState {
         if !widget.find.active() || widget.find.asked() || held.moved(widget.follow.moves()) {
             held.clear();
         }
-        let thread = held.thread().unwrap_or_else(|| live.clone());
+        let selected_tool = SelectedTool::of(&search).read(&live, caret.active());
+        let thread = held
+            .thread()
+            .or(selected_tool)
+            .unwrap_or_else(|| live.clone());
         let strings = l10n::of(cx);
         let tokens = theme::Tokens::of(cx);
         let prompt_surface = tokens.prompt_surface(cx, true);
@@ -936,7 +1037,101 @@ impl State for ViewportState {
         };
         let reverse = !thread.read_only() && header.is_none();
         let header = header.filter(|_| !can_load);
-        let count = rows.len() + usize::from(header.is_some());
+        let lead = usize::from(header.is_some());
+        // while Find is open or select mode is on the list reads its rows as text: the scan runs
+        // over them, and the match it found (or the caret, or the range marked) is scrolled to and
+        // selected, which is how the oracle draws it (REVERSED)
+        let env = Env {
+            cells,
+            chat: table,
+            detailed,
+            expanded: false,
+        };
+        let usage =
+            reads.then(|| select::<FeatureStates, _, _>(cx, |states| states.thread_usage.clone()));
+        let card_figure = |number| usage.as_ref().and_then(|usage| usage.card_figure(number));
+        let reading = Reading {
+            env: &env,
+            bullet: &bullet,
+            cwd,
+            rendering,
+            raw,
+            raw_reasoning: show_raw_reasoning,
+            revealed: search.active(),
+            room: Room {
+                width: self.width,
+                segmenter: segmenter_of(cx),
+            },
+            status_words: super::cells::status::strings::of(cx),
+            approval_words: crate::sheets::approvals::strings::of(cx),
+            usage: usage.as_ref().map(|_| &card_figure as _),
+        };
+        let more = match thread.history_state() {
+            HistoryState::Partial => More::Loadable,
+            HistoryState::Loading => More::Loading,
+            HistoryState::Failed => More::Failed,
+            HistoryState::Complete => More::None,
+        };
+        let load = cx.local_sender();
+        if widget.follow.beginning() || caret.beginning() {
+            load(Msg::Beginning(thread.id().clone(), thread.history_state()));
+        }
+        let scan = if search.active() && collapse && !detailed {
+            thread
+                .transcript()
+                .iter()
+                .enumerate()
+                .filter(|(_, (_, item))| !item.is_detailed_only() && !is_terminal_interaction(item))
+                .map(|(index, _)| Row {
+                    range: index..index + 1,
+                    kind: Kind::Cell,
+                })
+                .collect::<Rc<[Row]>>()
+        } else {
+            rows.clone()
+        };
+        let mut opened = false;
+        let mut hit = None;
+        if search.active() {
+            self.reconcile_scan(&thread, &scan, lead, reverse, &search);
+            if search.asked() {
+                disclosed.set_found(None);
+            }
+            let texts = row_texts(&thread, &scan, header.is_some(), reverse, &reading, None);
+            hit = search.advance(&texts, more);
+            if search.take_load() {
+                load(Msg::Load(thread.id().clone()));
+            }
+            if let Some(hit) = &hit
+                && let Some(row) = hit.row.checked_sub(lead).and_then(|at| scan.get(at))
+                && let Some((key, item)) = thread.transcript().get(row.range.start)
+            {
+                let before = disclosed.found();
+                disclosed
+                    .set_found(matches!(item, Item::Tool(_) | Item::Patch(_)).then(|| key.clone()));
+                opened = disclosed.found() != before;
+                if in_running_turn(&thread, key) {
+                    held.set(thread.clone(), widget.follow.moves());
+                }
+            }
+        } else {
+            self.scan_first.borrow_mut().take();
+            disclosed.set_found(None);
+        }
+        let current = search.active().then(|| search.current()).flatten();
+        let current_row = current
+            .as_ref()
+            .and_then(|hit| hit.row.checked_sub(lead))
+            .and_then(|at| scan.get(at));
+        let current_entry = current_row.and_then(|row| thread.transcript().get(row.range.start));
+        let rows = if collapse && !detailed {
+            let mut revealed = disclosed.pins();
+            revealed.extend(current_entry.map(|(key, _)| key.clone()));
+            self.with_reveals(rows, &thread, revealed)
+        } else {
+            rows
+        };
+        let count = rows.len() + lead;
         let grew = self.counted.replace(count) != count;
         self.listen_folds(&activity, cx.local_sender());
         // the folds and the cells with a control the chat's own list has, for the keys that walk
@@ -1012,24 +1207,6 @@ impl State for ViewportState {
             binding.add_post_frame_callback(cx.map(|_: Duration| Msg::Restore));
         }
         self.listen_select(&caret, cx.local_sender());
-        // while Find is open or select mode is on the list reads its rows as text: the scan runs
-        // over them, and the match it found (or the caret, or the range marked) is scrolled to and
-        // selected, which is how the oracle draws it (REVERSED)
-        let env = Env {
-            cells,
-            chat: table,
-            detailed,
-            expanded: false,
-        };
-        let reading = Reading {
-            env: &env,
-            bullet: &bullet,
-            cwd,
-            rendering,
-            raw,
-            raw_reasoning: show_raw_reasoning,
-            revealed: search.active(),
-        };
         self.listen_selection(&widget.selection, cx.local_sender());
         self.mark(
             &markdown_copy::of(&search),
@@ -1038,19 +1215,15 @@ impl State for ViewportState {
             &rows,
             &reading,
         );
-        // what a search that reached the oldest row waits for
-        let more = match thread.history_state() {
-            HistoryState::Partial => More::Loadable,
-            HistoryState::Loading => More::Loading,
-            HistoryState::Failed => More::Failed,
-            HistoryState::Complete => More::None,
-        };
-        let load = cx.local_sender();
-        if widget.follow.beginning() || caret.beginning() {
-            load(Msg::Beginning(thread.id().clone(), thread.history_state()));
-        }
         let (texts, targets) = if reads {
-            let texts = self.row_texts(&thread, &rows, header.is_some(), reverse, &reading);
+            let texts = self.keep_texts(row_texts(
+                &thread,
+                &rows,
+                header.is_some(),
+                reverse,
+                &reading,
+                Some(&disclosed),
+            ));
             let targets = copier.cutter().filter(|_| copier.active()).map(|cutter| {
                 self.targets_of(
                     &texts,
@@ -1066,9 +1239,15 @@ impl State for ViewportState {
             (None, None)
         };
         if let Some(texts) = &texts {
-            // the caret goes where an accepted match is, and Find is done (`accept_search_into_select_mode`)
+            // Accepting into select mode makes the expansion part of the reader's view.
             if caret.read(texts) && search.reading() {
-                if let Some(hit) = search.current() {
+                if let Some(hit) = search
+                    .current()
+                    .and_then(|hit| shown_hit(hit, &scan, &rows, lead))
+                {
+                    if let Some((key, item)) = current_entry {
+                        disclosed.pin(key, matches!(item, Item::Tool(_) | Item::Patch(_)));
+                    }
                     caret.land(
                         Pos {
                             row: hit.row,
@@ -1080,45 +1259,11 @@ impl State for ViewportState {
                 search.accepted();
             }
             if search.active() {
-                // a new query leaves the cell its old match opened (the next match opens its own)
-                if search.asked() {
-                    disclosed.set_found(None);
-                }
-                let hit = search.advance(&**texts, more);
-                if search.take_load() {
-                    load(Msg::Load(thread.id().clone()));
-                }
-                if let Some(hit) = hit {
-                    // the cell of the match is open while it is the current one (a shell call's
-                    // output is cut to a tail in the list), shut again when Find leaves it
-                    let before = disclosed.found();
-                    disclosed.set_found(
-                        hit.row
-                            .checked_sub(usize::from(header.is_some()))
-                            .and_then(|row| rows.get(row))
-                            .filter(|row| matches!(row.kind, Kind::Cell))
-                            .and_then(|row| thread.transcript().get(row.range.start))
-                            .filter(|(_, item)| matches!(item, Item::Tool(_) | Item::Patch(_)))
-                            .map(|(key, _)| key.clone()),
-                    );
-                    let opened = disclosed.found() != before;
-                    // a match in the live tail stays displayed as it was found (`Held`)
-                    let live = hit
-                        .row
-                        .checked_sub(usize::from(header.is_some()))
-                        .and_then(|row| rows.get(row))
-                        .and_then(|row| thread.transcript().get(row.range.start))
-                        .is_some_and(|(key, _)| in_running_turn(&thread, key));
-                    if live {
-                        held.set(thread.clone(), widget.follow.moves());
-                    }
-                    // the controller counts a reverse list's items from its bottom; the selection
-                    // area's model counts the rows of the render list, from the top
+                if let Some(hit) = hit.and_then(|hit| shown_hit(hit, &scan, &rows, lead)) {
+                    // A newly shown member belongs to the list after this frame.
                     if search.scrolls() {
                         let index = texts.index_of(hit.row);
                         match AppBinding::maybe_of(cx) {
-                            // rows came or went since the list was laid out (the live tail grew,
-                            // a turn committed): the list knows them after this frame
                             Some(binding) if grew || opened => binding.add_post_frame_callback(
                                 cx.map(move |_: Duration| Msg::Reveal(index)),
                             ),
@@ -1171,7 +1316,6 @@ impl State for ViewportState {
         // where a row went when rows came in above it (an older page joined): the list keeps the
         // row the reader is at on its line (Flutter's `findChildIndexCallback`)
         let item_keys = thread.transcript().item_keys();
-        let lead = usize::from(header.is_some());
         let finder = {
             let (item_keys, rows) = (item_keys.clone(), rows.clone());
             move |key: &Key| -> Option<usize> {
@@ -1430,11 +1574,20 @@ impl State for ViewportState {
             caret: caret.caret(),
             find: widget.find.clone(),
         };
-        TailNews {
+        let tail_news: AnyWidget = TailNews {
             item: tail,
             follow: widget.follow.clone(),
             child: host.into(),
         }
+        .into();
+        let width = self.width;
+        let changed = cx.local_sender();
+        LayoutBuilder::new(move |_, bounds| {
+            if bounds.max_width != width {
+                changed(Msg::Room(bounds.max_width));
+            }
+            tail_news.clone()
+        })
         .into()
     }
 }

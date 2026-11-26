@@ -18,7 +18,8 @@ use rtwk_render::objects::text::{TextWrap, break_lines};
 use codex_tui_core::threads::{ExplorationAction, ToolActivity, ToolKind, ToolStatus};
 
 use super::strings::{BLANK, Strings};
-use super::tool_rows::{BULLET_COLUMNS, branch_row};
+use super::text::{Part, Room};
+use super::tool_rows::{BRANCH, BULLET_COLUMNS, branch_row};
 use crate::widgets::dots::dots_spans;
 
 /// The rows the compact cell keeps under its header (oracle `DETAIL_PREVIEW_LINES`).
@@ -199,50 +200,19 @@ pub fn body(steps: Vec<Step>, accent: Style, dim: Style, red: Style) -> AnyWidge
             Paint::Dim => dim.clone(),
             Paint::Red => red.clone(),
         };
-        // The rows: the blank cells before the text (a continuation sits under the title) and the spans.
-        let mut rows: Vec<(i32, Vec<Span>)> = Vec::new();
-        for step in &steps {
-            let indent = i32::try_from(seg.width(step.title))
-                .unwrap_or(i32::MAX)
-                .saturating_add(1);
-            let text: String = step
-                .pieces
-                .iter()
-                .map(|(piece, _)| piece.as_str())
-                .collect();
-            let room = width.saturating_sub(indent).max(1);
-            let chunks = if text.is_empty() {
-                vec![(0, 0)]
-            } else {
-                break_lines(&seg, &text, room, TextWrap::Word)
-            };
-            for (index, (from, to)) in chunks.into_iter().enumerate() {
-                let mut spans = Vec::new();
-                if index == 0 {
-                    spans.push(Span::styled(step.title.to_owned() + BLANK, accent.clone()));
-                }
-                // The chunk's slice of each piece.
-                let mut start = 0;
-                for (piece, style) in &step.pieces {
-                    let end = start + piece.len();
-                    let (a, b) = (from.max(start), to.min(end));
-                    if a < b {
-                        let shown = if end >= to {
-                            piece[a - start..b - start].trim_end()
-                        } else {
-                            &piece[a - start..b - start]
-                        };
-                        spans.push(Span::styled(shown.to_owned(), paint(*style)));
-                    }
-                    start = end;
-                }
-                rows.push((if index == 0 { 0 } else { indent }, spans));
-            }
-        }
+        let rows = preview(
+            &steps,
+            Room {
+                width,
+                segmenter: seg,
+            },
+            &accent,
+            paint,
+        );
         let mut column = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Stretch);
-        for (index, (lead, spans)) in rows.into_iter().take(PREVIEW_ROWS).enumerate() {
+        for (index, (lead, spans)) in rows.into_iter().enumerate() {
             let row: AnyWidget = if lead == 0 {
                 dots_spans(spans)
             } else {
@@ -256,4 +226,83 @@ pub fn body(steps: Vec<Step>, accent: Style, dim: Style, red: Style) -> AnyWidge
         column.into()
     })
     .into()
+}
+
+fn preview(
+    steps: &[Step],
+    room: Room,
+    accent: &Style,
+    paint: impl Fn(Paint) -> Style,
+) -> Vec<(i32, Vec<Span>)> {
+    // The rows: the blank cells before the text (a continuation sits under the title) and the spans.
+    let mut rows: Vec<(i32, Vec<Span>)> = Vec::new();
+    for step in steps {
+        let indent = i32::try_from(room.segmenter.width(step.title))
+            .unwrap_or(i32::MAX)
+            .saturating_add(1);
+        let text: String = step
+            .pieces
+            .iter()
+            .map(|(piece, _)| piece.as_str())
+            .collect();
+        let available = room.width.saturating_sub(indent).max(1);
+        let chunks = if text.is_empty() {
+            vec![(0, 0)]
+        } else {
+            break_lines(&room.segmenter, &text, available, TextWrap::Word)
+        };
+        for (index, (from, to)) in chunks.into_iter().enumerate() {
+            if rows.len() == PREVIEW_ROWS {
+                return rows;
+            }
+            let mut spans = Vec::new();
+            if index == 0 {
+                spans.push(Span::styled(step.title.to_owned() + BLANK, accent.clone()));
+            }
+            // The chunk's slice of each piece.
+            let mut start = 0;
+            for (piece, style) in &step.pieces {
+                let end = start + piece.len();
+                let (a, b) = (from.max(start), to.min(end));
+                if a < b {
+                    let shown = if end >= to {
+                        piece[a - start..b - start].trim_end()
+                    } else {
+                        &piece[a - start..b - start]
+                    };
+                    spans.push(Span::styled(shown.to_owned(), paint(*style)));
+                }
+                start = end;
+            }
+            rows.push((if index == 0 { 0 } else { indent }, spans));
+        }
+    }
+    rows
+}
+
+pub(super) fn texts(calls: &[&ToolActivity], strings: &Strings, body: Room) -> Vec<Part> {
+    let room = Room {
+        width: body.width.saturating_add(BULLET_COLUMNS).max(1),
+        ..body
+    };
+    let mut parts = Vec::new();
+    let rows = preview(&steps(calls, strings), room, &Style::default(), |_| {
+        Style::default()
+    });
+    for (index, (lead, spans)) in rows.into_iter().enumerate() {
+        let marker = if index == 0 { BRANCH } else { "  " };
+        let text: String = spans.iter().map(|span| span.text.as_ref()).collect();
+        let shown = body.after(marker);
+        let cuts = Room {
+            width: shown.width.saturating_sub(lead),
+            ..shown
+        }
+        .cuts(&text);
+        parts.push(Part::gutter(marker));
+        parts.push(Part::text(text));
+        if cuts {
+            parts.push(Part::gutter("…"));
+        }
+    }
+    parts
 }

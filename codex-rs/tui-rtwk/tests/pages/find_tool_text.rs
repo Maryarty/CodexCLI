@@ -124,3 +124,100 @@ fn a_header_cut_by_a_narrow_room_does_not_shift_the_match() {
     s.type_text("second");
     s.assert_text_style("second", "reversed");
 }
+
+const TOGETHER: &str = r#"{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"entry","kind":"exec","turn":"t","item":"a","command":"printf first\nprintf first needle","output":"private first","end":false}
+{"step":"entry","kind":"exec","turn":"t","item":"b","command":"printf second\nprintf second needle","output":"private second","start":false,"end":false}
+"#;
+
+#[test]
+fn a_folded_tool_run_reveals_only_the_matched_member() {
+    let mut s = compact(TOGETHER, 68, 24);
+    s.collapse_turn_details();
+    s.assert_absent("private");
+    s.keys("/");
+    s.type_text("needle");
+    s.assert_contains("private second");
+    s.assert_absent("private first");
+    s.assert_text_style("needle", "reversed");
+    s.keys("ctrl+p");
+    s.assert_contains("private first");
+    s.assert_absent("private second");
+    s.assert_text_style("needle", "reversed");
+    s.keys("esc");
+    s.assert_absent("private");
+}
+
+#[test]
+fn an_opened_tool_fold_keeps_its_labels_after_find_closes() {
+    let mut s = compact(TOGETHER, 68, 24);
+    s.collapse_turn_details();
+    s.keys("f4 enter esc");
+    s.assert_contains("▾");
+    s.keys("/");
+    s.type_text("second needle");
+    s.assert_contains("private second");
+    s.keys("esc");
+    s.assert_contains("▾");
+    s.assert_absent("private second");
+}
+
+const PATCH: &str = r#"{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"notify","message":{"method":"item/completed","params":{"threadId":"thread-1","turnId":"t","completedAtMs":0,"item":{"type":"fileChange","id":"p","status":"completed","changes":[{"path":"notes.txt","kind":{"type":"add"},"diff":"first\nsecond\nthird\npatch needle\n"}]}}}}
+"#;
+
+#[test]
+fn a_diff_match_reveals_a_line_outside_the_compact_preview() {
+    let mut s = compact(PATCH, 60, 22);
+    s.assert_contains("notes.txt");
+    s.assert_absent("patch needle");
+    s.keys("/");
+    s.type_text("patch needle");
+    s.assert_text_style("patch needle", "reversed");
+    s.keys("esc");
+    s.assert_absent("patch needle");
+}
+
+#[test]
+fn find_reads_a_dynamic_result_outside_the_compact_tail() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(36, 22)
+        .live()
+        .view_compact()
+        .open();
+    s.feed(r#"{"step":"notify","message":{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","completedAtMs":0,"item":{"type":"dynamicToolCall","id":"d","namespace":"sample","tool":"inspect","arguments":{"path":"example"},"status":"completed","success":true,"durationMs":25,"contentItems":[{"type":"inputText","text":"result needle\n2\n3\n4\n5"}]}}}}"#);
+    s.assert_absent("result needle");
+    s.keys("/");
+    s.type_text("result needle");
+    s.assert_text_style("result needle", "reversed");
+    s.keys("esc");
+    s.assert_absent("result needle");
+}
+
+#[test]
+fn accepting_find_keeps_the_hidden_commentary_row_in_select_mode() {
+    let turn = crate::kit::replay_turn(
+        "t",
+        serde_json::json!([
+            {"type":"userMessage","id":"prompt","clientId":null,"content":[{"type":"text","text":"Inspect","text_elements":[]}],"startedAtMs":null,"completedAtMs":null},
+            {"type":"agentMessage","id":"note","text":"folded commentary needle","phase":"commentary","moderation":null,"memoryCitation":null,"delivery":null,"questions":null,"startedAtMs":null,"completedAtMs":null},
+            {"type":"agentMessage","id":"answer","text":"Final answer","phase":"final_answer","moderation":null,"memoryCitation":null,"delivery":null,"questions":null,"startedAtMs":null,"completedAtMs":null}
+        ]),
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(60, 24)
+        .replay(vec![turn])
+        .live()
+        .view_compact()
+        .open();
+    s.collapse_turn_details();
+    s.assert_contains("Final answer");
+    s.assert_absent("folded commentary");
+    s.keys("leader [ /");
+    s.type_text("folded commentary");
+    s.assert_text_style("folded commentary", "reversed");
+    s.keys("enter");
+    s.assert_contains("folded commentary needle");
+    s.keys("q");
+    s.assert_contains("folded commentary needle");
+}

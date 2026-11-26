@@ -813,10 +813,6 @@ fn double_escape_browses_prompts_without_reverting_and_explains_editing() {
 // ORACLE app/owned_transcript_tests.rs:1647 find_refreshes_live_details_before_searching_the_first_query kind=snap owner=chat-live snap=compact_overlay_finds_hidden_live_text
 #[test]
 fn find_refreshes_live_details_before_searching_the_first_query() {
-    kit::pending(
-        Owner::ChatLive,
-        "f-find-tool-text-2 (G-new-find-room-text, folded turn details): with `collapse_turn_details` the running command is the fold row `▸ Running printf visible …` (`FoldRow`, `turn_details.rs` `Kind::Tools`), whose nodes are not the item's, so Find gives no text for it and says `No matches` (the oracle reveals the folded call, `search_presentation.rs:104`); the footer `enter accept` and `printf needle` are the first half, the second half (the Ctrl+T overlay in the compact presentation with its own Find, snapshot `compact_overlay_finds_hidden_live_text`) needs the sheet over the compact presentation",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(

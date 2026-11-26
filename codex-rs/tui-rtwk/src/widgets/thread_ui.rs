@@ -80,6 +80,8 @@ struct Cells {
     /// The cell Find shows its match in: open while the match is there, and in no set of the
     /// reader's (`ExpansionTileController.expand()` of the match, `collapse()` when Find leaves).
     found: RefCell<Option<ItemKey>>,
+    /// Details pinned by accepting a Find result into keyboard selection.
+    pinned: RefCell<BTreeSet<ItemKey>>,
     /// The cells that have a control, in the order they were first built.
     known: RefCell<Vec<ItemKey>>,
     ticks: Rc<ValueNotifier<u32>>,
@@ -90,6 +92,7 @@ impl Default for Disclosed {
         Disclosed(Rc::new(Cells {
             open: RefCell::default(),
             found: RefCell::default(),
+            pinned: RefCell::default(),
             known: RefCell::default(),
             ticks: Rc::new(ValueNotifier::new(0)),
         }))
@@ -115,6 +118,7 @@ impl Disclosed {
             self.0.open.borrow_mut().insert(key.clone())
         } else {
             let was_open = self.0.open.borrow_mut().remove(key);
+            self.0.pinned.borrow_mut().remove(key);
             let was_found = {
                 let mut found = self.0.found.borrow_mut();
                 found.as_ref() == Some(key) && found.take().is_some()
@@ -140,6 +144,22 @@ impl Disclosed {
             *self.0.found.borrow_mut() = key;
             self.tick();
         }
+    }
+
+    /// Keep the matched row visible after Find hands the caret to select mode.
+    /// A row that has a cell disclosure also keeps it open.
+    pub fn pin(&self, key: &ItemKey, expandable: bool) {
+        if self.0.pinned.borrow_mut().insert(key.clone()) {
+            if expandable {
+                self.set(key, true);
+            } else {
+                self.tick();
+            }
+        }
+    }
+
+    pub fn pins(&self) -> Vec<ItemKey> {
+        self.0.pinned.borrow().iter().cloned().collect()
     }
 
     fn tick(&self) {

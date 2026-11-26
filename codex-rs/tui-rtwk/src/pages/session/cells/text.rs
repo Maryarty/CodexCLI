@@ -20,13 +20,13 @@
 //! A cell whose text is made by a rtwk widget (Markdown, a diff) has no text
 //! here yet, and says [`Gap`]: the rows of the gap are in the pack.
 
-use codex_tui_core::threads::{Item, Notice};
+use codex_tui_core::threads::{Item, Notice, ToolActivity, ToolKind};
 
 use crate::pages::session::strings::Strings as Chat;
 
 use super::strings::Strings;
 use super::{
-    collab, deprecation, error, exec, generated_image, hook, note, notice, plan_update,
+    collab, deprecation, error, exec, generated_image, hook, note, notice, patch, plan_update,
     session_info, user, viewed_image, warning, web,
 };
 
@@ -39,6 +39,61 @@ pub struct Env<'a> {
     pub detailed: bool,
     /// The cell's disclosure is open (a tap, Enter or Space on its control).
     pub expanded: bool,
+}
+
+/// Available columns and the same segmenter the mounted cells use.
+#[derive(Clone, Copy)]
+pub struct Room {
+    pub width: i32,
+    pub segmenter: crate::widgets::measure::Measure,
+}
+
+impl Default for Room {
+    fn default() -> Self {
+        Self {
+            width: 80,
+            segmenter: crate::widgets::measure::Measure::default(),
+        }
+    }
+}
+
+impl Room {
+    pub(super) fn after(self, prefix: &str) -> Self {
+        Self {
+            width: self
+                .width
+                .saturating_sub(i32::try_from(self.segmenter.width(prefix)).unwrap_or(i32::MAX)),
+            ..self
+        }
+    }
+
+    pub(super) fn cuts(self, value: &str) -> bool {
+        self.segmenter.width(value) > usize::try_from(self.width).unwrap_or_default()
+    }
+}
+
+pub(crate) type CardFigure<'a> =
+    &'a dyn Fn(u64) -> Option<Option<codex_tui_core::screens::status::Figure>>;
+
+/// Context a cell's text reads from the chat and its measured room.
+pub(crate) struct ReadContext<'a> {
+    pub cwd: Option<&'a str>,
+    pub room: Room,
+    pub status: &'static super::status::strings::Strings,
+    pub approvals: &'static crate::sheets::approvals::strings::Strings,
+    pub usage: Option<CardFigure<'a>>,
+}
+
+impl Default for ReadContext<'_> {
+    fn default() -> Self {
+        Self {
+            cwd: None,
+            room: Room::default(),
+            status: &super::status::strings::EN,
+            approvals: &crate::sheets::approvals::strings::EN,
+            usage: None,
+        }
+    }
 }
 
 /// One `Text` of a cell.
@@ -125,6 +180,10 @@ fn one(text: String) -> Texts {
 
 /// The texts of `item`.
 pub fn texts(item: &Item, env: &Env<'_>) -> Texts {
+    texts_at(item, env, &ReadContext::default())
+}
+
+pub(crate) fn texts_at(item: &Item, env: &Env<'_>, cx: &ReadContext<'_>) -> Texts {
     let cells = env.cells;
     match item {
         Item::User(prompt) => user::texts(prompt, env.chat, cells),
@@ -178,13 +237,50 @@ pub fn texts(item: &Item, env: &Env<'_>) -> Texts {
             cells,
         )),
         Item::Collab(event) => Texts::Exact(collab::texts(event, cells)),
-        // a shell call has text in the two forms that do not follow the room (the detailed
-        // transcript's and the expanded one); the compact rows are cut by it
         Item::Tool(tool) => {
-            exec::texts(&[tool.as_ref()], env).map_or(Texts::Gap(Gap::Rows), Texts::Exact)
+            tool_texts(&[tool.as_ref()], env, cx.room).map_or(Texts::Gap(Gap::Rows), Texts::Exact)
         }
-        Item::Patch(_) | Item::Status { .. } | Item::Decision(_) | Item::Review(_) => {
-            Texts::Gap(Gap::Rows)
+        Item::Patch(activity) => {
+            patch::texts(activity, cx.cwd, env).map_or(Texts::Gap(Gap::Rows), Texts::Exact)
         }
+        Item::Status { card, .. } => {
+            let held = cx.usage.and_then(|figure| figure(card.number));
+            Texts::Exact(super::status::StatusCell::texts(
+                card,
+                held.as_ref().map(Option::as_ref),
+                cx.status,
+                cx.room,
+            ))
+        }
+        Item::Decision(decided) => Texts::Exact(
+            crate::sheets::approvals::DecisionCell::texts(decided, cx.approvals)
+                .into_iter()
+                .map(Part::text)
+                .collect(),
+        ),
+        Item::Review(line) => one(crate::sheets::approvals::ReviewLineCell::text(
+            line,
+            cx.approvals,
+        )),
+    }
+}
+
+/// The text of the first call and the tool calls its row draws with it.
+pub(crate) fn tool_texts(calls: &[&ToolActivity], env: &Env<'_>, room: Room) -> Option<Vec<Part>> {
+    let first = *calls.first()?;
+    match &first.kind {
+        ToolKind::Shell { .. } => exec::texts_at(calls, env, room),
+        ToolKind::Mcp(_) if first.is_computer_activity() => {
+            let group: Vec<_> = calls
+                .iter()
+                .filter_map(|tool| match &tool.kind {
+                    ToolKind::Mcp(call) if call.is_computer_activity() => Some(call),
+                    _ => None,
+                })
+                .collect();
+            Some(super::computer_activity::texts(&group, env, room))
+        }
+        ToolKind::Mcp(call) => Some(super::tool_call::mcp_texts(call, env, room)),
+        ToolKind::Dynamic(call) => Some(super::tool_call::dynamic_texts(call, env, room)),
     }
 }

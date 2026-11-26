@@ -175,10 +175,23 @@ fn focus_loss_stops_edge_drag_and_preserves_selection_after_focus_returns() {
 // ORACLE pager_overlay/transcript_tests.rs:354 opening_find_retains_the_selected_mutable_revision kind=ui owner=chat-live
 #[test]
 fn opening_find_retains_the_selected_mutable_revision() {
-    kit::missing(
-        Owner::ChatLive,
-        "G-new-find-room-text: the selected cell is an in-progress dynamic tool call whose revision the sheet keeps while the call is interrupted; a tool row has no text (`Gap::Rows`), so select mode cannot take it and Find has no revision of it to retain",
-    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(60, 12)
+        .live()
+        .view_overlay()
+        .open();
+    s.feed(r#"{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"t","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"item/started","params":{"threadId":"thread-1","turnId":"t","startedAtMs":0,"item":{"type":"dynamicToolCall","id":"tool","namespace":null,"tool":"inspect","arguments":{},"status":"inProgress","contentItems":null,"success":null,"durationMs":null}}}}
+"#);
+    s.assert_contains("Calling inspect");
+    let before = s.shot();
+    s.keys("leader [");
+    s.feed(r#"{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"t","rootTurnId":null,"items":[],"itemsView":"summary","status":"interrupted","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}"#);
+    s.keys("f3");
+    s.assert_find_query("");
+    s.keys("esc");
+    s.assert_same_rows_in(&before, 1..8);
+    s.assert_contains("Calling inspect");
 }
 
 // ORACLE pager_overlay/transcript_tests.rs:438 jump_top_holds_the_visible_page_until_all_history_arrives kind=snap owner=chat-live

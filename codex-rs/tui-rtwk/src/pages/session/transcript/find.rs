@@ -93,6 +93,44 @@ impl Held {
     }
 }
 
+/// A mutable tool's revision is held while keyboard selection reads it.
+#[derive(Clone, Default)]
+pub(in crate::pages::session) struct SelectedTool(Rc<RefCell<Option<Rc<ThreadModel>>>>);
+
+impl SelectedTool {
+    pub(in crate::pages::session) fn of(finder: &Finder) -> Self {
+        finder.held(Self::default)
+    }
+
+    pub(in crate::pages::session) fn read(
+        &self,
+        live: &Rc<ThreadModel>,
+        selecting: bool,
+    ) -> Option<Rc<ThreadModel>> {
+        use codex_tui_core::threads::{Item, ToolStatus};
+
+        let mut selected = self.0.borrow_mut();
+        if !selecting {
+            selected.take();
+            return None;
+        }
+        let transcript = live.transcript();
+        if selected.as_ref().is_some_and(|before| {
+            before.id() != live.id()
+                || before.transcript().layout_revision() != transcript.layout_revision()
+        }) {
+            selected.take();
+        }
+        if selected.is_none()
+            && transcript.get(transcript.len().saturating_sub(1))
+                .is_some_and(|(_, item)| matches!(item, Item::Tool(tool) if tool.status == ToolStatus::Running))
+        {
+            *selected = Some(live.clone());
+        }
+        selected.clone()
+    }
+}
+
 /// The finder of a thread's controllers (the one `begin` opens and the pane reads).
 pub fn finder(ui: &ThreadUi) -> Finder {
     ui.find.clone()
