@@ -3404,7 +3404,7 @@ fn end_turn(model: &mut ThreadModel, turn: TurnId, end: TurnEnd, fx: &mut Thread
     // The reviews of the turn are over with it (oracle `on_task_complete`).
     let over = ScreenThreadEv::Approvals(screens::approvals::ThreadEv::TurnEnded);
     screens::apply_thread_ev(&mut model.slots, over, fx);
-    Rc::make_mut(&mut model.finished_turns).insert(turn.clone());
+    let first_end = Rc::make_mut(&mut model.finished_turns).insert(turn.clone());
     if end == TurnEnd::Completed {
         model.transcript.mark_completed(&turn);
     }
@@ -3414,7 +3414,7 @@ fn end_turn(model: &mut ThreadModel, turn: TurnId, end: TurnEnd, fx: &mut Thread
     }
     model.completed_items.retain(|key| key.turn != turn);
     let ends_running = matches!(&model.turn, TurnState::Running(running) if running.turn == turn);
-    if ends_running || !model.is_running() {
+    if ends_running || (first_end && !model.is_running()) {
         model.last_ended = Some(turn.clone());
         // a later turn's runs are not this turn's to drop
         hooks::clear(model);
