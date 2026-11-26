@@ -86,6 +86,7 @@ struct Placed {
 
 pub(super) struct ViewportState {
     layout: RefCell<Option<RowLayout>>,
+    held_layout: RefCell<Option<RowLayout>>,
     activity: RefCell<Option<ActivityLayout>>,
     /// The prompt the list was last scrolled to show.
     shown: RefCell<Option<ItemKey>>,
@@ -239,13 +240,13 @@ impl ViewportState {
     /// `ReasoningSummaryCell::transcript_only`, `WarningHistoryCell`). With the
     /// turn details collapsed the plan of the folds decides instead.
     fn rows(
-        &self,
+        layout: &RefCell<Option<RowLayout>>,
         thread: &ThreadModel,
         detailed: bool,
         collapse: bool,
         activity: &Activity,
     ) -> Shown {
-        let mut cache = self.layout.borrow_mut();
+        let mut cache = layout.borrow_mut();
         let transcript = thread.transcript();
         let revision = transcript.layout_revision();
         if let Some(layout) = cache.as_ref()
@@ -714,6 +715,7 @@ impl StatefulWidget for Pane {
     fn create_state(&self) -> Self::State {
         ViewportState {
             layout: RefCell::default(),
+            held_layout: RefCell::default(),
             activity: RefCell::default(),
             shown: RefCell::default(),
             first: RefCell::default(),
@@ -902,13 +904,13 @@ impl State for ViewportState {
             self.texts.borrow_mut().take();
             self.targets.borrow_mut().take();
         }
-        // Find, selection and copy share a snapshot of the list they read. Detailed rows can
-        // also read the contents of other rows to arrange adjacent prompts and computer calls.
-        let uses_snapshot = reads
-            || widget.detailed
-            || widget.mark.is_some()
-            || widget.selection.controller().has_selection();
-        let live = if uses_snapshot {
+        // Find, keyboard selection and copy mode read live rows. Detailed rows also read across
+        // cells when arranging adjacent prompts and computer calls. The ordinary mouse range
+        // uses its retained revision. TailNews watches incoming deltas separately.
+        let reads_across_rows = reads || widget.detailed || widget.mark.is_some();
+        let ordinary_selection =
+            !reads && (widget.selection.held() || widget.follow.holding_selection());
+        let live = if reads_across_rows && !ordinary_selection {
             watch::<ThreadModel, _>(cx)
         } else {
             select::<ThreadModel, _, _>(cx, |thread| {
@@ -916,6 +918,7 @@ impl State for ViewportState {
                 (
                     thread.id().clone(),
                     transcript.layout_revision(),
+                    transcript.reset_revision(),
                     ActivityStamp::of(transcript),
                     thread.can_load_history(),
                     thread.history_state(),
@@ -934,7 +937,7 @@ impl State for ViewportState {
         let selected_tool = SelectedTool::of(&search).read(&live, caret.active());
         let selection =
             SelectedRevision::of(&search).read(&live, &widget.follow, &widget.selection, !reads);
-        let uses_snapshot = uses_snapshot || selection.is_some();
+        let uses_snapshot = reads_across_rows || selection.is_some();
         let thread = held
             .thread()
             .or(selected_tool)
@@ -979,17 +982,19 @@ impl State for ViewportState {
         let activity = activity_focus::of(&widget.find);
         let disclosed = activity.disclosed();
         let cells = cells_strings::of(cx);
-        // News follows the live transcript even when Find holds an older view of it.
-        let live_rows = self.rows(&live, detailed, collapse, &activity);
+        // News follows the live transcript. A retained revision has its own row layout
+        // so reading it cannot invalidate the cache for the incoming tail.
+        let live_rows = Self::rows(&self.layout, &live, detailed, collapse, &activity);
         let tail = live_rows
             .rows
             .last()
             .and_then(|row| live.transcript().get(row.range.end - 1))
             .map(|(key, _)| key.clone());
         let Shown { rows, plan } = if Rc::ptr_eq(&live, &thread) {
+            self.held_layout.borrow_mut().take();
             live_rows
         } else {
-            self.rows(&thread, detailed, collapse, &activity)
+            Self::rows(&self.held_layout, &thread, detailed, collapse, &activity)
         };
         let reverse = !thread.read_only() && header.is_none();
         let header = header.filter(|_| !can_load);

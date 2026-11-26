@@ -59,20 +59,28 @@ impl SelectedRevision {
         ordinary: bool,
     ) -> Option<Rc<ThreadModel>> {
         let mut held = self.0.borrow_mut();
+        if !follow.holding_selection() {
+            held.take();
+        }
+        if held.as_ref().is_some_and(|before| {
+            before.id() != live.id()
+                || before.transcript().reset_revision() != live.transcript().reset_revision()
+        }) {
+            held.take();
+            follow.release_selection();
+            selection.controller().clear();
+            return None;
+        }
         if !ordinary || (!selection.held() && !follow.at_tail()) {
             follow.release_selection();
             held.take();
             return None;
         }
-        if !follow.holding_selection() {
-            held.take();
-        }
-        // Accept older pages and replacements that change the first item. An append or a
-        // delta to the live tail preserves the selected revision and its exact copy payload.
+        // An older page updates the selected reader. Tail appends and deltas preserve the
+        // displayed revision and its copy payload.
         if held.as_ref().is_some_and(|before| {
-            before.id() != live.id()
-                || before.transcript().get(0).map(|(key, _)| key)
-                    != live.transcript().get(0).map(|(key, _)| key)
+            before.transcript().get(0).map(|(key, _)| key)
+                != live.transcript().get(0).map(|(key, _)| key)
         }) {
             follow.release_selection();
             held.take();
