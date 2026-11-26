@@ -159,6 +159,7 @@ pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
         crate::pages::session::transcript_activity::ToolRow {
             first: tool.clone(),
             rest: place.rest.clone(),
+            output_lines: place.streamed_shell_output_lines,
             detailed: env.detailed,
         }
         .into(),

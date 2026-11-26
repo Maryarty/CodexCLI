@@ -53,8 +53,8 @@ pub struct Place {
     pub fill: Option<crate::pages::session::transcript::copy::Fill>,
     /// The agent message is still being written.
     pub streaming: bool,
-    /// The calls of the run an exploration or computer call row shares,
-    /// after the first.
+    pub streamed_shell_output_lines: Option<usize>,
+    /// Calls after the first in a shared exploration or computer row.
     pub rest: Vec<Arc<ToolActivity>>,
 }
 

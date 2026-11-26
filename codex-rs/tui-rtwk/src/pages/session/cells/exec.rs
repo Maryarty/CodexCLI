@@ -28,7 +28,7 @@ const PREVIEW_LINES: usize = 3;
 const PREVIEW_LINE_BYTES: usize = 16 * 1024;
 
 /// The shell calls of one row (`calls[0]` is the row's first item).
-pub fn parts(calls: &[&ToolActivity], env: &Env<'_>) -> Parts {
+pub fn parts(calls: &[&ToolActivity], env: &Env<'_>, output_lines: Option<usize>) -> Parts {
     let Env {
         strings,
         tokens,
@@ -63,13 +63,8 @@ pub fn parts(calls: &[&ToolActivity], env: &Env<'_>) -> Parts {
             header.push(Span::new(MORE));
         }
     }
-    let multiline = head.multiline();
     let header = dots_spans_kept(header);
-    let output = tool
-        .output
-        .as_deref()
-        .unwrap_or_default()
-        .trim_end_matches(['\r', '\n']);
+    let output = preview_output(tool);
     let mut body: Vec<AnyWidget> = Vec::new();
     let mut hidden = 0;
     if expanded {
@@ -79,7 +74,7 @@ pub fn parts(calls: &[&ToolActivity], env: &Env<'_>) -> Parts {
     } else if !exploring {
         let tail: Vec<_> = output.lines().rev().take(PREVIEW_LINES).collect();
         if tail.len() == PREVIEW_LINES {
-            hidden = output.lines().count() - PREVIEW_LINES;
+            hidden = hidden_output_lines(output_lines.unwrap_or_else(|| output.lines().count()));
         }
         for (index, line) in tail.into_iter().rev().enumerate() {
             body.push(ansi_row(index, line, tokens, false, PREVIEW_LINE_BYTES));
@@ -109,7 +104,7 @@ pub fn parts(calls: &[&ToolActivity], env: &Env<'_>) -> Parts {
         } else {
             strings.label(strings.hidden_output_lines, &hidden.to_string())
         })
-    } else if multiline || exploring {
+    } else if head.has_command_control() {
         Some(strings.show_details.to_owned())
     } else {
         None
@@ -131,21 +126,48 @@ pub fn parts(calls: &[&ToolActivity], env: &Env<'_>) -> Parts {
     })
 }
 
-/// Whether the shell row of `calls` draws a control while it is closed (what `parts` reads to
-/// decide it): a command of several lines, an exploration, an output the three-line tail cuts.
-pub fn has_control(calls: &[&ToolActivity], strings: &Strings) -> bool {
-    let Some(head) = Headline::of(calls, strings) else {
-        return false;
-    };
-    if head.multiline() || head.exploring {
-        return true;
-    }
-    let output = calls[0]
-        .output
+fn preview_output(tool: &ToolActivity) -> &str {
+    tool.output
         .as_deref()
         .unwrap_or_default()
-        .trim_end_matches(['\r', '\n']);
-    output.lines().count() > PREVIEW_LINES
+        .trim_end_matches(['\r', '\n'])
+}
+
+fn hidden_output_lines(lines: usize) -> usize {
+    lines.saturating_sub(PREVIEW_LINES)
+}
+
+fn multiline(command: &str) -> bool {
+    command.lines().nth(1).is_some()
+}
+
+/// Whether a shell row has a control independent of its output.
+fn has_command_control(tool: &ToolActivity) -> bool {
+    let ToolKind::Shell {
+        command, actions, ..
+    } = &tool.kind
+    else {
+        return false;
+    };
+    !actions.is_empty() || multiline(&command_text(command))
+}
+
+/// Whether the first call draws a control while it is closed.
+pub(in crate::pages::session) fn has_control(tool: &ToolActivity) -> bool {
+    has_command_control(tool)
+        || hidden_output_lines(preview_output(tool).lines().take(PREVIEW_LINES + 1).count()) > 0
+}
+
+/// Whether a delta has added an output control to a shell whose original
+/// output and command did not already make it a stop.
+pub(in crate::pages::session) fn gained_output_control(
+    tool: &ToolActivity,
+    initial: usize,
+    current: usize,
+) -> bool {
+    hidden_output_lines(initial) == 0
+        && hidden_output_lines(current) > 0
+        && !has_command_control(tool)
 }
 
 /// What the header of a shell row says, in words: the one place the title, the count of failures
@@ -233,7 +255,11 @@ impl<'a> Headline<'a> {
 
     /// The command has more lines than the header shows.
     fn multiline(&self) -> bool {
-        self.command.lines().nth(1).is_some()
+        multiline(&self.command)
+    }
+
+    fn has_command_control(&self) -> bool {
+        self.exploring || self.multiline()
     }
 
     /// The header as one string: what its `Text` holds (an exploration names no command).
