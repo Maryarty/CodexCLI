@@ -762,6 +762,18 @@ fn wizard_built(feature: Feature) -> bool {
     )
 }
 
+/// What `should_show_provider_setup_wizard` reads of the configuration: the wizard's
+/// feature is on, a gateway wizard has no required provider, and the provider is OpenAI's.
+pub(crate) fn wizard_configured(config: &Config, feature: Feature) -> bool {
+    config.features.enabled(feature)
+        && (feature != Feature::GatewaySetupWizard
+            || config
+                .config_layer_stack
+                .required_model_provider()
+                .is_none())
+        && config.model_provider_id == "openai"
+}
+
 /// The login methods allowed and the provider wizards the configuration
 /// and the server offer (`OnboardingScreenArgs` in `run_ratatui_app`,
 /// `should_show_provider_setup_wizard`).
@@ -771,13 +783,7 @@ fn login_policy(startup: &Startup) -> wire::LoginPolicy {
     let wizard = |feature| {
         wizard_built(feature)
             && startup.target.supports(feature)
-            && config.features.enabled(feature)
-            && (feature != Feature::GatewaySetupWizard
-                || config
-                    .config_layer_stack
-                    .required_model_provider()
-                    .is_none())
-            && config.model_provider_id == "openai"
+            && wizard_configured(config, feature)
     };
     wire::LoginPolicy {
         chatgpt: auth.is_login_method_allowed(ForcedLoginMethod::Chatgpt),

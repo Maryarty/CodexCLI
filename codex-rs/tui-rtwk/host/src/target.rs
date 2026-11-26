@@ -72,9 +72,98 @@ const OVERRIDES_EXCLUSION: &str =
 pub fn startup_warning(flags: &Flags<'_>) -> Option<String> {
     let uses_daemon = flags.agents && !flags.no_daemon && flags.remote.is_none();
     let reason = config_exclusion(flags.config_overrides).filter(|_| uses_daemon)?;
-    Some(format!(
-        "Running without the shared background server: {reason} requires embedded mode."
-    ))
+    Some(exclusion_warning(reason))
+}
+
+/// The one sentence of that notice, for whichever launch builds it.
+pub fn exclusion_warning(reason: &str) -> String {
+    format!("Running without the shared background server: {reason} requires embedded mode.")
+}
+
+/// What the launch asked of the connection, as `daemon_startup.rs::exclusion` reads it.
+/// The oracle's other exclusions (`--profile`, `--strict-config`,
+/// `--dangerously-bypass-hook-trust`, workload identity, a custom configuration
+/// loader) belong to flags this port's command line does not take, so they cannot occur.
+pub struct Launch<'a> {
+    pub no_daemon: bool,
+    pub agents: bool,
+    pub oss: bool,
+    /// An explicit `--remote` endpoint.
+    pub remote: bool,
+    /// `-c key=value`, raw.
+    pub config_overrides: &'a [String],
+    /// `CODEX_EXEC_SERVER_URL` is set.
+    pub exec_server_url: bool,
+}
+
+/// What a launch without an explicit server does about the shared one.
+#[derive(Debug, PartialEq, Eq)]
+pub enum AutoStart {
+    /// Start it when it is not running and attach (required).
+    Daemon,
+    /// Stay embedded. `exclusion` is what keeps it off the daemon, named in the
+    /// startup warning only when auto-start was on. `reusable`: nothing excludes
+    /// the daemon, so one that already listens may be attached (`daemon_auto_start`
+    /// off).
+    Embedded {
+        exclusion: Option<&'static str>,
+        reusable: bool,
+    },
+}
+
+/// `startup_orchestration.rs`: `auto_start_daemon` (the feature, or the command
+/// center; an implicit connection; no `--no-daemon`) and the exclusions that
+/// turn it back to embedded. `feature_on`: `daemon_auto_start` in the config.
+pub fn auto_start(launch: &Launch<'_>, feature_on: bool) -> AutoStart {
+    let supported = cfg!(any(unix, windows));
+    let auto = supported && (feature_on || launch.agents) && !launch.remote && !launch.no_daemon;
+    let excluded = if launch.no_daemon {
+        Some("--no-daemon")
+    } else if launch.oss {
+        Some("--oss")
+    } else if launch.exec_server_url {
+        Some("executor selection (CODEX_EXEC_SERVER_URL)")
+    } else {
+        config_exclusion(launch.config_overrides)
+    };
+    if auto && excluded.is_none() {
+        return AutoStart::Daemon;
+    }
+    AutoStart::Embedded {
+        exclusion: excluded.filter(|_| auto),
+        reusable: supported && !launch.remote && excluded.is_none(),
+    }
+}
+
+/// `lib.rs::maybe_probe_default_daemon_socket`: whether a daemon already listens
+/// on `socket` (a connect that answers within 50 ms). Unix sockets only.
+pub async fn probe_daemon(socket: Option<AbsolutePathBuf>) -> bool {
+    let Some(socket) = socket else {
+        return false;
+    };
+    probe_socket(socket.into_path_buf()).await
+}
+
+#[cfg(unix)]
+async fn probe_socket(path: std::path::PathBuf) -> bool {
+    matches!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(50),
+            tokio::net::UnixStream::connect(path)
+        )
+        .await,
+        Ok(Ok(_))
+    )
+}
+
+#[cfg(not(unix))]
+async fn probe_socket(_: std::path::PathBuf) -> bool {
+    false
+}
+
+/// The default daemon's socket (`<CODEX_HOME>/...`), when the home resolves.
+pub fn default_daemon_socket() -> Option<AbsolutePathBuf> {
+    default_socket()
 }
 
 impl Mode {
@@ -528,5 +617,177 @@ mod tests {
             None,
             "the chat never used the daemon"
         );
+    }
+
+    fn launch<'a>(overrides: &'a [String]) -> Launch<'a> {
+        Launch {
+            no_daemon: false,
+            agents: false,
+            oss: false,
+            remote: false,
+            config_overrides: overrides,
+            exec_server_url: false,
+        }
+    }
+
+    const EMBEDDED: AutoStart = AutoStart::Embedded {
+        exclusion: None,
+        reusable: true,
+    };
+
+    /// `daemon_auto_start` is Stable and on by default: a plain chat starts the shared server.
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn chat_auto_starts_the_daemon_by_default() {
+        assert_eq!(auto_start(&launch(&[]), true), AutoStart::Daemon);
+        let features = raw(&[
+            "features.shell_tool=false",
+            "tui.fullscreen_transcript=true",
+        ]);
+        assert_eq!(auto_start(&launch(&features), true), AutoStart::Daemon);
+    }
+
+    /// A pin move that flips the feature's default is red here.
+    #[test]
+    fn daemon_auto_start_is_on_by_default() {
+        assert!(codex_features::Feature::DaemonAutoStart.default_enabled());
+    }
+
+    /// `daemon_startup_tests.rs::daemon_eligibility_preserves_launch_options_and_explains_exclusions`
+    /// (`--profile`, `--strict-config`, `--dangerously-bypass-hook-trust`, workload identity and
+    /// a custom loader are flags this command line does not take).
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn daemon_eligibility_preserves_launch_options_and_explains_exclusions() {
+        let excluded = |exclusion| AutoStart::Embedded {
+            exclusion: Some(exclusion),
+            reusable: false,
+        };
+        let none: Vec<String> = Vec::new();
+        let oss = Launch {
+            oss: true,
+            ..launch(&none)
+        };
+        assert_eq!(auto_start(&oss, true), excluded("--oss"));
+        let exec = Launch {
+            exec_server_url: true,
+            ..launch(&none)
+        };
+        assert_eq!(
+            auto_start(&exec, true),
+            excluded("executor selection (CODEX_EXEC_SERVER_URL)")
+        );
+        let search = raw(&["web_search=live"]);
+        assert_eq!(
+            auto_start(&launch(&search), true),
+            excluded(OVERRIDES_EXCLUSION)
+        );
+        // `--oss` is named before the overrides.
+        let both = Launch {
+            oss: true,
+            ..launch(&search)
+        };
+        assert_eq!(auto_start(&both, true), excluded("--oss"));
+    }
+
+    /// With the feature off nothing starts, and an exclusion is nothing to warn about; a
+    /// launch that nothing excludes may still attach to a daemon that already runs.
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn feature_off_chat_stays_embedded_without_a_warning() {
+        assert_eq!(auto_start(&launch(&[]), false), EMBEDDED);
+        let search = raw(&["web_search=live"]);
+        assert_eq!(
+            auto_start(&launch(&search), false),
+            AutoStart::Embedded {
+                exclusion: None,
+                reusable: false
+            }
+        );
+        let oss = Launch {
+            oss: true,
+            ..launch(&[])
+        };
+        assert_eq!(
+            auto_start(&oss, false),
+            AutoStart::Embedded {
+                exclusion: None,
+                reusable: false
+            }
+        );
+    }
+
+    /// `an_excluded_chat_warns_only_when_auto_start_was_on`, and `--no-daemon` never does.
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn an_excluded_chat_warns_only_when_auto_start_was_on() {
+        let search = raw(&["web_search=live"]);
+        let AutoStart::Embedded { exclusion, .. } = auto_start(&launch(&search), true) else {
+            panic!("embedded");
+        };
+        assert_eq!(
+            exclusion.map(exclusion_warning).as_deref(),
+            Some(
+                "Running without the shared background server: command-line configuration overrides (-c, --enable, --disable, or --search) requires embedded mode."
+            )
+        );
+        let no_daemon = Launch {
+            no_daemon: true,
+            ..launch(&search)
+        };
+        for feature_on in [true, false] {
+            assert_eq!(
+                auto_start(&no_daemon, feature_on),
+                AutoStart::Embedded {
+                    exclusion: None,
+                    reusable: false
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn an_explicit_remote_is_never_auto_started() {
+        let remote = Launch {
+            remote: true,
+            ..launch(&[])
+        };
+        for feature_on in [true, false] {
+            assert_eq!(
+                auto_start(&remote, feature_on),
+                AutoStart::Embedded {
+                    exclusion: None,
+                    reusable: false
+                }
+            );
+        }
+    }
+
+    /// The command center asks for the daemon whatever the feature says.
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn agents_keeps_its_own_decision() {
+        let agents = Launch {
+            agents: true,
+            ..launch(&[])
+        };
+        assert_eq!(auto_start(&agents, false), AutoStart::Daemon);
+        assert_eq!(
+            Mode::resolve(&flags(None, None), env).unwrap(),
+            Mode::Daemon
+        );
+    }
+
+    /// `maybe_probe_default_daemon_socket`: a listener answers, a missing socket does not.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_running_daemon_is_probed_and_a_missing_one_is_not() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let path = dir.path().join("control.sock");
+        let socket = AbsolutePathBuf::from_absolute_path_checked(&path).expect("absolute");
+        assert!(!probe_daemon(Some(socket.clone())).await);
+        assert!(!probe_daemon(None).await);
+        let _listener = tokio::net::UnixListener::bind(&path).expect("a listener");
+        assert!(probe_daemon(Some(socket)).await);
     }
 }

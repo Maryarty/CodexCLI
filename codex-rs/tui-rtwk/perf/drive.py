@@ -335,9 +335,10 @@ def argv_for(kind: str, binary: str, scenario: dict, work: str) -> list[str] | N
         if sub:
             if not rtwk_has_subcommand(binary, sub[0]):
                 return None
-            # --no-daemon: the embedded server, as the oracle's run (the daemon needs a packaged CLI)
             return [binary] + list(sub)
-        return [binary]
+        # --no-daemon: the embedded server, as the oracle's run (a chat starts the shared
+        # background server by default, which needs a packaged CLI)
+        return [binary, "--no-daemon"]
     raise SystemExit(f"unknown binary kind {kind!r} (oracle or rtwk)")
 
 

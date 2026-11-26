@@ -5,8 +5,10 @@ EnvironmentManager before `run()`; `InProcess::run` (the backend future, started
 `on_start`) does it after the first paint, and a failure arrives as `AppEv::StartFailed`
 (Flutter: runApp a light root, the heavy init a FutureBuilder-like async start). Also:
 `[profile.dist]` (thin LTO, codegen-units 4; default release unchanged), `perf/scenarios/S9w.json`
-(warm home: a discarded first launch creates the state DB), `drive.py` drops `--no-daemon` for
-codex-rtwk (it has no daemon; S11 never became ready on rtwk without this).
+(warm home: a discarded first launch creates the state DB), `drive.py` dropped `--no-daemon` for
+codex-rtwk (it had no daemon; S11 never became ready on rtwk without this). Since the chat
+auto-starts the shared background server (`f-chat-daemon-autostart`), `drive.py` passes
+`--no-daemon` again for the rtwk chat; a subcommand run keeps its own mode.
 
 Release builds (plain `cargo build --release`, strip symbols), N=15, drive.py, runs with load < 15.
 Ready = the composer text (S9, S9w) or "Agent command center" (S11), median ms (min..max).

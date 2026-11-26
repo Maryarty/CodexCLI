@@ -179,6 +179,8 @@ pub struct InProcess {
     pub arg0_paths: Arg0DispatchPaths,
     /// Which server: the embedded one, the local daemon or a remote one.
     pub mode: Mode,
+    /// `--no-daemon`.
+    pub no_daemon: bool,
     /// Receives the client when the backend future ends or is aborted, so
     /// that `main` shuts it down (see `HandBack`).
     pub done: oneshot::Sender<AppServerClient>,
@@ -233,6 +235,7 @@ async fn run(
     let InProcess {
         arg0_paths,
         mut mode,
+        no_daemon,
         done,
         model,
         oss,
@@ -253,6 +256,7 @@ async fn run(
         let _ = failed.send(error.clone());
         emit(&ingress, epoch, AppEv::StartFailed(error));
     };
+    let raw_overrides = config_overrides.clone();
     let mut cli_overrides = match (codex_utils_cli::CliConfigOverrides {
         raw_overrides: config_overrides,
     })
@@ -261,12 +265,9 @@ async fn run(
         Ok(overrides) => overrides,
         Err(error) => return fail(format!("Error parsing -c overrides: {error}")),
     };
-    // What the command line asks of the shared server, checked once it is connected.
-    let daemon_features = if matches!(mode, Mode::Daemon) {
-        crate::daemon::requested_features(&cli_overrides)
-    } else {
-        Default::default()
-    };
+    // What the command line asks of the shared server, checked once it is connected
+    // (kept only when the launch ends up on the daemon).
+    let requested_features = crate::daemon::requested_features(&cli_overrides);
     // Loaded here, after the first frame: config, state DB, environment manager.
     let startup_cwd = cwd.clone();
     let mut overrides = ConfigOverrides {
@@ -331,9 +332,60 @@ async fn run(
     {
         return fail(error);
     }
+    // The shared server: the chat decides it here, once the config is read
+    // (`startup_orchestration.rs`: `daemon_auto_start`, the exclusions, the notice).
+    let mut startup_warning = startup_warning;
+    let mut reuse = false;
+    if matches!(mode, Mode::Embedded) && !agents {
+        let launch = crate::target::Launch {
+            no_daemon,
+            agents,
+            oss,
+            remote: false,
+            config_overrides: &raw_overrides,
+            exec_server_url: std::env::var_os("CODEX_EXEC_SERVER_URL").is_some(),
+        };
+        let feature_on = config
+            .features
+            .enabled(codex_features::Feature::DaemonAutoStart);
+        match crate::target::auto_start(&launch, feature_on) {
+            crate::target::AutoStart::Daemon => mode = Mode::Daemon,
+            crate::target::AutoStart::Embedded {
+                exclusion,
+                reusable,
+            } => {
+                startup_warning = exclusion.map(crate::target::exclusion_warning);
+                // A daemon that already listens is attached (not started), and left
+                // for the embedded server when it does not answer.
+                if reusable
+                    && crate::target::probe_daemon(crate::target::default_daemon_socket()).await
+                {
+                    mode = Mode::Daemon;
+                    reuse = true;
+                }
+            }
+        }
+    }
+    if matches!(mode, Mode::Daemon) && !reuse {
+        // What the sign-in wizards and the home folder still exclude from it.
+        let exclusion = match crate::daemon::wizard_exclusion(&config).await {
+            Some(reason) => Some(reason),
+            None => crate::daemon::uses_wsl_drvfs(config.codex_home.as_path())
+                .then_some(crate::daemon::WSL_DRVFS_EXCLUSION),
+        };
+        if let Some(reason) = exclusion {
+            mode = Mode::Embedded;
+            startup_warning = Some(crate::target::exclusion_warning(reason));
+        }
+    }
+    let daemon_features = if matches!(mode, Mode::Daemon) {
+        requested_features
+    } else {
+        Default::default()
+    };
     // The server, and whether its workspace is this machine's (oracle:
     // `worktrees_enabled`: a local workspace, and no cloud list).
-    let (client, local) = match connect_first(&mode, &config, arg0_paths.clone()).await {
+    let (client, local) = match connect_first(&mut mode, reuse, &config, arg0_paths.clone()).await {
         Ok(connected) => connected,
         Err(error) => {
             // The typed failure first: `main` finds it once the app has ended.
@@ -669,7 +721,8 @@ async fn run(
             } else {
                 mode.clone()
             };
-            match connect_first(&next, &config, arg0_paths.clone()).await {
+            let mut next = next;
+            match connect_first(&mut next, false, &config, arg0_paths.clone()).await {
                 Ok((restarted, _)) => {
                     handle = restarted.request_handle();
                     if let Some(old) = held.replace(restarted) {
@@ -943,11 +996,23 @@ pub(crate) fn reconnect_endpoint(mode: &Mode) -> Option<RemoteAppServerEndpoint>
 
 /// The server's first connection, and whether its workspace is this
 /// machine's. A failure is the text the app shows (`StartFailed`).
+///
+/// `fallback`: the daemon was found running, not started for this launch; one that does not
+/// answer leaves the launch on the embedded server (`mode` says which it is).
 async fn connect_first(
-    mode: &Mode,
+    mode: &mut Mode,
+    fallback: bool,
     config: &Arc<Config>,
     arg0_paths: Arg0DispatchPaths,
 ) -> anyhow::Result<(AppServerClient, bool)> {
+    if fallback && matches!(mode, Mode::Daemon) {
+        if let Some(endpoint) = reconnect_endpoint(mode)
+            && let Some(client) = connect_remote(endpoint).await
+        {
+            return Ok((client, true));
+        }
+        *mode = Mode::Embedded;
+    }
     match mode {
         Mode::Embedded => {
             let args = start_args(config.clone(), arg0_paths).await?;

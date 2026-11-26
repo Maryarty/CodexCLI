@@ -65,6 +65,69 @@ pub(crate) async fn run(ask: DaemonAsk, update: &UpdateSlot) -> Done {
 /// `daemon_startup.rs::FAILURE_HINT`.
 pub(crate) const FAILURE_HINT: &str = "To work without the background server, rerun the same command with --no-daemon (including resume or fork and its arguments).";
 
+/// `daemon_startup.rs::GATEWAY_SIGN_IN_EXCLUSION`.
+pub(crate) const GATEWAY_SIGN_IN_EXCLUSION: &str = "custom provider or gateway sign-in";
+/// `daemon_startup.rs::WSL_DRVFS_EXCLUSION`.
+pub(crate) const WSL_DRVFS_EXCLUSION: &str = "a Windows-mounted WSL CODEX_HOME (DrvFS/9p)";
+
+/// What the config and the sign-in state still exclude from the shared server
+/// (`startup_orchestration.rs`): a GCP or gateway sign-in wizard that is due
+/// (no login yet) builds the embedded server with the provider it selects.
+pub(crate) async fn wizard_exclusion(config: &codex_core::config::Config) -> Option<&'static str> {
+    use codex_features::Feature;
+    let due = [Feature::GcpSetupWizard, Feature::GatewaySetupWizard]
+        .into_iter()
+        .any(|feature| {
+            // `should_show_provider_setup_wizard` on the embedded target, not signed in.
+            config.model_provider.requires_openai_auth
+                && crate::startup::wizard_configured(config, feature)
+                && config
+                    .auth_config()
+                    .is_login_method_allowed(codex_protocol::config_types::ForcedLoginMethod::Api)
+        });
+    if !due {
+        return None;
+    }
+    let signed_in = matches!(config.auth_config().load_auth(false).await, Ok(Some(_)));
+    if signed_in {
+        return None;
+    }
+    Some(if config.features.enabled(Feature::GcpSetupWizard) {
+        "GCP sign-in"
+    } else {
+        GATEWAY_SIGN_IN_EXCLUSION
+    })
+}
+
+/// `daemon_startup.rs::uses_wsl_drvfs`: whether `codex_home` is on a Windows-mounted
+/// WSL filesystem, where the daemon's executable and state cannot be written reliably.
+pub(crate) fn uses_wsl_drvfs(codex_home: &std::path::Path) -> bool {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    {
+        use std::os::fd::AsRawFd;
+
+        if !codex_utils_path::is_wsl() && std::env::var_os("WSL_INTEROP").is_none() {
+            return false;
+        }
+        let Some(directory) = codex_home
+            .ancestors()
+            .find_map(|path| std::fs::File::open(path).ok())
+        else {
+            return false;
+        };
+        let mut stats = std::mem::MaybeUninit::<libc::statfs>::uninit();
+        if unsafe { libc::fstatfs(directory.as_raw_fd(), stats.as_mut_ptr()) } != 0 {
+            return false;
+        }
+        unsafe { stats.assume_init() }.f_type == 0x0102_1997
+    }
+    #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+    {
+        let _ = codex_home;
+        false
+    }
+}
+
 /// Why the shared server cannot be used (oracle `CompatibilityError`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Mismatch {
@@ -601,5 +664,71 @@ mod tests {
             .expect_err("a failure");
         assert_eq!(error.reason, "could not read daemon configuration");
         assert_eq!(error.restart_features, None);
+    }
+
+    async fn config_with(
+        home: &std::path::Path,
+        overrides: &[(&str, bool)],
+    ) -> codex_core::config::Config {
+        let overrides = overrides
+            .iter()
+            .map(|(key, value)| (key.to_string(), codex_config::TomlValue::Boolean(*value)))
+            .collect::<Vec<_>>();
+        ConfigBuilder::default()
+            .codex_home(home.to_path_buf())
+            .fallback_cwd(Some(home.to_path_buf()))
+            .cli_overrides(overrides)
+            .build()
+            .await
+            .expect("a config")
+    }
+
+    /// A due gateway sign-in builds the embedded server with the provider it selects: the
+    /// shared one is left out until a login exists.
+    #[tokio::test]
+    async fn gateway_wizard_due_without_auth_excludes_the_daemon() {
+        let home = tempfile::tempdir().expect("a temp dir");
+        let wizard = [("features.gateway_setup_wizard", true)];
+        let config = config_with(home.path(), &wizard).await;
+        assert_eq!(
+            wizard_exclusion(&config).await,
+            Some(GATEWAY_SIGN_IN_EXCLUSION)
+        );
+        let gcp = [
+            ("features.gateway_setup_wizard", true),
+            ("features.gcp_setup_wizard", true),
+        ];
+        let config = config_with(home.path(), &gcp).await;
+        assert_eq!(wizard_exclusion(&config).await, Some("GCP sign-in"));
+        // No wizard on: nothing to exclude.
+        let config = config_with(home.path(), &[]).await;
+        assert_eq!(wizard_exclusion(&config).await, None);
+        // A login ends the exclusion.
+        {
+            // (`std::fs::write` is the shell's: R12)
+            use std::io::Write as _;
+            std::fs::File::create(home.path().join("auth.json"))
+                .and_then(|mut file| {
+                    file.write_all(br#"{"auth_mode":"apikey","OPENAI_API_KEY":"sk-test"}"#)
+                })
+                .expect("auth.json");
+        }
+        let config = config_with(home.path(), &wizard).await;
+        assert_eq!(wizard_exclusion(&config).await, None);
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn drvfs_is_false_off_linux() {
+        assert!(!uses_wsl_drvfs(std::path::Path::new("/")));
+    }
+
+    /// The notice's words (`daemon_exclusion_warning`).
+    #[test]
+    fn the_fallback_notice_uses_the_oracles_words() {
+        assert_eq!(
+            crate::target::exclusion_warning(WSL_DRVFS_EXCLUSION),
+            "Running without the shared background server: a Windows-mounted WSL CODEX_HOME (DrvFS/9p) requires embedded mode."
+        );
     }
 }

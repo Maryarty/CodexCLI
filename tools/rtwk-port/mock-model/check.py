@@ -197,7 +197,9 @@ def run_pty(binary: str, sc: scenarios.Scenario, root: Path, srv: ScenarioServer
         argv.append("resume")
         if oracle:
             argv.append(resume)
-    if capture is not None:
+    # rtwk's chat starts the shared background server by default (as the oracle's does):
+    # a harness run with a temporary CODEX_HOME stays embedded.
+    if capture is not None or not oracle:
         argv.append("--no-daemon")
     if oracle:
         argv += ["-C", str(work)]
