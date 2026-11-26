@@ -97,6 +97,8 @@ futures = { version = "0.3", default-features = false }
 # The clipboard image read (services/clipboard/read): the oracle's own features.
 image = { version = "0.25.9", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 libc = "0.2"
+# The plain copy of backend banners can contain clickable web destinations.
+linkify = "0.11"
 # The HTML flavour of a Markdown copy (services/clipboard/html): the oracle's own features.
 pulldown-cmark = { version = "0.10", default-features = false, features = ["html"] }
 semver = "1.0"
