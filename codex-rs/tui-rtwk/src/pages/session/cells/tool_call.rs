@@ -191,7 +191,7 @@ pub(super) fn body_text<'a>(body: &BlockBody<'a>, strings: &Strings) -> Cow<'a, 
 }
 
 /// The rows of the whole result (oracle `render_detail_lines`, transcript mode).
-fn detail_rows(call: &McpCall, strings: &Strings) -> Vec<String> {
+pub(super) fn detail_rows(call: &McpCall, strings: &Strings) -> Vec<String> {
     let mut rows = Vec::new();
     match &call.result {
         Some(Ok(result)) => {

@@ -352,7 +352,8 @@ fn reasoning_summary_block() {
             "fixtures/cells_5/reasoning_summary_block.jsonl"
         ))
         .open();
-    s.assert_absent("Detailed reasoning goes here.");
+    // no history cell: only the status row says it, once
+    s.assert_rows_with("Detailed reasoning goes here.", 1);
     s.keys("ctrl+t");
     s.assert_contains("• Detailed reasoning goes here.");
 }
@@ -395,7 +396,8 @@ fn reasoning_summary_block_respects_config_overrides() {
             "fixtures/cells_5/reasoning_summary_block.jsonl"
         ))
         .open();
-    s.assert_absent("Detailed reasoning goes here.");
+    // no history cell: only the status row says it, once
+    s.assert_rows_with("Detailed reasoning goes here.", 1);
 }
 
 // ORACLE history_cell/tests.rs:2823 reasoning_summary_block_falls_back_when_header_is_missing kind=ui owner=chat-live
@@ -441,7 +443,8 @@ fn reasoning_summary_block_keeps_title_only_summary_in_expanded_transcript() {
             "fixtures/cells_5/reasoning_summary_block_keeps_title_only_summary_in_expanded_transcript.jsonl"
         ))
         .open();
-    s.assert_absent("Confirming backend JSONL source");
+    // no history cell: only the status row says it, once
+    s.assert_rows_with("Confirming backend JSONL source", 1);
     s.keys("ctrl+t");
     s.assert_contains("• Confirming backend JSONL source");
 }
@@ -455,7 +458,8 @@ fn reasoning_summary_block_splits_header_and_summary_when_present() {
             "fixtures/cells_5/reasoning_summary_block_splits_header_and_summary_when_present.jsonl"
         ))
         .open();
-    s.assert_absent("We should fix the bug next.");
+    // no history cell: only the status row says it, once
+    s.assert_rows_with("We should fix the bug next.", 1);
     s.keys("ctrl+t");
     s.assert_contains("• We should fix the bug next.");
     s.assert_absent("High level plan");

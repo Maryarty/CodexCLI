@@ -10,14 +10,16 @@
 //! Flutter: the cell is picked by a flag the way a `ListView.builder` picks
 //! between two item builders; the raw one is a `Column` of plain `Text`s.
 
+use std::sync::Arc;
+
 use rtwk::AnyWidget;
 use rtwk::layout::{Column, CrossAxisAlignment, MainAxisSize};
 use rtwk::widgets::Text;
 
-use codex_tui_core::threads::{Item, McpCall, ToolKind};
+use codex_tui_core::threads::{Item, McpCall, ToolActivity, ToolKind};
 
 use super::strings::{INVOCATION_CLOSE, INVOCATION_DOT, INVOCATION_OPEN, Strings};
-use super::tool_call::body_text;
+use super::tool_call::{body_text, detail_rows};
 
 /// The lines of `source` (oracle `raw_lines_from_source`): split at each
 /// newline, a trailing newline leaving no last line, an empty source none.
@@ -93,6 +95,48 @@ pub fn lines(item: &Item, strings: &Strings) -> Option<Vec<String>> {
         },
         _ => return None,
     })
+}
+
+/// The raw lines of a run of computer calls (oracle `ComputerActivityCell::raw_lines`: the
+/// calls' own detailed lines, each call its bullet, verb and invocation and the whole result
+/// under a branch); `item` is the first call and `rest` the others of the run. Any other item is
+/// [`lines`].
+pub fn run_lines(
+    item: &Item,
+    rest: &[Arc<ToolActivity>],
+    strings: &Strings,
+) -> Option<Vec<String>> {
+    let Item::Tool(first) = item else {
+        return lines(item, strings);
+    };
+    if !first.is_computer_activity() {
+        return lines(item, strings);
+    }
+    let mut out = Vec::new();
+    for tool in std::iter::once(first).chain(rest) {
+        let ToolKind::Mcp(call) = &tool.kind else {
+            continue;
+        };
+        if !call.is_computer_activity() {
+            continue;
+        }
+        let verb = if call.success().is_some() {
+            strings.called_tool
+        } else {
+            strings.calling_tool
+        };
+        out.push(format!(
+            "\u{2022} {verb} {}{INVOCATION_DOT}{}{INVOCATION_OPEN}{}{INVOCATION_CLOSE}",
+            call.server, call.tool, call.arguments
+        ));
+        for (index, row) in detail_rows(call, strings).into_iter().enumerate() {
+            out.push(format!(
+                "{}{row}",
+                if index == 0 { "  \u{2514} " } else { "    " }
+            ));
+        }
+    }
+    Some(out)
 }
 
 /// The cell of raw `lines`: a plain `Text` per line, a blank row for an
