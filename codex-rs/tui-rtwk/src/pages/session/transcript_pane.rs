@@ -33,7 +33,7 @@ use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
 use crate::widgets::finder::More;
 use crate::widgets::thread_scope::thread_scope;
-use crate::widgets::thread_ui::{Disclosed, Follow, TextSelection};
+use crate::widgets::thread_ui::{Follow, TextSelection};
 
 use super::cells::disclosure::tile;
 use super::cells::strings as cells_strings;
@@ -44,8 +44,9 @@ use super::strings as chat_strings;
 use super::transcript::activity_focus::{self, Activity, Stop, Walk};
 use super::transcript::copy::{self as copying, Targets};
 use super::transcript::find::{Finder, Held, Hit, RowTexts, SelectedTool};
-use super::transcript::item_text::{Reading, body_nodes, mounted_parts, row_parts};
+use super::transcript::item_text::{Reading, body_nodes, mounted_parts};
 use super::transcript::markdown_copy::{self, Marks};
+use super::transcript::row_text::RowTextCache;
 use super::transcript::select::{self, Pos, Select};
 use super::transcript::selection::SelectionHost;
 use super::transcript::strings as transcript_strings;
@@ -120,6 +121,7 @@ pub(super) struct ViewportState {
     /// The texts of the rows Find reads, kept while they are the same so that what the selection
     /// area was asked to select stays named by the same model.
     texts: RefCell<Option<Rc<RowTexts>>>,
+    row_text_cache: RefCell<RowTextCache>,
     /// The list was built as one that reads its rows as text: another widget than the plain list,
     /// so a list that comes in its place starts at the end.
     texted: Cell<bool>,
@@ -527,64 +529,6 @@ impl ViewportState {
     }
 }
 
-fn row_texts(
-    thread: &ThreadModel,
-    rows: &[Row],
-    header: bool,
-    reverse: bool,
-    reading: &Reading<'_>,
-    disclosed: Option<&Disclosed>,
-) -> RowTexts {
-    let transcript = thread.transcript();
-    let mut texts: Vec<String> = Vec::with_capacity(rows.len() + usize::from(header));
-    let mut keys = Vec::with_capacity(texts.capacity());
-    let mut gutters: Vec<Vec<bool>> = Vec::with_capacity(texts.capacity());
-    if header {
-        texts.push(String::new());
-        keys.push(None);
-        gutters.push(vec![true]);
-    }
-    for row in rows {
-        let key = transcript.get(row.range.start).map(|(key, _)| key);
-        keys.push(key.cloned());
-        let reading = Reading {
-            revealed: disclosed
-                .is_none_or(|disclosed| key.is_some_and(|key| disclosed.is_open(key))),
-            ..*reading
-        };
-        match row_parts(transcript, row, &reading) {
-            Some(parts) => {
-                texts.push(
-                    parts
-                        .iter()
-                        .map(|part| {
-                            if disclosed.is_none() && part.gutter {
-                                std::borrow::Cow::Owned(
-                                    std::iter::repeat_n('\0', part.text.len()).collect(),
-                                )
-                            } else {
-                                std::borrow::Cow::Borrowed(part.text.as_str())
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n"),
-                );
-                gutters.push(
-                    parts
-                        .iter()
-                        .flat_map(|part| part.text.split('\n').map(|_| part.gutter))
-                        .collect(),
-                );
-            }
-            None => {
-                texts.push(String::new());
-                gutters.push(vec![true]);
-            }
-        }
-    }
-    RowTexts::new(texts, keys, reverse, transcript.layout_revision()).with_gutters(gutters)
-}
-
 impl ViewportState {
     /// A prompt newly marked scrolls into view, the least that shows it
     /// (`ListController::ensure_index_visible`, the list's index of its row).
@@ -785,6 +729,7 @@ impl StatefulWidget for Pane {
             moving: RefCell::default(),
             marked: RefCell::default(),
             texts: RefCell::default(),
+            row_text_cache: RefCell::default(),
             texted: Cell::new(false),
             counted: Cell::new(0),
             anchor: Cell::new(None),
@@ -951,6 +896,11 @@ impl State for ViewportState {
         let caret = select::of(&search);
         let copier = copying::mode_of(&search);
         let reads = search.active() || caret.active() || caret.extending() || copier.active();
+        if !reads {
+            self.row_text_cache.borrow_mut().clear();
+            self.texts.borrow_mut().take();
+            self.targets.borrow_mut().take();
+        }
         // Find, selection and copy share a snapshot of the list they read. Detailed rows can
         // also read the contents of other rows to arrange adjacent prompts and computer calls.
         let uses_snapshot = reads
@@ -1098,27 +1048,34 @@ impl State for ViewportState {
             if search.asked() {
                 disclosed.set_found(None);
             }
-            let texts = row_texts(&thread, &scan, header.is_some(), reverse, &reading, None);
+            let texts = self.row_text_cache.borrow_mut().read(
+                &thread,
+                &scan,
+                header.is_some(),
+                reverse,
+                &reading,
+                None,
+            );
             let scan_entry = |hit: &Hit| {
                 let row = scan.get(hit.row.checked_sub(lead)?)?;
                 let (key, _) = thread.transcript().get(row.range.start)?;
-                Some((key, texts.row_text(hit.row)))
+                Some((key, texts.scan_text(hit.row)))
             };
             let mut scan_match = self.scan_match.borrow_mut();
             if let Some((held_key, before)) = scan_match.as_ref()
                 && let Some((key, now)) = search.current().as_ref().and_then(scan_entry)
                 && key == held_key
             {
-                search.reflow_match(before, now);
+                search.reflow_match(before, now.as_ref());
             }
             hit = search.advance(&texts, more);
             match search.current().as_ref().and_then(scan_entry) {
                 Some((key, text))
-                    if scan_match
-                        .as_ref()
-                        .is_none_or(|(old, previous)| old != key || previous != text) =>
+                    if scan_match.as_ref().is_none_or(|(old, previous)| {
+                        old != key || previous.as_str() != text.as_ref()
+                    }) =>
                 {
-                    *scan_match = Some((key.clone(), text.to_owned()));
+                    *scan_match = Some((key.clone(), text.into_owned()));
                 }
                 Some(_) => {}
                 None => {
@@ -1244,7 +1201,7 @@ impl State for ViewportState {
             &reading,
         );
         let (texts, targets) = if reads {
-            let texts = self.keep_texts(row_texts(
+            let texts = self.keep_texts(self.row_text_cache.borrow_mut().read(
                 &thread,
                 &rows,
                 header.is_some(),

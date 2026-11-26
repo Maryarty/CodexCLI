@@ -32,6 +32,7 @@ use rtwk::gestures::SelectionPoint;
 use rtwk::render::RenderId;
 use rtwk::scroll::ItemTexts;
 
+use super::row_text::RowText;
 use crate::widgets::finder::search;
 pub use crate::widgets::finder::{Direction, Finder, Hit, Key, Mode, QUERY_BYTES, Rows, fold, key};
 use crate::widgets::thread_ui::ThreadUi;
@@ -150,59 +151,63 @@ pub fn reading(ui: &ThreadUi) -> Option<Finder> {
 /// selection area counts the items of a reverse list by the render list's children, from the top:
 /// oldest first) and the scan runs over.
 pub struct RowTexts {
-    /// The text of each row, oldest first.
-    texts: Vec<String>,
+    /// The text and gutters of each row, oldest first.
+    rows: Vec<Rc<RowText>>,
     /// The first item's key is the row identity used by the list. The session header has no item.
     keys: Vec<Option<ItemKey>>,
-    /// Per row, per line of its text: the line is a gutter (a bullet, a prompt mark) the select
-    /// mode's caret never stops on and a copy leaves out. Empty when no row has one.
-    gutters: Vec<Vec<bool>>,
     /// Where each row starts in the text of the list (the rows are joined by a line break).
     starts: Vec<usize>,
     reverse: bool,
+    hide_gutters: bool,
     revision: u64,
 }
 
 impl RowTexts {
-    pub fn new(
-        texts: Vec<String>,
+    pub(super) fn new(
+        rows: Vec<Rc<RowText>>,
         keys: Vec<Option<ItemKey>>,
         reverse: bool,
+        hide_gutters: bool,
         revision: u64,
     ) -> RowTexts {
         let mut at = 0;
-        let starts = texts
+        let starts = rows
             .iter()
-            .map(|text| {
+            .map(|row| {
                 let start = at;
-                at += text.len() + 1;
+                at += row.text.len() + 1;
                 start
             })
             .collect();
         RowTexts {
-            texts,
+            rows,
             keys,
-            gutters: Vec::new(),
             starts,
             reverse,
+            hide_gutters,
             revision,
         }
     }
 
-    /// The rows with their gutter lines (`gutters[row][line]`).
-    pub fn with_gutters(mut self, gutters: Vec<Vec<bool>>) -> RowTexts {
-        self.gutters = gutters;
-        self
-    }
-
     /// How many rows there are.
     pub fn row_count(&self) -> usize {
-        self.texts.len()
+        self.rows.len()
     }
 
     /// The text of row `row` (oldest first): empty past the last.
     pub fn row_text(&self, row: usize) -> &str {
-        self.texts.get(row).map_or("", String::as_str)
+        self.rows.get(row).map_or("", |row| row.text.as_str())
+    }
+
+    pub(in crate::pages::session) fn scan_text(&self, row: usize) -> Cow<'_, str> {
+        let Some(row) = self.rows.get(row) else {
+            return Cow::Borrowed("");
+        };
+        if self.hide_gutters {
+            row.without_gutters()
+        } else {
+            Cow::Borrowed(&row.text)
+        }
     }
 
     /// The transcript item whose row this is, if the row has one.
@@ -217,9 +222,9 @@ impl RowTexts {
 
     /// Whether line `line` of row `row` is a gutter.
     pub fn is_gutter(&self, row: usize, line: usize) -> bool {
-        self.gutters
+        self.rows
             .get(row)
-            .and_then(|lines| lines.get(line))
+            .and_then(|row| row.gutters.get(line))
             .copied()
             .unwrap_or(false)
     }
@@ -242,7 +247,7 @@ impl RowTexts {
     /// bottom.
     pub fn index_of(&self, row: usize) -> usize {
         if self.reverse {
-            self.texts.len() - 1 - row
+            self.rows.len() - 1 - row
         } else {
             row
         }
@@ -252,29 +257,29 @@ impl RowTexts {
 impl PartialEq for RowTexts {
     fn eq(&self, other: &RowTexts) -> bool {
         self.reverse == other.reverse
-            && self.texts == other.texts
+            && self.hide_gutters == other.hide_gutters
+            && self.rows == other.rows
             && self.keys == other.keys
-            && self.gutters == other.gutters
     }
 }
 
 impl Rows for RowTexts {
     fn count(&self) -> usize {
-        self.texts.len()
+        self.rows.len()
     }
 
     fn text(&self, row: usize) -> Cow<'_, str> {
-        Cow::Borrowed(self.texts.get(row).map_or("", String::as_str))
+        self.scan_text(row)
     }
 }
 
 impl ItemTexts for RowTexts {
     fn count(&self) -> usize {
-        self.texts.len()
+        self.rows.len()
     }
 
     fn text(&self, index: usize) -> Cow<'_, str> {
-        Cow::Borrowed(self.texts.get(index).map_or("", String::as_str))
+        self.scan_text(index)
     }
 
     fn revision(&self) -> u64 {
