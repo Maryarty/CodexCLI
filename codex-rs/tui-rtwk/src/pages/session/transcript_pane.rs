@@ -49,7 +49,7 @@ use super::transcript::item_text::{Reading, body_nodes, mounted_parts};
 use super::transcript::markdown_copy::{self, Marks};
 use super::transcript::row_text::RowTextCache;
 use super::transcript::select::{self, Pos, Select};
-use super::transcript::selection::SelectionHost;
+use super::transcript::selection::{SelectedRevision, SelectionHost};
 use super::transcript::strings as transcript_strings;
 use super::transcript::turn_details::{
     Anchor, FoldRow, Kind, Plan, PromptFold, Row, Words, arrow, prompt_label, reveal,
@@ -598,7 +598,7 @@ impl ViewportState {
                 .get(row.range.start)
                 .is_some_and(|(key, _)| *key == before.1)
         });
-        if reverse || !widget.follow.away() {
+        if reverse || widget.follow.at_tail() {
             return false;
         }
         let at_start = widget
@@ -753,7 +753,7 @@ impl State for ViewportState {
             restore.disarm();
         }
         self.left.retain(|(follow, _)| *follow != old.follow);
-        if old.follow.away()
+        if !old.follow.at_tail()
             && let Ok(position) = old.follow.scroll().as_scroll_controller().try_position()
         {
             self.left.push((old.follow.clone(), position.pixels()));
@@ -932,9 +932,13 @@ impl State for ViewportState {
             held.clear();
         }
         let selected_tool = SelectedTool::of(&search).read(&live, caret.active());
+        let selection =
+            SelectedRevision::of(&search).read(&live, &widget.follow, &widget.selection, !reads);
+        let uses_snapshot = uses_snapshot || selection.is_some();
         let thread = held
             .thread()
             .or(selected_tool)
+            .or(selection)
             .unwrap_or_else(|| live.clone());
         let strings = l10n::of(cx);
         let tokens = theme::Tokens::of(cx);
@@ -965,7 +969,7 @@ impl State for ViewportState {
         });
         let markdown = tokens.transcript_markdown(cx);
         let thread_id = thread.id().clone();
-        let can_load = thread.can_load_history();
+        let can_load = live.can_load_history();
         let detailed = widget.detailed;
         let raw = select::<ScreenStates, _, _>(cx, |states| states.chat.raw_output);
         let show_raw_reasoning =
@@ -1018,7 +1022,8 @@ impl State for ViewportState {
             approval_words: crate::sheets::approvals::strings::of(cx),
             usage: usage.as_ref().map(|_| &card_figure as _),
         };
-        let more = match thread.history_state() {
+        let history = live.history_state();
+        let more = match history {
             HistoryState::Partial => More::Loadable,
             HistoryState::Loading => More::Loading,
             HistoryState::Failed => More::Failed,
@@ -1026,7 +1031,7 @@ impl State for ViewportState {
         };
         let load = cx.local_sender();
         if widget.follow.beginning() || caret.beginning() {
-            load(Msg::Beginning(thread.id().clone(), thread.history_state()));
+            load(Msg::Beginning(thread_id.clone(), history));
         }
         let scan = if search.active() && collapse && !detailed {
             thread
@@ -1164,7 +1169,7 @@ impl State for ViewportState {
         // starts at the end. A reader who was away from the last row is put back after the frame
         // that swaps them (before the move Find's own close asks for).
         if reads != self.texted.replace(reads)
-            && widget.follow.away()
+            && !widget.follow.at_tail()
             && self.restoring.is_none()
             && !search.going_back()
             && let Ok(position) = widget.follow.scroll().as_scroll_controller().try_position()
@@ -1538,8 +1543,10 @@ impl State for ViewportState {
                 // the wheel: a move nobody asked for supersedes the wait for the first row
                 follow.moved_to(metrics.pixels);
                 // back at the last row: the news is seen
-                if follow.at_tail() {
+                if !follow.away() {
                     follow.clear_unseen();
+                } else if follow.selection_cleared() && !follow.at_tail() {
+                    send(Msg::Find);
                 }
                 false
             })
@@ -1547,8 +1554,15 @@ impl State for ViewportState {
         // the wheel at an end moves nothing, and still is the reader's
         let wheel = widget.follow.clone();
         let list: AnyWidget = NotificationListener::<OverscrollNotification>::new(list)
-            .on_notification(move |_| {
+            .on_notification(move |scroll| {
                 wheel.cancel_beginning();
+                if scroll.depth() == 0
+                    && (scroll.overscroll < 0) == reverse
+                    && wheel.selection_cleared()
+                    && wheel.at_tail()
+                {
+                    wheel.jump_to_latest();
+                }
                 false
             })
             .into();

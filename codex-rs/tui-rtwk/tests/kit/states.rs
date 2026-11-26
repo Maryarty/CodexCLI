@@ -168,10 +168,15 @@ impl Screen {
 
     /// The backend now attaches the displayed thread again.
     pub fn restore_writer(&mut self) -> &mut Screen {
+        self.restore_writer_with_history(Vec::new())
+    }
+
+    /// Reattach the writer with the turns supplied together in the resume response.
+    pub fn restore_writer_with_history(&mut self, turns: Vec<serde_json::Value>) -> &mut Screen {
         let thread = self.active_thread();
-        self.h.fake.respond(|request| {
+        self.h.fake.respond(move |request| {
             let id = request["params"]["threadId"].as_str()?;
-            (request["method"] == "thread/resume").then(|| Ok(resume_response(id, &[], false)))
+            (request["method"] == "thread/resume").then(|| Ok(resume_response(id, &turns, false)))
         });
         self.h.inject([AppEv::Intent(Intent::OpenThread(thread))]);
         self.h.advance(100);

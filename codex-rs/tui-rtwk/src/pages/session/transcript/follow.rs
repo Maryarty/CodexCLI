@@ -45,6 +45,7 @@ use super::strings::{self, Strings};
 pub fn gap<S>(
     cx: &mut Cx<'_, S>,
     follow: Follow,
+    selection: TextSelection,
     status_above: bool,
     notice: Option<AnyWidget>,
 ) -> AnyWidget {
@@ -57,10 +58,14 @@ pub fn gap<S>(
         None => surface,
     };
     let copied = watch::<Shown, _>(cx);
-    let listenable = Rc::new(follow.listenable());
+    let listenable = Rc::new(<dyn Listenable>::merge([
+        Some(follow.listenable()),
+        Some(selection.listenable()),
+    ]));
     ListenableBuilder::new(listenable, move |_, _| {
         let blank: AnyWidget = SizedBox::new(None, Some(1), None).into();
-        let plain = if follow.away() {
+        let selected = selection.held();
+        let plain = if !selected && follow.show_latest() {
             let control = FollowControl {
                 follow: follow.clone(),
                 unseen: follow.unseen(),
@@ -78,7 +83,7 @@ pub fn gap<S>(
             } else {
                 row
             }
-        } else if let Some(notice) = &notice {
+        } else if !selected && let Some(notice) = &notice {
             // the usage notice (`composer_hint`) has the row while the reader is at the end, set
             // apart from the working line as the control is
             if status_above {
@@ -232,15 +237,16 @@ pub fn footer<S>(
     ListenableBuilder::new(listenable, move |_, _| {
         let selected = selection.held();
         let pending = history::pending(state);
-        if !follow.away() && !selected && !pending {
+        let latest = follow.show_latest();
+        if !latest && !selected && !pending {
             return keys.clone();
         }
-        let (away, unseen) = (follow.away(), follow.unseen());
+        let unseen = follow.unseen();
         let (key_style, dim, look) = (key_style.clone(), dim.clone(), look.clone());
         let hint: AnyWidget = LayoutBuilder::new(move |cx, constraints| {
             let segmenter = segmenter_of(cx);
             // the way back, once the reader is away
-            let latest: Vec<Span> = if away {
+            let latest: Vec<Span> = if latest {
                 vec![
                     Span::styled(
                         if enter {

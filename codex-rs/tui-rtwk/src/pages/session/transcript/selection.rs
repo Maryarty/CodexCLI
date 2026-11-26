@@ -9,7 +9,7 @@
 //! The selection is drawn state: it lives in the area and its controller, which the thread's
 //! `ThreadUi` keeps so that the page's keys can read it too (`key`).
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -30,6 +30,7 @@ use codex_tui_core::app::RequestQueue;
 use codex_tui_core::app::effects::{CopyDestination, CopyStatus, PrimaryOwner};
 use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::ids::ThreadId;
+use codex_tui_core::threads::ThreadModel;
 
 use super::TranscriptMode;
 use super::copy::{self, CopyJob, CopyOrigin, Shown};
@@ -40,6 +41,49 @@ use crate::widgets::thread_ui::{Follow, TextSelection};
 
 /// The button a right click is in a `PointerEvent`.
 const RIGHT_BUTTON: u8 = 2;
+
+/// The selected reading revision belongs to the same thread as its native range.
+#[derive(Clone, Default)]
+pub(in crate::pages::session) struct SelectedRevision(Rc<RefCell<Option<Rc<ThreadModel>>>>);
+
+impl SelectedRevision {
+    pub(in crate::pages::session) fn of(finder: &Finder) -> Self {
+        finder.held(Self::default)
+    }
+
+    pub(in crate::pages::session) fn read(
+        &self,
+        live: &Rc<ThreadModel>,
+        follow: &Follow,
+        selection: &TextSelection,
+        ordinary: bool,
+    ) -> Option<Rc<ThreadModel>> {
+        let mut held = self.0.borrow_mut();
+        if !ordinary || (!selection.held() && !follow.at_tail()) {
+            follow.release_selection();
+            held.take();
+            return None;
+        }
+        if !follow.holding_selection() {
+            held.take();
+        }
+        // Accept older pages and replacements that change the first item. An append or a
+        // delta to the live tail preserves the selected revision and its exact copy payload.
+        if held.as_ref().is_some_and(|before| {
+            before.id() != live.id()
+                || before.transcript().get(0).map(|(key, _)| key)
+                    != live.transcript().get(0).map(|(key, _)| key)
+        }) {
+            follow.release_selection();
+            held.take();
+        }
+        if held.is_none() && selection.held() {
+            follow.hold_selection(selection);
+            *held = Some(live.clone());
+        }
+        held.clone()
+    }
+}
 
 /// What the reader selects in: `child` (the transcript's list), served by `selection`; `follow`
 /// is the list's reader, whom a copy by Enter takes back to the last row.

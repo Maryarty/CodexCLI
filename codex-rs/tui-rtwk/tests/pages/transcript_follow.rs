@@ -223,6 +223,138 @@ fn new_output_while_away_is_named_in_the_footer_until_the_reader_returns() {
     s.assert_contains("new output");
 }
 
+const MOUSE_SELECTION: &str =
+    include_str!("../oracle/fixtures/transcript_view_4/sl_command_c.jsonl");
+
+fn selected_tail() -> Screen {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 18)
+        .script(MOUSE_SELECTION)
+        .open();
+    s.selection_copy_policy(false, false);
+    s.double_click_text("selected");
+    s.assert_text_style("selected", "reversed");
+    s
+}
+
+#[test]
+fn clearing_a_tail_selection_stays_paused_until_the_reader_clicks_to_follow() {
+    let mut s = selected_tail();
+    s.keys("esc");
+    s.assert_text_style("selected", "!reversed");
+    s.assert_absent("⌃c copy");
+    s.live_tail("first unseen response");
+    s.assert_absent("first unseen response");
+    s.assert_contains("New activity");
+    s.click_text("Back to bottom");
+    s.assert_contains("first unseen response");
+    s.assert_absent("New activity");
+    s.live_tail(" visible after following");
+    s.assert_contains("visible after following");
+}
+
+#[test]
+fn scrolling_down_with_a_cleared_range_rejoins_the_live_tail() {
+    for wheel in [false, true] {
+        let mut s = selected_tail();
+        s.live_tail("first unseen response");
+        s.keys("esc");
+        s.assert_absent("first unseen response");
+        s.assert_contains("New activity");
+        if wheel {
+            s.wheel_down(4, s.row_of("selected") as u16, 1);
+        } else {
+            s.keys("pagedown");
+        }
+        s.assert_contains("first unseen response");
+        s.assert_absent("New activity");
+    }
+}
+
+#[test]
+fn end_with_a_tail_selection_releases_the_range_and_follows() {
+    let mut s = selected_tail();
+    s.live_tail("first unseen response");
+    s.assert_absent("first unseen response");
+    s.keys("ctrl+end");
+    s.assert_contains("first unseen response");
+    s.assert_absent("New activity");
+    s.assert_text_style("selected", "!reversed");
+    s.assert_copies_asked(&[]);
+}
+
+#[test]
+fn an_accepted_submit_releases_the_selected_reading_position() {
+    let mut s = selected_tail();
+    s.live_tail("first unseen response").commit_live_tail();
+    s.type_text("actually send this");
+    s.assert_composer("actually send this");
+    s.assert_absent("first unseen response");
+    s.assert_contains("New activity");
+    s.keys("enter");
+    s.assert_sole_turn(crate::kit::Turn::text("actually send this"));
+    s.assert_contains("first unseen response");
+    s.assert_absent("New activity");
+    s.assert_copies_asked(&[]);
+}
+
+#[test]
+fn a_resume_that_replaces_the_selected_tail_releases_it_even_with_the_same_first_item() {
+    use crate::kit::agent_turn;
+
+    let old = agent_turn("history", &["kept first reply", "selected retired reply"]);
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 18)
+        .replay(vec![old])
+        .open();
+    s.selection_copy_policy(false, false);
+    s.double_click_text("selected");
+    s.assert_text_style("selected", "reversed");
+
+    let mut repaired = agent_turn("history", &["kept first reply", "replacement reply"]);
+    repaired["items"][1]["id"] = serde_json::json!("replacement-id");
+    s.stream_lost("The writer must reconnect.");
+    s.restore_writer_with_history(vec![repaired]);
+    s.assert_requests_of("thread/resume", 2);
+    s.assert_contains("kept first reply");
+    s.assert_contains("replacement reply");
+    s.assert_absent("selected retired reply");
+    s.assert_absent("⌃c copy");
+    s.keys("ctrl+insert");
+    s.assert_copies_asked(&[]);
+}
+
+#[test]
+fn a_held_tail_belongs_to_its_thread_when_switching_away_and_back() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 18)
+        .script(MOUSE_SELECTION)
+        .side()
+        .open();
+    s.selection_copy_policy(false, false);
+    s.keys("ctrl+/");
+    s.double_click_text("selected");
+    s.assert_text_style("selected", "reversed");
+    s.live_tail("main unseen response");
+    s.assert_contains("New activity");
+
+    s.keys("ctrl+/");
+    s.live_tail("independent side response");
+    s.assert_contains("independent side response");
+    s.assert_absent("main unseen response");
+    s.assert_absent("New activity");
+    s.assert_absent("selected café");
+
+    s.keys("ctrl+/");
+    s.assert_contains("selected café");
+    s.assert_contains("New activity");
+    s.assert_absent("main unseen response");
+    s.assert_absent("independent side response");
+    s.keys("ctrl+end");
+    s.assert_contains("main unseen response");
+    s.assert_absent("New activity");
+}
+
 #[test]
 fn new_output_at_the_tail_is_not_new_activity() {
     let mut s = chat(80, 12);

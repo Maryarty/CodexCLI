@@ -536,6 +536,9 @@ impl Modes {
 pub struct Follow {
     scroll: ListController,
     unseen: Rc<ValueNotifier<bool>>,
+    /// A native range holds the revision being read. Clearing the range alone can
+    /// leave that reading position behind the live transcript.
+    selection: Rc<RefCell<Weak<Selected>>>,
     /// How many times the reader moved the view by a key (a page, a jump), also where the view
     /// stays (a page at the last row).
     moved: Rc<ValueNotifier<u64>>,
@@ -557,6 +560,7 @@ impl Default for Follow {
         Follow {
             scroll: ListController::new(),
             unseen: Rc::new(ValueNotifier::new(false)),
+            selection: Rc::new(RefCell::new(Weak::new())),
             moved: Rc::new(ValueNotifier::new(0)),
             beginning: Rc::new(ValueNotifier::new(false)),
             settled: Rc::new(Cell::new(None)),
@@ -569,6 +573,7 @@ impl PartialEq for Follow {
     fn eq(&self, other: &Follow) -> bool {
         self.scroll == other.scroll
             && Rc::ptr_eq(&self.unseen, &other.unseen)
+            && Rc::ptr_eq(&self.selection, &other.selection)
             && Rc::ptr_eq(&self.moved, &other.moved)
             && Rc::ptr_eq(&self.beginning, &other.beginning)
             && Rc::ptr_eq(&self.settled, &other.settled)
@@ -621,9 +626,42 @@ impl Follow {
         }
     }
 
-    /// The reader has paused above the last row.
+    /// The reader has paused above the last row or is holding a selection's revision.
     pub fn away(&self) -> bool {
-        !self.at_tail()
+        !self.at_tail() || self.holding_selection()
+    }
+
+    /// Offer the jump when the live tail is outside the reader's view.
+    pub fn show_latest(&self) -> bool {
+        !self.at_tail() || self.unseen()
+    }
+
+    pub fn holding_selection(&self) -> bool {
+        self.selection.borrow().strong_count() > 0
+    }
+
+    /// The range went away, but the reader has not yet requested the live tail.
+    pub fn selection_cleared(&self) -> bool {
+        self.selection
+            .borrow()
+            .upgrade()
+            .is_some_and(|selection| !selection.held.value())
+    }
+
+    pub fn hold_selection(&self, selection: &TextSelection) {
+        *self.selection.borrow_mut() = Rc::downgrade(&selection.0);
+    }
+
+    /// Release a revision when another reading mode takes over or the history changes.
+    pub fn release_selection(&self) {
+        let held = self.take_selection();
+        if held.is_some() && self.at_tail() {
+            self.clear_unseen();
+        }
+    }
+
+    fn take_selection(&self) -> Option<Rc<Selected>> {
+        std::mem::take(&mut *self.selection.borrow_mut()).upgrade()
     }
 
     /// The reader is away from the last row, or waits for the first one to arrive: the way back
@@ -705,6 +743,9 @@ impl Follow {
     /// Back to the last row.
     pub fn jump_to_latest(&self) {
         self.cancel_beginning();
+        if let Some(selection) = self.take_selection() {
+            selection.controller.clear();
+        }
         self.moving();
         let controller = self.scroll.as_scroll_controller();
         let reverse = controller
@@ -739,6 +780,10 @@ impl Follow {
 
     /// `rows` towards the last row (a negative count towards the first).
     pub fn scroll_by(&self, rows: i64) {
+        if rows > 0 && self.selection_cleared() && self.at_tail() {
+            self.jump_to_latest();
+            return;
+        }
         self.cancel_beginning();
         self.moving();
         let controller = self.scroll.as_scroll_controller();

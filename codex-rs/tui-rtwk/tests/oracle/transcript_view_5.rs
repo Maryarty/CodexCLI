@@ -924,10 +924,6 @@ fn mutable_history_formats_once_per_frame_and_refreshes_the_next_frame() {
 // ORACLE transcript_view_tests.rs:1037 selected_latest_content_keeps_new_activity_visible kind=snap owner=chat-live
 #[test]
 fn selected_latest_content_keeps_new_activity_visible() {
-    kit::pending(
-        Owner::ChatLive,
-        "The real range keeps its copy hint after a live append, but the reader follows the append at the tail, where no unseen-activity indicator is raised. The oracle holds its selected reader.",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 13)
         .script(include_str!(
@@ -937,13 +933,31 @@ fn selected_latest_content_keeps_new_activity_visible() {
     s.selection_copy_policy(false, false);
     s.double_click_text("selected");
     s.assert_text_style("selected", "reversed");
-    s.wheel_down(0, 2, 10);
+    s.wheel_down(4, s.row_of("selected") as u16, 10);
     s.live_tail("new output");
     s.assert_contains("New activity");
+    s.assert_absent("new output");
     s.assert_contains("⌃c copy");
+    s.assert_absent("Back to bottom");
+    s.assert_text_style("selected", "reversed");
+    let reading_row = s.row_of("selected");
+    s.live_tail(" another chunk");
+    kit::assert_same(
+        s.row_of("selected"),
+        reading_row,
+        "streaming leaves the reader in place",
+    );
+    s.assert_absent("another chunk");
     s.assert_text_style("selected", "reversed");
     s.keys("ctrl+c");
     s.assert_copies_asked(&["selected"]);
+    s.answer_copy(Ok(()));
+    s.assert_text_style("selected", "!reversed");
+    s.assert_contains("New activity");
+    s.assert_absent("new output");
+    s.keys("ctrl+end");
+    s.assert_contains("new output another chunk");
+    s.assert_absent("New activity");
 }
 
 // ORACLE transcript_view_tests.rs:1050 live_reader_survives_commit_new_tail_resize_and_selection_then_rejoins_latest kind=snap owner=chat-live
