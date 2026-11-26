@@ -14,8 +14,19 @@ pub(super) fn carry(app: &mut CodexApp, verb: PublicVerb, fx: &mut AppFx) {
         }
         PublicVerb::PickModel(selection) => select::model_verb(app, selection, fx),
         PublicVerb::PickPermissions(selection) => select::permissions_apply(app, selection, fx),
-        PublicVerb::OverrideTurn { model, effort } => {
-            select::turn_override(app, model, effort, fx);
+        PublicVerb::OverrideTurn {
+            thread,
+            address,
+            model,
+            effort,
+        } => {
+            let owner = app.screens.agents.owner_of(thread.as_str());
+            if app.session.active.as_ref() == Some(&thread)
+                && app.address(owner) == address
+                && !super::features::navigation_pending(app)
+            {
+                select::turn_override(app, model, effort, fx);
+            }
         }
         PublicVerb::NotifyOwner(nudge) => {
             let backend = super::session::active_backend(app);
@@ -27,8 +38,8 @@ pub(super) fn carry(app: &mut CodexApp, verb: PublicVerb, fx: &mut AppFx) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::Command;
-    use crate::ids::ThreadId;
+    use crate::app::{Command, Ingress};
+    use crate::ids::{BackendId, ThreadId};
     use crate::rpc::Reply;
     use crate::screens::ScreenCommand;
     use crate::screens::select;
@@ -59,6 +70,8 @@ mod tests {
         let mut app = open_app();
         let mut fx = AppFx::default();
         let verb = PublicVerb::OverrideTurn {
+            thread: ThreadId::new("thread-1"),
+            address: app.address(BackendId::default()),
             model: "gpt-5.1-codex-mini".to_owned(),
             effort: Some(ReasoningEffort::Medium),
         };
@@ -87,6 +100,34 @@ mod tests {
             }
         );
         assert!(app.screens().chat.notes.is_empty(), "no line is said");
+    }
+
+    #[test]
+    fn an_override_turn_from_the_old_transport_cannot_set_the_model() {
+        let mut app = open_app();
+        let backend = BackendId::default();
+        let thread = ThreadId::new("thread-1");
+        let address = app.address(backend);
+        app.ingest(Ingress::transport_replaced(
+            backend,
+            app.epoch(),
+            address.epoch.next(),
+        ))
+        .expect("the new transport was installed");
+        assert_eq!(app.session.active.as_ref(), Some(&thread));
+
+        let mut fx = AppFx::default();
+        carry(
+            &mut app,
+            PublicVerb::OverrideTurn {
+                thread,
+                address,
+                model: "gpt-6-luna".to_owned(),
+                effort: None,
+            },
+            &mut fx,
+        );
+        assert!(fx.commands().is_empty());
     }
 
     /// A model picked by a verb is no step of the select screen, so nothing else says the line it

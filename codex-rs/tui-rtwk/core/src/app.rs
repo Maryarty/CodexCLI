@@ -1333,6 +1333,7 @@ impl CodexApp {
     fn retire_outgoing(&mut self, backend: BackendId, fx: &mut AppFx) {
         self.attaching_events
             .retain(|(source, ..)| *source != backend);
+        features::retire_rate_offer(self, backend);
         detach_threads(self, backend, fx);
         self.fail_in_flight(backend);
         structured::lost(self, backend, fx);
@@ -1706,6 +1707,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     // the apps directory and the permission catalog of the old account go
                     // (`invalidate_connector_scope`, `invalidate_permission_discovery`)
                     select::event(app, screens::select::Ev::ScopeChanged, fx);
+                    features::retire_rate_offer(app, origin);
                     Rc::make_mut(&mut app.session)
                         .backend_banners
                         .remove(&origin);

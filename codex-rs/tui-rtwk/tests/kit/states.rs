@@ -1,12 +1,12 @@
 //! States the oracle sets by a widget's own setter, reached here by the route the app takes: a
 //! composer whose input is off, an image of a size, a thread with no model, the composer alone.
 
-use codex_tui_core::app::{AppEv, BackendEv, Command, Intent};
+use codex_tui_core::app::{AppEv, BackendEv, Command, Ingress, Intent};
 use codex_tui_core::features::windows_sandbox::{Config, Fact, Host, Intent as Sandbox, Mode};
 use codex_tui_core::features::{FeatureFact, FeatureIntent};
 use codex_tui_core::fixtures::builders::turn_started;
 use codex_tui_core::fixtures::script::Answer;
-use codex_tui_core::ids::ThreadId;
+use codex_tui_core::ids::{BackendId, ThreadId};
 use codex_tui_core::rpc::{Reply, ServerError};
 use codex_tui_core::screens::{ScreenCommand, ScreenEv, agents, chat};
 use codex_tui_rtwk::app::UiApp;
@@ -108,6 +108,36 @@ impl Screen {
     pub fn reconnecting(&mut self) -> &mut Screen {
         self.h
             .inject([AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnecting))]);
+        self.h.advance(100);
+        self
+    }
+
+    /// The primary connector replaces its physical handle without a new logical attachment.
+    pub fn replace_transport(&mut self) -> &mut Screen {
+        let epoch = self.h.fake.epoch().expect("the session is attached");
+        self.h.fake.inject_ingress(Ingress::transport_replaced(
+            BackendId::default(),
+            epoch,
+            epoch.next(),
+        ));
+        self.h.advance(100);
+        self
+    }
+
+    /// An account announcement from another backend whose session is not displayed.
+    pub fn other_backend_account_updated(&mut self) -> &mut Screen {
+        let backend = BackendId(1);
+        let epoch = self.h.t.read_app(|app: &UiApp| app.core.epoch_of(backend));
+        let notification = serde_json::from_value(serde_json::json!({
+            "method": "account/updated",
+            "params": {"authMode": "chatgpt", "planType": "plus"},
+        }))
+        .expect("an account notification");
+        self.h.fake.inject_ingress(Ingress::of(
+            backend,
+            epoch,
+            AppEv::Backend(BackendEv::Notification(Box::new(notification))),
+        ));
         self.h.advance(100);
         self
     }

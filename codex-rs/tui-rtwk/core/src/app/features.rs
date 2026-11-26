@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use super::effects::{self, Done};
 use super::{AppCtx, AppFx, CodexApp, Command, Now, Wake, apply_thread, session_note};
-use crate::features::rate_limit_prompt::{self, OfferId};
+use crate::features::rate_limit_prompt;
 use crate::features::{
     self, AppCx, AppView, FeatureCtx, FeatureFact, FeatureIntent, FeatureThreadIntent, InterestStep,
 };
@@ -34,7 +34,20 @@ pub(super) fn view(app: &CodexApp) -> AppView<'_> {
     .with_keys(&app.keymap)
     .with_banner(shown_banner(app))
     .with_rates(shown_rates(app))
+    .with_navigation_pending(navigation_pending(app))
     .at(app.now)
+}
+
+/// App-owned openings can still be in flight when their source conversation is on display.
+pub(super) fn navigation_pending(app: &CodexApp) -> bool {
+    app.outgoing.any(|ctx| match ctx {
+        AppCtx::Opening { .. }
+        | AppCtx::OpenThread {
+            cancelled: false, ..
+        } => true,
+        AppCtx::NewConversation { source, .. } => source == &app.session.active,
+        _ => false,
+    })
 }
 
 /// The backend banner occurrence of the account the thread in use belongs to.
@@ -58,6 +71,7 @@ pub(super) fn run(
     step: impl FnOnce(&mut FeatureStates, &mut AppCx<'_>),
 ) {
     let backend = super::session::active_backend(app);
+    let navigating = navigation_pending(app);
     let out = {
         let view = AppView::new(
             app.session.active.as_ref(),
@@ -71,6 +85,7 @@ pub(super) fn run(
         .with_keys(&app.keymap)
         .with_banner(app.session.backend_banners.get(&backend))
         .with_rates(app.session.rate_limits.get(&backend))
+        .with_navigation_pending(navigating)
         .at(app.now);
         let mut cx = AppCx::new(view);
         step(Rc::make_mut(&mut app.features), &mut cx);
@@ -301,9 +316,14 @@ pub(super) fn rolling_limits(
 ) {
     if super::session::active_backend(app) == backend {
         run(app, fx, |states, cx| {
-            states.rate_limit_prompt.rolling(backend, snapshot, cx);
+            rate_limit_prompt::rolling(states, backend, snapshot, cx);
         });
     }
+}
+
+/// Retire the offer of the connection or account that ended.
+pub(super) fn retire_rate_offer(app: &mut CodexApp, backend: BackendId) {
+    rate_limit_prompt::retire(&mut app.features, backend);
 }
 
 /// Resolve which completion prompt may be published before the routed event reaches the model.
@@ -326,14 +346,9 @@ pub(super) fn completion_priority(
     {
         return PromptPriority::Ordinary;
     }
-    let offer = OfferId {
-        thread: thread.clone(),
-        turn: turn.clone(),
-        address,
-    };
     let mut priority = PromptPriority::Ordinary;
     run(app, fx, |states, cx| {
-        priority = rate_limit_prompt::reserve(&mut states.rate_limit_prompt, offer, cx);
+        priority = rate_limit_prompt::reserve(states, thread, turn, address, cx);
     });
     priority
 }

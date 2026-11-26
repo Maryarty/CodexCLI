@@ -31,7 +31,7 @@ use codex_app_server_protocol::{
     RateLimitSnapshot, RequestId, ServerNotification,
 };
 
-use super::{AppCx, AppView, Never, PublicVerb};
+use super::{AppCx, AppView, FeatureStates, Never, PublicVerb};
 use crate::app::Now;
 use crate::ids::{BackendId, ThreadId, TurnId};
 use crate::rpc::{Address, RpcError};
@@ -100,9 +100,10 @@ pub use rpcs::Ask;
 /// The turn whose completion reserved the right to offer a lower-cost model.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OfferId {
-    pub(crate) thread: ThreadId,
-    pub(crate) turn: TurnId,
-    pub(crate) address: Address,
+    thread: ThreadId,
+    turn: TurnId,
+    address: Address,
+    generation: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -212,6 +213,7 @@ struct Read {
 pub struct State {
     backend: Option<BackendId>,
     stage: Stage,
+    generation: u64,
     /// The kind of limit last reached (`codex_rate_limit_reached_type`).
     reached: Option<RateLimitReachedType>,
     spend_control: Option<bool>,
@@ -240,27 +242,16 @@ impl State {
 
     fn use_backend(&mut self, backend: BackendId) {
         if self.backend != Some(backend) {
-            *self = Self {
-                backend: Some(backend),
-                ..Self::default()
-            };
+            self.reset();
+            self.backend = Some(backend);
         }
     }
 
-    /// Rolling updates from the displayed backend, routed by the app.
-    pub(crate) fn rolling(
-        &mut self,
-        backend: BackendId,
-        snapshot: &RateLimitSnapshot,
-        cx: &AppCx<'_>,
-    ) {
-        self.use_backend(backend);
-        if banner_shows(cx.view()) {
-            self.yield_to_banner();
-        }
-        let hidden = cx.view().facts().tui().hide_rate_limit_model_nudge;
-        let model = model_in_use(cx.view());
-        self.take(&sample_of(snapshot), None, hidden, model.as_deref());
+    fn reset(&mut self) {
+        *self = Self {
+            generation: self.generation,
+            ..Self::default()
+        };
     }
 
     fn workspace_limit_reached(&self) -> bool {
@@ -345,7 +336,9 @@ impl State {
     /// A backend banner is on the screen (`show_backend_banner`): it replaces the switch prompt,
     /// which is asked again once the banner is gone, "not the user's decision to dismiss".
     fn yield_to_banner(&mut self) {
-        if self.offered.is_some() && self.stage == Stage::Shown {
+        if matches!(self.stage, Stage::Asking(_))
+            || (self.offered.is_some() && self.stage == Stage::Shown)
+        {
             self.stage = Stage::Pending;
             self.offered = None;
         }
@@ -428,6 +421,30 @@ fn sample_of(snapshot: &RateLimitSnapshot) -> Sample {
     }
 }
 
+/// Rolling updates from the displayed backend, routed by the app.
+pub(crate) fn rolling(
+    states: &mut FeatureStates,
+    backend: BackendId,
+    snapshot: &RateLimitSnapshot,
+    cx: &AppCx<'_>,
+) {
+    let state = &mut states.rate_limit_prompt;
+    state.use_backend(backend);
+    if banner_shows(cx.view()) {
+        state.yield_to_banner();
+    }
+    let hidden = cx.view().facts().tui().hide_rate_limit_model_nudge;
+    let model = model_in_use(cx.view());
+    state.take(&sample_of(snapshot), None, hidden, model.as_deref());
+}
+
+/// A replaced transport or account invalidates the limits and offers belonging to it.
+pub(crate) fn retire(states: &mut std::rc::Rc<FeatureStates>, backend: BackendId) {
+    if states.rate_limit_prompt.backend == Some(backend) {
+        std::rc::Rc::make_mut(states).rate_limit_prompt.reset();
+    }
+}
+
 /// Whether the offer can be made on the currently displayed thread.
 fn can_offer(view: AppView<'_>) -> bool {
     !view.facts().tui().hide_rate_limit_model_nudge
@@ -441,25 +458,37 @@ fn can_offer(view: AppView<'_>) -> bool {
 /// oracle skips that question when an eligible offer is pending, even if the catalog then has
 /// no lower-cost model. Settling or cancelling this reservation never reopens the Plan question.
 pub(crate) fn reserve(
-    state: &mut State,
-    offer: OfferId,
+    states: &mut FeatureStates,
+    thread: &ThreadId,
+    turn: &TurnId,
+    address: Address,
     cx: &mut AppCx<'_>,
 ) -> crate::screens::chat::plan_mode::PromptPriority {
     use crate::screens::chat::plan_mode::PromptPriority;
-    state.use_backend(offer.address.backend);
+    let state = &mut states.rate_limit_prompt;
+    state.use_backend(address.backend);
     state.said = None;
-    if matches!(&state.stage, Stage::Asking(previous) if previous != &offer) {
+    if matches!(state.stage, Stage::Asking(_)) {
         state.stage = Stage::Pending;
     }
-    if state.stage != Stage::Pending || banner_shows(cx.view()) {
+    if state.stage != Stage::Pending {
         return PromptPriority::Ordinary;
     }
     if !can_offer(cx.view()) {
         state.stage = Stage::Idle;
         return PromptPriority::Ordinary;
     }
-    state.stage = Stage::Asking(offer.clone());
-    cx.ask(Some(&offer.thread), Ask::Models, Ctx::Models(offer.clone()));
+    if !banner_shows(cx.view()) {
+        state.generation = state.generation.wrapping_add(1);
+        let offer = OfferId {
+            thread: thread.clone(),
+            turn: turn.clone(),
+            address,
+            generation: state.generation,
+        };
+        state.stage = Stage::Asking(offer.clone());
+        cx.ask(Some(thread), Ask::Models, Ctx::Models(offer));
+    }
     PromptPriority::RateLimit
 }
 
@@ -584,6 +613,8 @@ feature! {
                     {
                         state.offered = None;
                         cx.verb(PublicVerb::OverrideTurn {
+                            thread: offer.thread,
+                            address: offer.address,
                             model,
                             effort: Some(effort),
                         });
@@ -627,9 +658,13 @@ feature! {
                 }
                 state.stage = Stage::Idle;
                 let view = cx.view();
+                if banner_shows(view) {
+                    state.stage = Stage::Pending;
+                    return;
+                }
                 if let Ok(Reply::Candidate(Some(candidate))) = result
                     && view.active() == Some(&offer.thread)
-                    && view.screens().agents.opening.is_none()
+                    && !view.navigation_pending()
                     && view.active_thread().is_some_and(|thread| {
                         thread.core().last_ended() == Some(&offer.turn)
                             && !thread.busy()
@@ -637,7 +672,6 @@ feature! {
                             && thread.has_writer()
                     })
                     && can_offer(view)
-                    && !banner_shows(view)
                 {
                     state.stage = Stage::Shown;
                     state.offered = Some(offer.clone());

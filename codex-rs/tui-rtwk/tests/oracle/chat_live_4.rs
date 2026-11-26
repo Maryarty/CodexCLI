@@ -328,6 +328,17 @@ fn plan_implementation_popup_shows_after_new_plan_follows_steer() {
 /// The same 92% completion with different catalog responses. The earlier startup list is
 /// distinct from the list the rate-limit offer asks after this turn ends.
 fn plan_pending_rate_offer(models: Result<Vec<serde_json::Value>, &str>) -> Screen {
+    let mut s = plan_rate_offer_screen(models);
+    s.feed(
+        r#"{"step":"respond","method":"account/rateLimits/read","result":{"rateLimits":{}}}
+{"step":"screen","dir":"chat","ev":{"status":{"account_usage":true}}}"#,
+    );
+    s.feed(include_str!("fixtures/kit/rate_limit_92.jsonl"));
+    s.assert_absent("Approaching rate limits");
+    s
+}
+
+fn plan_rate_offer_screen(models: Result<Vec<serde_json::Value>, &str>) -> Screen {
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 30)
         .fake_turn_ids()
@@ -339,10 +350,7 @@ fn plan_pending_rate_offer(models: Result<Vec<serde_json::Value>, &str>) -> Scre
         Err(reason) => reply["error"] = serde_json::json!({"code":-32000,"message":reason}),
     }
     s.feed(&reply.to_string());
-    s.feed(r#"{"step":"screen","dir":"status","ev":{"kind":"account","account":{"chat_gpt":{"email":"user@example.com","plan":"plus"}}}}
-{"step":"screen","dir":"chat","ev":{"status":{"account_usage":true}}}"#);
-    s.feed(include_str!("fixtures/kit/rate_limit_92.jsonl"));
-    s.assert_absent("Approaching rate limits");
+    s.feed(r#"{"step":"screen","dir":"status","ev":{"kind":"account","account":{"chat_gpt":{"email":"user@example.com","plan":"plus"}}}}"#);
     s
 }
 
@@ -364,6 +372,35 @@ fn complete_with_rate_offer_pending(s: &mut Screen) {
     s.assert_requests_of("model/list", before + 1);
     s.assert_absent("Approaching rate limits");
     s.assert_absent(PLAN_TITLE);
+}
+
+fn complete_second_plan(s: &mut Screen) {
+    let next = PLAN_ITEM
+        .replace("turn-1", "turn-2")
+        .replace("plan-1", "plan-2");
+    s.feed(&next);
+    s.feed(&TURN_DONE.replace("turn-1", "turn-2"));
+}
+
+fn other_conversation_reply(s: &mut Screen, method: &str) {
+    s.feed(
+        &serde_json::json!({
+            "step": "respond", "method": method, "result": {
+                "thread": {
+                    "id": "thread-other", "sessionId": "thread-other",
+                    "name": "Another conversation", "preview": "Another conversation",
+                    "ephemeral": false, "modelProvider": "openai", "createdAt": 1700000000,
+                    "updatedAt": 1700000100, "status": {"type": "idle"}, "cwd": "/other",
+                    "cliVersion": "0.0.0", "source": "cli", "turns": []
+                },
+                "model": "gpt-5", "modelProvider": "openai", "cwd": "/other",
+                "instructionSources": [], "approvalPolicy": "on-request",
+                "approvalsReviewer": "user", "sandbox": {"type": "dangerFullAccess"},
+                "reasoningEffort": null
+            }
+        })
+        .to_string(),
+    );
 }
 
 // ORACLE chatwidget/tests/plan_mode.rs:1067 plan_implementation_popup_skips_when_rate_limit_prompt_pending kind=ui owner=chat-live
@@ -403,15 +440,7 @@ fn plan_implementation_popup_skips_when_rate_limit_prompt_pending() {
         s.assert_absent("Approaching rate limits");
         s.assert_absent(PLAN_TITLE);
         // A new turn without a reservation can still ask for implementation.
-        let next = PLAN_ITEM
-            .lines()
-            .filter(|line| !line.contains(r#""step":"seed""#))
-            .collect::<Vec<_>>()
-            .join("\n")
-            .replace("turn-1", "turn-2")
-            .replace("plan-1", "plan-2");
-        s.feed(&next);
-        s.feed(&TURN_DONE.replace("turn-1", "turn-2"));
+        complete_second_plan(&mut s);
         s.assert_text_count(PLAN_TITLE, 1);
         s.keys("esc");
         s.assert_no_turn();
@@ -430,7 +459,7 @@ fn plan_implementation_popup_skips_when_rate_limit_prompt_pending() {
         let mut s = plan_pending_rate_offer(Ok(vec![lower_cost_model()]));
         let model_lookup = s.hold_request("model/list");
         complete_with_rate_offer_pending(&mut s);
-        s.feed(r#"{"step":"respond","method":"thread/resume","result":{"thread":{"id":"thread-other","sessionId":"thread-other","preview":"Another conversation","ephemeral":false,"modelProvider":"openai","createdAt":1700000000,"updatedAt":1700000100,"status":{"type":"idle"},"cwd":"/other","cliVersion":"0.0.0","source":"cli","name":"Another conversation","turns":[]},"model":"gpt-5","modelProvider":"openai","cwd":"/other","instructionSources":[],"approvalPolicy":"on-request","approvalsReviewer":"user","sandbox":{"type":"dangerFullAccess"},"reasoningEffort":null}}"#);
+        other_conversation_reply(&mut s, "thread/resume");
         let resume = s.hold_request("thread/resume");
         s.visit_thread("thread-other");
         s.assert_request_mentions("thread/resume", "thread-other");
@@ -467,6 +496,69 @@ fn plan_implementation_popup_skips_when_rate_limit_prompt_pending() {
         s.release(&model_lookup);
         s.assert_absent("Approaching rate limits");
         s.assert_absent(PLAN_TITLE);
+    }
+
+    rate_offer_waits_behind_a_banner();
+    rate_offer_lifetime_ends_with_the_connection_or_account();
+    rate_offer_cannot_interrupt_a_new_conversation();
+}
+
+fn rate_offer_cannot_interrupt_a_new_conversation() {
+    let mut s = plan_pending_rate_offer(Ok(vec![lower_cost_model()]));
+    let model_lookup = s.hold_request("model/list");
+    complete_with_rate_offer_pending(&mut s);
+    other_conversation_reply(&mut s, "thread/start");
+    let start = s.hold_request("thread/start");
+    s.type_text("/new").keys("enter");
+    s.assert_requests_of("thread/start", 1);
+    s.assert_contains("Proposed Plan");
+    s.release(&model_lookup);
+    s.assert_absent("Approaching rate limits");
+    s.assert_absent(PLAN_TITLE);
+    s.release(&start);
+    s.assert_absent("Proposed Plan");
+    s.assert_absent("Approaching rate limits");
+    s.assert_no_turn();
+}
+
+fn rate_offer_waits_behind_a_banner() {
+    let mut s = plan_rate_offer_screen(Ok(vec![lower_cost_model()]));
+    s.feed(r#"{"step":"respond","method":"account/rateLimits/read","result":{"accountId":"workspace-a","rateLimits":{},"rateLimitUpsell":{"banner_type":"selected_model_limit","model_slug":"gpt-5","presentation":"dismissible","title":"Selected model usage exhausted","description":"Switch to another model.","ctas":[]}}}
+{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5","account_usage":true}}}"#);
+    s.feed(include_str!("fixtures/kit/rate_limit_92.jsonl"));
+    let before = s.requests_of("model/list");
+    s.feed(TURN_DONE);
+    s.assert_contains("Selected model usage exhausted");
+    s.assert_requests_of("model/list", before);
+    s.assert_absent("Approaching rate limits");
+    s.assert_absent(PLAN_TITLE);
+    s.keys("esc");
+    s.assert_absent("Selected model usage exhausted");
+    s.assert_requests_of("model/list", before);
+    complete_second_plan(&mut s);
+    s.assert_requests_of("model/list", before + 1);
+    s.assert_text_count("Approaching rate limits", 1);
+    s.assert_absent(PLAN_TITLE);
+}
+
+fn rate_offer_lifetime_ends_with_the_connection_or_account() {
+    for transport_replaced in [false, true] {
+        let mut s = plan_pending_rate_offer(Ok(vec![lower_cost_model()]));
+        s.feed(TURN_DONE);
+        s.assert_text_count("Approaching rate limits", 1);
+        s.other_backend_account_updated();
+        s.assert_text_count("Approaching rate limits", 1);
+        if transport_replaced {
+            s.replace_transport();
+        } else {
+            s.feed(r#"{"step":"notify","message":{"method":"account/updated","params":{"authMode":"chatgpt","planType":"plus"}}}"#);
+        }
+        s.assert_absent("Approaching rate limits");
+        s.assert_absent(PLAN_TITLE);
+        s.assert_contains("Proposed Plan");
+        s.keys("enter");
+        s.assert_model_updates(&[]);
+        s.assert_no_turn();
     }
 }
 
