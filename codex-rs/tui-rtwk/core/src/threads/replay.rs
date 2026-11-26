@@ -16,6 +16,8 @@
 //! An interrupted turn that is not hidden also ends with the interruption notice a live one gets
 //! (`on_interrupted_server_turn`, [`INTERRUPTED_NOTICE`] is its item id in the turn).
 
+use std::rc::Rc;
+
 use codex_app_server_protocol::ThreadItemPayload;
 use codex_app_server_protocol::Turn;
 use codex_app_server_protocol::TurnItemsView;
@@ -29,6 +31,7 @@ use super::Item;
 use super::ItemId;
 use super::ItemKey;
 use super::Notice;
+use super::ThreadModel;
 use super::TurnEnd;
 use super::TurnId;
 use super::TurnSnapshot;
@@ -36,8 +39,54 @@ use super::TurnTiming;
 use super::item_entry;
 use super::turn_end;
 
-/// The id of the notice that closes a replayed interrupted turn.
+/// The id of the notice that closes an interrupted turn, live or replayed.
 pub const INTERRUPTED_NOTICE: &str = "#interrupted";
+
+pub(super) fn interruption_key(turn: &TurnId) -> ItemKey {
+    ItemKey {
+        turn: turn.clone(),
+        item: ItemId::new(INTERRUPTED_NOTICE),
+    }
+}
+
+pub(super) fn budget_interruption(model: &mut ThreadModel, turn: &TurnId) -> bool {
+    if model.slots.chat.take_budget_limited(turn) {
+        Rc::make_mut(&mut model.budget_interruptions).insert(turn.clone());
+    }
+    model.budget_interruptions.contains(turn)
+}
+
+/// The page supplies the interrupted status. The owning model supplies quiet mode
+/// and any turn-specific reason already observed on the live stream.
+pub(super) fn settle_interruption(model: &mut ThreadModel, snapshot: &mut HistoryTurn) {
+    let items = match &mut snapshot.items {
+        TurnSnapshot::Full(items) | TurnSnapshot::Summary(items) => items,
+    };
+    let Some((id, item)) = items.last_mut() else {
+        return;
+    };
+    if id.as_str() != INTERRUPTED_NOTICE {
+        return;
+    }
+    let budget = budget_interruption(model, &snapshot.turn);
+    if model.quiet_interrupts {
+        items.pop();
+        return;
+    }
+    let key = interruption_key(&snapshot.turn);
+    let held = model.transcript.item(&key);
+    let specific = match held {
+        Some(Item::Notice(Notice::InterruptedForSteer)) => Notice::InterruptedForSteer,
+        _ if budget => Notice::GoalBudgetReached,
+        _ => return,
+    };
+    *item = Item::Notice(specific);
+    // Summary pages retain existing items, so update a held fallback when the exact
+    // goal notification was observed after it was rendered.
+    if held.is_some_and(|held| held != item) {
+        model.transcript.upsert(key, item.clone());
+    }
+}
 
 /// A user message of the replayed turns that seeds the composer's history.
 #[derive(Clone, Debug, PartialEq, Eq)]

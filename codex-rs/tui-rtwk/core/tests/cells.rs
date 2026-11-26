@@ -6,14 +6,15 @@
 #![allow(clippy::expect_used)]
 
 use codex_app_server_protocol::ServerNotification;
-use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, apply_app};
+use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, apply_app, apply_thread};
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
+use codex_tui_core::screens::chat::PendingTexts;
 use codex_tui_core::threads::{
     AgentOutcome, AgentRef, BlockBody, CollabEvent, DelegatedMessage, DynamicOutput,
     GeneratedImage, HookEntryKind, HookRun, HookStatus, Item, Notice, PatchChange, PatchKind,
     PlanUpdate, StepStatus, SubAgentKind, ThreadEv, ToolKind, ToolStatus, WebAction, WebActivity,
-    project, project_unrouted,
+    history_page, history_reset, project, project_unrouted,
 };
 use serde_json::{Value, json};
 
@@ -1171,6 +1172,145 @@ fn a_loaded_interrupted_turn_ends_with_the_interruption_notice() {
             "review started",
             "review finished"
         ]
+    );
+}
+
+fn replay_interrupted(app: &mut CodexApp, turn: &str, items_view: &str) -> AppFx {
+    let turn = serde_json::from_value(json!({
+        "id": turn, "itemsView": items_view, "status": "interrupted", "completedAt": 1,
+        "items": [{"type": "userMessage", "id": format!("{turn}-prompt"),
+            "content": [{"type": "text", "text": "Earlier prompt", "text_elements": []}]}]
+    }))
+    .expect("interrupted turn");
+    let mut fx = AppFx::default();
+    apply_thread(
+        app,
+        &ThreadId::new("thread-1"),
+        history_page(&[turn], None),
+        &mut fx,
+    );
+    fx
+}
+
+fn budget_limited(app: &mut CodexApp, turn: &str) {
+    notified(
+        app,
+        json!({"method": "thread/goal/updated", "params": {
+            "threadId": "thread-1", "turnId": turn,
+            "goal": {"threadId": "thread-1", "objective": "Explain the test", "status": "budgetLimited",
+                "tokenBudget": 100, "tokensUsed": 105, "timeUsedSeconds": 1, "createdAt": 0, "updatedAt": 1}
+        }}),
+    );
+}
+
+fn interruption_notices(app: &CodexApp) -> Vec<(String, Notice)> {
+    app.active_thread()
+        .transcript()
+        .iter()
+        .filter_map(|(key, item)| match item {
+            Item::Notice(
+                notice @ (Notice::Interrupted
+                | Notice::InterruptedForSteer
+                | Notice::GoalBudgetReached),
+            ) => Some((key.turn.as_str().to_owned(), notice.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn quiet_replayed_interruption_keeps_the_prompt_and_restores_the_queue() {
+    let mut app = ready();
+    turn_started(&mut app);
+    let id = ThreadId::new("thread-1");
+    let mut fx = AppFx::default();
+    apply_thread(&mut app, &id, ThreadEv::QuietInterrupts(true), &mut fx);
+    apply_thread(
+        &mut app,
+        &id,
+        ThreadEv::Preview(PendingTexts {
+            queued: vec!["Queued follow-up".to_owned()],
+            ..Default::default()
+        }),
+        &mut fx,
+    );
+    budget_limited(&mut app, "turn-1");
+
+    let fx = replay_interrupted(&mut app, "turn-1", "summary");
+    assert!(
+        !fx.commands()
+            .iter()
+            .any(|cmd| matches!(cmd, Command::StartTurn { .. }))
+    );
+    let thread = app.active_thread();
+    assert!(!thread.is_running());
+    let restore = thread.restore().expect("queued input restored");
+    assert_eq!(restore.merged().text, "Queued follow-up");
+    let restore_seq = restore.seq();
+    replay_interrupted(&mut app, "turn-1", "full");
+    assert_eq!(
+        app.active_thread().restore().expect("same restore").seq(),
+        restore_seq
+    );
+    assert!(interruption_notices(&app).is_empty());
+    assert!(app.active_thread().transcript().iter().any(|(_, item)| {
+        matches!(item, Item::User(prompt) if prompt.text == "Earlier prompt")
+    }));
+}
+
+#[test]
+fn a_replayed_interruption_uses_only_the_matching_turns_observed_budget() {
+    for live_first in [false, true] {
+        let mut app = ready();
+        turn_started(&mut app);
+        budget_limited(&mut app, "turn-1");
+        let expected = [("turn-1".to_owned(), Notice::GoalBudgetReached)];
+
+        if live_first {
+            turn_ended(&mut app, "interrupted", None);
+        }
+        replay_interrupted(&mut app, "turn-1", "summary");
+        assert_eq!(interruption_notices(&app), expected);
+        turn_ended(&mut app, "interrupted", None);
+        assert_eq!(interruption_notices(&app), expected);
+        replay_interrupted(&mut app, "turn-1", "full");
+        assert_eq!(interruption_notices(&app), expected);
+
+        apply_thread(
+            &mut app,
+            &ThreadId::new("thread-1"),
+            history_reset(),
+            &mut AppFx::default(),
+        );
+        assert!(interruption_notices(&app).is_empty());
+        replay_interrupted(&mut app, "turn-1", "full");
+        assert_eq!(interruption_notices(&app), expected);
+
+        // The thread's goal still says budget-limited. The other turn has no such fact.
+        replay_interrupted(&mut app, "turn-2", "full");
+        assert_eq!(
+            interruption_notices(&app),
+            [
+                ("turn-2".to_owned(), Notice::Interrupted),
+                ("turn-1".to_owned(), Notice::GoalBudgetReached),
+            ]
+        );
+    }
+}
+
+#[test]
+fn a_late_budget_observation_upgrades_the_same_replayed_interruption() {
+    let mut app = ready();
+    replay_interrupted(&mut app, "turn-old", "summary");
+    assert_eq!(
+        interruption_notices(&app),
+        [("turn-old".to_owned(), Notice::Interrupted)]
+    );
+    budget_limited(&mut app, "turn-old");
+    replay_interrupted(&mut app, "turn-old", "summary");
+    assert_eq!(
+        interruption_notices(&app),
+        [("turn-old".to_owned(), Notice::GoalBudgetReached)]
     );
 }
 

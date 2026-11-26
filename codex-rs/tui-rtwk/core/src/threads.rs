@@ -599,8 +599,8 @@ impl Transcript {
         }
     }
 
-    /// An entry the server has no item for carries a key `mint` made.
-    fn is_minted(key: &ItemKey) -> bool {
+    /// An entry the server has no item for carries a local key.
+    fn is_local(key: &ItemKey) -> bool {
         key.item.as_str().starts_with('#')
     }
 
@@ -848,7 +848,7 @@ impl Transcript {
             .unwrap_or(order.len());
         // The server's items only: an entry it has no item for (an error, a hook run) is ours.
         order.retain(|key| {
-            if &key.turn == turn && !Self::is_minted(key) {
+            if &key.turn == turn && !Self::is_local(key) {
                 if let Some(item) = history.remove(key) {
                     replaced.insert(key.clone(), item);
                 }
@@ -1318,6 +1318,9 @@ pub struct ThreadCore {
     steers_after_interrupt: bool,
     /// An interrupted turn leaves no notice in the transcript (`QuietInterrupts`).
     quiet_interrupts: bool,
+    /// Turns whose goal-budget stop was observed while this model was held.
+    /// The protocol history cannot recover the reason after a transcript reset.
+    budget_interruptions: Rc<HashSet<TurnId>>,
     /// The last messages given back to the composer.
     restore: Option<Restore>,
     /// A message went back to the composer while others wait (a refused image
@@ -1523,6 +1526,7 @@ impl ThreadModel {
                 rejected_steers: Vec::new(),
                 steers_after_interrupt: false,
                 quiet_interrupts: false,
+                budget_interruptions: Rc::default(),
                 restore: None,
                 recovered: false,
                 processes: processes::Processes::default(),
@@ -2615,7 +2619,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             }
         }
         ThreadEv::HistoryPage {
-            turns,
+            mut turns,
             next,
             submissions,
             receipts,
@@ -2636,7 +2640,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 safety::replayed(model);
             }
             let released = reconcile_ids(model, &receipts);
-            for snapshot in &turns {
+            for snapshot in &mut turns {
                 if snapshot.end.is_some() {
                     model.legacy_user_completions.remove(&snapshot.turn);
                     if matches!(&model.turn, TurnState::Running(running) if running.turn == snapshot.turn)
@@ -2652,6 +2656,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     if matches!(snapshot.items, TurnSnapshot::Full(_)) {
                         Rc::make_mut(&mut model.authoritative_turns).insert(snapshot.turn.clone());
                     }
+                    replay::settle_interruption(model, snapshot);
                 } else if running {
                     start_turn(model, snapshot.turn.clone(), fx.now());
                     if let TurnState::Running(running) = &mut model.turn
@@ -3429,7 +3434,7 @@ fn interrupted(model: &mut ThreadModel, turn: &TurnId, fx: &mut ThreadFx<'_>) {
     let submit = std::mem::take(&mut model.steers_after_interrupt);
     // `on_interrupted_turn`: the steer notice when Esc sent the steers, else
     // the budget's message when the goal stopped the turn, else the plain one.
-    let budget = model.slots.chat.take_budget_limited(turn);
+    let budget = replay::budget_interruption(model, turn);
     let notice = if submit {
         Notice::InterruptedForSteer
     } else if budget {
@@ -3438,7 +3443,9 @@ fn interrupted(model: &mut ThreadModel, turn: &TurnId, fx: &mut ThreadFx<'_>) {
         Notice::Interrupted
     };
     if !model.quiet_interrupts {
-        apply_appended(model, Some(turn.clone()), Item::Notice(notice));
+        model
+            .transcript
+            .upsert(replay::interruption_key(turn), Item::Notice(notice));
     }
     if submit && !mine.is_empty() {
         let merged = merge_messages(mine.into_iter().map(|steer| steer.message).collect());

@@ -95,6 +95,13 @@ fn forked_thread(id: &str) -> codex_app_server_protocol::Thread {
 
 /// `/side` in the main thread, answered with the fork `SIDE`.
 fn opened(prompt: Option<&str>) -> (CodexApp, AppFx) {
+    opened_with_fork(prompt, forked_thread(SIDE))
+}
+
+fn opened_with_fork(
+    prompt: Option<&str>,
+    fork: codex_app_server_protocol::Thread,
+) -> (CodexApp, AppFx) {
     let mut app = ready();
     let fx = start(&mut app, MAIN, prompt);
     let [(ticket, _)] = forks(&fx).try_into().expect("one fork");
@@ -102,9 +109,7 @@ fn opened(prompt: Option<&str>) -> (CodexApp, AppFx) {
         &mut app,
         AppEv::Reply(
             ticket,
-            Reply::screen(ScreenReply::Agents(agents::Reply::Forked(Box::new(
-                forked_thread(SIDE),
-            )))),
+            Reply::screen(ScreenReply::Agents(agents::Reply::Forked(Box::new(fork)))),
         ),
     );
     (app, fx)
@@ -229,12 +234,28 @@ fn interrupted(thread: &str, turn: &str) -> codex_tui_core::app::BackendEv {
 
 #[test]
 fn the_forked_history_is_not_read_for_the_screen() {
-    let (_, fx) = opened(None);
+    let mut fork = forked_thread(SIDE);
+    fork.turns = vec![
+        serde_json::from_value(serde_json::json!({
+            "id": "parent-interrupted", "itemsView": "full", "status": "interrupted",
+            "items": [{"type": "userMessage", "id": "parent-message",
+                "content": [{"type": "text", "text": "Parent prompt", "text_elements": []}]}]
+        }))
+        .expect("inherited interrupted turn"),
+    ];
+    let (app, fx) = opened_with_fork(None, fork);
     let reads = fx.commands().iter().filter(|c| {
         matches!(c, Command::Screen { command: ScreenCommand::Agents(agents::Command::Thread(
             ThreadAsk::History { thread, .. } | ThreadAsk::Turns { thread })), .. } if thread == SIDE)
     });
     assert_eq!(reads.count(), 0);
+    let side = app.thread(&ThreadId::new(SIDE)).expect("held side thread");
+    assert!(
+        side.transcript()
+            .iter()
+            .all(|(key, _)| key.turn.as_str() != "parent-interrupted")
+    );
+    assert!(side.replayed_submissions().entries().is_empty());
 }
 
 #[test]
