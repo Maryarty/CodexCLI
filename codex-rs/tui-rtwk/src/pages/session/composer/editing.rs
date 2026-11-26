@@ -19,7 +19,8 @@ use codex_tui_core::keymap::actions::{
     EDITOR_DELETE_FORWARD, EDITOR_DELETE_FORWARD_WORD, EDITOR_INSERT_NEWLINE, EDITOR_KILL_LINE_END,
     EDITOR_KILL_LINE_START, EDITOR_KILL_WHOLE_LINE, EDITOR_MOVE_DOWN, EDITOR_MOVE_LEFT,
     EDITOR_MOVE_LINE_END, EDITOR_MOVE_LINE_START, EDITOR_MOVE_RIGHT, EDITOR_MOVE_UP,
-    EDITOR_MOVE_WORD_LEFT, EDITOR_MOVE_WORD_RIGHT, EDITOR_YANK, GLOBAL_TOGGLE_VIM_MODE,
+    EDITOR_MOVE_WORD_LEFT, EDITOR_MOVE_WORD_RIGHT, EDITOR_YANK, GLOBAL_COPY,
+    GLOBAL_TOGGLE_VIM_MODE,
 };
 use codex_tui_core::keymap::fixed::{
     CLEAR_FOR_CTRL_C, DISMISS, ENTER, FIELD_DELETE_BACKWARD, FIELD_DELETE_BACKWARD_WORD,
@@ -294,9 +295,10 @@ fn restricted_key(
 /// Ctrl+V or Alt+V (`fixed.paste_image`): the clipboard's image is asked
 /// for, and the answer is attached where the caret is
 /// (`image_paste_key_action`). A repeat within a quarter of a second is
-/// swallowed. Outside an app there is no clipboard to ask: the field's key.
+/// swallowed. A user can bind this key to Copy, which the containing page handles.
+/// Outside an app there is no clipboard to ask: the field's key.
 fn paste_image(data: &KeyData, key: &KeyPress) -> bool {
-    if !pressed(&data.keymap, PASTE_IMAGE, key) {
+    if !pressed(&data.keymap, PASTE_IMAGE, key) || pressed(&data.keymap, GLOBAL_COPY, key) {
         return false;
     }
     let Some(env) = &data.burst else {

@@ -287,6 +287,7 @@ pub(super) fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
         || model.slots.chat.provider_error.is_some()
         || model.recovered
         || model.due.is_some()
+        || model.features.rename.awaiting_name()
         || model.slots.chat.is_compacting()
     {
         return;

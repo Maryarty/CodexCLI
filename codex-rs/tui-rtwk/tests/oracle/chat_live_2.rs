@@ -255,19 +255,46 @@ fn compaction_status_clears_when_turn_ends_without_item_completion() {
 // ORACLE chatwidget/tests/compaction_tests.rs:138 compaction_history_does_not_start_a_timer_or_finish_live_compaction kind=ui owner=chat-live
 #[test]
 fn compaction_history_does_not_start_a_timer_or_finish_live_compaction() {
-    kit::pending(
-        Owner::ChatLive,
-        "no replay path in the script (a replayed compaction, ReplayKind): the replayed item must not start a timer or finish the live compaction; the `Context compacted` history cell is not built",
+    let history = kit::replay_turn(
+        "old",
+        serde_json::json!([
+            {"type":"contextCompaction", "id":"old-compaction"}
+        ]),
     );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .replay(Vec::new())
+        .open();
+    s.history_page(vec![history], Some("older"));
+    s.assert_text_count("Context compacted", 1);
     s.assert_absent("Compacting context");
-    s.feed(include_str!(
-        "fixtures/chat_live_2/compaction_running.jsonl"
-    ));
-    s.assert_contains("Compacting context");
-    // The oracle's replayed completion of another item leaves the live compaction running and
-    // writes one `• Context compacted` history cell.
-    s.assert_contains("Context compacted");
+
+    let live = include_str!("fixtures/chat_live_2/compaction_since.jsonl")
+        .replace("thread-1", kit::REPLAYED);
+    let live = live
+        .lines()
+        .filter(|line| !line.contains("\"step\":\"seed\""))
+        .collect::<Vec<_>>()
+        .join("\n");
+    s.feed(&live);
+    s.assert_contains("Compacting context (1m 23s");
+    s.assert_text_count("Context compacted", 1);
+    s.wheel_up(0, 0, 60);
+    s.history_page(
+        vec![kit::replay_turn(
+            "older",
+            serde_json::json!([{"type":"contextCompaction", "id":"older-compaction"}]),
+        )],
+        None,
+    );
+    s.keys("ctrl+end");
+    s.assert_contains("Compacting context (1m 23s");
+    s.assert_text_count("Context compacted", 2);
+    let complete = include_str!("fixtures/chat_live_2/compaction_completed.jsonl")
+        .replace("thread-1", kit::REPLAYED);
+    s.feed(&complete);
+    s.assert_absent("Compacting context");
+    s.assert_text_count("Context compacted", 3);
 }
 
 // ORACLE chatwidget/tests/compaction_tests.rs:162 compaction_snapshot_restores_elapsed_time_and_clears_on_replayed_completion kind=ui owner=chat-live

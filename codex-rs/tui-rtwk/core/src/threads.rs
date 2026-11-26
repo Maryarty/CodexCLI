@@ -2506,6 +2506,9 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         model.slots.chat.clear_retry();
     }
     safety::observe(model, &ev);
+    if matches!(ev, ThreadEv::ConnectionLost | ThreadEv::StreamLost) {
+        model.features.rename.connection_lost();
+    }
     match ev {
         // the thread's own facts ride the chat's events (`threads/compaction.rs`, `safety.rs`)
         ThreadEv::Screen(ScreenThreadEv::Chat(screens::chat::ThreadEv::Compacting(ev))) => {
@@ -3082,8 +3085,16 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             {
                 model.transcript.finish_status(*request, limits.clone());
             }
+            let named = if let ScreenThreadEv::Chat(screens::chat::ThreadEv::Name(name)) = &ev {
+                model.features.rename.name_updated(name.as_deref())
+            } else {
+                false
+            };
             screens::apply_thread_ev(&mut model.slots, ev, fx);
             append_history(model);
+            if named && !model.busy() {
+                send_next(model, fx);
+            }
         }
         ThreadEv::TurnError { turn, fault } => {
             // A refusal that alternatives are prepared for waits for the turn's own end.
@@ -3285,9 +3296,13 @@ fn feature_reply(
     if let Err(error) = &result {
         model.last_error = Some(Failure::from(error.clone()));
     }
+    let awaiting_name = model.features.rename.awaiting_name();
     with_features(model, fx, |parts, cx| {
         features::apply_thread_reply(parts, ctx, result, cx);
     });
+    if awaiting_name && !model.features.rename.awaiting_name() && !model.busy() {
+        send_next(model, fx);
+    }
 }
 
 /// The lifecycle hooks of the features (ADR-012), in list order, after the thread's own

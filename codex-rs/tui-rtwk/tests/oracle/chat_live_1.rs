@@ -794,16 +794,15 @@ fn live_app_server_user_message_item_completed_does_not_duplicate_rendered_promp
 // ORACLE chatwidget/tests/app_server.rs:899 live_app_server_user_message_omits_unsupported_media kind=snap owner=chat-live snap=live_app_server_user_message_omits_unsupported_media
 #[test]
 fn live_app_server_user_message_omits_unsupported_media() {
-    kit::pending(
-        Owner::ChatLive,
-        "no user-message cell drawn from a completed user message on the chat screen: the text input is not drawn yet, and the audio inputs are left out of it",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&item_completed(&user_item(
-        r#"[{"type":"text","text":"Please inspect the attachments.","textElements":[]},{"type":"audio","audio":{"type":"inline","url":"https://example.com/one.wav"}},{"type":"localAudio","path":"/tmp/two.wav"}]"#,
+        r#"[{"type":"text","text":"Please inspect the attachments.","textElements":[]},{"type":"audio","url":"https://example.com/one.wav"},{"type":"localAudio","path":"/tmp/two.wav"}]"#,
     )));
-    // oracle: the cell keeps the text and omits the unsupported audio (one cell, at the top of the transcript).
-    s.assert_snap_region("live_app_server_user_message_omits_unsupported_media", 0, 0);
+    s.assert_text_count("Please inspect the attachments.", 1);
+    s.assert_absent("one.wav");
+    s.assert_absent("two.wav");
+    s.assert_absent("[Audio");
+    s.assert_no_turn();
 }
 
 // ORACLE chatwidget/tests/app_server.rs:939 live_app_server_turn_completed_clears_working_status_after_answer_item kind=ui owner=chat-live
@@ -972,12 +971,9 @@ fn live_app_server_file_change_item_started_preserves_changes() {
 // ORACLE chatwidget/tests/app_server.rs:1341 live_app_server_command_execution_strips_shell_wrapper kind=snap owner=chat-live snap=live_app_server_command_execution_strips_shell_wrapper
 #[test]
 fn live_app_server_command_execution_strips_shell_wrapper() {
-    kit::pending(
-        Owner::ChatLive,
-        "no command cell on the chat screen: the chat model keeps only user and agent message items (core/src/threads.rs item_upsert), so the completed command is not drawn",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    let command = r#"/bin/zsh -lc 'python3 -c '\"'\"'print(\"Hello, world!\")'\"'\"''"#;
+    s.feed(&turn_started("turn-1"));
+    let command = "/bin/zsh -lc 'printf hello'";
     s.feed(&item_started(&exec_item(
         "cmd-1",
         command,
@@ -988,14 +984,11 @@ fn live_app_server_command_execution_strips_shell_wrapper() {
         "cmd-1",
         command,
         "completed",
-        r#""Hello, world!\n""#,
+        r#""hello\n""#,
     )));
-    // oracle: the completed cell shows the script without the zsh wrapper.
-    s.assert_snap_region(
-        "live_app_server_command_execution_strips_shell_wrapper",
-        0,
-        0,
-    );
+    s.assert_in_order(&["printf hello", "hello"]);
+    s.assert_absent("/bin/zsh");
+    s.assert_no_turn();
 }
 
 // ORACLE chatwidget/tests/app_server.rs:1415 live_app_server_command_output_delta_transcript_snapshot kind=snap owner=chat-live snap=live_app_server_command_output_delta_active snap=live_app_server_command_output_delta_interrupted snap=live_app_server_command_output_delta_transcript
