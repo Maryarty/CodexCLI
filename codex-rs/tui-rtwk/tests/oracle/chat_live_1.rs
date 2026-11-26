@@ -808,7 +808,11 @@ fn live_app_server_user_message_omits_unsupported_media() {
 // ORACLE chatwidget/tests/app_server.rs:939 live_app_server_turn_completed_clears_working_status_after_answer_item kind=ui owner=chat-live
 #[test]
 fn live_app_server_turn_completed_clears_working_status_after_answer_item() {
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .fake_turn_ids()
+        .live()
+        .open();
     s.feed(&turn_started("turn-1"));
     s.assert_contains("Working");
     s.feed(&item_completed(&agent_item("Yes. What do you need?")));
@@ -824,10 +828,10 @@ fn live_app_server_turn_completed_clears_working_status_after_answer_item() {
         "completed",
         &format!("[{}]", agent_item("Yes. What do you need?")),
     ));
-    // oracle: the completed turn clears the working status and adds the Worked for line.
-    s.assert_absent("Working");
+    // The completed turn records its timing and the distinct queued turn starts working.
     s.assert_contains("Worked for");
     s.assert_turn_texts(&["Follow-up after the completed turn"]);
+    s.wait_for("Working");
 }
 
 // ORACLE chatwidget/tests/app_server.rs:1027 live_app_server_turn_started_sets_feedback_turn_id kind=ui owner=chat-live
