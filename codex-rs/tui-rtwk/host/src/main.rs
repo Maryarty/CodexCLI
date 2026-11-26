@@ -126,6 +126,7 @@ async fn launch(cli: &Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<Laun
     let first = Backend::Connector(Box::new(in_process::InProcess {
         arg0_paths,
         mode,
+        no_daemon: cli.no_daemon,
         done: done_tx,
         model: cli.model.clone(),
         oss: cli.oss,
