@@ -15,6 +15,7 @@ use rtwk::binding::AppBinding;
 use rtwk::editing::{EditingKeys, TextArea};
 use rtwk::focus::FocusNode;
 use rtwk::foundation::{Listenable, VoidCallback};
+use rtwk::gestures::IgnorePointer;
 use rtwk::layout::{
     BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row,
     Shadow, SizedBox,
@@ -59,7 +60,7 @@ pub mod suggest;
 pub mod vim;
 
 use burst::BurstEnv;
-use editing::KeyData;
+use editing::{BeforeSearch, KeyData};
 
 /// What the debug menu lists for the composer: the bare text area (the
 /// oracle's `textarea.rs` tests draw it so) and the composer with its footer
@@ -236,6 +237,8 @@ pub struct Composer {
     restricted: Option<Restricted>,
     /// What the placeholder of the empty draft says instead of the usual (`set_parent_owned_thread`).
     placeholder: Option<Placeholder>,
+    /// The preview remains mounted while its sibling query field owns input.
+    history_field: bool,
     /// Input is off (`set_input_enabled(false, ..)`): the draft stays, takes no key, shows no
     /// caret and draws this placeholder in its place.
     off: Option<Placeholder>,
@@ -284,6 +287,7 @@ impl PartialEq for Composer {
             && self.shell == other.shell
             && self.restricted == other.restricted
             && self.placeholder == other.placeholder
+            && self.history_field == other.history_field
             && self.off == other.off
     }
 }
@@ -305,6 +309,7 @@ impl Composer {
             on_too_long: None,
             restricted: None,
             placeholder: None,
+            history_field: false,
             off: None,
         }
     }
@@ -325,8 +330,16 @@ impl Composer {
             on_too_long: None,
             restricted: None,
             placeholder: None,
+            history_field: false,
             off: None,
         }
+    }
+
+    /// Keeps the preview from taking mouse focus while the search field is shown.
+    #[must_use]
+    pub fn with_history_field(mut self, shown: bool) -> Self {
+        self.history_field = shown;
+        self
     }
 
     /// Told each text the draft changes to.
@@ -462,8 +475,8 @@ pub enum ComposerMsg {
     Refresh,
     /// The popup's highlight moved: draw it again.
     Redraw,
-    /// Modal editing was turned on or off by its key: the transcript says so.
-    VimToggled(bool),
+    /// A global editing shortcut also handled by the history query field.
+    BeforeSearch(BeforeSearch),
     /// A key changed the Vim mode: the page's footer names it.
     VimMode,
     /// The pointer or the wheel is over row `i` of the popup.
@@ -496,8 +509,6 @@ pub enum ComposerMsg {
     /// The view was built while a mention popup is up: the app's data may
     /// have changed under it, it asks them again.
     SyncMentions,
-    /// Ctrl+V: the clipboard's image is asked of the app.
-    PasteImage,
     /// The view was built after the image this draft asked for came in:
     /// it is attached.
     ImageArrived,
@@ -520,7 +531,7 @@ pub enum ComposerMsg {
 
 /// The reads the history needs from the file go to the app, which asks the
 /// host (`popovers::Intent::Lookup`).
-fn ask(cx: &mut Cx<'_, ComposerState>, lookups: Vec<Lookup>) {
+fn ask<S>(cx: &mut Cx<'_, S>, lookups: Vec<Lookup>) {
     if lookups.is_empty() {
         return;
     }
@@ -530,6 +541,23 @@ fn ask(cx: &mut Cx<'_, ComposerState>, lookups: Vec<Lookup>) {
             &hs.screen,
             ScreenIntent::from(popovers::Intent::Lookup(lookup)),
         );
+    }
+}
+
+fn apply_before_search<S>(cx: &mut Cx<'_, S>, action: BeforeSearch) -> rtwk::Rebuild {
+    let hs = read::<Hs, _>(cx);
+    match action {
+        BeforeSearch::VimToggled(on) => {
+            let thread = read::<SessionSlice, _>(cx).active.clone();
+            let note = Note::from(NoteKey::Toggled(Toggle::Vim, on));
+            let intent = chat::Intent::Note { thread, note };
+            cx.emit(&hs.screen, ScreenIntent::from(intent));
+            rtwk::Rebuild::Yes
+        }
+        BeforeSearch::PasteImage => {
+            cx.emit(&hs.screen, ScreenIntent::from(popovers::Intent::PasteImage));
+            rtwk::Rebuild::No
+        }
     }
 }
 
@@ -902,18 +930,7 @@ impl State for ComposerState {
                 let states = read::<ScreenStates, _>(cx);
                 mentions::sync(w, &states, cx);
             }
-            ComposerMsg::VimToggled(on) => {
-                let hs = read::<Hs, _>(cx);
-                let thread = read::<SessionSlice, _>(cx).active.clone();
-                let note = Note::from(NoteKey::Toggled(Toggle::Vim, on));
-                let intent = chat::Intent::Note { thread, note };
-                cx.emit(&hs.screen, ScreenIntent::from(intent));
-                return rtwk::Rebuild::Yes;
-            }
-            ComposerMsg::PasteImage => {
-                let hs = read::<Hs, _>(cx);
-                cx.emit(&hs.screen, ScreenIntent::from(popovers::Intent::PasteImage));
-            }
+            ComposerMsg::BeforeSearch(action) => return apply_before_search(cx, action),
             ComposerMsg::ImageArrived => {
                 let states = read::<ScreenStates, _>(cx);
                 let table = strings::of(cx);
@@ -1148,19 +1165,18 @@ impl State for ComposerState {
                     .unwrap_or(strings.chat.placeholder),
             );
         }
+        let area: AnyWidget = IgnorePointer::new()
+            .ignoring(w.history_field)
+            .child(area)
+            .into();
         // the plain-text composer: the prompt and the field, nothing around
         if let Some(look) = &w.plain {
-            return plain::row(
-                look,
-                &tokens,
-                chat_strings::of(cx).prompt,
-                keys(area.into()),
-            );
+            return plain::row(look, &tokens, chat_strings::of(cx).prompt, keys(area));
         }
         let table = chat_strings::of(cx);
         // the rows of the text as it is now (the states may have changed)
         self.refresh(w, &popovers, &slash, table);
-        let field = self.popup(keys(area.into()), w.ui.find.active(), cx);
+        let field = self.popup(keys(area), w.ui.find.active(), cx);
         let mark = if w.ui.draft.shell() {
             prompt(
                 strings::of(cx).shell_prompt,

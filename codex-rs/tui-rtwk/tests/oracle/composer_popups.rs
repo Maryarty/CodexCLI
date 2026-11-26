@@ -190,8 +190,12 @@ fn vim_normal_history_search_preview_places_cursor_on_last_char() {
     s.keys("ctrl+r");
     s.type_text("git");
     s.assert_row(prompt(&s), "› git status");
-    s.assert_contains("reverse-i-search: git");
-    // the caret is on the last character of the preview
+    // The oracle unit test inspects the preview's internal cursor. While the search is open,
+    // composer_layout places the terminal cursor in the query.
+    s.assert_cursor_on_row_of("reverse-i-search: git");
+    s.keys("enter");
+    s.assert_absent("reverse-i-search");
+    s.assert_row(prompt(&s), "› git status");
     s.assert_cursor(2 + "git statu".len(), prompt(&s));
 }
 
@@ -373,7 +377,7 @@ fn history_search_paste_appends_query_and_accepts_match() {
 fn history_search_large_paste_clamps_cursor() {
     kit::pending(
         Owner::ChatNavPane,
-        "pending(G78): the oracle's caret stands at the end of the query on the footer row; the terminal caret of ours stays in the composer's text (the rows match, the cursor does not)",
+        "pending(G78): the terminal cursor reaches the oracle's last column; the focused rtwk TextField reserves that column for its caret, so the oracle draws one more query character",
     );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 5)
@@ -381,6 +385,7 @@ fn history_search_large_paste_clamps_cursor() {
         .open();
     s.type_text("draft").keys("ctrl+r");
     s.paste(&"x".repeat(65536));
+    s.assert_cursor(79, 4);
     s.assert_snap_region("codex_tui__bottom_pane__chat_composer__history_search__paste_tests__history_search_large_paste_cursor", 0, 0);
 }
 
@@ -404,10 +409,6 @@ fn history_search_empty_paste_preserves_selected_match() {
 // ORACLE bottom_pane/chat_composer/history_search_paste_tests.rs:121 history_search_paste_shows_separators_and_matches_original_query kind=snap owner=chat-nav-pane snap=codex_tui__bottom_pane__chat_composer__history_search__paste_tests__history_search_pasted_separators
 #[test]
 fn history_search_paste_shows_separators_and_matches_original_query() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "pending(G78): the oracle's caret stands at the end of the query on the footer row; the terminal caret of ours stays in the composer's text (the rows match, the cursor does not)",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(70, 5)
         .entry("composer", "alone_history_separators")
@@ -434,10 +435,6 @@ fn history_search_paste_preserves_original_draft_on_miss_and_cancel() {
 // ORACLE bottom_pane/chat_composer/history_search_paste_tests.rs:186 history_search_paste_uses_full_sanitized_text kind=ui owner=chat-nav-pane
 #[test]
 fn history_search_paste_uses_full_sanitized_text() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "screen bug (history search row): the sanitized text and the image path cases pass (the kit writes the png, `image_file`); a large paste (1001 chars) as the query overflows the search row by 2 columns (RenderFlex, the `+2` counter beside the wrapped query), which the app logs as an error",
-    );
     // the pasted text is the query, sanitized (CR LF and escape codes), in place of a placeholder
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
@@ -457,16 +454,25 @@ fn history_search_paste_uses_full_sanitized_text() {
     s.paste(&path);
     s.assert_contains(&format!("reverse-i-search: {path}"));
     s.assert_absent("[Image #1]");
-    // a large paste is its text, no `[Pasted Content N chars]` placeholder
+    // Only the end of the full paste distinguishes the match from the newer prompt.
+    let prefix = "x".repeat(1000);
+    let query = format!("{prefix}a");
+    let newer = format!("{prefix}b");
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
-        .script(include_str!("fixtures/composer_popups/h_sanitized.jsonl"))
+        .live()
+        .message_history(&[&query, &newer])
         .open();
     s.type_text("draft").keys("ctrl+r");
-    s.paste(&"x".repeat(1001));
+    s.paste(&query);
+    s.wait_for("› xxxxxxxxxx");
     s.assert_contains("reverse-i-search:");
-    s.assert_contains(&"x".repeat(70));
     s.assert_absent("[Pasted Content");
+    s.keys("enter");
+    s.assert_absent("reverse-i-search:");
+    s.assert_no_turn();
+    s.keys("enter");
+    s.assert_turn_texts(&[&query]);
 }
 
 // ---- oracle: bottom_pane/chat_composer/mentions_layout_tests.rs (3 screen-level tests here; 0 state tests left to chat-nav-pane)

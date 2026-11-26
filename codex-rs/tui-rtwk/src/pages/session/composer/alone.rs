@@ -182,10 +182,17 @@ impl State for AloneState {
         let tokens = theme::Tokens::of(cx);
         *self.keymap.borrow_mut() = crate::keymap::keymap(cx);
         let composer = Composer::new(w.ui.clone(), self.node.clone())
+            .with_history_field(w.ui.draft.searching())
             .on_changed(cx.map(|_| Msg::Changed))
             .on_submitted(cx.map(|_| Msg::Submitted));
         let footer: AnyWidget = if let Some((query, status)) = w.ui.draft.search_state() {
-            search::footer(cx, query, status)
+            search::footer(
+                &w.ui,
+                self.node.clone(),
+                cx.map(|_| Msg::Changed),
+                query,
+                status,
+            )
         } else if let Some(row) = search::query_footer(cx, &w.ui.draft) {
             row
         } else {

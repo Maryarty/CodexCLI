@@ -89,10 +89,10 @@ fn run<R>(
 
 /// `toggle_vim_mode`: on enters Normal mode, off Insert; what the old mode
 /// recorded and any query are gone.
-pub fn toggle(data: &KeyData) {
-    let on = !data.draft.vim_enabled();
-    data.draft.set_vim_enabled(on);
-    (data.tell)(ComposerMsg::VimToggled(on));
+pub fn toggle(draft: &ComposerDraft) -> bool {
+    let on = !draft.vim_enabled();
+    draft.set_vim_enabled(on);
+    on
 }
 
 // ---- reading a key ----------------------------------------------------------

@@ -132,7 +132,14 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
         } else if let Some((query, status)) = searching.clone() {
             // Reverse history search: its row is the footer
             // (`history_search_footer_line`).
-            crate::pages::session::composer::search::footer(cx, query, status)
+            composer = composer.with_history_field(true);
+            crate::pages::session::composer::search::footer(
+                &w.ui,
+                state.node.clone(),
+                cx.map(ChatMsg::Changed),
+                query,
+                status,
+            )
         } else if let Some(row) =
             crate::pages::session::composer::search::query_footer(cx, &w.ui.draft)
         {
