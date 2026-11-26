@@ -188,7 +188,7 @@ fn steer_receipt(fx: &AppFx) -> String {
             } => Some(client_id.clone()),
             _ => None,
         })
-        .unwrap()
+        .unwrap_or_else(|| panic!("a steer request carries a client ID"))
 }
 
 /// The texts of the steers the server has not yet echoed.

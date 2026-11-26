@@ -38,8 +38,7 @@ use codex_tui_core::app::effects::ConfigEdit;
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::ids::RequestKey;
 use codex_tui_core::protocol;
-use codex_tui_core::rpc::ServerError;
-use codex_tui_core::screens::ScreenEv;
+use codex_tui_core::rpc::{Reply, ServerError};
 use codex_tui_core::screens::agents::Ev as AgentsEv;
 use codex_tui_core::screens::agents::Grouping as AgentsGrouping;
 use codex_tui_core::screens::chat::Ev as ChatEv;
@@ -47,6 +46,7 @@ use codex_tui_core::screens::dialogs::Ev as DialogsEv;
 use codex_tui_core::screens::dialogs::Warning;
 use codex_tui_core::screens::onboarding::auth::provider::wire;
 use codex_tui_core::screens::status::Ev as StatusEv;
+use codex_tui_core::screens::{ScreenCommand, ScreenEv, chat};
 use codex_tui_rtwk::services::agents::search::Latest;
 use codex_tui_rtwk::services::agents::version;
 use codex_tui_rtwk::services::agents::workspace::Boxed;
@@ -1156,7 +1156,7 @@ pub(crate) fn work(
     model: Option<String>,
     startup: Option<crate::startup::Startup>,
 ) -> Boxed<Option<AppEv>> {
-    let send = sender(handle);
+    let send = sender(handle.clone());
     match command {
         // The startup page's asks; a backend with no startup side (Cloud)
         // answers none.
@@ -1193,6 +1193,26 @@ pub(crate) fn work(
                 async move { Some(bind_worktree(workspace, ticket, checkout, thread, cwd).await) },
             )
         }
+        command @ (Command::StartTurn { ticket, .. }
+        | Command::Screen {
+            ticket,
+            command: ScreenCommand::Chat(chat::Command::Steer { .. }),
+            ..
+        }) => Box::pin(async move {
+            let request = protocol::client_request(&command, ids.next(), model.as_deref())?;
+            let own_message = wire::reads_message_only(&request);
+            let response = handle.request_typed::<serde_json::Value>(request).await;
+            let (ticket, reply) = match response {
+                Err(error @ TypedRequestError::Transport { .. }) => {
+                    (ticket, Reply::submission_unconfirmed(error.to_string()))
+                }
+                result => protocol::reply_from_server(
+                    &command,
+                    result.map_err(|error| server_error(own_message, &error)),
+                )?,
+            };
+            Some(AppEv::Reply(ticket, reply))
+        }),
         // `RejectRequest` is handled by the pump, which owns the client.
         command => Box::pin(async move {
             answer(command, facts, ids, model, send)
@@ -1216,18 +1236,20 @@ pub(crate) fn sender(
             handle
                 .request_typed::<serde_json::Value>(request)
                 .await
-                .map_err(|error| ServerError {
-                    code: match &error {
-                        TypedRequestError::Server { source, .. } => Some(source.code),
-                        _ => None,
-                    },
-                    message: error_text(own_message, &error),
-                    data: match &error {
-                        TypedRequestError::Server { source, .. } => source.data.clone(),
-                        _ => None,
-                    },
-                })
+                .map_err(|error| server_error(own_message, &error))
         })
+    }
+}
+
+fn server_error(own_message: bool, error: &TypedRequestError) -> ServerError {
+    let (code, data) = match error {
+        TypedRequestError::Server { source, .. } => (Some(source.code), source.data.clone()),
+        _ => (None, None),
+    };
+    ServerError {
+        code,
+        data,
+        message: error_text(own_message, error),
     }
 }
 

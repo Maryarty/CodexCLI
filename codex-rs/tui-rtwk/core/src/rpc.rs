@@ -82,9 +82,24 @@ impl From<&str> for ServerError {
 
 /// The reply of one of our RPCs, as the shell reports it with the ticket.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Reply(Answer);
+pub struct Reply(ReplyResult);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ReplyResult {
+    Answer(Answer),
+    SubmissionUnconfirmed(String),
+}
 
 impl Reply {
+    fn new(answer: Answer) -> Self {
+        Self(ReplyResult::Answer(answer))
+    }
+
+    /// The connection failed while a submission was in flight. Receipt still needs verification.
+    pub fn submission_unconfirmed(message: impl Into<String>) -> Self {
+        Self(ReplyResult::SubmissionUnconfirmed(message.into()))
+    }
+
     pub fn thread_started(thread: ThreadId) -> Self {
         Self::thread_started_with(thread, Vec::new())
     }
@@ -94,11 +109,11 @@ impl Reply {
         thread: ThreadId,
         sources: Vec<crate::screens::status::AgentsSource>,
     ) -> Self {
-        Self(Answer::ThreadStarted { thread, sources })
+        Self::new(Answer::ThreadStarted { thread, sources })
     }
 
     pub fn turn_started(thread: ThreadId, turn: TurnId) -> Self {
-        Self(Answer::TurnStarted { thread, turn })
+        Self::new(Answer::TurnStarted { thread, turn })
     }
 
     pub fn rate_limits(limits: crate::screens::status::RateLimits) -> Self {
@@ -116,7 +131,7 @@ impl Reply {
         reserve: crate::screens::chat::Reserve,
         read: crate::screens::status::RateRead,
     ) -> Self {
-        Self(Answer::RateLimits {
+        Self::new(Answer::RateLimits {
             limits,
             banner: banner.map(Box::new),
             reserve,
@@ -126,45 +141,45 @@ impl Reply {
 
     /// `account/sendAddCreditsNudgeEmail` answered.
     pub(crate) fn add_credits_nudge(outcome: crate::screens::chat::NudgeOutcome) -> Self {
-        Self(Answer::AddCreditsNudge(outcome))
+        Self::new(Answer::AddCreditsNudge(outcome))
     }
 
     pub(crate) fn interrupt_turn_changed(actual: TurnId) -> Self {
-        Self(Answer::InterruptTurnChanged(actual))
+        Self::new(Answer::InterruptTurnChanged(actual))
     }
 
     pub fn turn_interrupted() -> Self {
-        Self(Answer::TurnInterrupted)
+        Self::new(Answer::TurnInterrupted)
     }
 
     pub fn screen(reply: ScreenReply) -> Self {
-        Self(Answer::Screen(reply))
+        Self::new(Answer::Screen(reply))
     }
 
     /// The reply of a feature slice's RPC.
     pub fn feature(reply: crate::features::FeatureReply) -> Self {
-        Self(Answer::Feature(reply))
+        Self::new(Answer::Feature(reply))
     }
 
     pub fn worktree_created(result: Result<Checkout, String>) -> Self {
-        Self(Answer::WorktreeCreated(result))
+        Self::new(Answer::WorktreeCreated(result))
     }
 
     pub fn worktree_bound(result: Result<(), BindFailure>) -> Self {
-        Self(Answer::WorktreeBound(result))
+        Self::new(Answer::WorktreeBound(result))
     }
 
     pub fn failed(message: impl Into<String>) -> Self {
-        Self(Answer::Failed(RpcError::Remote(message.into())))
+        Self::new(Answer::Failed(RpcError::Remote(message.into())))
     }
 
     /// The images of a turn or steer could not be prepared: nothing was sent.
     pub fn prepare_failed(message: impl Into<String>) -> Self {
-        Self(Answer::Failed(RpcError::Prepare(message.into())))
+        Self::new(Answer::Failed(RpcError::Prepare(message.into())))
     }
 
     pub fn error(error: RpcError) -> Self {
-        Self(Answer::Failed(error))
+        Self::new(Answer::Failed(error))
     }
 }
 
@@ -254,6 +269,21 @@ impl<C> Pending<C> {
     /// The context of `ticket` and what `reply` says, if the ticket is
     /// held; the ticket is spent. A stale ticket gives `None` (R1).
     pub fn resolve(&mut self, ticket: Ticket, reply: Reply) -> Option<(C, Answer)> {
+        let (ctx, result) = self.resolve_reply(ticket, reply)?;
+        let answer = match result {
+            ReplyResult::Answer(answer) => answer,
+            ReplyResult::SubmissionUnconfirmed(message) => {
+                Answer::Failed(RpcError::Remote(message))
+            }
+        };
+        Some((ctx, answer))
+    }
+
+    pub(crate) fn resolve_reply(
+        &mut self,
+        ticket: Ticket,
+        reply: Reply,
+    ) -> Option<(C, ReplyResult)> {
         self.entries.remove(&ticket).map(|ctx| (ctx, reply.0))
     }
 }

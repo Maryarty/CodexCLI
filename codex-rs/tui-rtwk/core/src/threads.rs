@@ -788,7 +788,7 @@ pub enum TurnEnd {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PendingSteer {
     message: UserMessage,
-    client_id: Option<String>,
+    submission: Option<(Ticket, String)>,
     /// The turn the server said it joined.
     admitted: Option<TurnId>,
 }
@@ -2970,7 +2970,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 let client_id = fx.mint.submission_id(ticket);
                 model.pending_steers.push(PendingSteer {
                     message: message.clone(),
-                    client_id: Some(client_id.clone()),
+                    submission: Some((ticket, client_id.clone())),
                     admitted: None,
                 });
                 steer(fx, ticket, turn, false, message, client_id);
@@ -3021,8 +3021,15 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         }
         ThreadEv::Reply { ticket, reply } => {
             // A reply whose ticket is not ours any more is stale.
-            let Some((ctx, answer)) = model.outgoing.resolve(ticket, reply) else {
+            let Some((ctx, result)) = model.outgoing.resolve_reply(ticket, reply) else {
                 return;
+            };
+            let answer = match result {
+                crate::rpc::ReplyResult::Answer(answer) => answer,
+                crate::rpc::ReplyResult::SubmissionUnconfirmed(_) => {
+                    hold_submission_reply(model, ticket, ctx);
+                    return;
+                }
             };
             match (ctx, answer) {
                 (
@@ -3247,7 +3254,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 .into_iter()
                 .map(|text| PendingSteer {
                     message: UserMessage::text(text),
-                    client_id: None,
+                    submission: None,
                     admitted: None,
                 })
                 .collect();
@@ -3685,6 +3692,53 @@ fn give_back(model: &mut ThreadModel, messages: Vec<UserMessage>, replace: bool)
     });
 }
 
+/// A transport reply can precede the loss event. It owns just this submission.
+fn hold_submission_reply(model: &mut ThreadModel, ticket: Ticket, ctx: ThreadCtx) {
+    match ctx {
+        ThreadCtx::StartTurn {
+            message,
+            client_id: Some(client_id),
+            ..
+        } => {
+            hold_submission(model, ticket, client_id, message);
+        }
+        ThreadCtx::Screen(ScreenCtx::Chat(screens::chat::Ctx::Steer { client_id, .. })) => {
+            if let Some(index) = pending_steer(model, &client_id) {
+                let steer = model.pending_steers.remove(index);
+                if let Some((submitted, id)) = steer.submission {
+                    hold_submission(model, submitted, id, steer.message);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn hold_submission(
+    model: &mut ThreadModel,
+    submitted: Ticket,
+    client_id: String,
+    message: UserMessage,
+) {
+    model.core.reconciling_submissions = true;
+    model.core.history_may_be_incomplete = true;
+    // Requests can fail out of order. Keep uncertain messages in submission order before
+    // everything that was still waiting to send.
+    let index = model.queue.partition_point(|entry| {
+        matches!(
+            entry, Queued::Unconfirmed { submitted: prior, .. } if *prior < submitted
+        )
+    });
+    model.queue.insert(
+        index,
+        Queued::Unconfirmed {
+            message: Box::new(message),
+            client_id,
+            submitted,
+        },
+    );
+}
+
 /// Preserve submitted input ahead of unsent input when the server outcome becomes unknown.
 fn hold_unconfirmed(model: &mut ThreadModel) {
     let mut held = Vec::new();
@@ -3695,30 +3749,18 @@ fn hold_unconfirmed(model: &mut ThreadModel) {
             ..
         }) = model.outgoing.get(ticket)
         {
-            held.push(Queued::Unconfirmed {
-                message: Box::new(message.clone()),
-                client_id: client_id.clone(),
-            });
+            held.push((ticket, client_id.clone(), message.clone()));
         }
     }
     model.pending_steers.retain_mut(|steer| {
-        let Some(client_id) = steer.client_id.take() else {
+        let Some((ticket, client_id)) = steer.submission.take() else {
             return true;
         };
-        held.push(Queued::Unconfirmed {
-            message: Box::new(std::mem::take(&mut steer.message)),
-            client_id,
-        });
+        held.push((ticket, client_id, std::mem::take(&mut steer.message)));
         false
     });
-    if !held.is_empty() {
-        model.core.reconciling_submissions = true;
-        let first_unsent = model
-            .queue
-            .iter()
-            .take_while(|entry| matches!(entry, Queued::Unconfirmed { .. }))
-            .count();
-        model.queue.splice(first_unsent..first_unsent, held);
+    for (ticket, client_id, message) in held {
+        hold_submission(model, ticket, client_id, message);
     }
     model.outgoing.retain(|ctx| {
         !matches!(
@@ -3736,16 +3778,16 @@ fn reconcile_id(model: &mut ThreadModel, client_id: &str) -> (bool, bool) {
     ) {
         *client_id = None;
     }
-    let pending = model.pending_steers.len();
-    model
-        .pending_steers
-        .retain(|steer| steer.client_id.as_deref() != Some(client_id));
+    let pending = pending_steer(model, client_id);
+    if let Some(index) = pending {
+        model.pending_steers.remove(index);
+    }
     let queued = model.queue.len();
     model.queue.retain(
         |entry| !matches!(entry, Queued::Unconfirmed { client_id: id, .. } if id == client_id),
     );
     let released = queued != model.queue.len();
-    (pending != model.pending_steers.len() || released, released)
+    (pending.is_some() || released, released)
 }
 
 fn reconcile_ids(model: &mut ThreadModel, receipts: &[String]) -> bool {
@@ -3832,6 +3874,15 @@ fn restore_reply(
     }
 }
 
+fn pending_steer(model: &ThreadModel, client_id: &str) -> Option<usize> {
+    model.pending_steers.iter().position(|steer| {
+        steer
+            .submission
+            .as_ref()
+            .is_some_and(|(_, id)| id == client_id)
+    })
+}
+
 /// The answer of a `turn/steer`.
 fn steer_reply(
     model: &mut ThreadModel,
@@ -3842,10 +3893,7 @@ fn steer_reply(
     answer: Answer,
     fx: &mut ThreadFx<'_>,
 ) {
-    let position = model
-        .pending_steers
-        .iter()
-        .position(|steer| steer.client_id.as_deref() == Some(client_id.as_str()));
+    let position = pending_steer(model, &client_id);
     let failure = match answer {
         Answer::Screen(screens::ScreenReply::Chat(screens::chat::Reply::Steered(admitted))) => {
             if let Some(index) = position {

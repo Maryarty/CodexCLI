@@ -24,6 +24,7 @@ pub enum Queued {
     Unconfirmed {
         message: Box<UserMessage>,
         client_id: String,
+        submitted: crate::ids::Ticket,
     },
     /// A message that is sent as it is: no slash or shell parsing (a `!` the user did not type
     /// in shell mode, a paste that merely starts with `/`), and the text as it stood in the

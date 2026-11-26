@@ -857,62 +857,107 @@ fn a_live_receipt_before_transport_loss_leaves_only_the_unsent_follow_up() {
 fn same_thread_reattach_reconciles_only_an_exact_start_or_steer_receipt() {
     for pending_start in [false, true] {
         for exact_receipt in [None, Some(false), Some(true)] {
-            let mut app = if pending_start { ready() } else { running() };
-            let (ticket, client_id) = submission_id(&submit(&mut app, "first message"));
-            submit_or_queue_follow_up(&mut app, pending_start);
-            run(
-                &mut app,
-                AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnecting)),
-            );
-            assert_eq!(queued(&app), ["first message", "follow-up"]);
-            let history = reattach(&mut app);
-            assert!(matches!(
-                &thread(&app).queue()[0],
-                Queued::Unconfirmed { .. }
-            ));
-            let fx = run(
-                &mut app,
-                AppEv::Reply(ticket, Reply::failed("no active turn to steer")),
-            );
-            assert!(started_texts(&fx).is_empty(), "retire the old request");
-            assert_eq!(queued(&app), ["first message", "follow-up"]);
-            let receipt = exact_receipt.map(|exact| {
-                if exact {
-                    client_id.clone()
-                } else {
-                    "unrelated".into()
-                }
-            });
-            let fx = reply_history(&mut app, history, receipt);
-            let notice = thread(&app).transcript().iter().any(|(_, item)| matches!(
-                item, Item::Notice(Notice::SubmissionUnconfirmed(text)) if text == "first message"
-            ));
-            if exact_receipt == Some(true) {
-                assert_eq!(started_texts(&fx), ["follow-up"]);
-                assert!(thread(&app).queue().is_empty());
-                assert!(!notice);
-            } else {
-                assert!(started_texts(&fx).is_empty());
-                assert_eq!(queued(&app), ["first message", "follow-up"]);
-                assert!(notice);
-                let fx = notify(
-                    &mut app,
-                    user_item_with_receipt(
-                        T,
-                        "turn-1",
-                        "late-exact-receipt",
-                        "first message",
-                        Some(client_id),
-                    ),
-                );
-                assert_eq!(
-                    started_texts(&fx),
-                    ["follow-up"],
-                    "live receipt releases the queue"
-                );
-                assert!(thread(&app).queue().is_empty());
-            }
+            assert_submission_recovery(pending_start, exact_receipt, false);
         }
+    }
+}
+
+#[test]
+fn a_transport_reply_before_disconnect_preserves_pending_starts_and_steers_once() {
+    for pending_start in [false, true] {
+        for exact_receipt in [None, Some(false), Some(true)] {
+            assert_submission_recovery(pending_start, exact_receipt, true);
+        }
+    }
+}
+
+fn unconfirmed_reply(app: &mut CodexApp, ticket: Ticket) -> AppFx {
+    run(
+        app,
+        AppEv::Reply(ticket, Reply::submission_unconfirmed("transport closed")),
+    )
+}
+
+#[test]
+fn an_out_of_order_steer_failure_preserves_the_order_at_disconnect() {
+    let mut app = running();
+    let (first, _) = submission_id(&submit(&mut app, "first"));
+    let (second, _) = submission_id(&submit(&mut app, "second"));
+    tab(&mut app, "follow-up", false);
+    unconfirmed_reply(&mut app, second);
+    assert_eq!(queued(&app), ["second", "follow-up"]);
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnecting)),
+    );
+    unconfirmed_reply(&mut app, first);
+    unconfirmed_reply(&mut app, second);
+    assert_eq!(queued(&app), ["first", "second", "follow-up"]);
+}
+
+fn assert_submission_recovery(pending_start: bool, exact_receipt: Option<bool>, error_first: bool) {
+    let mut app = if pending_start { ready() } else { running() };
+    let (ticket, client_id) = submission_id(&submit(&mut app, "first message"));
+    submit_or_queue_follow_up(&mut app, pending_start);
+    if error_first {
+        let fx = unconfirmed_reply(&mut app, ticket);
+        assert!(started_texts(&fx).is_empty(), "delivery is still unknown");
+        assert!(thread(&app).restore().is_none(), "keep the draft editable");
+        assert_eq!(queued(&app), ["first message", "follow-up"]);
+    }
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnecting)),
+    );
+    assert_eq!(queued(&app), ["first message", "follow-up"]);
+    let history = reattach(&mut app);
+    assert!(matches!(
+        &thread(&app).queue()[0],
+        Queued::Unconfirmed { .. }
+    ));
+    let fx = run(
+        &mut app,
+        AppEv::Reply(ticket, Reply::failed("no active turn to steer")),
+    );
+    assert!(started_texts(&fx).is_empty(), "retire the old request");
+    assert_eq!(queued(&app), ["first message", "follow-up"]);
+    let receipt = exact_receipt.map(|exact| {
+        if exact {
+            client_id.clone()
+        } else {
+            "unrelated".into()
+        }
+    });
+    let fx = reply_history(&mut app, history, receipt);
+    let notice = thread(&app).transcript().iter().any(|(_, item)| {
+        matches!(
+            item, Item::Notice(Notice::SubmissionUnconfirmed(text)) if text == "first message"
+        )
+    });
+    if exact_receipt == Some(true) {
+        assert_eq!(started_texts(&fx), ["follow-up"]);
+        assert!(thread(&app).queue().is_empty());
+        assert!(!notice);
+    } else {
+        assert!(started_texts(&fx).is_empty());
+        assert_eq!(queued(&app), ["first message", "follow-up"]);
+        assert!(notice);
+        let fx = notify(
+            &mut app,
+            user_item_with_receipt(
+                T,
+                "turn-1",
+                "late-exact-receipt",
+                "first message",
+                Some(client_id),
+            ),
+        );
+        assert_eq!(
+            started_texts(&fx),
+            ["follow-up"],
+            "live receipt releases the queue"
+        );
+        assert!(thread(&app).queue().is_empty());
     }
 }
 
