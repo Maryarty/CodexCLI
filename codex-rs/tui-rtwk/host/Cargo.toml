@@ -55,7 +55,7 @@ url = "2"
 webbrowser = "1.2.2"
 which = "8"
 tracing = "0.1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
 
 [target.'cfg(windows)'.dependencies]
 # `device_login::has_http_handler`: whether a program is registered for `http`;
