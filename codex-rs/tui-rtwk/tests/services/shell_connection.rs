@@ -107,7 +107,7 @@ fn agents(ev: &AppEv) -> &Ev {
 }
 
 /// The app is told `Reconnecting` first, the attempts come after 0, 1 and
-/// 2 seconds (3 s in all), and `Reconnected` ends it.
+/// 2 seconds (3 s in all). The host announces success after installing the handle.
 #[tokio::test(start_paused = true)]
 async fn the_attempts_follow_the_oracles_delays_and_the_app_is_told() {
     let (tx, mut rx) = unbounded_channel();
@@ -136,8 +136,7 @@ async fn the_attempts_follow_the_oracles_delays_and_the_app_is_told() {
     );
     let first = rx.try_recv().expect("told first");
     assert_eq!(first.epoch, EPOCH);
-    assert_eq!(agents(&first.ev), &Ev::Reconnecting);
-    assert_eq!(agents(&rx.try_recv().expect("then").ev), &Ev::Reconnected);
+    assert_eq!(agents(first.event().unwrap()), &Ev::Reconnecting);
     assert!(rx.try_recv().is_err());
 }
 
@@ -150,9 +149,12 @@ async fn the_budget_ends_in_reconnect_failed() {
     let client: Option<()> = restore(|| async { None }, &tx, EPOCH).await;
     assert_eq!(client, None);
     assert_eq!(start.elapsed(), Duration::from_secs(120));
-    assert_eq!(agents(&rx.try_recv().unwrap().ev), &Ev::Reconnecting);
     assert_eq!(
-        agents(&rx.try_recv().unwrap().ev),
+        agents(rx.try_recv().unwrap().event().unwrap()),
+        &Ev::Reconnecting
+    );
+    assert_eq!(
+        agents(rx.try_recv().unwrap().event().unwrap()),
         &Ev::Notice(Some(Notice::ReconnectFailed))
     );
     assert!(rx.try_recv().is_err());

@@ -112,6 +112,14 @@ pub enum Interest {
     Title { thread: ThreadId },
 }
 
+impl Interest {
+    pub(crate) fn thread(&self) -> &ThreadId {
+        match self {
+            Self::Title { thread } => thread,
+        }
+    }
+}
+
 /// The title suggestions asked for, by thread: a request record (the answer is the generator's,
 /// none when nothing came out).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

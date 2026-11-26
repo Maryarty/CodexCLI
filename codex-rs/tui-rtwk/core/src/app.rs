@@ -54,10 +54,10 @@ use crate::ids::TurnId;
 use crate::keymap::Keymap;
 use crate::protocol::requests;
 use crate::protocol::targets;
-use crate::rpc::Answer;
 use crate::rpc::Pending;
 use crate::rpc::Reply;
 use crate::rpc::RpcError;
+use crate::rpc::{Address, Answer};
 use crate::screens;
 use crate::screens::ScreenCommand;
 use crate::screens::ScreenEv;
@@ -364,7 +364,9 @@ pub enum AppEv {
 pub struct Ingress {
     pub backend: BackendId,
     pub epoch: ConnEpoch,
-    pub ev: AppEv,
+    transport_epoch: ConnEpoch,
+    /// An empty event announces a replacement handle at `transport_epoch`.
+    ev: Option<AppEv>,
 }
 
 impl Ingress {
@@ -375,7 +377,46 @@ impl Ingress {
 
     /// An event of `backend`.
     pub fn of(backend: BackendId, epoch: ConnEpoch, ev: AppEv) -> Self {
-        Self { backend, epoch, ev }
+        Self {
+            backend,
+            epoch,
+            transport_epoch: epoch,
+            ev: Some(ev),
+        }
+    }
+
+    /// A reply from the handle selected by a connector that may replace its transport.
+    pub fn transport_reply(
+        backend: BackendId,
+        epoch: ConnEpoch,
+        transport_epoch: ConnEpoch,
+        ticket: Ticket,
+        reply: Reply,
+    ) -> Self {
+        Self {
+            backend,
+            epoch,
+            transport_epoch,
+            ev: Some(AppEv::Reply(ticket, reply)),
+        }
+    }
+
+    /// The connector installed a request handle without replacing its ingress.
+    pub fn transport_replaced(
+        backend: BackendId,
+        epoch: ConnEpoch,
+        transport_epoch: ConnEpoch,
+    ) -> Self {
+        Self {
+            backend,
+            epoch,
+            transport_epoch,
+            ev: None,
+        }
+    }
+
+    pub fn event(&self) -> Option<&AppEv> {
+        self.ev.as_ref()
     }
 }
 
@@ -431,6 +472,7 @@ pub enum Command {
     /// does not accept, the host sends `error` back as the notification the line is made of.
     #[non_exhaustive]
     ReconnectIdleThread {
+        address: Address,
         thread: ThreadId,
         error: Box<ErrorNotification>,
     },
@@ -515,10 +557,29 @@ pub enum Command {
     },
 }
 
+impl Command {
+    fn ticket(&self) -> Option<Ticket> {
+        match self {
+            Self::StartThread { ticket, .. }
+            | Self::ReadRateLimits { ticket, .. }
+            | Self::SendAddCreditsNudge { ticket, .. }
+            | Self::StartTurn { ticket, .. }
+            | Self::InterruptTurn { ticket, .. }
+            | Self::CreateWorktree { ticket, .. }
+            | Self::BindWorktree { ticket, .. }
+            | Self::Screen { ticket, .. }
+            | Self::Feature { ticket, .. } => Some(*ticket),
+            _ => None,
+        }
+    }
+}
+
 /// Effects of one `apply_app` call, as values.
 #[derive(Debug, Default, PartialEq)]
 pub struct AppFx {
     pub(crate) commands: Vec<Command>,
+    /// Only commands that expect no reply use a dispatch address in the effects themselves.
+    tells: BTreeMap<Ticket, Address>,
     /// The app ends: the connection did not start (the oracle ends with the error,
     /// `run_main_inner` returning it), or a feature ended it (`AppCx::end_app`).
     pub(crate) ends: bool,
@@ -529,6 +590,53 @@ pub struct AppFx {
 }
 
 impl AppFx {
+    fn ask(
+        &mut self,
+        app: &mut CodexApp,
+        context: AppCtx,
+        build: impl FnOnce(&CodexApp, Ticket) -> Command,
+    ) -> Ticket {
+        let ticket = app.mint.next();
+        let command = build(app, ticket);
+        debug_assert_eq!(command.ticket(), Some(ticket));
+        let backend = match &context {
+            AppCtx::Worktree { backend, .. }
+            | AppCtx::OpenThread { backend, .. }
+            | AppCtx::Structured { backend, .. }
+            | AppCtx::NewConversation { backend, .. }
+            | AppCtx::Select(
+                screens::select::Ctx::Fallback { backend }
+                | screens::select::Ctx::Switch { backend, .. },
+            ) => *backend,
+            AppCtx::Resume(context) => context.backend(),
+            AppCtx::SessionRead | AppCtx::OpenSession { .. } => BackendId::default(),
+            AppCtx::StartThread { .. }
+            | AppCtx::Agents(_)
+            | AppCtx::Select(_)
+            | AppCtx::RateLimits { .. }
+            | AppCtx::Nudge { .. }
+            | AppCtx::Removal { .. }
+            | AppCtx::Opening { .. }
+            | AppCtx::Feature(_) => app.choose_backend(&command),
+        };
+        app.outgoing.insert(ticket, app.address(backend), context);
+        self.commands.push(command);
+        ticket
+    }
+
+    fn tell(
+        &mut self,
+        app: &mut CodexApp,
+        backend: BackendId,
+        build: impl FnOnce(Ticket) -> Command,
+    ) {
+        let ticket = app.mint.next();
+        let command = build(ticket);
+        debug_assert_eq!(command.ticket(), Some(ticket));
+        self.tells.insert(ticket, app.address(backend));
+        self.commands.push(command);
+    }
+
     /// When the app wants to be told the time next (none: it waits for an event).
     pub fn wake(&self) -> Option<Wake> {
         self.wake
@@ -541,6 +649,19 @@ impl AppFx {
     /// The commands, taken: what the shell runs.
     pub fn into_commands(self) -> Vec<Command> {
         self.commands
+    }
+
+    /// The command and, for a fire-and-forget RPC, its already chosen address.
+    pub fn into_dispatch(self) -> impl Iterator<Item = (Command, Option<Address>)> {
+        let Self {
+            commands, tells, ..
+        } = self;
+        commands.into_iter().map(move |command| {
+            let address = command
+                .ticket()
+                .and_then(|ticket| tells.get(&ticket).copied());
+            (command, address)
+        })
     }
 
     /// Whether the app ends: its connection did not start, or a feature ended it.
@@ -687,6 +808,8 @@ pub struct CodexApp {
     threads: ThreadSet,
     requests: Rc<RequestQueue>,
     request_epochs: BTreeMap<BackendId, ConnEpoch>,
+    /// Request handles replaced in-place, independent of the connector and approval epochs.
+    transport_epochs: BTreeMap<BackendId, ConnEpoch>,
     screens: Rc<ScreenStates>,
     /// The app-scoped state of the feature slices (ADR-012), read through `features()`,
     /// changed only by the features' own steps (`app/features.rs`).
@@ -787,6 +910,7 @@ impl CodexApp {
             threads: ThreadSet::default(),
             requests: Rc::new(RequestQueue::default()),
             request_epochs: BTreeMap::new(),
+            transport_epochs: BTreeMap::new(),
             screens: Rc::new(ScreenStates::default()),
             features: Rc::new(crate::features::FeatureStates::default()),
             interests: Rc::new(crate::features::Interests::default()),
@@ -1025,28 +1149,53 @@ impl CodexApp {
         self.session.epoch
     }
 
-    /// The backend a command goes to: a task's owner for what is about a
-    /// task, the displayed backend for the rest (oracle: the owner's
-    /// session answers for its tasks). `BackendId::default()` is the first
-    /// connection.
+    /// The backend a live request was registered on, or the destination of an unticketed effect.
     pub fn backend_of(&self, command: &Command) -> crate::ids::BackendId {
-        let agents = &self.screens.agents;
-        let ticket = match command {
-            Command::Screen { ticket, .. }
-            | Command::Feature { ticket, .. }
-            | Command::CreateWorktree { ticket, .. }
-            | Command::BindWorktree { ticket, .. } => Some(*ticket),
-            _ => None,
+        command
+            .ticket()
+            .and_then(|ticket| self.request_address(ticket))
+            .map_or_else(|| self.choose_backend(command), |address| address.backend)
+    }
+
+    /// Only connection requests still registered on the dispatched connection may go out.
+    pub fn dispatch_route(
+        &self,
+        command: &Command,
+        tell: Option<Address>,
+    ) -> Option<(BackendId, Option<Address>)> {
+        let address = match command {
+            Command::ReconnectIdleThread { address, .. } => *address,
+            _ => match command.ticket() {
+                Some(ticket) => self.request_address(ticket).or(tell)?,
+                None => return Some((self.choose_backend(command), None)),
+            },
         };
-        if let Some(
-            AppCtx::Worktree { backend, .. }
-            | AppCtx::OpenThread { backend, .. }
-            | AppCtx::Structured { backend, .. }
-            | AppCtx::NewConversation { backend, .. },
-        ) = ticket.and_then(|ticket| self.outgoing.get(ticket))
-        {
-            return *backend;
+        (self.address(address.backend) == address).then_some((address.backend, Some(address)))
+    }
+
+    fn request_address(&self, ticket: Ticket) -> Option<Address> {
+        self.outgoing
+            .address(ticket)
+            .or_else(|| self.threads.request(ticket).map(|(_, address)| address))
+    }
+
+    fn address(&self, backend: BackendId) -> Address {
+        Address {
+            backend,
+            epoch: self.transport_epoch_of(backend),
         }
+    }
+
+    fn transport_epoch_of(&self, backend: BackendId) -> ConnEpoch {
+        self.transport_epochs
+            .get(&backend)
+            .copied()
+            .unwrap_or_else(|| self.epoch_of(backend))
+    }
+
+    /// Selects an address at registration, or for a local effect that has no RPC ticket.
+    fn choose_backend(&self, command: &Command) -> BackendId {
+        let agents = &self.screens.agents;
         match command {
             Command::Screen {
                 command: ScreenCommand::Agents(command),
@@ -1056,9 +1205,10 @@ impl CodexApp {
                 command: ScreenCommand::Resume(command),
                 ..
             } => command.backend(),
-            Command::StartTurn { thread, .. }
-            | Command::InterruptTurn { thread, .. }
-            | Command::ReconnectIdleThread { thread, .. } => agents.owner_of(thread.as_str()),
+            Command::StartTurn { thread, .. } | Command::InterruptTurn { thread, .. } => {
+                agents.owner_of(thread.as_str())
+            }
+            Command::ReconnectIdleThread { address, .. } => address.backend,
             Command::RejectRequest { key }
             | Command::ResolveRequest { key, .. }
             | Command::VerifyUser { key, .. } => key.backend,
@@ -1071,6 +1221,11 @@ impl CodexApp {
             | Command::SendAddCreditsNudge { backend, .. } => *backend,
             // The startup page reads and writes this machine's first backend.
             Command::Startup { .. } | Command::Import { .. } => BackendId::default(),
+            // Provider definitions configure the primary app server.
+            Command::Feature {
+                command: crate::features::FeatureCommand::Providers(_),
+                ..
+            } => BackendId::default(),
             Command::Screen { thread, .. } | Command::Feature { thread, .. }
                 if !thread.as_str().is_empty() =>
             {
@@ -1134,19 +1289,31 @@ impl CodexApp {
     /// Attaches the next connection of `backend`: its own epoch, so that a
     /// reconnect of one backend never drops the events of another.
     pub fn attach_backend(&mut self, backend: BackendId) -> ConnEpoch {
-        let epoch = self.request_epoch(backend).next();
+        let epoch = ConnEpoch(
+            self.request_epoch(backend)
+                .0
+                .max(self.transport_epoch_of(backend).0),
+        )
+        .next();
         self.request_epochs.remove(&backend);
+        self.transport_epochs.remove(&backend);
         let session = Rc::make_mut(&mut self.session);
         if backend == BackendId::default() {
             session.epoch = epoch;
         } else {
             session.epochs.insert(backend, epoch);
         }
+        self.drop_requests_of(backend);
+        self.retire_outgoing(backend, &mut AppFx::default());
+        epoch
+    }
+
+    fn retire_outgoing(&mut self, backend: BackendId, fx: &mut AppFx) {
         self.attaching_events
             .retain(|(source, ..)| *source != backend);
-        self.drop_requests_of(backend);
+        detach_threads(self, backend, fx);
         self.fail_in_flight(backend);
-        epoch
+        structured::lost(self, backend, fx);
     }
 
     /// The app-scoped requests the replaced connection of `backend` still owed an answer for: its
@@ -1155,28 +1322,13 @@ impl CodexApp {
     /// would wait for it forever). What the failures would ask next is not sent: the commands of a
     /// lost connection are not run, and the tickets they minted are spent with them.
     fn fail_in_flight(&mut self, backend: BackendId) {
-        let lost: Vec<Ticket> = self
-            .outgoing
-            .tickets()
-            .filter(|ticket| {
-                self.outgoing
-                    .get(*ticket)
-                    .is_some_and(|ctx| ctx.on_lost(self, backend) == connection::OnLost::Fail)
-            })
-            .collect();
-        let before: Vec<Ticket> = self.outgoing.tickets().collect();
+        let lost: Vec<Ticket> = self.outgoing.tickets_on(backend).collect();
         let mut fx = AppFx::default();
         for ticket in lost {
             apply_reply(self, ticket, Reply::failed(CONNECTION_LOST), &mut fx);
         }
-        let asked: Vec<Ticket> = self
-            .outgoing
-            .tickets()
-            .filter(|ticket| !before.contains(ticket))
-            .collect();
-        for ticket in asked {
-            self.outgoing
-                .resolve(ticket, Reply::failed(CONNECTION_LOST));
+        for ticket in fx.commands.iter().filter_map(Command::ticket) {
+            self.outgoing.drop_ticket(ticket);
         }
     }
 
@@ -1229,20 +1381,60 @@ impl CodexApp {
             return None;
         }
         let mut fx = AppFx::default();
-        apply_app_from(self, ingress.backend, ingress.ev, &mut fx);
+        let Some(event) = ingress.ev else {
+            if ingress.transport_epoch != self.transport_epoch_of(ingress.backend).next() {
+                return None;
+            }
+            self.transport_epochs
+                .insert(ingress.backend, ingress.transport_epoch);
+            self.retire_outgoing(ingress.backend, &mut fx);
+            finish_apply(self, false, &mut fx);
+            return Some(fx);
+        };
+        let address = Address {
+            backend: ingress.backend,
+            epoch: ingress.transport_epoch,
+        };
+        if !self.accepts_reply(address, &event) {
+            return None;
+        }
+        apply_at(self, ingress.backend, event, &mut fx);
         Some(fx)
+    }
+
+    fn accepts_reply(&self, origin: Address, event: &AppEv) -> bool {
+        match event {
+            AppEv::Reply(ticket, _) => {
+                self.address(origin.backend) == origin
+                    && self.request_address(*ticket) == Some(origin)
+            }
+            _ => true,
+        }
     }
 }
 
 /// Applies one event to the app-scoped model, thread events to their thread
 /// model (`threads::apply`), and returns effects as data (R3, R10).
 pub fn apply_app(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
-    apply_app_from(app, BackendId::default(), ev, fx);
+    // In-process and scripted events carry no transport stamp. An explicitly stamped event
+    // always enters through `ingest` (or `apply_app_from` with its current connection).
+    let origin = match &ev {
+        AppEv::Reply(ticket, _) => app.request_address(*ticket).map(|address| address.backend),
+        _ => None,
+    };
+    apply_app_from(app, origin.unwrap_or_default(), ev, fx);
 }
 
 /// `apply_app` for an event of backend `origin` (notifications and requests
 /// carry the backend they came from).
 pub fn apply_app_from(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
+    if !app.accepts_reply(app.address(origin), &ev) {
+        return;
+    }
+    apply_at(app, origin, ev, fx);
+}
+
+fn apply_at(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
     // Only events that can bring tasks of other directories into the center.
     let lists = matches!(ev, AppEv::Reply(..) | AppEv::Screen(_));
     // the refusal the last apply heard has been on screen for its frame
@@ -1250,6 +1442,10 @@ pub fn apply_app_from(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut
         Rc::make_mut(&mut app.session).cloud_switch = None;
     }
     apply_event(app, origin, ev, fx);
+    finish_apply(app, lists, fx);
+}
+
+fn finish_apply(app: &mut CodexApp, lists: bool, fx: &mut AppFx) {
     consent::follow(app, fx);
     sync_cloud_switch(app);
     mentions::sync(app, fx);
@@ -1326,7 +1522,6 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             if app.screens.chat.status.account_usage {
                 refresh_rates(app, origin, status::RateLimitOrigin::Startup, fx);
             }
-            features::connection(app, crate::features::Connection::Up, fx);
         }
         AppEv::Connected => {
             if app.first_thread == FirstThread::Never {
@@ -1356,7 +1551,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 }
             }
             // a reconnect: what the surfaces still want is asked again
-            connection::up(app, fx);
+            connection::up(app, origin, fx);
         }
         AppEv::StartFailed(message) => {
             fx.ends = true;
@@ -1615,7 +1810,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         // the retained turns are the server's: read them again
                         fetch_history(app, &thread, fx);
                     }
-                } else if app.outgoing.any(|ctx| may_attach(ctx, origin, &thread)) {
+                } else if app.outgoing.any_on(origin, |ctx| may_attach(ctx, &thread)) {
                     // Bound the startup/reconnect window. A loaded turn or terminal
                     // snapshot can recover the transcript if this buffer overflows.
                     const MAX_ATTACH_EVENTS: usize = 256;
@@ -1779,6 +1974,15 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             if origin != BackendId::default() && matches!(ev, ScreenEv::Onboarding(_)) {
                 return;
             }
+            let background_reconnect = origin != app.screens.agents.displayed
+                && matches!(
+                    ev,
+                    ScreenEv::Agents(
+                        agents::Ev::Reconnecting
+                            | agents::Ev::Reconnected
+                            | agents::Ev::Notice(Some(agents::Notice::ReconnectFailed))
+                    )
+                );
             match &ev {
                 ScreenEv::Chat(chat::Ev::Status(facts)) if facts.account_usage => {
                     reset::startup(app, fx);
@@ -1841,7 +2045,9 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     app.threads.previews_mut().seed_request(id, preview.clone());
                 }
                 ScreenEv::Agents(agents::Ev::Reconnecting | agents::Ev::Lagged) => {
-                    app.threads.previews_mut().clear();
+                    if !background_reconnect {
+                        app.threads.previews_mut().clear();
+                    }
                     if matches!(ev, ScreenEv::Agents(agents::Ev::Reconnecting)) {
                         connection::lost(app, origin, fx);
                         // An older page that will never come is a failed one: asking again
@@ -1875,7 +2081,9 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             }
             let reconnected = matches!(ev, ScreenEv::Agents(agents::Ev::Reconnected));
             let startup = matches!(ev, ScreenEv::Cells(screens::cells::Ev::Startup(_)));
-            screens::apply_ev(Rc::make_mut(&mut app.screens), ev, fx);
+            if !background_reconnect {
+                screens::apply_ev(Rc::make_mut(&mut app.screens), ev, fx);
+            }
             if startup {
                 // The facts came after the first conversation attached: it opens with its card now.
                 notices::startup(app, fx);
@@ -1890,7 +2098,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             }
             release_held_start(app, fx);
             if reconnected {
-                connection::up(app, fx);
+                connection::up(app, origin, fx);
                 if app.screens.chat.status.account_usage {
                     refresh_rates(app, origin, status::RateLimitOrigin::Startup, fx);
                 }
@@ -1902,11 +2110,13 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 }
                 // A new connection: the list is read again (oracle:
                 // `finish_reconnect` leaves the overview to refresh).
-                let outs = agents::update(
-                    &mut Rc::make_mut(&mut app.screens).agents,
-                    agents::Intent::Open,
-                );
-                send_agents(app, outs, fx);
+                if !background_reconnect {
+                    let outs = agents::update(
+                        &mut Rc::make_mut(&mut app.screens).agents,
+                        agents::Intent::Open,
+                    );
+                    send_agents(app, outs, fx);
+                }
             }
         }
     }
@@ -1914,11 +2124,9 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
 
 /// The first thread of the process, on the default backend.
 fn start_first_thread(app: &mut CodexApp, fx: &mut AppFx) {
-    let ticket = app.mint.next();
-    app.outgoing
-        .insert(ticket, AppCtx::StartThread { switch: None });
-    fx.commands
-        .push(start_thread(app, ticket, BackendId::default()));
+    fx.ask(app, AppCtx::StartThread { switch: None }, |app, ticket| {
+        start_thread(app, ticket, BackendId::default())
+    });
 }
 
 /// A new thread's start, on the model an accepted migration chose.
@@ -1970,9 +2178,7 @@ fn read_session(app: &mut CodexApp, fx: &mut AppFx) {
     let Some(start) = session::to_read(&mut Rc::make_mut(&mut app.screens).onboarding) else {
         return;
     };
-    let ticket = app.mint.next();
-    app.outgoing.insert(ticket, AppCtx::SessionRead);
-    fx.commands.push(Command::Screen {
+    fx.ask(app, AppCtx::SessionRead, |_, ticket| Command::Screen {
         ticket,
         thread: ThreadId::default(),
         command: ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Read {
@@ -1993,14 +2199,10 @@ fn open_session(app: &mut CodexApp, fx: &mut AppFx) {
     };
     session::opened(&mut Rc::make_mut(&mut app.screens).onboarding);
     let thread = opening.start.id.clone();
-    let ticket = app.mint.next();
-    app.outgoing.insert(
-        ticket,
-        AppCtx::OpenSession {
-            action: opening.start.action,
-            thread: ThreadId::new(&thread),
-        },
-    );
+    let context = AppCtx::OpenSession {
+        action: opening.start.action,
+        thread: ThreadId::new(&thread),
+    };
     let ask = match opening.start.action {
         Action::Resume => ThreadAsk::ResumeAt {
             thread,
@@ -2012,7 +2214,7 @@ fn open_session(app: &mut CodexApp, fx: &mut AppFx) {
             temporary: None,
         },
     };
-    fx.commands.push(Command::Screen {
+    fx.ask(app, context, |_, ticket| Command::Screen {
         ticket,
         thread: ThreadId::default(),
         command: ScreenCommand::Agents(agents::Command::Thread(ask)),
@@ -2056,7 +2258,7 @@ fn set_status(app: &mut CodexApp, status: Session) {
 }
 
 fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx) {
-    if app.outgoing.contains(ticket) {
+    if let Some(address) = app.outgoing.address(ticket) {
         let Some((ctx, answer)) = app.outgoing.resolve(ticket, reply) else {
             return;
         };
@@ -2079,7 +2281,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                     (None, answer) => started(app, answer, fx),
                 }
             }
-            AppCtx::Agents(ctx) => screen_answer(app, ctx, answer, fx),
+            AppCtx::Agents(ctx) => screen_answer(app, address.backend, ctx, answer, fx),
             AppCtx::Resume(ctx) => resume_answer(app, ctx, answer, fx),
             AppCtx::Select(ctx) => select::answer(app, ctx, answer, fx),
             AppCtx::RateLimits { backend, origin } => {
@@ -2248,7 +2450,13 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 cancelled: false,
                 ..
             } => {
-                screen_answer(app, agents::Ctx::Resume { thread }, answer, fx);
+                screen_answer(
+                    app,
+                    address.backend,
+                    agents::Ctx::Resume { thread },
+                    answer,
+                    fx,
+                );
             }
             AppCtx::OpenThread {
                 thread,
@@ -2323,8 +2531,8 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
     }
     // A thread RPC: the thread whose model holds the ticket takes it; a
     // ticket nobody holds is stale and dropped.
-    let owner = app.threads.owner_of(ticket);
-    if let Some(thread) = owner {
+    if let Some((thread, _)) = app.threads.request(ticket) {
+        let thread = thread.clone();
         apply_thread(app, &thread, ThreadEv::Reply { ticket, reply }, fx);
     }
 }
@@ -2336,21 +2544,20 @@ fn notify_owner(app: &mut CodexApp, backend: BackendId, nudge: chat::Nudge, fx: 
     if app.outgoing.any(|ctx| matches!(ctx, AppCtx::Nudge { .. })) {
         return;
     }
-    let ticket = app.mint.next();
     let thread = app.session.active.clone();
-    app.outgoing.insert(
-        ticket,
+    fx.ask(
+        app,
         AppCtx::Nudge {
             backend,
             nudge,
             thread,
         },
+        |_, ticket| Command::SendAddCreditsNudge {
+            ticket,
+            backend,
+            nudge,
+        },
     );
-    fx.commands.push(Command::SendAddCreditsNudge {
-        ticket,
-        backend,
-        nudge,
-    });
 }
 
 fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
@@ -2911,7 +3118,6 @@ fn resume_picker(app: &mut CodexApp, intent: resume::Intent, fx: &mut AppFx) {
 /// Mints a ticket for each RPC the picker asks for and sends it.
 fn send_resume(app: &mut CodexApp, outs: Vec<resume::Out>, fx: &mut AppFx) {
     for out in outs {
-        let ticket = app.mint.next();
         let command = match out.ask {
             resume::Ask::Rpc(command) => ScreenCommand::Resume(command),
             // A thread's turns are the thread's own RPC (ADR-003): asked as
@@ -2926,8 +3132,7 @@ fn send_resume(app: &mut CodexApp, outs: Vec<resume::Out>, fx: &mut AppFx) {
                 }))
             }
         };
-        app.outgoing.insert(ticket, AppCtx::Resume(out.ctx));
-        fx.commands.push(Command::Screen {
+        fx.ask(app, AppCtx::Resume(out.ctx), |_, ticket| Command::Screen {
             ticket,
             thread: ThreadId::default(),
             command,
@@ -3018,16 +3223,12 @@ fn open_verified_at(
     }
     agents.opening = Some(id.clone());
     if !set_open_cancelled(app, id, false) {
-        let ticket = app.mint.next();
         let backend = app.screens.agents.owner_of(id.as_str());
-        app.outgoing.insert(
-            ticket,
-            AppCtx::OpenThread {
-                thread: id.clone(),
-                backend,
-                cancelled: false,
-            },
-        );
+        let context = AppCtx::OpenThread {
+            thread: id.clone(),
+            backend,
+            cancelled: false,
+        };
         let ask = if cwd.is_some() {
             ThreadAsk::ResumeAt {
                 thread: id.to_string(),
@@ -3038,7 +3239,7 @@ fn open_verified_at(
                 thread: id.to_string(),
             }
         };
-        fx.commands.push(Command::Screen {
+        fx.ask(app, context, |_, ticket| Command::Screen {
             ticket,
             thread: ThreadId::default(),
             command: ScreenCommand::Agents(agents::Command::Thread(ask)),
@@ -3149,9 +3350,7 @@ fn send_agents(app: &mut CodexApp, outs: Vec<agents::Out>, fx: &mut AppFx) {
 }
 
 fn send_agent_command(app: &mut CodexApp, out: agents::Out, fx: &mut AppFx) {
-    let ticket = app.mint.next();
-    app.outgoing.insert(ticket, AppCtx::Agents(out.ctx));
-    fx.commands.push(Command::Screen {
+    fx.ask(app, AppCtx::Agents(out.ctx), |_, ticket| Command::Screen {
         ticket,
         thread: ThreadId::default(),
         command: ScreenCommand::Agents(out.command),
@@ -3184,13 +3383,38 @@ fn can_show_unavailable(app: &CodexApp, thread: &ThreadId) -> bool {
 }
 
 /// The reply of an app-scoped screen RPC.
-fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut AppFx) {
+fn screen_answer(
+    app: &mut CodexApp,
+    backend: BackendId,
+    ctx: agents::Ctx,
+    answer: Answer,
+    fx: &mut AppFx,
+) {
+    let other_backend = app.screens.agents.displayed != backend;
+    // An older start can still attach to its backend without taking the newly displayed view.
+    let background_start =
+        other_backend && matches!(ctx, agents::Ctx::Start | agents::Ctx::Fork { .. });
     let mut recovery_history = None;
     let result = match answer {
         Answer::Screen(ScreenReply::Agents(reply)) => Ok(reply),
         Answer::Failed(error) => Err(error),
         _ => Err(RpcError::Mismatch),
     };
+    if other_backend {
+        match ctx {
+            agents::Ctx::List { append } => {
+                agents::settle_parked_list(
+                    &mut Rc::make_mut(&mut app.screens).agents,
+                    backend,
+                    append,
+                    result,
+                );
+                return;
+            }
+            agents::Ctx::Search { .. } | agents::Ctx::Loaded => return,
+            _ => {}
+        }
+    }
     if let (
         agents::Ctx::Resume { .. } | agents::Ctx::Fork { .. } | agents::Ctx::Start,
         Ok(
@@ -3201,7 +3425,6 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
     ) = (&ctx, &result)
     {
         let id = ThreadId::new(&thread.id);
-        let backend = app.screens.agents.owner_of(id.as_str());
         // The thread is held and its stream was lost or has a gap (oracle `was_reconnecting`,
         // `refreshing_history`): the server's turns replace what is held, and what waited in the
         // queue goes on.
@@ -3214,7 +3437,9 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
             apply_thread(app, &id, threads::history_reset(), fx);
         }
         attach_thread_with_metadata(app, &id, backend, Origin::Resumed, Some(thread), fx);
-        show_held_thread(app, id.clone(), fx);
+        if !background_start {
+            show_held_thread(app, id.clone(), fx);
+        }
         apply_thread(app, &id, threads::history_page_of(thread), fx);
         if stale {
             let reconciling = app
@@ -3239,6 +3464,9 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
             features::resumed(app, &id, fx);
             apply_thread(app, &id, ThreadEv::Command(threads::CommandEv::Restore), fx);
         }
+    }
+    if background_start {
+        return;
     }
     if let (agents::Ctx::Resume { thread }, Err(error)) = (&ctx, &result)
         && agents::is_active_writer(error)
@@ -3506,8 +3734,11 @@ fn stream_lost(
             });
         }
         if idle {
-            fx.commands
-                .push(Command::ReconnectIdleThread { thread, error });
+            fx.commands.push(Command::ReconnectIdleThread {
+                address: app.address(origin),
+                thread,
+                error,
+            });
             return;
         }
     }
@@ -3538,8 +3769,9 @@ fn detach_threads(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx) {
         .threads
         .iter()
         .filter(|(id, model)| {
-            app.screens.agents.owner_of(id.as_str()) == backend
-                && (model.has_writer() || (cloud && model.stream_lost()))
+            model.outgoing().tickets_on(backend).next().is_some()
+                || (app.screens.agents.owner_of(id.as_str()) == backend
+                    && (model.has_writer() || (cloud && model.stream_lost())))
         })
         .map(|(id, _)| id.clone())
         .collect();
@@ -3563,13 +3795,9 @@ fn is_attach(ctx: &AppCtx) -> bool {
     )
 }
 
-fn may_attach(ctx: &AppCtx, origin: BackendId, id: &ThreadId) -> bool {
+fn may_attach(ctx: &AppCtx, id: &ThreadId) -> bool {
     match ctx {
-        AppCtx::OpenThread {
-            thread, backend, ..
-        } => *backend == origin && thread == id,
-        AppCtx::NewConversation { backend, .. } => *backend == origin,
-        AppCtx::StartThread { switch } => switch.unwrap_or_default() == origin,
+        AppCtx::OpenThread { thread, .. } => thread == id,
         _ => is_attach(ctx),
     }
 }
@@ -3704,12 +3932,15 @@ pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mu
         crate::screens::cells::Daybreak::Apply
     };
     let agents = &app.screens.agents;
-    let cloud = agents.is_cloud(agents.owner_of(thread.as_str()));
+    let backend = agents.owner_of(thread.as_str());
+    let cloud = agents.is_cloud(backend);
+    let address = app.address(backend);
     if let Some(model) = app.threads.get_mut(thread) {
         threads::apply(
             model,
             ev,
             &mut ThreadFx::new(thread, fx, &mut app.mint)
+                .addressed(address)
                 .stamped(daybreak)
                 .with_modes(&app.modes)
                 .with_cloud(cloud)

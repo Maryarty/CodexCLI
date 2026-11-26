@@ -34,6 +34,7 @@ use codex_protocol::protocol::SessionSource;
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::BackendEv;
 use codex_tui_core::app::Command;
+use codex_tui_core::app::Ingress;
 use codex_tui_core::app::effects::ConfigEdit;
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::ids::RequestKey;
@@ -63,8 +64,10 @@ use codex_tui_rtwk::services::backend::rpc::answer;
 use codex_tui_rtwk::services::exec::AppServerExec;
 use codex_tui_rtwk::services::shell::BackendTask;
 use codex_tui_rtwk::services::shell::Connector;
+use codex_tui_rtwk::services::shell::Dispatch;
 use codex_tui_rtwk::services::shell::IngressTx;
 use codex_tui_rtwk::services::shell::emit;
+use codex_tui_rtwk::services::shell::next_dispatch;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
@@ -217,7 +220,7 @@ impl Connector for InProcess {
     fn run(
         self: Box<Self>,
         ingress: IngressTx,
-        commands: UnboundedReceiver<Command>,
+        commands: UnboundedReceiver<Dispatch>,
         epoch: ConnEpoch,
     ) -> BackendTask {
         Box::pin(run(*self, ingress, commands, epoch))
@@ -229,7 +232,7 @@ impl Connector for InProcess {
 async fn run(
     spec: InProcess,
     ingress: IngressTx,
-    mut commands: UnboundedReceiver<Command>,
+    mut commands: UnboundedReceiver<Dispatch>,
     epoch: ConnEpoch,
 ) {
     let InProcess {
@@ -306,6 +309,7 @@ async fn run(
                             ollama,
                             |ev| emit(&ingress, epoch, ev),
                             &mut commands,
+                            epoch,
                         )
                         .await
                         {
@@ -615,6 +619,7 @@ async fn run(
     let mut latest = Latest::default();
     let mut endpoint = reconnect_endpoint(&mode);
     let mut request_epoch = epoch;
+    let mut transport_epoch = epoch;
     // The history file and the mention usage are read once, when the first thread is asked.
     let mut thread_asked = false;
     while let Some(client) = held.get() {
@@ -666,19 +671,19 @@ async fn run(
                 }
                 Some(AppServerEvent::ThreadStreamReconnected(_)) => {}
             },
-            command = commands.recv() => match command {
+            command = next_dispatch(&mut commands, codex_tui_core::ids::BackendId::default(), transport_epoch) => match command {
                 None => break,
-                Some(Command::RejectRequest { key, .. }) => {
+                Some((Command::RejectRequest { key, .. }, _)) => {
                     if key.epoch == request_epoch {
                         reject(client, &key).await;
                     }
                 }
-                Some(Command::ResolveRequest { key, result, .. }) => {
+                Some((Command::ResolveRequest { key, result, .. }, _)) => {
                     if key.epoch == request_epoch && let Some(ev) = resolve(client, key, result).await {
                         emit(&ingress, epoch, ev);
                     }
                 }
-                Some(command) => {
+                Some((command, reply_epoch)) => {
                     if !thread_asked && asks_thread(&command) {
                         thread_asked = true;
                         let (effects, ingress) = (effects.clone(), ingress.clone());
@@ -710,7 +715,13 @@ async fn run(
                             Some(startup.clone()),
                         ),
                     };
-                    inflight.push(latest.wrap(&command, job));
+                    let job = latest.wrap(&command, job);
+                    let job = if let Some(reply_epoch) = reply_epoch {
+                        transport_reply(job, ingress.clone(), epoch, reply_epoch)
+                    } else {
+                        job
+                    };
+                    inflight.push(job);
                 }
             },
             // The reloaded config changed the provider: the embedded server
@@ -758,6 +769,7 @@ async fn run(
                     if let Some(old) = held.replace(restarted) {
                         let _ = old.shutdown().await;
                     }
+                    announce_replacement(&ingress, epoch, &mut transport_epoch);
                     // The commands after this one talk to the new server.
                     if let Some(done) = done {
                         let _ = done.send(());
@@ -828,6 +840,14 @@ async fn run(
             break;
         };
         handle = client.request_handle();
+        if !moved {
+            announce_replacement(&ingress, epoch, &mut transport_epoch);
+            emit(
+                &ingress,
+                epoch,
+                AppEv::Screen(ScreenEv::Agents(AgentsEv::Reconnected)),
+            );
+        }
         if show_version {
             emit_version(&ingress, epoch, client, daemon, &mut version_shown);
         }
@@ -872,6 +892,38 @@ async fn run(
         )));
     }
     // Leaving the loop drops `client`: the guard hands it to `main`.
+}
+
+fn announce_replacement(ingress: &IngressTx, epoch: ConnEpoch, transport_epoch: &mut ConnEpoch) {
+    *transport_epoch = transport_epoch.next();
+    let _ = ingress.send(Ingress::transport_replaced(
+        codex_tui_core::ids::BackendId::default(),
+        epoch,
+        *transport_epoch,
+    ));
+}
+
+fn transport_reply(
+    job: Boxed<Option<AppEv>>,
+    ingress: IngressTx,
+    epoch: ConnEpoch,
+    transport_epoch: ConnEpoch,
+) -> Boxed<Option<AppEv>> {
+    Box::pin(async move {
+        match job.await {
+            Some(AppEv::Reply(ticket, reply)) => {
+                let _ = ingress.send(Ingress::transport_reply(
+                    codex_tui_core::ids::BackendId::default(),
+                    epoch,
+                    transport_epoch,
+                    ticket,
+                    reply,
+                ));
+                None
+            }
+            event => event,
+        }
+    })
 }
 
 /// `Ask::ConfigWrite` of a dialog (`/theme`, `/title`, `/statusline`, `/memories`): the edits go
@@ -1300,6 +1352,80 @@ pub(crate) async fn resolve(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_replaced_handle_skips_queued_requests_from_the_old_transport() {
+        use codex_tui_core::app::{AppFx, CodexApp, Intent, apply_app};
+        use codex_tui_core::ids::BackendId;
+        use codex_tui_core::screens::{ScreenIntent, agents};
+        use tokio::sync::mpsc::unbounded_channel;
+
+        let (queued, mut commands) = unbounded_channel();
+        let (ingress, mut events) = unbounded_channel();
+        let mut app = CodexApp::new();
+        let backend = BackendId::default();
+        let connector_epoch = app.attach_backend(backend);
+        let mut transport_epoch = connector_epoch;
+        let new_thread = |app: &mut CodexApp| {
+            let mut effects = AppFx::default();
+            apply_app(
+                app,
+                AppEv::Intent(Intent::Screen(ScreenIntent::Agents(agents::Intent::New(
+                    None,
+                )))),
+                &mut effects,
+            );
+            effects
+                .into_commands()
+                .into_iter()
+                .find_map(|command| {
+                    let (_, address) = app.dispatch_route(&command, None)?;
+                    address.map(|address| (command, address))
+                })
+                .expect("new thread request")
+        };
+        let (old, old_address) = new_thread(&mut app);
+        assert!(queued.send(Dispatch::new(old, Some(old_address))).is_ok());
+        let mut effects = AppFx::default();
+        apply_app(
+            &mut app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Agents(
+                agents::Intent::SetGrouping(agents::Grouping::Status),
+            ))),
+            &mut effects,
+        );
+        let local = effects
+            .into_commands()
+            .into_iter()
+            .find(|command| matches!(command, Command::SaveGrouping { .. }))
+            .expect("host-local grouping write");
+        assert!(queued.send(Dispatch::new(local.clone(), None)).is_ok());
+
+        announce_replacement(&ingress, connector_epoch, &mut transport_epoch);
+        let replacement = events.recv().await.expect("replacement handshake");
+        assert_eq!(replacement.epoch, connector_epoch);
+        assert!(app.ingest(replacement).is_some());
+        let (fresh, fresh_address) = new_thread(&mut app);
+        assert!(
+            queued
+                .send(Dispatch::new(fresh.clone(), Some(fresh_address)))
+                .is_ok()
+        );
+        drop(queued);
+
+        assert_eq!(
+            next_dispatch(&mut commands, backend, transport_epoch).await,
+            Some((local, None))
+        );
+        assert_eq!(
+            next_dispatch(&mut commands, backend, transport_epoch).await,
+            Some((fresh, Some(transport_epoch)))
+        );
+        assert_eq!(
+            next_dispatch(&mut commands, backend, transport_epoch).await,
+            None
+        );
+    }
 
     // `daemon_startup_falls_back_only_for_implicit_endpoints`, the port's half: the daemon is a
     // required attachment, so a failed start or connection says how to work without it.

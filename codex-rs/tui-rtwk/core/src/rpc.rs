@@ -5,9 +5,7 @@
 use std::collections::BTreeMap;
 
 use crate::app::worktree::{BindFailure, Checkout};
-use crate::ids::ThreadId;
-use crate::ids::Ticket;
-use crate::ids::TurnId;
+use crate::ids::{BackendId, ConnEpoch, ThreadId, Ticket, TurnId};
 use crate::screens::ScreenReply;
 
 /// Why a screen's RPC has no reply. A typed value: the words are the UI's
@@ -229,10 +227,23 @@ pub enum Answer {
     Failed(RpcError),
 }
 
-/// The RPCs in flight, each with what it was for.
+/// The connection a request was sent on.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Address {
+    pub backend: BackendId,
+    pub epoch: ConnEpoch,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Entry<C> {
+    address: Address,
+    context: C,
+}
+
+/// The RPCs in flight, each with its address and operation context.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pending<C> {
-    entries: BTreeMap<Ticket, C>,
+    entries: BTreeMap<Ticket, Entry<C>>,
 }
 
 impl<C> Default for Pending<C> {
@@ -244,8 +255,22 @@ impl<C> Default for Pending<C> {
 }
 
 impl<C> Pending<C> {
-    pub fn insert(&mut self, ticket: Ticket, ctx: C) {
-        self.entries.insert(ticket, ctx);
+    pub(crate) fn insert(&mut self, ticket: Ticket, address: Address, context: C) {
+        self.entries.insert(ticket, Entry { address, context });
+    }
+
+    pub(crate) fn address(&self, ticket: Ticket) -> Option<Address> {
+        self.entries.get(&ticket).map(|entry| entry.address)
+    }
+
+    pub(crate) fn tickets_on(&self, backend: BackendId) -> impl Iterator<Item = Ticket> + '_ {
+        self.entries.iter().filter_map(move |(&ticket, entry)| {
+            (entry.address.backend == backend).then_some(ticket)
+        })
+    }
+
+    pub(crate) fn drop_ticket(&mut self, ticket: Ticket) {
+        self.entries.remove(&ticket);
     }
 
     /// The tickets in flight, in order.
@@ -257,14 +282,10 @@ impl<C> Pending<C> {
         self.entries.is_empty()
     }
 
-    pub(crate) fn get(&self, ticket: Ticket) -> Option<&C> {
-        self.entries.get(&ticket)
-    }
-
     pub(crate) fn iter_mut(&mut self) -> impl Iterator<Item = (Ticket, &mut C)> {
         self.entries
             .iter_mut()
-            .map(|(ticket, context)| (*ticket, context))
+            .map(|(ticket, entry)| (*ticket, &mut entry.context))
     }
 
     pub fn contains(&self, ticket: Ticket) -> bool {
@@ -278,15 +299,24 @@ impl<C> Pending<C> {
     /// Drops the tickets whose context `keep` refuses: their requests were
     /// superseded and will never answer.
     pub fn retain(&mut self, keep: impl Fn(&C) -> bool) {
-        self.entries.retain(|_, ctx| keep(ctx));
+        self.entries.retain(|_, entry| keep(&entry.context));
     }
 
     pub(crate) fn find_mut(&mut self, predicate: impl Fn(&C) -> bool) -> Option<&mut C> {
-        self.entries.values_mut().find(|ctx| predicate(ctx))
+        self.entries
+            .values_mut()
+            .map(|entry| &mut entry.context)
+            .find(|ctx| predicate(ctx))
     }
 
     pub fn any(&self, f: impl Fn(&C) -> bool) -> bool {
-        self.entries.values().any(f)
+        self.entries.values().any(|entry| f(&entry.context))
+    }
+
+    pub(crate) fn any_on(&self, backend: BackendId, f: impl Fn(&C) -> bool) -> bool {
+        self.entries
+            .values()
+            .any(|entry| entry.address.backend == backend && f(&entry.context))
     }
 
     /// The context of `ticket` and what `reply` says, if the ticket is
@@ -308,6 +338,8 @@ impl<C> Pending<C> {
         ticket: Ticket,
         reply: Reply,
     ) -> Option<(C, ReplyResult)> {
-        self.entries.remove(&ticket).map(|ctx| (ctx, reply.0))
+        self.entries
+            .remove(&ticket)
+            .map(|entry| (entry.context, reply.0))
     }
 }

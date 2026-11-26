@@ -72,6 +72,7 @@ pub use refresh::apply_answer;
 pub use refresh::attach_loaded;
 pub(crate) use refresh::finish_start;
 pub use refresh::is_active_writer;
+pub(crate) use refresh::settle_parked_list;
 pub use sources::Fanout;
 pub use sources::PinReader;
 pub use sources::fanout;

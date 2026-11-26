@@ -49,6 +49,7 @@ use crate::services::agents::workspace::{bind_worktree, create_worktree};
 use crate::services::backend::import;
 use crate::services::backend::rpc::Ids;
 use crate::services::backend::rpc::answer;
+use crate::services::shell::Dispatch;
 use crate::services::shell::IngressTx;
 
 /// The id of the one thread the fake starts.
@@ -465,7 +466,7 @@ impl FakeHandle {
 pub(crate) async fn run(
     server: FakeServer,
     ingress: IngressTx,
-    commands: UnboundedReceiver<Command>,
+    commands: UnboundedReceiver<Dispatch>,
     epoch: ConnEpoch,
 ) {
     run_as(server, None, ingress, commands, epoch).await;
@@ -478,7 +479,7 @@ pub(crate) async fn run_other(
     server: FakeServer,
     id: BackendId,
     ingress: IngressTx,
-    commands: UnboundedReceiver<Command>,
+    commands: UnboundedReceiver<Dispatch>,
     epoch: ConnEpoch,
 ) {
     run_as(server, Some(id), ingress, commands, epoch).await;
@@ -488,7 +489,7 @@ async fn run_as(
     server: FakeServer,
     other: Option<BackendId>,
     ingress: IngressTx,
-    mut commands: UnboundedReceiver<Command>,
+    mut commands: UnboundedReceiver<Dispatch>,
     epoch: ConnEpoch,
 ) {
     let shared = server.shared;
@@ -536,7 +537,7 @@ async fn run_as(
     }
     loop {
         // Commands first: a barrier is seen only when none is queued.
-        let command = tokio::select! {
+        let dispatch = tokio::select! {
             biased;
             command = commands.recv() => match command {
                 Some(command) => command,
@@ -546,6 +547,9 @@ async fn run_as(
                 let _ = done.send(());
                 continue;
             }
+        };
+        let Some((command, _)) = dispatch.on(backend, epoch) else {
+            continue;
         };
         let scripted = {
             let Ok(mut guard) = shared.lock() else {

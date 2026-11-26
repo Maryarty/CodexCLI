@@ -152,9 +152,7 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
             command,
             ctx,
         } => {
-            let ticket = app.mint.next();
-            app.outgoing.insert(ticket, AppCtx::Feature(ctx));
-            fx.commands.push(Command::Feature {
+            fx.ask(app, AppCtx::Feature(ctx), |_, ticket| Command::Feature {
                 ticket,
                 thread,
                 command,
@@ -251,9 +249,20 @@ pub(super) fn interest(app: &mut CodexApp, step: InterestStep, fx: &mut AppFx) {
     });
 }
 
-/// The connection is new: what the surfaces still want is asked again.
-pub(super) fn reconnected(app: &mut CodexApp, fx: &mut AppFx) {
+/// The connection is new: ask again for the interests it serves.
+pub(super) fn reconnected(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx) {
+    use features::FeatureInterest;
+
     for interest in app.interests.all() {
+        let agents = &app.screens.agents;
+        let owner = match &interest {
+            FeatureInterest::Providers(_) => BackendId::default(),
+            FeatureInterest::Rename(interest) => agents.owner_of(interest.thread().as_str()),
+            _ => agents.displayed,
+        };
+        if owner != backend {
+            continue;
+        }
         run(app, fx, |states, cx| {
             features::on_interest(states, &interest, true, cx)
         });

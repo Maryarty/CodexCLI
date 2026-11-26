@@ -8,6 +8,7 @@
 
 use std::collections::HashSet;
 
+use crate::ids::BackendId;
 use codex_app_server_protocol::Thread;
 
 use super::Command;
@@ -24,11 +25,11 @@ use super::refresh::Out;
 use super::refresh::out;
 
 /// The rows a page may add: not removed, not already shown or buffered.
-fn fresh(model: &Model, rows: Vec<Thread>) -> Vec<Thread> {
+fn fresh(model: &Model, buffered: &[Thread], rows: Vec<Thread>) -> Vec<Thread> {
     let known: HashSet<&str> = model
         .threads
         .iter()
-        .chain(&model.paging.buffer)
+        .chain(buffered)
         .map(|held| held.id.as_str())
         .collect();
     let mut kept: Vec<Thread> = Vec::new();
@@ -53,6 +54,11 @@ pub(super) fn sync(model: &mut Model) {
 fn show_buffered(model: &mut Model, want: usize) {
     let take = want.min(model.paging.buffer.len());
     let shown: Vec<Thread> = model.paging.buffer.drain(..take).collect();
+    show_rows(model, shown);
+}
+
+fn show_rows(model: &mut Model, shown: impl IntoIterator<Item = Thread>) -> usize {
+    let before = model.threads.len();
     for thread in shown {
         if model.hidden.contains(&thread.id) || model.removed.contains(&thread.id) {
             continue;
@@ -60,6 +66,7 @@ fn show_buffered(model: &mut Model, want: usize) {
         model.search_matches.retain(|held| held.id != thread.id);
         model.threads.push(super::refresh::normalize(thread));
     }
+    model.threads.len() - before
 }
 
 fn page_request(model: &mut Model, want: usize) -> Out {
@@ -107,53 +114,57 @@ pub fn refill(model: &mut Model) -> Vec<Out> {
     vec![page_request(model, want)]
 }
 
-/// A page asked for by "Show more" or a refill arrived.
-pub(super) fn on_more_page(model: &mut Model, page: Option<Page>) {
+/// A page asked for by "Show more" or a refill arrived for its originating backend.
+pub(super) fn on_more_page(model: &mut Model, owner: BackendId, page: Option<Page>) {
+    let visible = owner == model.displayed;
+    let mut paging = if visible {
+        std::mem::take(&mut model.paging)
+    } else {
+        model.parked.remove(&owner).unwrap_or_default()
+    };
     // An answer nobody recorded a count for shows a page.
-    let want = match std::mem::take(&mut model.paging.want) {
+    let want = match std::mem::take(&mut paging.want) {
         0 => PAGE_SIZE as usize,
         want => want,
     };
-    model.paging.loading = false;
+    paging.loading = false;
     match page {
         // The server repeating the cursor ends nothing: it is a failure that
         // a retry may cure (oracle: `SourcePage::fill`).
-        Some(page) if page.next_cursor.is_some() && page.next_cursor == model.paging.cursor => {
-            let _ = page;
-            fail(model);
-        }
-        Some(page) => {
+        Some(page) if page.next_cursor.is_none() || page.next_cursor != paging.cursor => {
             for id in &page.unread {
                 model.unread.insert(id.clone());
             }
             let rows = fresh(
                 model,
+                &paging.buffer,
                 page.threads
                     .into_iter()
                     .filter(is_overview_thread)
                     .collect(),
             );
-            model.paging.buffer.extend(rows);
-            model.paging.cursor = page.next_cursor;
-            model.paging.failed = false;
-            if matches!(model.notice, Some(Notice::LoadFailed)) {
-                model.notice = None;
-            }
+            paging
+                .buffer
+                .extend(rows.into_iter().filter(|row| model.observe(owner, &row.id)));
+            paging.cursor = page.next_cursor;
+            paging.failed = false;
         }
-        None => fail(model),
+        _ => paging.failed = true,
     }
-    let before = model.threads.len();
-    show_buffered(model, want);
-    model.paging.refill = model
-        .paging
-        .refill
-        .saturating_sub(model.threads.len() - before);
-    sync(model);
-}
-
-fn fail(model: &mut Model) {
-    model.paging.failed = true;
-    model.notice = Some(Notice::LoadFailed);
+    let take = want.min(paging.buffer.len());
+    let added = show_rows(model, paging.buffer.drain(..take));
+    paging.refill = paging.refill.saturating_sub(added);
+    paging.has_more = paging.more();
+    if visible {
+        if paging.failed {
+            model.notice = Some(Notice::LoadFailed);
+        } else if matches!(model.notice, Some(Notice::LoadFailed)) {
+            model.notice = None;
+        }
+        model.paging = paging;
+    } else {
+        model.parked.insert(owner, paging);
+    }
 }
 
 /// The search text changed: a new history search starts, keeping how many

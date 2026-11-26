@@ -2,7 +2,7 @@
 //! feature, so the rules let this file name one (`ROOT_TESTS`).
 
 use super::*;
-use crate::app::{AppEv, apply_app, worktree};
+use crate::app::{AppCtx, AppEv, apply_app, worktree};
 use crate::features::FeatureCtx;
 use crate::ids::{Cwd, ThreadId};
 use crate::screens::{ScreenEv, agents, chat, resume, select, startup, status};
@@ -105,7 +105,8 @@ fn a_loss_answers_an_ask_of_every_kind_in_flight() {
     let mut app = CodexApp::new();
     for ctx in all {
         let ticket = app.mint.next();
-        app.outgoing.insert(ticket, ctx);
+        let address = app.address(BackendId::default());
+        app.outgoing.insert(ticket, address, ctx);
     }
     assert_eq!(app.outgoing.len(), KINDS);
     let mut fx = AppFx::default();
@@ -123,14 +124,17 @@ fn a_loss_keeps_the_asks_of_another_connection() {
     let other = BackendId(1);
     let mut app = CodexApp::new();
     let ticket = app.mint.next();
+    let address = app.address(other);
     app.outgoing.insert(
         ticket,
+        address,
         AppCtx::RateLimits {
             backend: other,
             origin: status::RateLimitOrigin::Startup,
         },
     );
-    let ctx = app.outgoing.get(ticket).cloned().unwrap();
-    assert_eq!(ctx.on_lost(&app, BackendId::default()), OnLost::Keep);
-    assert_eq!(ctx.on_lost(&app, other), OnLost::Fail);
+    lost(&mut app, BackendId::default(), &mut AppFx::default());
+    assert_eq!(app.outgoing.address(ticket), Some(address));
+    lost(&mut app, other, &mut AppFx::default());
+    assert!(!app.outgoing.contains(ticket));
 }

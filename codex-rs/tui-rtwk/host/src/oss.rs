@@ -24,6 +24,8 @@ use codex_model_provider_info::OLLAMA_OSS_PROVIDER_ID;
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::Command;
 use codex_tui_core::app::effects::ConfigEdit;
+use codex_tui_core::ids::BackendId;
+use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::protocol::config::config_write;
 use codex_tui_core::protocol::config::config_written;
 use codex_tui_core::rpc::ServerError;
@@ -33,6 +35,7 @@ use codex_tui_core::screens::onboarding::Ev;
 use codex_tui_core::screens::startup::Provider;
 use codex_tui_core::screens::startup::Status;
 use codex_tui_rtwk::services::backend::rpc::Ids;
+use codex_tui_rtwk::services::shell::Dispatch;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use tokio::sync::mpsc::UnboundedReceiver;
 
@@ -138,16 +141,17 @@ pub async fn pick<E: FnMut(AppEv)>(
     lmstudio: bool,
     ollama: bool,
     mut emit: E,
-    commands: &mut UnboundedReceiver<Command>,
+    commands: &mut UnboundedReceiver<Dispatch>,
+    epoch: ConnEpoch,
 ) -> Result<String, String> {
     emit(AppEv::Screen(ScreenEv::Onboarding(Ev::OssPick {
         lmstudio: status(lmstudio),
         ollama: status(ollama),
     })));
     // Another command cannot come before `Connected`: it is dropped.
-    while let Some(command) = commands.recv().await {
-        if let Command::Startup { ask, .. } = &command
-            && let Some(answer) = answer(ask)
+    while let Some(dispatch) = commands.recv().await {
+        if let Some((Command::Startup { ask, .. }, _)) = dispatch.on(BackendId::default(), epoch)
+            && let Some(answer) = answer(&ask)
         {
             return answer;
         }
@@ -373,7 +377,14 @@ mod tests {
         let (tx, mut commands) = tokio::sync::mpsc::unbounded_channel();
         drop(tx);
         let mut emitted = Vec::new();
-        let picked = pick(true, false, |ev| emitted.push(ev), &mut commands).await;
+        let picked = pick(
+            true,
+            false,
+            |ev| emitted.push(ev),
+            &mut commands,
+            ConnEpoch::default(),
+        )
+        .await;
         assert_eq!(picked, Err(CANCELLED.to_owned()));
         let [AppEv::Screen(ScreenEv::Onboarding(panel))] = emitted.as_slice() else {
             panic!("one event: {}", emitted.len());

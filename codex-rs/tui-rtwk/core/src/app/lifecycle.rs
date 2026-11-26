@@ -51,20 +51,15 @@ fn open(app: &mut CodexApp, thread: ThreadId, ctx: FeatureCtx, fx: &mut AppFx) {
         let result = opened(open_verified(app, &thread, fx), thread);
         return features::thread_opened(app, ctx, result, fx);
     }
-    let ticket = app.mint.next();
-    app.outgoing.insert(
-        ticket,
-        AppCtx::Opening {
-            thread: thread.clone(),
-            ctx,
-        },
-    );
-    fx.commands.push(Command::Screen {
-        ticket,
-        thread: ThreadId::default(),
-        command: ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Read {
-            thread: thread.to_string(),
-        })),
+    let ask = ThreadAsk::Read {
+        thread: thread.to_string(),
+    };
+    fx.ask(app, AppCtx::Opening { thread, ctx }, |_, ticket| {
+        Command::Screen {
+            ticket,
+            thread: ThreadId::default(),
+            command: ScreenCommand::Agents(agents::Command::Thread(ask)),
+        }
     });
 }
 
@@ -126,15 +121,13 @@ fn start_spawn(app: &mut CodexApp, spawn: ThreadSpawn, ctx: FeatureCtx, fx: &mut
     {
         return features::thread_opened(app, ctx, Err(Refusal::Busy), fx);
     }
-    let ticket = app.mint.next();
-    let (source, backend, ephemeral, command) = match spawn {
+    let (source, backend, ephemeral, fork) = match spawn {
         ThreadSpawn::Start => {
             let source = app.session.active.clone();
             let backend = source.as_ref().map_or(app.screens.agents.displayed, |id| {
                 app.screens.agents.owner_of(id.as_str())
             });
-            let command = super::start_thread(app, ticket, backend);
-            (source, backend, false, command)
+            (source, backend, false, None)
         }
         ThreadSpawn::Fork { parent, ephemeral } => {
             let backend = app.screens.agents.owner_of(parent.as_str());
@@ -149,16 +142,11 @@ fn start_spawn(app: &mut CodexApp, spawn: ThreadSpawn, ctx: FeatureCtx, fx: &mut
                     thread: parent.to_string(),
                 },
             };
-            let command = Command::Screen {
-                ticket,
-                thread: ThreadId::default(),
-                command: ScreenCommand::Agents(agents::Command::Thread(ask)),
-            };
-            (Some(parent), backend, quiet, command)
+            (Some(parent), backend, quiet, Some(ask))
         }
     };
-    app.outgoing.insert(
-        ticket,
+    fx.ask(
+        app,
         AppCtx::NewConversation {
             source,
             backend,
@@ -167,8 +155,15 @@ fn start_spawn(app: &mut CodexApp, spawn: ThreadSpawn, ctx: FeatureCtx, fx: &mut
             draft: None,
             spawned: Some(Spawned { ctx, ephemeral }),
         },
+        |app, ticket| match fork {
+            Some(ask) => Command::Screen {
+                ticket,
+                thread: ThreadId::default(),
+                command: ScreenCommand::Agents(agents::Command::Thread(ask)),
+            },
+            None => super::start_thread(app, ticket, backend),
+        },
     );
-    fx.commands.push(command);
 }
 
 /// `AppCx::discard` (`discard_side_thread_in_background`): the thread's turn is interrupted, the
@@ -177,16 +172,26 @@ fn discard(app: &mut CodexApp, child: &ThreadId, fx: &mut AppFx) {
     if app.session.active.as_ref() == Some(child) {
         return;
     }
+    let backend = app.screens.agents.owner_of(child.as_str());
     if app
         .threads
         .get(child)
         .is_some_and(|model| model.is_running())
     {
+        let start = fx.commands.len();
         apply_thread(app, child, ThreadEv::Interrupt, fx);
+        // This thread is about to be forgotten. The interrupt still goes out; its answer
+        // no longer has a model to settle.
+        for command in &fx.commands[start..] {
+            if let Command::InterruptTurn { ticket, .. } = command
+                && let Some(address) = app.request_address(*ticket)
+            {
+                fx.tells.insert(*ticket, address);
+            }
+        }
     }
     // `thread/unsubscribe`: the answer is nobody's (the thread is gone from here).
-    let ticket = app.mint.next();
-    fx.commands.push(Command::Screen {
+    fx.tell(app, backend, |ticket| Command::Screen {
         ticket,
         thread: ThreadId::default(),
         command: ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Unsubscribe {

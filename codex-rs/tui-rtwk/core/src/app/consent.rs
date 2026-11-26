@@ -226,13 +226,11 @@ fn switch_in_flight(app: &CodexApp) -> bool {
 }
 
 fn start_switch(app: &mut CodexApp, destination: BackendId, cwd: Option<String>, fx: &mut AppFx) {
-    let ticket = app.mint.next();
-    app.outgoing.insert(
-        ticket,
+    fx.ask(
+        app,
         AppCtx::StartThread {
             switch: Some(destination),
         },
+        |app, ticket| super::start_thread_in(app, ticket, destination, cwd),
     );
-    fx.commands
-        .push(super::start_thread_in(app, ticket, destination, cwd));
 }

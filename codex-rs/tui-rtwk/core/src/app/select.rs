@@ -518,9 +518,7 @@ pub(in crate::app) fn ask(
     ctx: select::Ctx,
     fx: &mut AppFx,
 ) {
-    let ticket = app.mint.next();
-    app.outgoing.insert(ticket, AppCtx::Select(ctx));
-    fx.commands.push(Command::Screen {
+    fx.ask(app, AppCtx::Select(ctx), |_, ticket| Command::Screen {
         ticket,
         thread: ThreadId::default(),
         command: ScreenCommand::Select(command),

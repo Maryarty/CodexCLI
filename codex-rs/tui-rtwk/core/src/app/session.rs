@@ -48,11 +48,9 @@ pub(super) fn refresh_rates(
     {
         return;
     }
-    let ticket = app.mint.next();
-    app.outgoing
-        .insert(ticket, AppCtx::RateLimits { backend, origin });
-    fx.commands
-        .push(Command::ReadRateLimits { ticket, backend });
+    fx.ask(app, AppCtx::RateLimits { backend, origin }, |_, ticket| {
+        Command::ReadRateLimits { ticket, backend }
+    });
 }
 
 /// `/status` (oracle `SlashCommand::Status`): the card is an entry of the
@@ -200,10 +198,9 @@ pub(super) fn session_intent(
             {
                 return;
             }
-            let ticket = app.mint.next();
             let backend = app.screens.agents.owner_of(thread.as_str());
-            app.outgoing.insert(
-                ticket,
+            fx.ask(
+                app,
                 AppCtx::NewConversation {
                     source: Some(thread),
                     backend,
@@ -212,8 +209,8 @@ pub(super) fn session_intent(
                     draft: Some(message),
                     spawned: None,
                 },
+                |app, ticket| super::start_thread(app, ticket, backend),
             );
-            fx.commands.push(super::start_thread(app, ticket, backend));
         }
         S::Cd { path } => change_directory(app, source, &path, fx),
         // `slash_dispatch.rs`: `/review <text>` reviews the text as instructions.
@@ -470,27 +467,22 @@ pub(super) fn begin_conversation(
     {
         return;
     }
-    let ticket = app.mint.next();
     let backend = source.as_ref().map_or(app.screens.agents.displayed, |id| {
         app.screens.agents.owner_of(id.as_str())
     });
-    let request = if matches!(command, crate::commands::SlashCommand::Fork) {
+    let fork = if matches!(command, crate::commands::SlashCommand::Fork) {
         let Some(thread) = &source else {
             return;
         };
-        Command::Screen {
-            ticket,
-            thread: ThreadId::default(),
-            command: ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Fork {
-                thread: thread.to_string(),
-            })),
-        }
+        Some(ThreadAsk::Fork {
+            thread: thread.to_string(),
+        })
     } else {
-        super::start_thread(app, ticket, backend)
+        None
     };
     // `/new <name>`: the new thread is named once it has started (`name_started`).
-    app.outgoing.insert(
-        ticket,
+    fx.ask(
+        app,
         AppCtx::NewConversation {
             source,
             backend,
@@ -499,8 +491,15 @@ pub(super) fn begin_conversation(
             draft: None,
             spawned: None,
         },
+        |app, ticket| match fork {
+            Some(ask) => Command::Screen {
+                ticket,
+                thread: ThreadId::default(),
+                command: ScreenCommand::Agents(agents::Command::Thread(ask)),
+            },
+            None => super::start_thread(app, ticket, backend),
+        },
     );
-    fx.commands.push(request);
 }
 
 /// `/new <name>`, `/fork <name>`: the thread is named once it has started, as `/rename <name>`
@@ -607,12 +606,11 @@ pub(super) fn start_in(
     ask: ThreadAsk,
     fx: &mut AppFx,
 ) {
-    let ticket = app.mint.next();
     let backend = source.as_ref().map_or_else(BackendId::default, |thread| {
         app.screens.agents.owner_of(thread.as_str())
     });
-    app.outgoing.insert(
-        ticket,
+    fx.ask(
+        app,
         AppCtx::NewConversation {
             source,
             backend,
@@ -621,12 +619,12 @@ pub(super) fn start_in(
             draft: None,
             spawned: None,
         },
+        |_, ticket| Command::Screen {
+            ticket,
+            thread: ThreadId::default(),
+            command: ScreenCommand::Agents(agents::Command::Thread(ask)),
+        },
     );
-    fx.commands.push(Command::Screen {
-        ticket,
-        thread: ThreadId::default(),
-        command: ScreenCommand::Agents(agents::Command::Thread(ask)),
-    });
 }
 
 /// `/archive`, `/delete` (`slash_dispatch.rs`): the confirmation opens in the
@@ -708,13 +706,12 @@ fn remove_current_thread(app: &mut CodexApp, action: agents::Action, fx: &mut Ap
             thread: thread.to_string(),
         },
     };
-    let ticket = app.mint.next();
-    app.outgoing
-        .insert(ticket, AppCtx::Removal { thread, action });
-    fx.commands.push(Command::Screen {
-        ticket,
-        thread: ThreadId::default(),
-        command: ScreenCommand::Agents(command),
+    fx.ask(app, AppCtx::Removal { thread, action }, |_, ticket| {
+        Command::Screen {
+            ticket,
+            thread: ThreadId::default(),
+            command: ScreenCommand::Agents(command),
+        }
     });
 }
 
@@ -806,10 +803,9 @@ pub(super) fn plan_answer(
             {
                 return;
             }
-            let ticket = app.mint.next();
             let backend = app.screens.agents.owner_of(thread.as_str());
-            app.outgoing.insert(
-                ticket,
+            fx.ask(
+                app,
                 AppCtx::NewConversation {
                     source: Some(thread),
                     backend,
@@ -818,8 +814,8 @@ pub(super) fn plan_answer(
                     draft: None,
                     spawned: None,
                 },
+                |app, ticket| super::start_thread(app, ticket, backend),
             );
-            fx.commands.push(super::start_thread(app, ticket, backend));
         }
     }
 }
