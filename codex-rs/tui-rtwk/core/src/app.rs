@@ -3083,6 +3083,7 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
         // `maybe_prompt_resume_paused_goal_after_resume`: a resumed thread's stopped goal asks.
         if matches!(ctx, agents::Ctx::Resume { .. }) {
             features::resumed(app, &id, fx);
+            apply_thread(app, &id, ThreadEv::Command(threads::CommandEv::Restore), fx);
         }
     }
     if let (agents::Ctx::Resume { thread }, Err(error)) = (&ctx, &result)
@@ -3225,6 +3226,7 @@ fn session_opened(
             send_queued(app, &id, fx);
             if action == Action::Resume {
                 features::resumed(app, &id, fx);
+                apply_thread(app, &id, ThreadEv::Command(threads::CommandEv::Restore), fx);
             }
         }
         Answer::Failed(error) if action == Action::Resume && agents::is_active_writer(&error) => {

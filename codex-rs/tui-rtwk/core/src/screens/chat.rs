@@ -1003,6 +1003,10 @@ pub(crate) fn project(
 pub enum Command {
     Compact,
     CleanTerminals,
+    /// `thread/backgroundTerminals/list`: a page of the thread's live terminals.
+    ListTerminals {
+        cursor: Option<String>,
+    },
     Review(crate::threads::ReviewTarget),
     Shell(String),
     /// `turn/steer`: the message joins the running turn `turn`.
@@ -1023,6 +1027,11 @@ pub enum Reply {
     Steered(TurnId),
     /// The prompt that starts the work of an approved plan.
     Prepared(String),
+    /// A page of the live background terminals, and the cursor of the next.
+    Terminals {
+        data: Vec<crate::threads::Listed>,
+        next: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1031,6 +1040,13 @@ pub enum Ctx {
     ApprovePlan,
     Compact,
     CleanTerminals,
+    /// The restore of a resumed thread's terminals (`threads::apply` reads its pages): its id,
+    /// the pages read, what was listed.
+    ListTerminals {
+        restore: u32,
+        pages: u8,
+        listed: Vec<crate::threads::Listed>,
+    },
     Review,
     Shell,
     /// A steer in flight: `threads::apply` reads its reply (the queue and the
@@ -1169,7 +1185,7 @@ pub fn apply_reply(
         part.compact_pending = false;
     }
     // a steer's reply is read by `threads::apply`, never here
-    if !matches!(ctx, Ctx::Steer { .. }) {
+    if !matches!(ctx, Ctx::Steer { .. } | Ctx::ListTerminals { .. }) {
         part.error = result.err();
     }
 }
@@ -1182,6 +1198,9 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
         Command::CleanTerminals => crate::threads::ThreadAsk::CleanTerminals {
             thread: thread.to_string(),
         },
+        Command::ListTerminals { cursor } => {
+            return crate::protocol::list_terminals(thread, cursor.clone(), id);
+        }
         Command::Review(target) => crate::threads::ThreadAsk::Review {
             thread: thread.to_string(),
             target: target.clone(),
@@ -1222,6 +1241,10 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
         Command::CleanTerminals => {
             serde_json::from_value::<ThreadBackgroundTerminalsCleanResponse>(result)
                 .map(|_| Reply::Ack)
+        }
+        Command::ListTerminals { .. } => {
+            return crate::protocol::terminals_listed(result)
+                .map(|(data, next)| Reply::Terminals { data, next });
         }
         Command::Review(_) => {
             serde_json::from_value::<ReviewStartResponse>(result).map(|_| Reply::Ack)

@@ -52,7 +52,7 @@ pub use decision::ReviewLine;
 pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
 pub use message::{LocalImage, TaskRef, ToolMention, UserMessage};
 pub use note::{CdRefusal, ModeNote, Note, NoteKey, RemoveNote, Stub, Toggle, Tone};
-pub use processes::{Terminal, WaitStreak};
+pub use processes::{Listed, Terminal, WaitStreak};
 pub use queue::{DueCommand, Queued, Ran};
 use queue::{enqueue, send_next};
 pub use user_prompt::{Shown, UserPrompt, request_text};
@@ -675,6 +675,11 @@ impl Transcript {
                 TurnSnapshot::Full(items) | TurnSnapshot::Summary(items) => items,
             };
             for (item, value) in items {
+                // a replayed unified-exec startup draws nothing, as when it started live
+                // (oracle `on_command_execution_started`); the restore lists it if it still runs
+                if processes::draws_nothing(&value, false) {
+                    continue;
+                }
                 let key = ItemKey {
                     turn: turn.clone(),
                     item,
@@ -867,6 +872,9 @@ pub enum CommandEv {
     Output { key: ItemKey, delta: String },
     /// The model polled a background terminal (empty `stdin`) or wrote to it.
     Interaction { process: String, stdin: String },
+    /// The thread was resumed and its history is in: ask the server for its live background
+    /// terminals (oracle `begin_background_terminal_restore` + `list_background_terminals`).
+    Restore,
 }
 
 /// What the thread is told of the asks made before it started.
@@ -2925,6 +2933,17 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             }
         }
         ThreadEv::Interrupt => {}
+        ThreadEv::Command(CommandEv::Restore) => {
+            let restore = model.processes.begin_restore();
+            fx.request(
+                screens::chat::Ctx::ListTerminals {
+                    restore,
+                    pages: 1,
+                    listed: Vec::new(),
+                },
+                screens::chat::Command::ListTerminals { cursor: None },
+            );
+        }
         ThreadEv::Reply { ticket, reply } => {
             // A reply whose ticket is not ours any more is stale.
             let Some((ctx, answer)) = model.outgoing.resolve(ticket, reply) else {
@@ -2939,6 +2958,16 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     })),
                     answer,
                 ) => steer_reply(model, turn, retried, message, answer, fx),
+                // the live terminals of a resumed thread: a page, then the next or the end; a list
+                // that fails ends the restore with nothing (oracle `unwrap_or_default`)
+                (
+                    ThreadCtx::Screen(ScreenCtx::Chat(screens::chat::Ctx::ListTerminals {
+                        restore,
+                        pages,
+                        listed,
+                    })),
+                    answer,
+                ) => restore_reply(model, restore, pages, listed, answer, fx),
                 // The fresh thread has the approved plan: its prompt starts the work.
                 (
                     ThreadCtx::Screen(ScreenCtx::Chat(screens::chat::Ctx::ApprovePlan)),
@@ -3593,6 +3622,48 @@ fn refusal(text: &str) -> Refusal {
         .map_or(Refusal::Other, |actual| {
             Refusal::Changed(TurnId::new(actual))
         })
+}
+
+/// The most pages of the terminal list one restore reads (the oracle pages until the server
+/// stops; this keeps a server that never does from looping).
+const RESTORE_PAGES: u8 = 20;
+
+/// The answer of a `thread/backgroundTerminals/list` page of a restore: the next page is asked
+/// for while the server names one, the end (or a failure) settles the restore with what was
+/// listed (`last_error` and the chat's error stay untouched, as the oracle swallows it).
+fn restore_reply(
+    model: &mut ThreadModel,
+    restore: u32,
+    pages: u8,
+    mut listed: Vec<Listed>,
+    answer: Answer,
+    fx: &mut ThreadFx<'_>,
+) {
+    match answer {
+        Answer::Screen(screens::ScreenReply::Chat(screens::chat::Reply::Terminals {
+            data,
+            next,
+        })) => {
+            listed.extend(data);
+            match next {
+                Some(cursor) if pages < RESTORE_PAGES => {
+                    fx.request(
+                        screens::chat::Ctx::ListTerminals {
+                            restore,
+                            pages: pages + 1,
+                            listed,
+                        },
+                        screens::chat::Command::ListTerminals {
+                            cursor: Some(cursor),
+                        },
+                    );
+                }
+                _ => model.processes.restore(restore, listed),
+            }
+        }
+        Answer::Failed(_) => model.processes.restore(restore, Vec::new()),
+        _ => {}
+    }
 }
 
 /// The answer of a `turn/steer`.

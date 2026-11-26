@@ -7,13 +7,16 @@
 //! interaction entry and an interrupted turn drops; the terminals outlive an interrupt; `/ps`
 //! says them as a note of the thread. The words and the cell are the view's.
 
-use codex_tui_core::app::{AppEv, Intent};
+use codex_app_server_protocol::Thread;
+use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::commands::SlashCommand;
 use codex_tui_core::features::processes::{Intent as PsIntent, Note as PsNote};
 use codex_tui_core::features::{self, FeatureIntent, FeatureNote, FeatureTarget};
 use codex_tui_core::fixtures::sandbox::Sandbox;
-use codex_tui_core::ids::ThreadId;
-use codex_tui_core::threads::{Item, Note, NoteKey, Notice};
+use codex_tui_core::ids::{ThreadId, Ticket};
+use codex_tui_core::rpc::{Reply, RpcError};
+use codex_tui_core::screens::{ScreenCommand, ScreenEv, ScreenReply, agents, chat};
+use codex_tui_core::threads::{Item, Listed, Note, NoteKey, Notice};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
@@ -298,4 +301,173 @@ fn ps_says_the_terminals_and_none_when_there_are_none() {
             terminals: Vec::new()
         }]
     );
+}
+
+// ---- the restore of a resumed thread's terminals (oracle `restore_background_terminals`)
+
+fn listed(item: &str, process: &str, command: &str) -> Listed {
+    Listed {
+        item: item.to_owned(),
+        process: process.to_owned(),
+        command: command.to_owned(),
+    }
+}
+
+fn dispatch(app: &mut CodexApp, ev: AppEv) -> AppFx {
+    let mut fx = AppFx::default();
+    apply_app(app, ev, &mut fx);
+    app.assert_consistent();
+    fx
+}
+
+fn server_thread() -> Thread {
+    serde_json::from_value(json!({
+        "id": T, "environments": null, "extra": null, "sessionId": T,
+        "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
+        "preview": "old", "ephemeral": false, "section": null, "sectionEnteredAt": null,
+        "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
+        "model": null, "reasoningEffort": null, "createdAt": 1_700_000_000,
+        "updatedAt": 1_700_000_000, "recencyAt": 1_700_000_000, "status": {"type": "idle"},
+        "path": null, "cwd": "/tmp/project", "cliVersion": "0.0.0", "originator": null,
+        "source": "cli", "canAcceptDirectInput": true, "threadSource": null,
+        "agentNickname": null, "agentRole": null, "gitInfo": null, "name": "old",
+        "daybreakEnabled": null, "turns": []
+    }))
+    .expect("a thread")
+}
+
+/// The ticket and cursor of the terminal list `fx` asks for.
+fn list_ask(fx: &AppFx) -> Option<(Ticket, Option<String>)> {
+    fx.commands().iter().find_map(|command| match command {
+        Command::Screen {
+            ticket,
+            command: ScreenCommand::Chat(chat::Command::ListTerminals { cursor }),
+            ..
+        } => Some((*ticket, cursor.clone())),
+        _ => None,
+    })
+}
+
+/// The app after the resume of `thread-1` was answered, and the effects of that answer.
+fn resumed() -> (CodexApp, AppFx) {
+    let mut app = CodexApp::new();
+    dispatch(
+        &mut app,
+        AppEv::Screen(ScreenEv::Agents(agents::Ev::Listed(agents::Page {
+            threads: vec![server_thread()],
+            unread: vec![],
+            next_cursor: None,
+            append: false,
+            pins: None,
+        }))),
+    );
+    let fx = dispatch(
+        &mut app,
+        AppEv::Intent(Intent::OpenThread(ThreadId::new(T))),
+    );
+    let ticket = fx
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Screen {
+                ticket,
+                command: ScreenCommand::Agents(_),
+                ..
+            } => Some(*ticket),
+            _ => None,
+        })
+        .expect("a resume request");
+    let fx = dispatch(
+        &mut app,
+        AppEv::Reply(
+            ticket,
+            Reply::screen(ScreenReply::Agents(agents::Reply::Resumed(Box::new(
+                server_thread(),
+            )))),
+        ),
+    );
+    (app, fx)
+}
+
+fn page(ticket: Ticket, data: Vec<Listed>, next: Option<&str>) -> AppEv {
+    AppEv::Reply(
+        ticket,
+        Reply::screen(ScreenReply::Chat(chat::Reply::Terminals {
+            data,
+            next: next.map(str::to_owned),
+        })),
+    )
+}
+
+fn commands_of(app: &CodexApp) -> Vec<String> {
+    app.active_thread()
+        .terminals()
+        .iter()
+        .map(|terminal| terminal.command.clone())
+        .collect()
+}
+
+#[test]
+fn a_resumed_thread_asks_for_its_live_terminals() {
+    let (mut app, fx) = resumed();
+    let (ticket, cursor) = list_ask(&fx).expect("the resume asks for the terminal list");
+    assert_eq!(cursor, None);
+    assert_eq!(commands_of(&app), Vec::<String>::new());
+    dispatch(
+        &mut app,
+        page(ticket, vec![listed("c1", "43", "sleep 200")], None),
+    );
+    assert_eq!(commands_of(&app), ["sleep 200"]);
+}
+
+#[test]
+fn a_failed_listing_leaves_no_error() {
+    let (mut app, fx) = resumed();
+    let (ticket, _) = list_ask(&fx).expect("the list is asked");
+    dispatch(
+        &mut app,
+        AppEv::Reply(
+            ticket,
+            Reply::error(RpcError::Remote("no such thread".to_owned())),
+        ),
+    );
+    assert_eq!(commands_of(&app), Vec::<String>::new());
+    assert_eq!(app.active_thread().last_error(), None);
+}
+
+#[test]
+fn a_listing_with_a_next_cursor_asks_again() {
+    let (mut app, fx) = resumed();
+    let (ticket, _) = list_ask(&fx).expect("the list is asked");
+    let fx = dispatch(
+        &mut app,
+        page(
+            ticket,
+            vec![listed("c1", "43", "sleep 200")],
+            Some("page-2"),
+        ),
+    );
+    assert_eq!(commands_of(&app), Vec::<String>::new());
+    let (ticket, cursor) = list_ask(&fx).expect("the next page is asked");
+    assert_eq!(cursor.as_deref(), Some("page-2"));
+    dispatch(
+        &mut app,
+        page(ticket, vec![listed("c2", "44", "sleep 300")], None),
+    );
+    assert_eq!(commands_of(&app), ["sleep 200", "sleep 300"]);
+}
+
+#[test]
+fn a_terminal_listing_is_the_servers_request() {
+    let request = chat::wire(
+        &chat::Command::ListTerminals {
+            cursor: Some("page-2".to_owned()),
+        },
+        &ThreadId::new(T),
+        codex_app_server_protocol::RequestId::Integer(1),
+    );
+    let value = serde_json::to_value(&request).expect("a request");
+    assert_eq!(value["method"], "thread/backgroundTerminals/list");
+    assert_eq!(value["params"]["threadId"], T);
+    assert_eq!(value["params"]["cursor"], "page-2");
 }

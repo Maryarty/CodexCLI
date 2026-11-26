@@ -1,3 +1,0 @@
-# oracle chatwidget/tests/exec_flow.rs:51 replayed_background_terminals_belong_to_the_displayed_thread
-{"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "notify", "message": {"method": "item/started", "params": {"item": {"type": "commandExecution", "id": "parent-call", "pluginId": null, "scriptPath": null, "command": "bash -lc 'sleep 100'", "cwd": "/tmp/project", "processId": "42", "source": "unifiedExecStartup", "status": "inProgress", "commandActions": [], "aggregatedOutput": null, "exitCode": null, "durationMs": null, "startedAtMs": 0, "completedAtMs": null}, "threadId":"thread-1", "turnId": "turn-1", "startedAtMs": 0}}}
