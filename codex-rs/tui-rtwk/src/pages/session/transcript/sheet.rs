@@ -31,7 +31,7 @@ use codex_tui_core::threads::{HistoryState, ThreadModel};
 
 use super::TranscriptMode;
 use super::activity_focus::{self, Step as ActivityStep};
-use super::copy::{self, CopyJob};
+use super::copy::{self, CopyJob, CopyOrigin};
 use super::find;
 use super::find_footer;
 use super::history;
@@ -218,6 +218,7 @@ impl State for SheetState {
                         text,
                         true,
                         &read::<TuiSettings, _>(cx),
+                        CopyOrigin::capture(&w.selection, &w.follow, &w.find, cx),
                     ));
                     cx.emit(
                         &hs.copy,

@@ -13,7 +13,7 @@ use codex_tui_core::threads::ThreadModel;
 use crate::app::view::Hs;
 use crate::pages::session::backtrack;
 use crate::pages::session::live::browse::{self, Browse};
-use crate::pages::session::transcript::copy::{self, CopyJob};
+use crate::pages::session::transcript::copy::{self, CopyJob, CopyOrigin};
 use crate::pages::session::transcript::selection::Key as SelectionKey;
 use crate::pages::session::transcript_header;
 use crate::pages::session::transcript_pane::Pane;
@@ -43,6 +43,7 @@ pub(super) fn selected(w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs, key: Selec
             text,
             true,
             &read::<TuiSettings, _>(cx),
+            CopyOrigin::capture(&w.ui.selection, &w.ui.follow, &w.ui.find, cx),
         ));
         let job = if key == SelectionKey::CopyAndFollow {
             job.following()

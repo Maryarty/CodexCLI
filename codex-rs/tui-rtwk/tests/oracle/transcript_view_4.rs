@@ -1771,10 +1771,6 @@ fn loading_older_history_extends_the_snapshot_without_adopting_new_commits() {
 // ORACLE transcript_view/selection_tests.rs:630 pending_copy_only_finishes_the_original_selection kind=ui owner=chat-live
 #[test]
 fn pending_copy_only_finishes_the_original_selection() {
-    kit::pending(
-        Owner::ChatLive,
-        "f-copy-delivery-identity: the answer compares only clipboard text, so confirming the original copy clears its same-text replacement",
-    );
     for change in [
         "none",
         "replace",
@@ -1801,6 +1797,7 @@ fn pending_copy_only_finishes_the_original_selection() {
                     .mouse_down(0, row)
                     .mouse_drag(24, row)
                     .mouse_up(24, row);
+                s.assert_text_style("selected text", "reversed");
             }
             "move" => {
                 s.keys("left");

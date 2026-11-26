@@ -18,7 +18,7 @@ use rtwk::foundation::{Listenable, ListenableBuilder};
 use rtwk::gestures::{Listener, MouseTracker, PointerEvent, SelectionArea};
 use rtwk::navigation::Route;
 use rtwk::provider::{Provider, read, watch};
-use rtwk::scroll::{ScrollMetrics, ScrollNotification};
+use rtwk::scroll::{ScrollMetrics, ScrollNotification, ScrollUpdateNotification};
 use rtwk::style::{Attrs, Style};
 use rtwk::{
     AnyWidget, Cx, NotificationListener, Rebuild, State, StatefulWidget, impl_widget, map_static,
@@ -32,7 +32,7 @@ use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::ids::ThreadId;
 
 use super::TranscriptMode;
-use super::copy::{self, CopyJob, Shown};
+use super::copy::{self, CopyJob, CopyOrigin, Shown};
 use crate::app::view::Hs;
 use crate::widgets::finder::Finder;
 use crate::widgets::markdown::LinkTaps;
@@ -49,6 +49,8 @@ pub(in crate::pages::session) struct SelectionHost {
     pub thread: ThreadId,
     pub selection: TextSelection,
     pub follow: Follow,
+    pub detailed: bool,
+    pub raw: bool,
     /// Select mode of the thread: while only its caret is shown, the caret's cell is drawn bold
     /// and underlined as well as reversed (the oracle's `render_select_cursor`).
     pub caret: bool,
@@ -184,17 +186,34 @@ impl State for HostState {
     type Widget = SelectionHost;
     type Msg = Msg;
 
-    fn did_update_widget(&mut self, old: &SelectionHost, w: &SelectionHost, _: &mut Cx<'_, Self>) {
-        if old.thread != w.thread {
+    fn did_update_widget(&mut self, old: &SelectionHost, w: &SelectionHost, cx: &mut Cx<'_, Self>) {
+        if old.thread != w.thread || old.selection != w.selection {
+            old.selection.set_copy_surface(cx.id(), false);
+            w.selection
+                .set_copy_surface(cx.id(), Route::is_current_of(cx));
             self.empty_press = None;
             self.link_press.set(false);
             self.link_released = false;
             self.primary_press = false;
             self.primary_scope = None;
         }
+        if old.detailed != w.detailed || old.raw != w.raw {
+            w.selection.revise_copy_surface(cx.id());
+        }
+    }
+
+    fn deactivate(&mut self, w: &SelectionHost, cx: &mut Cx<'_, Self>) {
+        w.selection.set_copy_surface(cx.id(), false);
+    }
+
+    fn activate(&mut self, w: &SelectionHost, cx: &mut Cx<'_, Self>) {
+        w.selection
+            .set_copy_surface(cx.id(), Route::is_current_of(cx));
     }
 
     fn did_change_dependencies(&mut self, w: &SelectionHost, cx: &mut Cx<'_, Self>) {
+        w.selection
+            .set_copy_surface(cx.id(), Route::is_current_of(cx));
         if !read::<TuiSettings, _>(cx).primary_selection || !w.pointer_route_current(cx, true) {
             self.primary_press = false;
             self.primary_scope = None;
@@ -211,14 +230,18 @@ impl State for HostState {
         if first || feedback.result != Ok(CopyStatus::Confirmed) {
             return;
         }
-        // the answer a copy was waiting for: its selection goes, and only that one
-        if let Some(text) = &feedback.clear_after
-            && w.selection.controller().text() == *text
-        {
+        let Some(completion) = &feedback.completion else {
+            return;
+        };
+        if w.copy_origin(cx).as_ref() != Some(&completion.origin) {
+            return;
+        }
+        if completion.clear {
+            w.selection.revise_copy_surface(cx.id());
             super::select::of(&w.find).end_extension();
             w.selection.controller().clear();
         }
-        if feedback.follow {
+        if completion.follow {
             w.follow.jump_to_latest();
         }
     }
@@ -236,20 +259,23 @@ impl State for HostState {
                     }
                     let (scope, owner) = PrimarySelection::new(w);
                     self.primary_scope = Some(scope);
-                    CopyJob::primary(text, &settings, owner)
+                    let origin = settings.copy_on_select.then(|| w.copy_origin(cx)).flatten();
+                    CopyJob::primary(text, &settings, owner, origin)
                 } else {
-                    CopyJob::selected(text, false, &settings)
+                    CopyJob::selected(text, false, &settings, w.copy_origin(cx))
                 }
             }
             Msg::Press(press) if press.button == RIGHT_BUTTON => CopyJob::selected(
                 w.selection.controller().text(),
                 true,
                 &read::<TuiSettings, _>(cx),
+                w.copy_origin(cx),
             ),
             // a press that is not a copy is the reader selecting: not Find's match any more
             Msg::Press(press) => {
                 super::select::of(&w.find).end_extension();
                 if press.button == 0 {
+                    w.selection.revise_copy_surface(cx.id());
                     self.primary_scope = None;
                     self.primary_press = read::<TuiSettings, _>(cx).primary_selection
                         && w.pointer_route_current(cx, false);
@@ -270,6 +296,7 @@ impl State for HostState {
             }
             Msg::Drag(pointer) => {
                 if pointer.button == 0 {
+                    w.selection.revise_copy_surface(cx.id());
                     self.link_press.set(false);
                 }
                 return Rebuild::No;
@@ -329,6 +356,16 @@ impl State for HostState {
                 pressed.set(false);
                 false
             });
+        let selection = w.selection.clone();
+        let surface = cx.id();
+        let child = NotificationListener::<ScrollUpdateNotification>::new(child).on_notification(
+            move |scroll| {
+                if scroll.depth() == 0 {
+                    selection.revise_copy_surface(surface);
+                }
+                false
+            },
+        );
         let child: AnyWidget =
             Provider::value(LinkTaps(map_static!(cx, MarkdownLinkTap => Msg, Msg::Link)))
                 .child(child)
@@ -381,6 +418,12 @@ fn take_native_copy(cx: &Cx<'_, HostState>, text: &str) {
 }
 
 impl SelectionHost {
+    fn copy_origin(&self, cx: &mut Cx<'_, HostState>) -> Option<CopyOrigin> {
+        let surface = cx.id();
+        CopyOrigin::capture(&self.selection, &self.follow, &self.find, cx)
+            .filter(|origin| origin.selection.belongs_to(surface))
+    }
+
     fn links_enabled(&self, cx: &mut Cx<'_, HostState>) -> bool {
         let select = super::select::of(&self.find);
         self.pointer_route_current(cx, false)
