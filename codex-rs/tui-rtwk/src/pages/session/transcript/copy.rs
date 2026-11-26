@@ -46,7 +46,10 @@ pub enum Piece {
     Code(String),
     /// A quote: its source lines without the `>` marks, and what a copy of it answers with (its
     /// directive lines left out).
-    Quote { source: String, copied: String },
+    Quote {
+        source: String,
+        copied: String,
+    },
 }
 
 /// What the mode reads of a message's source: handed in by the feature that begins it (a page does
@@ -297,9 +300,9 @@ impl Targets {
         // `user_source`, copy_mode.rs)
         let drawn = extent(parts).filter(|&(first, last)| !text[first..last].trim().is_empty());
         let said = matches!(item, Item::User(prompt) if !prompt.shown().text.trim().is_empty());
-        let Some((first, last)) = drawn.or_else(|| {
-            said.then(|| extent(parts).unwrap_or((0, text.len())))
-        }) else {
+        let Some((first, last)) =
+            drawn.or_else(|| said.then(|| extent(parts).unwrap_or((0, text.len()))))
+        else {
             return;
         };
         let mut found = Vec::new();

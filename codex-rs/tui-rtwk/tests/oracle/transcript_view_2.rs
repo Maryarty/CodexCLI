@@ -54,7 +54,11 @@ fn navigate_copy_resize_and_exit() {
         Owner::ChatLive,
         "G-new-usage-2: the pinned prompt header (the oracle's first row `› User text > user quote ``` user code ````, transcript_view/prompt_header.rs) is not drawn: the chat's list has no `visible_range()` to say which prompt scrolled off; copy mode, its footer and its keys are built",
     );
-    let mut s = chat(include_str!("fixtures/transcript_view_2/copy_nav.jsonl"), 50, 8);
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/copy_nav.jsonl"),
+        50,
+        8,
+    );
     begin_copy_mode(&mut s);
     // the oracle: Up seven times (the code, the quote, the prompt's code and quote, the prompt
     // as a whole, the old code, and the old code again: the oldest stays), Down five times
@@ -76,20 +80,27 @@ fn navigate_copy_resize_and_exit() {
 // ORACLE transcript_view/copy_mode_tests.rs:131 copy_reveals_offscreen_block_with_context kind=snap owner=chat-live
 #[test]
 fn copy_reveals_offscreen_block_with_context() {
-    let mut s = chat(include_str!("fixtures/transcript_view_2/copy_tall.jsonl"), 50, 5);
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/copy_tall.jsonl"),
+        50,
+        5,
+    );
     s.wheel_up(0, 0, 5);
     begin_copy_mode(&mut s);
     s.keys("up");
     // the reveal scrolls the last code block into view, with its context above
     s.assert_in_order(&["line", "line", "", "last code"]);
     s.assert_text_style("last code", "reversed");
-    s.keys("enter");
 }
 
 // ORACLE transcript_view/copy_mode_tests.rs:153 user_messages_support_vim_navigation_without_an_assistant_response kind=snap owner=chat-live
 #[test]
 fn user_messages_support_vim_navigation_without_an_assistant_response() {
-    let mut s = chat(include_str!("fixtures/transcript_view_2/user_vim.jsonl"), 52, 14);
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/user_vim.jsonl"),
+        52,
+        14,
+    );
     // no response to copy: the last prompt is the target
     begin_copy_mode(&mut s);
     s.assert_text_style("Plain prompt with wrapping", "reversed");
@@ -117,7 +128,11 @@ fn user_messages_support_vim_navigation_without_an_assistant_response() {
 // ORACLE transcript_view/copy_mode_tests.rs:192 marker_only_prompt_is_a_copy_target kind=snap owner=chat-live
 #[test]
 fn marker_only_prompt_is_a_copy_target() {
-    let mut s = chat(include_str!("fixtures/transcript_view_2/marker.jsonl"), 52, 8);
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/marker.jsonl"),
+        52,
+        8,
+    );
     begin_copy_mode(&mut s);
     s.keys("up");
     s.assert_contains("Copy user message");
@@ -129,7 +144,11 @@ fn marker_only_prompt_is_a_copy_target() {
 // ORACLE transcript_view/copy_mode_tests.rs:231 copy_highlight_fills_a_block_across_blank_and_wrapped_rows kind=snap owner=chat-live snap=copy_highlight_fills_a_block_across_blank_and_wrapped_rows
 #[test]
 fn copy_highlight_fills_a_block_across_blank_and_wrapped_rows() {
-    let mut s = chat(include_str!("fixtures/transcript_view_2/highlight_blank.jsonl"), 16, 12);
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/highlight_blank.jsonl"),
+        16,
+        12,
+    );
     begin_copy_mode(&mut s);
     s.keys("up");
     // the block is `longer line`, a blank row and `x`: every cell of its rows is the selection's,
@@ -148,14 +167,22 @@ fn copy_highlight_fills_a_block_across_blank_and_wrapped_rows() {
 // ORACLE transcript_view/copy_mode_tests.rs:269 whole_user_turn_highlight_includes_bottom_padding kind=snap owner=chat-live snap=whole_user_turn_highlight_includes_bottom_padding
 #[test]
 fn whole_user_turn_highlight_includes_bottom_padding() {
-    let mut s = chat(include_str!("fixtures/transcript_view_2/user_short.jsonl"), 20, 8);
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/user_short.jsonl"),
+        20,
+        8,
+    );
     begin_copy_mode(&mut s);
     // the whole turn is the target: the padding rows above and below the prompt are the selection's
     let pad = s.row_of("Short prompt") - 1;
     assert_block(&s, pad, 20, 0..3, 4);
     s.keys("enter");
     s.assert_copy_asked("Short prompt");
-    let mut s = chat(include_str!("fixtures/transcript_view_2/user_longer.jsonl"), 10, 12);
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/user_longer.jsonl"),
+        10,
+        12,
+    );
     begin_copy_mode(&mut s);
     let pad = s.row_of("Longer") - 1;
     assert_block(&s, pad, 10, 0..6, 8);
@@ -170,7 +197,11 @@ fn rendered_mermaid_copies_source() {
         Owner::ChatLive,
         "G62: the chat draws the mermaid fence as code (`• graph LR` / `A --> B`) where the oracle draws the diagram, so `graph LR` is on screen; the copy half works (`up`, `enter` copy `graph LR\\nA --> B\\n`)",
     );
-    let mut s = chat(include_str!("fixtures/transcript_view_2/mermaid.jsonl"), 50, 8);
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/mermaid.jsonl"),
+        50,
+        8,
+    );
     s.assert_absent("graph LR");
     begin_copy_mode(&mut s);
     s.keys("up");
@@ -280,7 +311,11 @@ fn source_targets_survive_quotes_lists_and_rendered_tables() {
 // ORACLE transcript_view/copy_mode_tests.rs:641 rendered_fenced_table_has_a_block_highlight kind=snap owner=chat-live snap=rendered_fenced_table_has_a_block_highlight
 #[test]
 fn rendered_fenced_table_has_a_block_highlight() {
-    let mut s = chat(include_str!("fixtures/transcript_view_2/table_block.jsonl"), 30, 10);
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/table_block.jsonl"),
+        30,
+        10,
+    );
     begin_copy_mode(&mut s);
     s.keys("up");
     // the table is drawn by rtwk's table (`A │ B`, `──┼──`), not the oracle's `A   B`, `━━━━━`:
@@ -298,7 +333,11 @@ fn copy_navigation_leaves_context_and_preserves_the_center_band() {
         Owner::ChatLive,
         "G-new-sel-reveal: the list reveals the item only (`ensure_index_visible`), not a row inside the one tall message: after `up up down` the screen ends at `Context 11` and `second target` is off it; the oracle's target sits on rows 11, 4, 11",
     );
-    let mut s = chat(include_str!("fixtures/transcript_view_2/context.jsonl"), 50, 16);
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/context.jsonl"),
+        50,
+        16,
+    );
     begin_copy_mode(&mut s);
     // the oracle: Up, Up, Down; the selected block's row is 11, 4, 11 of the 16
     s.keys("up");
@@ -315,7 +354,11 @@ fn copy_navigation_leaves_context_and_preserves_the_center_band() {
 // ORACLE transcript_view/copy_mode_tests.rs:721 copy_resize_keeps_whole_user_padding_inside_context kind=snap owner=chat-live snap=copy_resize_keeps_whole_user_padding_inside_context
 #[test]
 fn copy_resize_keeps_whole_user_padding_inside_context() {
-    let mut s = chat(include_str!("fixtures/transcript_view_2/resize.jsonl"), 50, 20);
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/resize.jsonl"),
+        50,
+        20,
+    );
     begin_copy_mode(&mut s);
     // the whole prompt `One..Six`: the last response, then the prompt before it
     s.keys("up");
@@ -336,7 +379,11 @@ fn copy_navigation_keeps_bottom_context_when_prompt_header_appears() {
         Owner::ChatLive,
         "G-new-usage-2: the pinned prompt header (`› First prompt`) that appears when the first prompt scrolls off is not drawn, so `echo target` is not on the row the oracle keeps (5 of 7, the context below it kept)",
     );
-    let mut s = chat(include_str!("fixtures/transcript_view_2/header.jsonl"), 50, 7);
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/header.jsonl"),
+        50,
+        7,
+    );
     begin_copy_mode(&mut s);
     // the oracle: Home, Down; the target is on row 5 and the screen stays put
     s.keys("home down");

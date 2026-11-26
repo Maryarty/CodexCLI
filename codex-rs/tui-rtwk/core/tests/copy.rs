@@ -5,8 +5,8 @@
 //! what a copy holds of the last response, the picker's wish and the host's answers as notes. The
 //! picker's rows and the words are the UI's: these tests read data.
 
-use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::app::effects::{Ask, CopyDestination, CopyFormat, CopyStatus, Done};
+use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::commands::{SessionIntent, SlashCommand};
 use codex_tui_core::features::copy::{Intent as CopyIntent, Note as CopyNote, Response, Wish};

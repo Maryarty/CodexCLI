@@ -19,6 +19,7 @@ use std::sync::Arc;
 use rtwk::gestures::ExcludeSelection;
 use rtwk::layout::{
     Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row, SizedBox,
+    Visibility,
 };
 use rtwk::provider::Provider;
 use rtwk::style::Style;
@@ -192,17 +193,15 @@ impl CitedState {
                 MarkdownView::blocks(blocks[range].to_vec(), view.definitions.clone()),
                 widget.theme.clone(),
             );
+            // the bullet again, kept as room and not painted, in the rows after the first
+            let bullet = Text::new(filled.bullet.clone()).style(filled.bullet_style.clone());
             let gutter: AnyWidget = if first {
-                Text::new(filled.bullet.clone())
-                    .style(filled.bullet_style.clone())
-                    .into()
+                bullet.into()
             } else {
-                SizedBox::new(
-                    Some(i32::try_from(filled.bullet.trim_end().chars().count()).unwrap_or(2)),
-                    None,
-                    None,
-                )
-                .into()
+                Visibility::new(false, bullet)
+                    .maintain_state(true)
+                    .maintain_size(true)
+                    .into()
             };
             let row = Row::new()
                 .cross_axis_alignment(CrossAxisAlignment::Start)
