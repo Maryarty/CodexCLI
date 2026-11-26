@@ -973,20 +973,23 @@ fn live_app_server_file_change_item_started_preserves_changes() {
 fn live_app_server_command_execution_strips_shell_wrapper() {
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
-    let command = "/bin/zsh -lc 'printf hello'";
+    let payload = r#"python3 -c 'print("Hello, world!")'"#;
+    let command = format!("/bin/zsh -lc '{}'", payload.replace('\'', "'\"'\"'"));
+    let command = serde_json::json!(command).to_string();
+    let escaped = &command[1..command.len() - 1];
     s.feed(&item_started(&exec_item(
         "cmd-1",
-        command,
+        escaped,
         "inProgress",
         "null",
     )));
     s.feed(&item_completed(&exec_item(
         "cmd-1",
-        command,
+        escaped,
         "completed",
-        r#""hello\n""#,
+        r#""Hello, world!\n""#,
     )));
-    s.assert_in_order(&["printf hello", "hello"]);
+    s.assert_in_order(&[payload, "Hello, world!"]);
     s.assert_absent("/bin/zsh");
     s.assert_no_turn();
 }

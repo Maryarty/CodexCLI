@@ -6,10 +6,11 @@
 
 use std::rc::Rc;
 
+use rtwk::overlay::close_dialog;
 use rtwk::provider::select;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::features::rename::{Intent, Interest};
+use codex_tui_core::features::rename::{Gen, Intent, Interest};
 use codex_tui_core::features::{FeatureStates, Remote};
 use codex_tui_core::ids::ThreadId;
 
@@ -22,6 +23,7 @@ use crate::widgets::interest::Interest as Wanted;
 #[derive(Clone, Debug, PartialEq)]
 pub struct NamePrompt {
     pub thread: ThreadId,
+    pub generation: Gen,
     pub existing: String,
 }
 
@@ -52,17 +54,20 @@ impl State for NamePromptState {
             cx,
             Intent::Set {
                 thread: w.thread.clone(),
+                generation: w.generation,
                 name: name.to_string(),
             },
         );
+        close_dialog::<_, ()>(cx, None);
         Rebuild::No
     }
 
     fn build(&self, w: &NamePrompt, cx: &mut Cx<'_, Self>) -> AnyWidget {
         // The suggestion of this thread's prompt only: another thread's answer does not rebuild it.
         let thread = w.thread.clone();
+        let generation = w.generation;
         let suggest = select::<FeatureStates, Suggest, _>(cx, move |features| {
-            match features.rename.title(&thread) {
+            match features.rename.title(&thread, generation) {
                 Some(Remote::Ready(title)) => Suggest::Ready(title.clone()),
                 Some(Remote::Failed(_)) => Suggest::Ready(None),
                 _ => Suggest::Waiting,
@@ -74,10 +79,12 @@ impl State for NamePromptState {
             w.existing.clone(),
             suggest,
             cx.map(Msg::Submit),
-        );
+        )
+        .keep_open();
         Wanted::new(
             Interest::Title {
                 thread: w.thread.clone(),
+                generation: w.generation,
             },
             prompt,
         )

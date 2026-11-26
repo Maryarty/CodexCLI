@@ -3035,9 +3035,13 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             text,
         ))) => give_back(model, vec![UserMessage::text(text)], true),
         ThreadEv::QuietInterrupts(quiet) => model.quiet_interrupts = quiet,
-        ThreadEv::FeatureIntent(intent) => with_features(model, fx, |parts, cx| {
-            features::apply_thread_intent(parts, intent, cx);
-        }),
+        ThreadEv::FeatureIntent(intent) => {
+            let rename_held_queue = model.features.rename.holds_queue();
+            with_features(model, fx, |parts, cx| {
+                features::apply_thread_intent(parts, intent, cx);
+            });
+            resume_after_rename(model, fx, rename_held_queue);
+        }
         // The queue's five intents (Tab, the screen's report of a command it ran, what stopped
         // the queue is over, the hold and the edit key) are `threads/queue.rs`'s; it gives back
         // the others, which are the screens'.
@@ -3296,11 +3300,15 @@ fn feature_reply(
     if let Err(error) = &result {
         model.last_error = Some(Failure::from(error.clone()));
     }
-    let awaiting_name = model.features.rename.awaiting_name();
+    let rename_held_queue = model.features.rename.holds_queue();
     with_features(model, fx, |parts, cx| {
         features::apply_thread_reply(parts, ctx, result, cx);
     });
-    if awaiting_name && !model.features.rename.awaiting_name() && !model.busy() {
+    resume_after_rename(model, fx, rename_held_queue);
+}
+
+fn resume_after_rename(model: &mut ThreadModel, fx: &mut ThreadFx<'_>, held: bool) {
+    if held && !model.features.rename.holds_queue() && !model.busy() {
         send_next(model, fx);
     }
 }

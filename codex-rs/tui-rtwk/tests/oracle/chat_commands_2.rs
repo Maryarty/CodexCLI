@@ -144,6 +144,8 @@ fn queued_bare_rename_drains_next_input_after_name_update() {
         s.assert_no_turn();
         s.feed(DONE);
         s.assert_contains("Name thread");
+        s.feed(r#"{"step":"lagged","skipped":1}"#);
+        s.assert_contains("Name thread");
         s.assert_no_turn();
 
         if settlement == "cancel" {
@@ -189,6 +191,25 @@ fn queued_bare_rename_drains_next_input_after_name_update() {
     inline.assert_absent("Name thread");
     inline.assert_set_names(&["Inline name"]);
     inline.assert_turn_texts(&["first follow-up"]);
+
+    let mut side = Screen::build(Owner::ChatNavPane)
+        .side()
+        .fake_turn_ids()
+        .open();
+    let running = RUNNING
+        .lines()
+        .filter(|line| !line.contains(r#""step": "seed""#))
+        .collect::<Vec<_>>()
+        .join("\n");
+    side.feed(&running.replace("thread-1", kit::SIDE_THREAD));
+    side.type_text("/rename").keys("tab");
+    side.type_text("continue on the side").keys("tab");
+    side.assert_no_turn();
+    side.feed(&DONE.replace("thread-1", kit::SIDE_THREAD));
+    side.assert_contains("Side conversations cannot be renamed.");
+    side.assert_absent("Name thread");
+    side.assert_set_names(&[]);
+    side.assert_turn_texts(&["continue on the side"]);
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:673 queued_unknown_slash_reports_error_when_dequeued kind=ui owner=chat-nav-pane

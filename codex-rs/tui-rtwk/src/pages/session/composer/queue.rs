@@ -3,7 +3,7 @@
 
 use rtwk::Cx;
 
-use codex_tui_core::commands::{SessionIntent, SlashCommand};
+use codex_tui_core::commands::SlashCommand;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::question_reply::Intent as QuestionIntent;
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, ScreenThreadIntent, chat, popovers};
@@ -126,13 +126,7 @@ pub(in crate::pages::session) fn opened_by(command: SlashCommand) -> Ran {
 }
 
 /// What a command of the session leaves the queue with.
-pub(in crate::pages::session) fn session_ran(command: SlashCommand, intent: &SessionIntent) -> Ran {
-    // A bare rename asks for a name. The inline form just writes it and continues.
-    if command == SlashCommand::Rename
-        && matches!(intent, SessionIntent::Feature { args } if args.is_empty())
-    {
-        return opened_by(command);
-    }
+pub(in crate::pages::session) fn session_ran(command: SlashCommand) -> Ran {
     Ran::Dispatched(Dispatched {
         command: Some(command),
         ..none_opened()

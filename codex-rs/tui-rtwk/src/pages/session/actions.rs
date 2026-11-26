@@ -348,7 +348,7 @@ pub(super) fn run(
             say(cx, Note::from(NoteKey::Toggled(Toggle::Vim, on)));
         }
         Outcome::Session { command, intent } => {
-            *ran = queue::session_ran(command, &intent);
+            *ran = queue::session_ran(command);
             record(cx);
             clear_sent(&w.ui);
             screen(
