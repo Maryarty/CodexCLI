@@ -49,7 +49,7 @@ use super::transcript::item_text::{Reading, body_nodes, mounted_parts};
 use super::transcript::markdown_copy::{self, Marks};
 use super::transcript::row_text::RowTextCache;
 use super::transcript::select::{self, Pos, Select};
-use super::transcript::selection::SelectionHost;
+use super::transcript::selection::{SelectedRevision, SelectionHost};
 use super::transcript::strings as transcript_strings;
 use super::transcript::turn_details::{
     Anchor, FoldRow, Kind, Plan, PromptFold, Row, Words, arrow, prompt_label, reveal,
@@ -86,6 +86,7 @@ struct Placed {
 
 pub(super) struct ViewportState {
     layout: RefCell<Option<RowLayout>>,
+    held_layout: RefCell<Option<RowLayout>>,
     activity: RefCell<Option<ActivityLayout>>,
     /// The prompt the list was last scrolled to show.
     shown: RefCell<Option<ItemKey>>,
@@ -239,13 +240,13 @@ impl ViewportState {
     /// `ReasoningSummaryCell::transcript_only`, `WarningHistoryCell`). With the
     /// turn details collapsed the plan of the folds decides instead.
     fn rows(
-        &self,
+        layout: &RefCell<Option<RowLayout>>,
         thread: &ThreadModel,
         detailed: bool,
         collapse: bool,
         activity: &Activity,
     ) -> Shown {
-        let mut cache = self.layout.borrow_mut();
+        let mut cache = layout.borrow_mut();
         let transcript = thread.transcript();
         let revision = transcript.layout_revision();
         if let Some(layout) = cache.as_ref()
@@ -598,7 +599,7 @@ impl ViewportState {
                 .get(row.range.start)
                 .is_some_and(|(key, _)| *key == before.1)
         });
-        if reverse || !widget.follow.away() {
+        if reverse || widget.follow.at_tail() {
             return false;
         }
         let at_start = widget
@@ -714,6 +715,7 @@ impl StatefulWidget for Pane {
     fn create_state(&self) -> Self::State {
         ViewportState {
             layout: RefCell::default(),
+            held_layout: RefCell::default(),
             activity: RefCell::default(),
             shown: RefCell::default(),
             first: RefCell::default(),
@@ -753,7 +755,7 @@ impl State for ViewportState {
             restore.disarm();
         }
         self.left.retain(|(follow, _)| *follow != old.follow);
-        if old.follow.away()
+        if !old.follow.at_tail()
             && let Ok(position) = old.follow.scroll().as_scroll_controller().try_position()
         {
             self.left.push((old.follow.clone(), position.pixels()));
@@ -902,13 +904,11 @@ impl State for ViewportState {
             self.texts.borrow_mut().take();
             self.targets.borrow_mut().take();
         }
-        // Find, selection and copy share a snapshot of the list they read. Detailed rows can
-        // also read the contents of other rows to arrange adjacent prompts and computer calls.
-        let uses_snapshot = reads
-            || widget.detailed
-            || widget.mark.is_some()
-            || widget.selection.controller().has_selection();
-        let live = if uses_snapshot {
+        // Find, keyboard selection and copy mode read live rows. Detailed rows also read across
+        // cells when arranging adjacent prompts and computer calls. The ordinary mouse range
+        // uses its retained revision. TailNews watches incoming deltas separately.
+        let reads_across_rows = reads || widget.detailed || widget.mark.is_some();
+        let live = if reads_across_rows {
             watch::<ThreadModel, _>(cx)
         } else {
             select::<ThreadModel, _, _>(cx, |thread| {
@@ -916,6 +916,7 @@ impl State for ViewportState {
                 (
                     thread.id().clone(),
                     transcript.layout_revision(),
+                    transcript.reset_revision(),
                     ActivityStamp::of(transcript),
                     thread.can_load_history(),
                     thread.history_state(),
@@ -932,9 +933,13 @@ impl State for ViewportState {
             held.clear();
         }
         let selected_tool = SelectedTool::of(&search).read(&live, caret.active());
+        let selection =
+            SelectedRevision::of(&search).read(&live, &widget.follow, &widget.selection, !reads);
+        let uses_snapshot = reads_across_rows || selection.is_some();
         let thread = held
             .thread()
             .or(selected_tool)
+            .or(selection)
             .unwrap_or_else(|| live.clone());
         let strings = l10n::of(cx);
         let tokens = theme::Tokens::of(cx);
@@ -965,7 +970,7 @@ impl State for ViewportState {
         });
         let markdown = tokens.transcript_markdown(cx);
         let thread_id = thread.id().clone();
-        let can_load = thread.can_load_history();
+        let can_load = live.can_load_history();
         let detailed = widget.detailed;
         let raw = select::<ScreenStates, _, _>(cx, |states| states.chat.raw_output);
         let show_raw_reasoning =
@@ -975,17 +980,19 @@ impl State for ViewportState {
         let activity = activity_focus::of(&widget.find);
         let disclosed = activity.disclosed();
         let cells = cells_strings::of(cx);
-        // News follows the live transcript even when Find holds an older view of it.
-        let live_rows = self.rows(&live, detailed, collapse, &activity);
+        // News follows the live transcript. A retained revision has its own row layout
+        // so reading it cannot invalidate the cache for the incoming tail.
+        let live_rows = Self::rows(&self.layout, &live, detailed, collapse, &activity);
         let tail = live_rows
             .rows
             .last()
             .and_then(|row| live.transcript().get(row.range.end - 1))
             .map(|(key, _)| key.clone());
         let Shown { rows, plan } = if Rc::ptr_eq(&live, &thread) {
+            self.held_layout.borrow_mut().take();
             live_rows
         } else {
-            self.rows(&thread, detailed, collapse, &activity)
+            Self::rows(&self.held_layout, &thread, detailed, collapse, &activity)
         };
         let reverse = !thread.read_only() && header.is_none();
         let header = header.filter(|_| !can_load);
@@ -1018,7 +1025,8 @@ impl State for ViewportState {
             approval_words: crate::sheets::approvals::strings::of(cx),
             usage: usage.as_ref().map(|_| &card_figure as _),
         };
-        let more = match thread.history_state() {
+        let history = live.history_state();
+        let more = match history {
             HistoryState::Partial => More::Loadable,
             HistoryState::Loading => More::Loading,
             HistoryState::Failed => More::Failed,
@@ -1026,7 +1034,7 @@ impl State for ViewportState {
         };
         let load = cx.local_sender();
         if widget.follow.beginning() || caret.beginning() {
-            load(Msg::Beginning(thread.id().clone(), thread.history_state()));
+            load(Msg::Beginning(thread_id.clone(), history));
         }
         let scan = if search.active() && collapse && !detailed {
             thread
@@ -1164,7 +1172,7 @@ impl State for ViewportState {
         // starts at the end. A reader who was away from the last row is put back after the frame
         // that swaps them (before the move Find's own close asks for).
         if reads != self.texted.replace(reads)
-            && widget.follow.away()
+            && !widget.follow.at_tail()
             && self.restoring.is_none()
             && !search.going_back()
             && let Ok(position) = widget.follow.scroll().as_scroll_controller().try_position()
@@ -1538,8 +1546,10 @@ impl State for ViewportState {
                 // the wheel: a move nobody asked for supersedes the wait for the first row
                 follow.moved_to(metrics.pixels);
                 // back at the last row: the news is seen
-                if follow.at_tail() {
+                if !follow.away() {
                     follow.clear_unseen();
+                } else if follow.selection_cleared() && !follow.at_tail() {
+                    send(Msg::Find);
                 }
                 false
             })
@@ -1547,8 +1557,15 @@ impl State for ViewportState {
         // the wheel at an end moves nothing, and still is the reader's
         let wheel = widget.follow.clone();
         let list: AnyWidget = NotificationListener::<OverscrollNotification>::new(list)
-            .on_notification(move |_| {
+            .on_notification(move |scroll| {
                 wheel.cancel_beginning();
+                if scroll.depth() == 0
+                    && (scroll.overscroll < 0) == reverse
+                    && wheel.selection_cleared()
+                    && wheel.at_tail()
+                {
+                    wheel.jump_to_latest();
+                }
                 false
             })
             .into();

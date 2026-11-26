@@ -178,7 +178,13 @@ pub(super) fn body(
                 })
                 .style(tokens.dim())
                 .into(),
-                _ => transcript::follow::gap(cx, w.ui.follow.clone(), status_above, notice),
+                _ => transcript::follow::gap(
+                    cx,
+                    w.ui.follow.clone(),
+                    w.ui.selection.clone(),
+                    status_above,
+                    notice,
+                ),
             };
             let mentions = w.ui.draft.mentions();
             ListenableBuilder::new(mentions.listenable(), move |_, _| {
