@@ -73,10 +73,6 @@ struct DescendantChange {
 }
 
 impl Descendants {
-    pub(super) fn root(&self) -> &ThreadId {
-        &self.root
-    }
-
     pub(super) fn wants(&self, picker: &PickerKey, root: &ThreadId) -> bool {
         &self.picker == picker && &self.root == root
     }
@@ -243,8 +239,10 @@ fn apply_descendants(
     if !read.reading(root, generation) {
         return Vec::new();
     }
-    match result {
+    let complete_archive = match result {
         Ok(Reply::Descendants(page)) => {
+            let complete =
+                page.next_cursor.is_none() && page.data.len() <= DESCENDANTS_LIMIT - read.scanned;
             if let Some(cursor) = read.record(*page) {
                 return vec![read.ask(Some(cursor))];
             }
@@ -255,15 +253,19 @@ fn apply_descendants(
                 read.cursors.clear();
                 return vec![read.ask(None)];
             }
+            complete
         }
         // No chained query on a failed or retired connection.
-        _ => read.reread = false,
-    }
+        _ => {
+            read.reread = false;
+            false
+        }
+    };
     let Some(mut read) = model.descendants.take() else {
         return Vec::new();
     };
     read.reading = false;
-    read.merge(model);
+    read.merge(model, complete_archive);
     let next = take_descendant_reread(&mut read, &mut model.descendant_generation);
     model.descendants = Some(read);
     next.into_iter().collect()
@@ -300,7 +302,7 @@ impl Descendants {
         Some(next)
     }
 
-    fn merge(&mut self, model: &mut Model) {
+    fn merge(&mut self, model: &mut Model, complete_archive: bool) {
         let mut belongs = HashSet::new();
         let parents: HashMap<_, _> = model
             .threads
@@ -343,7 +345,8 @@ impl Descendants {
             .archived_threads
             .drain(..)
             .filter(|thread| {
-                belongs.contains(&thread.id)
+                !thread.ephemeral
+                    && belongs.contains(&thread.id)
                     && self
                         .changed
                         .get(thread.id.as_str())
@@ -359,7 +362,11 @@ impl Descendants {
         model
             .search_matches
             .retain(|thread| !archived.contains(&thread.id));
-        model.removed.extend(archived);
+        for id in &archived {
+            if model.removed.insert(id.clone()) {
+                model.descendant_archives.insert(ThreadId::new(id));
+            }
+        }
         for mut thread in self.threads.drain(..).rev() {
             let id = &thread.id;
             let change = self.changed.get(id.as_str());
@@ -367,9 +374,17 @@ impl Descendants {
                 && !thread.ephemeral
                 && belongs.contains(id)
                 && change.and_then(|change| change.archived) != Some(true)
-                && !model.removed.contains(id)
+                && !archived.contains(id)
                 && model.observe(self.owner, id)
             {
+                // A later complete read can disprove a snapshot-only archive. A failed or
+                // truncated archive pass has no such negative evidence.
+                if complete_archive && model.descendant_archives.remove(id.as_str()) {
+                    model.removed.remove(id);
+                }
+                if model.removed.contains(id) {
+                    continue;
+                }
                 if let Some(change) = change {
                     if change.started && model.threads.iter().any(|held| held.id == thread.id) {
                         continue;
@@ -709,6 +724,7 @@ pub fn apply_answer(
                 // A cloud archive removes only the task (oracle:
                 // `removes_subtree`).
                 let whole = !(model.is_cloud(model.owner_of(&thread)) && action == Action::Archive);
+                model.descendant_archives.remove(thread.as_str());
                 model.remove_tree(&thread, whole);
                 model.hidden.remove(&thread);
                 model.notice = None;

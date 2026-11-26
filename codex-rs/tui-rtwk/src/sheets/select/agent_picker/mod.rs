@@ -25,7 +25,7 @@ mod strings;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AgentPicker {
     source: ThreadId,
-    root: ThreadId,
+    root_visit: u64,
     key: PickerKey,
 }
 
@@ -83,15 +83,12 @@ fn waiting_of(queue: &RequestQueue) -> Vec<ThreadId> {
 pub fn open<S: 'static>(cx: &mut Cx<'_, S>) {
     let active = read::<SessionSlice, _>(cx).active.clone();
     let states = read::<ScreenStates, _>(cx);
-    let root = active
-        .as_ref()
-        .and_then(|active| states.agents.descendants_root(active));
-    let (Some(active), Some(root)) = (active.clone(), root) else {
+    let (Some(active), Some(_)) = (active.clone(), &states.agents.descendant_root) else {
         crate::features::report_no_subagents(cx, active);
         return;
     };
     let picker = AgentPicker {
-        root,
+        root_visit: states.agents.descendant_root_visit,
         source: active,
         key: PickerKey::default(),
     };
@@ -120,6 +117,7 @@ impl State for AgentPickerState {
                 ScreenIntent::Agents(agents::Intent::ReadDescendants {
                     active: w.source.clone(),
                     picker: w.key.clone(),
+                    root_visit: w.root_visit,
                 }),
             );
             report(cx, w);
@@ -135,14 +133,8 @@ impl State for AgentPickerState {
             return Rebuild::No;
         }
         if !matches!(msg, Msg::Picked(Event::Cancel) | Msg::RootChanged) {
-            let active = read::<SessionSlice, _>(cx).active.clone();
             let states = read::<ScreenStates, _>(cx);
-            if active
-                .as_ref()
-                .and_then(|active| states.agents.descendants_root(active))
-                .as_ref()
-                != Some(&w.root)
-            {
+            if states.agents.descendant_root_visit != w.root_visit {
                 self.dismiss(cx);
                 return Rebuild::No;
             }
@@ -183,19 +175,15 @@ impl State for AgentPickerState {
 
     fn build(&self, w: &AgentPicker, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let (list, active) = current(cx);
-        let source = active.clone();
         let key = w.key.clone();
-        let (root, finished) =
-            select::<ScreenStates, (Option<ThreadId>, bool), _>(cx, move |states| {
-                (
-                    source
-                        .as_ref()
-                        .and_then(|thread| states.agents.descendants_root(thread)),
-                    states.agents.descendants_read(&key),
-                )
-            });
+        let (root_visit, finished) = select::<ScreenStates, (u64, bool), _>(cx, move |states| {
+            (
+                states.agents.descendant_root_visit,
+                states.agents.descendants_read(&key),
+            )
+        });
         if !self.closed {
-            if root.as_ref() != Some(&w.root) {
+            if root_visit != w.root_visit {
                 cx.local_sender()(Msg::RootChanged);
             } else if finished && !self.reported {
                 cx.local_sender()(Msg::Read);

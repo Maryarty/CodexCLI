@@ -20,7 +20,7 @@ use super::refresh::out;
 /// The intent's change and the RPCs it asks for.
 pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
     let intent = match intent {
-        Intent::ReadDescendants { active, picker } => {
+        Intent::ReadDescendants { active, picker, .. } => {
             return super::refresh::read_descendants(model, &active, picker)
                 .into_iter()
                 .collect();
@@ -46,6 +46,7 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
         Intent::Open => {
             model.paging.initialized = false;
             model.removed.clear();
+            model.descendant_archives.clear();
             outs.push(list(model, None, false));
         }
         Intent::Refresh => outs.push(list(model, None, false)),

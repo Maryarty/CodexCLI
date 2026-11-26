@@ -70,6 +70,7 @@ fn apply(model: &mut Model, notification: &ServerNotification) {
         ServerNotification::ThreadStarted(started) => {
             if !started.thread.ephemeral {
                 model.removed.remove(&started.thread.id);
+                model.descendant_archives.remove(started.thread.id.as_str());
                 let mut thread = started.thread.clone();
                 thread.turns.clear();
                 let thread = normalize(thread);
@@ -97,6 +98,7 @@ fn apply(model: &mut Model, notification: &ServerNotification) {
         }
         ServerNotification::ThreadUnarchived(back) => {
             model.removed.remove(&back.thread_id);
+            model.descendant_archives.remove(back.thread_id.as_str());
         }
         ServerNotification::ThreadSettingsUpdated(update) => {
             let settings = &update.thread_settings;
@@ -182,6 +184,7 @@ fn overlay<'a>(model: &'a mut Model, thread: &str) -> Option<&'a mut super::Over
 }
 
 fn remove(model: &mut Model, id: &str) {
+    model.descendant_archives.remove(id);
     model.remove_subtree(id);
     model.usage.remove(id);
 }

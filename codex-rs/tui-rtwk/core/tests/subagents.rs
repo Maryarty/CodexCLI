@@ -102,15 +102,18 @@ fn thread(id: &str, parent: &str) -> Thread {
 }
 
 fn open(app: &mut CodexApp, source: &str, picker: PickerKey) -> AppFx {
-    run(
-        app,
-        AppEv::Intent(Intent::Screen(ScreenIntent::Agents(
-            agents::Intent::ReadDescendants {
-                active: ThreadId::new(source),
-                picker,
-            },
-        ))),
-    )
+    let event = picker_open(app, source, picker);
+    run(app, event)
+}
+
+fn picker_open(app: &CodexApp, source: &str, picker: PickerKey) -> AppEv {
+    AppEv::Intent(Intent::Screen(ScreenIntent::Agents(
+        agents::Intent::ReadDescendants {
+            active: ThreadId::new(source),
+            picker,
+            root_visit: app.screens().agents.descendant_root_visit,
+        },
+    )))
 }
 
 fn close(app: &mut CodexApp, picker: PickerKey) {
@@ -157,6 +160,17 @@ fn deliver(
     ticket: Ticket,
     data: Vec<Thread>,
 ) -> Option<AppFx> {
+    deliver_page(app, owner, epoch, ticket, data, None)
+}
+
+fn deliver_page(
+    app: &mut CodexApp,
+    owner: BackendId,
+    epoch: ConnEpoch,
+    ticket: Ticket,
+    data: Vec<Thread>,
+    next_cursor: Option<String>,
+) -> Option<AppFx> {
     app.ingest(Ingress::of(
         owner,
         epoch,
@@ -166,7 +180,7 @@ fn deliver(
                 ThreadListResponse {
                     data,
                     read_states: None,
-                    next_cursor: None,
+                    next_cursor,
                     backwards_cursor: None,
                 },
             )))),
@@ -313,6 +327,32 @@ fn subagents_abandons_the_read_even_if_the_same_root_becomes_active_again() {
 }
 
 #[test]
+fn subagents_ignores_a_first_mount_queued_before_opening_two_held_roots() {
+    let mut app = two_backends();
+    start(&mut app, AppEv::Intent(Intent::CycleBackend), CLOUD, ROOT_B);
+    run(
+        &mut app,
+        AppEv::Intent(Intent::OpenThread(ThreadId::new(ROOT_A))),
+    );
+    let delayed = picker_open(&app, ROOT_A, PickerKey::default());
+    let switches = app.session().switches;
+    for root in [ROOT_B, ROOT_A] {
+        run(
+            &mut app,
+            AppEv::Intent(Intent::OpenThread(ThreadId::new(root))),
+        );
+        assert_eq!(
+            app.session().active.as_ref().map(ThreadId::as_str),
+            Some(root)
+        );
+    }
+    assert_eq!(app.session().switches, switches);
+    assert!(run(&mut app, delayed).commands().is_empty());
+    let effects = open(&mut app, ROOT_A, PickerKey::default());
+    ask(&app, &effects, LOCAL, ROOT_A, false);
+}
+
+#[test]
 fn subagents_close_and_reopen_retires_the_earlier_generation() {
     let mut app = two_backends();
     let prior = PickerKey::default();
@@ -444,7 +484,7 @@ fn subagents_archived_row_cannot_be_restored_by_an_older_center_page_or_picked()
     let fx = deliver(&mut app, CLOUD, epoch, live, vec![old_row.clone()]).expect("live page");
     let archived = ask(&app, &fx, CLOUD, ROOT_B, true);
     deliver(&mut app, CLOUD, epoch, archived, vec![old_row.clone()]).expect("archived page");
-    listed(&mut app, CLOUD, vec![old_row]);
+    listed(&mut app, CLOUD, vec![old_row.clone()]);
     let facts = Facts::of(app.screens());
     let rows = facts.rows(Some(&ThreadId::new(ROOT_B)), &[], |_| false);
     assert_eq!(
@@ -474,6 +514,134 @@ fn subagents_archived_row_cannot_be_restored_by_an_older_center_page_or_picked()
     assert_eq!(
         app.dispatch_route(resume, None).map(|(owner, _)| owner),
         Some(CLOUD)
+    );
+
+    let fx = run(
+        &mut app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Agents(agents::Intent::Open))),
+    );
+    let list = fx
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Screen {
+                ticket,
+                command: ScreenCommand::Agents(agents::Command::List { .. }),
+                ..
+            } => Some(*ticket),
+            _ => None,
+        })
+        .expect("a fresh Command Center list");
+    app.ingest(Ingress::of(
+        CLOUD,
+        epoch,
+        AppEv::Reply(
+            list,
+            Reply::screen(ScreenReply::Agents(agents::Reply::Listed(Page {
+                threads: vec![old_row],
+                unread: Vec::new(),
+                next_cursor: None,
+                append: false,
+                pins: None,
+            }))),
+        ),
+    ))
+    .expect("center response");
+    assert!(
+        app.screens()
+            .agents
+            .threads
+            .iter()
+            .any(|thread| thread.id == "archived-child")
+    );
+}
+
+#[test]
+fn subagents_consistent_owned_read_recovers_offline_unarchive_but_preserves_delete() {
+    use codex_app_server_protocol::ThreadDeletedNotification;
+
+    let mut app = two_backends();
+    let rows = vec![
+        thread("offline-unarchive", ROOT_A),
+        thread("deleted-after-archive", ROOT_A),
+    ];
+    let picker = PickerKey::default();
+    let fx = open(&mut app, ROOT_A, picker.clone());
+    let live = ask(&app, &fx, LOCAL, ROOT_A, false);
+    let epoch = app.epoch_of(LOCAL);
+    let fx = deliver(&mut app, LOCAL, epoch, live, Vec::new()).expect("live pass");
+    let archived = ask(&app, &fx, LOCAL, ROOT_A, true);
+    deliver(&mut app, LOCAL, epoch, archived, rows.clone()).expect("archive pass");
+    close(&mut app, picker);
+
+    let fresh_epoch = app.attach_backend(LOCAL);
+    assert_ne!(fresh_epoch, epoch);
+    notify(
+        &mut app,
+        LOCAL,
+        ServerNotification::ThreadDeleted(ThreadDeletedNotification {
+            thread_id: "deleted-after-archive".to_owned(),
+        }),
+    );
+
+    let picker = PickerKey::default();
+    let fx = open(&mut app, ROOT_A, picker.clone());
+    let live = ask(&app, &fx, LOCAL, ROOT_A, false);
+    let fx = deliver(&mut app, LOCAL, fresh_epoch, live, rows.clone()).expect("fresh live data");
+    let archived = ask(&app, &fx, LOCAL, ROOT_A, true);
+    app.ingest(Ingress::of(
+        LOCAL,
+        fresh_epoch,
+        AppEv::Reply(archived, Reply::failed("archive pass unavailable")),
+    ))
+    .expect("archive failure");
+    assert!(
+        app.screens()
+            .agents
+            .threads
+            .iter()
+            .all(|held| held.id != "offline-unarchive")
+    );
+    close(&mut app, picker);
+
+    let picker = PickerKey::default();
+    let fx = open(&mut app, ROOT_A, picker.clone());
+    let live = ask(&app, &fx, LOCAL, ROOT_A, false);
+    let mut fx =
+        deliver(&mut app, LOCAL, fresh_epoch, live, rows.clone()).expect("fresh live data");
+    for page in 1..=100 {
+        let archived = ask(&app, &fx, LOCAL, ROOT_A, true);
+        fx = deliver_page(
+            &mut app,
+            LOCAL,
+            fresh_epoch,
+            archived,
+            Vec::new(),
+            Some(page.to_string()),
+        )
+        .expect("incomplete archive pass");
+    }
+    assert!(fx.commands().is_empty());
+    assert!(
+        app.screens()
+            .agents
+            .descendant_archives
+            .contains("offline-unarchive")
+    );
+    close(&mut app, picker);
+
+    let fx = open(&mut app, ROOT_A, PickerKey::default());
+    let live = ask(&app, &fx, LOCAL, ROOT_A, false);
+    let fx = deliver(&mut app, LOCAL, fresh_epoch, live, rows).expect("fresh live data");
+    let archived = ask(&app, &fx, LOCAL, ROOT_A, true);
+    deliver(&mut app, LOCAL, fresh_epoch, archived, Vec::new()).expect("fresh empty archive");
+    let facts = Facts::of(app.screens());
+    let rows = facts.rows(Some(&ThreadId::new(ROOT_A)), &[], |_| false);
+    assert_eq!(
+        rows.iter()
+            .map(|row| row.thread.as_str())
+            .collect::<Vec<_>>(),
+        [ROOT_A, "offline-unarchive"]
     );
 }
 

@@ -387,6 +387,11 @@ pub struct Model {
     pub search: String,
     /// An ancestor read requested by the subagent picker.
     pub descendants: Option<Descendants>,
+    /// Removals supported only by an owned descendant archive listing.
+    pub descendant_archives: BTreeSet<ThreadId>,
+    /// The owner-proven conversation in use and its visit for a pending picker open.
+    pub descendant_root: Option<ThreadId>,
+    pub descendant_root_visit: u64,
     #[doc(hidden)]
     pub descendant_generation: u64,
 }
@@ -488,15 +493,6 @@ impl Model {
             descends(&self.threads, thread, root.as_str(), |id| {
                 self.owners.get(id) == Some(owner)
             })
-        })
-    }
-
-    pub(crate) fn descendant_root_is_current(&self, active: Option<&ThreadId>) -> bool {
-        self.descendants.as_ref().is_none_or(|read| {
-            active
-                .and_then(|active| self.descendants_root(active))
-                .as_ref()
-                == Some(read.root())
         })
     }
 
@@ -716,6 +712,7 @@ pub enum Intent {
     ReadDescendants {
         active: ThreadId,
         picker: PickerKey,
+        root_visit: u64,
     },
     StopReadingDescendants(PickerKey),
     ChooseDescendant {
