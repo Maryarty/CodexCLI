@@ -1517,7 +1517,7 @@ impl State for ViewportState {
         } else {
             list
         };
-        let list = AnyWidget::from(TranscriptWheel { child: list }).with_key(Key::value(reverse));
+        let list = AnyWidget::from(WheelPolicy { child: list }).with_key(Key::value(reverse));
         let send = cx.local_sender();
         let follow = widget.follow.clone();
         // every thread owns its reader (#57499; Flutter's `PageStorageKey` per list): the list of
@@ -1586,29 +1586,29 @@ impl_widget!(stateful eq Pane);
 /// A list in one thread scope and direction keeps its position when an optional
 /// native wheel policy is inserted or removed.
 #[derive(Clone, PartialEq)]
-struct TranscriptWheel {
+struct WheelPolicy {
     child: AnyWidget,
 }
 
-struct TranscriptWheelState {
+struct WheelPolicyState {
     list_key: GlobalKey,
 }
 
-impl StatefulWidget for TranscriptWheel {
-    type State = TranscriptWheelState;
+impl StatefulWidget for WheelPolicy {
+    type State = WheelPolicyState;
 
     fn create_state(&self) -> Self::State {
-        TranscriptWheelState {
+        WheelPolicyState {
             list_key: GlobalKey::new(),
         }
     }
 }
 
-impl State for TranscriptWheelState {
-    type Widget = TranscriptWheel;
+impl State for WheelPolicyState {
+    type Widget = WheelPolicy;
     type Msg = ();
 
-    fn build(&self, widget: &TranscriptWheel, cx: &mut Cx<'_, Self>) -> AnyWidget {
+    fn build(&self, widget: &WheelPolicy, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let step = select::<TuiSettings, _, _>(cx, |settings| settings.wheel_rows_per_event);
         let list = widget.child.clone().with_key(&self.list_key);
         match step {
@@ -1624,7 +1624,7 @@ impl State for TranscriptWheelState {
     }
 }
 
-impl_widget!(stateful eq TranscriptWheel);
+impl_widget!(stateful eq WheelPolicy);
 
 type DrawRow = Rc<dyn Fn(&ThreadModel, usize) -> AnyWidget>;
 
