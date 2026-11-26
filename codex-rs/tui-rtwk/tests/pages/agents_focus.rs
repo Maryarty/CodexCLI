@@ -4,9 +4,8 @@
 //! chat's only input, it has the keys from the first frame after the session is opened).
 
 use crate::common::{self, Harness};
-use codex_tui_core::app::{AppEv, Command};
-use codex_tui_core::screens::ScreenEv;
-use codex_tui_core::screens::onboarding::{Ev as StartupEv, Facts, TrustAsk, TrustCancel};
+use codex_tui_core::app::Command;
+use codex_tui_core::screens::onboarding::{Facts, TrustAsk, TrustCancel};
 
 const ID: &str = "00000000-0000-0000-0000-000000000001";
 
@@ -54,27 +53,7 @@ fn answer_task(h: &Harness) {
 fn center() -> Harness {
     let mut h = common::start_app(|app| app.with_start_agents(true).with_awaited_facts(true));
     answer_task(&h);
-    // the host's answers: the facts, no device code, no launch prompts
-    h.inject([
-        AppEv::Screen(ScreenEv::Onboarding(StartupEv::Facts {
-            request: 1,
-            facts: Facts::default(),
-        })),
-        AppEv::Screen(ScreenEv::Onboarding(StartupEv::GatewayDevice {
-            request: 2,
-            code: None,
-        })),
-    ]);
-    h.wait_until("the launch ask", |h| {
-        h.fake
-            .commands()
-            .iter()
-            .any(|c| format!("{c:?}").contains("Launch { request: 3 }"))
-    });
-    h.inject([AppEv::Screen(ScreenEv::Onboarding(StartupEv::Launched {
-        request: 3,
-        prompts: Vec::new(),
-    }))]);
+    h.finish_startup_without_prompts();
     h.wait_until("the task", |h| h.t.screen().contains("Selected task"));
     h.settle();
     h.t.pump_for(common::ms(400));
@@ -137,18 +116,15 @@ fn declining_trust_cancels_early_enter_before_opening_another_task() {
     h.t.type_text("original workspace draft");
     h.press("enter");
     h.wait_for("early confirmation", |s| s.contains("Waiting for startup"));
-    h.inject([AppEv::Screen(ScreenEv::Onboarding(StartupEv::Facts {
-        request: 1,
-        facts: Facts {
-            trust: Some(TrustAsk {
-                cwd: "/workspace/project".into(),
-                target: "/workspace/project".into(),
-                cancel: TrustCancel::AgentsOverview,
-                ..TrustAsk::default()
-            }),
-            ..Facts::default()
-        },
-    }))]);
+    h.answer_startup_facts(Facts {
+        trust: Some(TrustAsk {
+            cwd: "/workspace/project".into(),
+            target: "/workspace/project".into(),
+            cancel: TrustCancel::AgentsOverview,
+            ..TrustAsk::default()
+        }),
+        ..Facts::default()
+    });
     h.wait_for("the trust prompt", |s| s.contains("trust"));
     h.press("esc");
     h.wait_for("the other task", |s| s.contains("Selected task"));

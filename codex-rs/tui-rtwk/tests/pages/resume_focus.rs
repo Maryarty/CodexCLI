@@ -4,9 +4,7 @@
 //! it has the keys from the first frame after `SessionSelection::Resume`).
 
 use crate::common::{self, Harness};
-use codex_tui_core::app::{AppEv, Now};
-use codex_tui_core::screens::ScreenEv;
-use codex_tui_core::screens::onboarding::{Ev as StartupEv, Facts};
+use codex_tui_core::app::Now;
 use codex_tui_rtwk::services::shell::FixedClock;
 
 const ID: &str = "00000000-0000-0000-0000-000000000001";
@@ -53,27 +51,7 @@ fn picker() -> Harness {
             }))),
             _ => None,
         });
-    // the host's answers: the facts, no device code, no launch prompts
-    h.inject([
-        AppEv::Screen(ScreenEv::Onboarding(StartupEv::Facts {
-            request: 1,
-            facts: Facts::default(),
-        })),
-        AppEv::Screen(ScreenEv::Onboarding(StartupEv::GatewayDevice {
-            request: 2,
-            code: None,
-        })),
-    ]);
-    h.wait_until("the launch ask", |h| {
-        h.fake
-            .commands()
-            .iter()
-            .any(|c| format!("{c:?}").contains("Launch { request: 3 }"))
-    });
-    h.inject([AppEv::Screen(ScreenEv::Onboarding(StartupEv::Launched {
-        request: 3,
-        prompts: Vec::new(),
-    }))]);
+    h.finish_startup_without_prompts();
     // The first listing went out before the fake could answer: a sort change lists again.
     h.press("tab");
     h.press("tab");

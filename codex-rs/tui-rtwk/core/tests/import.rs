@@ -324,10 +324,13 @@ fn a_detection_cancelled_before_it_answers_drops_the_late_answer() {
 #[test]
 fn host_asks_import_latest_detection_wins_before_the_screen_handles_it() {
     use codex_tui_core::app::{AppEv, CodexApp, Ingress, Intent as AppIntent};
+    use codex_tui_core::ids::BackendId;
     use codex_tui_core::screens::{ScreenEv, ScreenIntent};
 
     let mut app = CodexApp::new();
     let epoch = app.attach();
+    let foreign = BackendId(1);
+    let foreign_epoch = app.attach_backend(foreign);
     let open = |app: &mut CodexApp, cwd: &str| {
         let ev = AppEv::Intent(AppIntent::Screen(ScreenIntent::Import(Intent::Open {
             cwd: Some(cwd.to_owned()),
@@ -353,6 +356,18 @@ fn host_asks_import_latest_detection_wins_before_the_screen_handles_it() {
             selected: None,
         }))
     };
+    assert!(
+        app.ingest(Ingress::new(epoch, reply(0, "unissued")))
+            .is_none()
+    );
+    assert!(
+        app.ingest(Ingress::of(
+            foreign,
+            foreign_epoch,
+            reply(latest, "wrong backend")
+        ))
+        .is_none()
+    );
     assert!(app.ingest(Ingress::new(epoch, reply(old, "old"))).is_none());
     assert_eq!(app.screens().import.phase, Phase::Detecting);
     assert!(

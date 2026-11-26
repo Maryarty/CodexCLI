@@ -1437,6 +1437,15 @@ impl CodexApp {
     /// sent (`None`, R1), applies the rest and returns the effects for the
     /// shell to run.
     pub fn ingest(&mut self, ingress: Ingress) -> Option<AppFx> {
+        self.ingest_inner(ingress, false)
+    }
+
+    /// Scripted screen facts may describe a phase without making its host request.
+    pub(crate) fn ingest_seeded_screen(&mut self, event: ScreenEv) -> Option<AppFx> {
+        self.ingest_inner(Ingress::new(self.epoch(), AppEv::Screen(event)), true)
+    }
+
+    fn ingest_inner(&mut self, ingress: Ingress, allow_seed: bool) -> Option<AppFx> {
         if ingress.epoch != self.epoch_of(ingress.backend) {
             return None;
         }
@@ -1469,7 +1478,8 @@ impl CodexApp {
         {
             return None;
         }
-        if !self.accepts_reply(address, &event) || !host_asks::accept(self, address, &event, false)
+        if !self.accepts_reply(address, &event)
+            || !host_asks::accept(self, address, &event, allow_seed)
         {
             return None;
         }
