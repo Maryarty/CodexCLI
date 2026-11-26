@@ -362,6 +362,7 @@ impl ScreenState {
                     }
                     Act::Escape => {
                         if w.can_return {
+                            Self::send(cx, AgentsIntent::CancelOpen);
                             Navigator::maybe_pop(cx);
                         }
                     }

@@ -10,7 +10,7 @@ use codex_tui_core::app::{
 use codex_tui_core::commands::{SessionIntent, SlashCommand};
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
-use codex_tui_core::screens::onboarding::consent::Target;
+use codex_tui_core::screens::onboarding::consent::{Checked, Target};
 use codex_tui_core::screens::onboarding::{
     Ask, Ev, Intent as StartupIntent, TrustAsk, TrustCancel, TrustDecision, consent,
 };
@@ -530,6 +530,175 @@ fn a_cancelled_task_open_ignores_a_late_answer_and_can_be_retried() {
     assert_eq!(asks(&late), []);
     let retry = run(&mut app, AppEv::Intent(Intent::OpenThread(id)));
     assert_ne!(check_of(&retry), request);
+}
+
+fn daemon_question(app: &mut CodexApp, request: u64, cwd: &str) {
+    let effects = answer(
+        app,
+        Ev::ConsentAt {
+            request,
+            ask: Some(TrustAsk {
+                existing_task: true,
+                cancel: TrustCancel::AgentsOverview,
+                ..question(cwd)
+            }),
+            checked: Checked::Task(cwd.into()),
+        },
+    );
+    assert_eq!(asks(&effects), []);
+}
+
+fn approve(app: &mut CodexApp, cwd: &str) -> AppFx {
+    let write = choose(app, StartupIntent::Trust);
+    let (request, target) = write_of(&write);
+    assert_eq!(target, cwd);
+    assert_eq!(asks(&write), []);
+    answer(app, Ev::TrustSaved { request })
+}
+
+#[test]
+fn daemon_task_rechecks_the_same_target_and_consents_to_each_changed_cwd() {
+    let mut app = ready();
+    let id = list_saved_task(&mut app);
+    let first = check_of(&run(
+        &mut app,
+        AppEv::Intent(Intent::OpenThread(id.clone())),
+    ));
+    daemon_question(&mut app, first, "/work/a");
+    let number = consent::open_number(&app.screens().onboarding);
+    let effects = approve(&mut app, "/work/a");
+    let second = check_of(&effects);
+    assert_ne!(second, first);
+    assert_eq!(asks(&effects), []);
+    assert_eq!(
+        checks(&effects),
+        [(
+            second,
+            Target::TaskRecheck {
+                thread: id.clone(),
+                checked: vec!["/work/a".into()]
+            },
+            TrustCancel::AgentsOverview
+        )]
+    );
+    assert!(
+        effects
+            .commands()
+            .iter()
+            .all(|command| app.backend_of(command) == Default::default())
+    );
+    assert_eq!(
+        asks(&answer(
+            &mut app,
+            Ev::Consent {
+                request: first,
+                ask: None
+            }
+        )),
+        []
+    );
+
+    daemon_question(&mut app, second, "/work/b");
+    assert_eq!(consent::open_number(&app.screens().onboarding), number);
+    let effects = approve(&mut app, "/work/b");
+    let third = check_of(&effects);
+    assert_eq!(
+        checks(&effects),
+        [(
+            third,
+            Target::TaskRecheck {
+                thread: id.clone(),
+                checked: vec!["/work/a".into(), "/work/b".into()]
+            },
+            TrustCancel::AgentsOverview
+        )]
+    );
+    assert_eq!(asks(&effects), []);
+    let verified = Ev::ConsentAt {
+        request: third,
+        ask: None,
+        checked: Checked::ResumeIn("/work/b".into()),
+    };
+    let effects = answer(&mut app, verified.clone());
+    assert_eq!(
+        asks(&effects),
+        [ThreadAsk::ResumeAt {
+            thread: id.to_string(),
+            cwd: Some("/work/b".into())
+        }]
+    );
+    assert_eq!(
+        asks(&answer(
+            &mut app,
+            Ev::Consent {
+                request: third,
+                ask: None
+            }
+        )),
+        []
+    );
+
+    let ticket = effects
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Screen {
+                ticket,
+                command: ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::ResumeAt { .. })),
+                ..
+            } => Some(*ticket),
+            _ => None,
+        })
+        .expect("the resume ticket");
+    let active = app.session().active.clone();
+    center(&mut app, agents::Intent::CancelOpen);
+    run(
+        &mut app,
+        AppEv::Reply(
+            ticket,
+            Reply::screen(codex_tui_core::screens::ScreenReply::Agents(
+                agents::Reply::Resumed(Box::new(saved_thread(id.as_str(), "/work/b", None))),
+            )),
+        ),
+    );
+    assert_eq!(
+        app.session().active,
+        active,
+        "a cancelled resume leaves navigation alone"
+    );
+    assert!(
+        app.thread(&id).is_some_and(|held| held.view().has_writer()),
+        "the successful reply still attaches"
+    );
+}
+
+#[test]
+fn cancelling_a_task_while_its_cwd_is_read_drops_the_late_answer() {
+    let mut app = ready();
+    let id = list_saved_task(&mut app);
+    let first = check_of(&run(
+        &mut app,
+        AppEv::Intent(Intent::OpenThread(id.clone())),
+    ));
+    daemon_question(&mut app, first, "/work/a");
+    let reread = check_of(&approve(&mut app, "/work/a"));
+    let effects = center(&mut app, agents::Intent::CancelOpen);
+    assert_eq!(asks(&effects), []);
+    assert!(!consent::pending(&app.screens().onboarding));
+    assert_eq!(
+        asks(&answer(
+            &mut app,
+            Ev::Consent {
+                request: reread,
+                ask: None
+            }
+        )),
+        []
+    );
+    assert_ne!(
+        check_of(&run(&mut app, AppEv::Intent(Intent::OpenThread(id)))),
+        reread
+    );
 }
 
 #[test]

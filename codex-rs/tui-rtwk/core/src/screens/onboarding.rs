@@ -500,6 +500,12 @@ pub enum Ev {
         request: Request,
         ask: Option<TrustAsk>,
     },
+    /// The host also read a cwd that the session action still needs.
+    ConsentAt {
+        request: Request,
+        ask: Option<TrustAsk>,
+        checked: consent::Checked,
+    },
     /// The folder's trust of `Ask::CheckConsent { request, .. }` could not be
     /// read.
     ConsentFailed {
@@ -653,7 +659,7 @@ pub fn disconnected(model: &mut Model) {
     session::lost(model);
     gateway::lost(model);
     device::lost(model);
-    consent::lost(model);
+    consent::abandon(model);
     if model.writing.take().is_some()
         && let Some(t) = model
             .trust
@@ -807,7 +813,12 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
                 model.update_queued = true;
             }
         }
-        Ev::Consent { request, ask } => consent::answered(model, request, ask),
+        Ev::Consent { request, ask } => consent::answered(model, request, ask, None),
+        Ev::ConsentAt {
+            request,
+            ask,
+            checked,
+        } => consent::answered(model, request, ask, Some(checked)),
         Ev::ConsentFailed { request, message } => consent::failed(model, request, message),
         Ev::TrustSaved { request } => {
             if consent::saved(model, request) {

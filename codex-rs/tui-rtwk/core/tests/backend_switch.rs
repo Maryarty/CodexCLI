@@ -14,8 +14,9 @@ use codex_tui_core::app::{
 };
 use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
-use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::{Ev, Page};
+use codex_tui_core::screens::onboarding::consent::{self, Checked, Target};
+use codex_tui_core::screens::{ScreenCommand, ScreenEv, ScreenIntent, agents, onboarding};
 use codex_tui_core::threads::UserMessage;
 
 const LOCAL: BackendId = BackendId(0);
@@ -165,6 +166,208 @@ fn a_conversation_with_a_turn_cannot_cycle() {
     assert_eq!(app.cycle_label(), None);
     let fx = run(&mut app, AppEv::Intent(Intent::CycleBackend));
     assert!(fx.commands().is_empty());
+}
+
+fn cycle(app: &mut CodexApp) -> AppFx {
+    run(app, AppEv::Intent(Intent::CycleBackend))
+}
+
+fn arrive_on_cloud(app: &mut CodexApp, fx: &AppFx) {
+    let (ticket, backend) = start_ticket(fx);
+    assert_eq!(backend, CLOUD);
+    apply_app_from(
+        app,
+        CLOUD,
+        AppEv::Reply(ticket, Reply::thread_started(ThreadId::new("cloud-1"))),
+        &mut AppFx::default(),
+    );
+    assert_eq!(app.screens().agents.displayed, CLOUD);
+}
+
+fn consent_request(fx: &AppFx, to: &Target) -> u64 {
+    fx.commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Startup {
+                ask:
+                    onboarding::Ask::CheckConsent {
+                        request, target, ..
+                    },
+                ..
+            } if target == to => Some(*request),
+            _ => None,
+        })
+        .expect("a folder trust check")
+}
+
+fn destination(request: u64, ask: Option<onboarding::TrustAsk>) -> AppEv {
+    AppEv::Screen(ScreenEv::Onboarding(onboarding::Ev::ConsentAt {
+        request,
+        ask,
+        checked: Checked::Destination("/workspace/destination".into()),
+    }))
+}
+
+fn no_start(fx: &AppFx) -> bool {
+    !fx.commands().iter().any(|command| {
+        matches!(
+            command,
+            Command::StartThread { .. }
+                | Command::Screen {
+                    command: ScreenCommand::Agents(agents::Command::Thread(
+                        codex_tui_core::threads::ThreadAsk::Start { .. }
+                    )),
+                    ..
+                }
+        )
+    })
+}
+
+#[test]
+fn the_destination_check_is_routed_to_the_primary_backend_and_pins_the_wire_cwd() {
+    let mut app = two_backends().with_folder_consent(true);
+    let cloud = cycle(&mut app);
+    arrive_on_cloud(&mut app, &cloud);
+    let check = cycle(&mut app);
+    assert!(no_start(&check), "check before thread/start");
+    assert_eq!(app.screens().agents.displayed, CLOUD);
+    let request = consent_request(&check, &Target::BackendSwitch);
+    assert!(
+        check
+            .commands()
+            .iter()
+            .all(|command| app.backend_of(command) == LOCAL)
+    );
+
+    let mut foreign = AppFx::default();
+    apply_app_from(&mut app, CLOUD, destination(request, None), &mut foreign);
+    assert!(no_start(&foreign));
+    assert!(consent::pending(&app.screens().onboarding));
+    let start = run(&mut app, destination(request, None));
+    let (_, backend) = start_ticket(&start);
+    assert_eq!(backend, LOCAL);
+    let command = start
+        .commands()
+        .iter()
+        .find(|command| matches!(command, Command::StartThread { .. }))
+        .expect("the start");
+    let request_message = codex_tui_core::protocol::client_request(
+        command,
+        codex_app_server_protocol::RequestId::Integer(1),
+        None,
+    )
+    .expect("the start request");
+    let codex_app_server_protocol::ClientRequest::ThreadStart { params, .. } = request_message
+    else {
+        panic!("expected thread/start");
+    };
+    assert_eq!(params.cwd.as_deref(), Some("/workspace/destination"));
+    assert_eq!(
+        app.screens().agents.displayed,
+        CLOUD,
+        "wait for thread/start reply"
+    );
+    assert!(no_start(&run(&mut app, destination(request, None))));
+}
+
+#[test]
+fn declining_the_destination_keeps_the_current_task_and_ignores_its_old_answer() {
+    let mut app = two_backends().with_folder_consent(true);
+    let cloud = cycle(&mut app);
+    arrive_on_cloud(&mut app, &cloud);
+    let request = consent_request(&cycle(&mut app), &Target::BackendSwitch);
+    run(
+        &mut app,
+        destination(
+            request,
+            Some(onboarding::TrustAsk {
+                cwd: "/workspace/destination".into(),
+                target: "/workspace/destination".into(),
+                cancel: onboarding::TrustCancel::CurrentTask,
+                ..onboarding::TrustAsk::default()
+            }),
+        ),
+    );
+    assert!(consent::open(&app.screens().onboarding).is_some());
+    assert!(no_start(&run(
+        &mut app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Onboarding(
+            onboarding::Intent::CancelTrust
+        ),))
+    )));
+    assert!(no_start(&run(&mut app, destination(request, None))));
+    assert_eq!(app.screens().agents.displayed, CLOUD);
+    assert_eq!(app.session().active, Some(ThreadId::new("cloud-1")));
+    assert_ne!(
+        consent_request(&cycle(&mut app), &Target::BackendSwitch),
+        request
+    );
+}
+
+#[test]
+fn a_successful_switch_invalidates_the_original_center_news_folder_check() {
+    let mut app = two_backends().with_folder_consent(true);
+    let check = run(
+        &mut app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Agents(agents::Intent::New(
+            None,
+        )))),
+    );
+    let request = consent_request(&check, &Target::Folder(None));
+    let cloud = cycle(&mut app);
+    arrive_on_cloud(&mut app, &cloud);
+    assert!(!consent::pending(&app.screens().onboarding));
+    let old = run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Onboarding(onboarding::Ev::Consent {
+            request,
+            ask: None,
+        })),
+    );
+    assert!(no_start(&old));
+    assert_eq!(app.screens().agents.displayed, CLOUD);
+}
+
+#[test]
+fn a_settled_center_new_waits_for_the_switch_that_may_invalidate_it() {
+    for succeeds in [true, false] {
+        let mut app = two_backends().with_folder_consent(true);
+        let check = run(
+            &mut app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Agents(agents::Intent::New(
+                None,
+            )))),
+        );
+        let request = consent_request(&check, &Target::Folder(None));
+        let cloud = cycle(&mut app);
+        let (ticket, _) = start_ticket(&cloud);
+        let answer = AppEv::Screen(ScreenEv::Onboarding(onboarding::Ev::Consent {
+            request,
+            ask: None,
+        }));
+        assert!(
+            no_start(&run(&mut app, answer.clone())),
+            "wait for the switch"
+        );
+        let reply = if succeeds {
+            Reply::thread_started(ThreadId::new("cloud-1"))
+        } else {
+            Reply::failed("unavailable")
+        };
+        let mut effects = AppFx::default();
+        apply_app_from(&mut app, CLOUD, AppEv::Reply(ticket, reply), &mut effects);
+        assert_eq!(no_start(&effects), succeeds);
+        if !succeeds {
+            assert!(
+                effects
+                    .commands()
+                    .iter()
+                    .all(|command| app.backend_of(command) == LOCAL)
+            );
+            assert_eq!(app.screens().agents.displayed, LOCAL);
+        }
+        assert!(no_start(&run(&mut app, answer)), "one answer advances once");
+    }
 }
 
 /// One connection epoch PER backend: a new connection of the first drops the

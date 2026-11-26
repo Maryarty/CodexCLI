@@ -286,6 +286,7 @@ pub struct StartupPageState {
 pub enum Msg {
     Leave,
     Replay,
+    CancelConsent,
 }
 
 impl StatefulWidget for StartupPage {
@@ -329,8 +330,8 @@ impl State for StartupPageState {
                     && screens.import_generation > self.import_from;
                 (!done).then_some(Step::Import)
             }
-            // the question of a `/cd` is asked while the model holds it open
-            Step::Consent => core::consent::open(&screens.onboarding).map(|_| Step::Consent),
+            // The same route can ask another folder after a daemon task's cwd recheck.
+            Step::Consent => core::consent::pending(&screens.onboarding).then_some(Step::Consent),
             // The facts came after the provider panel's hold: the steps they bring are due now.
             Step::Prompts if self.held && !screens.onboarding.holding() => {
                 self.held = false;
@@ -399,6 +400,13 @@ impl State for StartupPageState {
                 self.replay = self.replay.wrapping_add(1);
                 Rebuild::Yes
             }
+            Msg::CancelConsent => {
+                if core::consent::pending(&read::<ScreenStates, _>(cx).onboarding) {
+                    let hs = read::<Hs, _>(cx);
+                    cx.emit(&hs.screen, ScreenIntent::Onboarding(Intent::CancelTrust));
+                }
+                Rebuild::No
+            }
         }
     }
 
@@ -421,7 +429,12 @@ impl State for StartupPageState {
             },
             Some(Step::Consent) => match core::consent::open(model) {
                 Some(ask) => trust::Trust { ask: ask.clone() }.into(),
-                None => AnyWidget::default(),
+                None => bind_fixed(
+                    Focus::new(SizedBox::shrink()).autofocus(),
+                    fixed::DISMISS,
+                    cx.send(Msg::CancelConsent),
+                )
+                .into(),
             },
             Some(Step::Trust) => match &model.trust {
                 Some(ask) => trust::Trust { ask: ask.clone() }.into(),

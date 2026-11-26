@@ -1,12 +1,9 @@
-//! Folder trust for navigation after launch. The onboarding model holds the
-//! action until the host's lookup and any trust write have finished. A
-//! separate route shows the question without restarting onboarding.
+//! Folder trust after launch. The app keeps the navigation action while
+//! onboarding correlates the host's checks, the question and any trust write.
 
 use super::{Ask, Model, Request, TrustAsk, TrustCancel, TrustDecision, ask, mint};
 use crate::app::AppFx;
-use crate::features::FeatureCtx;
 use crate::ids::ThreadId;
-use crate::threads::ThreadAsk;
 
 /// How the host finds the folder whose trust is needed.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -15,37 +12,34 @@ pub enum Target {
     Folder(Option<String>),
     /// The working directory of a saved task.
     Task(ThreadId),
-}
-
-/// What goes on once the folder is decided.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Then {
-    /// `/cd`: the session starts in the folder, as `source`'s fork or as a
-    /// fresh thread (`ask` is what `/cd` built).
-    Cd {
-        source: Option<ThreadId>,
-        ask: ThreadAsk,
+    /// After consenting to a local daemon's task folder, check its latest cwd.
+    TaskRecheck {
+        thread: ThreadId,
+        checked: Vec<String>,
     },
-    Open(ThreadId),
-    New {
-        cwd: Option<String>,
-    },
-    Fresh {
-        feature: Option<FeatureCtx>,
-    },
+    /// A new conversation on the primary backend, using its own workspace.
+    BackendSwitch,
 }
 
 /// How the question ended.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome {
     /// The folder needs no more question (trusted, or answered): go on.
-    Go(Then),
-    Cancelled(Then),
-    /// The folder's trust could not be read: the message, and what waited.
-    Failed {
-        message: String,
-        then: Then,
-    },
+    Go(Option<Checked>),
+    Cancelled,
+    /// The folder's trust could not be read.
+    Failed(String),
+}
+
+/// A cwd read by the host that the action needs once its consent is clear.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Checked {
+    /// After a daemon task's prompt, re-read its latest cwd before resuming.
+    Task(String),
+    /// The daemon's latest checked cwd is the resume override.
+    ResumeIn(String),
+    /// Start on the destination backend in this exact directory.
+    Destination(String),
 }
 
 /// Where the question stands.
@@ -54,12 +48,12 @@ pub(super) enum Phase {
     #[default]
     Idle,
     /// The host reads the folder's trust.
-    Checking { request: Request, then: Then },
+    Checking { request: Request, new_route: bool },
     /// The question is on screen; `writing` is the trust write in flight
     /// (the question waits for it: R9).
     Asking {
         ask: TrustAsk,
-        then: Then,
+        checked: Option<Checked>,
         writing: Option<Request>,
     },
     /// Ended, not yet taken by the app.
@@ -72,6 +66,7 @@ pub(super) enum Phase {
 pub struct Consent {
     armed: bool,
     generation: u64,
+    return_on_cancel: bool,
     return_to_center: bool,
     phase: Phase,
 }
@@ -86,24 +81,22 @@ pub fn pending(model: &Model) -> bool {
     model.consent.phase != Phase::Idle
 }
 
-/// Hold the action while the folder is checked. Returns the action only if
-/// the host has no consent lookup. Repeated requests while one is held are dropped.
+/// Ask the host to check the folder if this host supports checks.
 pub fn begin(
     model: &mut Model,
-    then: Then,
     target: Target,
     cancel: TrustCancel,
+    return_on_cancel: bool,
     fx: &mut AppFx,
-) -> Option<Then> {
+) -> bool {
     if !model.consent.armed {
-        return Some(then);
-    }
-    if pending(model) {
-        return None;
+        return false;
     }
     model.consent.return_to_center = false;
+    model.consent.return_on_cancel = return_on_cancel;
     let request = mint(model);
-    model.consent.phase = Phase::Checking { request, then };
+    let new_route = !matches!(target, Target::TaskRecheck { .. });
+    model.consent.phase = Phase::Checking { request, new_route };
     ask(
         fx,
         Ask::CheckConsent {
@@ -112,7 +105,7 @@ pub fn begin(
             cancel,
         },
     );
-    None
+    true
 }
 
 /// The question on screen, if one is.
@@ -152,41 +145,44 @@ pub fn settled(model: &Model) -> bool {
 
 /// The host's answer to `Ask::CheckConsent`: the question to ask, or none
 /// when the folder needs none (a stale answer is dropped).
-pub(super) fn answered(model: &mut Model, request: Request, question: Option<TrustAsk>) {
-    let Phase::Checking { request: asked, .. } = &model.consent.phase else {
+pub(super) fn answered(
+    model: &mut Model,
+    request: Request,
+    question: Option<TrustAsk>,
+    checked: Option<Checked>,
+) {
+    let Phase::Checking {
+        request: asked,
+        new_route,
+    } = model.consent.phase
+    else {
         return;
     };
-    if *asked != request {
+    if asked != request {
         return;
     }
-    let Phase::Checking { then, .. } = std::mem::take(&mut model.consent.phase) else {
-        return;
-    };
     model.consent.phase = match question {
-        None => Phase::Settled(Outcome::Go(then)),
+        None => Phase::Settled(Outcome::Go(checked)),
         Some(ask) => {
-            model.consent.generation += 1;
+            model.consent.generation += u64::from(new_route);
             Phase::Asking {
                 ask,
-                then,
+                checked,
                 writing: None,
             }
         }
     };
 }
 
+fn checking(model: &Model, request: Request) -> bool {
+    matches!(model.consent.phase, Phase::Checking { request: asked, .. } if asked == request)
+}
+
 /// The host could not read the folder's trust.
 pub(super) fn failed(model: &mut Model, request: Request, message: String) {
-    let Phase::Checking { request: asked, .. } = &model.consent.phase else {
-        return;
-    };
-    if *asked != request {
-        return;
+    if checking(model, request) {
+        model.consent.phase = Phase::Settled(Outcome::Failed(message));
     }
-    let Phase::Checking { then, .. } = std::mem::take(&mut model.consent.phase) else {
-        return;
-    };
-    model.consent.phase = Phase::Settled(Outcome::Failed { message, then });
 }
 
 /// The first choice of an open question: a restricted folder opens as it is,
@@ -222,14 +218,13 @@ fn mint_if_asking(model: &mut Model) -> Option<Request> {
 
 /// Cancel the question unless a write is in flight. True if it consumed the choice.
 pub(super) fn cancel(model: &mut Model) -> bool {
-    let Phase::Asking { ask, .. } = &model.consent.phase else {
-        return false;
-    };
-    if ask.decision != Some(TrustDecision::Saving)
-        && let Phase::Asking { then, .. } = std::mem::take(&mut model.consent.phase)
-    {
-        model.consent.return_to_center = matches!(then, Then::Fresh { .. });
-        model.consent.phase = Phase::Settled(Outcome::Cancelled(then));
+    match &model.consent.phase {
+        Phase::Asking { ask, .. } if ask.decision == Some(TrustDecision::Saving) => {}
+        Phase::Checking { .. } | Phase::Asking { .. } | Phase::Settled(_) => {
+            model.consent.return_to_center = model.consent.return_on_cancel;
+            model.consent.phase = Phase::Settled(Outcome::Cancelled);
+        }
+        _ => return false,
     }
     true
 }
@@ -269,18 +264,14 @@ fn writes(model: &Model, request: Request) -> bool {
 
 /// The question was answered in favour: what waited goes on.
 fn settle(model: &mut Model) {
-    if let Phase::Asking { then, .. } = std::mem::take(&mut model.consent.phase) {
-        model.consent.phase = Phase::Settled(Outcome::Go(then));
+    if let Phase::Asking { checked, .. } = std::mem::take(&mut model.consent.phase) {
+        model.consent.phase = Phase::Settled(Outcome::Go(checked));
     }
 }
 
 /// The connection was lost: the read or the write will not be answered, so
 /// the question and what waited are dropped, and a late answer with it.
-pub(super) fn lost(model: &mut Model) {
-    if matches!(
-        model.consent.phase,
-        Phase::Checking { .. } | Phase::Asking { .. }
-    ) {
-        model.consent.phase = Phase::Idle;
-    }
+pub fn abandon(model: &mut Model) {
+    model.consent.return_to_center = false;
+    model.consent.phase = Phase::Idle;
 }

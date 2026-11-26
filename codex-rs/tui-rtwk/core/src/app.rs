@@ -70,7 +70,7 @@ use crate::screens::agents;
 use crate::screens::approvals;
 use crate::screens::chat;
 use crate::screens::onboarding::TrustCancel;
-use crate::screens::onboarding::consent::{self as folder_consent, Target as ConsentTarget, Then};
+use crate::screens::onboarding::consent::{self as folder_consent, Target as ConsentTarget};
 use crate::screens::resume;
 use crate::screens::status;
 use crate::threads;
@@ -391,6 +391,7 @@ pub enum Command {
         ticket: Ticket,
         backend: BackendId,
         model: Option<String>,
+        cwd: Option<String>,
     },
     #[non_exhaustive]
     ReadRateLimits { ticket: Ticket, backend: BackendId },
@@ -713,6 +714,7 @@ pub struct CodexApp {
     /// The first thread's start waits for the startup steps to end
     /// (`FirstThread::AfterLaunch`).
     start_held: bool,
+    consent: Option<consent::Pending>,
     /// The key bindings every screen reads (`AppEv::Keymap`); one value, so a
     /// widget that holds a binding hint can never hold a stale one.
     keymap: Rc<Keymap>,
@@ -797,6 +799,7 @@ impl CodexApp {
             spawn_requests: std::collections::HashMap::new(),
             first_thread: FirstThread::OnConnect,
             start_held: false,
+            consent: None,
             keymap: Rc::new(Keymap::defaults()),
             tui: facts::TuiSettings::default(),
             effects: effects::Effects::default(),
@@ -1247,6 +1250,7 @@ pub fn apply_app_from(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut
         Rc::make_mut(&mut app.session).cloud_switch = None;
     }
     apply_event(app, origin, ev, fx);
+    consent::follow(app, fx);
     sync_cloud_switch(app);
     mentions::sync(app, fx);
     drain_popover_asks(app, fx);
@@ -1772,6 +1776,9 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             result,
         } => verified(app, key, attempt, result, fx),
         AppEv::Screen(ev) => {
+            if origin != BackendId::default() && matches!(ev, ScreenEv::Onboarding(_)) {
+                return;
+            }
             match &ev {
                 ScreenEv::Chat(chat::Ev::Status(facts)) if facts.account_usage => {
                     reset::startup(app, fx);
@@ -1916,10 +1923,20 @@ fn start_first_thread(app: &mut CodexApp, fx: &mut AppFx) {
 
 /// A new thread's start, on the model an accepted migration chose.
 fn start_thread(app: &CodexApp, ticket: Ticket, backend: BackendId) -> Command {
+    start_thread_in(app, ticket, backend, None)
+}
+
+fn start_thread_in(
+    app: &CodexApp,
+    ticket: Ticket,
+    backend: BackendId,
+    cwd: Option<String>,
+) -> Command {
     Command::StartThread {
         ticket,
         backend,
         model: app.screens.startup.accepted_model().map(str::to_string),
+        cwd,
     }
 }
 
@@ -1928,7 +1945,6 @@ fn start_thread(app: &CodexApp, ticket: Ticket, backend: BackendId) -> Command {
 /// launch prompts). Checked after every event and intent that can end the
 /// last of them.
 fn release_held_start(app: &mut CodexApp, fx: &mut AppFx) {
-    consent::follow(app, fx);
     if app.start_held
         && app.screens.onboarding.launched()
         && !app.screens.onboarding.due()
@@ -2025,7 +2041,7 @@ fn start_fresh_thread(app: &mut CodexApp, fx: &mut AppFx) {
     {
         consent::begin(
             app,
-            Then::Fresh { feature: None },
+            consent::Action::Fresh { feature: None },
             ConsentTarget::Folder(None),
             TrustCancel::AgentsOverview,
             fx,
@@ -2236,14 +2252,13 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
             }
             AppCtx::OpenThread {
                 thread,
+                backend,
                 cancelled: true,
-                ..
             } => {
                 // A successful resume still attached a writer on the server.
                 // Keep it without showing it, so a later open need not resume again.
                 if let Answer::Screen(ScreenReply::Agents(agents::Reply::Resumed(resumed))) = answer
                 {
-                    let backend = app.screens.agents.owner_of(thread.as_str());
                     attach_thread_with_metadata(
                         app,
                         &thread,
@@ -2440,25 +2455,7 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 fx,
             );
         }
-        Intent::CycleBackend => {
-            let switching = app
-                .outgoing
-                .any(|ctx| matches!(ctx, AppCtx::StartThread { switch: Some(_) }));
-            if app.cycle_label().is_none() || switching {
-                return;
-            }
-            let Some(backend) = app.screens.agents.next_backend() else {
-                return;
-            };
-            let ticket = app.mint.next();
-            app.outgoing.insert(
-                ticket,
-                AppCtx::StartThread {
-                    switch: Some(backend),
-                },
-            );
-            fx.commands.push(start_thread(app, ticket, backend));
-        }
+        Intent::CycleBackend => consent::switch(app, fx),
         Intent::DismissRequest(key) => {
             if app.requests.contains(&key) {
                 remove_request(app, &key);
@@ -2501,6 +2498,7 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             accept_link(app, key, fx);
         }
         Intent::Screen(ScreenIntent::Agents(agents::Intent::CancelOpen)) => {
+            consent::cancel_center_action(app, fx);
             if let Some(id) = Rc::make_mut(&mut app.screens).agents.opening.take() {
                 set_open_cancelled(app, &id, true);
             }
@@ -2974,7 +2972,7 @@ fn open_thread(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) {
     }
     consent::begin(
         app,
-        Then::Open(id.clone()),
+        consent::Action::Open(id.clone()),
         ConsentTarget::Task(id.clone()),
         TrustCancel::AgentsOverview,
         fx,
@@ -2995,6 +2993,15 @@ fn is_listed(app: &CodexApp, id: &ThreadId) -> bool {
 
 /// `open_thread` for a thread the server is known to have.
 fn open_verified(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) -> bool {
+    open_verified_at(app, id, None, fx)
+}
+
+fn open_verified_at(
+    app: &mut CodexApp,
+    id: &ThreadId,
+    cwd: Option<String>,
+    fx: &mut AppFx,
+) -> bool {
     let model = &app.screens.agents;
     if model.held() || model.failure.is_some() {
         return false;
@@ -3021,12 +3028,20 @@ fn open_verified(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) -> bool {
                 cancelled: false,
             },
         );
+        let ask = if cwd.is_some() {
+            ThreadAsk::ResumeAt {
+                thread: id.to_string(),
+                cwd,
+            }
+        } else {
+            ThreadAsk::Resume {
+                thread: id.to_string(),
+            }
+        };
         fx.commands.push(Command::Screen {
             ticket,
             thread: ThreadId::default(),
-            command: ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Resume {
-                thread: id.to_string(),
-            })),
+            command: ScreenCommand::Agents(agents::Command::Thread(ask)),
         });
     }
     true
@@ -3106,7 +3121,7 @@ fn send_agents(app: &mut CodexApp, outs: Vec<agents::Out>, fx: &mut AppFx) {
                 let cwd = cwd.or_else(|| app.screens.chat.status.cwd.clone());
                 consent::begin(
                     app,
-                    Then::New { cwd: cwd.clone() },
+                    consent::Action::New { cwd: cwd.clone() },
                     ConsentTarget::Folder(cwd),
                     TrustCancel::AgentsOverview,
                     fx,

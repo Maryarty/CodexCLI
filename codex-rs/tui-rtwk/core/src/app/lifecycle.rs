@@ -12,7 +12,7 @@ use crate::features::{FeatureCtx, Lifecycle, Refusal, ThreadSpawn};
 use crate::ids::{BackendId, ThreadId};
 use crate::rpc::Answer;
 use crate::screens::onboarding::TrustCancel;
-use crate::screens::onboarding::consent::{self, Target, Then};
+use crate::screens::onboarding::consent::{self, Target};
 use crate::screens::{ScreenCommand, ScreenReply, ScreenThreadIntent, agents, chat};
 use crate::threads::{ThreadAsk, ThreadEv};
 
@@ -106,7 +106,7 @@ fn spawn_thread(app: &mut CodexApp, spawn: ThreadSpawn, ctx: FeatureCtx, fx: &mu
         }
         return super::consent::begin(
             app,
-            Then::Fresh { feature: Some(ctx) },
+            super::consent::Action::Fresh { feature: Some(ctx) },
             Target::Folder(None),
             TrustCancel::AgentsOverview,
             fx,

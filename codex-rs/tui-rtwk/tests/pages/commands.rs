@@ -445,6 +445,7 @@ fn a_refusal_of_the_server_is_said_in_the_chat_and_the_chat_stays() {
 /// scripted server reads no trust).
 mod consent {
     use codex_tui_core::app::{AppEv, Command};
+    use codex_tui_core::screens::onboarding::consent::{Checked, Target};
     use codex_tui_core::screens::onboarding::{Ask, Ev, TrustAsk, TrustCancel};
     use codex_tui_core::screens::{ScreenCommand, ScreenEv, agents};
     use codex_tui_core::threads::ThreadAsk;
@@ -600,6 +601,155 @@ mod consent {
                 .iter()
                 .all(|r| r["method"] != "thread/start")
         );
+    }
+
+    fn opening_saved_task() -> (Harness, u64) {
+        let mut h = armed();
+        let id = "00000000-0000-0000-0000-000000000001";
+        let saved = serde_json::json!({
+            "id": id, "environments": null, "extra": null, "sessionId": id,
+            "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
+            "preview": "Saved task to open", "ephemeral": false, "section": null,
+            "sectionEnteredAt": null, "projectId": null, "historyMode": "legacy",
+            "modelProvider": "openai", "model": null, "reasoningEffort": null,
+            "createdAt": 1_777_392_000, "updatedAt": 1_777_395_600, "recencyAt": 1_777_395_600,
+            "status": {"type": "idle"}, "path": null, "cwd": "/workspace/first",
+            "cliVersion": "0.0.0", "originator": null, "source": "cli",
+            "canAcceptDirectInput": true, "threadSource": null, "agentNickname": null,
+            "agentRole": null, "gitInfo": null, "name": "Saved task to open",
+            "daybreakEnabled": null, "turns": []
+        });
+        h.fake.respond(move |request| {
+            if request["method"] != "thread/list" {
+                return None;
+            }
+            let rows = if request["params"]["sectionId"].is_null() {
+                vec![saved.clone()]
+            } else {
+                Vec::new()
+            };
+            Some(Ok(serde_json::json!({
+                "data": rows, "nextCursor": null, "backwardsCursor": null
+            })))
+        });
+        h.press("left");
+        h.wait_for("the command center", |s| s.contains("Agent command center"));
+        h.wait_for("the saved task", |s| s.contains("Saved task to open"));
+        h.press("enter");
+        let request = read_request(&mut h);
+        (h, request)
+    }
+
+    fn resumes(h: &Harness) -> bool {
+        h.fake
+            .requests()
+            .iter()
+            .any(|request| request["method"] == "thread/resume")
+    }
+
+    #[test]
+    fn leaving_the_center_during_the_initial_trust_read_cancels_the_open() {
+        let (mut h, request) = opening_saved_task();
+        h.press("esc");
+        h.wait_for("the chat", |s| !s.contains("Agent command center"));
+        inject(&h, Ev::Consent { request, ask: None });
+        h.settle();
+        assert!(!resumes(&h));
+        assert!(!h.t.screen().contains("Folder access"));
+    }
+
+    #[test]
+    fn leaving_the_center_during_a_new_tasks_trust_read_starts_nothing() {
+        let mut h = armed();
+        h.press("left");
+        h.wait_for("the command center", |s| s.contains("Agent command center"));
+        let starts = |h: &Harness| {
+            h.fake
+                .requests()
+                .iter()
+                .filter(|request| request["method"] == "thread/start")
+                .count()
+        };
+        let before = starts(&h);
+        h.press("n");
+        let request = read_request(&mut h);
+        h.press("esc");
+        h.wait_for("the chat", |s| !s.contains("Agent command center"));
+        inject(&h, Ev::Consent { request, ask: None });
+        h.settle();
+        assert_eq!(starts(&h), before);
+    }
+
+    fn daemon_prompt(request: u64, cwd: &str) -> Ev {
+        Ev::ConsentAt {
+            request,
+            ask: Some(TrustAsk {
+                cwd: cwd.into(),
+                target: cwd.into(),
+                existing_task: true,
+                cancel: TrustCancel::AgentsOverview,
+                ..TrustAsk::default()
+            }),
+            checked: Checked::Task(cwd.into()),
+        }
+    }
+
+    #[test]
+    fn a_changed_daemon_folder_updates_the_same_consent_route() {
+        let (mut h, first) = opening_saved_task();
+        inject(&h, daemon_prompt(first, "/workspace/first"));
+        h.wait_for("the first folder", |s| {
+            s.contains("Folder access") && s.contains("/workspace/first")
+        });
+        h.press("enter");
+        h.wait_until("the trust write", |h| {
+            startup_asks(h)
+                .iter()
+                .any(|ask| matches!(ask, Ask::WriteTrust { .. }))
+        });
+        let write = startup_asks(&h)
+            .into_iter()
+            .find_map(|ask| match ask {
+                Ask::WriteTrust { request, .. } => Some(request),
+                _ => None,
+            })
+            .expect("the write");
+        inject(&h, Ev::TrustSaved { request: write });
+        h.wait_until("the cwd recheck", |h| {
+            startup_asks(h).iter().any(|ask| {
+                matches!(
+                    ask,
+                    Ask::CheckConsent {
+                        target: Target::TaskRecheck { .. },
+                        ..
+                    }
+                )
+            })
+        });
+        let route =
+            rtwk_test::find::by_type::<codex_tui_rtwk::pages::startup::onboarding::StartupPage>();
+        assert_eq!(route.count(&h.t), 1);
+        let second = startup_asks(&h)
+            .into_iter()
+            .find_map(|ask| match ask {
+                Ask::CheckConsent {
+                    request,
+                    target: Target::TaskRecheck { .. },
+                    ..
+                } => Some(request),
+                _ => None,
+            })
+            .expect("the recheck");
+        inject(&h, daemon_prompt(second, "/workspace/second"));
+        h.wait_for("the changed folder", |s| {
+            s.contains("Folder access") && s.contains("/workspace/second")
+        });
+        assert_eq!(route.count(&h.t), 1);
+        h.press("esc");
+        h.wait_for("the command center again", |s| {
+            s.contains("Agent command center")
+        });
+        assert!(!resumes(&h));
     }
 
     #[test]

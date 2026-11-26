@@ -7,7 +7,7 @@ use super::{AppCtx, AppFx, CodexApp, Command, apply_thread};
 use crate::ids::{BackendId, ThreadId};
 use crate::rpc::Answer;
 use crate::screens::onboarding::TrustCancel;
-use crate::screens::onboarding::consent::{Target, Then};
+use crate::screens::onboarding::consent::Target;
 use crate::screens::select::{Confirm, Picked};
 use crate::screens::{
     ScreenCommand, ScreenReply, ScreenThreadIntent, agents, chat, select, status,
@@ -592,7 +592,7 @@ fn change_directory(app: &mut CodexApp, source: Option<ThreadId>, path: &str, fx
     // A folder whose trust is undecided is asked about first (`confirm_directory_trust`).
     super::consent::begin(
         app,
-        Then::Cd { source, ask },
+        super::consent::Action::Cd { source, ask },
         Target::Folder(Some(folder)),
         TrustCancel::CurrentTask,
         fx,

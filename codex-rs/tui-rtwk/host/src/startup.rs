@@ -46,7 +46,7 @@ use codex_tui_core::rpc::RpcError;
 use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::chat::Ev as ChatEv;
 use codex_tui_core::screens::onboarding::auth::{AuthResult, Offer, Providers};
-use codex_tui_core::screens::onboarding::consent::Target as ConsentTarget;
+use codex_tui_core::screens::onboarding::consent::{Checked, Target as ConsentTarget};
 use codex_tui_core::screens::onboarding::gateway::Logins;
 use codex_tui_core::screens::onboarding::session::Resumed;
 use codex_tui_core::screens::onboarding::{Ask, Ev, Facts, TrustAsk, TrustCancel, Welcome};
@@ -289,7 +289,15 @@ where
             target,
             cancel,
         } => match consent(&startup, target, cancel, &ids, &send).await {
-            Ok(ask) => Ev::Consent { request, ask },
+            Ok(ConsentCheck {
+                ask,
+                checked: Some(checked),
+            }) => Ev::ConsentAt {
+                request,
+                ask,
+                checked,
+            },
+            Ok(ConsentCheck { ask, checked: None }) => Ev::Consent { request, ask },
             Err(message) => Ev::ConsentFailed { request, message },
         },
         Ask::DismissUpdate { version } => {
@@ -896,7 +904,7 @@ where
         .as_deref()
         .filter(|_| startup.target.remote_workspace())
     {
-        Some(cwd) => remote_lookup(cwd, ids, send).await?,
+        Some(cwd) => remote_lookup(cwd, ids, send).await?.1,
         None => local_lookup(&startup.config.cwd, ids, send).await?,
     };
     Ok(lookup.map(|lookup| TrustAsk {
@@ -912,49 +920,78 @@ where
 }
 
 /// Resolve the destination and ask about an undecided or restricted local folder.
+#[derive(Debug, Default)]
+struct ConsentCheck {
+    ask: Option<TrustAsk>,
+    checked: Option<Checked>,
+}
+
 async fn consent<F, Fut>(
     startup: &Startup,
     target: ConsentTarget,
     cancel: TrustCancel,
     ids: &Ids,
     send: &F,
-) -> Result<Option<TrustAsk>, String>
+) -> Result<ConsentCheck, String>
 where
     F: Fn(ClientRequest) -> Fut,
     Fut: Future<Output = Result<serde_json::Value, ServerError>>,
 {
-    let existing_task =
-        startup.target != Target::Embedded && matches!(target, ConsentTarget::Task(_));
-    let lookup = if startup.target.remote_workspace() {
+    let destination = matches!(target, ConsentTarget::BackendSwitch);
+    let task = matches!(
+        target,
+        ConsentTarget::Task(_) | ConsentTarget::TaskRecheck { .. }
+    );
+    let existing_task = startup.target != Target::Embedded && task;
+    let daemon_task = startup.target == Target::LocalDaemon && task;
+    if matches!(target, ConsentTarget::TaskRecheck { .. }) && !daemon_task {
+        return Err("The task's connection changed while checking folder trust".to_owned());
+    }
+    let (cwd, lookup) = if startup.target.remote_workspace() {
         let Some(cwd) = startup
             .remote_cwd
             .as_deref()
-            .filter(|_| cancel != TrustCancel::CurrentTask)
+            .filter(|_| destination || cancel != TrustCancel::CurrentTask)
         else {
-            return Ok(None);
+            return Ok(ConsentCheck::default());
         };
         remote_lookup(cwd, ids, send).await?
     } else {
+        let current = startup.current.read().await.clone();
         let folder = match target {
             ConsentTarget::Folder(None) => startup.config.cwd.clone(),
             ConsentTarget::Folder(Some(cwd)) => AbsolutePathBuf::from_absolute_path(&cwd)
                 .map_err(|_| format!("Cannot check folder trust: {cwd} is not an absolute path"))?,
-            ConsentTarget::Task(thread) => {
-                let command = ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Read {
-                    thread: thread.to_string(),
-                }));
-                let response = send(screens::wire(&command, &ThreadId::default(), ids.next()))
-                    .await
-                    .map_err(|error| format!("thread/read failed: {error}"))?;
-                let response: ThreadReadResponse =
-                    serde_json::from_value(response).map_err(|error| error.to_string())?;
-                response.thread.cwd
+            ConsentTarget::Task(thread) => task_folder(&thread, ids, send).await?,
+            ConsentTarget::TaskRecheck { thread, checked } => {
+                let folder = task_folder(&thread, ids, send).await?;
+                if checked
+                    .iter()
+                    .any(|path| Path::new(path) == folder.as_path())
+                {
+                    return Ok(ConsentCheck {
+                        ask: None,
+                        checked: Some(Checked::ResumeIn(folder_text(folder.as_path())?)),
+                    });
+                }
+                folder
             }
+            ConsentTarget::BackendSwitch => current.cwd.clone(),
         };
-        local_lookup(&folder, ids, send).await?
+        let lookup = local_lookup(&folder, ids, send).await?;
+        if destination
+            && !current.active_project.is_untrusted()
+            && lookup.as_ref().is_some_and(|lookup| lookup.restricted)
+        {
+            return Err(
+                "Folder trust changed. Reopen the destination with its restricted settings."
+                    .to_owned(),
+            );
+        }
+        (folder_text(folder.as_path())?, lookup)
     };
-    Ok(lookup
-        .filter(|lookup| !lookup.restricted || cancel != TrustCancel::CurrentTask)
+    let ask = lookup
+        .filter(|lookup| destination || !lookup.restricted || cancel != TrustCancel::CurrentTask)
         .map(|lookup| TrustAsk {
             cwd: lookup.cwd,
             target: lookup.target,
@@ -962,7 +999,45 @@ where
             existing_task,
             cancel,
             ..TrustAsk::default()
-        }))
+        });
+    let checked = if destination {
+        Some(Checked::Destination(cwd))
+    } else if daemon_task {
+        Some(if ask.is_some() {
+            Checked::Task(cwd)
+        } else {
+            Checked::ResumeIn(cwd)
+        })
+    } else {
+        None
+    };
+    Ok(ConsentCheck { ask, checked })
+}
+
+async fn task_folder<F, Fut>(
+    thread: &ThreadId,
+    ids: &Ids,
+    send: &F,
+) -> Result<AbsolutePathBuf, String>
+where
+    F: Fn(ClientRequest) -> Fut,
+    Fut: Future<Output = Result<serde_json::Value, ServerError>>,
+{
+    let command = ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Read {
+        thread: thread.to_string(),
+    }));
+    let response = send(screens::wire(&command, &ThreadId::default(), ids.next()))
+        .await
+        .map_err(|error| format!("thread/read failed: {error}"))?;
+    let response: ThreadReadResponse =
+        serde_json::from_value(response).map_err(|error| error.to_string())?;
+    Ok(response.thread.cwd)
+}
+
+fn folder_text(cwd: &Path) -> Result<String, String> {
+    cwd.to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| "Cannot check folder trust: directory path is not valid UTF-8".to_owned())
 }
 
 fn trust_read_error(error: ServerError) -> String {
@@ -980,10 +1055,7 @@ where
     Fut: Future<Output = Result<serde_json::Value, ServerError>>,
 {
     let cwd = folder.as_path();
-    let cwd_text = cwd
-        .to_str()
-        .ok_or("Cannot check folder trust: directory path is not valid UTF-8")?
-        .to_owned();
+    let cwd_text = folder_text(cwd)?;
     let response = send(wire::trust_read(&cwd_text, ids.next()))
         .await
         .map_err(trust_read_error)?;
@@ -1004,15 +1076,12 @@ async fn remote_lookup<F, Fut>(
     cwd: &Path,
     ids: &Ids,
     send: &F,
-) -> Result<Option<wire::Lookup>, String>
+) -> Result<(String, Option<wire::Lookup>), String>
 where
     F: Fn(ClientRequest) -> Fut,
     Fut: Future<Output = Result<serde_json::Value, ServerError>>,
 {
-    let cwd_text = cwd
-        .to_str()
-        .ok_or("Cannot check folder trust: directory path is not valid UTF-8")?
-        .to_owned();
+    let cwd_text = folder_text(cwd)?;
     let uri = match LegacyAppPathString::from_string(cwd_text.clone()).to_inferred_path_uri() {
         Some(uri) => uri,
         // A relative folder: the environment's cwd is its base.
@@ -1047,7 +1116,7 @@ where
         cwd.clone()
     };
     let Some(lookup) = wire::trust_lookup(&response, &cwd, &[key], None, windows) else {
-        return Ok(None);
+        return Ok((cwd, None));
     };
     let has_project_layer = response["layers"].as_array().is_some_and(|layers| {
         layers
@@ -1069,7 +1138,7 @@ where
     if inside_untrusted {
         return Err("remote project directory is inside an explicitly untrusted project; pass the repository root explicitly with --cd".to_owned());
     }
-    Ok((!lookup.restricted).then_some(lookup))
+    Ok((cwd, (!lookup.restricted).then_some(lookup)))
 }
 
 /// The project and repository roots of `cwd` on this machine: read only
@@ -2145,6 +2214,15 @@ mod tests {
         .await
     }
 
+    fn saved_task_at(cwd: &str) -> serde_json::Value {
+        serde_json::json!({"thread": {
+            "id": "saved", "sessionId": "saved", "preview": "", "ephemeral": false,
+            "modelProvider": "openai", "createdAt": 0, "updatedAt": 0,
+            "status": {"type": "notLoaded"}, "cwd": cwd, "cliVersion": "0.0.0",
+            "source": "cli", "turns": [], "canAcceptDirectInput": true
+        }})
+    }
+
     #[tokio::test]
     async fn consent_lookup_of_a_task_checks_its_working_directory() {
         let (startup, _dir) = startup_with(Target::LocalDaemon, system_browser()).await;
@@ -2157,12 +2235,7 @@ mod tests {
                 Some("thread/read") => {
                     assert_eq!(body["params"]["threadId"], "saved");
                     assert!(!body["params"]["includeTurns"].as_bool().unwrap_or(false));
-                    serde_json::json!({"thread": {
-                        "id": "saved", "sessionId": "saved", "preview": "", "ephemeral": false,
-                        "modelProvider": "openai", "createdAt": 0, "updatedAt": 0,
-                        "status": {"type": "notLoaded"}, "cwd": cwd, "cliVersion": "0.0.0",
-                        "source": "cli", "turns": [], "canAcceptDirectInput": true
-                    }})
+                    saved_task_at(cwd)
                 }
                 Some("config/read") => {
                     assert_eq!(body["params"]["cwd"], cwd);
@@ -2173,7 +2246,7 @@ mod tests {
             std::future::ready(Ok(response))
         };
 
-        let ask = consent(
+        let check = consent(
             &startup,
             ConsentTarget::Task(ThreadId::new("saved")),
             TrustCancel::AgentsOverview,
@@ -2181,9 +2254,10 @@ mod tests {
             &send,
         )
         .await
-        .expect("the check")
-        .expect("a restricted task still needs consent");
+        .expect("the check");
 
+        assert_eq!(check.checked, Some(Checked::Task(cwd.into())));
+        let ask = check.ask.expect("a restricted task still needs consent");
         assert_eq!(ask.cwd, cwd);
         assert_eq!(ask.cancel, TrustCancel::AgentsOverview);
         assert!(ask.restricted);
@@ -2193,7 +2267,7 @@ mod tests {
     #[tokio::test]
     async fn consent_lookup_of_a_remote_task_without_an_explicit_folder_asks_nothing() {
         let (startup, _dir) = startup_with(Target::Remote, system_browser()).await;
-        let ask = consent(
+        let check = consent(
             &startup,
             ConsentTarget::Task(ThreadId::new("remote")),
             TrustCancel::AgentsOverview,
@@ -2202,7 +2276,85 @@ mod tests {
         )
         .await
         .expect("the check");
-        assert_eq!(ask, None);
+        assert_eq!(check.ask, None);
+        assert_eq!(check.checked, None);
+    }
+
+    #[tokio::test]
+    async fn a_task_recheck_reads_the_same_task_and_checks_only_a_new_cwd() {
+        let (startup, _dir) = startup_with(Target::LocalDaemon, system_browser()).await;
+        let task_dir = tempfile::tempdir().expect("a task folder");
+        let cwd = task_dir.path().to_str().expect("utf-8");
+        for checked in [cwd, "/previous/workspace"] {
+            let changed = checked != cwd;
+            let reads = AtomicUsize::new(0);
+            let send = |request: ClientRequest| {
+                let body = serde_json::to_value(request).expect("the request");
+                let response = match body["method"].as_str() {
+                    Some("thread/read") => {
+                        assert_eq!(body["params"]["threadId"], "saved");
+                        saved_task_at(cwd)
+                    }
+                    Some("config/read") => {
+                        reads.fetch_add(1, Ordering::SeqCst);
+                        assert_eq!(body["params"]["cwd"], cwd);
+                        undecided_read(cwd, None)
+                    }
+                    other => panic!("unexpected request {other:?}"),
+                };
+                std::future::ready(Ok(response))
+            };
+            let check = consent(
+                &startup,
+                ConsentTarget::TaskRecheck {
+                    thread: ThreadId::new("saved"),
+                    checked: vec![checked.into()],
+                },
+                TrustCancel::AgentsOverview,
+                &Ids::default(),
+                &send,
+            )
+            .await
+            .expect("the check");
+            assert_eq!(reads.load(Ordering::SeqCst), usize::from(changed));
+            assert_eq!(
+                check.ask.map(|ask| ask.cwd),
+                changed.then(|| cwd.to_owned())
+            );
+            assert_eq!(
+                check.checked,
+                Some(if changed {
+                    Checked::Task(cwd.into())
+                } else {
+                    Checked::ResumeIn(cwd.into())
+                })
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn switching_to_an_explicit_remote_folder_checks_that_destination() {
+        let (mut startup, _dir) = startup_with(Target::Remote, system_browser()).await;
+        let cwd = startup.config.cwd.to_string_lossy().into_owned();
+        startup.remote_cwd = Some(PathBuf::from(&cwd));
+        let check = consent(
+            &startup,
+            ConsentTarget::BackendSwitch,
+            TrustCancel::CurrentTask,
+            &Ids::default(),
+            &|request| {
+                let body = serde_json::to_value(request).expect("the request");
+                assert_eq!(body["method"], "config/read");
+                assert_eq!(body["params"]["cwd"], cwd);
+                std::future::ready(Ok(undecided_read(&cwd, None)))
+            },
+        )
+        .await
+        .expect("the check");
+        let ask = check.ask.expect("the explicit remote destination");
+        assert_eq!(ask.cwd, cwd);
+        assert_eq!(ask.cancel, TrustCancel::CurrentTask);
+        assert_eq!(check.checked, Some(Checked::Destination(cwd)));
     }
 
     // `/cd` into a folder with no saved decision: the oracle's question, with the current task's
