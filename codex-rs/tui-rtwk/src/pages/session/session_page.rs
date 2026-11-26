@@ -299,6 +299,9 @@ impl State for ChatState {
         if msg == ChatMsg::HookRevealed {
             return Rebuild::Yes;
         }
+        if let Some(rebuild) = self.provisional_input(&msg, w, cx) {
+            return rebuild;
+        }
         let hs = read::<Hs, _>(cx);
         let modes = &w.ui.modes;
         let previous = self.shown(modes);

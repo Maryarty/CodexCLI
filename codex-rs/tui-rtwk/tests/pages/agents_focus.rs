@@ -4,9 +4,9 @@
 //! chat's only input, it has the keys from the first frame after the session is opened).
 
 use crate::common::{self, Harness};
-use codex_tui_core::app::AppEv;
+use codex_tui_core::app::{AppEv, Command};
 use codex_tui_core::screens::ScreenEv;
-use codex_tui_core::screens::onboarding::{Ev as StartupEv, Facts};
+use codex_tui_core::screens::onboarding::{Ev as StartupEv, Facts, TrustAsk, TrustCancel};
 
 const ID: &str = "00000000-0000-0000-0000-000000000001";
 
@@ -26,11 +26,9 @@ fn thread_json(id: &str, preview: &str, now: u64) -> serde_json::Value {
     })
 }
 
-/// The command center on a server that lists one task and resumes it.
-fn center() -> Harness {
+/// The server lists one task and resumes it.
+fn answer_task(h: &Harness) {
     let now: u64 = 1_777_399_200;
-    // as the binary starts it: the home waits for the host's facts
-    let mut h = common::start_app(|app| app.with_start_agents(true).with_awaited_facts(true));
     h.fake
         .respond(move |request| match request["method"].as_str()? {
             "thread/list" => Some(Ok(if request["params"]["sectionId"].is_null() {
@@ -50,6 +48,12 @@ fn center() -> Harness {
             }))),
             _ => None,
         });
+}
+
+/// The command center on a server that lists one task and resumes it.
+fn center() -> Harness {
+    let mut h = common::start_app(|app| app.with_start_agents(true).with_awaited_facts(true));
+    answer_task(&h);
     // the host's answers: the facts, no device code, no launch prompts
     h.inject([
         AppEv::Screen(ScreenEv::Onboarding(StartupEv::Facts {
@@ -123,4 +127,42 @@ fn a_double_tap_on_a_task_leaves_the_composer_focused() {
     h.settle();
     h.t.click(x, y);
     typed_into_the_composer(&mut h);
+}
+
+#[test]
+fn declining_trust_cancels_early_enter_before_opening_another_task() {
+    let mut h = common::start_app(|app| app.with_awaited_facts(true).with_provisional_draft(true));
+    answer_task(&h);
+    h.wait_for("the draft", |s| s.contains("Ask Codex to do anything"));
+    h.t.type_text("original workspace draft");
+    h.press("enter");
+    h.wait_for("early confirmation", |s| s.contains("Waiting for startup"));
+    h.inject([AppEv::Screen(ScreenEv::Onboarding(StartupEv::Facts {
+        request: 1,
+        facts: Facts {
+            trust: Some(TrustAsk {
+                cwd: "/workspace/project".into(),
+                target: "/workspace/project".into(),
+                cancel: TrustCancel::AgentsOverview,
+                ..TrustAsk::default()
+            }),
+            ..Facts::default()
+        },
+    }))]);
+    h.wait_for("the trust prompt", |s| s.contains("trust"));
+    h.press("esc");
+    h.wait_for("the other task", |s| s.contains("Selected task"));
+    h.press("enter");
+    h.wait_for("the retained draft", |s| {
+        s.contains("› original workspace draft")
+    });
+    h.settle();
+    assert!(!h.t.screen().contains("Waiting for startup"));
+    assert!(
+        h.fake
+            .commands()
+            .iter()
+            .all(|command| !matches!(command, Command::StartTurn { .. })),
+        "the old confirmation must not submit to the task opened from the command center"
+    );
 }

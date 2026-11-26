@@ -109,6 +109,7 @@ async fn launch(cli: &Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<Laun
         }
     }
     let startup_warning = target::startup_warning(&flags);
+    let provisional_draft = startup::can_show_draft(cli);
     // The update the startup page's prompt chose: run once the terminal is
     // restored (the oracle's `UpdatePromptOutcome::RunUpdate`).
     let update = startup::UpdateSlot::default();
@@ -155,6 +156,7 @@ async fn launch(cli: &Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<Laun
         .with_start_agents(cli.agents)
         .with_start_resume(cli.resume)
         .with_awaited_facts(true)
+        .with_provisional_draft(provisional_draft)
         .with_folder_consent(true)
         .with_unsent_slot(unsent.clone())
         .with_lang(cli.lang(&rtwk::l10n::requested()));

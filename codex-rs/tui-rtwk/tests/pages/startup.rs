@@ -10,11 +10,10 @@ fn startup_slot_is_registered_and_empty() {
     slot("startup");
 }
 
-// R-F5: the oracle runs the startup checks before it draws the chat, so its
-// prompt is never preceded by a chat frame. A host that answers the facts
-// has the app wait for them (`with_awaited_facts`).
+// The host can expose an editable startup draft for an established local launch.
+// A first sign-in or a start page still waits for the startup decision.
 mod gate {
-    use codex_tui_core::app::AppEv;
+    use codex_tui_core::app::{AppEv, Command};
     use codex_tui_core::screens::ScreenEv;
     use codex_tui_core::screens::onboarding::{Ev, Facts, TrustAsk, TrustCancel, Welcome};
     use codex_tui_core::screens::startup;
@@ -112,8 +111,83 @@ mod gate {
         h.fake
             .commands()
             .iter()
-            .filter(|c| matches!(c, codex_tui_core::app::Command::StartThread { .. }))
+            .filter(|c| matches!(c, Command::StartThread { .. }))
             .count()
+    }
+
+    fn turn_starts(h: &Harness) -> Vec<String> {
+        h.fake
+            .commands()
+            .into_iter()
+            .filter_map(|command| match command {
+                Command::StartTurn { message, .. } => Some(message.text),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_provisional_draft_survives_trust_and_sends_once_when_ready() {
+        let mut h = start_app(|app| app.with_awaited_facts(true).with_provisional_draft(true));
+        h.wait_for("the draft", |s| s.contains("Ask Codex to do anything"));
+        h.t.type_text("/new");
+        h.press("enter");
+        assert_eq!(thread_starts(&h), 0, "a startup command opened a thread");
+        h.press("ctrl+c");
+        h.t.type_text("before the startup checks");
+        h.press("enter");
+        let screen = h.t.screen();
+        assert!(screen.contains("› before the startup checks"), "{screen}");
+        assert!(screen.contains("Waiting for startup"), "{screen}");
+
+        answer(&h, trust());
+        h.wait_for("the trust prompt", |s| s.contains("trust"));
+        assert!(!h.t.screen().contains("before the startup checks"));
+        assert!(turn_starts(&h).is_empty());
+        assert_eq!(thread_starts(&h), 0);
+        h.press("enter");
+        inject(&h, Ev::TrustSaved { request: 2 });
+        h.settle();
+        assert_eq!(thread_starts(&h), 0);
+        inject(
+            &h,
+            Ev::GatewayDevice {
+                request: 3,
+                code: None,
+            },
+        );
+        inject(
+            &h,
+            Ev::Launched {
+                request: 4,
+                prompts: Vec::new(),
+            },
+        );
+        h.wait_until("the confirmed turn", |h| !turn_starts(h).is_empty());
+        h.settle();
+        assert_eq!(thread_starts(&h), 1);
+        assert_eq!(turn_starts(&h), ["before the startup checks"]);
+    }
+
+    #[test]
+    fn the_provisional_draft_accepts_normal_input_after_launch() {
+        let mut h = start_app(|app| app.with_awaited_facts(true).with_provisional_draft(true));
+        h.wait_for("the draft", |s| s.contains("Ask Codex to do anything"));
+        h.t.type_text("typed before the backend is ready");
+        h.press("tab");
+        assert!(h.t.screen().contains("› typed before the backend is ready"));
+        assert!(turn_starts(&h).is_empty());
+        answer(&h, Facts::default());
+        launched(&h, Vec::new());
+        h.wait_until("the fresh thread", |h| thread_starts(h) == 1);
+        h.settle();
+        h.t.type_text(" and kept");
+        h.press("tab");
+        h.wait_until("the turn", |h| !turn_starts(h).is_empty());
+        assert_eq!(
+            turn_starts(&h),
+            ["typed before the backend is ready and kept"]
+        );
     }
 
     // The oracle creates its session after the startup screens: the server

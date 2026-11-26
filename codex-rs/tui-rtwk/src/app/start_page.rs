@@ -12,7 +12,7 @@
 use rtwk::Handler;
 use rtwk::layout::SizedBox;
 use rtwk::navigation::{Navigator, PageRoute, PopInvoked, PopScope};
-use rtwk::provider::{read, select};
+use rtwk::provider::{Provider, read, select};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::onboarding::Intent as StartupIntent;
@@ -124,23 +124,20 @@ impl State for StartPageState {
     }
 }
 
-/// The home under the startup page's gate: the page is pushed over `child`
-/// once its model has a step due (oracle: the update prompt and the
-/// onboarding screens run before the chat). The facts come from the host
-/// after the first frame, so the gate watches the model; it pushes once.
-/// With `awaits_facts` the home shows nothing until the facts are read, and
-/// then the chat or, with a step due, the page alone: the oracle draws no
-/// chat before its prompt. The home mounts only once the startup page is gone
-/// (Flutter: `await Navigator.push(..)`, then `setState`): the prompts go
-/// first, a start page of the command line (`--agents`, `resume`) pushes its
-/// route as it mounts, and the composer takes the focus at mount, not under a
-/// route that is still on top (the trust prompt cancelled at launch replaces
-/// the page with the command center: the page is gone when that pops).
+/// The home waits for the host's startup facts and pushes the startup page if a step is due.
+/// Start pages and likely first sign-in wait for this decision before they mount. During an
+/// established local launch the draft can mount at once, and its state survives a prompt
+/// pushed over it. A cancelled trust prompt can replace that prompt with the command center.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StartupGate {
     pub child: AnyWidget,
     pub awaits_facts: bool,
+    pub provisional_draft: bool,
 }
+
+/// The chat is mounted for local draft input while the startup page's gate is closed.
+#[derive(PartialEq)]
+pub(crate) struct ProvisionalDraft(pub bool);
 
 /// What the gate does next.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -207,7 +204,11 @@ impl State for StartupGateState {
     }
 
     fn build(&self, w: &StartupGate, _: &mut Cx<'_, Self>) -> AnyWidget {
-        if self.open {
+        if w.provisional_draft {
+            Provider::value(ProvisionalDraft(!self.open))
+                .child(w.child.clone())
+                .into()
+        } else if self.open {
             w.child.clone()
         } else {
             SizedBox::shrink().into()

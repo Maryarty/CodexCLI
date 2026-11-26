@@ -11,24 +11,27 @@
 use std::rc::Rc;
 
 use rtwk::navigation::Route;
-use rtwk::provider::read;
+use rtwk::provider::{Provider, read};
 use rtwk::{Cx, Rebuild};
 
 use codex_tui_core::app::{Session, SessionSlice};
+use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::threads::ThreadModel;
 use codex_tui_core::threads::startup;
 
-use crate::app::view::Hs;
+use crate::app::{start_page::ProvisionalDraft, view::Hs};
 use crate::pages::session::actions::run_line;
+use crate::pages::session::composer::clear_sent;
 use crate::pages::session::composer::queue::Delivery;
 use crate::pages::session::composer::submission;
 
-use super::{Chat, ChatState};
+use super::{Chat, ChatMsg, ChatState};
 
 /// The draft the user confirmed: what it would submit and whether it is in shell mode.
 pub(super) struct Confirmed {
     text: Rc<str>,
     shell: bool,
+    provisional: bool,
 }
 
 impl Confirmed {
@@ -38,7 +41,42 @@ impl Confirmed {
     }
 }
 
+fn provisional<S>(cx: &mut Cx<'_, S>) -> bool {
+    Provider::<ProvisionalDraft>::maybe_of(cx, false).is_some_and(|phase| phase.0)
+}
+
 impl ChatState {
+    /// The provisional chat accepts editing, confirmation and quit while the host checks
+    /// startup. Commands and navigation become available once the startup gate opens.
+    pub(super) fn provisional_input(
+        &mut self,
+        msg: &ChatMsg,
+        w: &Chat,
+        cx: &mut Cx<'_, ChatState>,
+    ) -> Option<Rebuild> {
+        if !provisional(cx) {
+            return None;
+        }
+        let rebuild = match msg {
+            ChatMsg::Changed(_) => return None,
+            ChatMsg::Submit(text) if self.confirm_startup(text, w, cx) => Rebuild::Yes,
+            ChatMsg::Escape if self.startup_confirm.take().is_some() => Rebuild::Yes,
+            ChatMsg::CtrlC | ChatMsg::CtrlD if w.ui.composer.text().is_empty() => {
+                let hs = read::<Hs, _>(cx);
+                cx.emit(&hs.quit, ());
+                Rebuild::No
+            }
+            ChatMsg::CtrlC => {
+                clear_sent(&w.ui);
+                self.startup_confirm = None;
+                self.sync_draft(w);
+                Rebuild::Yes
+            }
+            _ => Rebuild::No,
+        };
+        Some(rebuild)
+    }
+
     /// Enter on the draft while the session starts: confirmed when it is text for the model
     /// (`is_startup_submit_key`); a command is run at once and takes the other path.
     pub(super) fn confirm_startup(
@@ -53,6 +91,7 @@ impl ChatState {
         self.startup_confirm = Some(Confirmed {
             text: Rc::from(text),
             shell: w.ui.draft.shell(),
+            provisional: provisional(cx),
         });
         true
     }
@@ -74,11 +113,15 @@ impl ChatState {
     /// the meantime is dropped silently; one in shell mode stays for a second Enter (the startup
     /// editor cannot show shell mode, `prepare_startup_submission`).
     pub(super) fn startup_ready(&mut self, w: &Chat, cx: &mut Cx<'_, ChatState>) -> Rebuild {
-        if self.startup_confirm.is_none() {
+        let Some(confirmed) = self.startup_confirm.as_ref() else {
             return Rebuild::No;
-        }
+        };
         let session = read::<SessionSlice, _>(cx);
-        if matches!(session.status, Session::Failed(_)) {
+        // A declined launch can open the command center. Its thread is not the target
+        // of an Enter pressed before the startup prompts.
+        if matches!(session.status, Session::Failed(_))
+            || (confirmed.provisional && read::<ScreenStates, _>(cx).onboarding.ends())
+        {
             self.startup_confirm = None;
             return Rebuild::Yes;
         }

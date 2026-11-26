@@ -54,10 +54,10 @@ pub struct UiState {
     pub start_agents: bool,
     /// Open the resume picker over the chat at start (`codex-rtwk resume`).
     pub start_resume: bool,
-    /// The host answers the startup facts: the home shows nothing until they
-    /// are read (the oracle draws its prompt or the chat only after the
-    /// startup checks), so the chat never flashes before a prompt.
+    /// The first thread waits for the host's startup checks and prompts.
     pub awaits_facts: bool,
+    /// The host expects a regular local launch: show the draft during the startup checks.
+    pub(super) provisional_draft: bool,
     /// The request presenter's model (ADR-002): the kept handle of the
     /// navigator's home and which request is open.
     pub presenter: Presenter,
@@ -106,6 +106,7 @@ impl UiApp {
                 start_agents: false,
                 start_resume: false,
                 awaits_facts: false,
+                provisional_draft: false,
                 presenter: Presenter::new(),
                 presenters: presenters::Presenters::default(),
                 switches_seen: 0,
@@ -179,6 +180,12 @@ impl UiApp {
     pub fn with_awaited_facts(mut self, on: bool) -> Self {
         self.ui.awaits_facts = on;
         self.with_synced_first_thread()
+    }
+
+    /// Let a regular local launch edit a draft while the host checks whether a prompt is due.
+    pub fn with_provisional_draft(mut self, on: bool) -> Self {
+        self.ui.provisional_draft = on;
+        self
     }
 
     /// The host answers the folder trust of `/cd`: a folder whose trust is undecided asks the

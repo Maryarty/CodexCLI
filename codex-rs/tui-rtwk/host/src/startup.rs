@@ -81,6 +81,19 @@ pub type FailureSlot = Arc<Mutex<Option<String>>>;
 /// (`Ask::DaemonChoice`) to act on: the menu carries what is drawn, the host what is done.
 pub type DaemonSlot = Arc<Mutex<Option<Mismatch>>>;
 
+/// An established local account can edit a draft while the host reads the startup facts.
+/// The file check is only a presentation hint. The normal account and trust checks still
+/// decide when a session may start.
+pub fn can_show_draft(cli: &codex_tui_rtwk::Cli) -> bool {
+    if cli.agents || cli.resume || cli.session.is_some() || cli.remote.is_some() || cli.oss {
+        return false;
+    }
+    std::env::var(codex_login::CODEX_ACCESS_TOKEN_ENV_VAR)
+        .is_ok_and(|value| !value.trim().is_empty())
+        || codex_core::config::find_codex_home()
+            .is_ok_and(|home| home.as_path().join("auth.json").is_file())
+}
+
 /// What the startup asks need of the host.
 #[derive(Clone)]
 pub struct Startup {

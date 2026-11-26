@@ -132,6 +132,9 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
         let gate = StartupGate {
             child,
             awaits_facts: app.ui.awaits_facts,
+            provisional_draft: app.ui.provisional_draft
+                && !app.ui.start_agents
+                && !app.ui.start_resume,
         };
         super::consent::ConsentGate { child: gate.into() }.into()
     };
