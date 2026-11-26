@@ -60,7 +60,7 @@ pub mod suggest;
 pub mod vim;
 
 use burst::BurstEnv;
-use editing::KeyData;
+use editing::{BeforeSearch, KeyData};
 
 /// What the debug menu lists for the composer: the bare text area (the
 /// oracle's `textarea.rs` tests draw it so) and the composer with its footer
@@ -475,8 +475,8 @@ pub enum ComposerMsg {
     Refresh,
     /// The popup's highlight moved: draw it again.
     Redraw,
-    /// Modal editing was turned on or off by its key: the transcript says so.
-    VimToggled(bool),
+    /// A global editing shortcut also handled by the history query field.
+    BeforeSearch(BeforeSearch),
     /// A key changed the Vim mode: the page's footer names it.
     VimMode,
     /// The pointer or the wheel is over row `i` of the popup.
@@ -509,8 +509,6 @@ pub enum ComposerMsg {
     /// The view was built while a mention popup is up: the app's data may
     /// have changed under it, it asks them again.
     SyncMentions,
-    /// Ctrl+V: the clipboard's image is asked of the app.
-    PasteImage,
     /// The view was built after the image this draft asked for came in:
     /// it is attached.
     ImageArrived,
@@ -543,6 +541,23 @@ fn ask<S>(cx: &mut Cx<'_, S>, lookups: Vec<Lookup>) {
             &hs.screen,
             ScreenIntent::from(popovers::Intent::Lookup(lookup)),
         );
+    }
+}
+
+fn apply_before_search<S>(cx: &mut Cx<'_, S>, action: BeforeSearch) -> rtwk::Rebuild {
+    let hs = read::<Hs, _>(cx);
+    match action {
+        BeforeSearch::VimToggled(on) => {
+            let thread = read::<SessionSlice, _>(cx).active.clone();
+            let note = Note::from(NoteKey::Toggled(Toggle::Vim, on));
+            let intent = chat::Intent::Note { thread, note };
+            cx.emit(&hs.screen, ScreenIntent::from(intent));
+            rtwk::Rebuild::Yes
+        }
+        BeforeSearch::PasteImage => {
+            cx.emit(&hs.screen, ScreenIntent::from(popovers::Intent::PasteImage));
+            rtwk::Rebuild::No
+        }
     }
 }
 
@@ -915,18 +930,7 @@ impl State for ComposerState {
                 let states = read::<ScreenStates, _>(cx);
                 mentions::sync(w, &states, cx);
             }
-            ComposerMsg::VimToggled(on) => {
-                let hs = read::<Hs, _>(cx);
-                let thread = read::<SessionSlice, _>(cx).active.clone();
-                let note = Note::from(NoteKey::Toggled(Toggle::Vim, on));
-                let intent = chat::Intent::Note { thread, note };
-                cx.emit(&hs.screen, ScreenIntent::from(intent));
-                return rtwk::Rebuild::Yes;
-            }
-            ComposerMsg::PasteImage => {
-                let hs = read::<Hs, _>(cx);
-                cx.emit(&hs.screen, ScreenIntent::from(popovers::Intent::PasteImage));
-            }
+            ComposerMsg::BeforeSearch(action) => return apply_before_search(cx, action),
             ComposerMsg::ImageArrived => {
                 let states = read::<ScreenStates, _>(cx);
                 let table = strings::of(cx);

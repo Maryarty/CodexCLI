@@ -32,7 +32,7 @@ use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::composer::sanitize_paste;
 
 use super::ComposerMsg;
-use super::editing::KeyData;
+use super::editing::{BeforeSearch, KeyData, before_search_key, note_keyboard_activity};
 use super::strings;
 use crate::app::theme;
 use crate::keymap::{press_for, pressed, unmodified};
@@ -201,6 +201,7 @@ struct HistoryFieldState {
 
 enum Edit {
     Focus,
+    BeforeSearch(BeforeSearch),
     Changed(Vec<Lookup>),
 }
 
@@ -240,6 +241,12 @@ impl State for HistoryFieldState {
                 self.node.request_focus();
             }
             Edit::Focus => {}
+            Edit::BeforeSearch(action) => {
+                if matches!(action, BeforeSearch::VimToggled(_)) {
+                    cx.emit(&w.on_changed, w.preview.text());
+                }
+                return super::apply_before_search(cx, action);
+            }
             Edit::Changed(lookups) => {
                 super::ask(cx, lookups);
                 if !w.draft.searching() && self.node.has_primary_focus() {
@@ -252,7 +259,13 @@ impl State for HistoryFieldState {
     }
 
     fn build(&self, w: &HistoryField, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let history = select::<ScreenStates, _, _>(cx, |states| states.popovers.history.clone());
+        let (history, clipboard_answers) = select::<ScreenStates, _, _>(cx, |states| {
+            (
+                states.popovers.history.clone(),
+                states.popovers.pasted.answers(),
+            )
+        });
+        let clock = AppBinding::maybe_of(cx).map(|binding| binding.clock());
         let keymap = crate::keymap::keymap(cx);
         let send = cx.local_sender();
         let draft = w.draft.clone();
@@ -278,6 +291,17 @@ impl State for HistoryFieldState {
             });
         let keys = EditingKeys::new(
             move |_, key, _| {
+                let now = || clock.as_ref().map(|clock| clock.now());
+                note_keyboard_activity(&draft, key, now);
+                if before_search_key(
+                    &draft,
+                    &keymap,
+                    key,
+                    || now().map(|time| (time, clipboard_answers)),
+                    |action| send(Edit::BeforeSearch(action)),
+                ) {
+                    return true;
+                }
                 let Some(lookups) = take_key(&draft, &preview, &history, &keymap, key) else {
                     return false;
                 };
@@ -294,15 +318,16 @@ impl State for HistoryFieldState {
         LayoutBuilder::new(move |cx, constraints| {
             let label = table.search_label;
             let width = i32::try_from(segmenter_of(cx).width(label)).unwrap_or(i32::MAX);
-            let room = constraints.max_width.saturating_sub(width).max(1);
+            let label_width = width.min(constraints.max_width.saturating_sub(1).max(0));
             Row::new()
-                .child(
+                .child(ConstrainedBox::new(
+                    BoxConstraints::new(0, label_width, 1, 1),
                     Text::line(label)
                         .style(dim.clone())
                         .overflow(TextOverflow::Clip),
-                )
+                ))
                 .child(ConstrainedBox::new(
-                    BoxConstraints::new(0, room, 1, 1),
+                    BoxConstraints::new(0, constraints.max_width - label_width, 1, 1),
                     IntrinsicWidth::new(field.clone()),
                 ))
                 .child(Flexible::new(1, suffix.clone()))

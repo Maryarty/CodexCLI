@@ -370,8 +370,55 @@ fn a_long_query_keeps_the_caret_in_view_on_resize() {
     h.t.paste(&"x".repeat(65_536));
     h.advance(100);
     h.t.assert_cursor(79, 4);
+    h.t.resize(18, 6);
+    h.advance(100);
+    h.t.assert_cursor(17, 5);
     h.t.resize(48, 6);
+    h.advance(100);
     h.t.assert_cursor(47, 5);
     h.press("ctrl+u");
     h.t.assert_cursor(20, 5);
+}
+
+#[test]
+fn global_vim_and_clipboard_keys_precede_the_focused_query() {
+    let mut h = chat(0);
+    h.set_keymap(&[("global.toggle_vim_mode", "f9")]);
+    h.press("ctrl+r");
+    h.t.paste("needle");
+    h.advance(100);
+    h.press("f9");
+    h.wait_for("the Vim toggle note", |s| s.contains("Vim mode enabled."));
+    h.press("ctrl+v");
+    h.wait_until("the clipboard ask", |h| {
+        asks(h).contains(&Ask::ClipboardImage)
+    });
+    assert!(h.t.screen().contains("reverse-i-search: needle"));
+    h.press("esc");
+    assert!(h.t.screen().contains("Vim: Normal"));
+}
+
+#[test]
+fn approval_waits_for_query_typing_then_takes_focus() {
+    use crate::kit::{Owner, Screen};
+
+    let mut s = Screen::build(Owner::UiPane).live().open();
+    s.keys("ctrl+r").type_text("needle");
+    s.assert_cursor_on_row_of("reverse-i-search: needle");
+    s.feed(include_str!(
+        "../oracle/fixtures/pane_footer_2/exec_request.jsonl"
+    ));
+    let prompt = "Would you like to run the following command?";
+    s.assert_absent(prompt);
+    s.wait(400);
+    s.assert_absent(prompt);
+    s.wait(600);
+    s.assert_contains(prompt);
+    s.keys("y");
+    s.assert_absent(prompt);
+    s.assert_cursor_on_row_of("reverse-i-search: needle");
+    s.type_text("!");
+    s.assert_cursor_on_row_of("reverse-i-search: needle!");
+    s.keys("esc");
+    s.assert_absent("reverse-i-search");
 }
