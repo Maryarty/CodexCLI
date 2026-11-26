@@ -38,7 +38,7 @@ fn row(h: &Harness, turn: &str, item: &str) -> (Eid, AnyWidget) {
 }
 
 #[test]
-fn a_delta_rebuilds_its_mounted_row_without_rebuilding_the_list_or_other_rows() {
+fn a_delta_burst_rebuilds_its_mounted_row_without_rebuilding_the_list_or_other_rows() {
     let mut h = start_driven(false, 80, 30);
     h.wait_idle();
     h.fake.script_turn(vec![
@@ -60,12 +60,15 @@ fn a_delta_rebuilds_its_mounted_row_without_rebuilding_the_list_or_other_rows() 
     let (history_id, before_history) = row(&h, "turn-1", "msg-1");
     let (live_id, before_live) = row(&h, "turn-2", "msg-2");
     let epoch = h.fake.epoch().expect("attached");
-    h.fake.inject(
-        epoch,
-        AppEv::Backend(agent_delta(FAKE_THREAD, "turn-2", "msg-2", " second")),
-    );
-    h.wait_for("the delta to paint", |screen| {
-        screen.contains("• first second")
+    // Both notifications reach the backend before the next frame.
+    for delta in [" second", " third"] {
+        h.fake.inject(
+            epoch,
+            AppEv::Backend(agent_delta(FAKE_THREAD, "turn-2", "msg-2", delta)),
+        );
+    }
+    h.wait_for("both deltas to paint", |screen| {
+        screen.contains("• first second third")
     });
 
     let (new_history_id, history) = row(&h, "turn-1", "msg-1");
@@ -79,6 +82,6 @@ fn a_delta_rebuilds_its_mounted_row_without_rebuilding_the_list_or_other_rows() 
     h.fake
         .inject(epoch, AppEv::Backend(turn_completed(FAKE_THREAD, "turn-2")));
     h.wait_idle();
-    assert!(h.t.screen().contains("• first second"));
+    assert!(h.t.screen().contains("• first second third"));
     assert_eq!(live_id, row(&h, "turn-2", "msg-2").0);
 }
