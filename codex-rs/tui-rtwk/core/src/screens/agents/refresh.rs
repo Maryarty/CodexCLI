@@ -375,7 +375,7 @@ pub fn apply_answer(
                 }),
                 Ctx::History {
                     thread: thread.to_string(),
-                    latest: true,
+                    read: super::HistoryRead::Latest,
                 },
             )];
         }
@@ -433,7 +433,7 @@ pub fn apply_answer(
                 }),
                 Ctx::History {
                     thread: thread.to_string(),
-                    latest: true,
+                    read: super::HistoryRead::Latest,
                 },
             )];
         }

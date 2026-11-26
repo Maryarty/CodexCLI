@@ -819,7 +819,11 @@ fn reattach(app: &mut CodexApp) -> Ticket {
         app,
         AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnected)),
     );
-    let resume = resume_ticket(&fx).expect("same thread resumes on reconnect");
+    resume_history(app, &fx)
+}
+
+fn resume_history(app: &mut CodexApp, fx: &AppFx) -> Ticket {
+    let resume = resume_ticket(fx).expect("same thread resumes on reconnect");
     let fx = run(
         app,
         AppEv::Reply(
@@ -867,6 +871,54 @@ fn a_transport_reply_before_disconnect_preserves_pending_starts_and_steers_once(
     for pending_start in [false, true] {
         for exact_receipt in [None, Some(false), Some(true)] {
             assert_submission_recovery(pending_start, exact_receipt, true);
+        }
+    }
+}
+
+#[test]
+fn pre_gap_history_cannot_settle_an_early_transport_failure() {
+    for pending_start in [true, false] {
+        for stale_success in [true, false] {
+            let mut app = ready();
+            notify(&mut app, lost(T));
+            let fx = run(
+                &mut app,
+                AppEv::Intent(Intent::OpenThread(ThreadId::new(T))),
+            );
+            let stale_history = resume_history(&mut app, &fx);
+
+            if !pending_start {
+                notify(&mut app, turn_started(T, "turn-1"));
+            }
+            let (ticket, client_id) = submission_id(&submit(&mut app, "first message"));
+            submit_or_queue_follow_up(&mut app, pending_start);
+            unconfirmed_reply(&mut app, ticket);
+
+            let fx = if stale_success {
+                reply_history(&mut app, stale_history, None)
+            } else {
+                run(
+                    &mut app,
+                    AppEv::Reply(stale_history, Reply::failed("transport closed")),
+                )
+            };
+            assert!(started_texts(&fx).is_empty());
+            assert_eq!(queued(&app), ["first message", "follow-up"]);
+            assert!(
+                !thread(&app).transcript().iter().any(|(_, item)| {
+                    matches!(item, Item::Notice(Notice::SubmissionUnconfirmed(_)))
+                }),
+                "a read sent before the gap cannot settle recovery"
+            );
+
+            run(
+                &mut app,
+                AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnecting)),
+            );
+            let history = reattach(&mut app);
+            let fx = reply_history(&mut app, history, Some(client_id));
+            assert_eq!(started_texts(&fx), ["follow-up"]);
+            assert!(thread(&app).queue().is_empty());
         }
     }
 }

@@ -1727,7 +1727,13 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     fx,
                 );
                 if reconcile {
-                    fetch_history(app, &thread, fx);
+                    request_history(
+                        app,
+                        &thread,
+                        None,
+                        agents::HistoryRead::SubmissionRecovery,
+                        fx,
+                    );
                 }
             }
         }
@@ -2247,7 +2253,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                         fx,
                     );
                     apply_thread(app, &thread, threads::history_page_of(&resumed), fx);
-                    if app
+                    let read = if app
                         .threads
                         .get(&thread)
                         .is_some_and(|model| model.reconciling_submissions())
@@ -2261,8 +2267,11 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                             },
                             fx,
                         );
-                    }
-                    fetch_history(app, &thread, fx);
+                        agents::HistoryRead::SubmissionRecovery
+                    } else {
+                        agents::HistoryRead::Latest
+                    };
+                    request_history(app, &thread, None, read, fx);
                 }
             }
             AppCtx::Worktree { backend, step } => step.advance(app, backend, answer, fx),
@@ -2511,7 +2520,13 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                     AppCtx::Agents(agents::Ctx::History { thread, .. }) if thread == id.as_str())
                 })
             {
-                request_history(app, &id, Some(cursor.to_owned()), fx);
+                request_history(
+                    app,
+                    &id,
+                    Some(cursor.to_owned()),
+                    agents::HistoryRead::Older,
+                    fx,
+                );
             }
         }
         Intent::OpenThread(id) => {
@@ -3039,12 +3054,17 @@ fn set_open_cancelled(app: &mut CodexApp, id: &ThreadId, value: bool) -> bool {
 }
 
 fn fetch_history(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) {
-    request_history(app, id, None, fx);
+    request_history(app, id, None, agents::HistoryRead::Latest, fx);
 }
 
-fn request_history(app: &mut CodexApp, id: &ThreadId, cursor: Option<String>, fx: &mut AppFx) {
-    let latest = cursor.is_none();
-    if !latest {
+fn request_history(
+    app: &mut CodexApp,
+    id: &ThreadId,
+    cursor: Option<String>,
+    read: agents::HistoryRead,
+    fx: &mut AppFx,
+) {
+    if read == agents::HistoryRead::Older {
         apply_thread(app, id, ThreadEv::HistoryRequested, fx);
     }
     send_agents(
@@ -3056,7 +3076,7 @@ fn request_history(app: &mut CodexApp, id: &ThreadId, cursor: Option<String>, fx
             }),
             ctx: agents::Ctx::History {
                 thread: id.to_string(),
-                latest,
+                read,
             },
         }],
         fx,
@@ -3124,6 +3144,7 @@ fn provider_refusal(app: &mut CodexApp, thread: &ThreadId, error: &RpcError, fx:
 
 /// The reply of an app-scoped screen RPC.
 fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut AppFx) {
+    let mut recovery_history = None;
     let result = match answer {
         Answer::Screen(ScreenReply::Agents(reply)) => Ok(reply),
         Answer::Failed(error) => Err(error),
@@ -3159,6 +3180,9 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
                 .threads
                 .get(&id)
                 .is_some_and(|model| model.reconciling_submissions());
+            if reconciling {
+                recovery_history = Some(id.clone());
+            }
             apply_thread(
                 app,
                 &id,
@@ -3194,7 +3218,11 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
             .entry(ThreadId::new(thread))
             .or_default() += 1;
     }
-    if let agents::Ctx::History { thread, latest } = &ctx {
+    if let agents::Ctx::History {
+        thread,
+        read: purpose,
+    } = &ctx
+    {
         let thread = ThreadId::new(thread);
         let read = if let Ok(agents::Reply::History { turns, next }) = &result {
             apply_thread(app, &thread, threads::history_page(turns, next.clone()), fx);
@@ -3203,7 +3231,7 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
             apply_thread(app, &thread, ThreadEv::HistoryFailed, fx);
             false
         };
-        if *latest
+        if *purpose == agents::HistoryRead::SubmissionRecovery
             && app.threads.get(&thread).is_some_and(|model| {
                 model.has_writer() && !model.stream_lost() && model.reconciling_submissions()
             })
@@ -3219,12 +3247,22 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
             );
         }
     }
-    let outs = agents::apply_answer(
+    let mut outs = agents::apply_answer(
         &mut Rc::make_mut(&mut app.screens).agents,
         app.threads.previews_mut(),
         ctx,
         result,
     );
+    if let Some(id) = recovery_history {
+        for out in &mut outs {
+            if let agents::Ctx::History { thread, read } = &mut out.ctx
+                && thread == id.as_str()
+                && *read == agents::HistoryRead::Latest
+            {
+                *read = agents::HistoryRead::SubmissionRecovery;
+            }
+        }
+    }
     send_agents(app, outs, fx);
 }
 
@@ -3412,8 +3450,10 @@ fn stream_lost(
             // A read sent before the gap cannot settle recovery across it.
             app.outgoing.retain(|ctx| {
                 !matches!(
-                    ctx, AppCtx::Agents(agents::Ctx::History { thread: requested, latest: true })
-                        if requested == thread.as_str()
+                    ctx, AppCtx::Agents(agents::Ctx::History {
+                        thread: requested,
+                        read: agents::HistoryRead::Latest | agents::HistoryRead::SubmissionRecovery,
+                    }) if requested == thread.as_str()
                 )
             });
         }
