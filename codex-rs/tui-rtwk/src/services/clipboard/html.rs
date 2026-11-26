@@ -6,17 +6,14 @@
 //! remains the plain-text clipboard representation. Images render only their alt text so a paste
 //! cannot trigger remote image requests.
 
+use codex_tui_core::data::links::web_destination;
 use pulldown_cmark::Event;
 use pulldown_cmark::Options;
 use pulldown_cmark::Parser;
 use pulldown_cmark::Tag;
 use pulldown_cmark::TagEnd;
-use url::Url;
 
 use crate::pages::session::cells::markdown::lift_markdown_fences;
-
-/// The longest destination a link may carry (oracle `MAX_HYPERLINK_DESTINATION_BYTES`).
-const MAX_DESTINATION_BYTES: usize = 8 * 1024;
 
 /// `markdown` as HTML (oracle `render_markdown`): table-holding Markdown fences are unwrapped
 /// first, as the transcript shows them.
@@ -50,20 +47,6 @@ pub fn render_markdown(markdown: &str) -> String {
     let mut html = String::new();
     pulldown_cmark::html::push_html(&mut html, events);
     html
-}
-
-/// The destination without its control characters when it is an http(s) URL with a host
-/// (oracle `terminal_hyperlinks::web_destination`).
-fn web_destination(destination: &str) -> Option<String> {
-    if destination.len() > MAX_DESTINATION_BYTES {
-        return None;
-    }
-    let safe: String = destination.chars().filter(|ch| !ch.is_control()).collect();
-    let parsed = Url::parse(&safe).ok()?;
-    matches!(parsed.scheme(), "http" | "https")
-        .then(|| parsed.host_str())
-        .flatten()?;
-    Some(safe)
 }
 
 #[cfg(test)]

@@ -1424,6 +1424,7 @@ impl State for ViewportState {
         let list = thread_scope(&thread_id, list);
         let host = SelectionHost {
             child: list,
+            thread: thread_id,
             selection: widget.selection.clone(),
             follow: widget.follow.clone(),
             caret: caret.caret(),

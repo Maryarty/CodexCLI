@@ -9,21 +9,32 @@
 //! The selection is drawn state: it lives in the area and its controller, which the thread's
 //! `ThreadUi` keeps so that the page's keys can read it too (`key`).
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use rtwk::focus::{KeyCombo, KeyPress};
 use rtwk::foundation::ListenableBuilder;
 use rtwk::gestures::{Listener, PointerEvent, SelectionArea};
-use rtwk::provider::{read, watch};
-use rtwk::scroll::ScrollMetrics;
+use rtwk::navigation::Route;
+use rtwk::provider::{Provider, read, watch};
+use rtwk::scroll::{ScrollMetrics, ScrollNotification};
 use rtwk::style::{Attrs, Style};
-use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::{
+    AnyWidget, Cx, NotificationListener, Rebuild, State, StatefulWidget, impl_widget, map_static,
+};
+use rtwk_core::input::Mods;
+use rtwk_rich::markdown::MarkdownLinkTap;
 
+use codex_tui_core::app::RequestQueue;
 use codex_tui_core::app::effects::CopyStatus;
 use codex_tui_core::app::facts::TuiSettings;
+use codex_tui_core::ids::ThreadId;
 
 use super::TranscriptMode;
 use super::copy::{self, CopyJob, Shown};
 use crate::app::view::Hs;
 use crate::widgets::finder::Finder;
+use crate::widgets::markdown::LinkTaps;
 use crate::widgets::thread_ui::{Follow, TextSelection};
 
 /// The button a right click is in a `PointerEvent`.
@@ -34,6 +45,7 @@ const RIGHT_BUTTON: u8 = 2;
 #[derive(Clone, PartialEq)]
 pub(in crate::pages::session) struct SelectionHost {
     pub child: AnyWidget,
+    pub thread: ThreadId,
     pub selection: TextSelection,
     pub follow: Follow,
     /// Select mode of the thread: while only its caret is shown, the caret's cell is drawn bold
@@ -82,7 +94,9 @@ pub(in crate::pages::session) enum Msg {
     Copied(String),
     /// A press of the mouse over the transcript; the right button copies what is selected.
     Press(PointerEvent),
+    Drag(PointerEvent),
     Release(PointerEvent),
+    Link(MarkdownLinkTap),
 }
 
 #[derive(Default)]
@@ -93,6 +107,10 @@ pub(in crate::pages::session) struct HostState {
     answered: Option<u64>,
     /// Screen cell and reader position of a press that started without a range.
     empty_press: Option<PressOrigin>,
+    /// Whether the current left press can activate a semantic link when released.
+    link_press: Rc<Cell<bool>>,
+    /// The native Text callback is delivered after the pointer event's listeners.
+    link_released: bool,
 }
 
 #[derive(PartialEq, Eq)]
@@ -124,6 +142,14 @@ impl_widget!(stateful eq SelectionHost);
 impl State for HostState {
     type Widget = SelectionHost;
     type Msg = Msg;
+
+    fn did_update_widget(&mut self, old: &SelectionHost, w: &SelectionHost, _: &mut Cx<'_, Self>) {
+        if old.thread != w.thread {
+            self.empty_press = None;
+            self.link_press.set(false);
+            self.link_released = false;
+        }
+    }
 
     fn did_change_dependencies(&mut self, w: &SelectionHost, cx: &mut Cx<'_, Self>) {
         let shown = watch::<Shown, _>(cx);
@@ -165,17 +191,40 @@ impl State for HostState {
                     } else {
                         PressOrigin::capture(&w.follow, press)
                     };
+                    self.link_press.set(
+                        self.empty_press.is_some()
+                            && link_modifiers(press.modifiers)
+                            && w.links_enabled(cx),
+                    );
+                    self.link_released = false;
                 }
                 w.find.pressed();
                 return Rebuild::No;
             }
+            Msg::Drag(pointer) => {
+                if pointer.button == 0 {
+                    self.link_press.set(false);
+                }
+                return Rebuild::No;
+            }
             Msg::Release(release) => {
-                if release.button == 0
-                    && let Some(origin) = self.empty_press.take()
-                    && PressOrigin::capture(&w.follow, release) == Some(origin)
-                    && w.selection.controller().has_selection()
-                {
-                    w.selection.controller().clear();
+                if release.button == 0 {
+                    let at_origin = self.empty_press.take().is_some_and(|origin| {
+                        PressOrigin::capture(&w.follow, release) == Some(origin)
+                    });
+                    self.link_released = self.link_press.replace(false)
+                        && at_origin
+                        && link_modifiers(release.modifiers)
+                        && w.links_enabled(cx);
+                    if at_origin && w.selection.controller().has_selection() {
+                        w.selection.controller().clear();
+                    }
+                }
+                return Rebuild::No;
+            }
+            Msg::Link(link) => {
+                if std::mem::take(&mut self.link_released) && w.links_enabled(cx) {
+                    crate::features::open_transcript_link(cx, w.thread.clone(), link.destination);
                 }
                 return Rebuild::No;
             }
@@ -201,8 +250,19 @@ impl State for HostState {
         // returned to its origin has an empty range in the oracle, so clear it before copy on
         // release. Presses that selected a word or line keep what their unit selected.
         let child = Listener::new()
-            .on_pointer_up(cx.map(Msg::Release))
+            .on_pointer_up(map_static!(cx, PointerEvent => Msg, Msg::Release))
             .child(w.child.clone());
+        // A wheel gesture cancels a possible activation even at the scroll limit.
+        let pressed = self.link_press.clone();
+        let child =
+            NotificationListener::<ScrollNotification>::new(child).on_notification(move |_| {
+                pressed.set(false);
+                false
+            });
+        let child: AnyWidget =
+            Provider::value(LinkTaps(map_static!(cx, MarkdownLinkTap => Msg, Msg::Link)))
+                .child(child)
+                .into();
         let controller = w.selection.controller();
         let copy_on_select = settings.copy_on_select;
         let (find, on_copy) = (w.find.clone(), cx.map(Msg::Copied));
@@ -225,9 +285,31 @@ impl State for HostState {
             }
         });
         Listener::new()
-            .on_pointer_down(cx.map(Msg::Press))
+            .on_pointer_down(map_static!(cx, PointerEvent => Msg, Msg::Press))
+            .on_pointer_move(map_static!(cx, PointerEvent => Msg, Msg::Drag))
             .child(area)
             .into()
+    }
+}
+
+fn link_modifiers(modifiers: Mods) -> bool {
+    modifiers.is_empty() || modifiers.contains(Mods::CTRL) || modifiers.contains(Mods::SUPER)
+}
+
+impl SelectionHost {
+    fn links_enabled(&self, cx: &mut Cx<'_, HostState>) -> bool {
+        let select = super::select::of(&self.find);
+        Route::is_current_of(cx)
+            && !self.find.active()
+            && !select.active()
+            && !select.extending()
+            && !copy::mode_of(&self.find).active()
+            && !Provider::<RequestQueue>::maybe_of(cx, false).is_some_and(|queue| {
+                queue
+                    .entries
+                    .iter()
+                    .any(|entry| entry.key.thread == self.thread)
+            })
     }
 }
 

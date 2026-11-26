@@ -4,8 +4,9 @@
 
 use super::*;
 use crate::app::effects::{Ask, CopyStatus, is_feature_request};
-use crate::app::{AppEv, apply_app};
-use crate::features::goal;
+use crate::app::{AppEv, Intent, apply_app};
+use crate::features::{FeatureNote, goal, transcript_links};
+use crate::threads::{Item, Origin};
 
 fn ctx() -> FeatureCtx {
     FeatureCtx::Goal(goal::Ctx {
@@ -80,4 +81,82 @@ fn a_screens_host_ask_is_still_kept_for_the_screen() {
         app.effect(5),
         Some(&Done::ClipboardText(Ok("text".to_owned())))
     );
+}
+
+#[test]
+fn browser_failure_belongs_to_the_source_thread_even_after_switching() {
+    let first = ThreadId::new("first");
+    let next = ThreadId::new("next");
+    let url = "https://example.org/guide";
+    let mut app = CodexApp::new();
+    app.threads.open(&first, Origin::Resumed);
+    app.threads.open(&next, Origin::Resumed);
+
+    let click = |app: &mut CodexApp| {
+        let mut fx = AppFx::default();
+        apply_app(
+            app,
+            AppEv::Intent(Intent::Feature(
+                transcript_links::Intent {
+                    thread: first.clone(),
+                    url: url.into(),
+                }
+                .into(),
+            )),
+            &mut fx,
+        );
+        let [
+            Command::Effect {
+                request,
+                ask: Ask::OpenUrl { url: opened },
+            },
+        ] = fx.commands()
+        else {
+            panic!("expected one browser effect");
+        };
+        assert_eq!(opened, url);
+        *request
+    };
+    let has_failure = |app: &CodexApp, id: &ThreadId| {
+        app.thread(id).is_some_and(|thread| {
+            thread.transcript().iter().any(|(_, item)| {
+                matches!(
+                    item,
+                    Item::Note(note)
+                        if matches!(&note.key, NoteKey::Feature(FeatureNote::TranscriptLinks(failure))
+                            if failure.url == url && failure.error == "browser unavailable")
+                )
+            })
+        })
+    };
+    let fail = |app: &mut CodexApp, request| {
+        answer(
+            app,
+            request,
+            Done::Opened(Err("browser unavailable".into())),
+        );
+    };
+
+    let show_thread = |app: &mut CodexApp, id: &ThreadId| {
+        apply_app(
+            app,
+            AppEv::Intent(Intent::OpenThread(id.clone())),
+            &mut AppFx::default(),
+        );
+        assert_eq!(app.session().active.as_ref(), Some(id));
+    };
+
+    show_thread(&mut app, &first);
+    let switched = click(&mut app);
+    let closed = click(&mut app);
+    show_thread(&mut app, &next);
+    fail(&mut app, switched);
+    assert!(has_failure(&app, &first));
+    assert!(!has_failure(&app, &next));
+
+    app.threads.forget(&first);
+    let chat_notes = app.screens().chat.notes.clone();
+    fail(&mut app, closed);
+    assert_eq!(app.screens().chat.notes, chat_notes);
+    assert!(!has_failure(&app, &next));
 }

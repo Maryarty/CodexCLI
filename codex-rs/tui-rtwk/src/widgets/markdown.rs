@@ -17,13 +17,18 @@ mod inlines;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
+use rtwk::provider::Provider;
+use rtwk::{AnyWidget, Cx, Handler, State, StatefulWidget, impl_widget};
 use rtwk_rich::markdown::{
-    Block, Definitions, LinkDestinations, MarkdownStream, MarkdownTheme, MarkdownView, MdBlock,
-    MdInline, MdList, MdListItem,
+    Block, Definitions, LinkDestinations, MarkdownLinkTap, MarkdownStream, MarkdownTheme,
+    MarkdownView, MdBlock, MdInline, MdList, MdListItem,
 };
 
 use codex_tui_core::data::links::LinkDisplay;
+
+/// A reader's optional activation handler for the links it draws.
+#[derive(Clone, PartialEq)]
+pub(crate) struct LinkTaps(pub Handler<MarkdownLinkTap>);
 
 /// A `MarkdownView` of `source` as the oracle draws it, local file links shown as written.
 pub fn view(source: &str) -> MarkdownView {
@@ -87,13 +92,17 @@ impl State for MarkdownState {
         // Only a web address is a hyperlink, as the oracle's `web_destination` has it: a
         // `mailto:` link shows its destination and is no hyperlink.
         let schemes = BTreeSet::from(["http".to_string(), "https".to_string()]);
-        widget
+        let markdown = widget
             .view
             .clone()
             .theme(widget.theme.clone())
             .hyperlink_schemes(schemes)
-            .link_destinations(destinations)
-            .into()
+            .link_destinations(destinations);
+        if let Some(taps) = Provider::<LinkTaps>::maybe_of(cx, true) {
+            markdown.on_link_tap(taps.0.clone()).into()
+        } else {
+            markdown.into()
+        }
     }
 }
 
