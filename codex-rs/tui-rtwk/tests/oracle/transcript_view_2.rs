@@ -8,19 +8,62 @@
 
 use crate::kit::{self, Owner, Screen};
 
+/// The oracle's tests of copy mode draw the transcript view alone; the port's screen is the whole
+/// chat, whose composer (3 rows) and footer (2) and the `Worked for` rows of its turns share the
+/// height. A shard's height is the oracle's plus these, and its rows are read by offset from the
+/// first row of the content, not by absolute row, except where the row is the claim.
+const CHROME: u16 = 7;
+// The footer of copy mode is drawn in the chat's gutter, two columns in: the 50-column hints line
+// of the oracle (`↑/↓/j/k select · g/G ends · enter copy · esc close`) needs 52 where a test reads it.
+
+/// A chat that owns its transcript (`tui.fullscreen_transcript`) over `fixture`, `width` columns
+/// and the oracle's `height` rows of view.
+fn chat(fixture: &'static str, width: u16, height: u16) -> Screen {
+    Screen::build(Owner::ChatLive)
+        .size(width, height + CHROME)
+        .owned_transcript()
+        .script(fixture)
+        .open()
+}
+
+/// `begin_copy_mode`: `/copy` on the owned transcript.
+fn begin_copy_mode(s: &mut Screen) {
+    s.type_text("/copy").keys("enter");
+}
+
+/// The oracle's `#` mask: every cell of the `rows` below `top` (in `width` columns) is reversed,
+/// the other rows of `0..all` are not.
+fn assert_block(s: &Screen, top: usize, width: usize, rows: std::ops::Range<usize>, all: usize) {
+    for row in 0..all {
+        let spec = if rows.contains(&row) {
+            "reversed"
+        } else {
+            "!reversed"
+        };
+        for x in 0..width {
+            s.assert_style(x, top + row, spec);
+        }
+    }
+}
+
 // ---- oracle: transcript_view/copy_mode_tests.rs (20 screen-level tests here; 1 state test left to chat-live)
 // ORACLE transcript_view/copy_mode_tests.rs:28 navigate_copy_resize_and_exit kind=snap owner=chat-live
 #[test]
 fn navigate_copy_resize_and_exit() {
     kit::pending(
         Owner::ChatLive,
-        "the chat's transcript has no copy mode: the copy-target cursor, its highlight and its footer (copy_mode.rs) are not built",
+        "G-new-usage-2: the pinned prompt header (the oracle's first row `› User text > user quote ``` user code ````, transcript_view/prompt_header.rs) is not drawn: the chat's list has no `visible_range()` to say which prompt scrolled off; copy mode, its footer and its keys are built",
     );
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(50, 8)
-        .script(include_str!("fixtures/transcript_view_2/copy_nav.jsonl"))
-        .open();
-    // the oracle: begin_copy_mode, then Up five times to the plan; the copy target sits on the plan
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/copy_nav.jsonl"),
+        50,
+        8,
+    );
+    begin_copy_mode(&mut s);
+    // the oracle: Up seven times (the code, the quote, the prompt's code and quote, the prompt
+    // as a whole, the old code, and the old code again: the oldest stays), Down five times
+    s.keys("up up up up up up up");
+    s.keys("down down down down down");
     s.assert_in_order(&[
         "› User text > user quote ``` user code ```",
         "Latest plan",
@@ -29,100 +72,122 @@ fn navigate_copy_resize_and_exit() {
     ]);
     s.assert_contains("Copy code block");
     s.assert_contains("↑/↓/j/k select · g/G ends · enter copy · esc close");
-    // the oracle resizes to 14 columns; the copy payload checks are not drawn
-    s.resize(14, 8);
-    s.assert_contains("assistant code");
+    s.resize(14, 8 + CHROME);
+    s.keys("enter");
+    s.assert_copy_asked("assistant code\n");
 }
 
 // ORACLE transcript_view/copy_mode_tests.rs:131 copy_reveals_offscreen_block_with_context kind=snap owner=chat-live
 #[test]
 fn copy_reveals_offscreen_block_with_context() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no copy mode: moving the copy target above the scrolled-off block does not reveal it (copy_mode.rs)",
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/copy_tall.jsonl"),
+        50,
+        5,
     );
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(50, 5)
-        .script(include_str!("fixtures/transcript_view_2/copy_tall.jsonl"))
-        .open();
     s.wheel_up(0, 0, 5);
-    // the oracle: begin_copy_mode, then Up once; the reveal scrolls the last code block into view
+    begin_copy_mode(&mut s);
+    s.keys("up");
+    // the reveal scrolls the last code block into view, with its context above
     s.assert_in_order(&["line", "line", "", "last code"]);
+    s.assert_text_style("last code", "reversed");
 }
 
 // ORACLE transcript_view/copy_mode_tests.rs:153 user_messages_support_vim_navigation_without_an_assistant_response kind=snap owner=chat-live
 #[test]
 fn user_messages_support_vim_navigation_without_an_assistant_response() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no copy mode for user messages: the vim keys (k j g G) and the copy footer are not built",
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/user_vim.jsonl"),
+        52,
+        14,
     );
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(50, 8)
-        .script(include_str!("fixtures/transcript_view_2/user_vim.jsonl"))
-        .open();
-    // the oracle: begin_copy_mode selects the last prompt; `k` moves to the first, `g`/`G` jump to the ends
-    s.keys("k j g G g G");
+    // no response to copy: the last prompt is the target
+    begin_copy_mode(&mut s);
+    s.assert_text_style("Plain prompt with wrapping", "reversed");
+    s.assert_text_style("First user message", "!reversed");
+    // `k` to the first prompt, `j` back, `g`/`G` to the ends (twice: they stay)
+    s.keys("k");
+    s.assert_text_style("First user message", "reversed");
+    s.keys("j");
+    s.assert_text_style("Plain prompt with wrapping", "reversed");
+    s.keys("g");
+    s.assert_text_style("First user message", "reversed");
+    s.keys("shift+g");
+    s.assert_text_style("Plain prompt with wrapping", "reversed");
+    s.keys("g");
+    s.assert_text_style("First user message", "reversed");
+    s.keys("shift+g");
+    s.assert_text_style("Plain prompt with wrapping", "reversed");
     s.assert_contains("Copy user message");
     s.assert_contains("↑/↓/j/k select · g/G ends · enter copy · esc close");
+    // the payload of the last prompt is its source, as typed
+    s.keys("enter");
+    s.assert_copy_asked("\nPlain prompt with wrapping\n\n");
 }
 
 // ORACLE transcript_view/copy_mode_tests.rs:192 marker_only_prompt_is_a_copy_target kind=snap owner=chat-live
 #[test]
 fn marker_only_prompt_is_a_copy_target() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no copy mode: a marker-only prompt (`8.`) as a copy target and its footer are not built",
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/marker.jsonl"),
+        52,
+        8,
     );
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(50, 8)
-        .script(include_str!("fixtures/transcript_view_2/marker.jsonl"))
-        .open();
+    begin_copy_mode(&mut s);
     s.keys("up");
     s.assert_contains("Copy user message");
     s.assert_contains("↑/↓/j/k select · g/G ends · enter copy · esc close");
-    // the oracle: enter copies `8.`; the copied text is clipboard payload, not drawn
+    s.keys("enter");
+    s.assert_copy_asked("8.");
 }
 
 // ORACLE transcript_view/copy_mode_tests.rs:231 copy_highlight_fills_a_block_across_blank_and_wrapped_rows kind=snap owner=chat-live snap=copy_highlight_fills_a_block_across_blank_and_wrapped_rows
 #[test]
 fn copy_highlight_fills_a_block_across_blank_and_wrapped_rows() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no copy-mode highlight of a code block across blank and wrapped rows; the oracle's snapshot is a per-cell mask (`#` selected) that assert_snap cannot read, the port needs assert_style per row",
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/highlight_blank.jsonl"),
+        16,
+        12,
     );
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(16, 12)
-        .script(include_str!(
-            "fixtures/transcript_view_2/highlight_blank.jsonl"
-        ))
-        .open();
-    // the oracle: begin_copy_mode, Up once; the block is highlighted at width 16 and width 8
-    s.assert_contains("longer line");
-    s.assert_text_style("longer line", "reversed");
-    s.resize(8, 12);
-    s.assert_contains("longer");
+    begin_copy_mode(&mut s);
+    s.keys("up");
+    // the block is `longer line`, a blank row and `x`: every cell of its rows is the selection's,
+    // blank and wrapped rows included, at 16 columns and at 8 (the oracle's `#` mask)
+    let top = s.row_of("Before");
+    assert_block(&s, top, 16, 2..5, 7);
+    // the oracle's 8 columns are the renderer's: the chat's gutter and free column come on top,
+    // and "Worked for" wraps, which takes rows
+    s.resize(8 + 3, 12 + CHROME + 6);
+    let top = s.row_of("Before");
+    assert_block(&s, top, 11, 2..6, 8);
+    s.keys("enter");
+    s.assert_copy_asked("longer line\n\nx\n");
 }
 
 // ORACLE transcript_view/copy_mode_tests.rs:269 whole_user_turn_highlight_includes_bottom_padding kind=snap owner=chat-live snap=whole_user_turn_highlight_includes_bottom_padding
 #[test]
 fn whole_user_turn_highlight_includes_bottom_padding() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no copy-mode highlight of a whole user turn with its bottom padding; the oracle's snapshot is a per-cell mask that assert_snap cannot read",
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/user_short.jsonl"),
+        20,
+        8,
     );
-    let s = Screen::build(Owner::ChatLive)
-        .size(20, 4)
-        .script(include_str!("fixtures/transcript_view_2/user_short.jsonl"))
-        .open();
-    // the oracle: begin_copy_mode; the padding rows below the prompt are highlighted as well
-    s.assert_contains("Short prompt");
-    s.assert_text_style("Short prompt", "reversed");
-    let long = Screen::build(Owner::ChatLive)
-        .size(10, 8)
-        .script(include_str!("fixtures/transcript_view_2/user_longer.jsonl"))
-        .open();
-    long.assert_contains("Longer");
+    begin_copy_mode(&mut s);
+    // the whole turn is the target: the padding rows above and below the prompt are the selection's
+    let pad = s.row_of("Short prompt") - 1;
+    assert_block(&s, pad, 20, 0..3, 4);
+    s.keys("enter");
+    s.assert_copy_asked("Short prompt");
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/user_longer.jsonl"),
+        10,
+        12,
+    );
+    begin_copy_mode(&mut s);
+    let pad = s.row_of("Longer") - 1;
+    assert_block(&s, pad, 10, 0..6, 8);
+    s.keys("enter");
+    s.assert_copy_asked("Longer message\n\nlast");
 }
 
 // ORACLE transcript_view/copy_mode_tests.rs:309 rendered_mermaid_copies_source kind=ui owner=chat-live
@@ -130,14 +195,18 @@ fn whole_user_turn_highlight_includes_bottom_padding() {
 fn rendered_mermaid_copies_source() {
     kit::pending(
         Owner::ChatLive,
-        "the chat's transcript has no copy mode: the mermaid block is not drawn as its source on screen (the copy payload is not visible)",
+        "G62: the chat draws the mermaid fence as code (`• graph LR` / `A --> B`) where the oracle draws the diagram, so `graph LR` is on screen; the copy half works (`up`, `enter` copy `graph LR\\nA --> B\\n`)",
     );
-    let s = Screen::build(Owner::ChatLive)
-        .size(50, 8)
-        .script(include_str!("fixtures/transcript_view_2/mermaid.jsonl"))
-        .open();
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/mermaid.jsonl"),
+        50,
+        8,
+    );
     s.assert_absent("graph LR");
-    // the oracle: begin_copy_mode, Up; the payload `graph LR\nA --> B` is clipboard, not drawn
+    begin_copy_mode(&mut s);
+    s.keys("up");
+    s.keys("enter");
+    s.assert_copy_asked("graph LR\nA --> B\n");
 }
 
 // ORACLE transcript_view/copy_mode_tests.rs:323 copy_source_survives_raw_rich_rendering_and_whitespace_normalization kind=ui owner=chat-live
@@ -242,17 +311,19 @@ fn source_targets_survive_quotes_lists_and_rendered_tables() {
 // ORACLE transcript_view/copy_mode_tests.rs:641 rendered_fenced_table_has_a_block_highlight kind=snap owner=chat-live snap=rendered_fenced_table_has_a_block_highlight
 #[test]
 fn rendered_fenced_table_has_a_block_highlight() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no copy-mode block highlight of a fenced md table; the oracle's snapshot marks rows `selected` by style, which assert_snap cannot read",
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/table_block.jsonl"),
+        30,
+        10,
     );
-    let s = Screen::build(Owner::ChatLive)
-        .size(30, 10)
-        .script(include_str!("fixtures/transcript_view_2/table_block.jsonl"))
-        .open();
-    // the oracle: begin_copy_mode, Up once; the fenced table's rows carry the selection style
-    s.assert_in_order(&["Before", "| A | B |", "| x | y |", "After"]);
-    s.assert_text_style("| x | y |", "reversed");
+    begin_copy_mode(&mut s);
+    s.keys("up");
+    // the table is drawn by rtwk's table (`A │ B`, `──┼──`), not the oracle's `A   B`, `━━━━━`:
+    // a table-look difference no snapshot can compare; the claim is the block fill: the three
+    // rows of the table are the selection's in every cell, the rows around are not
+    s.assert_in_order(&["Before", "A", "x", "After"]);
+    let top = s.row_of("Before");
+    assert_block(&s, top, 30, 2..5, 7);
 }
 
 // ORACLE transcript_view/copy_mode_tests.rs:677 copy_navigation_leaves_context_and_preserves_the_center_band kind=snap owner=chat-live snap=copy_navigation_leaves_context_and_preserves_the_center_band
@@ -260,31 +331,45 @@ fn rendered_fenced_table_has_a_block_highlight() {
 fn copy_navigation_leaves_context_and_preserves_the_center_band() {
     kit::pending(
         Owner::ChatLive,
-        "the chat's transcript has no copy mode: the copy target, the reveal of its context and the centre band (copy_mode.rs) are not built",
+        "G-new-sel-reveal: the list reveals the item only (`ensure_index_visible`), not a row inside the one tall message: after `up up down` the screen ends at `Context 11` and `second target` is off it; the oracle's target sits on rows 11, 4, 11",
     );
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(50, 16)
-        .script(include_str!("fixtures/transcript_view_2/context.jsonl"))
-        .open();
-    // the oracle: begin_copy_mode, Up, Up, Down; the selected block moves to rows 11, 4, 11
-    s.keys("up up down");
-    s.assert_snap("copy_navigation_leaves_context_and_preserves_the_center_band");
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/context.jsonl"),
+        50,
+        16,
+    );
+    begin_copy_mode(&mut s);
+    // the oracle: Up, Up, Down; the selected block's row is 11, 4, 11 of the 16
+    s.keys("up");
+    s.assert_text_at(2, 11, "second target");
+    s.assert_text_style("second target", "reversed");
+    s.keys("up");
+    s.assert_text_at(2, 4, "first target");
+    s.assert_text_style("first target", "reversed");
+    s.keys("down");
+    s.assert_text_at(2, 11, "second target");
+    s.assert_text_style("second target", "reversed");
 }
 
 // ORACLE transcript_view/copy_mode_tests.rs:721 copy_resize_keeps_whole_user_padding_inside_context kind=snap owner=chat-live snap=copy_resize_keeps_whole_user_padding_inside_context
 #[test]
 fn copy_resize_keeps_whole_user_padding_inside_context() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no copy selection of a whole user prompt (select_copy_range) and no resize-stable padding inside the context",
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/resize.jsonl"),
+        50,
+        20,
     );
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(50, 20)
-        .script(include_str!("fixtures/transcript_view_2/resize.jsonl"))
-        .open();
-    // the oracle: select the whole prompt `One..Six`, then resize to 10 rows; the selected rows sit inside the context
-    s.resize(50, 10);
-    s.assert_snap("copy_resize_keeps_whole_user_padding_inside_context");
+    begin_copy_mode(&mut s);
+    // the whole prompt `One..Six`: the last response, then the prompt before it
+    s.keys("up");
+    s.assert_contains("One");
+    s.assert_contains("Six");
+    s.resize(50, 10 + CHROME);
+    // the prompt and its padding rows are the selection's, with a row of context above and below
+    s.assert_contains("One");
+    s.assert_contains("Six");
+    let pad = s.row_of("One") - 1;
+    assert_block(&s, pad.saturating_sub(1), 50, 1..9, 10);
 }
 
 // ORACLE transcript_view/copy_mode_tests.rs:772 copy_navigation_keeps_bottom_context_when_prompt_header_appears kind=ui owner=chat-live
@@ -292,15 +377,18 @@ fn copy_resize_keeps_whole_user_padding_inside_context() {
 fn copy_navigation_keeps_bottom_context_when_prompt_header_appears() {
     kit::pending(
         Owner::ChatLive,
-        "the chat's transcript has no copy mode: Home and Down move the copy target, and the prompt header appearing keeps the target at row 5",
+        "G-new-usage-2: the pinned prompt header (`› First prompt`) that appears when the first prompt scrolls off is not drawn, so `echo target` is not on the row the oracle keeps (5 of 7, the context below it kept)",
     );
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(50, 7)
-        .script(include_str!("fixtures/transcript_view_2/header.jsonl"))
-        .open();
-    // the oracle: begin_copy_mode, Home, Down; `echo target` is on row 5 and the screen stays put
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/header.jsonl"),
+        50,
+        7,
+    );
+    begin_copy_mode(&mut s);
+    // the oracle: Home, Down; the target is on row 5 and the screen stays put
     s.keys("home down");
-    s.assert_contains("echo target");
+    s.assert_text_at(0, 0, "› First prompt");
+    s.assert_text_at(2, 5, "echo target");
 }
 
 // ---- oracle: transcript_view/copy_on_select_tests.rs (4 screen-level tests here; 0 state tests left to chat-live)

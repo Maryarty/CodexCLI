@@ -21,6 +21,7 @@ use codex_tui_core::screens::select::Intent as SelectIntent;
 use codex_tui_core::screens::transcript::Intent as TranscriptIntent;
 
 use crate::app::UiApp;
+use crate::features::InPlace;
 
 /// What the presenter keeps: plain data, UI-only (`UiApp.ui`).
 #[derive(Default)]
@@ -128,11 +129,18 @@ fn present_wishes(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
         // holds the keys (`FeatureView::in_place`)
         if app.core.tui().transcript_owned
             && let Scope::Thread(thread) = &scope
-            && crate::features::in_place(&wish, &app.ui.thread_ui.get(Some(thread)))
         {
-            app.ui.presenters.taken = seq;
-            app.send(AppEv::Intent(Intent::WishShown(seq)));
-            continue;
+            match crate::features::in_place(&wish, &app.ui.thread_ui.get(Some(thread))) {
+                InPlace::Not => {}
+                taken => {
+                    app.ui.presenters.taken = seq;
+                    app.send(AppEv::Intent(Intent::WishShown(seq)));
+                    if let InPlace::Declined(intent) = taken {
+                        app.send(AppEv::Intent(Intent::Feature(intent)));
+                    }
+                    continue;
+                }
+            }
         }
         if let Some(shown) = shown
             && shown

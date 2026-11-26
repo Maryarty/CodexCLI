@@ -17,7 +17,7 @@ use codex_tui_core::features::copy::{
 };
 use codex_tui_core::keymap::actions::GLOBAL_COPY;
 
-use super::{FeatureAction, FeatureView, Shown};
+use super::{FeatureAction, FeatureView, InPlace, Shown};
 use crate::pages::session::strings::Strings as SessionStrings;
 use crate::pages::session::transcript::copy as copy_mode;
 use crate::widgets::thread_ui::ThreadUi;
@@ -57,14 +57,26 @@ fn pieces(source: &str) -> Vec<copy_mode::Piece> {
 
 impl FeatureView for Copier {
     /// On the chat's own transcript `/copy` is copy mode, not the picker.
-    fn in_place(_wish: &Wish, ui: &ThreadUi) -> bool {
-        begins_mode(ui)
+    fn in_place(wish: &Wish, ui: &ThreadUi) -> InPlace<Intent> {
+        if begins_mode(ui) {
+            return InPlace::Took;
+        }
+        match wish {
+            // Find or another mode holds the keys: the oracle's `Nothing to copy`
+            Wish::Mode { thread } => InPlace::Declined(Intent::Nothing {
+                thread: thread.clone(),
+            }),
+            Wish::Picker { .. } => InPlace::Not,
+        }
     }
 
     /// The picker opens once for the wish, at the bottom of the chat; nothing keeps a scope's sheet
-    /// open for it.
+    /// open for it. `Wish::Mode` has no sheet: the mode began in place or the presenter says it
+    /// could not (`Intent::Nothing`).
     fn shown(wish: &Wish, _scope: &Scope) -> Option<Shown> {
-        let Wish::Picker { response, .. } = wish.clone();
+        let Wish::Picker { response, .. } = wish.clone() else {
+            return None;
+        };
         Some(Shown {
             held_by: None,
             open: Rc::new(move || -> AnyWidget {

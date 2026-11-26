@@ -1190,6 +1190,7 @@ impl State for ViewportState {
                 return header.clone();
             }
             let row = &rows[index - usize::from(header.is_some())];
+            let listed = index;
             let range = &row.range;
             let index = range.start;
             let transcript = thread.transcript();
@@ -1213,6 +1214,7 @@ impl State for ViewportState {
                     })
                 },
                 highlighted: marked.as_ref() == Some(key),
+                fill: copier.fill_of(listed),
                 streaming: transcript.is_agent_streaming(key),
                 rest: (index + 1..range.end)
                     .filter_map(|index| match transcript.get(index) {

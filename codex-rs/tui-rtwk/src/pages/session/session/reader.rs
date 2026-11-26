@@ -28,7 +28,13 @@ pub(super) fn selected(w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs, key: Selec
         selection.clear();
         return;
     }
-    let text = selection.text();
+    let mut text = selection.text();
+    // a target the mode filled is not selected: what Enter kept is its text
+    if text.is_empty()
+        && let Some(kept) = copy::mode_of(&w.ui.find).kept()
+    {
+        text = kept;
+    }
     if !text.is_empty() {
         // a copy mode that ended on Enter keeps what its target copies as is (a response's
         // Markdown source, a code block): the copy of the selection it left is that

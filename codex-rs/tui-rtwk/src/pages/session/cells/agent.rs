@@ -14,6 +14,8 @@ use rtwk::style::Style;
 use rtwk::widgets::Text;
 use rtwk_rich::markdown::MarkdownTheme;
 
+use crate::pages::session::transcript::copy::Fill;
+
 use super::citation;
 use super::dispatch::{CellEnv, Place, below};
 use super::strings::Strings;
@@ -31,6 +33,42 @@ pub struct Look<'a> {
 /// The cell of an assistant message; `live` while it streams, `cwd` the
 /// session's directory (file directives read against it).
 pub fn message(source: &str, live: bool, cwd: Option<&str>, look: &Look<'_>) -> AnyWidget {
+    message_filled(source, live, cwd, look, None)
+}
+
+/// `message` with the top-level block `fill` of its Markdown filled: every cell of the rows of
+/// the copy mode's target block is reversed, the blank rows inside it and the gutter too (the
+/// oracle's highlight).
+///
+/// Flutter: a `Column` of three `MarkdownBody`s (the blocks before, the block, the blocks after)
+/// with the one blank row the blocks of a document have between them, the middle one in a
+/// `DecoratedBox` of the full width. The text model does not change: the same nodes, the same
+/// separators.
+pub fn message_filled(
+    source: &str,
+    live: bool,
+    cwd: Option<&str>,
+    look: &Look<'_>,
+    fill: Option<usize>,
+) -> AnyWidget {
+    match fill {
+        Some(block) => citation::cited_filled(
+            source,
+            live,
+            cwd,
+            look.cells,
+            look.markdown.clone(),
+            citation::Filled {
+                block,
+                bullet: look.bullet.to_owned(),
+                bullet_style: look.bullet_style.clone(),
+            },
+        ),
+        None => plain(source, live, cwd, look),
+    }
+}
+
+fn plain(source: &str, live: bool, cwd: Option<&str>, look: &Look<'_>) -> AnyWidget {
     let markdown = citation::cited(source, live, cwd, look.cells, look.markdown.clone());
     Row::new()
         .cross_axis_alignment(CrossAxisAlignment::Start)
@@ -56,7 +94,7 @@ pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
     };
     below(
         place.separator,
-        message(
+        message_filled(
             text,
             place.streaming,
             env.cwd,
@@ -65,6 +103,10 @@ pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
                 bullet_style: env.bullet_style.clone(),
                 markdown: env.markdown,
                 cells: env.cells,
+            },
+            match place.fill {
+                Some(Fill::Block(block)) => Some(block),
+                _ => None,
             },
         ),
     )

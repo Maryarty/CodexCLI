@@ -124,6 +124,17 @@ pub enum PageKey {
     Quit,
 }
 
+/// What `FeatureView::in_place` says of a wish.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InPlace<I> {
+    /// A wish for a sheet: the presenter shows it.
+    Not,
+    /// The surface took the wish: no sheet.
+    Took,
+    /// The wish needs no sheet and could not be taken: the feature's intent answers it.
+    Declined(I),
+}
+
 /// What the view of a feature says: the words of its notes, and how it shows its wishes.
 pub trait FeatureView: Feature {
     /// How one of the feature's wishes is shown; none for a feature that has no wishes.
@@ -132,10 +143,11 @@ pub trait FeatureView: Feature {
     }
 
     /// A wish the surface takes in place, with no sheet (`/copy` on the chat's own transcript begins
-    /// copy mode): true when `ui`, the UI state of the wish's thread, took it. The presenter asks
+    /// copy mode): `Took` when `ui`, the UI state of the wish's thread, took it, `Declined` with the
+    /// intent the feature answers when the wish is its own and cannot be taken. The presenter asks
     /// before it shows the wish, and only where the chat owns its transcript.
-    fn in_place(_wish: &Self::Wish, _ui: &ThreadUi) -> bool {
-        false
+    fn in_place(_wish: &Self::Wish, _ui: &ThreadUi) -> InPlace<Self::Intent> {
+        InPlace::Not
     }
 
     /// The words of one of the feature's notes (the oracle's `add_info_message` text).
@@ -366,10 +378,14 @@ macro_rules! view_wishes {
 
         /// Whether the feature takes a wish in place of a sheet (`FeatureView::in_place`).
         #[allow(unused_variables)]
-        pub fn in_place(wish: &FeatureWish, ui: &ThreadUi) -> bool {
+        pub fn in_place(wish: &FeatureWish, ui: &ThreadUi) -> InPlace<FeatureIntent> {
             match *wish {
                 $(FeatureWish::$variant(ref wish) => {
-                    <codex_tui_core::features::$name::$variant as FeatureView>::in_place(wish, ui)
+                    match <codex_tui_core::features::$name::$variant as FeatureView>::in_place(wish, ui) {
+                        InPlace::Not => InPlace::Not,
+                        InPlace::Took => InPlace::Took,
+                        InPlace::Declined(intent) => InPlace::Declined(FeatureIntent::$variant(intent)),
+                    }
                 })*
             }
         }

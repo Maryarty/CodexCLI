@@ -25,6 +25,8 @@ use rtwk_rich::markdown::{MarkdownTheme, MdBlock, MdInline, parse_markdown};
 use crate::app::theme::Tokens;
 use crate::pages::session::strings::Strings as Chat;
 
+use crate::pages::session::transcript::copy::Fill;
+
 use super::dispatch::{CellEnv, Place, below};
 use super::strings::Strings;
 use super::text::{Gap, Part, Texts};
@@ -192,5 +194,11 @@ pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
         },
         place.joins_prompt,
     );
-    below(place.separator && !place.joins_prompt, panel.into())
+    // the prompt is the copy target as a whole: the oracle fills every cell of its rows, the
+    // padding ones included
+    let panel: AnyWidget = match place.fill {
+        Some(Fill::Row) => crate::pages::session::transcript::copy::reversed(panel).into(),
+        _ => panel.into(),
+    };
+    below(place.separator && !place.joins_prompt, panel)
 }

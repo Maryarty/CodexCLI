@@ -26,6 +26,7 @@ pub fn code_in(language: &str) -> String {
 pub fn note(note: &Note) -> String {
     match note {
         Note::NoResponse => "No agent response to copy".to_owned(),
+        Note::NothingToCopy => "Nothing to copy".to_owned(),
         Note::Copied { label, result } => match result {
             Ok(CopyStatus::Confirmed) => format!("Copied {label} to clipboard"),
             Ok(CopyStatus::Unconfirmed) => "Copy unconfirmed; /export saves chat".to_owned(),

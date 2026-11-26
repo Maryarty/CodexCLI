@@ -503,6 +503,15 @@ impl Open {
         })
     }
 
+    /// The chat owns its transcript (`tui.fullscreen_transcript`): `/copy` begins copy mode over it
+    /// instead of opening the picker, as the oracle's tests that call `begin_copy_mode` do.
+    pub fn owned_transcript(self) -> Open {
+        self.tui(TuiSettings {
+            transcript_owned: true,
+            ..TuiSettings::default()
+        })
+    }
+
     /// A variable of the app's environment.
     pub fn env(mut self, name: &'static str, value: &'static str) -> Open {
         self.env.vars.push((name, value));

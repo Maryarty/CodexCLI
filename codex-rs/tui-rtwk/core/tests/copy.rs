@@ -6,6 +6,7 @@
 //! picker's rows and the words are the UI's: these tests read data.
 
 use codex_tui_core::app::effects::{Ask, CopyDestination, CopyFormat, CopyStatus, Done};
+use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::commands::{SessionIntent, SlashCommand};
 use codex_tui_core::features::copy::{Intent as CopyIntent, Note as CopyNote, Response, Wish};
@@ -218,4 +219,55 @@ fn the_hosts_answers_are_notes_under_the_label_that_was_asked() {
             },
         ]
     );
+}
+
+fn own_the_transcript(app: &mut CodexApp) {
+    run(
+        app,
+        AppEv::Tui(TuiSettings {
+            transcript_owned: true,
+            ..TuiSettings::default()
+        }),
+    );
+}
+
+/// `show_copy_picker`: the chat that owns its transcript begins copy mode whatever it holds,
+/// a user message is a target with no response at all.
+#[test]
+fn an_owned_transcript_wishes_the_mode_without_a_response() {
+    let mut app = app(&[]);
+    own_the_transcript(&mut app);
+    assert!(asks(&command(&mut app)).is_empty());
+    assert_eq!(
+        wishes(&app),
+        vec![FeatureWish::from(Wish::Mode {
+            thread: ThreadId::new(T)
+        })]
+    );
+    assert_eq!(notes(&app), vec![]);
+}
+
+#[test]
+fn an_owned_transcript_with_a_response_wishes_the_mode_not_the_picker() {
+    let mut app = app(&["first"]);
+    own_the_transcript(&mut app);
+    command(&mut app);
+    assert_eq!(
+        wishes(&app),
+        vec![FeatureWish::from(Wish::Mode {
+            thread: ThreadId::new(T)
+        })]
+    );
+}
+
+#[test]
+fn nothing_to_copy_is_an_info_note_of_the_thread() {
+    let mut app = app(&["first"]);
+    verb(
+        &mut app,
+        CopyIntent::Nothing {
+            thread: ThreadId::new(T),
+        },
+    );
+    assert_eq!(notes(&app), vec![CopyNote::NothingToCopy]);
 }

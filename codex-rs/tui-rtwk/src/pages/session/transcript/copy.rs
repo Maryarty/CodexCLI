@@ -18,6 +18,9 @@ use std::rc::Rc;
 use rtwk::focus::{KeyCombo, KeyPress};
 use rtwk::foundation::ValueNotifier;
 use rtwk::gestures::SelectionTarget;
+use rtwk::layout::{CellPainter, CustomPaint};
+use rtwk_core::canvas::Canvas;
+use rtwk_core::style::{Attrs, Pen};
 
 use codex_tui_core::app::effects::{Ask, CopyDestination, CopyFormat, CopyStatus, Done};
 use codex_tui_core::app::facts::TuiSettings;
@@ -43,7 +46,10 @@ pub enum Piece {
     Code(String),
     /// A quote: its source lines without the `>` marks, and what a copy of it answers with (its
     /// directive lines left out).
-    Quote { source: String, copied: String },
+    Quote {
+        source: String,
+        copied: String,
+    },
 }
 
 /// What the mode reads of a message's source: handed in by the feature that begins it (a page does
@@ -236,12 +242,25 @@ impl CopyLog {
 // The oracle finds the blocks in the rendered layout; this reads them from the blocks the cell
 // draws (`markdown_text::found`) and from a prompt's source lines.
 
+/// What a cell fills for the copy target it holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fill {
+    /// A prompt as a whole: its surface, padding rows included.
+    Row,
+    /// The top-level block `n` of a message.
+    Block(usize),
+}
+
 /// One piece the reader can copy: a range of a row's text, what it is called, and what is copied
 /// when it is not what is drawn there.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Target {
     /// The row of the list, oldest first.
     pub row: usize,
+    /// What the cell of the row fills while the piece is the target (the oracle paints every cell
+    /// of the rows of a block, blank ones too), where the cell can: none for the rest, whose
+    /// glyphs the selection reverses.
+    pub fill: Option<Fill>,
     /// The bytes of the row's text (gutters included, as the area counts them).
     pub range: Range<usize>,
     pub label: &'static str,
@@ -270,23 +289,29 @@ impl Targets {
         table: &'static Strings,
         cutter: &Cutter,
     ) {
-        let Some((first, last)) = extent(parts) else {
-            return;
-        };
         let text = parts
             .iter()
             .map(|part| part.text.as_str())
             .collect::<Vec<_>>()
             .join("\n");
-        if text[first..last].trim().is_empty() {
+        // what is drawn decides, except for a prompt: it is kept where what it says is not blank
+        // though what is drawn of it is (`8.`, a list marker with nothing after it: the Markdown
+        // draws no text for it), and its range is then the row's whole text (oracle
+        // `user_source`, copy_mode.rs)
+        let drawn = extent(parts).filter(|&(first, last)| !text[first..last].trim().is_empty());
+        let said = matches!(item, Item::User(prompt) if !prompt.shown().text.trim().is_empty());
+        let Some((first, last)) =
+            drawn.or_else(|| said.then(|| extent(parts).unwrap_or((0, text.len()))))
+        else {
             return;
-        }
+        };
         let mut found = Vec::new();
         match item {
             Item::User(prompt) => {
                 let shown = prompt.shown();
                 found.push(Target {
                     row,
+                    fill: Some(Fill::Row),
                     range: first..last,
                     label: table.copy_user,
                     payload: (!shown.text.is_empty()).then(|| shown.text.to_string()),
@@ -305,6 +330,7 @@ impl Targets {
                 if let Some(markdown) = (cutter.whole)(source, cwd) {
                     self.response = Some(Target {
                         row,
+                        fill: None,
                         range: first..last,
                         label: table.copy_whole,
                         payload: Some(markdown),
@@ -419,23 +445,54 @@ fn rendered_blocks(
     let (mut codes, mut quotes) = sources(cutter, source);
     markdown_text::found(&blocks)
         .into_iter()
-        .map(|block| {
-            let (label, pool, drawn) = match block.kind {
-                Kind::Code => (table.copy_code, &mut codes, block.text.clone()),
-                Kind::Quote => (table.copy_quote, &mut quotes, unquoted(&block.text)),
+        .filter_map(|block| {
+            let (label, payload) = match block.kind {
+                Kind::Code => (
+                    table.copy_code,
+                    take_source(&mut codes, &block.text, normalized),
+                ),
+                Kind::Quote => (
+                    table.copy_quote,
+                    take_source(&mut quotes, &unquoted(&block.text), normalized),
+                ),
+                // a table is a block of its own where a fenced block of Markdown held it: the
+                // fence is gone from the drawing, its body is the payload; a table of the prose
+                // is no block
+                Kind::Table => (
+                    table.copy_code,
+                    Some(take_source(&mut codes, &block.text, cells_of)?),
+                ),
             };
-            let payload = pool
-                .iter()
-                .position(|source| normalized(source) == normalized(&drawn))
-                .map(|at| pool.remove(at));
-            Target {
+            Some(Target {
                 row,
+                fill: block.top.map(Fill::Block),
                 range: starts[first + block.nodes.start]..end_of(block.nodes.end - 1),
                 label,
                 payload,
-            }
+            })
         })
         .collect()
+}
+
+/// The source in `pool` that reads as `drawn` by `key`, taken out of it.
+fn take_source(pool: &mut Vec<String>, drawn: &str, key: fn(&str) -> String) -> Option<String> {
+    let want = key(drawn);
+    let at = pool.iter().position(|source| key(source) == want)?;
+    Some(pool.remove(at))
+}
+
+/// The words of the cells of a table, drawn or written (`| A | B |`, its delimiter row left
+/// out): what a drawn table and its source are compared by.
+fn cells_of(text: &str) -> String {
+    text.lines()
+        .filter(|line| {
+            let rest = line.replace(['|', ':', '-', ' ', '\t'], "");
+            !(rest.is_empty() && line.contains('-'))
+        })
+        .flat_map(|line| line.split(|c: char| c == '|' || c.is_whitespace()))
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The code blocks and quotes written in a prompt, which is drawn as its source: found in its
@@ -460,6 +517,7 @@ fn literal_blocks(
                 if let Some(at) = text[cursor..last].find(content).map(|at| at + cursor) {
                     found.push(Target {
                         row,
+                        fill: None,
                         range: at..at + content.len(),
                         label: table.copy_code,
                         payload: Some(content.to_owned()),
@@ -499,6 +557,7 @@ fn literal_blocks(
                 let end = text[..end].trim_end_matches('\n').len().max(start);
                 found.push(Target {
                     row,
+                    fill: None,
                     range: start..end,
                     label: table.copy_quote,
                     payload: Some(copied),
@@ -591,6 +650,10 @@ struct Data {
     reveal: bool,
     /// What Enter chose to copy, for the copy that the page sends next.
     pending: Option<Payload>,
+    /// What the target held draws (a filled target is not selected: the selection reverses the
+    /// glyphs it covers, and the fill has done that already), for the copy of a target with no
+    /// source of its own.
+    drawn: Option<String>,
 }
 
 struct Inner {
@@ -627,6 +690,7 @@ pub fn mode_of(finder: &Finder) -> CopyMode {
                 shown: None,
                 reveal: false,
                 pending: None,
+                drawn: None,
             }),
             marks,
             ticks: select::of(finder).listenable(),
@@ -709,6 +773,17 @@ impl CopyMode {
             None => data.targets.response.clone(),
             Some(at) => data.targets.list.get(at).cloned(),
         }
+    }
+
+    /// What the cell of `row` of the list fills while the mode holds a piece of it as the target
+    /// (the oracle paints all the cells of the target's rows, blank ones included).
+    pub fn fill_of(&self, row: usize) -> Option<Fill> {
+        if !self.active() {
+            return None;
+        }
+        self.current()
+            .filter(|target| target.row == row)
+            .and_then(|target| target.fill)
     }
 
     /// What the footer's first row calls the target held (`code block`), once the mode is on; none
@@ -830,13 +905,21 @@ impl CopyMode {
         if wanted.is_some() && self.0.data.borrow().shown == wanted {
             return;
         }
+        let filled = self.current().is_some_and(|target| target.fill.is_some());
         match &wanted {
-            Some((row, range, _)) => {
+            Some((row, range, _)) if !filled => {
                 controller.select(SelectionTarget::of(rows), *row, range.start, range.end);
             }
-            None => controller.clear(),
+            _ => controller.clear(),
         }
-        self.0.data.borrow_mut().shown = wanted;
+        let drawn = wanted
+            .as_ref()
+            .filter(|_| filled)
+            .and_then(|(row, range, _)| rows.row_text(*row).get(range.clone()))
+            .map(str::to_owned);
+        let mut data = self.0.data.borrow_mut();
+        data.shown = wanted;
+        data.drawn = drawn;
     }
 
     /// Enter: what the target copies as is kept for the copy the page sends next ([`shape`]), and
@@ -846,8 +929,9 @@ impl CopyMode {
     pub fn copying(&self) {
         let target = self.current();
         let whole = self.0.data.borrow().at.is_none();
+        let drawn = self.0.data.borrow().drawn.clone();
         self.0.data.borrow_mut().pending = target.and_then(|target| {
-            target.payload.map(|text| Payload {
+            target.payload.or(drawn).map(|text| Payload {
                 text,
                 format: if whole {
                     CopyFormat::Markdown
@@ -857,6 +941,17 @@ impl CopyMode {
             })
         });
         self.leave();
+    }
+
+    /// What Enter chose to copy: the copy of a target that is filled, not selected, has this for
+    /// its text.
+    pub fn kept(&self) -> Option<String> {
+        self.0
+            .data
+            .borrow()
+            .pending
+            .as_ref()
+            .map(|payload| payload.text.clone())
     }
 
     /// The copy of the selection the page is about to send, as the target copies: its own source
@@ -988,4 +1083,47 @@ mod tests {
         answer(&mut log, 7, Done::Copy(Ok(CopyStatus::Confirmed)));
         assert_eq!(feedback(&log), None);
     }
+}
+
+/// Every cell of its box reversed over what the child drew (a foreground painter): the copy
+/// mode's target fill, the oracle's selection style on all of the target's cells, blanks and
+/// padding included. A cell keeps its other attributes and colors; the selection is not
+/// drawn on a filled target, so the two never toggle each other.
+#[derive(Debug)]
+struct Reversed;
+
+impl CellPainter for Reversed {
+    fn paint(&self, canvas: &mut Canvas<'_>, width: i32, height: i32) {
+        let (ox, oy) = (canvas.origin_x(), canvas.origin_y());
+        let (cx0, cy0, cx1, cy1) = canvas.clip_bounds();
+        let (x0, x1) = ((ox).max(cx0), (ox + width).min(cx1));
+        for ay in (oy).max(cy0)..(oy + height).min(cy1) {
+            for ax in x0..x1 {
+                let at = (ax as usize, ay as usize);
+                let id = canvas.surface().style(at.0, at.1);
+                let attrs = canvas.styles().attrs_of(id);
+                if attrs & Attrs::REVERSE != Attrs::NONE {
+                    continue;
+                }
+                let pen = canvas
+                    .styles_mut()
+                    .pen(&Pen::new().attrs(attrs | Attrs::REVERSE));
+                let style = canvas.styles_mut().compose(id, pen);
+                let width = canvas.surface().width();
+                canvas.surface_mut().cells_styles_mut().1[at.1 * width + at.0] = style.0;
+            }
+            canvas
+                .surface_mut()
+                .mark_dirty(ay as usize, x0 as usize, x1.max(x0) as usize);
+        }
+    }
+
+    fn should_repaint(&self, _old: &dyn CellPainter) -> bool {
+        false
+    }
+}
+
+/// `child` with every cell of its box reversed ([`Reversed`]).
+pub fn reversed(child: impl Into<rtwk::AnyWidget>) -> CustomPaint {
+    CustomPaint::new().foreground_painter(Reversed).child(child)
 }
