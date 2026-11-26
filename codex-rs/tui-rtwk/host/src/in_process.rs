@@ -1231,14 +1231,14 @@ impl HostDoors for ConnectionDoors {
         let startup = self.startup.clone()?;
         let event =
             crate::startup::run(startup, ask, self.ids.clone(), sender(self.handle.clone())).await;
-        Some(Outcome::Event(event))
+        Some(Outcome::event(event))
     }
 
     async fn import(&self, ask: codex_tui_core::screens::import::Request) -> Option<Outcome> {
         let startup = self.startup.clone()?;
         let event =
             crate::import::run(startup, ask, self.ids.clone(), sender(self.handle.clone())).await;
-        Some(Outcome::Event(event))
+        Some(Outcome::event(event))
     }
 
     async fn usage(&self, ask: codex_tui_core::screens::usage::Ask) -> Option<Outcome> {
@@ -1246,24 +1246,24 @@ impl HostDoors for ConnectionDoors {
         let event =
             crate::analytics::run(startup, ask, self.ids.clone(), sender(self.handle.clone()))
                 .await;
-        Some(Outcome::Event(event))
+        Some(Outcome::event(event))
     }
 
     async fn directories(&self, cwds: Vec<String>) -> Option<Outcome> {
-        Some(Outcome::Event(Some(
+        Some(Outcome::event(Some(
             directories(self.workspace.clone(), cwds).await,
         )))
     }
 
     async fn save_grouping(&self, grouping: String) -> Option<Outcome> {
-        Some(Outcome::Event(
+        Some(Outcome::event(
             save_grouping(self.workspace.clone(), grouping).await,
         ))
     }
 
     async fn create_worktree(&self, ticket: Ticket, cwd: Option<String>) -> Option<Outcome> {
         let event = create_worktree(self.workspace.clone(), ticket, cwd).await;
-        Some(Outcome::Event(Some(event)))
+        Some(Outcome::event(Some(event)))
     }
 
     async fn bind_worktree(
@@ -1274,7 +1274,7 @@ impl HostDoors for ConnectionDoors {
         cwd: String,
     ) -> Option<Outcome> {
         let event = bind_worktree(self.workspace.clone(), ticket, checkout, thread, cwd).await;
-        Some(Outcome::Event(Some(event)))
+        Some(Outcome::event(Some(event)))
     }
 }
 
@@ -1309,11 +1309,6 @@ pub(crate) fn work(
                     .map(|ran| ran.ev)
             })
         }
-        // The secondary Cloud connector has no usage-limit reset capability.
-        Command::Screen {
-            command: ScreenCommand::Usage(_),
-            ..
-        } if facts.cloud => Box::pin(async { None }),
         command @ (Command::StartTurn { ticket, .. }
         | Command::Screen {
             ticket,

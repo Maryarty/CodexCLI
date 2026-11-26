@@ -1692,12 +1692,14 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         .or_default();
                     store.clear();
                     store.limits_mut().set_plan(note.plan_type);
-                    if active_backend(app) == origin {
-                        reset::clear(app);
-                    }
+                    reset::account_changed(app, origin);
                     app.outgoing.retain(|ctx| {
-                        !matches!(ctx, AppCtx::Nudge { backend, .. } if *backend == origin)
-                            && !matches!(ctx, AppCtx::RateLimits { backend, .. } if *backend == origin)
+                        !matches!(
+                            ctx,
+                            AppCtx::Nudge { backend, .. }
+                                | AppCtx::RateLimits { backend, .. }
+                                | AppCtx::Redemption { backend, .. } if *backend == origin
+                        )
                     });
                     if active_backend(app) == origin {
                         status::apply(
@@ -2343,7 +2345,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                     Answer::RateLimits { read, .. } => Ok(read.reset_credits.clone()),
                     _ => Err(()),
                 };
-                reset::read_done(app, origin, credits, fx);
+                reset::read_done(app, backend, origin, credits, fx);
                 if let Answer::RateLimits {
                     limits,
                     banner,

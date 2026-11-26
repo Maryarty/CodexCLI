@@ -468,6 +468,58 @@ impl State {
         self.pending_hint.take()
     }
 
+    pub(crate) fn refresh_generation(&self) -> u64 {
+        self.next_key
+    }
+
+    pub(crate) fn after_reset_read_for(
+        &mut self,
+        backend: BackendId,
+        generation: u64,
+        result: Result<Option<ResetCredits>, ()>,
+    ) {
+        if self.refresh_generation() == generation
+            && self
+                .redemption
+                .as_ref()
+                .and_then(|redemption| redemption.backend)
+                == Some(backend)
+        {
+            self.after_reset_read(result);
+        }
+    }
+
+    /// Invalidate the picker and mutation owned by the account that changed.
+    pub(crate) fn account_changed(&mut self, origin: BackendId, active: bool) {
+        let picker = self.picker_backend;
+        let redemption = self
+            .redemption
+            .as_ref()
+            .and_then(|redemption| redemption.backend);
+        let visible = picker.or(redemption);
+        if visible.is_none() && active {
+            self.clear();
+            return;
+        }
+        if picker == Some(origin) {
+            self.picker_backend = None;
+            self.credits = None;
+            self.listing = Listing::Idle;
+        }
+        if redemption == Some(origin) {
+            self.redemption = None;
+        }
+        if visible == Some(origin) {
+            self.epoch = self.epoch.wrapping_add(1);
+        }
+        if active {
+            self.available = None;
+            self.availability_read = None;
+            self.hint_check = None;
+            self.pending_hint = None;
+        }
+    }
+
     /// The account changed (oracle `clear_pending_rate_limit_reset_requests`): nothing asked
     /// of the old one is the new one's.
     pub fn clear(&mut self) {
@@ -477,5 +529,39 @@ impl State {
             next_key: self.next_key,
             ..Self::default()
         };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn refreshing(state: &mut State, backend: BackendId) -> u64 {
+        let Next::Redeem { key, .. } = state.redeem(None) else {
+            panic!("the current account can redeem");
+        };
+        if let Some(redemption) = &mut state.redemption {
+            redemption.backend = Some(backend);
+        }
+        assert_eq!(state.redeemed(&key, Ok(Outcome::Reset)), Next::Read);
+        state.refresh_generation()
+    }
+
+    #[test]
+    fn a_post_consume_ack_must_match_the_reset_owner_and_generation() {
+        let a = BackendId(0);
+        let mut state = State::default();
+        let previous = refreshing(&mut state, a);
+        state.account_changed(a, true);
+        let current = refreshing(&mut state, a);
+        assert_ne!(previous, current);
+        state.after_reset_read_for(a, previous, Ok(None));
+        state.after_reset_read_for(BackendId(1), current, Ok(None));
+        assert!(state.redeeming());
+        state.after_reset_read_for(a, current, Ok(None));
+        assert_eq!(
+            state.redemption.map(|redemption| redemption.step),
+            Some(Progress::Settled(Settled::Reset { left: None })),
+        );
     }
 }

@@ -647,7 +647,7 @@ async fn run_as(
                     workspace: &server.workspace,
                 };
                 match run_ask(&doors, ask).await {
-                    Some(FakeWork::Ready(event)) => emit(event),
+                    Some(FakeWork::Ready(event)) => emit(*event),
                     Some(FakeWork::Spawn(job)) => {
                         let ingress = ingress.clone();
                         tokio::spawn(async move {
@@ -700,7 +700,7 @@ struct FakeDoors<'a> {
 }
 
 enum FakeWork {
-    Ready(AppEv),
+    Ready(Box<AppEv>),
     Spawn(Boxed<Option<AppEv>>),
 }
 
@@ -799,7 +799,9 @@ impl HostDoors for FakeDoors<'_> {
             }
             _ => return None,
         };
-        Some(FakeWork::Ready(AppEv::Screen(ScreenEv::Usage(event))))
+        Some(FakeWork::Ready(Box::new(AppEv::Screen(ScreenEv::Usage(
+            event,
+        )))))
     }
 }
 

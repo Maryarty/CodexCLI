@@ -62,14 +62,22 @@ pub(super) fn startup(app: &mut CodexApp, fx: &mut AppFx) {
 /// answer that carried none and `Err` for a read that failed.
 pub(super) fn read_done(
     app: &mut CodexApp,
+    backend: BackendId,
     origin: RateLimitOrigin,
     credits: Result<Option<ResetCredits>, ()>,
     fx: &mut AppFx,
 ) {
     match origin {
         RateLimitOrigin::Menu(request) => state(app).menu_read(request, credits),
-        RateLimitOrigin::ResetPicker(request) => state(app).list_read(request, credits),
-        RateLimitOrigin::ResetConsume => state(app).after_reset_read(credits),
+        RateLimitOrigin::ResetPicker(request) => {
+            let state = state(app);
+            if state.picker_backend == Some(backend) {
+                state.list_read(request, credits);
+            }
+        }
+        RateLimitOrigin::ResetConsume(generation) => {
+            state(app).after_reset_read_for(backend, generation, credits);
+        }
         RateLimitOrigin::Hint(request) => {
             if let Some(count) = state(app).hint_read(request, credits)
                 && let Some(thread) = app.session.active.clone()
@@ -163,13 +171,15 @@ pub(super) fn answered(
         _ => Err(format!("{:?}", RpcError::Mismatch)),
     };
     if state(app).redeemed(key, result) == reset::Next::Read {
-        refresh_rates(app, backend, RateLimitOrigin::ResetConsume, fx);
+        let generation = app.screens.usage.reset.refresh_generation();
+        refresh_rates(app, backend, RateLimitOrigin::ResetConsume(generation), fx);
     }
 }
 
 /// The account changed: what was asked of the old one is not the new one's.
-pub(super) fn clear(app: &mut CodexApp) {
-    state(app).clear();
+pub(super) fn account_changed(app: &mut CodexApp, origin: BackendId) {
+    let active = active_backend(app) == origin;
+    state(app).account_changed(origin, active);
 }
 
 /// The warnings a sample of the limits made due (oracle `on_rate_limit_snapshot_from`): one

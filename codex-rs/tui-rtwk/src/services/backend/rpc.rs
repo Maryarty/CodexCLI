@@ -108,6 +108,20 @@ where
         };
         return Some((*ticket, reply));
     }
+    // Secondary Cloud has no usage-reset RPC. Resolve the issued ticket here
+    // without sending a mutation to the wrong provider.
+    if facts.cloud
+        && let Command::Screen {
+            ticket,
+            command: ScreenCommand::Usage(_),
+            ..
+        } = &command
+    {
+        return Some((
+            *ticket,
+            Reply::failed("Usage resets are unavailable on this backend."),
+        ));
+    }
     let request = protocol::client_request(&command, ids.next(), model.as_deref())?;
     let timeout = match &command {
         Command::Screen {

@@ -63,17 +63,21 @@ impl Ran {
 /// `Option` from `HostDoors` reserves `None` for an unimplemented capability.
 pub enum Outcome {
     Effect(Done, Option<String>),
-    Event(Option<AppEv>),
+    Event(Option<Box<AppEv>>),
 }
 
 impl Outcome {
+    pub fn event(event: Option<AppEv>) -> Self {
+        Self::Event(event.map(Box::new))
+    }
+
     pub fn finish(self, request: u64) -> Option<Ran> {
         match self {
             Self::Effect(done, terminal) => Some(Ran {
                 ev: AppEv::Effect { request, done },
                 terminal,
             }),
-            Self::Event(event) => event.map(Ran::of),
+            Self::Event(event) => event.map(|event| Ran::of(*event)),
         }
     }
 }
@@ -239,13 +243,13 @@ impl HostDoors for Doors<'_> {
             BrowserReport::Effect => {
                 Outcome::Effect(Done::Opened(opened.map_err(|failure| failure.error)), None)
             }
-            BrowserReport::ErrorLine => Outcome::Event(browser_error(opened)),
+            BrowserReport::ErrorLine => Outcome::event(browser_error(opened)),
         })
     }
 
     async fn popovers(&self, ask: popovers::Ask, thread: Option<ThreadId>) -> Option<Self::Out> {
         let conversation = thread.as_ref().map_or("", ThreadId::as_str);
-        Some(Outcome::Event(
+        Some(Outcome::event(
             self.services.popovers(ask, conversation).await,
         ))
     }
