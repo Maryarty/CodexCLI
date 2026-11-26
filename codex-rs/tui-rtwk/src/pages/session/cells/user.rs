@@ -182,16 +182,10 @@ pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
     if is_blank(prompt) {
         return SizedBox::shrink().into();
     }
-    // the prompt is the copy target as a whole: the oracle fills every cell of its rows, the
-    // padding ones included, so the surface itself is reversed
-    let surface = match place.fill {
-        Some(Fill::Row) => env.prompt_surface.clone().attrs(Attrs::REVERSE),
-        _ => env.prompt_surface.clone(),
-    };
     let panel = panel(
         prompt,
         &Look {
-            surface,
+            surface: env.prompt_surface.clone(),
             tokens: env.tokens,
             chat: env.chat,
             cells: env.cells,
@@ -200,5 +194,11 @@ pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
         },
         place.joins_prompt,
     );
-    below(place.separator && !place.joins_prompt, panel.into())
+    // the prompt is the copy target as a whole: the oracle fills every cell of its rows, the
+    // padding ones included
+    let panel: AnyWidget = match place.fill {
+        Some(Fill::Row) => crate::pages::session::transcript::copy::reversed(panel).into(),
+        _ => panel.into(),
+    };
+    below(place.separator && !place.joins_prompt, panel)
 }

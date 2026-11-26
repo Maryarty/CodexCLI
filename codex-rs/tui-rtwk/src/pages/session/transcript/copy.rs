@@ -18,6 +18,9 @@ use std::rc::Rc;
 use rtwk::focus::{KeyCombo, KeyPress};
 use rtwk::foundation::ValueNotifier;
 use rtwk::gestures::SelectionTarget;
+use rtwk::layout::{CellPainter, CustomPaint};
+use rtwk_core::canvas::Canvas;
+use rtwk_core::style::{Attrs, Pen};
 
 use codex_tui_core::app::effects::{Ask, CopyDestination, CopyFormat, CopyStatus, Done};
 use codex_tui_core::app::facts::TuiSettings;
@@ -644,6 +647,10 @@ struct Data {
     reveal: bool,
     /// What Enter chose to copy, for the copy that the page sends next.
     pending: Option<Payload>,
+    /// What the target held draws (a filled target is not selected: the selection reverses the
+    /// glyphs it covers, and the fill has done that already), for the copy of a target with no
+    /// source of its own.
+    drawn: Option<String>,
 }
 
 struct Inner {
@@ -680,6 +687,7 @@ pub fn mode_of(finder: &Finder) -> CopyMode {
                 shown: None,
                 reveal: false,
                 pending: None,
+                drawn: None,
             }),
             marks,
             ticks: select::of(finder).listenable(),
@@ -894,13 +902,21 @@ impl CopyMode {
         if wanted.is_some() && self.0.data.borrow().shown == wanted {
             return;
         }
+        let filled = self.current().is_some_and(|target| target.fill.is_some());
         match &wanted {
-            Some((row, range, _)) => {
+            Some((row, range, _)) if !filled => {
                 controller.select(SelectionTarget::of(rows), *row, range.start, range.end);
             }
-            None => controller.clear(),
+            _ => controller.clear(),
         }
-        self.0.data.borrow_mut().shown = wanted;
+        let drawn = wanted
+            .as_ref()
+            .filter(|_| filled)
+            .and_then(|(row, range, _)| rows.row_text(*row).get(range.clone()))
+            .map(str::to_owned);
+        let mut data = self.0.data.borrow_mut();
+        data.shown = wanted;
+        data.drawn = drawn;
     }
 
     /// Enter: what the target copies as is kept for the copy the page sends next ([`shape`]), and
@@ -910,8 +926,9 @@ impl CopyMode {
     pub fn copying(&self) {
         let target = self.current();
         let whole = self.0.data.borrow().at.is_none();
+        let drawn = self.0.data.borrow().drawn.clone();
         self.0.data.borrow_mut().pending = target.and_then(|target| {
-            target.payload.map(|text| Payload {
+            target.payload.or(drawn).map(|text| Payload {
                 text,
                 format: if whole {
                     CopyFormat::Markdown
@@ -921,6 +938,17 @@ impl CopyMode {
             })
         });
         self.leave();
+    }
+
+    /// What Enter chose to copy: the copy of a target that is filled, not selected, has this for
+    /// its text.
+    pub fn kept(&self) -> Option<String> {
+        self.0
+            .data
+            .borrow()
+            .pending
+            .as_ref()
+            .map(|payload| payload.text.clone())
     }
 
     /// The copy of the selection the page is about to send, as the target copies: its own source
@@ -1052,4 +1080,47 @@ mod tests {
         answer(&mut log, 7, Done::Copy(Ok(CopyStatus::Confirmed)));
         assert_eq!(feedback(&log), None);
     }
+}
+
+/// Every cell of its box reversed over what the child drew (a foreground painter): the copy
+/// mode's target fill, the oracle's selection style on all of the target's cells, blanks and
+/// padding included. A cell keeps its other attributes and colors; the selection is not
+/// drawn on a filled target, so the two never toggle each other.
+#[derive(Debug)]
+struct Reversed;
+
+impl CellPainter for Reversed {
+    fn paint(&self, canvas: &mut Canvas<'_>, width: i32, height: i32) {
+        let (ox, oy) = (canvas.origin_x(), canvas.origin_y());
+        let (cx0, cy0, cx1, cy1) = canvas.clip_bounds();
+        let (x0, x1) = ((ox).max(cx0), (ox + width).min(cx1));
+        for ay in (oy).max(cy0)..(oy + height).min(cy1) {
+            for ax in x0..x1 {
+                let at = (ax as usize, ay as usize);
+                let id = canvas.surface().style(at.0, at.1);
+                let attrs = canvas.styles().attrs_of(id);
+                if attrs & Attrs::REVERSE != Attrs::NONE {
+                    continue;
+                }
+                let pen = canvas
+                    .styles_mut()
+                    .pen(&Pen::new().attrs(attrs | Attrs::REVERSE));
+                let style = canvas.styles_mut().compose(id, pen);
+                let width = canvas.surface().width();
+                canvas.surface_mut().cells_styles_mut().1[at.1 * width + at.0] = style.0;
+            }
+            canvas
+                .surface_mut()
+                .mark_dirty(ay as usize, x0 as usize, x1.max(x0) as usize);
+        }
+    }
+
+    fn should_repaint(&self, _old: &dyn CellPainter) -> bool {
+        false
+    }
+}
+
+/// `child` with every cell of its box reversed ([`Reversed`]).
+pub fn reversed(child: impl Into<rtwk::AnyWidget>) -> CustomPaint {
+    CustomPaint::new().foreground_painter(Reversed).child(child)
 }

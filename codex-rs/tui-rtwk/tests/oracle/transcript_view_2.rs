@@ -83,6 +83,7 @@ fn copy_reveals_offscreen_block_with_context() {
     // the reveal scrolls the last code block into view, with its context above
     s.assert_in_order(&["line", "line", "", "last code"]);
     s.assert_text_style("last code", "reversed");
+    s.keys("enter");
 }
 
 // ORACLE transcript_view/copy_mode_tests.rs:153 user_messages_support_vim_navigation_without_an_assistant_response kind=snap owner=chat-live
@@ -135,9 +136,11 @@ fn copy_highlight_fills_a_block_across_blank_and_wrapped_rows() {
     // blank and wrapped rows included, at 16 columns and at 8 (the oracle's `#` mask)
     let top = s.row_of("Before");
     assert_block(&s, top, 16, 2..5, 7);
-    s.resize(8, 12 + CHROME);
+    // the oracle's 8 columns are the renderer's: the chat's gutter and free column come on top,
+    // and "Worked for" wraps, which takes rows
+    s.resize(8 + 3, 12 + CHROME + 6);
     let top = s.row_of("Before");
-    assert_block(&s, top, 8, 2..6, 8);
+    assert_block(&s, top, 11, 2..6, 8);
     s.keys("enter");
     s.assert_copy_asked("longer line\n\nx\n");
 }

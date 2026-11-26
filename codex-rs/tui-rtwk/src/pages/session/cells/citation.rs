@@ -18,10 +18,10 @@ use std::sync::Arc;
 
 use rtwk::gestures::ExcludeSelection;
 use rtwk::layout::{
-    BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row, SizedBox,
+    Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row, SizedBox,
 };
 use rtwk::provider::Provider;
-use rtwk::style::{Attrs, Style};
+use rtwk::style::Style;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 use rtwk_rich::markdown::{
@@ -197,7 +197,12 @@ impl CitedState {
                     .style(filled.bullet_style.clone())
                     .into()
             } else {
-                Text::new(" ".repeat(filled.bullet.chars().count())).into()
+                SizedBox::new(
+                    Some(i32::try_from(filled.bullet.trim_end().chars().count()).unwrap_or(2)),
+                    None,
+                    None,
+                )
+                .into()
             };
             let row = Row::new()
                 .cross_axis_alignment(CrossAxisAlignment::Start)
@@ -209,11 +214,7 @@ impl CitedState {
                     Padding::new(EdgeInsets::only(0, 0, 1, 0), part),
                 ));
             column = column.child(if fill {
-                AnyWidget::from(
-                    BoxWidget::new()
-                        .style(Style::new().attrs(Attrs::REVERSE))
-                        .child(row),
-                )
+                AnyWidget::from(crate::pages::session::transcript::copy::reversed(row))
             } else {
                 row.into()
             });
