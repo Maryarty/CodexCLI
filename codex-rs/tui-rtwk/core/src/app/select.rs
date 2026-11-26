@@ -416,6 +416,25 @@ fn notes(app: &mut CodexApp, notes: impl IntoIterator<Item = select::Note>) {
     Rc::make_mut(&mut app.screens).select.notes.extend(notes);
 }
 
+fn write_notes(
+    app: &mut CodexApp,
+    operation: Option<&QueueOperation>,
+    said: impl IntoIterator<Item = select::Note>,
+    fx: &mut AppFx,
+) {
+    let Some(operation) = operation else {
+        notes(app, said);
+        return;
+    };
+    let thread = operation.thread();
+    if app.threads.contains(thread) {
+        for note in said.into_iter().filter(select::Note::in_transcript) {
+            let note = crate::threads::Note::from(crate::threads::NoteKey::Select(note));
+            super::session_note(app, Some(thread.clone()), note, fx);
+        }
+    }
+}
+
 fn settings(
     app: &mut CodexApp,
     patch: crate::threads::SettingsPatch,
@@ -470,7 +489,7 @@ pub(super) fn model_verb(app: &mut CodexApp, selection: select::Selection, fx: &
 fn model_pick(
     app: &mut CodexApp,
     selection: select::Selection,
-    mut operation: Option<QueueOperation>,
+    operation: Option<QueueOperation>,
     fx: &mut AppFx,
 ) {
     use select::models::Apply;
@@ -484,13 +503,14 @@ fn model_pick(
         effort: selection.effort.clone(),
         session,
     };
+    let has_thread_update = effects.patch.is_some();
     if let Some(patch) = effects.patch {
         settings(
             app,
             patch,
             select::Setting::Model,
             None,
-            operation.take(),
+            operation.clone(),
             fx,
         );
     }
@@ -507,6 +527,13 @@ fn model_pick(
         select::Setting::Model
     };
     let then = (selection.apply != Apply::PlanOnly).then_some(line);
+    let queued = operation.map(|operation| {
+        if has_thread_update {
+            select::QueuedModelWrite::SavingDefault(operation)
+        } else {
+            select::QueuedModelWrite::Applying(operation)
+        }
+    });
     ask(
         app,
         select::Command::Write {
@@ -515,7 +542,7 @@ fn model_pick(
         select::Ctx::Write {
             setting,
             then,
-            operation,
+            queued,
         },
         fx,
     );
@@ -565,7 +592,7 @@ fn tier_pick(app: &mut CodexApp, tier: &str, fx: &mut AppFx) {
         select::Ctx::Write {
             setting: select::Setting::ServiceTier,
             then: Some(select::Note::ServiceTierSet(tier.to_owned())),
-            operation: None,
+            queued: None,
         },
         fx,
     );
@@ -642,11 +669,11 @@ pub(in crate::app) fn ask(
         select::Ctx::Settings {
             operation: Some(operation),
             ..
-        }
-        | select::Ctx::Write {
-            operation: Some(operation),
-            ..
         } => operation.thread().clone(),
+        select::Ctx::Write {
+            queued: Some(queued),
+            ..
+        } => queued.operation().thread().clone(),
         _ => ThreadId::default(),
     };
     fx.ask(app, AppCtx::Select(ctx), |_, ticket| Command::Screen {
@@ -675,9 +702,11 @@ fn text(error: RpcError) -> String {
 /// The answer of one of those RPCs.
 pub(super) fn answer(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx) {
     let operation = match &ctx {
-        select::Ctx::Settings { operation, .. } | select::Ctx::Write { operation, .. } => {
-            operation.clone()
-        }
+        select::Ctx::Settings { operation, .. } => operation.clone(),
+        select::Ctx::Write {
+            queued: Some(select::QueuedModelWrite::Applying(operation)),
+            ..
+        } => Some(operation.clone()),
         _ => None,
     };
     answered(app, ctx, answer, fx);
@@ -699,38 +728,53 @@ fn answered(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx
         select::apply(&mut Rc::make_mut(&mut app.screens).select, ev, fx);
     };
     match (ctx, result) {
-        (select::Ctx::Settings { setting, then, .. }, result) => {
+        (
+            select::Ctx::Settings {
+                setting,
+                then,
+                operation,
+            },
+            result,
+        ) => {
             // `complete_permission_shortcut`: the pick of a shortcut has its answer.
             if setting == select::Setting::Permissions {
                 Rc::make_mut(&mut app.screens).select.profiles.shortcut = false;
             }
+            let note = match result {
+                Ok(_) => then,
+                Err(error) => Some(select::Note::SaveFailed {
+                    setting,
+                    error: text(error),
+                }),
+            };
+            write_notes(app, operation.as_ref(), note, fx);
+        }
+        (
+            select::Ctx::Write {
+                setting,
+                then,
+                queued,
+            },
+            result,
+        ) => {
+            let operation = queued.as_ref().map(select::QueuedModelWrite::operation);
             match result {
-                Ok(_) => notes(app, then),
-                Err(error) => notes(
+                Ok(select::Reply::Written { overridden }) => {
+                    let override_note = overridden.then_some(select::Note::Overridden(setting));
+                    write_notes(app, operation, override_note.into_iter().chain(then), fx);
+                }
+                Ok(_) => {}
+                Err(error) => write_notes(
                     app,
+                    operation,
                     [select::Note::SaveFailed {
                         setting,
                         error: text(error),
                     }],
+                    fx,
                 ),
             }
         }
-        (select::Ctx::Write { setting, then, .. }, result) => match result {
-            Ok(select::Reply::Written { overridden }) => {
-                if overridden {
-                    notes(app, [select::Note::Overridden(setting)]);
-                }
-                notes(app, then);
-            }
-            Ok(_) => {}
-            Err(error) => notes(
-                app,
-                [select::Note::SaveFailed {
-                    setting,
-                    error: text(error),
-                }],
-            ),
-        },
         // `SetAppEnabled`: the directory takes the switch once the config has it; a refused
         // write leaves it as it was.
         (select::Ctx::App { id, enabled }, Ok(select::Reply::Written { .. })) => {

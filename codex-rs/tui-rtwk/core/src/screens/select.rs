@@ -740,6 +740,21 @@ pub enum ModelChoice {
     },
 }
 
+/// A queued model pick may have a config write in addition to its thread update.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum QueuedModelWrite {
+    Applying(QueueOperation),
+    SavingDefault(QueueOperation),
+}
+
+impl QueuedModelWrite {
+    pub(crate) fn operation(&self) -> &QueueOperation {
+        match self {
+            Self::Applying(operation) | Self::SavingDefault(operation) => operation,
+        }
+    }
+}
+
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
@@ -1203,7 +1218,7 @@ pub enum Ctx {
     Write {
         setting: Setting,
         then: Option<Note>,
-        operation: Option<QueueOperation>,
+        queued: Option<QueuedModelWrite>,
     },
     /// The write of an app's switch: the directory takes it once it is saved.
     App {

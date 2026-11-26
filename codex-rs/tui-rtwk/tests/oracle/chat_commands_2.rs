@@ -208,6 +208,43 @@ fn queued_model_picker_waits_for_the_settings_acknowledgement() {
     }
 }
 
+#[test]
+fn queued_model_picker_keeps_late_result_notes_in_the_original_thread() {
+    let mut s = running_with_model_picker_catalog();
+    let settings = s.hold_request("thread/settings/update");
+    let default = s.hold_request("config/batchWrite");
+    s.server_refuses(
+        "thread/settings/update",
+        Some(-32000),
+        "original task rejected update",
+    );
+    s.server_answers(
+        "config/batchWrite",
+        serde_json::json!({
+            "status": "ok", "version": "v", "filePath": "/c", "overriddenMetadata": null
+        }),
+    );
+    s.type_text("/model").keys("tab");
+    s.type_text("continue the original thread").keys("tab");
+    s.feed(DONE);
+    s.keys("enter").keys("enter");
+    s.assert_thread_model_patch("thread-1", "gpt-5.5");
+    s.assert_requests_of("config/batchWrite", 1);
+    s.server_resumes("thread-2").visit_thread("thread-2");
+    s.assert_active_thread("thread-2");
+    s.release(&default);
+    s.assert_no_turn();
+    s.assert_absent("Model changed to gpt-5.5");
+    s.release(&settings);
+    s.assert_absent("original task rejected update");
+    s.assert_turn_texts(&["continue the original thread"]);
+    s.assert_started_turn_on("thread-1");
+    s.visit_thread("thread-1");
+    s.assert_active_thread("thread-1");
+    s.assert_contains("Model changed to gpt-5.5");
+    s.assert_contains("original task rejected update");
+}
+
 fn running_with_model_picker_catalog() -> Screen {
     let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
     let catalog = include_str!("fixtures/chat_commands_2/speed_catalog.json").trim();

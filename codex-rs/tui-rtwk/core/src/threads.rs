@@ -1654,7 +1654,7 @@ impl ThreadModel {
     }
 
     /// The queued command the screen runs now: it dispatches the line (`dispatch_queued`) and
-    /// answers `ThreadIntent::QueueRan`. A change of `seq` is a new command.
+    /// reports `QueueEvent::Ran`. A change of `seq` is a new command.
     pub fn due_command(&self) -> Option<&DueCommand> {
         self.due.as_ref().filter(|due| due.issued())
     }
