@@ -908,9 +908,7 @@ impl State for ViewportState {
         // cells when arranging adjacent prompts and computer calls. The ordinary mouse range
         // uses its retained revision. TailNews watches incoming deltas separately.
         let reads_across_rows = reads || widget.detailed || widget.mark.is_some();
-        let ordinary_selection =
-            !reads && (widget.selection.held() || widget.follow.holding_selection());
-        let live = if reads_across_rows && !ordinary_selection {
+        let live = if reads_across_rows {
             watch::<ThreadModel, _>(cx)
         } else {
             select::<ThreadModel, _, _>(cx, |thread| {
