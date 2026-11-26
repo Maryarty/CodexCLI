@@ -19,8 +19,15 @@ use super::Page;
 use super::Reply;
 use crate::ids::BackendId;
 use crate::rpc::RpcError;
+use crate::screens::select::agent_picker::PickerKey;
+use crate::threads::asks::ListQuery;
+use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::SessionSource;
+use codex_app_server_protocol::SortDirection;
 use codex_app_server_protocol::Thread;
+use codex_app_server_protocol::ThreadListResponse;
+use codex_app_server_protocol::ThreadSourceKind;
+use codex_app_server_protocol::ThreadStatus;
 use codex_protocol::protocol::SubAgentSource;
 
 /// An RPC to send and what it is for.
@@ -32,6 +39,357 @@ pub struct Out {
 
 pub(super) fn out(command: Command, ctx: Ctx) -> Out {
     Out { command, ctx }
+}
+
+const DESCENDANTS_PAGE: u32 = 100;
+const DESCENDANTS_LIMIT: usize = 1_000;
+// A backend can advance its cursor without returning rows. Bound that progress separately.
+const DESCENDANTS_PAGE_LIMIT: usize = 100;
+
+/// One root-scoped read of live and archived descendants. Its partial pages
+/// stay separate from the Command Center's own refresh and search.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Descendants {
+    root: ThreadId,
+    owner: BackendId,
+    picker: PickerKey,
+    generation: u64,
+    reading: bool,
+    archived: bool,
+    scanned: usize,
+    pages: usize,
+    cursors: Vec<String>,
+    threads: Vec<Thread>,
+    archived_threads: Vec<Thread>,
+    changed: HashMap<ThreadId, DescendantChange>,
+    reread: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct DescendantChange {
+    started: bool,
+    overlay: super::Overlay,
+    archived: Option<bool>,
+}
+
+impl Descendants {
+    pub(super) fn root(&self) -> &ThreadId {
+        &self.root
+    }
+
+    pub(super) fn wants(&self, picker: &PickerKey, root: &ThreadId) -> bool {
+        &self.picker == picker && &self.root == root
+    }
+
+    fn new(root: ThreadId, owner: BackendId, picker: PickerKey, generation: &mut u64) -> Self {
+        *generation = generation.wrapping_add(1);
+        Self {
+            root,
+            owner,
+            picker,
+            generation: *generation,
+            reading: true,
+            archived: false,
+            scanned: 0,
+            pages: 0,
+            cursors: Vec::new(),
+            threads: Vec::new(),
+            archived_threads: Vec::new(),
+            changed: HashMap::new(),
+            reread: false,
+        }
+    }
+
+    pub(super) fn reading(&self, root: &ThreadId, generation: u64) -> bool {
+        self.reading && &self.root == root && self.generation == generation
+    }
+
+    pub(super) fn finished(&self, picker: &PickerKey) -> bool {
+        !self.reading && &self.picker == picker
+    }
+
+    fn restart(&mut self, generation: &mut u64) -> Out {
+        *self = Self::new(
+            self.root.clone(),
+            self.owner,
+            self.picker.clone(),
+            generation,
+        );
+        self.ask(None)
+    }
+
+    fn ask(&self, cursor: Option<String>) -> Out {
+        let limit = DESCENDANTS_LIMIT.saturating_sub(self.scanned);
+        let limit = u32::try_from(limit)
+            .unwrap_or(DESCENDANTS_PAGE)
+            .min(DESCENDANTS_PAGE);
+        out(
+            Command::Descendants {
+                owner: self.owner,
+                list: ThreadAsk::list(ListQuery {
+                    cursor,
+                    limit: Some(limit),
+                    sort_direction: Some(SortDirection::Desc),
+                    model_providers: Some(Vec::new()),
+                    source_kinds: Some(vec![ThreadSourceKind::SubAgentThreadSpawn]),
+                    archived: Some(self.archived),
+                    ancestor_thread_id: Some(self.root.to_string()),
+                    use_state_db_only: true,
+                    ..ListQuery::default()
+                }),
+            },
+            Ctx::Descendants {
+                root: self.root.clone(),
+                generation: self.generation,
+            },
+        )
+    }
+}
+
+pub(super) fn read_descendants(
+    model: &mut Model,
+    active: &ThreadId,
+    picker: PickerKey,
+) -> Option<Out> {
+    let root = model.descendants_root(active)?;
+    let owner = *model.owners.get(&root)?;
+    let read = Descendants::new(root, owner, picker, &mut model.descendant_generation);
+    let ask = read.ask(None);
+    model.descendants = Some(read);
+    Some(ask)
+}
+
+pub(super) fn stop_reading_descendants(model: &mut Model, picker: &PickerKey) {
+    if model
+        .descendants
+        .as_ref()
+        .is_some_and(|read| &read.picker == picker)
+    {
+        model.descendants = None;
+    }
+}
+
+pub(super) fn descendant_changed(
+    model: &mut Model,
+    notification: &ServerNotification,
+) -> Option<Out> {
+    let read = model.descendants.as_mut()?;
+    let id = match notification {
+        ServerNotification::ThreadStarted(event) => &event.thread.id,
+        ServerNotification::ThreadStatusChanged(event) => &event.thread_id,
+        ServerNotification::ThreadClosed(event) => &event.thread_id,
+        ServerNotification::ThreadArchived(event) => &event.thread_id,
+        ServerNotification::ThreadUnarchived(event) => &event.thread_id,
+        ServerNotification::ThreadDeleted(event) => &event.thread_id,
+        ServerNotification::ThreadNameUpdated(event) => &event.thread_id,
+        ServerNotification::ThreadSettingsUpdated(event) => &event.thread_id,
+        _ => return None,
+    };
+    // The Agents notification path has already checked the origin and registered the ID.
+    if model.owners.get(id.as_str()) != Some(&read.owner) {
+        return None;
+    }
+    if matches!(notification, ServerNotification::ThreadUnarchived(_))
+        && !model.threads.iter().any(|thread| &thread.id == id)
+    {
+        if !read.reading {
+            return Some(read.restart(&mut model.descendant_generation));
+        }
+        read.reread = true;
+    }
+    if !read.reading {
+        return None;
+    }
+    let change = read.changed.entry(ThreadId::new(id)).or_default();
+    match notification {
+        ServerNotification::ThreadStarted(event) => {
+            change.started = true;
+            change.overlay = super::Overlay {
+                status: Some(event.thread.status.clone()),
+                ..super::Overlay::default()
+            };
+            change.archived = Some(false);
+        }
+        ServerNotification::ThreadStatusChanged(event) => {
+            change.overlay.status = Some(event.status.clone());
+        }
+        ServerNotification::ThreadClosed(_) => {
+            change.overlay.status = Some(ThreadStatus::NotLoaded)
+        }
+        ServerNotification::ThreadArchived(_) | ServerNotification::ThreadDeleted(_) => {
+            change.archived = Some(true);
+        }
+        ServerNotification::ThreadUnarchived(_) => change.archived = Some(false),
+        ServerNotification::ThreadNameUpdated(event) => {
+            change.overlay.name = Some(event.thread_name.clone());
+        }
+        ServerNotification::ThreadSettingsUpdated(event) => {
+            change.overlay.settings = Some(event.thread_settings.clone());
+        }
+        _ => {}
+    }
+    None
+}
+
+fn apply_descendants(
+    model: &mut Model,
+    root: &ThreadId,
+    generation: u64,
+    result: Result<Reply, RpcError>,
+) -> Vec<Out> {
+    let Some(read) = &mut model.descendants else {
+        return Vec::new();
+    };
+    if !read.reading(root, generation) {
+        return Vec::new();
+    }
+    match result {
+        Ok(Reply::Descendants(page)) => {
+            if let Some(cursor) = read.record(*page) {
+                return vec![read.ask(Some(cursor))];
+            }
+            if !read.archived {
+                read.archived = true;
+                read.scanned = 0;
+                read.pages = 0;
+                read.cursors.clear();
+                return vec![read.ask(None)];
+            }
+        }
+        // No chained query on a failed or retired connection.
+        _ => read.reread = false,
+    }
+    let Some(mut read) = model.descendants.take() else {
+        return Vec::new();
+    };
+    read.reading = false;
+    read.merge(model);
+    let next = take_descendant_reread(&mut read, &mut model.descendant_generation);
+    model.descendants = Some(read);
+    next.into_iter().collect()
+}
+
+fn take_descendant_reread(read: &mut Descendants, generation: &mut u64) -> Option<Out> {
+    if !read.reread {
+        return None;
+    }
+    Some(read.restart(generation))
+}
+
+impl Descendants {
+    fn record(&mut self, page: ThreadListResponse) -> Option<String> {
+        self.pages += 1;
+        let rows = if self.archived {
+            &mut self.archived_threads
+        } else {
+            &mut self.threads
+        };
+        rows.extend(
+            page.data
+                .into_iter()
+                .take(DESCENDANTS_LIMIT - self.scanned)
+                .map(normalize),
+        );
+        self.scanned = rows.len();
+        let next = page.next_cursor.filter(|cursor| {
+            self.scanned < DESCENDANTS_LIMIT
+                && self.pages < DESCENDANTS_PAGE_LIMIT
+                && !self.cursors.contains(cursor)
+        })?;
+        self.cursors.push(next.clone());
+        Some(next)
+    }
+
+    fn merge(&mut self, model: &mut Model) {
+        let mut belongs = HashSet::new();
+        let parents: HashMap<_, _> = model
+            .threads
+            .iter()
+            .chain(&self.archived_threads)
+            .chain(&self.threads)
+            .filter(|thread| {
+                !self
+                    .changed
+                    .get(thread.id.as_str())
+                    .is_some_and(|change| change.started)
+            })
+            .chain(model.threads.iter().filter(|thread| {
+                self.changed
+                    .get(thread.id.as_str())
+                    .is_some_and(|change| change.started)
+            }))
+            .filter(|thread| {
+                model
+                    .owners
+                    .get(thread.id.as_str())
+                    .is_none_or(|owner| *owner == self.owner)
+            })
+            .filter_map(|thread| Some((thread.id.as_str(), thread.parent_thread_id.as_deref()?)))
+            .collect();
+        for id in parents.keys().copied() {
+            let mut at = id;
+            for _ in 0..parents.len() {
+                let Some(parent) = parents.get(at).copied() else {
+                    break;
+                };
+                if parent == self.root.as_str() {
+                    belongs.insert(id.to_owned());
+                    break;
+                }
+                at = parent;
+            }
+        }
+        let archived: HashSet<_> = self
+            .archived_threads
+            .drain(..)
+            .filter(|thread| {
+                belongs.contains(&thread.id)
+                    && self
+                        .changed
+                        .get(thread.id.as_str())
+                        .and_then(|change| change.archived)
+                        != Some(false)
+            })
+            .map(|thread| thread.id)
+            .filter(|id| id != self.root.as_str() && model.observe(self.owner, id))
+            .collect();
+        model
+            .threads
+            .retain(|thread| !archived.contains(&thread.id));
+        model
+            .search_matches
+            .retain(|thread| !archived.contains(&thread.id));
+        model.removed.extend(archived);
+        for mut thread in self.threads.drain(..).rev() {
+            let id = &thread.id;
+            let change = self.changed.get(id.as_str());
+            if id != self.root.as_str()
+                && !thread.ephemeral
+                && belongs.contains(id)
+                && change.and_then(|change| change.archived) != Some(true)
+                && !model.removed.contains(id)
+                && model.observe(self.owner, id)
+            {
+                if let Some(change) = change {
+                    if change.started && model.threads.iter().any(|held| held.id == thread.id) {
+                        continue;
+                    }
+                    if let Some(name) = &change.overlay.name {
+                        thread.name.clone_from(name);
+                    }
+                    if let Some(status) = &change.overlay.status {
+                        thread.status = status.clone();
+                    }
+                    if let Some(settings) = &change.overlay.settings {
+                        thread.cwd.clone_from(&settings.cwd);
+                        thread.model = Some(settings.model.clone());
+                        thread.model_provider.clone_from(&settings.model_provider);
+                    }
+                }
+                upsert_thread(&mut model.threads, thread);
+            }
+        }
+    }
 }
 
 /// Oracle: `agents_overview_view`'s parent link: a spawned subagent hangs
@@ -286,6 +644,9 @@ pub fn apply_answer(
     result: Result<Reply, RpcError>,
 ) -> Vec<Out> {
     match (ctx, result) {
+        (Ctx::Descendants { root, generation }, result) => {
+            return apply_descendants(model, &root, generation, result);
+        }
         (Ctx::List { append: true }, Ok(Reply::Listed(page))) => {
             super::discovery::on_more_page(model, model.displayed, Some(page));
             return super::discovery::refill(model);

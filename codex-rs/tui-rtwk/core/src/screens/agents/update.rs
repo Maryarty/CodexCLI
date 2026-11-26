@@ -3,7 +3,6 @@
 //! Oracle: `agents_overview_view.rs` (`handle_key_event` arms),
 //! `agents_overview_actions.rs` (archive, delete, hide, rename, pin).
 
-use crate::threads::ThreadAsk;
 use super::Action;
 use super::Command;
 use super::Ctx;
@@ -11,6 +10,7 @@ use super::Intent;
 use super::Model;
 use super::Notice;
 use super::carried::supports_shared_pinning;
+use crate::threads::ThreadAsk;
 use codex_app_server_protocol::ThreadStatus;
 
 use super::refresh::Out;
@@ -19,6 +19,18 @@ use super::refresh::out;
 
 /// The intent's change and the RPCs it asks for.
 pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
+    let intent = match intent {
+        Intent::ReadDescendants { active, picker } => {
+            return super::refresh::read_descendants(model, &active, picker)
+                .into_iter()
+                .collect();
+        }
+        Intent::StopReadingDescendants(picker) => {
+            super::refresh::stop_reading_descendants(model, &picker);
+            return Vec::new();
+        }
+        intent => intent,
+    };
     let mut outs = Vec::new();
     if model.failure.is_some() {
         // The failure dialog holds the screen until `Back to agents`.
@@ -89,10 +101,7 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
                         thread: thread.clone(),
                         pinned,
                     },
-                    Ctx::Pin {
-                        thread,
-                        pinned,
-                    },
+                    Ctx::Pin { thread, pinned },
                 ));
             }
         }
@@ -118,6 +127,9 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
             }
         }
         Intent::NeedUsage(at) => outs.extend(super::usage::refresh_usage(model, at)),
+        Intent::ReadDescendants { .. }
+        | Intent::StopReadingDescendants(_)
+        | Intent::ChooseDescendant { .. } => {}
     }
     outs
 }
@@ -173,20 +185,21 @@ fn cwd_of(model: &Model, at: Option<String>) -> Option<String> {
 /// searching, filtering and leaving work (oracle: the gate in
 /// `handle_key_event`).
 fn blocked(model: &Model, intent: &Intent) -> bool {
-    model.held() && matches!(
-        intent,
-        Intent::ShowMore
-            | Intent::CycleGrouping
-            | Intent::SetGrouping(_)
-            | Intent::TogglePin(_)
-            | Intent::New(_)
-            | Intent::NewWorktree(_)
-            | Intent::Fork(_)
-            | Intent::Archive(_)
-            | Intent::Delete(_)
-            | Intent::Hide(_)
-            | Intent::Stop(_)
-    )
+    model.held()
+        && matches!(
+            intent,
+            Intent::ShowMore
+                | Intent::CycleGrouping
+                | Intent::SetGrouping(_)
+                | Intent::TogglePin(_)
+                | Intent::New(_)
+                | Intent::NewWorktree(_)
+                | Intent::Fork(_)
+                | Intent::Archive(_)
+                | Intent::Delete(_)
+                | Intent::Hide(_)
+                | Intent::Stop(_)
+        )
 }
 
 /// The search line closed (oracle: `on_ctrl_c` of the view for the editing
@@ -228,7 +241,11 @@ pub fn wants_dirs(model: &Model) -> bool {
             .threads
             .iter()
             .chain(&model.search_matches)
-            .any(|thread| !model.dirs_asked.contains(thread.cwd.to_string_lossy().as_ref()))
+            .any(|thread| {
+                !model
+                    .dirs_asked
+                    .contains(thread.cwd.to_string_lossy().as_ref())
+            })
 }
 
 pub fn wanted_dirs(model: &mut Model) -> Vec<String> {

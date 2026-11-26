@@ -69,7 +69,7 @@ pub(crate) fn wire_request(command: &Command, request_id: RequestId) -> ClientRe
         // A worktree is git work and a config write is none: `app::send_agents`
         // hands them to the shell, never here.
         Command::SaveGrouping { .. } | Command::NewWorktree { .. } => unreachable_wire(request_id),
-        Command::Thread(ask) => ask.wire(request_id),
+        Command::Thread(ask) | Command::Descendants { list: ask, .. } => ask.wire(request_id),
     }
 }
 
@@ -133,6 +133,10 @@ pub(crate) fn decode_reply(
         Command::List { .. } | Command::Search { .. } => {
             crate::threads::asks::listed(result).map(|page| Reply::Listed(listed_page(page)))
         }
+        Command::Descendants { list, .. } => match list.decode(result)? {
+            ThreadReply::Listed(page) => Ok(Reply::Descendants(page)),
+            _ => Err(RpcError::Mismatch),
+        },
         Command::Thread(ask) => from_thread(decode_thread(ask, result)?),
         Command::Usage { .. } => {
             let response: GetAccountTokenUsageResponse =

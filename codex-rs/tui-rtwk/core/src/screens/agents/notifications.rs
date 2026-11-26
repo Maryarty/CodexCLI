@@ -30,6 +30,7 @@ pub fn observes(notification: &ServerNotification) -> bool {
 /// and `track_agents_overview_activity`. The tasks it changed are read again
 /// (oracle: `refresh_thread_ids`), as the RPCs returned.
 pub fn observe(model: &mut Model, notification: &ServerNotification) -> Vec<Out> {
+    let descendant_read = super::refresh::descendant_changed(model, notification);
     let id = changed_thread(notification);
     let held = |model: &Model, id: &str| model.threads.iter().any(|held| held.id == id);
     // The read of a held task is asked first: what the notification sets is
@@ -47,6 +48,7 @@ pub fn observe(model: &mut Model, notification: &ServerNotification) -> Vec<Out>
     {
         outs = super::reads::want(model, [id.to_owned()]);
     }
+    outs.extend(descendant_read);
     outs
 }
 

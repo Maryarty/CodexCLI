@@ -1533,6 +1533,13 @@ fn apply_at(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
 
 fn finish_apply(app: &mut CodexApp, lists: bool, fx: &mut AppFx) {
     consent::follow(app, fx);
+    if !app
+        .screens
+        .agents
+        .descendant_root_is_current(app.session.active.as_ref())
+    {
+        Rc::make_mut(&mut app.screens).agents.descendants = None;
+    }
     sync_cloud_switch(app);
     mentions::sync(app, fx);
     drain_popover_asks(app, fx);
@@ -2806,7 +2813,30 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 set_open_cancelled(app, &id, true);
             }
         }
+        Intent::Screen(ScreenIntent::Agents(agents::Intent::ChooseDescendant {
+            picker,
+            thread,
+        })) => {
+            if app.screens.agents.can_choose_descendant(
+                app.session.active.as_ref(),
+                &picker,
+                &thread,
+            ) {
+                open_thread(app, &thread, fx);
+            }
+        }
         Intent::Screen(ScreenIntent::Agents(intent)) => {
+            if let agents::Intent::ReadDescendants { active, .. } = &intent {
+                let agents = &app.screens.agents;
+                let root = app
+                    .session
+                    .active
+                    .as_ref()
+                    .and_then(|current| agents.descendants_root(current));
+                if root.is_none() || root != agents.descendants_root(active) {
+                    return;
+                }
+            }
             let screens = Rc::make_mut(&mut app.screens);
             let outs = agents::update(&mut screens.agents, intent);
             send_agents(app, outs, fx);
@@ -3502,6 +3532,13 @@ fn screen_answer(
     answer: Answer,
     fx: &mut AppFx,
 ) {
+    if !app
+        .screens
+        .agents
+        .accepts_descendants(&ctx, app.session.active.as_ref())
+    {
+        return;
+    }
     let other_backend = app.screens.agents.displayed != backend;
     // An older start can still attach to its backend without taking the newly displayed view.
     let background_start =

@@ -48,6 +48,7 @@ use crate::ids::BackendId;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::screens::Kind;
+use crate::screens::select::agent_picker::{PickerKey, descends, root_of};
 use crate::threads::ThreadFx;
 
 pub use crate::protocol::agents::account_ev;
@@ -67,6 +68,7 @@ pub use details::Details;
 pub use discovery::refill;
 pub use notifications::observe;
 pub use notifications::observes;
+pub use refresh::Descendants;
 pub use refresh::Out;
 pub use refresh::apply_answer;
 pub use refresh::attach_loaded;
@@ -383,6 +385,10 @@ pub struct Model {
     pub thread_colors_off: bool,
     pub grouping: Grouping,
     pub search: String,
+    /// An ancestor read requested by the subagent picker.
+    pub descendants: Option<Descendants>,
+    #[doc(hidden)]
+    pub descendant_generation: u64,
 }
 
 impl Eq for Model {}
@@ -457,6 +463,78 @@ pub struct Overlay {
 }
 
 impl Model {
+    pub(crate) fn wants_descendants(&self, picker: &PickerKey, root: &ThreadId) -> bool {
+        self.descendants
+            .as_ref()
+            .is_some_and(|read| read.wants(picker, root))
+    }
+
+    pub fn descendants_read(&self, picker: &PickerKey) -> bool {
+        self.descendants
+            .as_ref()
+            .is_some_and(|request| request.finished(picker))
+    }
+
+    pub fn descendants_root(&self, active: &ThreadId) -> Option<ThreadId> {
+        let owner = self.owners.get(active)?;
+        root_of(&self.threads, active.as_str(), |id| {
+            self.owners.get(id) == Some(owner)
+        })
+        .map(ThreadId::new)
+    }
+
+    pub(crate) fn is_descendant(&self, root: &ThreadId, thread: &Thread) -> bool {
+        self.owners.get(root).is_some_and(|owner| {
+            descends(&self.threads, thread, root.as_str(), |id| {
+                self.owners.get(id) == Some(owner)
+            })
+        })
+    }
+
+    pub(crate) fn descendant_root_is_current(&self, active: Option<&ThreadId>) -> bool {
+        self.descendants.as_ref().is_none_or(|read| {
+            active
+                .and_then(|active| self.descendants_root(active))
+                .as_ref()
+                == Some(read.root())
+        })
+    }
+
+    pub(crate) fn can_choose_descendant(
+        &self,
+        active: Option<&ThreadId>,
+        picker: &PickerKey,
+        thread: &ThreadId,
+    ) -> bool {
+        let Some(root) = active.and_then(|active| self.descendants_root(active)) else {
+            return false;
+        };
+        self.wants_descendants(picker, &root)
+            && !self.removed.contains(thread.as_str())
+            && (*thread == root
+                || (!self.hidden.contains(thread.as_str())
+                    && self
+                        .threads
+                        .iter()
+                        .find(|held| held.id == thread.as_str())
+                        .is_some_and(|held| self.is_descendant(&root, held))))
+    }
+
+    /// A descendant page can change ownership and stored thread rows only
+    /// while the requesting picker and its conversation are both current.
+    pub fn accepts_descendants(&self, ctx: &Ctx, active: Option<&ThreadId>) -> bool {
+        let Ctx::Descendants { root, generation } = ctx else {
+            return true;
+        };
+        self.descendants
+            .as_ref()
+            .is_some_and(|read| read.reading(root, *generation))
+            && active
+                .and_then(|active| self.descendants_root(active))
+                .as_ref()
+                == Some(root)
+    }
+
     /// Claims `id` for `owner` unless another backend holds it; whether
     /// `owner` owns it (oracle: `BackendRegistry::observe`).
     pub fn observe(&mut self, owner: BackendId, id: &str) -> bool {
@@ -595,6 +673,7 @@ pub fn backend_of(model: &Model, command: &Command) -> BackendId {
         | Command::Delete { thread }
         | Command::Pin { thread, .. }
         | Command::Usage { thread } => model.owner_of(thread),
+        Command::Descendants { owner, .. } => *owner,
         Command::Thread(ask) => ask
             .thread()
             .map_or(model.displayed, |thread| model.owner_of(thread)),
@@ -634,6 +713,15 @@ pub enum Intent {
     /// The screen opened: list the threads.
     Open,
     Refresh,
+    ReadDescendants {
+        active: ThreadId,
+        picker: PickerKey,
+    },
+    StopReadingDescendants(PickerKey),
+    ChooseDescendant {
+        picker: PickerKey,
+        thread: ThreadId,
+    },
     CycleGrouping,
     SetGrouping(Grouping),
     /// The search line's text changed (the view owns whether it is open).
@@ -688,6 +776,10 @@ pub enum Command {
     List {
         cursor: Option<String>,
     },
+    Descendants {
+        owner: BackendId,
+        list: ThreadAsk,
+    },
     Rename {
         thread: String,
         name: String,
@@ -732,6 +824,7 @@ pub enum Command {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Reply {
     Listed(Page),
+    Descendants(Box<codex_app_server_protocol::ThreadListResponse>),
     Done,
     /// The id of the thread's turn in progress, when it has one.
     ActiveTurn(Option<String>),
@@ -778,6 +871,10 @@ impl Eq for Reply {}
 pub enum Ctx {
     List {
         append: bool,
+    },
+    Descendants {
+        root: ThreadId,
+        generation: u64,
     },
     Rename {
         thread: String,
