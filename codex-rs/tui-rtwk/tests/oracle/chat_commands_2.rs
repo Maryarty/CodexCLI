@@ -134,6 +134,67 @@ fn queued_settings_selection_applies_before_next_input() {
     s.assert_turn_texts(&["hello after selection"]);
 }
 
+#[test]
+fn queued_model_picker_owns_its_follow_up_through_stream_recovery() {
+    for accept in [false, true] {
+        let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
+        let catalog = include_str!("fixtures/chat_commands_2/speed_catalog.json").trim();
+        s.feed(&format!(
+            r#"{{"step":"respond","method":"model/list","result":{catalog}}}
+{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"gpt-5.2"}}}}}}"#
+        ));
+        s.type_text("/model").keys("tab");
+        s.type_text("after recovery").keys("tab");
+        s.feed(DONE);
+        s.assert_contains("Select Model and Effort");
+        s.assert_no_turn();
+        s.feed(r#"{"step":"lagged","skipped":1}"#);
+        s.assert_contains("Select Model and Effort");
+        s.assert_no_turn();
+        s.stream_lost("temporary gap").stream_restored();
+        s.assert_contains("Select Model and Effort");
+        s.assert_no_turn();
+        if accept {
+            s.keys("enter");
+            s.assert_no_turn();
+            s.keys("enter");
+        } else {
+            s.keys("esc");
+        }
+        s.assert_turn_texts(&["after recovery"]);
+        s.feed(r#"{"step":"lagged","skipped":1}"#);
+        s.assert_turn_texts(&["after recovery"]);
+    }
+}
+
+#[test]
+fn a_queued_model_picker_refusal_drains_without_opening_a_surface() {
+    let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
+    s.feed(r#"{"step":"screen","dir":"select","ev":{"kind":"provider","state":"saving"}}"#);
+    s.type_text("/model").keys("tab");
+    s.type_text("after refusal").keys("tab");
+    s.assert_no_turn();
+    s.feed(DONE);
+    s.assert_absent("Select Model and Effort");
+    s.assert_contains("Saving the default provider");
+    s.assert_turn_texts(&["after refusal"]);
+}
+
+#[test]
+fn a_queued_model_picker_releases_the_queue_when_loading_fails() {
+    let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
+    let catalog = s.hold_request("model/list");
+    s.type_text("/model").keys("tab");
+    s.type_text("after catalog failure").keys("tab");
+    s.feed(DONE);
+    s.assert_contains("Loading models");
+    s.assert_no_turn();
+    s.server_refuses("model/list", Some(-32000), "model catalog unavailable");
+    s.release(&catalog);
+    s.assert_absent("Loading models");
+    s.assert_turn_texts(&["after catalog failure"]);
+}
+
 // ORACLE chatwidget/tests/slash_commands.rs:529 queued_bare_rename_drains_next_input_after_name_update kind=ui owner=chat-nav-pane
 #[test]
 fn queued_bare_rename_drains_next_input_after_name_update() {

@@ -122,12 +122,17 @@ impl ChatState {
             // the thread hears what it opened (`submit_queued_slash_prompt`). A sheet it opened
             // keeps the queue until the page is in front again.
             Edge::Due(due) => {
+                if read::<ThreadModel, _>(cx).due_command() != Some(&due) {
+                    return Rebuild::No;
+                }
                 let hs = read::<Hs, _>(cx);
-                let ran = run_due(&due, w, cx, &hs);
-                self.resume |= matches!(&ran, Ran::Dispatched(d) if d.modal);
-                let thread = read::<ThreadModel, _>(cx).id().clone();
-                let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::QueueRan(ran));
-                cx.emit(&hs.thread_screen, (thread, intent));
+                if let Some(ran) = run_due(&due, w, cx, &hs) {
+                    self.resume |= matches!(&ran, Ran::Dispatched(d) if d.modal);
+                    let thread = due.operation().thread().clone();
+                    let intent =
+                        ScreenThreadIntent::Chat(chat::ThreadIntent::QueueRan(due.report(ran)));
+                    cx.emit(&hs.thread_screen, (thread, intent));
+                }
                 Rebuild::Yes
             }
             Edge::Front => {

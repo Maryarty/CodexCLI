@@ -12,7 +12,7 @@ use codex_tui_core::threads::{DueCommand, Queued, Ran, UserMessage};
 
 use crate::app::view::Hs;
 use crate::features;
-use crate::pages::session::actions::run;
+use crate::pages::session::actions::{DeferredLine, run};
 use crate::pages::session::composer::strings;
 use crate::pages::session::session_page::{Chat, ChatState};
 
@@ -98,10 +98,18 @@ pub(in crate::pages::session) fn run_due(
     w: &Chat,
     cx: &mut Cx<'_, ChatState>,
     hs: &Hs,
-) -> Ran {
-    let mut ran = Ran::Dispatched(none_opened());
+) -> Option<Ran> {
+    let mut ran = Some(Ran::Dispatched(none_opened()));
     let line = due.line();
-    run(&line.text, Some(line), w, cx, hs, Delivery::Drain, &mut ran);
+    run(
+        &line.text,
+        Some(DeferredLine::Due(due)),
+        w,
+        cx,
+        hs,
+        Delivery::Drain,
+        &mut ran,
+    );
     ran
 }
 

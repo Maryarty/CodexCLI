@@ -544,6 +544,22 @@ cross-thread state are values (R10).
 | R13 | a newtype per id kind; composite keys where an id is scoped | types |
 | R14 | app data never enters rtwk local state; controllers (`ScrollController`, `ListController`, `SelectionController`, `TextEditingController`, `TabController`, `ExpansionController`, `AnimationController`, `FocusNode`) are made as Flutter makes them: in a widget's `State` (`create_state`/`init_state`/its fields' constructors) or the per-thread `ThreadUi` holder, disposed with it, never inside a `build`/`view`/`*_view`/`render*` function or a builder closure, never in core; screens take app data only as `&CodexApp`, memo deps or `rtwk::provider` projections of the model; routes and dialogs take ids, not data (a dialog that edits a value copies it as its draft) | `disallowed_types` `Obs`; `disallowed_methods` `use_state`, `TokioApp::follow`; `rules.rs`: `r14_controllers_are_made_in_a_state_never_in_build_or_a_closure`, `r14_core_has_no_controller` (the constructor ban and its file allowlist are gone, 2026-11-19); a check that `State` fields of screens and dialogs hold ids, drafts and controllers, never model types — a lint, so SC6a is caught, not impossible |
 
+**Queued command continuations (R8, R9, R10 and ADR-012).** The thread queue issues each
+command with its original thread and generation. Only a report for the issued generation
+can consume it. When an operation needs a modal continuation, the queue retains the
+opening and open phases. A close or refusal settles that generation once. The route
+callback carries the operation it received when it opened. Lag, reconnect, feature
+settlement and page-front events can reconsider admission through the same queue gate.
+The reducer establishes the hold before producing the open request and handles a close
+even with its writer detached. Admission still waits for recovery. The private phase and
+addressed events apply the [Rust Book's state types](https://doc.rust-lang.org/book/ch18-03-oo-design-patterns.html#encoding-states-and-behavior-as-types),
+[SCXML run-to-completion](https://www.w3.org/TR/scxml/) and
+[Flutter's route-owned dialog result](https://api.flutter.dev/flutter/material/showDialog.html).
+
+The model picker uses this protocol. Rename retains its feature-owned operation.
+Verify the open and close routes for permissions, apps, review, presets and other modal
+commands before migrating their page-front continuations.
+
 **ADR-003 thread ownership: how it is enforced (2026-11-19, adr003-enforce).**
 By type (the compiler refuses a violation): `ThreadModel` has a private
 constructor and a private `seal` field, so it is made only by

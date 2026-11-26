@@ -11,7 +11,9 @@ use super::{AppCtx, AppFx, CodexApp, Command};
 use crate::ids::ThreadId;
 use crate::rpc::{Answer, RpcError};
 use crate::screens::select::{self, apps, permissions, review};
-use crate::screens::{ScreenCommand, ScreenReply};
+use crate::screens::{ScreenCommand, ScreenReply, ScreenThreadIntent, chat};
+use crate::threads::ThreadEv;
+use crate::threads::queue::QueueOperation;
 
 /// An intent of the select screen, and the asks it left open.
 pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx) {
@@ -45,6 +47,24 @@ pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx)
         }
         return;
     }
+    let queued = if let select::Intent::OpenQueuedModels(queued) = &intent {
+        let operation = &queued.operation;
+        if !begin_queued_picker(app, operation, fx) {
+            return;
+        }
+        if app.session.active.as_ref() != Some(operation.thread())
+            || !app
+                .threads
+                .get(operation.thread())
+                .is_some_and(|thread| thread.has_writer())
+        {
+            decline_queued_picker(app, operation.clone(), fx);
+            return;
+        }
+        Some(operation.clone())
+    } else {
+        None
+    };
     let screens = Rc::make_mut(&mut app.screens);
     let before = (
         screens.select.catalog.pending,
@@ -52,6 +72,13 @@ pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx)
     );
     let apps = screens.select.apps.pending;
     select::apply_intent(&mut screens.select, intent, fx);
+    let declined = queued.filter(|operation| {
+        !screens.select.shows.pending().any(|show| {
+            show.queued_model
+                .as_ref()
+                .is_some_and(|queued| queued.operation() == operation)
+        })
+    });
     let after = (
         screens.select.catalog.pending,
         screens.select.profiles.pending,
@@ -78,6 +105,32 @@ pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx)
     quick_asked(app, fx);
     picks(app, fx);
     drain(app, fx);
+    if let Some(operation) = declined {
+        decline_queued_picker(app, operation, fx);
+    }
+}
+
+/// The command must still be issued for this thread. Keep its continuation before asking the
+/// catalog or handing the picker to the presenter.
+fn begin_queued_picker(app: &mut CodexApp, operation: &QueueOperation, fx: &mut AppFx) -> bool {
+    let report = app
+        .threads
+        .get(operation.thread())
+        .and_then(|thread| thread.due_command())
+        .filter(|due| due.operation() == operation)
+        .map(crate::threads::DueCommand::opening_model_picker);
+    let Some(report) = report else {
+        return false;
+    };
+    let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::QueueRan(report));
+    super::apply_thread(app, operation.thread(), ThreadEv::ScreenIntent(intent), fx);
+    true
+}
+
+fn decline_queued_picker(app: &mut CodexApp, operation: QueueOperation, fx: &mut AppFx) {
+    let thread = operation.thread().clone();
+    let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::QueueClosed(operation));
+    super::apply_thread(app, &thread, ThreadEv::ScreenIntent(intent), fx);
 }
 
 /// The preset writes the menus settled on, asked of the config (one `config/batchWrite` each).

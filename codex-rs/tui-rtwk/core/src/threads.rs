@@ -1659,7 +1659,7 @@ impl ThreadModel {
     /// The queued command the screen runs now: it dispatches the line (`dispatch_queued`) and
     /// answers `ThreadIntent::QueueRan`. A change of `seq` is a new command.
     pub fn due_command(&self) -> Option<&DueCommand> {
-        self.due.as_ref()
+        self.due.as_ref().filter(|due| due.issued())
     }
 
     /// What waits in the queue is held back: it goes out only when the user sends again
@@ -3047,10 +3047,11 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             });
             resume_after_rename(model, fx, rename_held_queue);
         }
-        // The queue's five intents (Tab, the screen's report of a command it ran, what stopped
-        // the queue is over, the hold and the edit key) are `threads/queue.rs`'s; it gives back
-        // the others, which are the screens'.
-        ThreadEv::ScreenIntent(intent) if model.has_writer() => {
+        // The model picker can settle a command already issued while its writer is detached.
+        // The queue gate waits for the writer before it sends the next line.
+        ThreadEv::ScreenIntent(intent)
+            if model.has_writer() || queue::is_model_picker_settlement(&intent) =>
+        {
             if let Err(intent) = queue::apply(model, intent, fx) {
                 let busy = model.is_running() || model.outgoing.any(is_start_turn);
                 screens::apply_thread_intent(&mut model.slots, intent, busy, fx);

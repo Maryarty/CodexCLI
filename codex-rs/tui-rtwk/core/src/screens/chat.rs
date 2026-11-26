@@ -756,7 +756,11 @@ pub enum ThreadIntent {
     Queue(crate::threads::Queued),
     /// The screen ran the queued command it was handed (`ThreadModel::due_command`): what the
     /// queue does next reads what it opened.
-    QueueRan(crate::threads::Ran),
+    QueueRan(crate::threads::queue::QueueRan),
+    /// The picker issued for this operation was shown.
+    QueueOpened(crate::threads::queue::QueueOperation),
+    /// The picker for this operation closed, or its owner declined to open it.
+    QueueClosed(crate::threads::queue::QueueOperation),
     /// What stopped the queue is over (the sheet closed): the next item goes on.
     QueueResume,
     /// Esc while steers are pending: interrupt the turn, then send the
