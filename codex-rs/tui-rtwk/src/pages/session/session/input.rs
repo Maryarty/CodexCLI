@@ -225,6 +225,12 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
             send(ChatMsg::Page(pages));
             return KeyEventResult::Handled;
         }
+        // Ctrl+Home, Ctrl+End and their Alt twins jump the transcript wherever the caret is
+        // (`JumpTarget::from_key`; the field would move its caret to the text's ends)
+        if let Some(jump) = jump_of(&key) {
+            send(jump);
+            return KeyEventResult::Handled;
+        }
         // The banner's numbers and Esc: only on an empty composer, off a
         // paste, with no turn running and no modifier
         // (`handle_inline_banner_key`; a popup needs text in the field).
@@ -304,6 +310,20 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
     })));
 }
 
+/// The jump a key asks of the transcript: its first row (Ctrl+Home, Alt+<) or its last (Ctrl+End,
+/// Alt+>).
+fn jump_of(key: &rtwk::focus::KeyPress) -> Option<ChatMsg> {
+    if pressed_fixed(fixed::TRANSCRIPT_TOP, key) || pressed_fixed(fixed::TRANSCRIPT_TOP_ALT, key) {
+        Some(ChatMsg::Beginning)
+    } else if pressed_fixed(fixed::TRANSCRIPT_LATEST, key)
+        || pressed_fixed(fixed::TRANSCRIPT_LATEST_ALT, key)
+    {
+        Some(ChatMsg::Latest)
+    } else {
+        None
+    }
+}
+
 /// The page's focus over `page`: the keys the page binds (interrupt, quit, Esc, the debug key,
 /// the transcript's pages, Tab's queue, the read-only thread's and the provider lock's keys, the
 /// chat's actions), keyed by the two states that change which of them are bound.
@@ -322,6 +342,10 @@ pub(super) fn focus(
         (fixed::DEBUG_KEY, ChatMsg::DebugMenu),
         (fixed::TRANSCRIPT_PAGE_UP, ChatMsg::Page(-1)),
         (fixed::TRANSCRIPT_PAGE_DOWN, ChatMsg::Page(1)),
+        (fixed::TRANSCRIPT_TOP, ChatMsg::Beginning),
+        (fixed::TRANSCRIPT_TOP_ALT, ChatMsg::Beginning),
+        (fixed::TRANSCRIPT_LATEST, ChatMsg::Latest),
+        (fixed::TRANSCRIPT_LATEST_ALT, ChatMsg::Latest),
     ] {
         for key in crate::keymap::presses(keymap, id) {
             focus = focus.bind(key, cx.send(msg.clone()));

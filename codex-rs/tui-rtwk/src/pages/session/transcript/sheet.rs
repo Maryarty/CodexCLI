@@ -231,19 +231,7 @@ impl State for SheetState {
             Msg::Pager(pager::Msg::Rows(rows)) => w.follow.scroll_by(rows),
             Msg::Pager(pager::Msg::Pages(pages)) => w.follow.page(pages),
             Msg::Pager(pager::Msg::HalfPages(pages)) => w.follow.half_page(pages),
-            Msg::Pager(pager::Msg::Top) | Msg::Beginning => {
-                // the first row, or, with older pages to come, the wait for it: the view holds
-                // while each page asks for the next (`jump_to_beginning`)
-                match thread.history_state() {
-                    HistoryState::Complete => w.follow.jump_to_first(),
-                    HistoryState::Loading => w.follow.begin(),
-                    HistoryState::Partial | HistoryState::Failed => {
-                        w.follow.begin();
-                        let hs = read::<Hs, _>(cx);
-                        cx.emit(&hs.load_history, thread.id().clone());
-                    }
-                }
-            }
+            Msg::Pager(pager::Msg::Top) | Msg::Beginning => history::to_beginning(cx, &w.follow),
             Msg::Pager(pager::Msg::Bottom) | Msg::Latest => w.follow.jump_to_latest(),
             // closing is the sheet's; what the opener does with it is the opener's
             Msg::Pager(pager::Msg::Close | pager::Msg::Action) => {

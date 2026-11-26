@@ -320,6 +320,10 @@ impl State for ChatState {
             }
             ChatMsg::Submit(text) => self.submit(&text, w, cx, &hs, previous.primed),
             ChatMsg::Page(pages) => w.ui.follow.page(i64::from(pages)),
+            ChatMsg::Beginning => {
+                crate::pages::session::transcript::history::to_beginning(cx, &w.ui.follow)
+            }
+            ChatMsg::Latest => w.ui.follow.jump_to_latest(),
             ChatMsg::Selection(key) => {
                 reader::selected(w, cx, &hs, key);
                 return Rebuild::No;

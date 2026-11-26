@@ -44,6 +44,9 @@ pub enum ChatMsg {
     Action(Action),
     /// PageUp (-1) and PageDown (1): the transcript a page.
     Page(i8),
+    /// Ctrl+Home, Alt+<: the transcript's first row; Ctrl+End, Alt+>: its last (`JumpTarget`).
+    Beginning,
+    Latest,
     /// A key of the mode that browses the prompts.
     Browse(Browse),
     /// A key that is the transcript selection's (copy, copy and follow, clear).
