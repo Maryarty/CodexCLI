@@ -1,8 +1,6 @@
 //! The startup/import host asks use the app's request registrar. The two generations for an
 //! opened consent question or import flow belong to the screens.
 
-use std::fs;
-
 const ONBOARDING: &str = "core/src/screens/onboarding.rs";
 const GATEWAY: &str = "core/src/screens/onboarding/gateway.rs";
 const STARTUP: &str = "core/src/screens/startup.rs";
@@ -34,15 +32,25 @@ fn violations(path: &str, source: &str) -> Vec<&'static str> {
 
 #[test]
 fn startup_and_import_do_not_reintroduce_screen_owned_request_ids() {
-    let bad: Vec<_> = [ONBOARDING, GATEWAY, STARTUP, IMPORT]
-        .iter()
-        .flat_map(|path| {
-            let source = fs::read_to_string(path).unwrap_or_else(|error| panic!("{path}: {error}"));
-            violations(path, &source)
-                .into_iter()
-                .map(|pattern| (*path, pattern))
-        })
-        .collect();
+    let bad: Vec<_> = [
+        (
+            ONBOARDING,
+            include_str!("../../core/src/screens/onboarding.rs"),
+        ),
+        (
+            GATEWAY,
+            include_str!("../../core/src/screens/onboarding/gateway.rs"),
+        ),
+        (STARTUP, include_str!("../../core/src/screens/startup.rs")),
+        (IMPORT, include_str!("../../core/src/screens/import/mod.rs")),
+    ]
+    .into_iter()
+    .flat_map(|(path, source)| {
+        violations(path, source)
+            .into_iter()
+            .map(move |pattern| (path, pattern))
+    })
+    .collect();
     assert!(bad.is_empty(), "retired request bookkeeping: {bad:?}");
 }
 
