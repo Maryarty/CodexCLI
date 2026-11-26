@@ -1,5 +1,3 @@
-#![allow(clippy::expect_used)]
-
 use super::*;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::ErrorNotification;
@@ -40,7 +38,7 @@ fn thread_started(fx: &AppFx) -> Ticket {
             Command::StartThread { ticket, .. } => Some(*ticket),
             _ => None,
         })
-        .expect("thread start")
+        .unwrap_or_else(|| panic!("expected a thread start: {:?}", fx.commands()))
 }
 
 fn chat(running: bool) -> CodexApp {
@@ -110,11 +108,11 @@ fn submission(fx: &AppFx) -> (Ticket, &str, ClientRequest) {
                 *ticket,
                 client_id.as_str(),
                 protocol::client_request(command, RequestId::Integer(1), None)
-                    .expect("submission on the wire"),
+                    .unwrap_or_else(|| panic!("expected a wire submission: {command:?}")),
             )),
             _ => None,
         })
-        .expect("user input submitted")
+        .unwrap_or_else(|| panic!("expected a submission: {:?}", fx.commands()))
 }
 
 fn receive(
@@ -124,7 +122,8 @@ fn receive(
     request: ClientRequest,
     result: Result<CloudUserMessageReceipt, TypedRequestError>,
 ) -> AppFx {
-    let params = cloud_submit_params(request).expect("native submission on the wire");
+    let params = cloud_submit_params(request)
+        .unwrap_or_else(|| panic!("expected native submission parameters"));
     assert_eq!(params.thread_id, THREAD);
     assert_eq!(params.client_user_message_id.as_deref(), Some(id));
     assert!(matches!(
@@ -135,7 +134,9 @@ fn receive(
     let (ingress, mut events) = tokio::sync::mpsc::unbounded_channel();
     let epoch = app.epoch_of(CLOUD);
     emit_from(&ingress, CLOUD, epoch, event);
-    let event = events.try_recv().expect("reply at host ingress");
+    let event = events
+        .try_recv()
+        .unwrap_or_else(|error| panic!("reply at host ingress: {error}"));
     assert_eq!(event.epoch, epoch);
     let mut fx = AppFx::default();
     apply_app_from(app, event.backend, event.ev, &mut fx);
@@ -309,7 +310,7 @@ fn cloud_preflight_rejection_returns_the_draft_without_replaying_it() {
             assert_eq!(
                 thread
                     .restore()
-                    .expect("input returned to composer")
+                    .unwrap_or_else(|| panic!("input was not returned to the composer"))
                     .messages(),
                 [UserMessage::text("first input")]
             );
@@ -333,7 +334,7 @@ fn stream_lost() -> AppEv {
         "turnId": "",
         "willRetry": false,
         "error": { "message": "Cloud stream ended.", "codexErrorInfo": null, "additionalDetails": null }
-    })).expect("Cloud loss notification");
+    })).unwrap_or_else(|error| panic!("Cloud loss notification: {error}"));
     AppEv::Backend(BackendEv::StreamLost {
         thread: ThreadId::new(THREAD),
         error: Box::new(error),
@@ -362,7 +363,7 @@ fn the_whole_cloud_connection_retires_lost_stream_admission_tickets() {
             }
             _ => None,
         })
-        .expect("reopen the lost stream");
+        .unwrap_or_else(|| panic!("expected to reopen the lost stream: {:?}", fx.commands()));
     step(
         &mut app,
         AppEv::Reply(resume, Reply::failed("attach failed")),

@@ -2980,11 +2980,12 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::StreamLost => {
             // Cloud can report the stream loss and then reject admission on the same connection.
             hold_unconfirmed(model);
-            if !fx.cloud {
+            if fx.cloud {
+                model.core.reconciling_submissions |=
+                    matches!(model.queue.first(), Some(Queued::Unconfirmed { .. }));
+            } else {
                 retire_submissions(model);
             }
-            model.core.reconciling_submissions |=
-                matches!(model.queue.first(), Some(Queued::Unconfirmed { .. }));
             model.core.stream_lost = true;
         }
         ThreadEv::StreamRestored { read, reconciled } => {
@@ -3152,7 +3153,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             // turn ends, its in-flight steers can still decide whether the next input may start.
             if model.stream_lost
                 || model.reconciling_submissions
-                || matches!(model.queue.first(), Some(Queued::Unconfirmed { .. }))
+                || (fx.cloud && matches!(model.queue.first(), Some(Queued::Unconfirmed { .. })))
                 || (!model.is_running() && cloud_admission_pending(model, fx))
             {
                 enqueue(model, Queued::Message(message), fx);
