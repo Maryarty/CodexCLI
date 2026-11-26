@@ -364,18 +364,9 @@ pub enum AppEv {
 pub struct Ingress {
     pub backend: BackendId,
     pub epoch: ConnEpoch,
-    delivery: Delivery,
-}
-
-#[derive(Clone, Debug)]
-enum Delivery {
-    Event(AppEv),
-    TransportReply {
-        transport_epoch: ConnEpoch,
-        ticket: Ticket,
-        reply: Reply,
-    },
-    TransportReplaced(ConnEpoch),
+    transport_epoch: ConnEpoch,
+    /// An empty event announces a replacement handle at `transport_epoch`.
+    ev: Option<AppEv>,
 }
 
 impl Ingress {
@@ -389,7 +380,8 @@ impl Ingress {
         Self {
             backend,
             epoch,
-            delivery: Delivery::Event(ev),
+            transport_epoch: epoch,
+            ev: Some(ev),
         }
     }
 
@@ -404,11 +396,8 @@ impl Ingress {
         Self {
             backend,
             epoch,
-            delivery: Delivery::TransportReply {
-                transport_epoch,
-                ticket,
-                reply,
-            },
+            transport_epoch,
+            ev: Some(AppEv::Reply(ticket, reply)),
         }
     }
 
@@ -421,15 +410,13 @@ impl Ingress {
         Self {
             backend,
             epoch,
-            delivery: Delivery::TransportReplaced(transport_epoch),
+            transport_epoch,
+            ev: None,
         }
     }
 
     pub fn event(&self) -> Option<&AppEv> {
-        match &self.delivery {
-            Delivery::Event(ev) => Some(ev),
-            _ => None,
-        }
+        self.ev.as_ref()
     }
 }
 
@@ -1394,27 +1381,19 @@ impl CodexApp {
             return None;
         }
         let mut fx = AppFx::default();
-        let (transport_epoch, event) = match ingress.delivery {
-            Delivery::TransportReplaced(transport_epoch) => {
-                if transport_epoch != self.transport_epoch_of(ingress.backend).next() {
-                    return None;
-                }
-                self.transport_epochs
-                    .insert(ingress.backend, transport_epoch);
-                self.retire_outgoing(ingress.backend, &mut fx);
-                finish_apply(self, false, &mut fx);
-                return Some(fx);
+        let Some(event) = ingress.ev else {
+            if ingress.transport_epoch != self.transport_epoch_of(ingress.backend).next() {
+                return None;
             }
-            Delivery::TransportReply {
-                transport_epoch,
-                ticket,
-                reply,
-            } => (transport_epoch, AppEv::Reply(ticket, reply)),
-            Delivery::Event(event) => (ingress.epoch, event),
+            self.transport_epochs
+                .insert(ingress.backend, ingress.transport_epoch);
+            self.retire_outgoing(ingress.backend, &mut fx);
+            finish_apply(self, false, &mut fx);
+            return Some(fx);
         };
         let address = Address {
             backend: ingress.backend,
-            epoch: transport_epoch,
+            epoch: ingress.transport_epoch,
         };
         if !self.accepts_reply(address, &event) {
             return None;
