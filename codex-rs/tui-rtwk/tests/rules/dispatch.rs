@@ -6,7 +6,7 @@ use codex_tui_core::commands::SlashCommand;
 use codex_tui_core::features::owns_command;
 
 use crate::adr013::{at, code_tokens, matching, starts};
-use crate::layers::srcscan::crate_dir;
+use crate::layers::srcscan::sources_of;
 
 fn dispatch_tokens(source: &str) -> Vec<String> {
     let mut tokens = code_tokens(source);
@@ -96,9 +96,10 @@ fn owned_command_references(tokens: &[String], owned: &BTreeSet<String>) -> BTre
 
 #[test]
 fn the_dispatcher_has_no_feature_owned_command_cases() {
-    let path = crate_dir().join("core/src/commands/dispatch.rs");
-    let source = std::fs::read_to_string(&path)
-        .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+    let source = sources_of("core/src/commands")
+        .into_iter()
+        .find_map(|(path, source)| (path == "core/src/commands/dispatch.rs").then_some(source))
+        .unwrap_or_else(|| panic!("dispatch.rs must be scanned"));
     let tokens = dispatch_tokens(&source);
     assert!(
         !aliases_command_type(&tokens),
