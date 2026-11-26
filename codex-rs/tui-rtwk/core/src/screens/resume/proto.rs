@@ -8,22 +8,19 @@
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::Thread;
-use codex_app_server_protocol::Turn;
-use codex_app_server_protocol::ThreadArchiveParams;
 use codex_app_server_protocol::ThreadItemPayload;
 use codex_app_server_protocol::ThreadListCwdFilter;
-use codex_app_server_protocol::ThreadListParams;
-use codex_app_server_protocol::ThreadListResponse;
 use codex_app_server_protocol::ThreadSortKey;
 use codex_app_server_protocol::ThreadSourceKind;
-use codex_app_server_protocol::ThreadUnarchiveParams;
-use codex_app_server_protocol::ThreadUnarchiveResponse;
+use codex_app_server_protocol::Turn;
 use codex_app_server_protocol::UserInput;
 
 use super::toolbar::Sort;
 use super::{Command, CwdFilter, PreviewLine, Reply, Row, Speaker};
 use crate::ids::{BackendId, ThreadId};
 use crate::rpc::RpcError;
+use crate::threads::asks::ListQuery;
+use crate::threads::{ThreadAsk, ThreadReply, asks};
 
 /// A page is this many rows (oracle: `PAGE_SIZE`).
 pub const PAGE_SIZE: u32 = 25;
@@ -40,56 +37,41 @@ pub(super) fn wire(command: &Command, id: RequestId) -> ClientRequest {
             archived,
             cwd,
             ..
-        } => ClientRequest::ThreadList {
-            request_id: id,
-            params: ThreadListParams {
-                include_attached_threads: false,
-                current_account_only: true,
-                excluded_thread_ids: None,
-                attached_to_thread_id: None,
-                originators: None,
-                cursor: cursor.clone(),
-                limit: Some(PAGE_SIZE),
-                sort_key: Some(match sort {
-                    Sort::Updated => ThreadSortKey::UpdatedAt,
-                    Sort::Created => ThreadSortKey::CreatedAt,
-                }),
-                sort_direction: None,
-                model_providers: None,
-                source_kinds: Some(vec![ThreadSourceKind::Cli, ThreadSourceKind::VsCode]),
-                archived: Some(*archived),
-                section_id: None,
-                project_id: None,
-                parent_thread_id: None,
-                ancestor_thread_id: None,
-                cwd: cwd.as_ref().map(|filter| match filter {
-                    CwdFilter::One(cwd) => ThreadListCwdFilter::One(cwd.clone()),
-                    CwdFilter::Many(cwds) => ThreadListCwdFilter::Many(cwds.clone()),
-                }),
-                use_state_db_only: matches!(mode, super::listing::PageMode::StateDbOnly),
-                search_term: None,
-            },
-        },
-        Command::Archive { thread, .. } => ClientRequest::ThreadArchive {
-            request_id: id,
-            params: ThreadArchiveParams {
-                thread_id: thread.to_string(),
-            },
-        },
-        Command::Unarchive { thread, .. } => ClientRequest::ThreadUnarchive {
-            request_id: id,
-            params: ThreadUnarchiveParams {
-                thread_id: thread.to_string(),
-            },
-        },
+        } => ThreadAsk::list(ListQuery {
+            current_account_only: true,
+            cursor: cursor.clone(),
+            limit: Some(PAGE_SIZE),
+            sort_key: Some(match sort {
+                Sort::Updated => ThreadSortKey::UpdatedAt,
+                Sort::Created => ThreadSortKey::CreatedAt,
+            }),
+            sort_direction: None,
+            model_providers: None,
+            source_kinds: Some(vec![ThreadSourceKind::Cli, ThreadSourceKind::VsCode]),
+            archived: Some(*archived),
+            cwd: cwd.as_ref().map(|filter| match filter {
+                CwdFilter::One(cwd) => ThreadListCwdFilter::One(cwd.clone()),
+                CwdFilter::Many(cwds) => ThreadListCwdFilter::Many(cwds.clone()),
+            }),
+            use_state_db_only: matches!(mode, super::listing::PageMode::StateDbOnly),
+            ..ListQuery::default()
+        })
+        .wire(id),
+        Command::Archive { thread, .. } => ThreadAsk::Archive {
+            thread: thread.to_string(),
+        }
+        .wire(id),
+        Command::Unarchive { thread, .. } => ThreadAsk::Unarchive {
+            thread: thread.to_string(),
+        }
+        .wire(id),
     }
 }
 
 pub(super) fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-    let malformed = |error: serde_json::Error| RpcError::Malformed(error.to_string());
     match command {
         Command::List { backend, .. } => {
-            let page: ThreadListResponse = serde_json::from_value(result).map_err(malformed)?;
+            let page = asks::listed(result)?;
             let unread = page
                 .read_states
                 .as_ref()
@@ -112,13 +94,18 @@ pub(super) fn decode(command: &Command, result: serde_json::Value) -> Result<Rep
             })
         }
         Command::Archive { .. } => Ok(Reply::Archived),
-        Command::Unarchive { .. } => {
-            let response: ThreadUnarchiveResponse =
-                serde_json::from_value(result).map_err(malformed)?;
-            Ok(Reply::Unarchived {
-                thread: ThreadId::new(&response.thread.id),
-                cwd: Some(response.thread.cwd.display().to_string()),
+        Command::Unarchive { thread, .. } => {
+            match (ThreadAsk::Unarchive {
+                thread: thread.to_string(),
             })
+            .decode(result)?
+            {
+                ThreadReply::Unarchived(thread) => Ok(Reply::Unarchived {
+                    thread: ThreadId::new(&thread.id),
+                    cwd: Some(thread.cwd.display().to_string()),
+                }),
+                _ => Err(RpcError::Mismatch),
+            }
         }
     }
 }
@@ -257,7 +244,10 @@ mod tests {
 
     #[test]
     fn the_preview_keeps_only_the_newest_six_lines() {
-        let text = (1..=9).map(|n| n.to_string()).collect::<Vec<_>>().join("\n");
+        let text = (1..=9)
+            .map(|n| n.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
         let lines = preview_lines(&[turn(vec![assistant(&text)])]);
         let texts: Vec<_> = lines.iter().map(|line| line.text.as_str()).collect();
         assert_eq!(texts, vec!["4", "5", "6", "7", "8", "9"]);

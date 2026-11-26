@@ -10,7 +10,7 @@ use std::future::Future;
 use std::time::Duration;
 
 use codex_app_server_protocol::{
-    ClientRequest, SortDirection, Thread, ThreadListParams, ThreadListResponse, ThreadSortKey,
+    ClientRequest, SortDirection, Thread, ThreadListResponse, ThreadSortKey,
 };
 use codex_backend_client::{TaskUsage, TaskUsageStatus, TaskUsageThread, ThreadUsage};
 use codex_tui_core::rpc::ServerError;
@@ -19,6 +19,8 @@ use codex_tui_core::screens::usage::chats::{
     TaskRow,
 };
 use codex_tui_core::screens::usage::models::{AccountKind, thread_usage_supported};
+use codex_tui_core::threads::asks::ListQuery;
+use codex_tui_core::threads::{ThreadAsk, asks};
 use codex_tui_rtwk::services::backend::rpc::Ids;
 use codex_tui_rtwk::services::clock::{deadline_in, passed, unix_now};
 use futures::StreamExt;
@@ -134,7 +136,7 @@ where
         let page = list(
             send,
             ids,
-            ThreadListParams {
+            ListQuery {
                 cursor,
                 ..list_params()
             },
@@ -159,45 +161,30 @@ where
     Ok(threads)
 }
 
-async fn list<F, Fut>(
-    send: &F,
-    ids: &Ids,
-    params: ThreadListParams,
-) -> Result<ThreadListResponse, String>
+async fn list<F, Fut>(send: &F, ids: &Ids, params: ListQuery) -> Result<ThreadListResponse, String>
 where
     F: Fn(ClientRequest) -> Fut,
     Fut: Future<Output = Result<serde_json::Value, ServerError>>,
 {
-    let value = send(ClientRequest::ThreadList {
-        request_id: ids.next(),
-        params,
-    })
-    .await
-    .map_err(|_| LIST_FAILED.to_string())?;
-    serde_json::from_value(value).map_err(|_| LIST_FAILED.to_string())
+    let value = send(ThreadAsk::list(params).wire(ids.next()))
+        .await
+        .map_err(|_| LIST_FAILED.to_string())?;
+    asks::listed(value).map_err(|_| LIST_FAILED.to_string())
 }
 
-fn list_params() -> ThreadListParams {
-    ThreadListParams {
-        include_attached_threads: false,
+fn list_params() -> ListQuery {
+    ListQuery {
         current_account_only: true,
-        excluded_thread_ids: None,
-        attached_to_thread_id: None,
         limit: Some(100),
         sort_key: Some(ThreadSortKey::UpdatedAt),
         sort_direction: Some(SortDirection::Desc),
         model_providers: Some(Vec::new()),
         source_kinds: None,
-        originators: None,
         archived: Some(false),
         cursor: None,
-        section_id: None,
-        project_id: None,
         cwd: None,
         use_state_db_only: false,
-        search_term: None,
-        parent_thread_id: None,
-        ancestor_thread_id: None,
+        ..ListQuery::default()
     }
 }
 
@@ -412,7 +399,7 @@ where
             let page = list(
                 send,
                 ids,
-                ThreadListParams {
+                ListQuery {
                     current_account_only: false,
                     ancestor_thread_id: Some(root.id.clone()),
                     archived: Some(archived),

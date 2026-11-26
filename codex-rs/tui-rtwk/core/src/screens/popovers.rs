@@ -9,12 +9,7 @@ use codex_app_server_protocol::PluginInstalledParams;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::SkillsListParams;
 use codex_app_server_protocol::SortDirection;
-use codex_app_server_protocol::ThreadListParams;
-use codex_app_server_protocol::ThreadListResponse;
-use codex_app_server_protocol::ThreadSearchParams;
-use codex_app_server_protocol::ThreadSearchResponse;
 use codex_app_server_protocol::ThreadSearchResult;
-use codex_app_server_protocol::ThreadSearchSortKey;
 use codex_app_server_protocol::ThreadSortKey;
 use codex_app_server_protocol::ThreadSource;
 
@@ -33,7 +28,8 @@ use crate::screens::Shared;
 use crate::screens::composer::clipboard::Pasted;
 use crate::screens::composer::mentions::sources;
 use crate::screens::select::apps::App;
-use crate::threads::ThreadFx;
+use crate::threads::asks::ListQuery;
+use crate::threads::{ThreadAsk, ThreadFx, ThreadReply, asks};
 
 pub const NAME: &str = "popovers";
 pub const ID: &str = "S12";
@@ -600,44 +596,21 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
                 force_reload: true,
             },
         },
-        Command::TaskSearch { query } => ClientRequest::ThreadSearch {
-            request_id: id,
-            params: ThreadSearchParams {
-                include_attached_threads: false,
-                current_account_only: true,
-                cursor: None,
-                limit: Some(MAX_SEARCH_RESULTS as u32),
-                sort_key: Some(ThreadSearchSortKey::RecencyAt),
-                sort_direction: Some(SortDirection::Desc),
-                source_kinds: Some(Vec::new()),
-                archived: Some(false),
-                search_term: query.trim().to_string(),
-            },
-        },
-        Command::TaskTitles => ClientRequest::ThreadList {
-            request_id: id,
-            params: ThreadListParams {
-                include_attached_threads: false,
-                current_account_only: true,
-                excluded_thread_ids: None,
-                attached_to_thread_id: None,
-                originators: None,
-                cursor: None,
-                limit: Some(MAX_SEARCH_RESULTS as u32),
-                sort_key: Some(ThreadSortKey::UpdatedAt),
-                sort_direction: Some(SortDirection::Desc),
-                model_providers: Some(Vec::new()),
-                source_kinds: Some(Vec::new()),
-                archived: Some(false),
-                section_id: None,
-                project_id: None,
-                cwd: None,
-                use_state_db_only: true,
-                search_term: None,
-                parent_thread_id: None,
-                ancestor_thread_id: None,
-            },
-        },
+        Command::TaskSearch { query } => task_search(query).wire(id),
+        Command::TaskTitles => ThreadAsk::list(ListQuery {
+            current_account_only: true,
+            cursor: None,
+            limit: Some(MAX_SEARCH_RESULTS as u32),
+            sort_key: Some(ThreadSortKey::UpdatedAt),
+            sort_direction: Some(SortDirection::Desc),
+            model_providers: Some(Vec::new()),
+            source_kinds: Some(Vec::new()),
+            archived: Some(false),
+            cwd: None,
+            use_state_db_only: true,
+            ..ListQuery::default()
+        })
+        .wire(id),
         Command::Plugins { cwd } => ClientRequest::PluginInstalled {
             request_id: id,
             // A directory that is not absolute names no repository marketplace.
@@ -651,6 +624,13 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
     }
 }
 
+fn task_search(query: &str) -> ThreadAsk {
+    ThreadAsk::Search {
+        term: query.to_owned(),
+        limit: MAX_SEARCH_RESULTS as u32,
+    }
+}
+
 /// The reply `result` (the JSON result of the request) is for `command`.
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
     let malformed = |error: serde_json::Error| RpcError::Malformed(error.to_string());
@@ -661,25 +641,26 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
         Command::Plugins { .. } => serde_json::from_value(result)
             .map(|response| Reply::Plugins(sources::plugins(response)))
             .map_err(malformed),
-        Command::TaskSearch { .. } => serde_json::from_value::<ThreadSearchResponse>(result)
-            .map(|response| Reply::Threads(response.data.into_iter().map(found).collect()))
-            .map_err(malformed),
-        Command::TaskTitles => serde_json::from_value::<ThreadListResponse>(result)
-            .map(|response| {
-                Reply::Threads(
-                    response
-                        .data
-                        .into_iter()
-                        .map(|thread| {
-                            found(ThreadSearchResult {
-                                thread,
-                                snippet: String::new(),
-                            })
+        Command::TaskSearch { query } => match task_search(query).decode(result)? {
+            ThreadReply::Searched(rows) => {
+                Ok(Reply::Threads(rows.into_iter().map(found).collect()))
+            }
+            _ => Err(RpcError::Mismatch),
+        },
+        Command::TaskTitles => asks::listed(result).map(|response| {
+            Reply::Threads(
+                response
+                    .data
+                    .into_iter()
+                    .map(|thread| {
+                        found(ThreadSearchResult {
+                            thread,
+                            snippet: String::new(),
                         })
-                        .collect(),
-                )
-            })
-            .map_err(malformed),
+                    })
+                    .collect(),
+            )
+        }),
     }
 }
 

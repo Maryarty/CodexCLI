@@ -19,7 +19,6 @@ use std::sync::Mutex;
 use crate::daemon::Mismatch;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::EnvironmentInfoParams;
-use codex_app_server_protocol::ThreadReadResponse;
 use codex_config::ConfigLayerSource;
 use codex_config::default_project_root_markers;
 use codex_config::loader::discover_project_root;
@@ -44,6 +43,7 @@ use codex_tui_core::ids::ThreadId;
 use codex_tui_core::protocol::onboarding as wire;
 use codex_tui_core::rpc::RpcError;
 use codex_tui_core::rpc::ServerError;
+use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::chat::Ev as ChatEv;
 use codex_tui_core::screens::onboarding::auth::{AuthResult, Offer, Providers};
 use codex_tui_core::screens::onboarding::consent::{Checked, Target as ConsentTarget};
@@ -51,8 +51,7 @@ use codex_tui_core::screens::onboarding::gateway::Logins;
 use codex_tui_core::screens::onboarding::session::Resumed;
 use codex_tui_core::screens::onboarding::{Ask, Ev, Facts, TrustAsk, TrustCancel, Welcome};
 use codex_tui_core::screens::startup::{DaemonChoice, Prompt};
-use codex_tui_core::screens::{self, ScreenCommand, ScreenEv, agents};
-use codex_tui_core::threads::ThreadAsk;
+use codex_tui_core::threads::{ThreadAsk, ThreadReply};
 use codex_tui_rtwk::services::backend::rpc::Ids;
 pub use codex_tui_rtwk::services::startup::Browser;
 use codex_tui_rtwk::services::startup::UpdateAction;
@@ -998,15 +997,19 @@ where
     F: Fn(ClientRequest) -> Fut,
     Fut: Future<Output = Result<serde_json::Value, ServerError>>,
 {
-    let command = ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Read {
+    let ask = ThreadAsk::Read {
         thread: thread.to_string(),
-    }));
-    let response = send(screens::wire(&command, &ThreadId::default(), ids.next()))
+    };
+    let response = send(ask.wire(ids.next()))
         .await
         .map_err(|error| format!("thread/read failed: {error}"))?;
-    let response: ThreadReadResponse =
-        serde_json::from_value(response).map_err(|error| error.to_string())?;
-    Ok(response.thread.cwd)
+    match ask.decode(response).map_err(|error| match error {
+        codex_tui_core::rpc::RpcError::Malformed(message) => message,
+        _ => "thread/read: unexpected reply".to_owned(),
+    })? {
+        ThreadReply::Read { thread, .. } => Ok(thread.cwd),
+        _ => Err("thread/read: unexpected reply".to_owned()),
+    }
 }
 
 fn folder_text(cwd: &Path) -> Result<String, String> {

@@ -433,24 +433,22 @@ fn the_foreign_parts_scan_bites() {
 
 // ---- 3. b-H3: thread RPCs by an allow list ----
 
-const CORE_THREAD: &[&str] = &["core/src/threads.rs", "core/src/protocol/mod.rs"];
+const THREAD_CATALOG: &str = "core/src/threads/asks.rs";
+const CORE_THREAD: &[&str] = &[THREAD_CATALOG];
 /// Where a slice builds its own, besides the thread's own files (`Feature::wire`, `rpc_list!`);
 /// the probe of `rpc_list.rs` and the framework's test double are not slices.
 const SLICE: &[&str] = &[
-    "core/src/threads.rs",
-    "core/src/protocol/mod.rs",
+    THREAD_CATALOG,
     "core/src/features/",
     "core/src/protocol/rpc_list.rs",
 ];
-const CATALOG: &[&str] = &["core/src/protocol/", "core/src/screens/"];
-const READ_ONLY: &[&str] = &["core/src/", "host/src/"];
 
 /// Every thread RPC the code builds (`ClientRequest::X`, its `XParams`, an `rpc_list!` line's
 /// `=> X(`) by name with the files that may build it. A name that is not here is unclassified:
 /// a new RPC is a decision made in this table (lifecycle: the thread's own files, a feature's:
 /// its slice, a catalogue or read-only call: where listed).
 const THREAD_RPCS: &[(&str, &[&str])] = &[
-    // the lifecycle of the thread (ADR-003): `threads.rs` and the app's two commands
+    // the lifecycle of the thread (ADR-003): one generated catalog
     ("ThreadResume", CORE_THREAD),
     ("ThreadFork", CORE_THREAD),
     ("ThreadStart", CORE_THREAD),
@@ -462,15 +460,11 @@ const THREAD_RPCS: &[(&str, &[&str])] = &[
     ("TurnSteer", CORE_THREAD),
     ("ReviewStart", CORE_THREAD),
     ("ThreadBackgroundTerminalsClean", CORE_THREAD),
-    ("ThreadBackgroundTerminalsList", SLICE),
+    ("ThreadBackgroundTerminalsList", CORE_THREAD),
     ("ThreadPrepareApprovedPlan", CORE_THREAD),
     (
         "ThreadSettingsUpdate",
-        &[
-            "core/src/threads.rs",
-            "core/src/protocol/mod.rs",
-            "core/src/threads/goal.rs",
-        ],
+        &[THREAD_CATALOG, "core/src/threads/goal.rs"],
     ),
     // a feature's, in its slice
     ("ThreadCompactStart", SLICE),
@@ -487,14 +481,14 @@ const THREAD_RPCS: &[(&str, &[&str])] = &[
         &["core/src/screens/approvals.rs"],
     ),
     // the catalogue of threads (resume, agents): archive, delete, move between sections
-    ("ThreadArchive", CATALOG),
-    ("ThreadUnarchive", CATALOG),
-    ("ThreadDelete", CATALOG),
-    ("ThreadSectionMove", CATALOG),
+    ("ThreadArchive", CORE_THREAD),
+    ("ThreadUnarchive", CORE_THREAD),
+    ("ThreadDelete", CORE_THREAD),
+    ("ThreadSectionMove", CORE_THREAD),
     // read-only lists
-    ("ThreadList", READ_ONLY),
-    ("ThreadLoadedList", READ_ONLY),
-    ("ThreadSearch", READ_ONLY),
+    ("ThreadList", CORE_THREAD),
+    ("ThreadLoadedList", CORE_THREAD),
+    ("ThreadSearch", CORE_THREAD),
 ];
 
 fn is_thread_rpc_name(name: &str) -> bool {
@@ -548,7 +542,15 @@ fn thread_rpc_sites(files: &Files) -> Vec<String> {
             let home = THREAD_RPCS
                 .iter()
                 .find(|(known, _)| *known == rpc)
-                .is_some_and(|(_, homes)| homes.iter().any(|home| name.starts_with(home)));
+                .is_some_and(|(_, homes)| {
+                    homes.iter().any(|home| {
+                        if home.ends_with('/') {
+                            name.starts_with(home)
+                        } else {
+                            name == home
+                        }
+                    })
+                });
             if !home {
                 found.push(format!("{name}:{rpc}"));
             }
@@ -573,7 +575,22 @@ fn thread_rpcs_are_classified_and_built_at_home() {
 fn the_thread_rpc_allow_list_bites() {
     let one = |name: &str, text: &str| thread_rpc_sites(&[file(name, text)]);
     // at home: quiet
-    assert!(one("core/src/threads.rs", "ClientRequest::TurnStart {").is_empty());
+    assert!(one(THREAD_CATALOG, "ClientRequest::TurnStart {").is_empty());
+    assert_eq!(
+        one("core/src/protocol/mod.rs", "ClientRequest::TurnStart {"),
+        ["core/src/protocol/mod.rs:TurnStart"]
+    );
+    assert_eq!(
+        one(
+            "core/src/screens/resume/proto.rs",
+            "crate::rpc_list! { A, Self::A => ThreadList(p) -> R, |_| R::Done; }",
+        ),
+        ["core/src/screens/resume/proto.rs:ThreadList"]
+    );
+    assert_eq!(
+        one("host/src/startup.rs", "ClientRequest::ThreadRead {"),
+        ["host/src/startup.rs:ThreadRead"]
+    );
     assert!(
         one(
             "core/src/features/goal/rpcs.rs",

@@ -9,6 +9,8 @@ use super::catalog;
 use super::hooks::{Hook, HookIssue, Hooks};
 use super::resume::{Listed, display_label};
 use crate::ids::ThreadId;
+use crate::threads::ThreadAsk;
+use crate::threads::asks::{self, ListQuery};
 
 /// The most pages of the experimental features one listing reads (`MAX_PAGES`).
 pub const MAX_PAGES: u8 = 10;
@@ -69,32 +71,19 @@ crate::rpc_list! {
         -> serde_json::Value, |_| Reply::Written;
     /// `thread/list`, one page of the sessions `/resume <name>` looks a label up in.
     Sessions { cursor: Option<String> }, Self::Sessions { cursor }
-        => ThreadList(wire::ThreadListParams {
-            include_attached_threads: false,
+        => Reuse(ThreadAsk::list(ListQuery {
             current_account_only: false,
-            excluded_thread_ids: None,
-            attached_to_thread_id: None,
-            originators: None,
             cursor: cursor.clone(),
             limit: Some(PAGE),
             // Activity must not move an unread thread ahead of the cursor.
             sort_key: Some(wire::ThreadSortKey::CreatedAt),
-            sort_direction: None,
             model_providers: Some(Vec::new()),
-            source_kinds: Some(vec![
-                wire::ThreadSourceKind::Cli,
-                wire::ThreadSourceKind::VsCode,
-            ]),
+            source_kinds: Some(vec![wire::ThreadSourceKind::Cli, wire::ThreadSourceKind::VsCode]),
             archived: Some(false),
-            section_id: None,
-            project_id: None,
-            parent_thread_id: None,
-            ancestor_thread_id: None,
-            cwd: None,
             use_state_db_only: true,
-            search_term: None,
-        })
-        -> wire::ThreadListResponse, |page| Reply::Sessions {
+            ..ListQuery::default()
+        }))
+        -> wire::ThreadListResponse as asks::listed, |page| Reply::Sessions {
             rows: page.data.iter().map(listed).collect(),
             next: page.next_cursor,
         };

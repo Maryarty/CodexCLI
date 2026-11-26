@@ -175,6 +175,25 @@ fn wire_is_generated() {
 }
 
 #[test]
+fn the_thread_catalog_generates_its_requests() {
+    let catalog = include_str!("../../core/src/threads/asks.rs");
+    assert_eq!(lists(catalog).len(), 1, "one generated thread catalog");
+    let lines: Vec<_> = catalog.lines().collect();
+    for number in hand_made(catalog) {
+        let line = lines[number - 1].trim();
+        // The host projects already encoded turn input into Cloud admission.
+        assert!(
+            matches!(
+                line,
+                "wire::ClientRequest::TurnStart { params, .. } => Some(params),"
+                    | "wire::ClientRequest::TurnSteer { params, .. } => Some(wire::TurnStartParams {"
+            ),
+            "thread catalog line {number} makes a request outside rpc_list!: {line}"
+        );
+    }
+}
+
+#[test]
 fn the_list_finder_reads_braces_of_the_blocks_only() {
     let text = "a\nrpc_list! {\n  X => ClientRequest::A { v: json!({ \"k\": 1 }) }\n}\nClientRequest::B {}\n";
     assert_eq!(hand_made(text), vec![5]);

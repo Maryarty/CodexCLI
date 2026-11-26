@@ -415,8 +415,7 @@ fn codex_app_holds_its_threads_privately() {
 
 /// The thread RPCs of the thread's life: resume, fork, start, read, turns, subscribe, the
 /// turn calls and the review start, which starts a turn and switches review mode (ADR-003).
-/// Built in core/src/threads.rs and
-/// core/src/protocol/mod.rs only, whoever asks: a feature slice cannot make them either.
+/// Built in the thread catalog, whoever asks: a feature slice cannot make them either.
 const LIFECYCLE_RPCS: &[&str] = &[
     "ClientRequest::ThreadResume",
     "ClientRequest::ThreadFork",
@@ -439,7 +438,7 @@ const LIFECYCLE_RPCS: &[&str] = &[
 ];
 
 /// Thread RPCs that are a feature's, not the lifecycle's (`/compact`, `/rename`, `!cmd`,
-/// `/undo`): until their features are slices they are built in threads.rs too; a slice under
+/// `/undo`): until their features are slices they are built in the thread catalog; a slice under
 /// `core/src/features/<f>/` builds its own in `Feature::wire` (ADR-012), and its asks go out
 /// only through `AppCx::ask` / `ThreadCx::request` (`feature_slices_ask_only_through_the_outbox`).
 const FEATURE_RPCS: &[&str] = &[
@@ -455,19 +454,16 @@ const FEATURE_RPCS: &[&str] = &[
 
 fn thread_rpcs_outside(files: &[(String, String)]) -> Vec<String> {
     let mut found = scan(files, LIFECYCLE_RPCS, |name| {
-        name == "core/src/threads.rs" || name == "core/src/protocol/mod.rs"
+        name == "core/src/threads/asks.rs"
     });
     found.extend(scan(files, FEATURE_RPCS, |name| {
-        name == "core/src/threads.rs"
-            || name == "core/src/protocol/mod.rs"
-            || name.starts_with("core/src/features/")
+        name == "core/src/threads/asks.rs" || name.starts_with("core/src/features/")
     }));
     found
 }
 
 /// A thread RPC is asked for as data (`threads::ThreadAsk`) and made into a
-/// wire request in core/src/threads.rs only; the two thread commands the app
-/// itself mints (`StartThread`, `StartTurn`) are mapped in protocol/mod.rs.
+/// wire request only in the thread catalog.
 /// No screen, view or shell file builds `ClientRequest::Thread*`/`Turn*`. The lifecycle
 /// RPCs stay here whoever asks; the feature RPCs may also be built inside a feature slice.
 #[test]
@@ -478,7 +474,7 @@ fn thread_rpcs_only_in_threads() {
     let found = thread_rpcs_outside(&files);
     assert!(
         found.is_empty(),
-        "thread RPC built outside threads.rs: {found:#?}"
+        "thread RPC built outside the thread catalog: {found:#?}"
     );
 }
 

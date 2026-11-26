@@ -11,34 +11,21 @@ use crate::screens::agents::UsageOutcome;
 use crate::screens::agents::carried::is_overview_thread;
 use crate::screens::agents::carried::listed_threads;
 use crate::screens::agents::carried::preview_markdown;
-use crate::threads::ThreadAsk;
+use crate::threads::asks::ListQuery;
+use crate::threads::{ThreadAsk, ThreadReply};
 use codex_app_server_protocol::Account;
 use codex_app_server_protocol::ClientRequest;
-use codex_app_server_protocol::ConfigReadResponse;
 use codex_app_server_protocol::GetAccountParams;
 use codex_app_server_protocol::GetAccountResponse;
 use codex_app_server_protocol::GetAccountTokenUsageParams;
 use codex_app_server_protocol::GetAccountTokenUsageResponse;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::Thread;
-use codex_app_server_protocol::ThreadArchiveParams;
-use codex_app_server_protocol::ThreadDeleteParams;
-use codex_app_server_protocol::ThreadForkResponse;
 use codex_app_server_protocol::ThreadItemPayload;
-use codex_app_server_protocol::ThreadListParams;
 use codex_app_server_protocol::ThreadListResponse;
-use codex_app_server_protocol::ThreadLoadedListParams;
-use codex_app_server_protocol::ThreadLoadedListResponse;
-use codex_app_server_protocol::ThreadReadResponse;
-use codex_app_server_protocol::ThreadResumeResponse;
-use codex_app_server_protocol::ThreadSectionMoveParams;
 use codex_app_server_protocol::ThreadSortKey;
 use codex_app_server_protocol::ThreadSourceKind;
-use codex_app_server_protocol::ThreadStartResponse;
-use codex_app_server_protocol::ThreadTurnsListResponse;
 use codex_app_server_protocol::Turn;
-use codex_app_server_protocol::TurnStartResponse;
-use codex_app_server_protocol::TurnStatus;
 
 use codex_app_server_protocol::UserInput;
 use serde::Deserialize;
@@ -47,49 +34,31 @@ use serde::Deserialize;
 /// `agents_overview_actions.rs`).
 pub(crate) fn wire_request(command: &Command, request_id: RequestId) -> ClientRequest {
     match command {
-        Command::List { cursor } => ClientRequest::ThreadList {
-            request_id,
-            params: list_params(cursor.clone()),
-        },
+        Command::List { cursor } => ThreadAsk::list(list_query(cursor.clone())).wire(request_id),
         Command::Rename { thread, name } => ThreadAsk::Rename {
             thread: thread.clone(),
             name: name.clone(),
         }
         .wire(request_id),
-        Command::Archive { thread } => ClientRequest::ThreadArchive {
-            request_id,
-            params: ThreadArchiveParams {
-                thread_id: thread.clone(),
-            },
-        },
-        Command::Delete { thread } => ClientRequest::ThreadDelete {
-            request_id,
-            params: ThreadDeleteParams {
-                thread_id: thread.clone(),
-            },
-        },
-        Command::Pin { thread, pinned } => ClientRequest::ThreadSectionMove {
-            request_id,
-            params: ThreadSectionMoveParams {
-                thread_id: thread.clone(),
-                section_id: pinned.then(|| PINNED_SECTION.to_owned()),
-                before_thread_id: None,
-            },
-        },
-        Command::Search { cursor, .. } => ClientRequest::ThreadList {
-            request_id,
-            params: ThreadListParams {
-                limit: Some(SEARCH_PAGE_SIZE),
-                ..list_params(cursor.clone())
-            },
-        },
-        Command::Loaded => ClientRequest::ThreadLoadedList {
-            request_id,
-            params: ThreadLoadedListParams {
-                cursor: None,
-                limit: None,
-            },
-        },
+        Command::Archive { thread } => ThreadAsk::Archive {
+            thread: thread.clone(),
+        }
+        .wire(request_id),
+        Command::Delete { thread } => ThreadAsk::Delete {
+            thread: thread.clone(),
+        }
+        .wire(request_id),
+        Command::Pin { thread, pinned } => ThreadAsk::MoveSection {
+            thread: thread.clone(),
+            section: pinned.then(|| PINNED_SECTION.to_owned()),
+        }
+        .wire(request_id),
+        Command::Search { cursor, .. } => ThreadAsk::list(ListQuery {
+            limit: Some(SEARCH_PAGE_SIZE),
+            ..list_query(cursor.clone())
+        })
+        .wire(request_id),
+        Command::Loaded => ThreadAsk::Loaded.wire(request_id),
         Command::Usage { thread } => ClientRequest::GetAccountTokenUsage {
             request_id,
             params: Some(GetAccountTokenUsageParams {
@@ -106,39 +75,25 @@ pub(crate) fn wire_request(command: &Command, request_id: RequestId) -> ClientRe
 /// A config write is no RPC: `app::send_agents` never hands it to the wire.
 /// Were it asked, the answer is a harmless read of nothing.
 fn unreachable_wire(request_id: RequestId) -> ClientRequest {
-    ClientRequest::ThreadLoadedList {
-        request_id,
-        params: ThreadLoadedListParams {
-            cursor: None,
-            limit: None,
-        },
-    }
+    ThreadAsk::Loaded.wire(request_id)
 }
 
 /// A search scans pages of this many rows (oracle: `page_size = 100`).
 pub(crate) const SEARCH_PAGE_SIZE: u32 = 100;
 
-fn list_params(cursor: Option<String>) -> ThreadListParams {
-    ThreadListParams {
-        include_attached_threads: false,
+pub(crate) fn list_query(cursor: Option<String>) -> ListQuery {
+    ListQuery {
         current_account_only: true,
         cursor,
         limit: Some(PAGE_SIZE),
-        excluded_thread_ids: None,
         sort_key: Some(ThreadSortKey::RecencyAt),
         sort_direction: None,
         model_providers: Some(Vec::new()),
         source_kinds: Some(Vec::new()),
-        originators: None,
         archived: Some(false),
-        section_id: None,
-        project_id: None,
         cwd: None,
         use_state_db_only: true,
-        search_term: None,
-        parent_thread_id: None,
-        ancestor_thread_id: None,
-        attached_to_thread_id: None,
+        ..ListQuery::default()
     }
 }
 
@@ -175,18 +130,9 @@ pub(crate) fn decode_reply(
     let malformed = |error: serde_json::Error| RpcError::Malformed(error.to_string());
     match command {
         Command::List { .. } | Command::Search { .. } => {
-            let page = serde_json::from_value(result).map_err(malformed)?;
-            Ok(Reply::Listed(listed_page(page)))
+            crate::threads::asks::listed(result).map(|page| Reply::Listed(listed_page(page)))
         }
-        Command::Thread(ThreadAsk::Resume { .. } | ThreadAsk::ResumeAt { .. }) => {
-            let response: ThreadResumeResponse =
-                serde_json::from_value(result).map_err(malformed)?;
-            Ok(Reply::Resumed(Box::new(response.thread)))
-        }
-        Command::Thread(ThreadAsk::Fork { .. } | ThreadAsk::ForkAt { .. }) => {
-            let response: ThreadForkResponse = serde_json::from_value(result).map_err(malformed)?;
-            Ok(Reply::Forked(Box::new(response.thread)))
-        }
+        Command::Thread(ask) => from_thread(decode_thread(ask, result)?),
         Command::Usage { .. } => {
             let response: GetAccountTokenUsageResponse =
                 serde_json::from_value(result).map_err(malformed)?;
@@ -195,80 +141,40 @@ pub(crate) fn decode_reply(
                 None => UsageOutcome::Disabled,
             }))
         }
-        Command::Thread(ThreadAsk::Start { .. }) => {
-            // Only the task is read: the rest of the response is the
-            // server's settings, which the center does not use.
-            let thread = result
-                .get("thread")
-                .cloned()
-                .ok_or_else(|| RpcError::Malformed("thread/start: no thread".to_owned()))?;
-            let thread: Thread = serde_json::from_value(thread).map_err(malformed)?;
-            Ok(Reply::Started(Box::new(thread)))
-        }
-        Command::Thread(ThreadAsk::Read { .. }) => {
-            let response: ThreadReadResponse = serde_json::from_value(result).map_err(malformed)?;
-            Ok(Reply::Read {
-                unread: response
-                    .read_state
-                    .is_some_and(|state| state.first_unread.is_some()),
-                thread: Box::new(response.thread),
-            })
-        }
-        Command::Thread(ThreadAsk::Turns { .. }) => {
-            let response: ThreadTurnsListResponse =
-                serde_json::from_value(result).map_err(malformed)?;
-            Ok(turn_previews(response.data.first()))
-        }
-        Command::Thread(ThreadAsk::History { .. }) => {
-            let response: ThreadTurnsListResponse =
-                serde_json::from_value(result).map_err(malformed)?;
-            Ok(Reply::History {
-                turns: response.data,
-                next: response.next_cursor,
-            })
-        }
-        Command::Thread(ThreadAsk::McpServers { .. }) => {
-            let mut response: ConfigReadResponse =
-                serde_json::from_value(result).map_err(malformed)?;
-            Ok(Reply::McpServers(
-                match response.config.additional.remove("mcp_servers") {
-                    Some(serde_json::Value::Object(servers)) => servers,
-                    _ => serde_json::Map::new(),
-                },
-            ))
-        }
-        Command::Thread(ThreadAsk::StartTemporary(temporary)) => {
-            let response: ThreadStartResponse =
-                serde_json::from_value(result).map_err(malformed)?;
-            Ok(Reply::Temporary {
-                as_asked: temporary.started_as_asked(&response),
-                thread: response.thread.id,
-            })
-        }
-        Command::Thread(ThreadAsk::StructuredTurn { .. }) => {
-            let response: TurnStartResponse = serde_json::from_value(result).map_err(malformed)?;
-            Ok(Reply::StructuredTurn {
-                turn: response.turn.id,
-            })
-        }
-        Command::Loaded => {
-            let response: ThreadLoadedListResponse =
-                serde_json::from_value(result).map_err(malformed)?;
-            Ok(Reply::Loaded(response.data))
-        }
-        Command::Thread(ThreadAsk::ActiveTurn { .. }) => {
-            let response: ThreadReadResponse = serde_json::from_value(result).map_err(malformed)?;
-            Ok(Reply::ActiveTurn(
-                response
-                    .thread
-                    .turns
-                    .into_iter()
-                    .find(|turn| turn.status == TurnStatus::InProgress)
-                    .map(|turn| turn.id),
-            ))
-        }
+        Command::Loaded => from_thread(ThreadAsk::Loaded.decode(result)?),
         _ => Ok(Reply::Done),
     }
+}
+
+/// The center only needs acknowledgment of its interrupt. The lifecycle
+/// caller decodes the interrupt response and handles a typed turn-ID race.
+pub(crate) fn decode_thread(
+    ask: &ThreadAsk,
+    result: serde_json::Value,
+) -> Result<ThreadReply, RpcError> {
+    if matches!(ask, ThreadAsk::Interrupt { .. }) {
+        return Ok(ThreadReply::Interrupted);
+    }
+    ask.decode(result)
+}
+
+/// The screen projects a thread result onto its own view state.
+pub(crate) fn from_thread(reply: ThreadReply) -> Result<Reply, RpcError> {
+    Ok(match reply {
+        ThreadReply::Resumed(thread) => Reply::Resumed(thread),
+        ThreadReply::Forked(thread) => Reply::Forked(thread),
+        ThreadReply::Started(thread) => Reply::Started(thread),
+        ThreadReply::Read { thread, unread } => Reply::Read { thread, unread },
+        ThreadReply::LatestTurn(turn) => turn_previews(turn.as_deref()),
+        ThreadReply::History { turns, next } => Reply::History { turns, next },
+        ThreadReply::McpServers(servers) => Reply::McpServers(servers),
+        ThreadReply::Temporary { thread, as_asked } => Reply::Temporary { thread, as_asked },
+        ThreadReply::StructuredTurn { turn } => Reply::StructuredTurn { turn },
+        ThreadReply::Loaded(threads) => Reply::Loaded(threads),
+        ThreadReply::ActiveTurn(turn) => Reply::ActiveTurn(turn),
+        ThreadReply::Done | ThreadReply::Interrupted => Reply::Done,
+        _ => return Err(RpcError::Mismatch),
+    })
 }
 
 /// The prompt and the last answer of a turn (oracle: the refresh's `thread/
@@ -408,34 +314,25 @@ pub(crate) fn pinned_request(
     other: bool,
     cursor: Option<String>,
 ) -> ClientRequest {
-    ClientRequest::ThreadList {
-        request_id,
-        params: ThreadListParams {
-            include_attached_threads: false,
-            current_account_only: true,
-            excluded_thread_ids: None,
-            originators: None,
-            cursor,
-            limit: Some(SEARCH_PAGE_SIZE),
-            attached_to_thread_id: None,
-            sort_key: Some(ThreadSortKey::SectionPosition),
-            sort_direction: None,
-            model_providers: Some(Vec::new()),
-            source_kinds: Some(if other {
-                vec![ThreadSourceKind::Exec, ThreadSourceKind::AppServer]
-            } else {
-                Vec::new()
-            }),
-            archived: Some(false),
-            section_id: Some(Some(PINNED_SECTION.to_owned())),
-            project_id: None,
-            parent_thread_id: None,
-            ancestor_thread_id: None,
-            cwd: None,
-            use_state_db_only: true,
-            search_term: None,
-        },
-    }
+    ThreadAsk::list(ListQuery {
+        current_account_only: true,
+        cursor,
+        limit: Some(SEARCH_PAGE_SIZE),
+        sort_key: Some(ThreadSortKey::SectionPosition),
+        sort_direction: None,
+        model_providers: Some(Vec::new()),
+        source_kinds: Some(if other {
+            vec![ThreadSourceKind::Exec, ThreadSourceKind::AppServer]
+        } else {
+            Vec::new()
+        }),
+        archived: Some(false),
+        section_id: Some(PINNED_SECTION.to_owned()),
+        cwd: None,
+        use_state_db_only: true,
+        ..ListQuery::default()
+    })
+    .wire(request_id)
 }
 
 /// The bootstrap's `account/read` (oracle: `read_account`, which never

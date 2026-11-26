@@ -18,10 +18,10 @@ use std::collections::VecDeque;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::Thread;
-use codex_app_server_protocol::ThreadListParams;
-use codex_app_server_protocol::ThreadListResponse;
-use codex_app_server_protocol::ThreadSortKey;
 use codex_app_server_protocol::ThreadSourceKind;
+
+use crate::threads::asks::ListQuery;
+use crate::threads::{ThreadAsk, asks};
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -139,39 +139,22 @@ impl Fanout {
     /// One `thread/list` per source that is not exhausted, each under an id
     /// from `ids`.
     pub fn requests(&self, mut ids: impl FnMut() -> RequestId) -> Vec<ClientRequest> {
-        self
-            .active()
-            .map(|(other, part)| ClientRequest::ThreadList {
-                request_id: ids(),
-                params: ThreadListParams {
-                    include_attached_threads: false,
-                    current_account_only: true,
-                    excluded_thread_ids: None,
-                    attached_to_thread_id: None,
-                    originators: None,
-                    cursor: part.cursor.clone(),
+        self.active()
+            .map(|(other, part)| {
+                ThreadAsk::list(ListQuery {
                     limit: Some(if self.search {
                         crate::protocol::agents::SEARCH_PAGE_SIZE
                     } else {
                         PAGE_SIZE
                     }),
-                    sort_key: Some(ThreadSortKey::RecencyAt),
-                    sort_direction: None,
-                    model_providers: Some(Vec::new()),
                     source_kinds: Some(if other {
                         vec![ThreadSourceKind::Exec, ThreadSourceKind::AppServer]
                     } else {
                         Vec::new()
                     }),
-                    archived: Some(false),
-                    section_id: None,
-                    project_id: None,
-                    parent_thread_id: None,
-                    ancestor_thread_id: None,
-                    cwd: None,
-                    use_state_db_only: true,
-                    search_term: None,
-                },
+                    ..crate::protocol::agents::list_query(part.cursor.clone())
+                })
+                .wire(ids())
             })
             .collect()
     }
@@ -189,8 +172,7 @@ impl Fanout {
         let mut unread = Vec::new();
         for ((other, part), result) in self.active().zip(results) {
             let json = result.map_err(|error| RpcError::Remote(error.message))?;
-            let response: ThreadListResponse = serde_json::from_value(json)
-                .map_err(|error| RpcError::Malformed(error.to_string()))?;
+            let response = asks::listed(json)?;
             if response.next_cursor.is_some() && response.next_cursor == part.cursor {
                 return Err(RpcError::Remote("the cursor did not advance".to_owned()));
             }
@@ -284,9 +266,9 @@ impl PinReader {
 
     /// The next page to ask for, under `id`; `None` once the read ended.
     pub fn next_request(&mut self, id: RequestId) -> Option<ClientRequest> {
-        self.end
-            .is_none()
-            .then(|| crate::protocol::agents::pinned_request(id, self.source == 1, self.cursor.clone()))
+        self.end.is_none().then(|| {
+            crate::protocol::agents::pinned_request(id, self.source == 1, self.cursor.clone())
+        })
     }
 
     /// The answer to the request `next_request` gave last.
@@ -295,7 +277,7 @@ impl PinReader {
             return;
         }
         let page = match answer {
-            Ok(json) => serde_json::from_value::<ThreadListResponse>(json).ok(),
+            Ok(json) => asks::listed(json).ok(),
             Err(error) if error.refused() => {
                 self.end = Some(End::Refused);
                 return;
@@ -331,7 +313,12 @@ impl PinReader {
                 threads: Vec::new(),
             }),
             End::Done => Some(Pins {
-                ids: Some(self.threads.iter().map(|thread| thread.id.clone()).collect()),
+                ids: Some(
+                    self.threads
+                        .iter()
+                        .map(|thread| thread.id.clone())
+                        .collect(),
+                ),
                 threads: self.threads,
             }),
         }

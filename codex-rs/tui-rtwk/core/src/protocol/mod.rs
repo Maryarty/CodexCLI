@@ -24,24 +24,19 @@ use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::SendAddCreditsNudgeEmailParams;
 use codex_app_server_protocol::SendAddCreditsNudgeEmailResponse;
 use codex_app_server_protocol::TextElement;
-use codex_app_server_protocol::ThreadStartParams;
-use codex_app_server_protocol::ThreadStartResponse;
-use codex_app_server_protocol::TurnInterruptResponse;
-use codex_app_server_protocol::TurnStartParams;
-use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::UserInput;
 
 use crate::app::Command;
 use crate::ids::RequestKey;
-use crate::ids::ThreadId;
 use crate::ids::Ticket;
-use crate::ids::TurnId;
 use crate::rpc::Reply;
 use crate::rpc::RpcError;
 use crate::rpc::ServerError;
 use crate::screens;
 use crate::threads::ToolMention;
 use crate::threads::UserMessage;
+use crate::threads::asks::{ThreadRpc, changed_turn};
+
 use std::path::PathBuf;
 
 /// The wire request of `command`, under `request_id`. `model` is the
@@ -68,44 +63,9 @@ pub fn client_request(
                 },
             })
         }
-        Command::StartThread {
-            model: chosen, cwd, ..
-        } => Some(ClientRequest::ThreadStart {
-            request_id,
-            params: ThreadStartParams {
-                model: chosen.clone().or_else(|| model.map(str::to_string)),
-                cwd: cwd.clone(),
-                ..ThreadStartParams::default()
-            },
-        }),
-        Command::StartTurn {
-            thread,
-            message,
-            client_id,
-            misalignment_override,
-            ..
-        } => Some(ClientRequest::TurnStart {
-            request_id,
-            params: TurnStartParams {
-                thread_id: thread.to_string(),
-                input: turn_input_in(message, Some(thread.as_str())),
-                client_user_message_id: Some(client_id.clone()),
-                responsesapi_client_metadata: misalignment_override.map(|timestamp| {
-                    std::collections::HashMap::from([(
-                        "misalignment_override".to_owned(),
-                        serde_json::json!({ "timestamp": timestamp }).to_string(),
-                    )])
-                }),
-                ..TurnStartParams::default()
-            },
-        }),
-        Command::InterruptTurn { thread, turn, .. } => Some(
-            crate::threads::ThreadAsk::Interrupt {
-                thread: thread.to_string(),
-                turn: turn.to_string(),
-            }
-            .wire(request_id),
-        ),
+        Command::StartThread { .. } | Command::StartTurn { .. } | Command::InterruptTurn { .. } => {
+            lifecycle_ask(command).map(|(_, _, ask)| ask.request(model, request_id))
+        }
         Command::Screen {
             thread, command, ..
         } => Some(screens::wire(command, thread, request_id)),
@@ -171,42 +131,31 @@ pub fn reply(
                 Err(_) => Reply::add_credits_nudge(screens::chat::NudgeOutcome::Failed),
             },
         )),
-        Command::StartThread { ticket, .. } => Some((
+        Command::StartThread { .. } | Command::StartTurn { .. } | Command::InterruptTurn { .. } => {
+            lifecycle_ask(command).map(|(ticket, method, ask)| {
+                let reply = match result {
+                    Ok(json) => ask.reply(json).map_err(|error| match error {
+                        RpcError::Malformed(error) => {
+                            RpcError::Malformed(format!("{method}: {error}"))
+                        }
+                        error => error,
+                    }),
+                    Err(message) => Err(RpcError::Remote(format!("{method}: {message}"))),
+                };
+                (ticket, reply.map_or_else(Reply::error, Reply::thread))
+            })
+        }
+        Command::Screen {
+            ticket,
+            command: screens::ScreenCommand::Agents(screens::agents::Command::Thread(ask)),
+            ..
+        } => Some((
             *ticket,
-            match decode::<ThreadStartResponse>("thread/start", result) {
-                Ok(response) => {
-                    // The oracle's split (`compose_agents_summary`): a path in
-                    // the host's own convention is shown relative to the
-                    // directory, any other as the server spells it.
-                    let sources = response
-                        .instruction_source_path_uris()
-                        .into_iter()
-                        .map(|uri| match uri.to_abs_path() {
-                            Ok(path) => screens::status::AgentsSource::Native(
-                                path.as_path().display().to_string(),
-                            ),
-                            Err(_) => screens::status::AgentsSource::Foreign(
-                                uri.inferred_native_path_string(),
-                            ),
-                        })
-                        .collect();
-                    Reply::thread_started_with(ThreadId::new(response.thread.id), sources)
+            match result {
+                Ok(json) => {
+                    agents::decode_thread(ask, json).map_or_else(Reply::error, Reply::thread)
                 }
-                Err(error) => Reply::error(error),
-            },
-        )),
-        Command::StartTurn { ticket, thread, .. } => Some((
-            *ticket,
-            match decode::<TurnStartResponse>("turn/start", result) {
-                Ok(response) => Reply::turn_started(thread.clone(), TurnId::new(response.turn.id)),
-                Err(error) => Reply::error(error),
-            },
-        )),
-        Command::InterruptTurn { ticket, .. } => Some((
-            *ticket,
-            match decode::<TurnInterruptResponse>("turn/interrupt", result) {
-                Ok(_) => Reply::turn_interrupted(),
-                Err(error) => Reply::error(error),
+                Err(message) => Reply::failed(message),
             },
         )),
         Command::Screen {
@@ -256,17 +205,9 @@ pub fn reply_from_server(
     result: Result<serde_json::Value, ServerError>,
 ) -> Option<(Ticket, Reply)> {
     if let (Command::InterruptTurn { ticket, turn, .. }, Err(error)) = (command, &result)
-        && error.code == Some(-32602)
-        && let Some((expected, actual)) = error
-            .message
-            .strip_prefix("expected active turn id ")
-            .and_then(|message| message.split_once(" but found "))
-        && expected.trim_matches('`') == turn.as_str()
+        && let Some(reply) = changed_turn(turn, error)
     {
-        let actual = actual.trim_matches('`');
-        if !actual.is_empty() && !actual.contains(char::is_whitespace) && actual != turn.as_str() {
-            return Some((*ticket, Reply::interrupt_turn_changed(TurnId::new(actual))));
-        }
+        return Some((*ticket, Reply::thread(reply)));
     }
     // A turn or a steer the server refuses for the chat's model provider keeps
     // the typed failure: the chat is read-only and says why (oracle `show_provider_error`).
@@ -307,6 +248,52 @@ pub fn reply_from_server(
         return Some((*ticket, Reply::feature(answer)));
     }
     reply(command, result.map_err(|error| error.message))
+}
+
+/// The app's launch and input effects are projected onto the same catalog as
+/// requests from a screen. The input can stay borrowed for request construction.
+fn lifecycle_ask(command: &Command) -> Option<(Ticket, &'static str, ThreadRpc<&UserMessage>)> {
+    Some(match command {
+        Command::StartThread {
+            ticket, model, cwd, ..
+        } => (
+            *ticket,
+            "thread/start",
+            ThreadRpc::StartSession {
+                model: model.clone(),
+                cwd: cwd.clone(),
+            },
+        ),
+        Command::StartTurn {
+            ticket,
+            thread,
+            message,
+            client_id,
+            misalignment_override,
+        } => (
+            *ticket,
+            "turn/start",
+            ThreadRpc::StartUserTurn {
+                thread: thread.clone(),
+                message,
+                client_id: client_id.clone(),
+                misalignment_override: *misalignment_override,
+            },
+        ),
+        Command::InterruptTurn {
+            ticket,
+            thread,
+            turn,
+        } => (
+            *ticket,
+            "turn/interrupt",
+            ThreadRpc::Interrupt {
+                thread: thread.to_string(),
+                turn: turn.to_string(),
+            },
+        ),
+        _ => return None,
+    })
 }
 
 fn decode<T: serde::de::DeserializeOwned>(
@@ -421,41 +408,4 @@ pub(crate) fn turn_input_in(message: &UserMessage, current: Option<&str>) -> Vec
         },
     }));
     input
-}
-
-/// `thread/backgroundTerminals/list`: one page of the thread's live background terminals (the
-/// restore of a resumed thread, `threads::processes`).
-pub(crate) fn list_terminals(
-    thread: &ThreadId,
-    cursor: Option<String>,
-    request_id: RequestId,
-) -> ClientRequest {
-    ClientRequest::ThreadBackgroundTerminalsList {
-        request_id,
-        params: codex_app_server_protocol::ThreadBackgroundTerminalsListParams {
-            thread_id: thread.to_string(),
-            cursor,
-            limit: None,
-        },
-    }
-}
-
-/// What the server listed: the terminals of the page and the cursor of the next.
-pub(crate) fn terminals_listed(
-    result: serde_json::Value,
-) -> Result<(Vec<crate::threads::Listed>, Option<String>), RpcError> {
-    let page = serde_json::from_value::<
-        codex_app_server_protocol::ThreadBackgroundTerminalsListResponse,
-    >(result)
-    .map_err(|error| RpcError::Malformed(error.to_string()))?;
-    let data = page
-        .data
-        .into_iter()
-        .map(|terminal| crate::threads::Listed {
-            item: terminal.item_id,
-            process: terminal.process_id,
-            command: terminal.command,
-        })
-        .collect();
-    Ok((data, page.next_cursor))
 }

@@ -9,9 +9,7 @@ use crate::rpc::Answer;
 use crate::screens::onboarding::TrustCancel;
 use crate::screens::onboarding::consent::Target;
 use crate::screens::select::{Confirm, Picked};
-use crate::screens::{
-    ScreenCommand, ScreenReply, ScreenThreadIntent, agents, chat, select, status,
-};
+use crate::screens::{ScreenCommand, ScreenThreadIntent, agents, chat, select, status};
 use crate::threads::{
     CdRefusal, Item, Note, NoteKey, RemoveNote, Stub, ThreadAsk, ThreadEv, ThreadModel, Toggle,
     UserMessage,
@@ -726,10 +724,7 @@ pub(super) fn removed(
     answer: Answer,
     fx: &mut AppFx,
 ) -> bool {
-    if !matches!(
-        answer,
-        Answer::Screen(ScreenReply::Agents(agents::Reply::Done))
-    ) {
+    if !matches!(answer, Answer::Thread(crate::threads::ThreadReply::Done)) {
         let note = Note::from(NoteKey::Remove(action, RemoveNote::Failed));
         session_note(app, Some(thread.clone()), note, fx);
         return false;

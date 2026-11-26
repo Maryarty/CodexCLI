@@ -6,7 +6,8 @@ use std::collections::BTreeMap;
 
 use crate::app::worktree::{BindFailure, Checkout};
 use crate::ids::{BackendId, ConnEpoch, ThreadId, Ticket, TurnId};
-use crate::screens::ScreenReply;
+use crate::screens::{ScreenReply, agents};
+use crate::threads::ThreadReply;
 
 /// Why a screen's RPC has no reply. A typed value: the words are the UI's
 /// string tables'; the texts inside are the server's or the decoder's own.
@@ -124,11 +125,11 @@ impl Reply {
         thread: ThreadId,
         sources: Vec<crate::screens::status::AgentsSource>,
     ) -> Self {
-        Self::new(Answer::ThreadStarted { thread, sources })
+        Self::thread(ThreadReply::SessionStarted { thread, sources })
     }
 
     pub fn turn_started(thread: ThreadId, turn: TurnId) -> Self {
-        Self::new(Answer::TurnStarted { thread, turn })
+        Self::thread(ThreadReply::TurnStarted { thread, turn })
     }
 
     pub fn rate_limits(limits: crate::screens::status::RateLimits) -> Self {
@@ -159,16 +160,41 @@ impl Reply {
         Self::new(Answer::AddCreditsNudge(outcome))
     }
 
-    pub(crate) fn interrupt_turn_changed(actual: TurnId) -> Self {
-        Self::new(Answer::InterruptTurnChanged(actual))
+    pub fn turn_interrupted() -> Self {
+        Self::thread(ThreadReply::Interrupted)
     }
 
-    pub fn turn_interrupted() -> Self {
-        Self::new(Answer::TurnInterrupted)
+    /// The typed result of an operation in the thread RPC catalog.
+    pub fn thread(reply: ThreadReply) -> Self {
+        Self::new(Answer::Thread(reply))
     }
 
     pub fn screen(reply: ScreenReply) -> Self {
-        Self::new(Answer::Screen(reply))
+        // Older fake-host and state fixtures also use the screen reply shape.
+        // Give them the same typed result as replies from the live thread RPCs.
+        let thread = match reply {
+            ScreenReply::Agents(agents::Reply::Resumed(thread)) => ThreadReply::Resumed(thread),
+            ScreenReply::Agents(agents::Reply::Forked(thread)) => ThreadReply::Forked(thread),
+            ScreenReply::Agents(agents::Reply::Started(thread)) => ThreadReply::Started(thread),
+            ScreenReply::Agents(agents::Reply::Read { thread, unread }) => {
+                ThreadReply::Read { thread, unread }
+            }
+            ScreenReply::Agents(agents::Reply::History { turns, next }) => {
+                ThreadReply::History { turns, next }
+            }
+            ScreenReply::Agents(agents::Reply::McpServers(servers)) => {
+                ThreadReply::McpServers(servers)
+            }
+            ScreenReply::Agents(agents::Reply::Temporary { thread, as_asked }) => {
+                ThreadReply::Temporary { thread, as_asked }
+            }
+            ScreenReply::Agents(agents::Reply::StructuredTurn { turn }) => {
+                ThreadReply::StructuredTurn { turn }
+            }
+            ScreenReply::Agents(agents::Reply::Done) => ThreadReply::Done,
+            reply => return Self::new(Answer::Screen(reply)),
+        };
+        Self::thread(thread)
     }
 
     /// The reply of a feature slice's RPC.
@@ -201,17 +227,7 @@ impl Reply {
 /// What a reply says. Obtained only from `Pending::resolve`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Answer {
-    ThreadStarted {
-        thread: ThreadId,
-        /// The instruction files the session loaded (`/status` lists them).
-        sources: Vec<crate::screens::status::AgentsSource>,
-    },
-    TurnStarted {
-        thread: ThreadId,
-        turn: TurnId,
-    },
-    TurnInterrupted,
-    InterruptTurnChanged(TurnId),
+    Thread(ThreadReply),
     RateLimits {
         limits: crate::screens::status::RateLimits,
         banner: Option<Box<crate::screens::chat::Banner>>,

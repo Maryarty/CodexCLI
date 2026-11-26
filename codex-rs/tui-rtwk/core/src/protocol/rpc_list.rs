@@ -26,6 +26,10 @@
 //! expression, which sees the pattern's bindings and the binder), `-> Response` and the closure
 //! from the parsed response to the reply (the same bindings are in scope).
 //!
+//! When an ask is already in another catalog, `Reuse(ask)` sends its request. A
+//! response declaration can say `Response as decode` to reuse its typed decoder.
+//! The caller still chooses what to keep in its own reply.
+//!
 //! The protocol crates are not touched: no trait per method exists there, the list is ours.
 
 /// The RPCs of one feature (see the module's text).
@@ -33,24 +37,24 @@
 macro_rules! rpc_list {
     (
         $(#[$meta:meta])*
-        $vis:vis enum $command:ident => $reply:ty
+        $vis:vis enum $command:ident $(<$input:ident: $bound:path>)? => $reply:ty
             $(, request $rctx:ident: $rty:ty)?
             $(, reply $dctx:ident: $dty:ty)?;
         $(
             $(#[$variant_meta:meta])*
             $variant:ident $(($($tuple:tt)*))? $({$($record:tt)*})?, $pat:pat
                 => $method:ident($params:expr)
-                -> $response:ty, |$answer:pat_param| $map:expr;
+                -> $response:ty $(as $decoder:path)?, |$answer:pat_param| $map:expr;
         )+
     ) => {
         $(#[$meta])*
         #[derive(Clone, Debug, PartialEq, Eq)]
-        $vis enum $command {
+        $vis enum $command $(<$input>)? {
             $($(#[$variant_meta])* $variant $(($($tuple)*))? $({$($record)*})?,)+
         }
 
         #[allow(unused_variables)]
-        impl $command {
+        impl $(<$input: $bound>)? $command $(<$input>)? {
             /// The protocol request of the ask, under `request_id`.
             $vis fn request(
                 &self,
@@ -58,10 +62,7 @@ macro_rules! rpc_list {
                 request_id: ::codex_app_server_protocol::RequestId,
             ) -> ::codex_app_server_protocol::ClientRequest {
                 match self {
-                    $($pat => ::codex_app_server_protocol::ClientRequest::$method {
-                        request_id,
-                        params: $params,
-                    },)+
+                    $($pat => $crate::rpc_list!(@request request_id, $method, $params),)+
                 }
             }
 
@@ -72,12 +73,30 @@ macro_rules! rpc_list {
                 result: ::serde_json::Value,
             ) -> ::std::result::Result<$reply, $crate::rpc::RpcError> {
                 match self {
-                    $($pat => ::serde_json::from_value::<$response>(result)
-                        .map(|$answer| $map)
-                        .map_err(|error| $crate::rpc::RpcError::Malformed(error.to_string())),)+
+                    $($pat => {
+                        let decoded: ::std::result::Result<$response, $crate::rpc::RpcError> =
+                            $crate::rpc_list!(@decode result, $response $(, $decoder)?);
+                        decoded.map(|$answer| $map)
+                    },)+
                 }
             }
         }
+    };
+    (@request $id:ident, Reuse, $ask:expr) => {
+        $ask.wire($id)
+    };
+    (@request $id:ident, $method:ident, $params:expr) => {
+        ::codex_app_server_protocol::ClientRequest::$method {
+            request_id: $id,
+            params: $params,
+        }
+    };
+    (@decode $result:ident, $response:ty, $decoder:path) => {
+        $decoder($result)
+    };
+    (@decode $result:ident, $response:ty) => {
+        ::serde_json::from_value::<$response>($result)
+            .map_err(|error| $crate::rpc::RpcError::Malformed(error.to_string()))
     };
 }
 

@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use crate::ids::{BackendId, ThreadId, Ticket};
 use crate::rpc::{Answer, RpcError};
-use crate::screens::{ScreenCommand, ScreenReply, agents};
+use crate::screens::{ScreenCommand, agents};
 use crate::threads::{Origin, ThreadAsk};
 
 use super::{
@@ -187,9 +187,10 @@ impl Step {
             }
             (
                 Self::Starting { checkout, chat },
-                Answer::Screen(ScreenReply::Agents(
-                    agents::Reply::Started(thread) | agents::Reply::Forked(thread),
-                )),
+                Answer::Thread(
+                    crate::threads::ThreadReply::Started(thread)
+                    | crate::threads::ThreadReply::Forked(thread),
+                ),
             ) => {
                 let id = ThreadId::new(&thread.id);
                 let cwd = thread.cwd.display().to_string();

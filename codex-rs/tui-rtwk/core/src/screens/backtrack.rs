@@ -23,8 +23,6 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::ImageReference;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ThreadItemPayload;
-use codex_app_server_protocol::ThreadReadResponse;
-use codex_app_server_protocol::ThreadRevertResponse;
 use codex_app_server_protocol::Turn;
 use codex_app_server_protocol::TurnStatus;
 use codex_app_server_protocol::UserInput;
@@ -39,6 +37,7 @@ use crate::threads::ItemKey;
 use crate::threads::LocalImage;
 use crate::threads::ThreadAsk;
 use crate::threads::ThreadFx;
+use crate::threads::ThreadReply;
 use crate::threads::Transcript;
 use crate::threads::UserMessage;
 use crate::threads::UserPrompt;
@@ -553,7 +552,10 @@ fn rpc_message(error: &RpcError) -> String {
 /// The wire request of `command` for `thread`: the thread RPCs are the
 /// thread's own (ADR-003, `threads::ThreadAsk`), this screen only names which.
 pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
-    let thread = thread.to_string();
+    thread_ask(command, thread.to_string()).wire(id)
+}
+
+fn thread_ask(command: &Command, thread: String) -> ThreadAsk {
     match command {
         Command::Read { .. } => ThreadAsk::ReadTurns { thread },
         Command::Revert { before_turn } => ThreadAsk::Revert {
@@ -561,19 +563,16 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
             before_turn: before_turn.clone(),
         },
     }
-    .wire(id)
 }
 
 /// The reply `result` (the JSON result of the request) is for `command`.
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-    let malformed = |error: serde_json::Error| RpcError::Malformed(error.to_string());
-    match command {
-        Command::Read { key } => serde_json::from_value::<ThreadReadResponse>(result)
-            .map(|response| Reply::Resolved(revert_before_turn(&response.thread.turns, key)))
-            .map_err(malformed),
-        Command::Revert { .. } => serde_json::from_value::<ThreadRevertResponse>(result)
-            .map(|_| Reply::Reverted)
-            .map_err(malformed),
+    match (command, thread_ask(command, String::new()).decode(result)?) {
+        (Command::Read { key }, ThreadReply::ReadTurns(turns)) => {
+            Ok(Reply::Resolved(revert_before_turn(&turns, key)))
+        }
+        (Command::Revert { .. }, ThreadReply::Done) => Ok(Reply::Reverted),
+        _ => Err(RpcError::Mismatch),
     }
 }
 

@@ -7,6 +7,7 @@ mod previews;
 pub use previews::{ThreadPreview, ThreadPreviews};
 
 mod activity;
+pub mod asks;
 pub mod calls;
 mod cells;
 pub mod citations;
@@ -38,6 +39,7 @@ pub use activity::{
     BlockBody, DynamicCall, DynamicOutput, ExplorationAction, McpBlock, McpCall, McpResult,
     McpResultKind, ToolActivity, ToolKind, ToolStatus,
 };
+pub use asks::{HISTORY_PAGE, ThreadAsk, ThreadReply, cloud_submit_params};
 pub use calls::ShellClass;
 pub use cells::{
     DelegatedMessage, GeneratedImage, HookEntry, HookEntryKind, HookRun, HookStatus, Notice,
@@ -63,36 +65,11 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use codex_app_server_protocol::AskForApproval;
-use codex_app_server_protocol::ClientRequest;
-use codex_app_server_protocol::ConfigReadParams;
-use codex_app_server_protocol::RequestId;
-use codex_app_server_protocol::ReviewDelivery;
-use codex_app_server_protocol::ReviewStartParams;
-use codex_app_server_protocol::SandboxMode;
 use codex_app_server_protocol::ServerNotification;
-use codex_app_server_protocol::SortDirection;
-use codex_app_server_protocol::ThreadBackgroundTerminalsCleanParams;
-use codex_app_server_protocol::ThreadCompactStartParams;
-use codex_app_server_protocol::ThreadForkParams;
 use codex_app_server_protocol::ThreadItem;
 use codex_app_server_protocol::ThreadItemPayload;
-use codex_app_server_protocol::ThreadPrepareApprovedPlanParams;
-use codex_app_server_protocol::ThreadReadParams;
-use codex_app_server_protocol::ThreadResumeParams;
-use codex_app_server_protocol::ThreadRevertParams;
-use codex_app_server_protocol::ThreadSetNameParams;
-use codex_app_server_protocol::ThreadShellCommandParams;
-use codex_app_server_protocol::ThreadSource;
-use codex_app_server_protocol::ThreadStartParams;
-use codex_app_server_protocol::ThreadTurnsListParams;
-use codex_app_server_protocol::ThreadUnsubscribeParams;
-use codex_app_server_protocol::TurnInterruptParams;
 use codex_app_server_protocol::TurnItemsView;
-use codex_app_server_protocol::TurnStartParams;
 use codex_app_server_protocol::TurnStatus;
-use codex_app_server_protocol::UserInput;
-use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_READ_ONLY;
 
 use crate::app::AppFx;
 use crate::app::Command;
@@ -1825,448 +1802,6 @@ impl ThreadCore {
     }
 }
 
-/// A thread RPC a screen wants (ADR-003): data only. The wire request is made
-/// here and nowhere else (`wire`); `apply_app` mints the ticket and sends it,
-/// and decides before whether the thread is already held (`OpenThread`).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ThreadAsk {
-    /// `thread/resume`: the thread into the chat.
-    Resume {
-        thread: String,
-    },
-    /// `thread/fork`.
-    Fork {
-        thread: String,
-    },
-    /// `thread/resume` in the directory the user chose at launch (`codex
-    /// resume <id>`, the oracle's `config.cwd` after the cwd prompt); `None`
-    /// is the session's own.
-    ResumeAt {
-        thread: String,
-        cwd: Option<String>,
-    },
-    /// `thread/fork` in the directory the user chose at launch (`codex fork
-    /// <id>`).
-    ForkAt {
-        thread: String,
-        cwd: Option<String>,
-        /// A side conversation (`/side`): with developer instructions the fork is ephemeral and
-        /// starts empty on the screen, carrying them (the side policy).
-        temporary: Option<String>,
-    },
-    /// `thread/start` in `cwd` (a new task).
-    Start {
-        cwd: Option<String>,
-    },
-    /// `thread/read` without turns.
-    Read {
-        thread: String,
-    },
-    /// `thread/read` with turns: the turn in progress, half of stopping it.
-    ActiveTurn {
-        thread: String,
-    },
-    /// `thread/read` with turns: the persisted history of a thread. The edit
-    /// of a past prompt (the transcript's backtrack) resolves the prompt and
-    /// the turn to revert before from it; the caller decodes the response.
-    ReadTurns {
-        thread: String,
-    },
-    /// `thread/revert`: drop `before_turn` and every later turn from the
-    /// thread's persisted history; the server answers with `ThreadReverted`.
-    Revert {
-        thread: String,
-        before_turn: TurnId,
-    },
-    /// The newest turn of a thread (`thread/turns/list`, limit 1).
-    Turns {
-        thread: String,
-    },
-    /// One page of a thread's history, newest first.
-    History {
-        thread: String,
-        cursor: Option<String>,
-    },
-    /// `turn/interrupt`.
-    Interrupt {
-        thread: String,
-        turn: String,
-    },
-    /// `turn/steer`: `message` joins the running turn `turn`.
-    Steer {
-        thread: String,
-        turn: String,
-        client_id: String,
-        message: UserMessage,
-    },
-    Compact {
-        thread: String,
-    },
-    /// `thread/backgroundTerminals/clean`: stop the thread's background
-    /// terminals (`/stop`).
-    CleanTerminals {
-        thread: String,
-    },
-    /// `thread/shellCommand`: a user shell command (`!cmd` in the composer),
-    /// run by the thread's shell and shown as its own transcript item.
-    Shell {
-        thread: String,
-        command: String,
-    },
-    Rename {
-        thread: String,
-        name: String,
-    },
-    /// `thread/unsubscribe`: a thread started and not used.
-    Unsubscribe {
-        thread: String,
-    },
-    /// `review/start`, inline on the thread (oracle `review_start`).
-    Review {
-        thread: String,
-        target: ReviewTarget,
-    },
-    /// `thread/settings/update`: the settings the picks of the model, effort, permissions and
-    /// collaboration-mode popups change for the turns after them.
-    SettingsUpdate {
-        thread: String,
-        patch: SettingsPatch,
-    },
-    /// `thread/prepareApprovedPlan`: the new thread takes the approved plan and answers with the
-    /// prompt that starts its work (the prompt's "clear context" row).
-    PrepareApprovedPlan {
-        thread: String,
-        markdown: String,
-    },
-    /// `config/read` of the effective config for `cwd`: the MCP servers a temporary thread
-    /// disables (`AppCx::structured_turn`, `structured`).
-    McpServers {
-        cwd: Option<String>,
-    },
-    /// `thread/start` of the ephemeral, read-only thread of a structured turn.
-    StartTemporary(Box<structured::Temporary>),
-    /// `turn/start` of the temporary thread's one turn, following an output schema.
-    StructuredTurn {
-        thread: String,
-        kind: structured::Kind,
-        prompt: String,
-        schema: serde_json::Value,
-        effort: Option<codex_protocol::openai_models::ReasoningEffort>,
-    },
-}
-
-/// How many turns one page of a thread's history holds.
-pub const HISTORY_PAGE: u32 = 20;
-
-impl ThreadAsk {
-    /// The thread this asks about, none for a start.
-    pub fn thread(&self) -> Option<&str> {
-        match self {
-            ThreadAsk::Resume { thread }
-            | ThreadAsk::ResumeAt { thread, .. }
-            | ThreadAsk::Fork { thread }
-            | ThreadAsk::ForkAt { thread, .. }
-            | ThreadAsk::Read { thread }
-            | ThreadAsk::ActiveTurn { thread }
-            | ThreadAsk::ReadTurns { thread }
-            | ThreadAsk::Revert { thread, .. }
-            | ThreadAsk::Turns { thread }
-            | ThreadAsk::History { thread, .. }
-            | ThreadAsk::Interrupt { thread, .. }
-            | ThreadAsk::Steer { thread, .. }
-            | ThreadAsk::Compact { thread }
-            | ThreadAsk::CleanTerminals { thread }
-            | ThreadAsk::Shell { thread, .. }
-            | ThreadAsk::Rename { thread, .. }
-            | ThreadAsk::Review { thread, .. }
-            | ThreadAsk::SettingsUpdate { thread, .. }
-            | ThreadAsk::PrepareApprovedPlan { thread, .. }
-            | ThreadAsk::StructuredTurn { thread, .. }
-            | ThreadAsk::Unsubscribe { thread } => Some(thread),
-            ThreadAsk::Start { .. }
-            | ThreadAsk::McpServers { .. }
-            | ThreadAsk::StartTemporary(_) => None,
-        }
-    }
-
-    /// The wire request (oracle: `agents_overview_actions.rs`).
-    pub(crate) fn wire(&self, request_id: RequestId) -> ClientRequest {
-        match self {
-            ThreadAsk::Resume { thread } => ClientRequest::ThreadResume {
-                request_id,
-                params: ThreadResumeParams {
-                    thread_id: thread.clone(),
-                    // The center keeps the thread's row, not its turns, and the
-                    // chat reads its transcript page by page: the whole history
-                    // over the wire is the cost of opening a long session.
-                    exclude_turns: true,
-                    ..ThreadResumeParams::default()
-                },
-            },
-            ThreadAsk::ResumeAt { thread, cwd } => ClientRequest::ThreadResume {
-                request_id,
-                params: ThreadResumeParams {
-                    thread_id: thread.clone(),
-                    exclude_turns: true,
-                    cwd: cwd.clone(),
-                    ..ThreadResumeParams::default()
-                },
-            },
-            ThreadAsk::ForkAt {
-                thread,
-                cwd,
-                temporary,
-            } => ClientRequest::ThreadFork {
-                request_id,
-                params: ThreadForkParams {
-                    thread_id: thread.clone(),
-                    cwd: cwd.clone(),
-                    ephemeral: temporary.is_some(),
-                    exclude_turns: temporary.is_some(),
-                    developer_instructions: temporary.clone(),
-                    ..ThreadForkParams::default()
-                },
-            },
-            ThreadAsk::Fork { thread } => ClientRequest::ThreadFork {
-                request_id,
-                params: ThreadForkParams {
-                    thread_id: thread.clone(),
-                    ..ThreadForkParams::default()
-                },
-            },
-            ThreadAsk::Start { cwd } => ClientRequest::ThreadStart {
-                request_id,
-                params: ThreadStartParams {
-                    cwd: cwd.clone(),
-                    ..ThreadStartParams::default()
-                },
-            },
-            ThreadAsk::Read { thread } => ClientRequest::ThreadRead {
-                request_id,
-                params: ThreadReadParams {
-                    thread_id: thread.clone(),
-                    include_turns: false,
-                },
-            },
-            ThreadAsk::ActiveTurn { thread } => ClientRequest::ThreadRead {
-                request_id,
-                params: ThreadReadParams {
-                    thread_id: thread.clone(),
-                    include_turns: true,
-                },
-            },
-            ThreadAsk::ReadTurns { thread } => ClientRequest::ThreadRead {
-                request_id,
-                params: ThreadReadParams {
-                    thread_id: thread.clone(),
-                    include_turns: true,
-                },
-            },
-            ThreadAsk::Revert {
-                thread,
-                before_turn,
-            } => ClientRequest::ThreadRevert {
-                request_id,
-                params: ThreadRevertParams {
-                    thread_id: thread.clone(),
-                    before_turn_id: before_turn.as_str().to_owned(),
-                },
-            },
-            ThreadAsk::Turns { thread } => ClientRequest::ThreadTurnsList {
-                request_id,
-                params: ThreadTurnsListParams {
-                    thread_id: thread.clone(),
-                    cursor: None,
-                    limit: Some(1),
-                    sort_direction: None,
-                    items_view: None,
-                },
-            },
-            ThreadAsk::History { thread, cursor } => ClientRequest::ThreadTurnsList {
-                request_id,
-                params: ThreadTurnsListParams {
-                    thread_id: thread.clone(),
-                    cursor: cursor.clone(),
-                    limit: Some(HISTORY_PAGE),
-                    sort_direction: Some(SortDirection::Desc),
-                    items_view: Some(TurnItemsView::Full),
-                },
-            },
-            ThreadAsk::Interrupt { thread, turn } => ClientRequest::TurnInterrupt {
-                request_id,
-                params: TurnInterruptParams {
-                    thread_id: thread.clone(),
-                    turn_id: turn.clone(),
-                },
-            },
-            ThreadAsk::Steer {
-                thread,
-                turn,
-                client_id,
-                message,
-            } => ClientRequest::TurnSteer {
-                request_id,
-                params: codex_app_server_protocol::TurnSteerParams {
-                    thread_id: thread.clone(),
-                    input: crate::protocol::turn_input_in(message, Some(thread.as_str())),
-                    expected_turn_id: turn.clone(),
-                    client_user_message_id: Some(client_id.clone()),
-                    ..Default::default()
-                },
-            },
-            ThreadAsk::Compact { thread } => ClientRequest::ThreadCompactStart {
-                request_id,
-                params: ThreadCompactStartParams {
-                    thread_id: thread.clone(),
-                },
-            },
-            ThreadAsk::CleanTerminals { thread } => ClientRequest::ThreadBackgroundTerminalsClean {
-                request_id,
-                params: ThreadBackgroundTerminalsCleanParams {
-                    thread_id: thread.clone(),
-                },
-            },
-            ThreadAsk::Shell { thread, command } => ClientRequest::ThreadShellCommand {
-                request_id,
-                params: ThreadShellCommandParams {
-                    thread_id: thread.clone(),
-                    command: command.clone(),
-                    timeout_ms: None,
-                },
-            },
-            ThreadAsk::Rename { thread, name } => ClientRequest::ThreadSetName {
-                request_id,
-                params: ThreadSetNameParams {
-                    thread_id: thread.clone(),
-                    name: name.clone(),
-                },
-            },
-            ThreadAsk::Unsubscribe { thread } => ClientRequest::ThreadUnsubscribe {
-                request_id,
-                params: ThreadUnsubscribeParams {
-                    thread_id: thread.clone(),
-                },
-            },
-            ThreadAsk::Review { thread, target } => ClientRequest::ReviewStart {
-                request_id,
-                params: ReviewStartParams {
-                    thread_id: thread.clone(),
-                    target: target.wire(),
-                    delivery: Some(ReviewDelivery::Inline),
-                },
-            },
-            ThreadAsk::SettingsUpdate { thread, patch } => ClientRequest::ThreadSettingsUpdate {
-                request_id,
-                params: patch.wire(thread),
-            },
-            ThreadAsk::PrepareApprovedPlan { thread, markdown } => {
-                ClientRequest::ThreadPrepareApprovedPlan {
-                    request_id,
-                    params: ThreadPrepareApprovedPlanParams {
-                        thread_id: thread.clone(),
-                        markdown: markdown.clone(),
-                        attachment_path: None,
-                    },
-                }
-            }
-            ThreadAsk::McpServers { cwd } => ClientRequest::ConfigRead {
-                request_id,
-                params: ConfigReadParams {
-                    include_layers: false,
-                    cwd: cwd.clone(),
-                },
-            },
-            ThreadAsk::StartTemporary(temporary) => start_temporary(request_id, temporary),
-            ThreadAsk::StructuredTurn {
-                thread,
-                kind,
-                prompt,
-                schema,
-                effort,
-            } => {
-                // a title thread is read-only for the turn too, as on desktop
-                let title = *kind == structured::Kind::Title;
-                ClientRequest::TurnStart {
-                    request_id,
-                    params: TurnStartParams {
-                        thread_id: thread.clone(),
-                        input: vec![UserInput::Text {
-                            text: prompt.clone(),
-                            text_elements: Vec::new(),
-                        }],
-                        permissions: title
-                            .then(|| BUILT_IN_PERMISSION_PROFILE_READ_ONLY.to_owned()),
-                        runtime_workspace_roots: title.then(Vec::new),
-                        output_schema: Some(schema.clone()),
-                        effort: effort.clone(),
-                        ..TurnStartParams::default()
-                    },
-                }
-            }
-        }
-    }
-}
-
-/// `thread/start` of the ephemeral thread of a structured turn (`start_temporary_thread`): no
-/// tools, no environments, every MCP server of the config disabled, and read-only: the built-in
-/// read-only profile by name for a title, the active profile when a recap's is a named one, else
-/// the default permissions and the sandbox mode say read-only. The thread's own config has
-/// everything else off (`structured::off`).
-fn start_temporary(request_id: RequestId, temporary: &structured::Temporary) -> ClientRequest {
-    let (source, approval_policy) = match temporary.kind {
-        structured::Kind::Title => ("thread_title", Some(AskForApproval::Never)),
-        structured::Kind::Recap => ("system", None),
-    };
-    let permissions = temporary.permissions();
-    let mut config = structured::off();
-    if permissions.is_none() {
-        // Managed profiles take precedence over the legacy sandbox override below.
-        config.insert(
-            "default_permissions".to_owned(),
-            BUILT_IN_PERMISSION_PROFILE_READ_ONLY.into(),
-        );
-    }
-    let servers = temporary
-        .mcp_servers
-        .keys()
-        .map(|name| (name.clone(), serde_json::json!({ "enabled": false })))
-        .collect::<serde_json::Map<_, _>>();
-    config.insert("mcp_servers".to_owned(), serde_json::Value::Object(servers));
-    ClientRequest::ThreadStart {
-        request_id,
-        params: ThreadStartParams {
-            model: temporary.model.clone(),
-            model_provider: temporary.provider.clone(),
-            cwd: temporary.cwd.clone(),
-            approval_policy,
-            sandbox: permissions.is_none().then_some(SandboxMode::ReadOnly),
-            permissions,
-            runtime_workspace_roots: Some(Vec::new()),
-            ephemeral: Some(true),
-            thread_source: Some(ThreadSource::Feature(source.to_owned())),
-            environments: Some(Vec::new()),
-            dynamic_tools: Some(Vec::new()),
-            selected_capability_roots: Some(Vec::new()),
-            config: Some(config),
-            ..ThreadStartParams::default()
-        },
-    }
-}
-
-/// Lower both local submission intents to the pinned Cloud StartOrSteer input.
-pub fn cloud_submit_params(request: ClientRequest) -> Option<TurnStartParams> {
-    match request {
-        ClientRequest::TurnStart { params, .. } => Some(params),
-        ClientRequest::TurnSteer { params, .. } => Some(TurnStartParams {
-            thread_id: params.thread_id,
-            input: params.input,
-            client_user_message_id: params.client_user_message_id,
-            ..TurnStartParams::default()
-        }),
-        _ => None,
-    }
-}
-
 /// The effects of one thread's `apply`: thread RPCs, with the thread id
 /// and the ticket stamped (R3). This is the only way a thread RPC is made.
 pub struct ThreadFx<'a> {
@@ -3322,7 +2857,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     ThreadCtx::StartTurn {
                         interrupt, message, ..
                     },
-                    Answer::TurnStarted { turn, .. },
+                    Answer::Thread(ThreadReply::TurnStarted { turn, .. }),
                 ) => {
                     model.core.safety.submitted(turn.clone(), message);
                     // After a `Lagged` gap the end of this turn can have been
@@ -3374,7 +2909,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                         turn,
                         retried: false,
                     },
-                    Answer::InterruptTurnChanged(actual),
+                    Answer::Thread(ThreadReply::InterruptTurnChanged(actual)),
                 ) => {
                     if let TurnState::Running(running) = &mut model.core.turn
                         && running.turn == turn
@@ -3384,7 +2919,10 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                         fx.interrupt(actual, true);
                     }
                 }
-                (ThreadCtx::Interrupt { turn, .. }, Answer::InterruptTurnChanged(_)) => {
+                (
+                    ThreadCtx::Interrupt { turn, .. },
+                    Answer::Thread(ThreadReply::InterruptTurnChanged(_)),
+                ) => {
                     if let TurnState::Running(running) = &mut model.turn
                         && running.turn == turn
                     {
@@ -4593,50 +4131,5 @@ mod tests {
         );
         assert_eq!(merged.text, "[Image #3] one\n[Image #4] two");
         assert_eq!(merged.images.len(), 2);
-    }
-
-    /// Opening a task from the center must not pull its whole history over the
-    /// wire (perf-open-session): the resume asks for the thread's state only;
-    /// the transcript is read page by page (`thread/turns/list`) when the chat
-    /// shows it, as the oracle's paginated sessions do.
-    #[test]
-    fn resume_asks_for_no_turns() {
-        let ask = ThreadAsk::Resume {
-            thread: "t1".to_owned(),
-        };
-        let ClientRequest::ThreadResume { params, .. } = ask.wire(RequestId::Integer(1)) else {
-            panic!("resume is thread/resume");
-        };
-        assert_eq!(params.thread_id, "t1");
-        assert!(params.exclude_turns, "thread/resume must exclude the turns");
-    }
-
-    /// The edit of a past prompt (the transcript's backtrack) reads the
-    /// persisted turns, then reverts before one of them: both are thread RPCs,
-    /// made here and nowhere else (ADR-003).
-    #[test]
-    fn the_prompt_edit_reads_the_turns_then_reverts_before_one() {
-        let ClientRequest::ThreadRead { params, .. } = (ThreadAsk::ReadTurns {
-            thread: "t1".to_owned(),
-        })
-        .wire(RequestId::Integer(1)) else {
-            panic!("a read of the turns is thread/read");
-        };
-        assert_eq!(params.thread_id, "t1");
-        assert!(
-            params.include_turns,
-            "the edit resolves the prompt from the turns"
-        );
-
-        let ask = ThreadAsk::Revert {
-            thread: "t1".to_owned(),
-            before_turn: TurnId::new("turn-3"),
-        };
-        assert_eq!(ask.thread(), Some("t1"));
-        let ClientRequest::ThreadRevert { params, .. } = ask.wire(RequestId::Integer(2)) else {
-            panic!("a revert is thread/revert");
-        };
-        assert_eq!(params.thread_id, "t1");
-        assert_eq!(params.before_turn_id, "turn-3");
     }
 }

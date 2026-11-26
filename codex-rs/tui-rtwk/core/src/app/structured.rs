@@ -21,7 +21,7 @@ use super::{AppCtx, AppFx, CodexApp, Command, Now, features};
 use crate::features::FeatureCtx;
 use crate::ids::{BackendId, ThreadId};
 use crate::rpc::{Answer, RpcError};
-use crate::screens::{ScreenCommand, ScreenReply, agents};
+use crate::screens::{ScreenCommand, agents};
 use crate::threads::structured::{
     RESPONSE_MAX_BYTES, StructuredTurn, TIMEOUT_MILLIS, Temporary, Why,
 };
@@ -163,16 +163,18 @@ pub(super) fn answered(app: &mut CodexApp, id: u64, answer: Answer, fx: &mut App
         return;
     };
     let reply = match answer {
-        Answer::Screen(ScreenReply::Agents(reply)) => reply,
+        Answer::Thread(reply) => reply,
         Answer::Failed(error) => return finish(app, id, Err(Why::Refused(error)), fx),
         _ => return finish(app, id, Err(Why::Refused(RpcError::Mismatch)), fx),
     };
     match (phase, reply) {
-        (Phase::Config, agents::Reply::McpServers(servers)) => start(app, id, servers, fx),
-        (Phase::Starting, agents::Reply::Temporary { thread, as_asked }) => {
+        (Phase::Config, crate::threads::ThreadReply::McpServers(servers)) => {
+            start(app, id, servers, fx)
+        }
+        (Phase::Starting, crate::threads::ThreadReply::Temporary { thread, as_asked }) => {
             started(app, id, thread, as_asked, fx);
         }
-        (Phase::Beginning { thread }, agents::Reply::StructuredTurn { turn }) => {
+        (Phase::Beginning { thread }, crate::threads::ThreadReply::StructuredTurn { turn }) => {
             if let Some(run) = app.structured.runs.get_mut(&id) {
                 run.phase = Phase::Waiting { thread, turn };
                 run.deadline = deadline(app.now);

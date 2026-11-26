@@ -31,7 +31,9 @@ use crate::ids::{ThreadId, TurnId};
 use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::screens::select::collaboration::{self, ModelChange};
-use crate::threads::{Note, ThreadFx};
+use crate::threads::ThreadReply;
+use crate::threads::asks::ThreadRpc;
+use crate::threads::{Note, ThreadFx, UserMessage};
 
 pub const NAME: &str = "chat";
 pub const ID: &str = "S10";
@@ -1236,22 +1238,23 @@ pub fn apply_reply(
     }
 }
 
-pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
-    let ask = match command {
-        Command::Compact => crate::threads::ThreadAsk::Compact {
+fn thread_ask<'a>(command: &'a Command, thread: &ThreadId) -> ThreadRpc<&'a UserMessage> {
+    match command {
+        Command::Compact => ThreadRpc::Compact {
             thread: thread.to_string(),
         },
-        Command::CleanTerminals => crate::threads::ThreadAsk::CleanTerminals {
+        Command::CleanTerminals => ThreadRpc::CleanTerminals {
             thread: thread.to_string(),
         },
-        Command::ListTerminals { cursor } => {
-            return crate::protocol::list_terminals(thread, cursor.clone(), id);
-        }
-        Command::Review(target) => crate::threads::ThreadAsk::Review {
+        Command::ListTerminals { cursor } => ThreadRpc::ListTerminals {
+            thread: thread.to_string(),
+            cursor: cursor.clone(),
+        },
+        Command::Review(target) => ThreadRpc::Review {
             thread: thread.to_string(),
             target: target.clone(),
         },
-        Command::Shell(command) => crate::threads::ThreadAsk::Shell {
+        Command::Shell(command) => ThreadRpc::Shell {
             thread: thread.to_string(),
             command: command.clone(),
         },
@@ -1259,59 +1262,38 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
             turn,
             client_id,
             message,
-        } => crate::threads::ThreadAsk::Steer {
+        } => ThreadRpc::Steer {
             thread: thread.to_string(),
             turn: turn.to_string(),
             client_id: client_id.clone(),
-            message: message.clone(),
+            message,
         },
-        Command::ApprovePlan(markdown) => crate::threads::ThreadAsk::PrepareApprovedPlan {
+        Command::ApprovePlan(markdown) => ThreadRpc::PrepareApprovedPlan {
             thread: thread.to_string(),
             markdown: markdown.clone(),
         },
-        Command::Mode(mode) => crate::threads::ThreadAsk::SettingsUpdate {
+        Command::Mode(mode) => ThreadRpc::SettingsUpdate {
             thread: thread.to_string(),
             patch: crate::threads::SettingsPatch {
                 collaboration_mode: Some(mode.clone()),
                 ..crate::threads::SettingsPatch::default()
             },
         },
-    };
-    ask.wire(id)
+    }
+}
+
+pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
+    thread_ask(command, thread).wire(id)
 }
 
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-    use codex_app_server_protocol::{
-        ReviewStartResponse, ThreadBackgroundTerminalsCleanResponse, ThreadCompactStartResponse,
-        ThreadPrepareApprovedPlanResponse, ThreadShellCommandResponse, TurnSteerResponse,
-    };
-    let decoded = match command {
-        Command::Compact => {
-            serde_json::from_value::<ThreadCompactStartResponse>(result).map(|_| Reply::Ack)
-        }
-        Command::CleanTerminals => {
-            serde_json::from_value::<ThreadBackgroundTerminalsCleanResponse>(result)
-                .map(|_| Reply::Ack)
-        }
-        Command::ListTerminals { .. } => {
-            return crate::protocol::terminals_listed(result)
-                .map(|(data, next)| Reply::Terminals { data, next });
-        }
-        Command::Review(_) => {
-            serde_json::from_value::<ReviewStartResponse>(result).map(|_| Reply::Ack)
-        }
-        Command::Shell(_) => {
-            serde_json::from_value::<ThreadShellCommandResponse>(result).map(|_| Reply::Ack)
-        }
-        Command::Mode(_) => Ok(Reply::Ack),
-        Command::ApprovePlan(_) => {
-            serde_json::from_value::<ThreadPrepareApprovedPlanResponse>(result)
-                .map(|response| Reply::Prepared(response.prompt))
-        }
-        Command::Steer { .. } => serde_json::from_value::<TurnSteerResponse>(result)
-            .map(|response| Reply::Steered(TurnId::new(response.turn_id))),
-    };
-    decoded.map_err(|error| RpcError::Malformed(error.to_string()))
+    match thread_ask(command, &ThreadId::default()).decode(result)? {
+        ThreadReply::Terminals { data, next } => Ok(Reply::Terminals { data, next }),
+        ThreadReply::Done => Ok(Reply::Ack),
+        ThreadReply::Prepared(prompt) => Ok(Reply::Prepared(prompt)),
+        ThreadReply::Steered(turn) => Ok(Reply::Steered(turn)),
+        _ => Err(RpcError::Mismatch),
+    }
 }
 
 /// The seed form of this screen's events:

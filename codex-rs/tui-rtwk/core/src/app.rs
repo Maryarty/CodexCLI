@@ -35,7 +35,7 @@ use session::{
     active_backend, card_limits, confirmed, refresh_rates, removed, session_intent, session_note,
 };
 
-use crate::threads::ThreadAsk;
+use crate::threads::{ThreadAsk, ThreadReply};
 use std::collections::{BTreeMap, VecDeque};
 use std::rc::Rc;
 
@@ -2359,7 +2359,10 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
         match ctx {
             AppCtx::StartThread { switch } => {
                 match (switch, answer) {
-                    (Some(backend), Answer::ThreadStarted { thread, sources }) => {
+                    (
+                        Some(backend),
+                        Answer::Thread(ThreadReply::SessionStarted { thread, sources }),
+                    ) => {
                         switch_to(app, backend, thread, sources, fx);
                     }
                     (Some(backend), Answer::Failed(error)) => {
@@ -2474,10 +2477,12 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 spawned,
             } => {
                 let result = match answer {
-                    Answer::ThreadStarted { thread, sources } => Ok((thread, None, sources)),
-                    Answer::Screen(ScreenReply::Agents(
-                        agents::Reply::Forked(thread) | agents::Reply::Started(thread),
-                    )) => Ok((ThreadId::new(&thread.id), Some(thread), Vec::new())),
+                    Answer::Thread(ThreadReply::SessionStarted { thread, sources }) => {
+                        Ok((thread, None, sources))
+                    }
+                    Answer::Thread(ThreadReply::Forked(thread) | ThreadReply::Started(thread)) => {
+                        Ok((ThreadId::new(&thread.id), Some(thread), Vec::new()))
+                    }
                     Answer::Failed(error) => Err(error),
                     _ => Err(RpcError::Mismatch),
                 };
@@ -2559,8 +2564,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
             } => {
                 // A successful resume still attached a writer on the server.
                 // Keep it without showing it, so a later open need not resume again.
-                if let Answer::Screen(ScreenReply::Agents(agents::Reply::Resumed(resumed))) = answer
-                {
+                if let Answer::Thread(ThreadReply::Resumed(resumed)) = answer {
                     attach_thread_with_metadata(
                         app,
                         &thread,
@@ -2596,7 +2600,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 // An id nothing is saved under (or a server that cannot read
                 // it) ends the launch with the oracle's message.
                 let read = match answer {
-                    Answer::Screen(ScreenReply::Agents(agents::Reply::Read { thread, .. })) => {
+                    Answer::Thread(ThreadReply::Read { thread, .. }) => {
                         Ok(crate::screens::onboarding::session::Found {
                             cwd: Some(thread.cwd.display().to_string()),
                             thread: Some(crate::screens::onboarding::session::Resumed {
@@ -3245,9 +3249,7 @@ fn send_resume(app: &mut CodexApp, outs: Vec<resume::Out>, fx: &mut AppFx) {
 fn resume_answer(app: &mut CodexApp, ctx: resume::Ctx, answer: Answer, fx: &mut AppFx) {
     let result = match answer {
         Answer::Screen(ScreenReply::Resume(reply)) => Ok(reply),
-        Answer::Screen(ScreenReply::Agents(agents::Reply::History { turns, .. })) => {
-            Ok(resume::Reply::Turns(turns))
-        }
+        Answer::Thread(ThreadReply::History { turns, .. }) => Ok(resume::Reply::Turns(turns)),
         Answer::Failed(error) => Err(error),
         _ => Err(RpcError::Mismatch),
     };
@@ -3483,6 +3485,15 @@ fn can_show_unavailable(app: &CodexApp, thread: &ThreadId) -> bool {
         })
 }
 
+fn agents_answer(answer: Answer) -> Result<agents::Reply, RpcError> {
+    match answer {
+        Answer::Screen(ScreenReply::Agents(reply)) => Ok(reply),
+        Answer::Thread(reply) => crate::protocol::agents::from_thread(reply),
+        Answer::Failed(error) => Err(error),
+        _ => Err(RpcError::Mismatch),
+    }
+}
+
 /// The reply of an app-scoped screen RPC.
 fn screen_answer(
     app: &mut CodexApp,
@@ -3496,11 +3507,7 @@ fn screen_answer(
     let background_start =
         other_backend && matches!(ctx, agents::Ctx::Start | agents::Ctx::Fork { .. });
     let mut recovery_history = None;
-    let result = match answer {
-        Answer::Screen(ScreenReply::Agents(reply)) => Ok(reply),
-        Answer::Failed(error) => Err(error),
-        _ => Err(RpcError::Mismatch),
-    };
+    let result = agents_answer(answer);
     if other_backend {
         match ctx {
             agents::Ctx::List { append } => {
@@ -3652,7 +3659,7 @@ fn run_shell(app: &mut CodexApp, thread: &ThreadId, command: String, fx: &mut Ap
 /// The first thread's answer.
 fn started(app: &mut CodexApp, answer: Answer, fx: &mut AppFx) {
     match answer {
-        Answer::ThreadStarted { thread, sources } => {
+        Answer::Thread(ThreadReply::SessionStarted { thread, sources }) => {
             attach_thread(app, &thread, BackendId::default(), Origin::Started, fx);
             note_instruction_sources(app, &thread, sources, fx);
             let session = Rc::make_mut(&mut app.session);
@@ -3731,9 +3738,7 @@ fn session_opened(
     use crate::screens::startup::Action;
     Rc::make_mut(&mut app.session).launching = None;
     match answer {
-        Answer::Screen(ScreenReply::Agents(
-            agents::Reply::Resumed(opened) | agents::Reply::Forked(opened),
-        )) => {
+        Answer::Thread(ThreadReply::Resumed(opened) | ThreadReply::Forked(opened)) => {
             let id = ThreadId::new(&opened.id);
             let origin = match action {
                 Action::Resume => Origin::Resumed,

@@ -13,8 +13,8 @@ use crate::ids::{BackendId, ThreadId};
 use crate::rpc::Answer;
 use crate::screens::onboarding::TrustCancel;
 use crate::screens::onboarding::consent::{self, Target};
-use crate::screens::{ScreenCommand, ScreenReply, ScreenThreadIntent, agents, chat};
-use crate::threads::{ThreadAsk, ThreadEv};
+use crate::screens::{ScreenCommand, ScreenThreadIntent, agents, chat};
+use crate::threads::{ThreadAsk, ThreadEv, ThreadReply};
 
 /// What a thread a feature asked for (`AppCx::spawn`) is told when it is open: the feature's own
 /// context for `Feature::thread_opened`, and whether the thread is ephemeral (its history is the
@@ -72,9 +72,7 @@ pub(super) fn read(
     fx: &mut AppFx,
 ) {
     let result = match answer {
-        Answer::Screen(ScreenReply::Agents(agents::Reply::Read { .. })) => {
-            opened(open_verified(app, &thread, fx), thread)
-        }
+        Answer::Thread(ThreadReply::Read { .. }) => opened(open_verified(app, &thread, fx), thread),
         Answer::Failed(error) => Err(Refusal::Failed(error)),
         _ => Err(Refusal::Failed(crate::rpc::RpcError::Mismatch)),
     };

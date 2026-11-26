@@ -552,29 +552,30 @@ fn addressed_rpc_transport_replacement_keeps_ingress_and_rejects_old_handles() {
     let (fresh, command) = agents_new(&mut app);
     let (_, address) = app.dispatch_route(&command, None).expect("new live ask");
     assert_eq!(address.expect("RPC address").epoch, transport_epoch);
-    let answer = |ticket, epoch, id| {
-        Ingress::transport_reply(
-            LOCAL,
-            ingress_epoch,
-            epoch,
-            ticket,
-            Reply::screen(ScreenReply::Agents(agents::Reply::Started(Box::new(
-                thread(id, id),
-            )))),
+    let answer = |command, expected, epoch, id| {
+        let (ticket, reply) = codex_tui_core::protocol::reply_from_server(
+            command,
+            Ok(serde_json::json!({ "thread": thread(id, id) })),
         )
+        .expect("thread/start result under its original ticket");
+        assert_eq!(ticket, expected);
+        Ingress::transport_reply(LOCAL, ingress_epoch, epoch, ticket, reply)
     };
     assert!(
-        app.ingest(answer(old_ticket, ingress_epoch, "old"))
+        app.ingest(answer(&old_command, old_ticket, ingress_epoch, "old"))
             .is_none()
     );
-    assert!(app.ingest(answer(fresh, ingress_epoch, "stale")).is_none());
     assert!(
-        app.ingest(answer(fresh, transport_epoch, "fresh"))
+        app.ingest(answer(&command, fresh, ingress_epoch, "stale"))
+            .is_none()
+    );
+    assert!(
+        app.ingest(answer(&command, fresh, transport_epoch, "fresh"))
             .is_some()
     );
     assert!(app.thread(&ThreadId::new("fresh")).is_some());
     assert!(
-        app.ingest(answer(fresh, transport_epoch, "duplicate"))
+        app.ingest(answer(&command, fresh, transport_epoch, "duplicate"))
             .is_none()
     );
 
