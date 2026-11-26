@@ -137,7 +137,14 @@ fn queued_settings_selection_applies_before_next_input() {
 // ORACLE chatwidget/tests/slash_commands.rs:529 queued_bare_rename_drains_next_input_after_name_update kind=ui owner=chat-nav-pane
 #[test]
 fn queued_bare_rename_drains_next_input_after_name_update() {
-    for settlement in ["notify", "acknowledge", "refuse", "cancel"] {
+    for settlement in [
+        "notify",
+        "acknowledge",
+        "refuse",
+        "cancel",
+        "restore-prompt",
+        "restore-submitted",
+    ] {
         let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
         s.type_text("/rename").keys("tab");
         s.type_text("hello after rename").keys("tab");
@@ -147,6 +154,11 @@ fn queued_bare_rename_drains_next_input_after_name_update() {
         s.feed(r#"{"step":"lagged","skipped":1}"#);
         s.assert_contains("Name thread");
         s.assert_no_turn();
+        if settlement == "restore-prompt" {
+            s.stream_lost("temporary gap").stream_restored();
+            s.assert_contains("Name thread");
+            s.assert_no_turn();
+        }
 
         if settlement == "cancel" {
             s.keys("esc");
@@ -164,8 +176,11 @@ fn queued_bare_rename_drains_next_input_after_name_update() {
                 .find(|command| format!("{command:?}").contains("SetName(\"Queued rename\")"))
                 .expect("the rename request");
             match settlement {
-                "notify" => {
+                "notify" | "restore-prompt" => {
                     s.feed(RENAMED);
+                }
+                "restore-submitted" => {
+                    s.stream_lost("lost rename reply").stream_restored();
                 }
                 "acknowledge" => s.answer_request(&request, serde_json::json!({})),
                 "refuse" => {

@@ -85,13 +85,11 @@ pub enum ThreadIntent {
     /// Rename the thread to this name (an empty one renames nothing).
     Set(String),
     /// The name prompt owns queued input until it closes or submits.
-    OpenPrompt(Gen),
-    ClosePrompt(Gen),
+    AwaitName(Gen),
+    /// This rename was cancelled before a name was submitted.
+    CancelName(Gen),
     /// Carry the accepted name from the form to the server request.
-    Submit {
-        generation: Gen,
-        name: String,
-    },
+    Submit { generation: Gen, name: String },
 }
 
 /// What an ask was for.
@@ -171,7 +169,7 @@ impl ThreadPart {
     }
 
     pub(crate) fn connection_lost(&mut self) {
-        self.prompt = None;
+        // Only the submitted RPC depends on this transport.
         self.awaiting = None;
     }
 }
@@ -228,7 +226,7 @@ fn open(state: &mut State, cx: &mut AppCx<'_>, source: Option<ThreadId>) {
         .unwrap_or_default();
     state.generation += 1;
     let generation = state.generation;
-    cx.thread(&thread, ThreadIntent::OpenPrompt(generation));
+    cx.thread(&thread, ThreadIntent::AwaitName(generation));
     cx.wish(
         thread.clone(),
         Wish::Name {
@@ -397,17 +395,17 @@ impl Feature for Rename {
             {
                 state.titles.remove(thread);
             }
-            cx.thread(thread, ThreadIntent::ClosePrompt(at));
+            cx.thread(thread, ThreadIntent::CancelName(at));
         }
     }
 
     fn thread_fact(part: &mut ThreadPart, intent: ThreadIntent) -> Option<ThreadIntent> {
         match intent {
-            ThreadIntent::OpenPrompt(generation) => {
+            ThreadIntent::AwaitName(generation) => {
                 part.prompt = Some(generation);
                 None
             }
-            ThreadIntent::ClosePrompt(generation) => {
+            ThreadIntent::CancelName(generation) => {
                 if part.prompt == Some(generation) {
                     part.prompt = None;
                 }
@@ -437,7 +435,7 @@ impl Feature for Rename {
                     part.awaiting = Some((generation, name));
                 }
             }
-            ThreadIntent::Set(_) | ThreadIntent::OpenPrompt(_) | ThreadIntent::ClosePrompt(_) => {}
+            ThreadIntent::Set(_) | ThreadIntent::AwaitName(_) | ThreadIntent::CancelName(_) => {}
         }
     }
 
