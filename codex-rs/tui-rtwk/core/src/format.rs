@@ -1,4 +1,4 @@
-//! Number words shared by pages, carried from the oracle.
+//! Plain text formatting shared by pages, carried from the oracle.
 
 /// The time a goal has run: `45s`, `12m`, `3h`, `3h 20m`, `2d 5h 7m`.
 // oracle: ../goal_display.rs fn format_goal_elapsed_seconds
@@ -69,4 +69,60 @@ pub fn format_tokens_compact(value: i64) -> String {
     }
 
     format!("{formatted}{suffix}")
+}
+
+/// One line of a plain-text table export. A reserved label affects alignment without emitting text.
+pub enum TextLine {
+    Heading(String),
+    Paragraph(String),
+    Blank,
+    Row { label: String, values: Vec<String> },
+    Reserve(String),
+}
+
+/// Serializes status-like rows as plain text without terminal wrapping.
+pub fn text_table(
+    lines: Vec<TextLine>,
+    indent: usize,
+    gap: usize,
+    width: impl Fn(&str) -> usize,
+) -> String {
+    let label_width = lines
+        .iter()
+        .filter_map(|line| match line {
+            TextLine::Row { label, .. } | TextLine::Reserve(label) => Some(width(label)),
+            TextLine::Heading(_) | TextLine::Paragraph(_) | TextLine::Blank => None,
+        })
+        .max()
+        .unwrap_or_default();
+    let value_indent = " ".repeat(indent + label_width + gap);
+    let indent = " ".repeat(indent);
+    let mut rows = Vec::new();
+    for line in lines {
+        match line {
+            TextLine::Heading(text) => rows.push(text),
+            TextLine::Paragraph(text) => rows.push(format!("{indent}{text}")),
+            TextLine::Blank => rows.push(String::new()),
+            TextLine::Reserve(_) => {}
+            TextLine::Row { label, values } => {
+                let padding = " ".repeat(label_width - width(&label) + gap);
+                let mut values = values.into_iter();
+                let first = values.next().unwrap_or_default();
+                rows.push(format!("{indent}{label}{padding}{first}"));
+                rows.extend(values.map(|value| format!("{value_indent}{value}")));
+            }
+        }
+    }
+    rows.iter()
+        .map(|line| line.trim_end())
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_owned()
+}
+
+/// The plain-text form of a two-colour bar, as in the exported status rows.
+pub fn text_progress_bar(filled: usize, cells: usize) -> String {
+    let filled = filled.min(cells);
+    format!("[{}{}]", "█".repeat(filled), "░".repeat(cells - filled))
 }

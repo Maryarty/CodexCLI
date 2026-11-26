@@ -1203,6 +1203,14 @@ pub(crate) fn clear_copy_status(parts: &mut FeatureThreadParts) {
     parts.copy.clear_status();
 }
 
+pub(crate) fn has_copy_status(parts: &FeatureThreadParts) -> bool {
+    parts.copy.has_status()
+}
+
+pub(crate) fn has_visible_copy_response(text: &str, cwd: &str) -> bool {
+    copy::copy_markdown(text, cwd).is_some()
+}
+
 /// A later command in this thread takes precedence over its previous Status card.
 pub fn supersede_copy_status(thread: crate::ids::ThreadId) -> FeatureIntent {
     copy::Intent::StatusSuperseded { thread }.into()

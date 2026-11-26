@@ -21,11 +21,9 @@ pub(super) fn bar(percent_left: i64) -> AnyWidget {
 }
 
 pub(super) fn text(percent_left: i64) -> String {
-    let filled = filled_cells(percent_left);
-    format!(
-        "[{}{}]",
-        "█".repeat(usize::try_from(filled).unwrap_or_default()),
-        "░".repeat(usize::try_from(BAR_CELLS - filled).unwrap_or_default()),
+    codex_tui_core::format::text_progress_bar(
+        usize::try_from(filled_cells(percent_left)).unwrap_or_default(),
+        usize::try_from(BAR_CELLS).unwrap_or_default(),
     )
 }
 

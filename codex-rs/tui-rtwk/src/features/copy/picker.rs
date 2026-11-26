@@ -99,7 +99,7 @@ fn choices(source: &Source, cx: &mut Cx<'_, PickerState>) -> Vec<Choice> {
         Source::Status { card, .. } => card,
         Source::Response(response) => return response_choices(response),
     };
-    let whole = StatusCell::clipboard_text(card, cx);
+    let whole = StatusCell::export_text(card, cx);
     [
         (WHOLE_STATUS, Some(whole.as_str())),
         (

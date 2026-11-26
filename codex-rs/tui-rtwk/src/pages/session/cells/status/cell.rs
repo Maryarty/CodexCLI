@@ -22,7 +22,7 @@ use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, LayoutBuilder, StatelessWidget, impl_widget};
 
 use codex_tui_core::features::FeatureStates;
-use codex_tui_core::format::format_tokens_compact;
+use codex_tui_core::format::{TextLine, format_tokens_compact, text_table};
 use codex_tui_core::screens::status::{
     Account, Figure, LimitData, LimitRow, RowValue, StatusCard, UsageInterest,
 };
@@ -194,7 +194,7 @@ fn tracks(entries: &[Entry], seg: Measure, width: i32) -> (i32, i32) {
 
 impl StatusCell {
     /// The status card's plain contents before terminal wrapping, for the copy picker.
-    pub(crate) fn clipboard_text<S: 'static>(card: &StatusCard, cx: &mut Cx<'_, S>) -> String {
+    pub(crate) fn export_text<S: 'static>(card: &StatusCard, cx: &mut Cx<'_, S>) -> String {
         let s = strings::of(cx);
         let look = Look {
             s,
@@ -205,70 +205,60 @@ impl StatusCell {
         let figure = read::<FeatureStates, _>(cx)
             .thread_usage
             .card_figure(card.number);
-        let entries = entries(card, figure.as_ref().map(Option::as_ref), &look);
         let seg = segmenter_of(cx);
-        let (_, value_room) = tracks(&entries, seg, i32::MAX);
-        let value_indent = usize::try_from(i32::MAX - value_room).unwrap_or_default();
-        let indent = " ".repeat(usize::try_from(INDENT).unwrap_or_default());
         let mut lines = vec![
-            format!(
+            TextLine::Heading(format!(
                 "{}{}{}",
                 s.title_mark,
                 s.title_name,
                 s.title_version(&card.version)
-            ),
-            String::new(),
+            )),
+            TextLine::Blank,
         ];
         if card.usage_link {
             lines.extend([
-                format!("{indent}{}{}{}", s.usage_visit, s.usage_url, s.usage_for),
-                format!("{indent}{}", s.usage_info),
-                String::new(),
+                TextLine::Paragraph(format!("{}{}{}", s.usage_visit, s.usage_url, s.usage_for)),
+                TextLine::Paragraph(s.usage_info.to_owned()),
+                TextLine::Blank,
             ]);
         }
-        for entry in entries {
-            match entry {
-                Entry::Blank => lines.push(String::new()),
-                Entry::Reserve(_) => {}
-                Entry::Row { label, value } => {
-                    let pad =
-                        " ".repeat(value_indent.saturating_sub(indent.len() + seg.width(&label)));
-                    let prefix = format!("{indent}{label}{pad}");
-                    match value {
-                        Value::Spans(spans) => lines.push(format!("{prefix}{}", span_text(&spans))),
-                        Value::Window {
-                            percent_left,
-                            reset,
-                            details,
-                        } => {
-                            let (_, spans) = window_spans(
+        lines.extend(
+            entries(card, figure.as_ref().map(Option::as_ref), &look)
+                .into_iter()
+                .map(|entry| match entry {
+                    Entry::Blank => TextLine::Blank,
+                    Entry::Reserve(label) => TextLine::Reserve(label),
+                    Entry::Row { label, value } => {
+                        let values = match value {
+                            Value::Spans(spans) => vec![span_text(&spans)],
+                            Value::Window {
                                 percent_left,
-                                reset.as_deref(),
-                                details.as_deref(),
-                                &look,
-                                seg,
-                                value_room,
-                            );
-                            let mut values = spans.iter().map(|spans| span_text(spans));
-                            let first = values.next().unwrap_or_default();
-                            lines.push(format!(
-                                "{prefix}{}{first}",
-                                bar::text(i64::from(percent_left))
-                            ));
-                            let align = " ".repeat(value_indent);
-                            lines.extend(values.map(|value| format!("{align}{value}")));
-                        }
+                                reset,
+                                details,
+                            } => {
+                                let (with_bar, spans) = window_spans(
+                                    percent_left,
+                                    reset.as_deref(),
+                                    details.as_deref(),
+                                    &look,
+                                    seg,
+                                    i32::MAX,
+                                );
+                                let mut values: Vec<_> =
+                                    spans.iter().map(|spans| span_text(spans)).collect();
+                                if with_bar && let Some(first) = values.first_mut() {
+                                    first.insert_str(0, &bar::text(i64::from(percent_left)));
+                                }
+                                values
+                            }
+                        };
+                        TextLine::Row { label, values }
                     }
-                }
-            }
-        }
-        lines
-            .iter()
-            .map(|line| line.trim_end())
-            .collect::<Vec<_>>()
-            .join("\n")
-            .trim()
-            .to_owned()
+                }),
+        );
+        text_table(lines, INDENT as usize, GAP as usize, |label| {
+            seg.width(label)
+        })
     }
 
     /// The status card's text nodes at the mounted width. The usage bar paints

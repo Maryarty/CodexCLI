@@ -3177,6 +3177,9 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 && !review_prompt(model, &item, echo)
                 && !processes::draws_nothing(&item, false)
             {
+                if matches!(item, Item::User(_)) {
+                    observe_status_copy_item(model, &key, &item);
+                }
                 model.transcript.upsert(key, item);
             }
             if released && !model.busy() {
@@ -3210,9 +3213,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     return;
                 }
                 if !turn_finished {
-                    if new_copy_response(&model.transcript, &key, &item) {
-                        features::clear_copy_status(&mut model.features);
-                    }
+                    observe_status_copy_item(model, &key, &item);
                     match &item {
                         Item::Agent { .. } => {
                             model.completed_items.insert(key.clone());
@@ -3290,8 +3291,8 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                             turn: turn.clone(),
                             item: id.clone(),
                         };
-                        if live && new_copy_response(&model.transcript, &key, item) {
-                            features::clear_copy_status(&mut model.features);
+                        if live {
+                            observe_status_copy_item(model, &key, item);
                         }
                         processes::track(model, &key, item);
                     }
@@ -3305,8 +3306,8 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                             turn: turn.clone(),
                             item: id,
                         };
-                        if live && new_copy_response(&model.transcript, &key, &item) {
-                            features::clear_copy_status(&mut model.features);
+                        if live {
+                            observe_status_copy_item(model, &key, &item);
                         }
                         model.transcript.upsert(key, item);
                     }
@@ -4106,9 +4107,26 @@ fn is_start_turn(ctx: &ThreadCtx) -> bool {
     matches!(ctx, ThreadCtx::StartTurn { .. })
 }
 
-fn new_copy_response(transcript: &Transcript, key: &ItemKey, item: &Item) -> bool {
-    matches!(item, Item::Agent { text, .. } | Item::Plan { text } if !text.trim().is_empty())
-        && (transcript.streaming.contains_key(key) || transcript.item(key) != Some(item))
+/// A newly displayed user input or copyable response supersedes an existing Status source.
+fn observe_status_copy_item(model: &mut ThreadModel, key: &ItemKey, item: &Item) {
+    if !features::has_copy_status(&model.features) {
+        return;
+    }
+    let supersedes = match item {
+        Item::User(_) => model.transcript.item(key).is_none(),
+        Item::Agent { text, .. } | Item::Plan { text } => {
+            (model.transcript.streaming.contains_key(key)
+                || model.transcript.item(key) != Some(item))
+                && features::has_visible_copy_response(
+                    text,
+                    model.slots.chat.cwd.as_deref().unwrap_or("."),
+                )
+        }
+        _ => false,
+    };
+    if supersedes {
+        features::clear_copy_status(&mut model.features);
+    }
 }
 
 fn apply_appended(model: &mut ThreadModel, turn: Option<TurnId>, item: Item) {

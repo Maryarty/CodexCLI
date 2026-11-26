@@ -34,6 +34,10 @@ pub struct ThreadPart {
 }
 
 impl ThreadPart {
+    pub(super) fn has_status(&self) -> bool {
+        self.status.is_some()
+    }
+
     pub(super) fn remember_status(&mut self, key: ItemKey) {
         self.status = Some(key);
     }

@@ -821,6 +821,18 @@ fn slash_copy_picker_copies_status_fields_and_preserves_source_after_copying() {
     s.assert_active_thread("thread-1");
     s.assert_contains("Copy failed: held clipboard result");
     s.assert_no_turn();
+    status_copy_stays_after_hidden_assistant_item();
+}
+
+fn status_copy_stays_after_hidden_assistant_item() {
+    let mut s = Screen::build(Owner::ChatNavPane).script(ORIGINAL).open();
+    s.feed(TURN2_STARTED);
+    s.type_text("/status").keys("enter");
+    s.feed(r#"{"step":"notify","message":{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-2","completedAtMs":0,"item":{"type":"agentMessage","id":"hidden-response","text":"::git-stage{cwd=\"/repo\"}","phase":"commentary"}}}}"#);
+    s.type_text("/copy").keys("enter");
+    s.assert_contains("1. Whole status");
+    s.keys("esc");
+    s.assert_copies_asked(&[]);
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:1914 slash_copy_status_omits_missing_fields_and_copies_full_directory kind=ui owner=chat-nav-pane
@@ -961,6 +973,32 @@ fn slash_copy_status_yields_to_later_turns_and_commands_even_after_refresh() {
             "Original reply"
         }]);
     }
+    status_copy_yields_to_a_new_user_item_once();
+}
+
+fn status_copy_yields_to_a_new_user_item_once() {
+    let mut s = Screen::build(Owner::ChatNavPane).script(ORIGINAL).open();
+    s.feed(TURN2_STARTED);
+    s.type_text("/status").keys("enter");
+    s.type_text("/copy").keys("enter");
+    s.assert_contains("1. Whole status");
+    s.keys("esc");
+
+    let user_item = r#"{"step":"notify","message":{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-2","completedAtMs":0,"item":{"type":"userMessage","id":"external-user","clientId":null,"content":[{"type":"text","text":"Steer from another client","text_elements":[]}]}}}}"#;
+    s.feed(user_item);
+    s.assert_contains("Steer from another client");
+    s.type_text("/copy").keys("enter");
+    s.assert_contains("1. Whole response");
+    s.keys("1");
+    s.assert_copies_asked(&["Original reply"]);
+    s.answer_copy(Ok(()));
+
+    s.type_text("/status").keys("enter");
+    s.feed(user_item);
+    s.type_text("/copy").keys("enter");
+    s.assert_contains("1. Whole status");
+    s.keys("esc");
+    s.assert_copies_asked(&["Original reply"]);
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2002 slash_copy_status_yields_to_queued_commands_after_queued_status kind=ui owner=chat-nav-pane
