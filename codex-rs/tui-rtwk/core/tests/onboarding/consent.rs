@@ -619,7 +619,7 @@ fn daemon_task_rechecks_the_same_target_and_consents_to_each_changed_cwd() {
         ask: None,
         checked: Checked::ResumeIn("/work/b".into()),
     };
-    let effects = answer(&mut app, verified.clone());
+    let effects = answer(&mut app, verified);
     assert_eq!(
         asks(&effects),
         [ThreadAsk::ResumeAt {
