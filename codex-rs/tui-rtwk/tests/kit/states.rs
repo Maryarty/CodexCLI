@@ -215,6 +215,29 @@ impl Screen {
         self
     }
 
+    /// Supply the normal resume response for a listed thread.
+    pub fn server_resumes(&mut self, id: &str) -> &mut Screen {
+        self.server_answers("thread/resume", resume_response(id, &[], false))
+    }
+
+    pub fn assert_active_thread(&self, id: &str) {
+        assert_eq!(self.active_thread().as_str(), id);
+    }
+
+    pub fn assert_started_turn_on(&self, id: &str) {
+        assert!(self.commands().iter().any(|command| matches!(
+            command,
+            Command::StartTurn { thread, .. } if thread.as_str() == id
+        )));
+    }
+
+    pub fn assert_thread_model_patch(&self, id: &str, model: &str) {
+        let requests = self.request_params("thread/settings/update");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0]["threadId"], id);
+        assert_eq!(requests[0]["model"], model);
+    }
+
     pub fn show_task_list(&mut self, threads: &[&str]) -> &mut Screen {
         self.h
             .inject([AppEv::Screen(ScreenEv::Agents(agents::Ev::Listed(

@@ -162,7 +162,7 @@ fn model_opens_and_asks_the_server_for_the_catalog() {
     let mut app = CodexApp::new();
     let fx = open(
         &mut app,
-        SelectIntent::OpenModels(ModelCurrent::new("gpt-5.5")),
+        SelectIntent::open_models(ModelCurrent::new("gpt-5.5")),
     );
     let (ticket, command) = asked(&fx);
     let select::Command::Models { request } = command else {
@@ -184,12 +184,12 @@ fn an_older_model_answer_is_dropped() {
     let mut app = CodexApp::new();
     let first = open(
         &mut app,
-        SelectIntent::OpenModels(ModelCurrent::new("gpt-5.5")),
+        SelectIntent::open_models(ModelCurrent::new("gpt-5.5")),
     );
     let (old, _) = asked(&first);
     let second = open(
         &mut app,
-        SelectIntent::OpenModels(ModelCurrent::new("gpt-5.5")),
+        SelectIntent::open_models(ModelCurrent::new("gpt-5.5")),
     );
     let (new, command) = asked(&second);
     let select::Command::Models { request } = command else {
@@ -208,7 +208,7 @@ fn a_failed_model_list_clears_the_wait() {
     let mut app = CodexApp::new();
     let fx = open(
         &mut app,
-        SelectIntent::OpenModels(ModelCurrent::new("gpt-5.5")),
+        SelectIntent::open_models(ModelCurrent::new("gpt-5.5")),
     );
     let (ticket, command) = asked(&fx);
     let select::Command::Models { request } = command else {
@@ -434,7 +434,7 @@ fn threaded() -> CodexApp {
     let mut app = build(&format!("{script}\n")).expect("plays").app;
     let fx = open(
         &mut app,
-        SelectIntent::OpenModels(ModelCurrent::new("gpt-5.5")),
+        SelectIntent::open_models(ModelCurrent::new("gpt-5.5")),
     );
     let (ticket, _) = asked(&fx);
     answer(&mut app, ticket, select::Reply::Models(presets()));
@@ -448,7 +448,7 @@ fn settle(app: &mut CodexApp, id: &str, session: bool) -> AppFx {
     let Onward::Done(selection) = menu.choose(&app.screens().select.catalog, id, session) else {
         panic!("a final pick of {id}");
     };
-    open(app, SelectIntent::Settle(selection))
+    open(app, SelectIntent::settle(selection))
 }
 
 /// The `/model` sheets the screen asked for and nobody showed yet.
@@ -1036,7 +1036,7 @@ fn a_provider_write_dismisses_the_model_menus_and_blocks_the_picker() {
     let mut app = CodexApp::new();
     let fx = open(
         &mut app,
-        SelectIntent::OpenModels(ModelCurrent::new("gpt-5.5")),
+        SelectIntent::open_models(ModelCurrent::new("gpt-5.5")),
     );
     let (ticket, _) = asked(&fx);
     assert!(matches!(
@@ -1061,7 +1061,7 @@ fn a_provider_write_dismisses_the_model_menus_and_blocks_the_picker() {
     // `/model` is blocked with the restart words and sends nothing
     let fx = open(
         &mut app,
-        SelectIntent::OpenModels(ModelCurrent::new("gpt-5.5")),
+        SelectIntent::open_models(ModelCurrent::new("gpt-5.5")),
     );
     assert!(fx.commands().is_empty(), "{:?}", fx.commands());
     assert_eq!(model_shows(&app), []);
@@ -1078,7 +1078,7 @@ fn a_provider_write_dismisses_the_model_menus_and_blocks_the_picker() {
     );
     let fx = open(
         &mut app,
-        SelectIntent::OpenModels(ModelCurrent::new("gpt-5.5")),
+        SelectIntent::open_models(ModelCurrent::new("gpt-5.5")),
     );
     assert_eq!(fx.commands().len(), 1, "{:?}", fx.commands());
     assert!(matches!(

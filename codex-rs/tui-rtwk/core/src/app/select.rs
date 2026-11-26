@@ -13,7 +13,7 @@ use crate::rpc::{Answer, RpcError};
 use crate::screens::select::{self, apps, permissions, review};
 use crate::screens::{ScreenCommand, ScreenReply, ScreenThreadIntent, chat};
 use crate::threads::ThreadEv;
-use crate::threads::queue::QueueOperation;
+use crate::threads::queue::{self, QueueEvent, QueueOperation};
 
 /// An intent of the select screen, and the asks it left open.
 pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx) {
@@ -47,8 +47,17 @@ pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx)
         }
         return;
     }
-    let queued = if let select::Intent::OpenQueuedModels(queued) = &intent {
-        let operation = &queued.operation;
+    if let select::Intent::Settle(select::ModelChoice::Queued {
+        operation,
+        selection,
+    }) = intent
+    {
+        settle_queued_picker(app, operation, selection, fx);
+        return;
+    }
+    let queued = if let select::Intent::OpenModels(request) = &intent
+        && let Some(operation) = &request.operation
+    {
         if !begin_queued_picker(app, operation, fx) {
             return;
         }
@@ -58,7 +67,7 @@ pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx)
                 .get(operation.thread())
                 .is_some_and(|thread| thread.has_writer())
         {
-            decline_queued_picker(app, operation.clone(), fx);
+            queued_picker_event(app, operation, QueueEvent::PickerClosed, fx);
             return;
         }
         Some(operation.clone())
@@ -106,7 +115,7 @@ pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx)
     picks(app, fx);
     drain(app, fx);
     if let Some(operation) = declined {
-        decline_queued_picker(app, operation, fx);
+        queued_picker_event(app, &operation, QueueEvent::PickerClosed, fx);
     }
 }
 
@@ -122,15 +131,39 @@ fn begin_queued_picker(app: &mut CodexApp, operation: &QueueOperation, fx: &mut 
     let Some(report) = report else {
         return false;
     };
-    let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::QueueRan(report));
+    let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::QueueEvent(report));
     super::apply_thread(app, operation.thread(), ThreadEv::ScreenIntent(intent), fx);
     true
 }
 
-fn decline_queued_picker(app: &mut CodexApp, operation: QueueOperation, fx: &mut AppFx) {
-    let thread = operation.thread().clone();
-    let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::QueueClosed(operation));
-    super::apply_thread(app, &thread, ThreadEv::ScreenIntent(intent), fx);
+fn queued_picker_event(
+    app: &mut CodexApp,
+    operation: &QueueOperation,
+    event: impl FnOnce(QueueOperation) -> QueueEvent,
+    fx: &mut AppFx,
+) {
+    let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::QueueEvent(event(operation.clone())));
+    super::apply_thread(app, operation.thread(), ThreadEv::ScreenIntent(intent), fx);
+}
+
+fn settle_queued_picker(
+    app: &mut CodexApp,
+    operation: QueueOperation,
+    selection: select::Selection,
+    fx: &mut AppFx,
+) {
+    let applicable = app.session.active.as_ref() == Some(operation.thread())
+        && app
+            .threads
+            .get(operation.thread())
+            .is_some_and(|thread| queue::can_apply_model(thread, &operation));
+    if !applicable {
+        queued_picker_event(app, &operation, QueueEvent::PickerClosed, fx);
+        return;
+    }
+    queued_picker_event(app, &operation, QueueEvent::PickerAccepted, fx);
+    model_pick(app, selection, Some(operation), fx);
+    drain(app, fx);
 }
 
 /// The preset writes the menus settled on, asked of the config (one `config/batchWrite` each).
@@ -280,7 +313,7 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
     });
     for pick in picked {
         match pick {
-            Selection(selection) => model_pick(app, selection, fx),
+            Selection(selection) => model_pick(app, selection, None, fx),
             Permissions(selection) => permissions_pick(app, selection, fx),
             Tier(tier) => tier_pick(app, &tier, fx),
             Effort {
@@ -388,15 +421,25 @@ fn settings(
     patch: crate::threads::SettingsPatch,
     setting: select::Setting,
     then: Option<select::Note>,
+    operation: Option<QueueOperation>,
     fx: &mut AppFx,
 ) -> bool {
-    let Some(thread) = app.session.active.as_ref().map(ToString::to_string) else {
+    let Some(thread) = operation
+        .as_ref()
+        .map(QueueOperation::thread)
+        .or(app.session.active.as_ref())
+        .map(ToString::to_string)
+    else {
         return false;
     };
     ask(
         app,
         select::Command::Settings { thread, patch },
-        select::Ctx::Settings { setting, then },
+        select::Ctx::Settings {
+            setting,
+            then,
+            operation,
+        },
         fx,
     );
     true
@@ -415,16 +458,21 @@ pub(super) fn turn_override(
         effort,
         ..crate::threads::SettingsPatch::default()
     };
-    settings(app, patch, select::Setting::Model, None, fx);
+    settings(app, patch, select::Setting::Model, None, None, fx);
 }
 
 /// A model picked by a verb of a feature: no select step drains its line, so it does.
 pub(super) fn model_verb(app: &mut CodexApp, selection: select::Selection, fx: &mut AppFx) {
-    model_pick(app, selection, fx);
+    model_pick(app, selection, None, fx);
     drain(app, fx);
 }
 
-fn model_pick(app: &mut CodexApp, selection: select::Selection, fx: &mut AppFx) {
+fn model_pick(
+    app: &mut CodexApp,
+    selection: select::Selection,
+    mut operation: Option<QueueOperation>,
+    fx: &mut AppFx,
+) {
     use select::models::Apply;
     let effects = select::persist::effects(&selection);
     if let Some(threads) = selection.warning {
@@ -437,7 +485,14 @@ fn model_pick(app: &mut CodexApp, selection: select::Selection, fx: &mut AppFx) 
         session,
     };
     if let Some(patch) = effects.patch {
-        settings(app, patch, select::Setting::Model, None, fx);
+        settings(
+            app,
+            patch,
+            select::Setting::Model,
+            None,
+            operation.take(),
+            fx,
+        );
     }
     if effects.edits.is_empty() {
         // Plan mode only saves a key and says nothing of the model.
@@ -457,7 +512,11 @@ fn model_pick(app: &mut CodexApp, selection: select::Selection, fx: &mut AppFx) 
         select::Command::Write {
             edits: effects.edits,
         },
-        select::Ctx::Write { setting, then },
+        select::Ctx::Write {
+            setting,
+            then,
+            operation,
+        },
         fx,
     );
 }
@@ -488,7 +547,7 @@ fn effort_pick(
             ..Default::default()
         }
     };
-    settings(app, patch, select::Setting::Model, None, fx);
+    settings(app, patch, select::Setting::Model, None, None, fx);
 }
 
 /// A tier command of the model: the thread's tier changes for its next turns, the default is
@@ -496,7 +555,7 @@ fn effort_pick(
 fn tier_pick(app: &mut CodexApp, tier: &str, fx: &mut AppFx) {
     let effects = select::persist::tier_effects(tier);
     if let Some(patch) = effects.patch {
-        settings(app, patch, select::Setting::ServiceTier, None, fx);
+        settings(app, patch, select::Setting::ServiceTier, None, None, fx);
     }
     ask(
         app,
@@ -506,6 +565,7 @@ fn tier_pick(app: &mut CodexApp, tier: &str, fx: &mut AppFx) {
         select::Ctx::Write {
             setting: select::Setting::ServiceTier,
             then: Some(select::Note::ServiceTierSet(tier.to_owned())),
+            operation: None,
         },
         fx,
     );
@@ -550,14 +610,21 @@ pub(super) fn permissions_apply(
                 return;
             }
             let then = select::Note::PermissionSelectionRequested(label);
-            if !settings(app, patch, select::Setting::Permissions, Some(then), fx) {
+            if !settings(
+                app,
+                patch,
+                select::Setting::Permissions,
+                Some(then),
+                None,
+                fx,
+            ) {
                 Rc::make_mut(&mut app.screens).select.profiles.shortcut = false;
             }
         }
         // Without a thread the legacy list has nothing to update: the
         // oracle's config is the host's, and its line is still said.
         permissions::Selection::Preset { .. } => {
-            settings(app, patch, select::Setting::Permissions, None, fx);
+            settings(app, patch, select::Setting::Permissions, None, None, fx);
             notes(app, [select::Note::PermissionsUpdated(label)]);
             // a verb is no select step: nothing else drains the line
             drain(app, fx);
@@ -571,9 +638,20 @@ pub(in crate::app) fn ask(
     ctx: select::Ctx,
     fx: &mut AppFx,
 ) {
+    let thread = match &ctx {
+        select::Ctx::Settings {
+            operation: Some(operation),
+            ..
+        }
+        | select::Ctx::Write {
+            operation: Some(operation),
+            ..
+        } => operation.thread().clone(),
+        _ => ThreadId::default(),
+    };
     fx.ask(app, AppCtx::Select(ctx), |_, ticket| Command::Screen {
         ticket,
-        thread: ThreadId::default(),
+        thread,
         command: ScreenCommand::Select(command),
     });
 }
@@ -596,10 +674,19 @@ fn text(error: RpcError) -> String {
 
 /// The answer of one of those RPCs.
 pub(super) fn answer(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx) {
+    let operation = match &ctx {
+        select::Ctx::Settings { operation, .. } | select::Ctx::Write { operation, .. } => {
+            operation.clone()
+        }
+        _ => None,
+    };
     answered(app, ctx, answer, fx);
     // The catalog an inline `/permissions <profile>` waited for may have made its pick.
     picks(app, fx);
     drain(app, fx);
+    if let Some(operation) = operation {
+        queued_picker_event(app, &operation, QueueEvent::ModelApplied, fx);
+    }
 }
 
 fn answered(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx) {
@@ -612,7 +699,7 @@ fn answered(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx
         select::apply(&mut Rc::make_mut(&mut app.screens).select, ev, fx);
     };
     match (ctx, result) {
-        (select::Ctx::Settings { setting, then }, result) => {
+        (select::Ctx::Settings { setting, then, .. }, result) => {
             // `complete_permission_shortcut`: the pick of a shortcut has its answer.
             if setting == select::Setting::Permissions {
                 Rc::make_mut(&mut app.screens).select.profiles.shortcut = false;
@@ -628,7 +715,7 @@ fn answered(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx
                 ),
             }
         }
-        (select::Ctx::Write { setting, then }, result) => match result {
+        (select::Ctx::Write { setting, then, .. }, result) => match result {
             Ok(select::Reply::Written { overridden }) => {
                 if overridden {
                     notes(app, [select::Note::Overridden(setting)]);

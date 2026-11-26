@@ -112,13 +112,7 @@ fn queued_empty_bang_shell_reports_help_when_dequeued_and_drains_next_input() {
 // ORACLE chatwidget/tests/slash_commands.rs:476 queued_settings_selection_applies_before_next_input kind=ui owner=chat-nav-pane
 #[test]
 fn queued_settings_selection_applies_before_next_input() {
-    let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
-    // the server lists one model (the oracle narrows its catalog to one, `gpt-5.6-terra`)
-    let catalog = include_str!("fixtures/chat_commands_2/speed_catalog.json").trim();
-    s.feed(&format!(
-        r#"{{"step":"respond","method":"model/list","result":{catalog}}}
-{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"gpt-5.2"}}}}}}"#
-    ));
+    let mut s = running_with_model_picker_catalog();
     s.type_text("/model").keys("tab");
     s.type_text("hello after selection").keys("tab");
     s.feed(DONE);
@@ -137,12 +131,7 @@ fn queued_settings_selection_applies_before_next_input() {
 #[test]
 fn queued_model_picker_owns_its_follow_up_through_stream_recovery() {
     for accept in [false, true] {
-        let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
-        let catalog = include_str!("fixtures/chat_commands_2/speed_catalog.json").trim();
-        s.feed(&format!(
-            r#"{{"step":"respond","method":"model/list","result":{catalog}}}
-{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"gpt-5.2"}}}}}}"#
-        ));
+        let mut s = running_with_model_picker_catalog();
         s.type_text("/model").keys("tab");
         s.type_text("after recovery").keys("tab");
         s.feed(DONE);
@@ -165,6 +154,69 @@ fn queued_model_picker_owns_its_follow_up_through_stream_recovery() {
         s.feed(r#"{"step":"lagged","skipped":1}"#);
         s.assert_turn_texts(&["after recovery"]);
     }
+}
+
+#[test]
+fn queued_model_picker_does_not_apply_to_a_newly_resumed_thread() {
+    let mut s = running_with_model_picker_catalog();
+    s.type_text("/model").keys("tab");
+    s.type_text("continue the first thread").keys("tab");
+    let resume = s.hold_request("thread/resume");
+    s.server_resumes("thread-2").visit_thread("thread-2");
+    s.assert_requests_of("thread/resume", 1);
+    s.assert_active_thread("thread-1");
+    s.feed(DONE);
+    s.assert_contains("Select Model and Effort");
+    s.assert_no_turn();
+    s.release(&resume);
+    s.assert_active_thread("thread-2");
+    s.assert_contains("Select Model and Effort");
+    s.keys("enter").keys("enter");
+    s.assert_absent("Select Model and Effort");
+    s.assert_requests_of("thread/settings/update", 0);
+    s.assert_active_thread("thread-2");
+    s.assert_turn_texts(&["continue the first thread"]);
+    s.assert_started_turn_on("thread-1");
+}
+
+#[test]
+fn queued_model_picker_waits_for_the_settings_acknowledgement() {
+    for succeeds in [true, false] {
+        let mut s = running_with_model_picker_catalog();
+        s.type_text("/model").keys("tab");
+        s.type_text("after the model changes").keys("tab");
+        let settings = s.hold_request("thread/settings/update");
+        if succeeds {
+            s.server_answers("thread/settings/update", serde_json::json!({}));
+        } else {
+            s.server_refuses(
+                "thread/settings/update",
+                Some(-32000),
+                "model setting refused",
+            );
+        }
+        s.feed(DONE);
+        s.assert_contains("Select Model and Effort");
+        s.keys("enter").keys("enter");
+        s.assert_absent("Select Model and Effort");
+        s.assert_thread_model_patch("thread-1", "gpt-5.5");
+        s.assert_no_turn();
+        s.feed(r#"{"step":"lagged","skipped":1}"#);
+        s.assert_no_turn();
+        s.release(&settings);
+        s.assert_turn_texts(&["after the model changes"]);
+    }
+}
+
+fn running_with_model_picker_catalog() -> Screen {
+    let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
+    let catalog = include_str!("fixtures/chat_commands_2/speed_catalog.json").trim();
+    s.feed(&format!(
+        r#"{{"step":"respond","method":"model/list","result":{catalog}}}
+{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"gpt-5.2"}}}}}}"#
+    ));
+    s.server_answers("thread/settings/update", serde_json::json!({}));
+    s
 }
 
 #[test]

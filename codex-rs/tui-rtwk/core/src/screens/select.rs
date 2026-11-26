@@ -723,11 +723,21 @@ pub enum Ev {
     AppSwitched { id: String, enabled: bool },
 }
 
-/// Model selection requested by one issued command of a thread's queue.
+/// A model request may belong to one issued command of a thread's queue.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct QueuedModels {
-    pub operation: QueueOperation,
+pub struct ModelOpen {
+    pub operation: Option<QueueOperation>,
     pub current: Current,
+}
+
+/// A model choice returned from the sheet. A queued sheet carries its original operation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModelChoice {
+    Inline(Selection),
+    Queued {
+        operation: QueueOperation,
+        selection: Selection,
+    },
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
@@ -739,11 +749,9 @@ pub enum Intent {
     /// `/model`: the quick menu on the catalog held (`Loading models…` while
     /// it is empty), and the catalog is asked for again: the request is
     /// `Catalog::pending`.
-    OpenModels(Current),
-    /// The queued /model whose issued operation owns this request.
-    OpenQueuedModels(Box<QueuedModels>),
+    OpenModels(Box<ModelOpen>),
     /// A page of the `/model` sheet settled on a model and effort: the app applies it.
-    Settle(Selection),
+    Settle(ModelChoice),
     /// The sheet of `/model` gave up and closed: `Loading models…` that could not be read, or a
     /// list a refresh left with no choice. Only the sheet knows the user was looking at it.
     GiveUp(GaveUp),
@@ -839,6 +847,19 @@ pub enum Intent {
         plan: bool,
         started: bool,
     },
+}
+
+impl Intent {
+    pub fn open_models(current: Current) -> Self {
+        Self::OpenModels(Box::new(ModelOpen {
+            operation: None,
+            current,
+        }))
+    }
+
+    pub fn settle(selection: Selection) -> Self {
+        Self::Settle(ModelChoice::Inline(selection))
+    }
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -951,13 +972,14 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::Confirm(confirm) => model.shows.push(Opening::Confirm(confirm)),
         Intent::Confirmed(confirm) => model.picked.push(Picked::Confirmed(confirm)),
         Intent::Shown(seq) => model.shows.shown(seq),
-        Intent::OpenModels(current) => model.open_models(current, None),
-        Intent::OpenQueuedModels(queued) => {
-            let QueuedModels { operation, current } = *queued;
-            model.open_models(current, Some(operation));
+        Intent::OpenModels(request) => {
+            let ModelOpen { operation, current } = *request;
+            model.open_models(current, operation);
         }
         // A pick of the sheet of `/model`: the app applies it (`Picked::Selection`).
-        Intent::Settle(selection) => model.picked.push(Picked::Selection(selection)),
+        Intent::Settle(ModelChoice::Inline(selection)) => {
+            model.picked.push(Picked::Selection(selection))
+        }
         // A sheet of `/model` gave up for a reason only it could tell (the user was looking).
         Intent::GiveUp(why) => model.notes.push(match why {
             GaveUp::NotLoaded => Note::ModelsNotLoaded,
@@ -1072,7 +1094,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::OpenAppPage(_) => {}
         Intent::AppUnlinked(id) => model.app_unlinked(&id),
         // The answer is acted on by the app (`app/select.rs`); the screen keeps no record of it.
-        Intent::PlanAnswer(_) => {}
+        Intent::PlanAnswer(_) | Intent::Settle(ModelChoice::Queued { .. }) => {}
     }
 }
 
@@ -1175,11 +1197,13 @@ pub enum Ctx {
     Settings {
         setting: Setting,
         then: Option<Note>,
+        operation: Option<QueueOperation>,
     },
     /// A pick's write: the pick whose line follows a saved write.
     Write {
         setting: Setting,
         then: Option<Note>,
+        operation: Option<QueueOperation>,
     },
     /// The write of an app's switch: the directory takes it once it is saved.
     App {

@@ -6,13 +6,15 @@ use rtwk::Cx;
 use codex_tui_core::commands::SlashCommand;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::question_reply::Intent as QuestionIntent;
-use codex_tui_core::screens::{ScreenIntent, ScreenStates, ScreenThreadIntent, chat, popovers};
+use codex_tui_core::screens::{
+    ScreenIntent, ScreenStates, ScreenThreadIntent, chat, popovers, select,
+};
 use codex_tui_core::threads::queue::Dispatched;
 use codex_tui_core::threads::{DueCommand, Queued, Ran, UserMessage};
 
 use crate::app::view::Hs;
 use crate::features;
-use crate::pages::session::actions::{DeferredLine, run};
+use crate::pages::session::actions::run;
 use crate::pages::session::composer::strings;
 use crate::pages::session::session_page::{Chat, ChatState};
 
@@ -89,6 +91,37 @@ pub(in crate::pages::session) fn keep(
         .shown_as(&w.ui.composer.text());
     let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::Queue(queued));
     cx.emit(&hs.thread_screen, (thread.clone(), intent));
+}
+
+/// A supplied line can come from the queue or an immediately recalled preset.
+#[derive(Clone, Copy)]
+pub(in crate::pages::session) enum DeferredLine<'a> {
+    Due(&'a DueCommand),
+    Preset(&'a UserMessage),
+}
+
+impl<'a> DeferredLine<'a> {
+    pub(in crate::pages::session) fn message(self) -> &'a UserMessage {
+        match self {
+            Self::Due(due) => due.line(),
+            Self::Preset(message) => message,
+        }
+    }
+}
+
+pub(in crate::pages::session) fn scope_select(
+    mut intent: select::Intent,
+    deferred: Option<DeferredLine<'_>>,
+    ran: &mut Option<Ran>,
+) -> select::Intent {
+    if let (Some(DeferredLine::Due(due)), select::Intent::OpenModels(request)) =
+        (deferred, &mut intent)
+    {
+        request.operation = Some(due.operation().clone());
+        // The select reducer acknowledges this exact request. A second report could release it.
+        *ran = None;
+    }
+    intent
 }
 
 /// The queued command that is due runs through the dispatch a typed line does

@@ -131,6 +131,7 @@ enum Phase {
     Issued,
     AwaitingModelPicker,
     ModelPickerOpen,
+    ApplyingModel,
 }
 
 /// A queued command belongs to one thread and one generation of its queue.
@@ -144,6 +145,32 @@ impl QueueOperation {
     pub fn thread(&self) -> &ThreadId {
         &self.thread
     }
+}
+
+/// Receipts for the operation issued by the queue owner.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum QueueEvent {
+    Ran(QueueRan),
+    PickerOpened(QueueOperation),
+    PickerClosed(QueueOperation),
+    PickerAccepted(QueueOperation),
+    ModelApplied(QueueOperation),
+}
+
+fn holds_picker(due: &DueCommand, operation: &QueueOperation) -> bool {
+    due.operation == *operation
+        && matches!(
+            due.phase,
+            Phase::AwaitingModelPicker | Phase::ModelPickerOpen
+        )
+}
+
+pub(crate) fn can_apply_model(model: &ThreadModel, operation: &QueueOperation) -> bool {
+    model.has_writer()
+        && model
+            .due
+            .as_ref()
+            .is_some_and(|due| holds_picker(due, operation))
 }
 
 /// A report can advance only the operation that issued it.
@@ -172,7 +199,7 @@ impl DueCommand {
         self.phase == Phase::Issued
     }
 
-    /// Counts the commands of the thread: a change of it is a new command to run.
+    /// A new generation is a new command for the screen to run.
     pub fn seq(&self) -> u64 {
         self.operation.seq
     }
@@ -181,18 +208,18 @@ impl DueCommand {
         &self.operation
     }
 
-    pub fn report(&self, outcome: Ran) -> QueueRan {
-        QueueRan {
+    pub fn report(&self, outcome: Ran) -> QueueEvent {
+        QueueEvent::Ran(QueueRan {
             operation: self.operation.clone(),
             outcome: Report::Ran(outcome),
-        }
+        })
     }
 
-    pub(crate) fn opening_model_picker(&self) -> QueueRan {
-        QueueRan {
+    pub(crate) fn opening_model_picker(&self) -> QueueEvent {
+        QueueEvent::Ran(QueueRan {
             operation: self.operation.clone(),
             outcome: Report::OpeningModelPicker,
-        }
+        })
     }
 
     /// The line, as queued (it starts with `/`).
@@ -248,13 +275,14 @@ pub(super) fn is_model_picker_settlement(intent: &ScreenThreadIntent) -> bool {
     use screens::chat::ThreadIntent as Chat;
     matches!(
         intent,
-        ScreenThreadIntent::Chat(
-            Chat::QueueRan(QueueRan {
+        ScreenThreadIntent::Chat(Chat::QueueEvent(
+            QueueEvent::Ran(QueueRan {
                 outcome: Report::OpeningModelPicker,
                 ..
-            }) | Chat::QueueOpened(_)
-                | Chat::QueueClosed(_)
-        )
+            }) | QueueEvent::PickerOpened(_)
+                | QueueEvent::PickerClosed(_)
+                | QueueEvent::ModelApplied(_)
+        ))
     )
 }
 
@@ -287,48 +315,69 @@ pub(super) fn apply(
         Chat::Queue(message) => enqueue(model, message, fx),
         // The screen ran the queued command it was handed: the rule of the next item reads what
         // it opened (`submit_queued_slash_prompt`).
-        Chat::QueueRan(report) => {
-            let Some(due) = model
-                .due
-                .as_mut()
-                .filter(|due| due.issued() && due.operation == report.operation)
-            else {
-                return Ok(());
-            };
-            let stop = match report.outcome {
-                Report::Ran(Ran::Submitted) => true,
-                Report::Ran(Ran::Dispatched(ran)) => ran.drain(model.busy()) == QueueDrain::Stop,
-                Report::OpeningModelPicker => {
-                    due.phase = Phase::AwaitingModelPicker;
+        Chat::QueueEvent(event) => match event {
+            QueueEvent::Ran(report) => {
+                let Some(due) = model
+                    .due
+                    .as_mut()
+                    .filter(|due| due.issued() && due.operation == report.operation)
+                else {
                     return Ok(());
-                }
-            };
-            model.due = None;
-            if !stop {
-                send_next(model, fx);
-            }
-        }
-        Chat::QueueOpened(operation) => {
-            if let Some(due) = model
-                .due
-                .as_mut()
-                .filter(|due| due.operation == operation && due.phase == Phase::AwaitingModelPicker)
-            {
-                due.phase = Phase::ModelPickerOpen;
-            }
-        }
-        Chat::QueueClosed(operation) => {
-            if model
-                .due
-                .as_ref()
-                .is_some_and(|due| due.operation == operation && !due.issued())
-            {
+                };
+                let stop = match report.outcome {
+                    Report::Ran(Ran::Submitted) => true,
+                    Report::Ran(Ran::Dispatched(ran)) => {
+                        ran.drain(model.busy()) == QueueDrain::Stop
+                    }
+                    Report::OpeningModelPicker => {
+                        due.phase = Phase::AwaitingModelPicker;
+                        return Ok(());
+                    }
+                };
                 model.due = None;
-                if !model.busy() {
+                if !stop {
                     send_next(model, fx);
                 }
             }
-        }
+            QueueEvent::PickerOpened(operation) => {
+                if let Some(due) = model.due.as_mut().filter(|due| {
+                    due.operation == operation && due.phase == Phase::AwaitingModelPicker
+                }) {
+                    due.phase = Phase::ModelPickerOpen;
+                }
+            }
+            QueueEvent::PickerClosed(operation) => {
+                if model
+                    .due
+                    .as_ref()
+                    .is_some_and(|due| holds_picker(due, &operation))
+                {
+                    model.due = None;
+                    if !model.busy() {
+                        send_next(model, fx);
+                    }
+                }
+            }
+            QueueEvent::PickerAccepted(operation) => {
+                if let Some(due) = model
+                    .due
+                    .as_mut()
+                    .filter(|due| holds_picker(due, &operation))
+                {
+                    due.phase = Phase::ApplyingModel;
+                }
+            }
+            QueueEvent::ModelApplied(operation) => {
+                if model.due.as_ref().is_some_and(|due| {
+                    due.operation == operation && due.phase == Phase::ApplyingModel
+                }) {
+                    model.due = None;
+                    if !model.busy() {
+                        send_next(model, fx);
+                    }
+                }
+            }
+        },
         // Reconsider admission after a generic event. A retained operation still holds the queue.
         Chat::QueueResume => {
             if !model.busy() {
@@ -439,8 +488,11 @@ pub(super) fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
             // `submit_queued_slash_prompt`: the screen dispatches it; the queue goes on when it
             // reports (`ThreadIntent::QueueRan`).
             Queued::Command(line) => {
-                model.due_seq += 1;
-                model.due = Some(DueCommand::handed(model.id().clone(), model.due_seq, line));
+                model.due = Some(DueCommand::handed(
+                    model.id().clone(),
+                    fx.mint().seq(),
+                    line,
+                ));
                 return;
             }
             // `submit_queued_shell_prompt`: a bare `!` says how to use it and the queue goes

@@ -36,9 +36,9 @@ use crate::widgets::sheet::bottom;
 
 /// The sheet: a navigator whose home is `menu`, each page at the bottom edge of it (where the
 /// oracle's pane is).
-pub fn sheet(menu: ModelMenu) -> AnyWidget {
+pub(super) fn sheet(menu: ModelMenu, completion: Completion) -> AnyWidget {
     Navigator::new()
-        .home(bottom(Page { menu }))
+        .home(bottom(Page { menu, completion }))
         .back_key(None)
         .into()
 }
@@ -53,7 +53,7 @@ pub fn seeded(seeded: &Seeded<'_>) -> AnyWidget {
         .shows
         .pending()
         .find_map(|show| match &show.opening {
-            Opening::Models(menu) => Some(sheet(menu.clone())),
+            Opening::Models(menu) => Some(sheet(menu.clone(), Completion::Intent)),
             _ => None,
         })
         .unwrap_or_default()
@@ -68,14 +68,26 @@ pub fn options() -> DialogOptions {
     }
 }
 
-fn route(menu: ModelMenu) -> PageRoute<()> {
-    PageRoute::new(move |_| bottom(Page { menu: menu.clone() }))
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Completion {
+    Intent,
+    Dialog,
+}
+
+fn route(menu: ModelMenu, completion: Completion) -> PageRoute<()> {
+    PageRoute::new(move |_| {
+        bottom(Page {
+            menu: menu.clone(),
+            completion,
+        })
+    })
 }
 
 /// One page of the sheet.
 #[derive(Clone, Debug, PartialEq)]
 struct Page {
     menu: ModelMenu,
+    completion: Completion,
 }
 
 struct PageState {
@@ -136,18 +148,26 @@ fn back(cx: &mut Cx<'_, PageState>) {
 
 impl PageState {
     /// What a choice does to the pages.
-    fn step(&self, cx: &mut Cx<'_, Self>, step: Onward) {
+    fn step(&self, cx: &mut Cx<'_, Self>, step: Onward, completion: Completion) {
         match step {
             Onward::None => {}
-            Onward::Push(menu) => drop(Navigator::of(cx).push::<()>(route(menu))),
-            Onward::Replace(menu) => drop(Navigator::of(cx).push_replacement::<()>(route(menu))),
-            Onward::Done(selection) => {
-                say(cx, Intent::Settle(selection));
-                close(cx);
+            Onward::Push(menu) => drop(Navigator::of(cx).push::<()>(route(menu, completion))),
+            Onward::Replace(menu) => {
+                drop(Navigator::of(cx).push_replacement::<()>(route(menu, completion)));
             }
+            Onward::Done(selection) => match completion {
+                Completion::Intent => {
+                    say(cx, Intent::settle(selection));
+                    close(cx);
+                }
+                Completion::Dialog => close_dialog(cx, Some(selection)),
+            },
             // The plan scope question stands alone: every page under it goes.
             Onward::Prompt(menu) => {
-                drop(Navigator::of(cx).push_and_remove_until::<()>(route(menu), |_| false));
+                drop(
+                    Navigator::of(cx)
+                        .push_and_remove_until::<()>(route(menu, completion), |_| false),
+                );
             }
         }
     }
@@ -189,12 +209,12 @@ impl State for PageState {
         match msg {
             Msg::Picked(Event::Choose(id)) => {
                 let step = w.menu.choose(&catalog_now(cx), &id, false);
-                self.step(cx, step);
+                self.step(cx, step, w.completion);
             }
             // The `s` key: this session only.
             Msg::Picked(Event::Secondary(id)) => {
                 let step = w.menu.choose(&catalog_now(cx), &id, true);
-                self.step(cx, step);
+                self.step(cx, step, w.completion);
             }
             Msg::Picked(Event::Cancel) => back(cx),
             // These lists have no toggles, order, tabs or hot keys.
@@ -205,7 +225,7 @@ impl State for PageState {
                 self.leave(cx);
             }
             Msg::Next(Next::Replace(menu)) => {
-                drop(Navigator::of(cx).push_replacement::<()>(route(*menu)));
+                drop(Navigator::of(cx).push_replacement::<()>(route(*menu, w.completion)));
             }
         }
         Rebuild::No

@@ -16,7 +16,8 @@ use codex_tui_core::screens::{ScreenIntent, ScreenStates, ScreenThreadIntent, ch
 use codex_tui_core::threads::{Queued, Ran, ThreadModel, UserMessage};
 
 use crate::app::view::Hs;
-use crate::pages::session::actions::{DeferredLine, reserve_only, run};
+use crate::pages::session::actions::{reserve_only, run};
+use crate::pages::session::composer::queue::DeferredLine;
 use crate::pages::session::composer::queue::{Delivery, message};
 use crate::pages::session::composer::submission;
 use crate::sheets::select::hud::{self, Step};

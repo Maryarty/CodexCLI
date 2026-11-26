@@ -133,7 +133,7 @@ fn pick(sandbox: &mut Sandbox, id: &str, session: bool) {
             sandbox.pages.push(menu);
         }
         Onward::Done(selection) => {
-            intent(sandbox, SelectIntent::Settle(selection));
+            intent(sandbox, SelectIntent::settle(selection));
             sandbox.pages.clear();
         }
         Onward::Prompt(menu) => sandbox.pages = vec![menu],
@@ -175,7 +175,7 @@ fn depth(sandbox: &Sandbox) -> usize {
 }
 
 fn open(sandbox: &mut Sandbox, current: Current) {
-    intent(sandbox, SelectIntent::OpenModels(current));
+    intent(sandbox, SelectIntent::open_models(current));
     present(sandbox);
     follow(sandbox);
 }
@@ -873,7 +873,7 @@ fn a_provider_write_closes_every_page_and_drops_the_answer_in_flight() {
 #[test]
 fn a_show_not_shown_yet_is_forgotten_when_the_provider_is_written() {
     let mut s = sandbox(presets());
-    intent(&mut s, SelectIntent::OpenModels(Current::new("gpt-5.5")));
+    intent(&mut s, SelectIntent::open_models(Current::new("gpt-5.5")));
     assert_eq!(model(&s).shows.pending().count(), 1);
     event(
         &mut s,

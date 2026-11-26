@@ -546,12 +546,14 @@ cross-thread state are values (R10).
 
 **Queued command continuations (R8, R9, R10 and ADR-012).** The thread queue issues each
 command with its original thread and generation. Only a report for the issued generation
-can consume it. When an operation needs a modal continuation, the queue retains the
-opening and open phases. A close or refusal settles that generation once. The route
-callback carries the operation it received when it opened. Lag, reconnect, feature
-settlement and page-front events can reconsider admission through the same queue gate.
-The reducer establishes the hold before producing the open request and handles a close
-even with its writer detached. Admission still waits for recovery. The private phase and
+can consume it. For a modal continuation, the queue retains the opening and open phases.
+The route callback carries the operation it received when it opened. Cancellation or
+refusal settles that generation once, even if its writer detached. A selection can
+change settings only while its original thread is active and still holds the operation.
+An accepted selection retains the operation through the confirmation of the write that
+affects the next turn. Lag, reconnect, feature settlement and page-front events can
+reconsider admission through the same queue gate. Admission still waits for recovery.
+The private phases and
 addressed events apply the [Rust Book's state types](https://doc.rust-lang.org/book/ch18-03-oo-design-patterns.html#encoding-states-and-behavior-as-types),
 [SCXML run-to-completion](https://www.w3.org/TR/scxml/) and
 [Flutter's route-owned dialog result](https://api.flutter.dev/flutter/material/showDialog.html).

@@ -14,14 +14,12 @@ use codex_tui_core::commands::{
 use codex_tui_core::ids::Cwd;
 use codex_tui_core::screens::composer::{self, ShellLine};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, popovers};
-use codex_tui_core::threads::{
-    DueCommand, Failure, Note, NoteKey, Ran, ThreadModel, Toggle, UserMessage,
-};
+use codex_tui_core::threads::{Failure, Note, NoteKey, Ran, ThreadModel, Toggle};
 
 use crate::app::view::Hs;
 use crate::features;
 use crate::pages::session::composer::clear_sent;
-use crate::pages::session::composer::queue::{self, Delivery};
+use crate::pages::session::composer::queue::{self, DeferredLine, Delivery};
 use crate::pages::session::open::{note_opened, open};
 
 /// The chat screen of one thread's controllers.
@@ -111,22 +109,6 @@ pub(super) fn reasoning_shortcut(
 
 pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs, send: Delivery) {
     run(line, None, w, cx, hs, send, &mut Some(Ran::Submitted));
-}
-
-/// A supplied line can come from the queue or an immediately recalled preset.
-#[derive(Clone, Copy)]
-pub(super) enum DeferredLine<'a> {
-    Due(&'a DueCommand),
-    Preset(&'a UserMessage),
-}
-
-impl<'a> DeferredLine<'a> {
-    fn message(self) -> &'a UserMessage {
-        match self {
-            Self::Due(due) => due.line(),
-            Self::Preset(message) => message,
-        }
-    }
 }
 
 /// `line` as the composer sends it. A deferred line supplies its own images and mentions.
@@ -329,9 +311,6 @@ pub(super) fn run(
                 reserve_only(&session, &states, &thread),
                 review_cwd(&states, &thread),
             ) {
-                // `/review`, `/apps`, `/permissions` and `/model` are sheets of their own: the model
-                // asks for them and the presenter shows them (a `/model` the provider blocks shows
-                // nothing: a note).
                 shown_by_presenter = matches!(
                     intent,
                     codex_tui_core::screens::select::Intent::OpenReview { .. }
@@ -339,24 +318,10 @@ pub(super) fn run(
                         | codex_tui_core::screens::select::Intent::OpenPermissions(_)
                         | codex_tui_core::screens::select::Intent::OpenModels(_)
                 );
-                let intent = match (deferred, intent) {
-                    (
-                        Some(DeferredLine::Due(due)),
-                        codex_tui_core::screens::select::Intent::OpenModels(current),
-                    ) => {
-                        // The select reducer acknowledges this exact request before it opens.
-                        // The usual dispatch result would release it ahead of that decision.
-                        *ran = None;
-                        codex_tui_core::screens::select::Intent::OpenQueuedModels(Box::new(
-                            codex_tui_core::screens::select::QueuedModels {
-                                operation: due.operation().clone(),
-                                current,
-                            },
-                        ))
-                    }
-                    (_, intent) => intent,
-                };
-                cx.emit(&hs.screen, ScreenIntent::Select(intent));
+                cx.emit(
+                    &hs.screen,
+                    ScreenIntent::Select(queue::scope_select(intent, deferred, ran)),
+                );
             }
             if opened.command == SlashCommand::Warnings {
                 open_warnings(cx);
@@ -492,7 +457,7 @@ fn select_intent(
 ) -> Option<codex_tui_core::screens::select::Intent> {
     use codex_tui_core::screens::select::{Intent, models, permissions};
     match command {
-        SlashCommand::Model => Some(Intent::OpenModels(models::Current {
+        SlashCommand::Model => Some(Intent::open_models(models::Current {
             reserve,
             ..models::Current::from_facts(facts)
         })),

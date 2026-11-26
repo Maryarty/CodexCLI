@@ -583,7 +583,7 @@ fn a_goal_set_lets_the_queue_go_on() {
         &mut app,
         AppEv::Intent(Intent::ThreadScreen {
             thread: ThreadId::new(T),
-            intent: ScreenThreadIntent::Chat(chat::ThreadIntent::QueueRan(report)),
+            intent: ScreenThreadIntent::Chat(chat::ThreadIntent::QueueEvent(report)),
         }),
     );
     assert!(started_texts(&fx).is_empty(), "the goal stops the queue");

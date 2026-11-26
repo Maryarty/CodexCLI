@@ -119,8 +119,7 @@ impl ChatState {
                 Rebuild::Yes
             }
             // A command the queue waited for: it runs through the dispatch a typed line does and
-            // the thread hears what it opened (`submit_queued_slash_prompt`). A sheet it opened
-            // keeps the queue until the page is in front again.
+            // the thread receives the report for that operation (`submit_queued_slash_prompt`).
             Edge::Due(due) => {
                 if read::<ThreadModel, _>(cx).due_command() != Some(&due) {
                     return Rebuild::No;
@@ -130,7 +129,7 @@ impl ChatState {
                     self.resume |= matches!(&ran, Ran::Dispatched(d) if d.modal);
                     let thread = due.operation().thread().clone();
                     let intent =
-                        ScreenThreadIntent::Chat(chat::ThreadIntent::QueueRan(due.report(ran)));
+                        ScreenThreadIntent::Chat(chat::ThreadIntent::QueueEvent(due.report(ran)));
                     cx.emit(&hs.thread_screen, (thread, intent));
                 }
                 Rebuild::Yes

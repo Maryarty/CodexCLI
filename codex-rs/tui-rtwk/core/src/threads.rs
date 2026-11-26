@@ -1303,11 +1303,9 @@ pub struct ThreadCore {
     /// Lines the queue key set aside while a turn runs: one message goes out per turn end, in
     /// order; a command or a shell line is run when its turn comes.
     queue: Vec<Queued>,
-    /// A queued command the screen has to run (and report with `ThreadIntent::QueueRan`): the
+    /// A queued command the screen has to run (and report with `ThreadIntent::QueueEvent`): the
     /// queue waits for the answer.
     due: Option<DueCommand>,
-    /// Counts the queued commands handed to the screen.
-    due_seq: u64,
     /// Steers sent to the running turn and not yet echoed, oldest first.
     pending_steers: Vec<PendingSteer>,
     /// Steers the server refused (a review or compact turn): they go out first
@@ -1521,7 +1519,6 @@ impl ThreadModel {
                 recorded: None,
                 queue: Vec::new(),
                 due: None,
-                due_seq: 0,
                 pending_steers: Vec::new(),
                 rejected_steers: Vec::new(),
                 steers_after_interrupt: false,

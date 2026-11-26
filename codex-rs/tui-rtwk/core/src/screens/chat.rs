@@ -754,14 +754,9 @@ pub enum ThreadIntent {
     /// Tab: the line waits behind the running turn (the oracle's
     /// `InputResult::Queued`); `threads::apply` owns the queue.
     Queue(crate::threads::Queued),
-    /// The screen ran the queued command it was handed (`ThreadModel::due_command`): what the
-    /// queue does next reads what it opened.
-    QueueRan(crate::threads::queue::QueueRan),
-    /// The picker issued for this operation was shown.
-    QueueOpened(crate::threads::queue::QueueOperation),
-    /// The picker for this operation closed, or its owner declined to open it.
-    QueueClosed(crate::threads::queue::QueueOperation),
-    /// What stopped the queue is over (the sheet closed): the next item goes on.
+    /// A dispatch or picker receipt for an issued command (`ThreadModel::due_command`).
+    QueueEvent(crate::threads::queue::QueueEvent),
+    /// Reconsider dispatch with the current queue and its outstanding operation.
     QueueResume,
     /// Esc while steers are pending: interrupt the turn, then send the
     /// steers as one message (`submit_pending_steers_after_interrupt`).
