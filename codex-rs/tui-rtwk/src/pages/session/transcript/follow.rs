@@ -65,7 +65,10 @@ pub fn gap<S>(
     ListenableBuilder::new(listenable, move |_, _| {
         let blank: AnyWidget = SizedBox::new(None, Some(1), None).into();
         let selected = selection.held();
-        let plain = if !selected && follow.show_latest() {
+        // The selection at the retained tail has its own copy and navigation hints.
+        // A reader physically above it can still return with this control.
+        let selected_at_tail = selected && follow.at_tail();
+        let plain = if !selected_at_tail && follow.show_latest() {
             let control = FollowControl {
                 follow: follow.clone(),
                 unseen: follow.unseen(),
