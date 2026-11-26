@@ -573,19 +573,30 @@ fn hidden_initial_entries_do_not_add_a_separator_but_visible_entries_do() {
 // ORACLE transcript_view_tests.rs:447 reading_survives_prepend_and_new_output_then_returns_to_latest kind=snap owner=chat-live
 #[test]
 fn reading_survives_prepend_and_new_output_then_returns_to_latest() {
-    kit::pending(
-        Owner::ChatLive,
-        "no older page loaded from history and no new output arriving while the reader is up: no script shape, and the chat has no reading position yet",
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(20, 12)
+        .replay(Vec::new())
+        .view_only()
+        .open();
+    s.history_page(
+        vec![
+            kit::agent_turn("turn-current", &["current", "last line"]),
+            kit::agent_turn("turn-older", &["older", "line two"]),
+        ],
+        Some("cursor-1"),
     );
-    let mut s = Screen::build(Owner::ChatLive).size(20, 3).live().open();
-    s.wheel_up(0, 0, 2);
+    s.wheel_up(0, 0, 60);
     let before = s.shot();
-    // The older entry is loaded and new output arrives: no script shape yet.
+    // the older page is loaded and new output arrives: the reader's rows do not move
+    s.history_page(kit::turns_of("loaded", 0..1), None);
+    s.feed(include_str!("fixtures/transcript_view_5/new_output.jsonl"));
     s.assert_same_rows(&before);
     s.keys("ctrl+end");
-    s.assert_row(0, "last line");
-    s.assert_row(1, "");
-    s.assert_row(2, "new output");
+    // the rows of a turn close with the `Worked for` row the oracle's cells have not: the latest
+    // output and the line before it are in view together
+    s.assert_contains("last line");
+    s.assert_contains("new output");
+    s.assert_absent("loaded 0");
 }
 
 // ORACLE transcript_view_tests.rs:495 beginning_wait_keeps_live_content_through_new_output_prepend_and_resize kind=ui owner=chat-live
@@ -624,23 +635,31 @@ fn transcript_interaction_cancels_pending_beginning_without_losing_received_hist
 // ORACLE transcript_view_tests.rs:578 returning_to_latest_cancels_beginning_intent_while_retaining_the_loaded_page kind=snap owner=chat-live
 #[test]
 fn returning_to_latest_cancels_beginning_intent_while_retaining_the_loaded_page() {
-    kit::pending(
-        Owner::ChatLive,
-        "no history-loading state and no beginning or latest keys (ctrl+home, alt+<, alt+shift+<, alt+shift+,) in the chat yet",
-    );
     for (beginning, latest) in [
         ("ctrl+home", "ctrl+end"),
         ("alt+<", "alt+>"),
         ("alt+shift+<", "alt+shift+>"),
         ("alt+shift+,", "alt+shift+."),
     ] {
-        let mut s = Screen::build(Owner::ChatLive).size(20, 2).live().open();
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(20, 3)
+            .replay(Vec::new())
+            .view_only()
+            .open();
+        s.history_page(
+            vec![kit::agent_turn("turn-new", &["newest answer", "last line"])],
+            Some("cursor-1"),
+        );
+        let newest = s.shot();
         s.keys(beginning);
         s.keys(latest);
-        // The older page arrives: no script shape yet.
-        s.assert_row(0, "newest answer");
-        s.assert_row(1, "last line");
+        // the older page arrives after the return: it is kept, and the reader stays at the latest
+        s.history_page(kit::turns_of("older", 0..3), Some("cursor-2"));
+        s.assert_same_rows(&newest);
+        // the intent is gone: the arrival did not ask for the page after it
+        s.assert_page_requests(2);
         s.keys(beginning);
+        s.assert_page_requests(3);
     }
 }
 
@@ -656,26 +675,36 @@ fn transcript_jumps_leave_typing_and_effort_shortcuts_to_the_composer() {
 // ORACLE transcript_view_tests.rs:654 scrolling_to_latest_cancels_beginning_and_keeps_selection_when_the_final_page_arrives kind=ui owner=chat-live
 #[test]
 fn scrolling_to_latest_cancels_beginning_and_keeps_selection_when_the_final_page_arrives() {
-    kit::pending(
-        Owner::ChatLive,
-        "no history-loading state and no triple-click selection in the chat; the final older page arrives from no script yet",
-    );
+    // the oracle's two cells are eight one-row turns here, so that the first row of the thread
+    // and its latest row are not in view together; its replaced second cell is a regrouped
+    // entry (`replace_group`, the state tests' own)
     for wheel in [false, true] {
         for select in [false, true] {
-            let mut s = Screen::build(Owner::ChatLive).size(20, 2).live().open();
+            let mut s = Screen::build(Owner::ChatLive)
+                .size(30, 8)
+                .replay(Vec::new())
+                .view_only()
+                .open();
+            s.history_page(kit::turns_of("entry", 0..8), Some("cursor-1"));
             s.keys("ctrl+home");
             if select {
-                s.click(0, 0);
-                s.click(0, 0);
-                s.click(0, 0);
+                s.click_text("entry 7");
+                s.click_text("entry 7");
+                s.click_text("entry 7");
             }
             if wheel {
                 s.wheel_down(0, 0, 1);
             } else {
                 s.keys("pagedown");
             }
-            // The final older page arrives and replaces the second entry: no script shape yet.
-            s.assert_contains("latest answer");
+            // the final older page arrives: the reader stays at the latest rows, and the
+            // selection is kept
+            s.history_page(kit::turns_of("final", 0..2), None);
+            s.assert_contains("entry 7");
+            s.assert_absent(">_ OpenAI Codex");
+            if select {
+                s.assert_text_style("entry 7", "reversed");
+            }
         }
     }
 }

@@ -45,6 +45,14 @@ impl Screen {
     }
 
     fn answer_page(&mut self, result: Result<serde_json::Value, String>) -> &mut Screen {
+        // a page the app has not asked for yet (a thread just opened, a key just pressed) is
+        // waited for a little
+        for _ in 0..20 {
+            if self.pages_waiting() > 0 {
+                break;
+            }
+            self.h.advance(100);
+        }
         let asked = pages(&self.h.fake.commands());
         let nth = self.answered_pages;
         let (command, _) = asked
@@ -116,6 +124,15 @@ pub fn agent_turn(id: &str, rows: &[&str]) -> serde_json::Value {
         })
         .collect();
     super::replay_turn(id, serde_json::Value::Array(items))
+}
+
+/// A page of one-row turns `{word} {n}` for each `n` of `range`, newest first as the server
+/// sends it.
+pub fn turns_of(word: &str, range: std::ops::Range<usize>) -> Vec<serde_json::Value> {
+    range
+        .rev()
+        .map(|n| agent_turn(&format!("turn-{word}-{n}"), &[&format!("{word} {n}")]))
+        .collect()
 }
 
 /// The page requests among `commands`, with the cursor each asks for.

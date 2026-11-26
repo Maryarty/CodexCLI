@@ -201,6 +201,10 @@ struct Data {
     /// The query of the Find that was accepted in this mode, lowercased: what `n` and `N` look for
     /// (the oracle keeps that Find open and reading; here it closes and leaves its query).
     query: String,
+    /// `g` asked for the first row while older pages are still to come
+    /// (`TranscriptHistoryState::LoadingBeginning`): the caret goes to the first row once the last
+    /// page is in; any other key of the mode ends the wait.
+    beginning: bool,
 }
 
 struct Inner {
@@ -237,6 +241,7 @@ impl Default for Select {
                 watched: false,
                 refused: false,
                 query: String::new(),
+                beginning: false,
             }),
             ticks: Rc::new(ValueNotifier::new(0)),
             attached: Cell::new(false),
@@ -409,6 +414,7 @@ impl Select {
         }
         let what = what(key).or_else(|| pager(keymap, key))?;
         let rows = self.0.data.borrow().rows.clone()?;
+        self.0.data.borrow_mut().beginning = false;
         let step = match what {
             Do::Copy => {
                 if self.marked() {
@@ -455,6 +461,7 @@ impl Select {
             }
             Do::Go(motion) => {
                 self.go(&rows, motion);
+                self.0.data.borrow_mut().beginning = motion == Motion::Beginning;
                 Step::Moved
             }
             Do::Page(pages) => {
@@ -665,6 +672,32 @@ impl Select {
             }
         }
         true
+    }
+
+    /// `g` waits for the older pages to bring the first row.
+    pub fn beginning(&self) -> bool {
+        let data = self.0.data.borrow();
+        data.active && data.beginning
+    }
+
+    /// The last page is in: the caret goes to the first row (`complete_select_beginning`).
+    pub fn finish_beginning(&self) {
+        let rows = {
+            let mut data = self.0.data.borrow_mut();
+            if !std::mem::take(&mut data.beginning) {
+                return;
+            }
+            data.rows.clone()
+        };
+        if let Some(rows) = rows {
+            self.go(&rows, Motion::Beginning);
+            self.notify();
+        }
+    }
+
+    /// The pages were refused: the wait for the first row ends where the caret is.
+    pub fn cancel_beginning(&self) {
+        self.0.data.borrow_mut().beginning = false;
     }
 
     /// The row the caret is on, once, when it moved (the pane scrolls it into view).

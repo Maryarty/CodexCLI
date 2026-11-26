@@ -71,6 +71,8 @@ pub struct Open {
     pub(super) view_only: bool,
     /// The view alone shows the compact transcript (`Open::view_compact`).
     pub(super) compact: bool,
+    /// The view alone is the pager's sheet with its chrome (`Open::view_overlay`).
+    pub(super) overlay: bool,
 }
 
 impl Screen {
@@ -97,6 +99,7 @@ impl Screen {
             usage: super::usage::Host::default(),
             view_only: false,
             compact: false,
+            overlay: false,
         }
     }
 }
@@ -257,6 +260,16 @@ impl Open {
         self
     }
 
+    /// The transcript sheet with the pager's chrome (the title row, the status row, the hint
+    /// rows: the oracle's `TranscriptOverlay` at its terminal size) over the live thread, so the
+    /// history pages (`replay`, `history_page`) and the effects work as for `view_only`. For
+    /// `live()` and `script(..)`.
+    pub fn view_overlay(mut self) -> Open {
+        self.view_only = true;
+        self.overlay = true;
+        self
+    }
+
     pub fn open(self) -> Screen {
         assert!(
             !self.view_only || matches!(self.seed, Seed::Live | Seed::Script(_)),
@@ -352,7 +365,7 @@ impl Open {
     fn live_harness(&self) -> Harness {
         let mut h = self.driven(false);
         if self.view_only {
-            super::view::mount(&mut h, self.compact);
+            super::view::mount(&mut h, self.compact, self.overlay);
         }
         if self.held_start {
             h.fake.hold_thread_start();

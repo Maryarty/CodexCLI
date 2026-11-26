@@ -562,39 +562,54 @@ fn loading_preserves_selected_content_and_copy_action() {
 // ORACLE transcript_view/footer_tests.rs:233 loading_and_failure_preserve_search_query_and_caret kind=snap owner=chat-live snap=loading_and_failure_preserve_search_query_and_caret
 #[test]
 fn loading_and_failure_preserve_search_query_and_caret() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no search editor in the footer that keeps its query and caret through loading and failure",
-    );
+    // the oracle's three history states (loading older, loading the beginning, failed) at 32 and
+    // 12 columns: the editor's query stays and its status row gives way to the room there is
     let mut s = Screen::build(Owner::ChatLive)
         .size(32, 3)
-        .script(include_str!(
-            "fixtures/transcript_view_2/visible_history.jsonl"
-        ))
+        .replay(Vec::new())
+        .view_only()
         .open();
-    s.keys("ctrl+f");
+    s.partial_history_of(&["visible history"]);
+    s.keys("/");
     s.type_text("missing needle");
-    s.assert_snap("loading_and_failure_preserve_search_query_and_caret");
+    s.keys("enter");
+    s.assert_find_query("missing needle");
+    s.assert_find_footer(32, "Loading… · esc cancel");
+    s.assert_find_footer(12, "esc cancel");
+    s.history_failed("history unavailable");
+    s.assert_find_query("missing needle");
+    s.assert_find_footer(32, "⌃p retry · esc cancel");
+    s.assert_find_footer(12, "esc cancel");
+    // the retry loads again, and the page that has nothing ends the search
+    s.keys("ctrl+p");
+    s.assert_find_footer(32, "Loading… · esc cancel");
+    s.join_older_page(&["older"], false);
+    s.assert_find_query("missing needle");
+    s.keys("esc");
+    s.assert_absent("missing needle");
 }
 
 // ORACLE transcript_view/footer_tests.rs:283 reading_a_find_result_shows_history_loading_and_failure kind=snap owner=chat-live snap=reading_a_find_result_shows_history_loading_and_failure
 #[test]
 fn reading_a_find_result_shows_history_loading_and_failure() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no find footer with history loading and retry states",
-    );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(80, 3)
-        .script(include_str!(
-            "fixtures/transcript_view_2/visible_needle.jsonl"
-        ))
+        .size(80, 5)
+        .replay(Vec::new())
+        .view_overlay()
         .open();
-    s.keys("ctrl+f");
+    s.partial_history_of(&["visible needle"]);
+    s.keys("/");
     s.type_text("needle");
+    s.keys("pageup");
+    s.assert_page_requests(2);
     s.keys("enter");
-    // the oracle: the find footer reads `Find · ctrl+p older · ctrl+n newer · esc latest`
-    s.assert_contains("Find · ctrl+p older · ctrl+n newer · esc latest");
+    // the oracle reads the status row in the three states, loading, failed and complete
+    s.assert_contains("↑ Loading earlier messages… · esc latest");
+    s.history_failed("history unavailable");
+    s.assert_contains("Retry history: ⌥</⌃home.  esc latest");
+    s.keys("alt+<");
+    s.join_older_page(&["older"], false);
+    s.assert_find_footer(80, "Find · ctrl+p older · ctrl+n newer · esc latest");
 }
 
 // ORACLE transcript_view/footer_tests.rs:313 loading_completion_restores_unseen_activity_and_failure_stops_motion kind=snap owner=chat-live snap=loading_completion_restores_unseen_activity_and_failure_stops_motion

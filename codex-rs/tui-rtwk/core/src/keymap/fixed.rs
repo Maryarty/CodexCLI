@@ -496,11 +496,21 @@ pub const TABLE: &[Fixed] = &[
     },
     Fixed {
         id: TRANSCRIPT_TOP_ALT,
-        bindings: &[exact(Key::Char(','), ALT_SHIFT)],
+        // Alt+Shift+, (a terminal that drops the shifted character) and Alt+<, with or without
+        // the Shift the terminal keeps (`JumpTarget::from_key`)
+        bindings: &[
+            exact(Key::Char(','), ALT_SHIFT),
+            exact(Key::Char('<'), ALT),
+            exact(Key::Char('<'), ALT_SHIFT),
+        ],
     },
     Fixed {
         id: TRANSCRIPT_LATEST_ALT,
-        bindings: &[exact(Key::Char('.'), ALT_SHIFT)],
+        bindings: &[
+            exact(Key::Char('.'), ALT_SHIFT),
+            exact(Key::Char('>'), ALT),
+            exact(Key::Char('>'), ALT_SHIFT),
+        ],
     },
     Fixed {
         id: AGENTS_FILTER_NEXT,
