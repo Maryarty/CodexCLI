@@ -15,6 +15,7 @@ use rtwk::binding::AppBinding;
 use rtwk::editing::{EditingKeys, TextArea};
 use rtwk::focus::FocusNode;
 use rtwk::foundation::{Listenable, VoidCallback};
+use rtwk::gestures::IgnorePointer;
 use rtwk::layout::{
     BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row,
     Shadow, SizedBox,
@@ -236,6 +237,8 @@ pub struct Composer {
     restricted: Option<Restricted>,
     /// What the placeholder of the empty draft says instead of the usual (`set_parent_owned_thread`).
     placeholder: Option<Placeholder>,
+    /// The preview remains mounted while its sibling query field owns input.
+    history_field: bool,
     /// Input is off (`set_input_enabled(false, ..)`): the draft stays, takes no key, shows no
     /// caret and draws this placeholder in its place.
     off: Option<Placeholder>,
@@ -284,6 +287,7 @@ impl PartialEq for Composer {
             && self.shell == other.shell
             && self.restricted == other.restricted
             && self.placeholder == other.placeholder
+            && self.history_field == other.history_field
             && self.off == other.off
     }
 }
@@ -305,6 +309,7 @@ impl Composer {
             on_too_long: None,
             restricted: None,
             placeholder: None,
+            history_field: false,
             off: None,
         }
     }
@@ -325,8 +330,16 @@ impl Composer {
             on_too_long: None,
             restricted: None,
             placeholder: None,
+            history_field: false,
             off: None,
         }
+    }
+
+    /// Keeps the preview from taking mouse focus while the search field is shown.
+    #[must_use]
+    pub fn with_history_field(mut self, shown: bool) -> Self {
+        self.history_field = shown;
+        self
     }
 
     /// Told each text the draft changes to.
@@ -520,7 +533,7 @@ pub enum ComposerMsg {
 
 /// The reads the history needs from the file go to the app, which asks the
 /// host (`popovers::Intent::Lookup`).
-fn ask(cx: &mut Cx<'_, ComposerState>, lookups: Vec<Lookup>) {
+fn ask<S>(cx: &mut Cx<'_, S>, lookups: Vec<Lookup>) {
     if lookups.is_empty() {
         return;
     }
@@ -1148,19 +1161,18 @@ impl State for ComposerState {
                     .unwrap_or(strings.chat.placeholder),
             );
         }
+        let area: AnyWidget = IgnorePointer::new()
+            .ignoring(w.history_field)
+            .child(area)
+            .into();
         // the plain-text composer: the prompt and the field, nothing around
         if let Some(look) = &w.plain {
-            return plain::row(
-                look,
-                &tokens,
-                chat_strings::of(cx).prompt,
-                keys(area.into()),
-            );
+            return plain::row(look, &tokens, chat_strings::of(cx).prompt, keys(area));
         }
         let table = chat_strings::of(cx);
         // the rows of the text as it is now (the states may have changed)
         self.refresh(w, &popovers, &slash, table);
-        let field = self.popup(keys(area.into()), w.ui.find.active(), cx);
+        let field = self.popup(keys(area), w.ui.find.active(), cx);
         let mark = if w.ui.draft.shell() {
             prompt(
                 strings::of(cx).shell_prompt,

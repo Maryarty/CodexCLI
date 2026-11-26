@@ -323,3 +323,55 @@ mod resumed {
         s.assert_composer("second prompt");
     }
 }
+
+#[test]
+fn the_query_field_owns_the_caret_and_gives_it_back_to_the_draft() {
+    for (finish, restored) in [
+        ("esc", "› keep draft!"),
+        ("ctrl+c", "› keep draft!"),
+        ("enter", "› old needle!"),
+    ] {
+        let mut h = chat(1);
+        h.t.resize(48, 6);
+        h.t.type_text("keep draft");
+        h.advance(100);
+        h.press("ctrl+r");
+        h.t.assert_cursor(20, 5);
+        h.t.type_text("nee");
+        h.t.assert_cursor(23, 5);
+        h.press("backspace");
+        h.t.paste("edle");
+        h.advance(100);
+        h.t.assert_cursor(26, 5);
+        assert!(h.t.screen().contains("reverse-i-search: needle"));
+        assert_eq!(prompt(&h), "› keep draft");
+
+        entry(&mut h, 0, "old needle");
+        assert_eq!(prompt(&h), "› old needle");
+        h.t.resize(52, 8);
+        h.t.assert_cursor(26, 7);
+        h.press(finish);
+        assert!(!h.t.screen().contains("reverse-i-search"));
+        h.t.type_text("!");
+        h.advance(100);
+        assert_eq!(prompt(&h), restored);
+        assert!(
+            appended(&h).is_empty(),
+            "accept restores the draft for editing"
+        );
+    }
+}
+
+#[test]
+fn a_long_query_keeps_the_caret_in_view_on_resize() {
+    let mut h = chat(0);
+    h.t.resize(80, 5);
+    h.press("ctrl+r");
+    h.t.paste(&"x".repeat(65_536));
+    h.advance(100);
+    h.t.assert_cursor(79, 4);
+    h.t.resize(48, 6);
+    h.t.assert_cursor(47, 5);
+    h.press("ctrl+u");
+    h.t.assert_cursor(20, 5);
+}

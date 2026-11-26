@@ -373,7 +373,7 @@ fn history_search_paste_appends_query_and_accepts_match() {
 fn history_search_large_paste_clamps_cursor() {
     kit::pending(
         Owner::ChatNavPane,
-        "pending(G78): the oracle's caret stands at the end of the query on the footer row; the terminal caret of ours stays in the composer's text (the rows match, the cursor does not)",
+        "pending(G78): the terminal cursor reaches the oracle's last column; the focused rtwk TextField reserves that column for its caret, so the oracle draws one more query character",
     );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 5)
@@ -381,6 +381,7 @@ fn history_search_large_paste_clamps_cursor() {
         .open();
     s.type_text("draft").keys("ctrl+r");
     s.paste(&"x".repeat(65536));
+    s.assert_cursor(79, 4);
     s.assert_snap_region("codex_tui__bottom_pane__chat_composer__history_search__paste_tests__history_search_large_paste_cursor", 0, 0);
 }
 
@@ -404,10 +405,6 @@ fn history_search_empty_paste_preserves_selected_match() {
 // ORACLE bottom_pane/chat_composer/history_search_paste_tests.rs:121 history_search_paste_shows_separators_and_matches_original_query kind=snap owner=chat-nav-pane snap=codex_tui__bottom_pane__chat_composer__history_search__paste_tests__history_search_pasted_separators
 #[test]
 fn history_search_paste_shows_separators_and_matches_original_query() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "pending(G78): the oracle's caret stands at the end of the query on the footer row; the terminal caret of ours stays in the composer's text (the rows match, the cursor does not)",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(70, 5)
         .entry("composer", "alone_history_separators")

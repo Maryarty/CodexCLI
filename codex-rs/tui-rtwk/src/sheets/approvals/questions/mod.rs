@@ -758,7 +758,10 @@ impl State for AsyncState {
                 if self.focus_is_input(w)
                     && let Some(q) = self.questions.get(self.current)
                 {
-                    q.node.request_focus();
+                    // While searching, the query field manages focus within this answer.
+                    if !q.ui.draft.searching() {
+                        q.node.request_focus();
+                    }
                 } else {
                     self.node.request_focus();
                 }
@@ -1262,12 +1265,18 @@ impl View {
     fn input_widget(&self, cx: &mut Cx<'_>, rows: u16, placeholder: &'static str) -> AnyWidget {
         let flash = self.flash.filter(|_| !self.has_options());
         let query: Option<AnyWidget> = match self.ui.draft.search_state() {
-            Some((query, status)) => Some(search::line(cx, query, status)),
+            Some((query, status)) => Some(search::line(
+                &self.ui,
+                self.node.clone(),
+                self.on_edit.clone(),
+                query,
+                status,
+            )),
             None => search::query_line(cx, &self.ui.draft),
         };
         let below = u16::from(query.is_some()) + u16::from(flash.is_some());
         if below == 0 || rows <= below {
-            return self.input_widget_rows(rows, placeholder);
+            return self.input_widget_rows(rows, placeholder, false);
         }
         let row = |child: AnyWidget| -> AnyWidget {
             SizedBox::new(None, Some(px(1)), Some(child)).into()
@@ -1275,7 +1284,7 @@ impl View {
         let mut column = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(self.input_widget_rows(rows - below, placeholder));
+            .child(self.input_widget_rows(rows - below, placeholder, self.ui.draft.searching()));
         if let Some(query) = query {
             column = column.child(row(query));
         }
@@ -1285,9 +1294,15 @@ impl View {
         column.into()
     }
 
-    fn input_widget_rows(&self, rows: u16, placeholder: &'static str) -> AnyWidget {
+    fn input_widget_rows(
+        &self,
+        rows: u16,
+        placeholder: &'static str,
+        history_field: bool,
+    ) -> AnyWidget {
         let take = Rc::clone(&self.take);
         let composer = Composer::plain(self.ui.clone(), self.node.clone())
+            .with_history_field(history_field)
             .placeholder(placeholder)
             .unprompted()
             .autofocus(true)

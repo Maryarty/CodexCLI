@@ -71,7 +71,6 @@ fn plain(width: u16, height: u16) -> Screen {
 
 const FIND_OVERRIDE_REASON: &str = "a hint override (`ctrl+c quit`) under the interactive Find footer: nothing sets one in the live chat (only the presets menu and the shutdown do, session/slot.rs), and Ctrl+C in Find cancels it; the footer's own precedence (flash over override over passive, `lead.rs`) has no key to drive it";
 const FOCUS_REASON: &str = "the terminal losing and regaining focus (`set_sparkle_terminal_focus`, crossterm's FocusLost/FocusGained): rtwk reports no terminal focus-in/out events (rtwk-gaps.md), so the deadline's behaviour across a focus loss cannot be driven; a running turn on a fresh task (`set_task_running`) has no seed either: a turn that ran ends the fresh task";
-const CARET_REASON: &str = "the terminal cursor on the history search's own row (`reverse-i-search: query▮`): the search row is static text under the composer, and the composer's TextArea (focused, it takes the search's keys) keeps its caret on the prompt row (row 3 of 6, the oracle puts it on row 5); a caret at the query's end needs the query as an editing field that holds the focus (a restructure of composer/search.rs: footer field, Up/Down/Enter/Esc as its shortcuts) or a custom RenderObject calling `rtwk::editing::show_caret` (R15 forbids hand-made render objects in the app), and the TextArea has no way to hide its caret while it has the focus";
 const HELP_STATUS: &str = include_str!("fixtures/pane_footer_1/help_status.jsonl");
 const EXTENSION_NA: &str = "no live producer: the oracle's app never builds a ui_tree status row (only its tests); native wrap/row budget covered by native_wrap_tracks_agent_label_and_content_changes_at_the_same_width and status_survives_hints_feedback_and_queue";
 const ACTIVITY_REASON: &str = "the hint is the footer of the transcript view (`TranscriptFooter`: `ctrl+o t/f4 inspect activity`, interactive or not, with the shortcut key unbound) that the composer shows under the transcript pager: the pager has no such footer yet (the pager task's), the Working row and the activity rows of chunk-status do not draw it";
@@ -1178,7 +1177,6 @@ fn transcript_search_keeps_status_and_query_cursor() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:1098 input_history_search_uses_the_final_row kind=ui owner=ui-pane
 #[test]
 fn input_history_search_uses_the_final_row() {
-    kit::pending(Owner::UiPane, CARET_REASON);
     // Ctrl+R at 48 columns puts the cursor on the final row of the screen (the search's own row,
     // under the preview): the oracle asserts the row only
     let mut s = Screen::build(Owner::UiPane).size(48, 6).live().open();

@@ -77,3 +77,25 @@ fn a_message_of_the_users_own_drops_the_questions() {
     s.assert_absent("? 1 question");
     s.assert_absent("to answer");
 }
+
+#[test]
+fn the_inline_history_field_returns_focus_to_the_open_question() {
+    let mut s = open(ONE);
+    s.keys("alt+up");
+    s.type_text("answer draft");
+    for suffix in ["!", "?"] {
+        s.keys("ctrl+r");
+        s.type_text("ne");
+        s.paste("edle");
+        s.assert_contains("reverse-i-search: needle");
+        s.assert_cursor_on_row_of("reverse-i-search: needle");
+        s.keys("esc");
+        s.assert_absent("reverse-i-search");
+        s.assert_cursor_on_row_of("answer draft");
+        s.type_text(suffix);
+        s.keys("alt+down");
+        s.assert_absent("answer draft");
+        s.keys("alt+up");
+    }
+    s.assert_contains("answer draft!?");
+}
