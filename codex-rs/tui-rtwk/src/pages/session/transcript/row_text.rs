@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::Range;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 use codex_tui_core::app::facts::Rendering;
 use codex_tui_core::ids::ThreadId;
@@ -15,6 +15,10 @@ use super::turn_details::{Kind, Row};
 use crate::pages::session::cells::text::Part;
 use crate::widgets::measure::Measure;
 use crate::widgets::thread_ui::Disclosed;
+
+// Whole-output search may materialize a large row but must not keep it in this cache across frames.
+const ROW_TEXT_LIMIT: usize = 64 * 1024;
+const RETAINED_TEXT_LIMIT: usize = 8 * 1024 * 1024;
 
 /// The row's visible text, with ranges that can be masked for Find.
 #[derive(PartialEq, Eq)]
@@ -44,6 +48,12 @@ impl RowText {
                 .extend(part.text.split('\n').map(|_| part.gutter));
         }
         row
+    }
+
+    fn allocated_bytes(&self) -> usize {
+        self.text.capacity()
+            + self.gutters.capacity()
+            + self.hidden.capacity() * std::mem::size_of::<Range<usize>>()
     }
 
     /// Search cannot match a gutter. Keep its byte offsets without storing a second row.
@@ -110,6 +120,24 @@ struct Entry {
     text: Rc<RowText>,
 }
 
+type Projections = [Option<Rc<Entry>>; 2];
+
+fn retained_bytes(projections: &Projections) -> usize {
+    let [mounted, scan] = projections;
+    let mounted_size = mounted
+        .as_ref()
+        .map_or(0, |entry| entry.text.allocated_bytes());
+    let scan_size = scan
+        .as_ref()
+        .filter(|entry| {
+            mounted
+                .as_ref()
+                .is_none_or(|other| !Rc::ptr_eq(entry, other))
+        })
+        .map_or(0, |entry| entry.text.allocated_bytes());
+    mounted_size + scan_size
+}
+
 fn members<'a>(transcript: &'a Transcript, row: &Row) -> impl Iterator<Item = (&'a ItemKey, u64)> {
     row.range.clone().skip(1).filter_map(|index| {
         let (key, _) = transcript.get(index)?;
@@ -117,12 +145,13 @@ fn members<'a>(transcript: &'a Transcript, row: &Row) -> impl Iterator<Item = (&
     })
 }
 
-/// At most one prepared representation per item. The scan and the mounted selection share it
-/// when their members and disclosure agree. A grouped tool may need both projections in a frame.
+/// One representation for each reader projection of an item. The search and the mounted
+/// selection share the allocation whenever their members and disclosure agree.
 pub(in crate::pages::session) struct RowTextCache {
     context: Option<Context>,
-    order: Option<Rc<Vec<ItemKey>>>,
-    entries: HashMap<ItemKey, Entry>,
+    order: Weak<Vec<ItemKey>>,
+    entries: HashMap<ItemKey, Projections>,
+    cached_bytes: usize,
     blank: Rc<RowText>,
     #[cfg(test)]
     prepared: usize,
@@ -132,8 +161,9 @@ impl Default for RowTextCache {
     fn default() -> Self {
         Self {
             context: None,
-            order: None,
+            order: Weak::new(),
             entries: HashMap::new(),
+            cached_bytes: 0,
             blank: Rc::new(RowText {
                 text: String::new(),
                 gutters: vec![true],
@@ -149,7 +179,8 @@ impl RowTextCache {
     pub(in crate::pages::session) fn clear(&mut self) {
         if self.context.take().is_some() {
             self.entries = HashMap::new();
-            self.order = None;
+            self.cached_bytes = 0;
+            self.order = Weak::new();
         }
     }
 
@@ -160,6 +191,7 @@ impl RowTextCache {
         key: &ItemKey,
         item: &Item,
         reading: &Reading<'_>,
+        scan: bool,
     ) -> Rc<RowText> {
         if let Kind::Tools(group) = &row.kind
             && !group.is_lone_search(transcript)
@@ -169,13 +201,25 @@ impl RowTextCache {
         let revision = transcript.item_revision(key);
         // Usage figures can change without touching the transcript's Status item.
         let retained = revision.filter(|_| !matches!(item, Item::Status { .. }));
+        let slot = usize::from(scan);
         if let Some(revision) = retained
-            && let Some(known) = self.entries.get(key)
-            && known.revision == revision
-            && known.revealed == reading.revealed
-            && members(transcript, row).eq(known.rest.iter().map(|(key, rev)| (key, *rev)))
+            && let Some(projections) = self.entries.get_mut(key)
         {
-            return known.text.clone();
+            let matches = |known: &&Rc<Entry>| {
+                known.revision == revision
+                    && known.revealed == reading.revealed
+                    && members(transcript, row).eq(known.rest.iter().map(|(key, rev)| (key, *rev)))
+            };
+            if let Some(known) = projections[slot].as_ref().filter(matches) {
+                return known.text.clone();
+            }
+            if let Some(known) = projections[1 - slot].as_ref().filter(matches) {
+                let text = known.text.clone();
+                let before = retained_bytes(projections);
+                projections[slot] = Some(known.clone());
+                self.cached_bytes = self.cached_bytes - before + retained_bytes(projections);
+                return text;
+            }
         }
         #[cfg(test)]
         {
@@ -185,17 +229,30 @@ impl RowTextCache {
             .map(RowText::from_parts)
             .map_or_else(|| self.blank.clone(), Rc::new);
         if let Some(revision) = retained {
-            self.entries.insert(
-                key.clone(),
-                Entry {
+            let projections = self.entries.entry(key.clone()).or_default();
+            let before = retained_bytes(projections);
+            projections[slot] = None;
+            if projections[1 - slot]
+                .as_ref()
+                .is_some_and(|known| known.revision != revision)
+            {
+                projections[1 - slot] = None;
+            }
+            self.cached_bytes = self.cached_bytes - before + retained_bytes(projections);
+            let size = text.allocated_bytes();
+            if size <= ROW_TEXT_LIMIT && self.cached_bytes + size <= RETAINED_TEXT_LIMIT {
+                projections[slot] = Some(Rc::new(Entry {
                     revision,
                     rest: members(transcript, row)
                         .map(|(key, revision)| (key.clone(), revision))
                         .collect(),
                     revealed: reading.revealed,
                     text: text.clone(),
-                },
-            );
+                }));
+                self.cached_bytes += size;
+            } else if projections.iter().all(Option::is_none) {
+                self.entries.remove(key);
+            }
         }
         text
     }
@@ -213,18 +270,18 @@ impl RowTextCache {
         let context = Context::of(thread, reading);
         if self.context.as_ref() != Some(&context) {
             self.entries.clear();
+            self.cached_bytes = 0;
             self.context = Some(context);
         }
-        let order = transcript.item_keys();
-        if self
-            .order
-            .as_ref()
-            .is_none_or(|old| !Rc::ptr_eq(old, &order))
-        {
+        // The viewport need not keep a past copy of the core's complete key vector alive.
+        let order = Rc::downgrade(&transcript.item_keys());
+        if !self.order.ptr_eq(&order) {
             self.entries
                 .retain(|key, _| transcript.item_revision(key).is_some());
-            self.order = Some(order);
+            self.cached_bytes = self.entries.values().map(retained_bytes).sum();
+            self.order = order;
         }
+        let scan = disclosed.is_none();
         let mut texts = Vec::with_capacity(rows.len() + usize::from(header));
         let mut keys = Vec::with_capacity(texts.capacity());
         if header {
@@ -239,19 +296,13 @@ impl RowTextCache {
                         && disclosed.is_none_or(|disclosed| disclosed.is_open(key)),
                     ..*reading
                 };
-                texts.push(self.prepare(transcript, row, key, item, &reading));
+                texts.push(self.prepare(transcript, row, key, item, &reading, scan));
             } else {
                 keys.push(None);
                 texts.push(self.blank.clone());
             }
         }
-        RowTexts::new(
-            texts,
-            keys,
-            reverse,
-            disclosed.is_none(),
-            transcript.layout_revision(),
-        )
+        RowTexts::new(texts, keys, reverse, scan, transcript.layout_revision())
     }
 }
 
@@ -263,7 +314,7 @@ mod tests {
     };
     use codex_tui_core::fixtures::script::build;
 
-    use super::{Kind, Part, Reading, Row, RowText, RowTextCache, row_parts};
+    use super::{Kind, Part, ROW_TEXT_LIMIT, Rc, Reading, Row, RowText, RowTextCache, row_parts};
     use crate::pages::session::cells::text::Env;
     use crate::widgets::thread_ui::Disclosed;
 
@@ -343,6 +394,96 @@ mod tests {
         assert!(selected.row_text(81).contains("follow-up"));
         assert!(scanned.scan_text(81).contains("follow-up"));
         assert_eq!(old.row_text(1), selected.row_text(1));
+    }
+
+    #[test]
+    fn alternating_search_and_mounted_views_reuses_closed_tool_projections() {
+        let Ok(played) = build(SEED) else {
+            panic!("valid seed fixture");
+        };
+        let mut app = played.app;
+        let mut fx = AppFx::default();
+        apply_app(
+            &mut app,
+            AppEv::Backend(turn_started(THREAD, "run")),
+            &mut fx,
+        );
+        let output = "first output\nsecond output\nthird output\nfourth output\n";
+        for item in ["first", "second", "third", "fourth"] {
+            let Ok(started) = command_started(THREAD, "run", item, "printf test") else {
+                panic!("valid shell command");
+            };
+            let Ok(delta) = command_output(THREAD, "run", item, output) else {
+                panic!("valid output notification");
+            };
+            apply_app(&mut app, AppEv::Backend(started), &mut fx);
+            apply_app(&mut app, AppEv::Backend(delta), &mut fx);
+        }
+        let thread = app.active_thread();
+        let rows: Vec<_> = (0..thread.transcript().len())
+            .map(|index| Row {
+                range: index..index + 1,
+                kind: Kind::Cell,
+            })
+            .collect();
+        let env = env();
+        let reading = Reading::new(&env, "•");
+        let mut cache = RowTextCache::default();
+        let disclosed = Disclosed::default();
+        let scan = cache.read(&thread, &rows, false, false, &reading, None);
+        let shown = cache.read(&thread, &rows, false, false, &reading, Some(&disclosed));
+        assert_eq!(rows.len(), 4);
+        assert_eq!(cache.prepared, 8);
+        assert!(scan.scan_text(0).contains("first output"));
+        assert!(!shown.row_text(0).contains("first output"));
+        for _ in 0..5 {
+            let scan = cache.read(&thread, &rows, false, false, &reading, None);
+            let shown = cache.read(&thread, &rows, false, false, &reading, Some(&disclosed));
+            assert!(scan.scan_text(0).contains("first output"));
+            assert!(!shown.row_text(0).contains("first output"));
+            assert_eq!(cache.prepared, 8);
+        }
+    }
+
+    #[test]
+    fn large_search_rows_keep_every_byte_without_pinning_them_in_the_cache() {
+        let Ok(played) = build(SEED) else {
+            panic!("valid seed fixture");
+        };
+        let mut app = played.app;
+        let mut fx = AppFx::default();
+        apply_app(
+            &mut app,
+            AppEv::Backend(turn_started(THREAD, "run")),
+            &mut fx,
+        );
+        let Ok(started) = command_started(THREAD, "run", "tool", "printf test") else {
+            panic!("valid shell command");
+        };
+        apply_app(&mut app, AppEv::Backend(started), &mut fx);
+        let mut output = "older output\n".repeat(ROW_TEXT_LIMIT / 4);
+        output.push_str("tail of output\n");
+        let Ok(delta) = command_output(THREAD, "run", "tool", &output) else {
+            panic!("valid output notification");
+        };
+        apply_app(&mut app, AppEv::Backend(delta), &mut fx);
+        let thread = app.active_thread();
+        let rows = [Row {
+            range: 0..1,
+            kind: Kind::Cell,
+        }];
+        let env = env();
+        let reading = Reading::new(&env, "•");
+        let mut cache = RowTextCache::default();
+        let order = thread.transcript().item_keys();
+        let strong = Rc::strong_count(&order);
+        let scan = cache.read(&thread, &rows, false, false, &reading, None);
+        assert!(scan.scan_text(0).contains("older output"));
+        assert!(scan.scan_text(0).contains("tail of output"));
+        assert!(scan.scan_text(0).len() > ROW_TEXT_LIMIT);
+        assert!(cache.entries.is_empty());
+        assert_eq!(cache.cached_bytes, 0);
+        assert_eq!(Rc::strong_count(&order), strong);
     }
 
     #[test]
