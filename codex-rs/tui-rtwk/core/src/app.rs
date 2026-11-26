@@ -2629,12 +2629,14 @@ fn named(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv) -> ThreadEv {
         item => item,
     };
     match ev {
-        ThreadEv::ItemUpsert { key, item } => ThreadEv::ItemUpsert {
+        ThreadEv::ItemUpsert { key, item, receipt } => ThreadEv::ItemUpsert {
             key,
+            receipt,
             item: rename(item),
         },
-        ThreadEv::ItemStarted { key, item } => ThreadEv::ItemStarted {
+        ThreadEv::ItemStarted { key, item, receipt } => ThreadEv::ItemStarted {
             key,
+            receipt,
             item: rename(item),
         },
         ev => ev,

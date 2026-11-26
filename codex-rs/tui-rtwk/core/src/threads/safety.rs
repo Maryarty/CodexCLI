@@ -315,7 +315,7 @@ fn has_follow_ups(model: &ThreadModel) -> bool {
 /// Output of the agent for the checked turn lifts the hold (`mark_..._agent_message_started`).
 pub(super) fn observe(model: &mut ThreadModel, ev: &ThreadEv) {
     let turn = match ev {
-        ThreadEv::ItemStarted { key, item } | ThreadEv::ItemUpsert { key, item }
+        ThreadEv::ItemStarted { key, item, .. } | ThreadEv::ItemUpsert { key, item, .. }
             if matches!(item, Item::Agent { .. }) =>
         {
             &key.turn

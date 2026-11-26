@@ -814,6 +814,45 @@ fn reply_history(app: &mut CodexApp, ticket: Ticket, receipt: Option<String>) ->
     )
 }
 
+fn reattach(app: &mut CodexApp) -> Ticket {
+    let fx = run(
+        app,
+        AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnected)),
+    );
+    let resume = resume_ticket(&fx).expect("same thread resumes on reconnect");
+    let fx = run(
+        app,
+        AppEv::Reply(
+            resume,
+            Reply::screen(ScreenReply::Agents(agents::Reply::Resumed(Box::new(
+                listed(T),
+            )))),
+        ),
+    );
+    assert!(started_texts(&fx).is_empty(), "await the latest page");
+    history_ticket(&fx)
+}
+
+#[test]
+fn a_live_receipt_before_transport_loss_leaves_only_the_unsent_follow_up() {
+    let mut app = ready();
+    let (_, client_id) = submission_id(&submit(&mut app, "first message"));
+    submit_or_queue_follow_up(&mut app, true);
+    notify(
+        &mut app,
+        user_item_with_receipt(T, "turn-1", "live", "first message", Some(client_id)),
+    );
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnecting)),
+    );
+    assert_eq!(queued(&app), ["follow-up"]);
+    let history = reattach(&mut app);
+    let fx = reply_history(&mut app, history, None);
+    assert_eq!(started_texts(&fx), ["follow-up"]);
+    assert!(thread(&app).queue().is_empty());
+}
+
 #[test]
 fn same_thread_reattach_reconciles_only_an_exact_start_or_steer_receipt() {
     for pending_start in [false, true] {
@@ -826,22 +865,7 @@ fn same_thread_reattach_reconciles_only_an_exact_start_or_steer_receipt() {
                 AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnecting)),
             );
             assert_eq!(queued(&app), ["first message", "follow-up"]);
-            let fx = run(
-                &mut app,
-                AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnected)),
-            );
-            let resume = resume_ticket(&fx).expect("same thread resumes on reconnect");
-            let fx = run(
-                &mut app,
-                AppEv::Reply(
-                    resume,
-                    Reply::screen(ScreenReply::Agents(agents::Reply::Resumed(Box::new(
-                        listed(T),
-                    )))),
-                ),
-            );
-            let history = history_ticket(&fx);
-            assert!(started_texts(&fx).is_empty(), "await the latest page");
+            let history = reattach(&mut app);
             assert!(matches!(
                 &thread(&app).queue()[0],
                 Queued::Unconfirmed { .. }

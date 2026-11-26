@@ -7,7 +7,6 @@ use codex_app_server_protocol::UserInput;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct UserPrompt {
-    pub client_id: Option<String>,
     pub text: String,
     /// Valid, disjoint byte ranges for inline elements already in the text.
     pub elements: Vec<Range<usize>>,
@@ -47,7 +46,8 @@ impl UserPrompt {
     /// The prompt as history draws it (`sanitize_user_text`, oracle
     /// history_cell/messages.rs): CSI sequences and control characters
     /// removed, tabs and newlines kept; a text that changed loses its inline
-    /// elements, their byte ranges no longer fit it.
+    /// elements, their byte ranges no longer fit it. The text itself, which
+    /// the model has and steers are matched by, is not touched.
     pub fn shown(&self) -> Shown<'_> {
         // an answer to an async question shows as the question quoted over the answer
         // (`display_replies`), whoever sent it

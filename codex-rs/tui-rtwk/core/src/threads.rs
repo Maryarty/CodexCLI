@@ -964,10 +964,12 @@ pub enum ThreadEv {
     ItemStarted {
         key: ItemKey,
         item: Item,
+        receipt: Option<String>,
     },
     ItemUpsert {
         key: ItemKey,
         item: Item,
+        receipt: Option<String>,
     },
     /// An `update_plan` report: a new entry of the turn, whatever came before.
     PlanUpdated {
@@ -1012,6 +1014,7 @@ pub enum ThreadEv {
         turn: TurnId,
         end: TurnEnd,
         snapshot: Option<TurnSnapshot>,
+        receipts: Vec<String>,
         timing: Option<TurnTiming>,
         error: Option<Fault>,
     },
@@ -1203,6 +1206,7 @@ pub struct ThreadCore {
     /// `history_may_be_incomplete`): opening the thread again reads its history from the server
     /// instead of showing what is held.
     history_may_be_incomplete: bool,
+    /// Queue dispatch waits for the newest history page after reconnecting with pending input.
     reconciling_submissions: bool,
     writer: Writer,
 }
@@ -2295,6 +2299,12 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
                     TurnStatus::Completed | TurnStatus::InProgress => TurnEnd::Completed,
                 },
                 snapshot: turn_snapshot(&n.turn),
+                receipts: n
+                    .turn
+                    .item_payloads()
+                    .filter_map(receipt_id)
+                    .cloned()
+                    .collect(),
                 timing: TurnTiming::from_turn(&n.turn),
                 error: n.turn.error.as_ref().map(Fault::of),
             },
@@ -2364,7 +2374,9 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
         )),
         ServerNotification::ItemStarted(n) => item_upsert(&n.thread_id, &n.turn_id, &n.item, false)
             .map(|(thread, ev)| match ev {
-                ThreadEv::ItemUpsert { key, item } => (thread, ThreadEv::ItemStarted { key, item }),
+                ThreadEv::ItemUpsert { key, item, receipt } => {
+                    (thread, ThreadEv::ItemStarted { key, item, receipt })
+                }
                 _ => (thread, ev),
             }),
         ServerNotification::ItemCompleted(n) => {
@@ -2648,14 +2660,8 @@ pub fn history_reset() -> ThreadEv {
 
 fn item_entry(payload: &ThreadItemPayload, completed: bool) -> Option<(ItemId, Item)> {
     Some(match payload {
-        ThreadItemPayload::UserMessage {
-            id,
-            client_id,
-            content,
-        } => {
-            let mut prompt = UserPrompt::from_input(content);
-            prompt.client_id.clone_from(client_id);
-            (ItemId::new(id), Item::User(prompt))
+        ThreadItemPayload::UserMessage { id, content, .. } => {
+            (ItemId::new(id), Item::User(UserPrompt::from_input(content)))
         }
         ThreadItemPayload::AgentMessage {
             id, text, phase, ..
@@ -2675,6 +2681,13 @@ fn item_entry(payload: &ThreadItemPayload, completed: bool) -> Option<(ItemId, I
     })
 }
 
+fn receipt_id(payload: &ThreadItemPayload) -> Option<&String> {
+    match payload {
+        ThreadItemPayload::UserMessage { client_id, .. } => client_id.as_ref(),
+        _ => None,
+    }
+}
+
 fn item_upsert(
     thread: &str,
     turn: &str,
@@ -2690,6 +2703,7 @@ fn item_upsert(
                 item: id,
             },
             item: entry,
+            receipt: receipt_id(&item.payload).cloned(),
         },
     ))
 }
@@ -2747,6 +2761,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         }
         ThreadEv::ConnectionLost if model.has_writer() => {
             hold_unconfirmed(model);
+            model.core.reconciling_submissions |= !model.queue.is_empty();
             model.core.history_may_be_incomplete |= model.reconciling_submissions;
             model.writer = Writer::Detached;
             // the stream went with the connection: an attach again starts a live one
@@ -2840,10 +2855,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             {
                 safety::replayed(model);
             }
-            let mut released = false;
-            for receipt in &receipts {
-                released |= reconcile_id(model, receipt).1;
-            }
+            let released = reconcile_ids(model, &receipts);
             for snapshot in &turns {
                 if snapshot.end.is_some() {
                     if matches!(&model.turn, TurnState::Running(running) if running.turn == snapshot.turn)
@@ -3303,10 +3315,13 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         }
         ThreadEv::HookStarted { id, message } => hooks::started(model, id, message),
         ThreadEv::HookEnded { id, turn, item } => hooks::ended(model, &id, turn, item),
-        ThreadEv::ItemStarted { key, item } => {
+        ThreadEv::ItemStarted { key, item, receipt } => {
             processes::track(model, &key, &item);
             note_review(model, &item);
-            let (echo, released) = reconcile_receipt(model, &item);
+            let (echo, released) = receipt
+                .as_deref()
+                .map(|id| reconcile_id(model, id))
+                .unwrap_or_default();
             if !model.finished_turns.contains(&key.turn)
                 && model.transcript.item(&key).is_none()
                 && !review_prompt(model, &item, echo)
@@ -3318,10 +3333,13 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 send_next(model, fx);
             }
         }
-        ThreadEv::ItemUpsert { key, item } => {
+        ThreadEv::ItemUpsert { key, item, receipt } => {
             processes::track(model, &key, &item);
             note_review(model, &item);
-            let (echo, released) = reconcile_receipt(model, &item);
+            let (echo, released) = receipt
+                .as_deref()
+                .map(|id| reconcile_id(model, id))
+                .unwrap_or_default();
             let turn_finished = model.finished_turns.contains(&key.turn);
             if !model.authoritative_turns.contains(&key.turn)
                 && !processes::draws_nothing(&item, turn_finished)
@@ -3386,13 +3404,12 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             turn,
             end,
             snapshot,
+            receipts,
             timing,
             error,
         } => {
             processes::turn_ended(model, &turn, end);
-            let released = snapshot
-                .as_ref()
-                .is_some_and(|snapshot| reconcile_snapshot(model, snapshot));
+            let released = reconcile_ids(model, &receipts);
             match snapshot {
                 // A list with no item says nothing of a turn whose items came as they ran: the
                 // oracle's live chat keeps what the notifications drew (an interrupted turn's
@@ -3713,17 +3730,6 @@ fn hold_unconfirmed(model: &mut ThreadModel) {
 }
 
 /// A server item confirms only the submission that supplied this client ID.
-fn reconcile_receipt(model: &mut ThreadModel, item: &Item) -> (bool, bool) {
-    let Item::User(UserPrompt {
-        client_id: Some(client_id),
-        ..
-    }) = item
-    else {
-        return (false, false);
-    };
-    reconcile_id(model, client_id)
-}
-
 fn reconcile_id(model: &mut ThreadModel, client_id: &str) -> (bool, bool) {
     if let Some(ThreadCtx::StartTurn { client_id, .. }) = model.outgoing.find_mut(
         |ctx| matches!(ctx, ThreadCtx::StartTurn { client_id: Some(id), .. } if id == client_id),
@@ -3742,11 +3748,10 @@ fn reconcile_id(model: &mut ThreadModel, client_id: &str) -> (bool, bool) {
     (pending != model.pending_steers.len() || released, released)
 }
 
-fn reconcile_snapshot(model: &mut ThreadModel, snapshot: &TurnSnapshot) -> bool {
-    let (TurnSnapshot::Full(items) | TurnSnapshot::Summary(items)) = snapshot;
+fn reconcile_ids(model: &mut ThreadModel, receipts: &[String]) -> bool {
     let mut released = false;
-    for (_, item) in items {
-        released |= reconcile_receipt(model, item).1;
+    for receipt in receipts {
+        released |= reconcile_id(model, receipt).1;
     }
     released
 }

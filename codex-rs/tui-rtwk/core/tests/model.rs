@@ -618,6 +618,7 @@ fn the_projection_maps_what_the_skeleton_shows() {
             turn: TurnId::new("turn-3"),
             end: TurnEnd::Completed,
             snapshot: None,
+            receipts: Vec::new(),
             error: None,
         }
     );

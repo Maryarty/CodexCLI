@@ -165,6 +165,7 @@ pub(super) fn apply(model: &mut ThreadModel, ev: CompactionEv, fx: &mut ThreadFx
                 ThreadEv::ItemUpsert {
                     key,
                     item: Item::Notice(Notice::ContextCompacted { took }),
+                    receipt: None,
                 },
                 fx,
             );
