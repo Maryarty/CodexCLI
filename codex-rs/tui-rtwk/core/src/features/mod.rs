@@ -748,7 +748,9 @@ macro_rules! feature_dirs {
 
         /// Additional command policy declared by the owning feature.
         #[allow(unused_variables, dead_code)]
-        pub(crate) fn command_rule(command: $crate::commands::SlashCommand) -> Option<&'static CommandRule> {
+        pub(crate) fn command_rule(
+            command: $crate::commands::SlashCommand,
+        ) -> Option<&'static $crate::commands::CommandRule> {
             $(if let Some(rule) = <$name::$variant as Feature>::COMMAND_RULES
                 .iter().find(|rule| rule.command == command)
             {
