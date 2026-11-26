@@ -501,7 +501,31 @@ fn plan_implementation_popup_skips_when_rate_limit_prompt_pending() {
     rate_offer_waits_behind_a_banner();
     rate_offer_lifetime_ends_with_the_connection_or_account();
     rate_offer_lifetime_ends_when_a_new_turn_starts();
+    rate_offer_survives_repeated_completion_of_an_earlier_turn();
     rate_offer_cannot_interrupt_a_new_conversation();
+}
+
+fn rate_offer_survives_repeated_completion_of_an_earlier_turn() {
+    let mut s = plan_rate_offer_screen(Ok(vec![lower_cost_model()]));
+    s.feed(TURN_DONE);
+    s.assert_text_count(PLAN_TITLE, 1);
+    s.keys("esc");
+    s.feed(include_str!("fixtures/kit/rate_limit_92.jsonl"));
+    let before = s.requests_of("model/list");
+    complete_second_plan(&mut s);
+    s.assert_requests_of("model/list", before + 1);
+    s.assert_text_count("Approaching rate limits", 1);
+    s.assert_absent(PLAN_TITLE);
+
+    s.feed(TURN_DONE);
+    s.assert_requests_of("model/list", before + 1);
+    s.assert_text_count("Approaching rate limits", 1);
+    s.assert_absent(PLAN_TITLE);
+    s.keys("enter");
+    s.assert_model_updates(&["gpt-6-luna"]);
+    s.assert_absent("Approaching rate limits");
+    s.assert_absent(PLAN_TITLE);
+    s.assert_no_turn();
 }
 
 fn rate_offer_lifetime_ends_when_a_new_turn_starts() {
