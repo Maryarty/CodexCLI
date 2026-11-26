@@ -2,19 +2,23 @@
 //! position and preserves the parser for a row while its item key is mounted.
 
 use std::cell::{Cell, RefCell};
+use std::ops::Range;
 use std::rc::Rc;
 use std::time::Duration;
 
 use rtwk::binding::AppBinding;
 use rtwk::foundation::{Listenable, VoidCallback};
 use rtwk::gestures::SelectionTarget;
-use rtwk::layout::{Column, CrossAxisAlignment, MainAxisSize};
+use rtwk::layout::{Align, Alignment, Column, CrossAxisAlignment, MainAxisSize};
 use rtwk::provider::{read, select, watch};
 use rtwk::scroll::{
     ItemTexts, ListView, OverscrollNotification, ScrollController, ScrollNotification,
 };
 use rtwk::style::{Attrs, Style};
-use rtwk::{AnyWidget, Cx, Key, NotificationListener, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::{
+    AnyWidget, BuildCx, Cx, Key, NotificationListener, Rebuild, State, StatefulWidget,
+    StatelessWidget, impl_widget,
+};
 
 use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::ids::ThreadId;
@@ -83,10 +87,6 @@ pub(super) struct ViewportState {
     shown: RefCell<Option<ItemKey>>,
     /// The first row the list showed, to see rows come in above it.
     first: RefCell<Option<(ThreadId, ItemKey)>>,
-    /// The last visible row the reader's thread had (its key and content revision, not a copy:
-    /// the thread model is the one place the row lives), to see it change: a row after it, or
-    /// the row itself grown; rows above it (an older page) are none of the reader's news.
-    tail: Option<(ThreadId, ItemKey, u64)>,
     /// Where each reader that was left scrolled up stood (Flutter's `PageStorage` bucket of a
     /// `PageStorageKey` per list): a thread's reader is its own, so it is as it was when the
     /// reader comes back (#57499).
@@ -706,7 +706,6 @@ impl StatefulWidget for Pane {
             activity: RefCell::default(),
             shown: RefCell::default(),
             first: RefCell::default(),
-            tail: None,
             left: Vec::new(),
             restoring: None,
             finding: RefCell::default(),
@@ -773,37 +772,6 @@ impl State for ViewportState {
         if let Some((activity, listener)) = self.folding.get_mut().take() {
             activity.listenable().remove_listener(&listener);
         }
-    }
-
-    fn did_change_dependencies(&mut self, widget: &Pane, cx: &mut Cx<'_, Self>) {
-        // The end of the transcript changed while the reader is away (a new
-        // row, or the last one grew): news for the control and the footer
-        // (`sync_history_tail`). A thread the reader has just opened has none.
-        let thread = watch::<ThreadModel, _>(cx);
-        let collapse = select::<TuiSettings, _, _>(cx, |settings| settings.collapse_turn_details);
-        let shown = self.rows(
-            &thread,
-            widget.detailed,
-            collapse,
-            &activity_focus::of(&widget.find),
-        );
-        let transcript = thread.transcript();
-        let tail = shown
-            .rows
-            .last()
-            .and_then(|row| transcript.get(row.range.end - 1))
-            .and_then(|(key, _)| {
-                transcript
-                    .item_revision(key)
-                    .map(|revision| (thread.id().clone(), key.clone(), revision))
-            });
-        if let (Some(before), Some(now)) = (&self.tail, &tail)
-            && before.0 == now.0
-            && before != now
-        {
-            widget.follow.note_activity();
-        }
-        self.tail = tail;
     }
 
     fn update(&mut self, msg: Msg, widget: &Pane, cx: &mut Cx<'_, Self>) -> Rebuild {
@@ -903,14 +871,41 @@ impl State for ViewportState {
     }
 
     fn build(&self, widget: &Pane, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let thread = watch::<ThreadModel, _>(cx);
+        let search = widget.find.clone();
+        let caret = select::of(&search);
+        let copier = copying::mode_of(&search);
+        let reads = search.active() || caret.active() || caret.extending() || copier.active();
+        // Find, selection and copy share a snapshot of the list they read. Detailed rows can
+        // also read the contents of other rows to arrange adjacent prompts and computer calls.
+        let uses_snapshot = reads
+            || widget.detailed
+            || widget.mark.is_some()
+            || widget.selection.controller().has_selection();
+        let live = if uses_snapshot {
+            watch::<ThreadModel, _>(cx)
+        } else {
+            select::<ThreadModel, _, _>(cx, |thread| {
+                let transcript = thread.transcript();
+                (
+                    thread.id().clone(),
+                    transcript.layout_revision(),
+                    // A tool output update can add a details control to the F4 walk.
+                    transcript.activity_revision(),
+                    thread.can_load_history(),
+                    thread.history_state(),
+                    thread.read_only(),
+                    thread.screen_slots().chat.cwd.clone(),
+                )
+            });
+            read::<ThreadModel, _>(cx)
+        };
         // while Find holds a match in the live tail the list draws the thread as it was found
         // there, until the reader steps, refines the query or Find closes
         let held = Held::of(&widget.find);
         if !widget.find.active() || widget.find.asked() || held.moved(widget.follow.moves()) {
             held.clear();
         }
-        let thread = held.thread().unwrap_or(thread);
+        let thread = held.thread().unwrap_or_else(|| live.clone());
         let strings = l10n::of(cx);
         let tokens = theme::Tokens::of(cx);
         let prompt_surface = tokens.prompt_surface(cx, true);
@@ -918,8 +913,13 @@ impl State for ViewportState {
         let agent_style = Style::new().attrs(Attrs::DIM);
         let bullet = strings.agent_line("").to_string();
         let table = chat_strings::of(cx);
-        let now = rtwk::provider::read::<ScreenStates, _>(cx).agents.now;
-        let clock = select::<ScreenStates, _, _>(cx, |states| states.cells.clock);
+        let (clock, today) = select::<ScreenStates, _, _>(cx, |states| {
+            let clock = states.cells.clock;
+            (
+                clock,
+                super::cells::separator::viewer_date(states.agents.now, clock),
+            )
+        });
         let metrics =
             select::<ScreenStates, _, _>(cx, |states| states.cells.runtime_metrics.clone());
         let facts = select::<ScreenStates, _, _>(cx, |states| states.chat.status.clone());
@@ -945,7 +945,18 @@ impl State for ViewportState {
         let activity = activity_focus::of(&widget.find);
         let disclosed = activity.disclosed();
         let cells = cells_strings::of(cx);
-        let Shown { rows, plan } = self.rows(&thread, detailed, collapse, &activity);
+        // News follows the live transcript even when Find holds an older view of it.
+        let live_rows = self.rows(&live, detailed, collapse, &activity);
+        let tail = live_rows
+            .rows
+            .last()
+            .and_then(|row| live.transcript().get(row.range.end - 1))
+            .map(|(key, _)| key.clone());
+        let Shown { rows, plan } = if Rc::ptr_eq(&live, &thread) {
+            live_rows
+        } else {
+            self.rows(&thread, detailed, collapse, &activity)
+        };
         let reverse = !thread.read_only() && header.is_none();
         let header = header.filter(|_| !can_load);
         let count = rows.len() + usize::from(header.is_some());
@@ -987,17 +998,13 @@ impl State for ViewportState {
             binding.add_post_frame_callback(cx.map(|_: Duration| Msg::Anchored));
         }
         let folds = transcript_strings::of(cx);
-        let search = widget.find.clone();
         self.listen(&search, cx.local_sender());
         self.listen_moves(&widget.follow, cx.local_sender());
 
-        let caret = select::of(&search);
-        let copier = copying::mode_of(&search);
         // The list reads its rows as text while Find is open, select mode is on or copy mode is:
         // the widget of that is not the plain list, and the one that takes the place of the other
         // starts at the end. A reader who was away from the last row is put back after the frame
         // that swaps them (before the move Find's own close asks for).
-        let reads = search.active() || caret.active() || caret.extending() || copier.active();
         if reads != self.texted.replace(reads)
             && widget.follow.away()
             && self.restoring.is_none()
@@ -1186,18 +1193,18 @@ impl State for ViewportState {
         let cwd = cwd.map(str::to_owned);
         // where a row went when rows came in above it (an older page joined): the list keeps the
         // row the reader is at on its line (Flutter's `findChildIndexCallback`)
+        let item_keys = thread.transcript().item_keys();
+        let lead = usize::from(header.is_some());
         let finder = {
-            let (thread, rows) = (thread.clone(), rows.clone());
-            let lead = usize::from(header.is_some());
+            let (item_keys, rows) = (item_keys.clone(), rows.clone());
             move |key: &Key| -> Option<usize> {
                 let logical = if lead == 1 && *key == Key::value("session header") {
                     0
                 } else {
                     rows.iter().position(|row| {
-                        thread
-                            .transcript()
+                        item_keys
                             .get(row.range.start)
-                            .is_some_and(|(item, _)| *key == Key::value(item.clone()))
+                            .is_some_and(|item| *key == Key::value(item.clone()))
                     })? + lead
                 };
                 Some(if reverse {
@@ -1207,15 +1214,9 @@ impl State for ViewportState {
                 })
             }
         };
-        let list = ListView::builder(count, move |index| {
-            let index = if reverse { count - 1 - index } else { index };
-            if index == 0
-                && let Some(header) = &header
-            {
-                return header.clone();
-            }
-            let row = &rows[index - usize::from(header.is_some())];
-            let listed = index;
+        let draw_rows = rows.clone();
+        let draw: DrawRow = Rc::new(move |thread, listed| {
+            let row = &draw_rows[listed - lead];
             let range = &row.range;
             let index = range.start;
             let transcript = thread.transcript();
@@ -1232,22 +1233,26 @@ impl State for ViewportState {
                     .map_while(|above| transcript.get(above))
                     .take_while(|(above, _)| above.turn == key.turn)
                     .find(|(_, item)| !matches!(item, Item::Reasoning { .. }))
-                    .is_some_and(|(_, item)| item.group() == Some(codex_tui_core::threads::ItemGroup::Computer));
-            let separator = (previous.is_some() || header.is_some()) && !joins_computer;
+                    .is_some_and(|(_, item)| {
+                        item.group() == Some(codex_tui_core::threads::ItemGroup::Computer)
+                    });
+            let separator = (previous.is_some() || lead != 0) && !joins_computer;
             let place = Place {
                 separator,
                 // only the detailed transcript (oracle `TranscriptView`) draws prompts with no
                 // turn between them as one block; the chat keeps each prompt's own rows
-                joins_prompt: detailed && {
-                    // the nearest prompt or cell above that draws rows (a blank prompt draws none)
-                    let drawn = (0..index).rev().find(|above| {
+                joins_prompt: detailed
+                    && {
+                        // the nearest prompt or cell above that draws rows (a blank prompt draws none)
+                        let drawn = (0..index).rev().find(|above| {
                         !matches!(transcript.get(*above), Some((_, Item::User(prompt))) if user::is_blank(prompt))
                     });
-                    drawn.is_some_and(|above| {
-                        matches!(transcript.get(above), Some((_, Item::User(_))))
-                            && (above..index).all(|turn| transcript.timing_after(turn).is_none())
-                    })
-                },
+                        drawn.is_some_and(|above| {
+                            matches!(transcript.get(above), Some((_, Item::User(_))))
+                                && (above..index)
+                                    .all(|turn| transcript.timing_after(turn).is_none())
+                        })
+                    },
                 highlighted: marked.as_ref() == Some(key),
                 fill: copier.fill_of(listed),
                 streaming: transcript.is_agent_streaming(key),
@@ -1263,7 +1268,7 @@ impl State for ViewportState {
                 cells,
             };
             let timing_facts = |turn| super::cells::separator::Facts {
-                now,
+                today,
                 clock,
                 metrics: metrics.get(turn),
             };
@@ -1355,18 +1360,54 @@ impl State for ViewportState {
                     cells,
                 ));
             }
-            let row: AnyWidget = column.into();
-            row.with_key(Key::value(key.clone()))
+            column.into()
+        });
+        let snapshot = uses_snapshot.then_some(thread);
+        let listed_thread = thread_id.clone();
+        let list = ListView::builder(count, move |index| {
+            let listed = if reverse { count - 1 - index } else { index };
+            if listed == 0
+                && let Some(header) = &header
+            {
+                return header.clone();
+            }
+            let row = &rows[listed - lead];
+            let Some(key) = item_keys.get(row.range.start) else {
+                return AnyWidget::default();
+            };
+            let fold_end = match &row.kind {
+                Kind::Prompt(fold) => Some(fold.last),
+                _ => None,
+            };
+            let mounted: AnyWidget = MountedRow {
+                thread: listed_thread.clone(),
+                item: key.clone(),
+                range: row.range.clone(),
+                fold_end,
+                listed,
+                snapshot: snapshot.clone(),
+                draw: draw.clone(),
+            }
+            .into();
+            mounted.with_key(Key::value(key.clone()))
         })
         .find_index(finder)
         .controller(widget.follow.scroll())
         .stick_to_bottom(!reverse)
-        .reverse(reverse);
+        .reverse(reverse)
+        .shrink_wrap(reverse);
         let list: AnyWidget = match &texts {
             Some(texts) => list
                 .selection_text(texts.clone() as Rc<dyn ItemTexts>)
                 .into(),
             None => list.into(),
+        };
+        // A short reverse list reports its measured height to Align. Its live rows can
+        // grow during layout without rebuilding the list widget.
+        let list = if reverse {
+            Align::new(Alignment::BOTTOM_LEFT, list).into()
+        } else {
+            list
         };
         let send = cx.local_sender();
         let follow = widget.follow.clone();
@@ -1403,15 +1444,126 @@ impl State for ViewportState {
             })
             .into();
         let list = thread_scope(&thread_id, list);
-        SelectionHost {
+        let host = SelectionHost {
             child: list,
             selection: widget.selection.clone(),
             follow: widget.follow.clone(),
             caret: caret.caret(),
             find: widget.find.clone(),
+        };
+        TailNews {
+            item: tail,
+            follow: widget.follow.clone(),
+            child: host.into(),
         }
         .into()
     }
 }
 
 impl_widget!(stateful eq Pane);
+
+type DrawRow = Rc<dyn Fn(&ThreadModel, usize) -> AnyWidget>;
+
+/// A mounted item keeps its identity as the provider publishes new versions of its contents.
+#[derive(Clone)]
+struct MountedRow {
+    thread: ThreadId,
+    item: ItemKey,
+    range: Range<usize>,
+    fold_end: Option<usize>,
+    listed: usize,
+    snapshot: Option<Rc<ThreadModel>>,
+    draw: DrawRow,
+}
+
+impl PartialEq for MountedRow {
+    fn eq(&self, other: &Self) -> bool {
+        // The drawing function and the row's inputs are supplied together by the list builder.
+        self.listed == other.listed && Rc::ptr_eq(&self.draw, &other.draw)
+    }
+}
+
+impl StatelessWidget for MountedRow {
+    fn build(&self, cx: &mut BuildCx<'_>) -> AnyWidget {
+        let Some(snapshot) = &self.snapshot else {
+            let (thread_id, item, range, fold_end) = (
+                self.thread.clone(),
+                self.item.clone(),
+                self.range.clone(),
+                self.fold_end,
+            );
+            let stamp = select::<ThreadModel, _, _>(cx, move |thread| {
+                let transcript = thread.transcript();
+                if thread.id() != &thread_id || transcript.get(range.start)?.0 != &item {
+                    return None;
+                }
+                // A group reads every item it spans. Revisions increase across the transcript,
+                // so an update to any of those items changes the group's maximum.
+                let revision = range
+                    .clone()
+                    .filter_map(|at| transcript.item_revision(transcript.get(at)?.0))
+                    .max();
+                Some((
+                    revision,
+                    transcript.is_agent_streaming(&item),
+                    transcript.timing_after(range.end - 1),
+                    fold_end.and_then(|end| transcript.timing_after(end)),
+                ))
+            });
+            return if stamp.is_some() {
+                (self.draw)(&read::<ThreadModel, _>(cx), self.listed)
+            } else {
+                AnyWidget::default()
+            };
+        };
+        select::<ThreadModel, _, _>(cx, |_| ());
+        (self.draw)(snapshot, self.listed)
+    }
+}
+
+impl_widget!(stateless eq MountedRow);
+
+/// The reader's footer and follow control observe the visible live tail separately from the list.
+#[derive(Clone, PartialEq)]
+struct TailNews {
+    item: Option<ItemKey>,
+    follow: Follow,
+    child: AnyWidget,
+}
+
+#[derive(Default)]
+struct TailState {
+    last: RefCell<Option<(ThreadId, ItemKey, u64)>>,
+}
+
+impl StatefulWidget for TailNews {
+    type State = TailState;
+
+    fn create_state(&self) -> TailState {
+        TailState::default()
+    }
+}
+
+impl State for TailState {
+    type Widget = TailNews;
+    type Msg = ();
+
+    fn build(&self, widget: &TailNews, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        let item = widget.item.clone();
+        let tail = select::<ThreadModel, _, _>(cx, move |thread| {
+            let item = item.as_ref()?;
+            let revision = thread.transcript().item_revision(item)?;
+            Some((thread.id().clone(), item.clone(), revision))
+        });
+        if let (Some(before), Some(now)) = (&*self.last.borrow(), &tail)
+            && before.0 == now.0
+            && before != now
+        {
+            widget.follow.note_activity();
+        }
+        self.last.replace(tail);
+        widget.child.clone()
+    }
+}
+
+impl_widget!(stateful eq TailNews);

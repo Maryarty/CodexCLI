@@ -2892,7 +2892,7 @@ mod tool_cells_in_transcript {
 // ---- the separator under a finished turn follows the host's facts: the clock setting and the
 // turn's runtime metrics arrive after the row is drawn and redraw it.
 mod separator_facts {
-    use codex_tui_core::app::{AppEv, BackendEv};
+    use codex_tui_core::app::{AppEv, BackendEv, Now};
     use codex_tui_core::fixtures::builders::{agent_completed, turn_started};
     use codex_tui_core::ids::TurnId;
     use codex_tui_core::screens::ScreenEv;
@@ -2966,6 +2966,27 @@ mod separator_facts {
         })]);
         h.wait_for("the metrics after the time", |screen| {
             screen.contains("at 2:32 PM • Local tools: 1 call (5ms)")
+        });
+    }
+
+    #[test]
+    fn an_existing_separator_shows_the_date_after_midnight() {
+        let mut h = separator();
+        h.inject([cells(Ev::Viewer(ViewerClock {
+            format: ClockFormat::TwentyFourHour,
+            utc_offset: Some(0),
+        }))]);
+        let epoch = h.fake.epoch().expect("attached");
+        h.fake
+            .inject(epoch, AppEv::Clock(Now::at_secs(968_250_721)));
+        h.wait_for("the time on the same day", |screen| {
+            screen.contains("Worked for 2m 5s • 14:32")
+        });
+
+        h.fake
+            .inject(epoch, AppEv::Clock(Now::at_secs(968_337_120)));
+        h.wait_for("the date on the next day", |screen| {
+            screen.contains("Worked for 2m 5s • Sep 6 at 14:32")
         });
     }
 }
