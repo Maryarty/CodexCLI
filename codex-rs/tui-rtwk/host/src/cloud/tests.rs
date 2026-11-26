@@ -193,10 +193,7 @@ fn cloud_admission_decides_whether_input_starts_or_steers() {
         let mut app = chat(local_running);
         let fx = type_message(&mut app, "first input");
         let (ticket, id, request) = submission(&fx);
-        assert_eq!(
-            matches!(request, ClientRequest::TurnSteer { .. }),
-            local_running
-        );
+        assert_eq!(request.method_name() == "turn/steer", local_running);
         let receipt = if local_running {
             CloudUserMessageReceipt::Started(active("admitted"))
         } else {
@@ -358,10 +355,8 @@ fn the_whole_cloud_connection_retires_lost_stream_admission_tickets() {
         .iter()
         .find_map(|command| match command {
             Command::Screen { ticket, .. }
-                if matches!(
-                    protocol::client_request(command, RequestId::Integer(1), None),
-                    Some(ClientRequest::ThreadResume { .. })
-                ) =>
+                if protocol::client_request(command, RequestId::Integer(1), None)
+                    .is_some_and(|request| request.method_name() == "thread/resume") =>
             {
                 Some(*ticket)
             }
