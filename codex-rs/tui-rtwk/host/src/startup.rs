@@ -119,9 +119,6 @@ pub struct Startup {
     /// (lib.rs `skip_update_prompt`); the cache refresh and the banner still run.
     pub launch_prompt: bool,
     pub update: UpdateSlot,
-    /// A launch fact that could not be read ends the launch with its error
-    /// (`get_login_status(..)?`, `check_directory_trust(..)?`).
-    pub failure: FailureSlot,
     /// Which server the TUI talks to: what the provider wizards and the
     /// browser login are offered for (`AppServerTarget`).
     pub target: Target,
@@ -154,9 +151,10 @@ pub struct Startup {
 /// account next); a reload that only changed the provider does not wait.
 pub struct Restart {
     pub config: Arc<Config>,
-    pub done: Option<tokio::sync::oneshot::Sender<()>>,
+    /// The request that scheduled this restart reports failure through its own continuation.
+    pub done: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     /// The server the app moves to instead of staying on the one it has (the recovery menu's
-    /// answers); a restart that failed has ended the app and drops `done`.
+    /// answers).
     pub switch: Option<Switch>,
 }
 
@@ -262,7 +260,7 @@ where
     let ev = match ask {
         Ask::Facts { request } => match facts(&startup, &ids, &send).await {
             Ok(facts) => Ev::Facts { request, facts },
-            Err(message) => return Some(fail_launch(&startup, message)),
+            Err(message) => return Some(AppEv::StartFailed(message)),
         },
         Ask::WriteTrust { request, target } => {
             let (key, context) = if startup.connected {
@@ -309,8 +307,7 @@ where
             // Stored here, before the answer: the page leaves and the app
             // ends only on it, and `main` reads the slot after that.
             let Ok(mut slot) = startup.update.lock() else {
-                return Some(fail_launch(
-                    &startup,
+                return Some(AppEv::StartFailed(
                     "the update could not be queued".to_owned(),
                 ));
             };
@@ -359,9 +356,7 @@ where
                     AppEv::Screen(ScreenEv::Chat(ChatEv::Status(Box::new(status))))
                 }
                 // `load_config_or_exit`.
-                Err(error) => {
-                    fail_launch(&startup, format!("Error loading configuration: {error}"))
-                }
+                Err(error) => AppEv::StartFailed(format!("Error loading configuration: {error}")),
             });
         }
         Ask::OpenBrowser { url } => {
@@ -434,20 +429,16 @@ where
             let selected = match (startup.reload)().await {
                 Ok(config) => config,
                 Err(error) => {
-                    return Some(fail_launch(
-                        &startup,
-                        format!("Error loading configuration: {error}"),
-                    ));
+                    return Some(AppEv::StartFailed(format!(
+                        "Error loading configuration: {error}"
+                    )));
                 }
             };
             if selected.model_provider_id != provider_id {
-                return Some(fail_launch(
-                    &startup,
-                    format!(
-                        "The current configuration selects {} instead of {provider_id}.",
-                        selected.model_provider_id
-                    ),
-                ));
+                return Some(AppEv::StartFailed(format!(
+                    "The current configuration selects {} instead of {provider_id}.",
+                    selected.model_provider_id
+                )));
             }
             let config = Arc::new(selected);
             *slot = config.clone();
@@ -458,10 +449,9 @@ where
                 done: Some(done),
                 switch: None,
             };
-            // A server that did not start has already ended the app
-            // (`StartFailed`): nothing to answer.
-            if startup.restart.send(restart).is_err() || started.await.is_err() {
-                return None;
+            startup.restart.send(restart).ok()?;
+            if let Err(message) = started.await.ok()? {
+                return Some(AppEv::StartFailed(message));
             }
             Ev::GatewayStarted { request }
         }
@@ -472,22 +462,16 @@ where
             let account = match send(wire::account_read(ids.next())).await {
                 Ok(account) => account,
                 Err(error) => {
-                    return Some(fail_launch(
-                        &startup,
-                        format!("account/read failed: {error}"),
-                    ));
+                    return Some(AppEv::StartFailed(format!("account/read failed: {error}")));
                 }
             };
             let primary = match wire::sign_in_due(account) {
                 Ok(due) => due,
                 Err(error) => {
                     let (RpcError::Remote(text) | RpcError::Malformed(text)) = &error else {
-                        return Some(fail_launch(&startup, "account/read failed".to_owned()));
+                        return Some(AppEv::StartFailed("account/read failed".to_owned()));
                     };
-                    return Some(fail_launch(
-                        &startup,
-                        format!("account/read failed: {text}"),
-                    ));
+                    return Some(AppEv::StartFailed(format!("account/read failed: {text}")));
                 }
             };
             let auth = config.auth_config();
@@ -543,12 +527,12 @@ where
             {
                 Ok(code) => Ev::GatewayDevice { request, code },
                 // `run_ratatui_app` returns the error.
-                Err(message) => return Some(fail_launch(&startup, message)),
+                Err(message) => return Some(AppEv::StartFailed(message)),
             }
         }
         Ask::FailLaunch { message } => {
             // `run_gateway_device_login` returns the sign-in's error.
-            return Some(fail_launch(&startup, message));
+            return Some(AppEv::StartFailed(message));
         }
         Ask::CancelGatewayOAuth => {
             // `authenticate_gateway`: the oracle ignores the answer.
@@ -564,8 +548,6 @@ where
     Some(AppEv::Screen(ScreenEv::Onboarding(ev)))
 }
 
-/// The launch ends with `message`, as the oracle's does: the slot first, so
-/// `main` finds it once the app has ended.
 /// The recovery menu of a launch whose shared server lacks the settings the command line
 /// asked for (`daemon_recovery.rs::check`), kept in the slot for its answer.
 async fn daemon_prompt<F, Fut>(startup: &Startup, cwd: &str, ids: &Ids, send: &F) -> Option<Prompt>
@@ -593,7 +575,7 @@ async fn daemon_choice(startup: &Startup, choice: DaemonChoice) -> Option<AppEv>
     let mismatch = startup.daemon.lock().ok()?.take()?;
     let config = startup.current.read().await.clone();
     let (switch, check) = match choice {
-        DaemonChoice::Cancel => return Some(fail_launch(startup, mismatch.error_text())),
+        DaemonChoice::Cancel => return Some(AppEv::StartFailed(mismatch.error_text())),
         DaemonChoice::RunWithout => (
             Switch::Embedded {
                 warning: mismatch.fallback_warning(),
@@ -602,7 +584,7 @@ async fn daemon_choice(startup: &Startup, choice: DaemonChoice) -> Option<AppEv>
         ),
         DaemonChoice::Restart => {
             let Some(features) = mismatch.restart_features.clone() else {
-                return Some(fail_launch(startup, mismatch.error_text()));
+                return Some(AppEv::StartFailed(mismatch.error_text()));
             };
             (Switch::Daemon { features }, true)
         }
@@ -613,9 +595,9 @@ async fn daemon_choice(startup: &Startup, choice: DaemonChoice) -> Option<AppEv>
         done: Some(done),
         switch: Some(switch),
     };
-    // A server that did not start has already ended the app (`StartFailed`): nothing to answer.
-    if startup.restart.send(restart).is_err() || moved.await.is_err() {
-        return None;
+    startup.restart.send(restart).ok()?;
+    if let Err(message) = moved.await.ok()? {
+        return Some(AppEv::StartFailed(message));
     }
     if !check {
         return None;
@@ -628,14 +610,7 @@ async fn daemon_choice(startup: &Startup, choice: DaemonChoice) -> Option<AppEv>
     .await;
     recheck
         .err()
-        .map(|mismatch| fail_launch(startup, mismatch.error_text()))
-}
-
-fn fail_launch(startup: &Startup, message: String) -> AppEv {
-    if let Ok(mut slot) = startup.failure.lock() {
-        *slot = Some(message.clone());
-    }
-    AppEv::StartFailed(message)
+        .map(|mismatch| AppEv::StartFailed(mismatch.error_text()))
 }
 
 /// The launch facts; the error text of one that could not be read.
@@ -1228,7 +1203,6 @@ mod tests {
             oss_provider: None,
             launch_prompt: false,
             update: UpdateSlot::default(),
-            failure: FailureSlot::default(),
             reload: Arc::new(|| Box::pin(std::future::ready(Err("no reload".to_owned())))),
             updates: Updates {
                 enabled: false,
@@ -1377,10 +1351,6 @@ mod tests {
             crate::daemon::FAILURE_HINT
         );
         assert!(matches!(&ev, Some(AppEv::StartFailed(message)) if *message == text));
-        assert_eq!(
-            startup.failure.lock().unwrap().as_deref(),
-            Some(text.as_str())
-        );
     }
 
     // Run without: the app moves to the embedded server with the warning, and the answer waits
@@ -1407,7 +1377,7 @@ mod tests {
                     _ => panic!("the embedded server"),
                 };
                 if let Some(done) = restart.done {
-                    let _ = done.send(());
+                    let _ = done.send(Ok(()));
                 }
                 warning
             }
@@ -1564,10 +1534,6 @@ mod tests {
             panic!("expected StartFailed, got {ev:?}");
         };
         assert_eq!(message, "account/read failed: no account");
-        assert_eq!(
-            startup.failure.lock().unwrap().as_deref(),
-            Some(message.as_str())
-        );
     }
 
     // oracle `read_remote_project_trust`: `config/read failed while checking
@@ -1583,10 +1549,6 @@ mod tests {
             message,
             "config/read failed while checking remote project trust: no config"
         );
-        assert_eq!(
-            startup.failure.lock().unwrap().as_deref(),
-            Some(message.as_str())
-        );
     }
 
     #[tokio::test]
@@ -1598,7 +1560,6 @@ mod tests {
             ev,
             Some(AppEv::Screen(ScreenEv::Onboarding(Ev::Facts { .. })))
         ));
-        assert!(startup.failure.lock().unwrap().is_none());
     }
 
     fn fetching(calls: &Arc<AtomicUsize>, latest: Result<&str, &str>) -> Fetch {
@@ -1860,7 +1821,7 @@ mod tests {
         while let Some(restart) = rx.recv().await {
             providers.push(restart.config.model_provider_id.clone());
             if let Some(done) = restart.done {
-                let _ = done.send(());
+                let _ = done.send(Ok(()));
             }
         }
         providers
@@ -1898,6 +1859,35 @@ mod tests {
         assert_eq!(seen, [id]);
     }
 
+    #[tokio::test]
+    async fn a_failed_gateway_restart_answers_its_startup_ask() {
+        let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        let config = (*startup.config).clone();
+        let provider_id = config.model_provider_id.clone();
+        startup.reload = Arc::new(move || Box::pin(std::future::ready(Ok(config.clone()))));
+        let (restart, mut receiver) = restarting();
+        startup.restart = restart;
+        let (event, ()) = tokio::join!(
+            run(
+                startup,
+                Ask::SelectGateway {
+                    request: 1,
+                    provider_id
+                },
+                Ids::default(),
+                nothing
+            ),
+            async {
+                let restart = receiver.recv().await.expect("gateway restart");
+                let done = restart.done.expect("its originating continuation");
+                assert!(done.send(Err("could not install provider".into())).is_ok());
+            }
+        );
+        assert!(
+            matches!(event, Some(AppEv::StartFailed(message)) if message == "could not install provider")
+        );
+    }
+
     // The reloaded config must select that gateway: another provider ends
     // the start (the oracle's `bail!`), and no server is restarted.
     #[tokio::test]
@@ -1905,7 +1895,6 @@ mod tests {
         let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
         let config = (*startup.config).clone();
         startup.reload = Arc::new(move || Box::pin(std::future::ready(Ok(config.clone()))));
-        let failure = startup.failure.clone();
         let (restart, receiver) = restarting();
         startup.restart = restart;
         let (ev, seen) = tokio::join!(
@@ -1924,7 +1913,6 @@ mod tests {
             panic!("the start fails: {ev:?}");
         };
         assert!(text.ends_with("instead of office."), "{text}");
-        assert_eq!(failure.lock().unwrap().as_deref(), Some(text.as_str()));
         assert!(seen.is_empty());
     }
 
@@ -2039,7 +2027,6 @@ mod tests {
         .await;
         let text = "account/gatewayOAuth/read failed: boom (code -32603)";
         assert!(matches!(&ev, Some(AppEv::StartFailed(message)) if message == text));
-        assert_eq!(startup.failure.lock().unwrap().as_deref(), Some(text));
     }
 
     // The sign-in that failed ends the launch with the server's message.
@@ -2056,7 +2043,6 @@ mod tests {
         )
         .await;
         assert!(matches!(&ev, Some(AppEv::StartFailed(message)) if message == "Denied"));
-        assert_eq!(startup.failure.lock().unwrap().as_deref(), Some("Denied"));
     }
 
     // Nothing names a provider on a plain config.

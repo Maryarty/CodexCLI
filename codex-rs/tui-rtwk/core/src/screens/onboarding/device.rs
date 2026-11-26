@@ -13,7 +13,7 @@
 //! (`login_success_is_not_lost_while_waiting_for_the_device_code`).
 
 use super::auth::DeviceCode;
-use super::{Ask, Model, Request, ask, mint};
+use super::{Ask, Model, Request, ask};
 use crate::app::AppFx;
 
 /// What `account/gatewayOAuth/changed` said of an attempt.
@@ -72,7 +72,7 @@ pub(super) fn follow(model: &mut Model, fx: &mut AppFx) -> bool {
                 super::session::Provider::Wait => return false,
                 super::session::Provider::Ask(thread) => thread,
             };
-            let request = mint(model);
+            let request = fx.host_request_number();
             model.device = Phase::Asking {
                 request,
                 seen: Vec::new(),

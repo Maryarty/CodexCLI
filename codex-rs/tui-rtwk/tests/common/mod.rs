@@ -10,9 +10,12 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use codex_tui_core::app::AppEv;
+use codex_tui_core::app::Command;
 use codex_tui_core::app::Now;
 use codex_tui_core::fixtures::script::Input;
 use codex_tui_core::keymap::{Keymap, KeymapSpec};
+use codex_tui_core::screens::ScreenEv;
+use codex_tui_core::screens::onboarding::{Ask, Ev, Facts};
 use codex_tui_rtwk::app::UiApp;
 use codex_tui_rtwk::app::debug;
 use codex_tui_rtwk::app::run::{app_view, localized, root};
@@ -339,6 +342,56 @@ impl Harness {
     /// (the screen, a page found in the tree, the facts of the app).
     pub fn wait_until(&mut self, what: &str, ready: impl FnMut(&mut Harness) -> bool) {
         wait::wait_until(self, what, ready);
+    }
+
+    /// The latest matching ask actually received by the fake host.
+    pub fn startup_request(&mut self, what: &str, read: impl Fn(&Ask) -> Option<u64>) -> u64 {
+        let mut request = None;
+        self.wait_until(what, |h| {
+            request = h
+                .fake
+                .commands()
+                .iter()
+                .rev()
+                .find_map(|command| match command {
+                    Command::Startup { ask, .. } => read(ask),
+                    _ => None,
+                });
+            request.is_some()
+        });
+        request.expect(what)
+    }
+
+    pub fn answer_startup_facts(&mut self, facts: Facts) {
+        let request = self.startup_request("the launch facts ask", |ask| match ask {
+            Ask::Facts { request } => Some(*request),
+            _ => None,
+        });
+        self.inject([AppEv::Screen(ScreenEv::Onboarding(Ev::Facts {
+            request,
+            facts,
+        }))]);
+    }
+
+    /// A launch with no sign-in, trust question or startup prompts.
+    pub fn finish_startup_without_prompts(&mut self) {
+        self.answer_startup_facts(Facts::default());
+        let request = self.startup_request("the gateway device ask", |ask| match ask {
+            Ask::GatewayDevice { request, .. } => Some(*request),
+            _ => None,
+        });
+        self.inject([AppEv::Screen(ScreenEv::Onboarding(Ev::GatewayDevice {
+            request,
+            code: None,
+        }))]);
+        let request = self.startup_request("the launch ask", |ask| match ask {
+            Ask::Launch { request } => Some(*request),
+            _ => None,
+        });
+        self.inject([AppEv::Screen(ScreenEv::Onboarding(Ev::Launched {
+            request,
+            prompts: Vec::new(),
+        }))]);
     }
 
     /// Waits for a ready session and a settled turn. Idle is silent in the chat frame.

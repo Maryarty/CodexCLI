@@ -64,13 +64,15 @@ pub(super) fn begin(
     if app.consent.is_some() {
         return;
     }
-    if consent::begin(
-        &mut Rc::make_mut(&mut app.screens).onboarding,
-        target,
-        cancel,
-        matches!(action, Action::Fresh { .. }),
-        fx,
-    ) {
+    if super::host_asks::step(app, fx, |screens, fx| {
+        consent::begin(
+            &mut screens.onboarding,
+            target,
+            cancel,
+            matches!(action, Action::Fresh { .. }),
+            fx,
+        )
+    }) {
         app.consent = Some(Pending {
             action,
             active: app.session.active.clone(),
@@ -109,13 +111,15 @@ pub(super) fn follow(app: &mut CodexApp, fx: &mut AppFx) {
                     thread: thread.clone(),
                     checked: pending.checked_cwds.clone(),
                 };
-                consent::begin(
-                    &mut Rc::make_mut(&mut app.screens).onboarding,
-                    target,
-                    TrustCancel::AgentsOverview,
-                    false,
-                    fx,
-                );
+                super::host_asks::step(app, fx, |screens, fx| {
+                    consent::begin(
+                        &mut screens.onboarding,
+                        target,
+                        TrustCancel::AgentsOverview,
+                        false,
+                        fx,
+                    );
+                });
                 app.consent = Some(pending);
             } else {
                 finish(app, pending.action, checked, fx);

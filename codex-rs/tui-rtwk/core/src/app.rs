@@ -13,6 +13,7 @@ mod consent;
 pub mod effects;
 pub mod facts;
 pub(crate) mod features;
+mod host_asks;
 mod lifecycle;
 mod mentions;
 mod notices;
@@ -364,7 +365,8 @@ pub enum AppEv {
 pub struct Ingress {
     pub backend: BackendId,
     pub epoch: ConnEpoch,
-    transport_epoch: ConnEpoch,
+    transport_epoch: Option<ConnEpoch>,
+    host_failure: Option<Ticket>,
     /// An empty event announces a replacement handle at `transport_epoch`.
     ev: Option<AppEv>,
 }
@@ -380,7 +382,8 @@ impl Ingress {
         Self {
             backend,
             epoch,
-            transport_epoch: epoch,
+            transport_epoch: None,
+            host_failure: None,
             ev: Some(ev),
         }
     }
@@ -393,11 +396,38 @@ impl Ingress {
         ticket: Ticket,
         reply: Reply,
     ) -> Self {
+        Self::transport_event(backend, epoch, transport_epoch, AppEv::Reply(ticket, reply))
+    }
+
+    /// An outcome of work executed against this exact request handle.
+    pub fn transport_event(
+        backend: BackendId,
+        epoch: ConnEpoch,
+        transport_epoch: ConnEpoch,
+        ev: AppEv,
+    ) -> Self {
         Self {
             backend,
             epoch,
+            transport_epoch: Some(transport_epoch),
+            host_failure: None,
+            ev: Some(ev),
+        }
+    }
+
+    /// A startup ask ended fatally. Its owner must still hold the request before it can end the app.
+    pub fn host_failure(
+        epoch: ConnEpoch,
+        transport_epoch: Option<ConnEpoch>,
+        ticket: Ticket,
+        message: String,
+    ) -> Self {
+        Self {
+            backend: BackendId::default(),
+            epoch,
             transport_epoch,
-            ev: Some(AppEv::Reply(ticket, reply)),
+            host_failure: Some(ticket),
+            ev: Some(AppEv::StartFailed(message)),
         }
     }
 
@@ -410,7 +440,8 @@ impl Ingress {
         Self {
             backend,
             epoch,
-            transport_epoch,
+            transport_epoch: Some(transport_epoch),
+            host_failure: None,
             ev: None,
         }
     }
@@ -558,6 +589,11 @@ pub enum Command {
 }
 
 impl Command {
+    /// The identity a native host attaches to a fatal outcome of one startup ask.
+    pub fn host_ticket(&self) -> Option<Ticket> {
+        host_asks::ReplyKind::of_command(self).map(|(ticket, _)| ticket)
+    }
+
     fn ticket(&self) -> Option<Ticket> {
         match self {
             Self::StartThread { ticket, .. }
@@ -578,6 +614,8 @@ impl Command {
 #[derive(Debug, Default, PartialEq)]
 pub struct AppFx {
     pub(crate) commands: Vec<Command>,
+    /// The app loans its mint while a host-owning screen is reducing.
+    host_mint: TicketMint,
     /// Only commands that expect no reply use a dispatch address in the effects themselves.
     tells: BTreeMap<Ticket, Address>,
     /// The app ends: the connection did not start (the oracle ends with the error,
@@ -590,6 +628,14 @@ pub struct AppFx {
 }
 
 impl AppFx {
+    pub(crate) fn host_request_number(&mut self) -> u64 {
+        self.host_mint.next().seq()
+    }
+
+    pub(crate) fn host_command(&mut self, command: Command) {
+        self.commands.push(command);
+    }
+
     fn ask(
         &mut self,
         app: &mut CodexApp,
@@ -821,6 +867,8 @@ pub struct CodexApp {
     wishes: Rc<crate::features::Wishes>,
     mint: TicketMint,
     outgoing: Pending<AppCtx>,
+    host_outgoing: Pending<host_asks::ReplyKind>,
+    host_transport_lost: bool,
     /// The structured turns the features asked for and have no answer to yet.
     structured: structured::Runs,
     /// What was asked before the first thread exists, in order: it goes out
@@ -917,6 +965,8 @@ impl CodexApp {
             wishes: Rc::new(crate::features::Wishes::default()),
             mint: TicketMint::default(),
             outgoing: Pending::default(),
+            host_outgoing: Pending::default(),
+            host_transport_lost: false,
             structured: structured::Runs::default(),
             queued_submits: Vec::new(),
             attaching_events: VecDeque::new(),
@@ -1092,6 +1142,7 @@ impl CodexApp {
         }
         assert_eq!(self.threads.blank().id(), &ThreadId::default());
         let mut seen: Vec<Ticket> = self.outgoing.tickets().collect();
+        seen.extend(self.host_outgoing.tickets());
         for (id, model) in self.threads.iter() {
             assert_eq!(model.id(), id, "a model under another thread's key");
             if let TurnState::Running(running) = model.turn() {
@@ -1163,6 +1214,14 @@ impl CodexApp {
         command: &Command,
         tell: Option<Address>,
     ) -> Option<(BackendId, Option<Address>)> {
+        if let Some((ticket, kind)) = host_asks::ReplyKind::of_command(command) {
+            return host_asks::may_dispatch(self, ticket, kind)
+                .then(|| (BackendId::default(), kind.transport_address(self)));
+        }
+        if host_asks::uses_transport_without_reply(command) {
+            let address = self.address(BackendId::default());
+            return Some((address.backend, Some(address)));
+        }
         let address = match command {
             Command::ReconnectIdleThread { address, .. } => *address,
             _ => match command.ticket() {
@@ -1304,6 +1363,7 @@ impl CodexApp {
             session.epochs.insert(backend, epoch);
         }
         self.drop_requests_of(backend);
+        host_asks::lost(self, backend);
         self.retire_outgoing(backend, &mut AppFx::default());
         epoch
     }
@@ -1377,25 +1437,50 @@ impl CodexApp {
     /// sent (`None`, R1), applies the rest and returns the effects for the
     /// shell to run.
     pub fn ingest(&mut self, ingress: Ingress) -> Option<AppFx> {
+        self.ingest_inner(ingress, false)
+    }
+
+    /// Scripted screen facts may describe a phase without making its host request.
+    pub(crate) fn ingest_seeded_screen(&mut self, event: ScreenEv) -> Option<AppFx> {
+        self.ingest_inner(Ingress::new(self.epoch(), AppEv::Screen(event)), true)
+    }
+
+    fn ingest_inner(&mut self, ingress: Ingress, allow_seed: bool) -> Option<AppFx> {
         if ingress.epoch != self.epoch_of(ingress.backend) {
             return None;
         }
         let mut fx = AppFx::default();
+        let transport_epoch = ingress.transport_epoch.unwrap_or(ingress.epoch);
         let Some(event) = ingress.ev else {
-            if ingress.transport_epoch != self.transport_epoch_of(ingress.backend).next() {
+            if transport_epoch != self.transport_epoch_of(ingress.backend).next() {
                 return None;
             }
             self.transport_epochs
-                .insert(ingress.backend, ingress.transport_epoch);
+                .insert(ingress.backend, transport_epoch);
+            host_asks::transport_lost(self, ingress.backend);
             self.retire_outgoing(ingress.backend, &mut fx);
+            host_asks::transport_replaced(self, ingress.backend, &mut fx);
+            if ingress.backend == BackendId::default() {
+                read_session(self, &mut fx);
+            }
             finish_apply(self, false, &mut fx);
             return Some(fx);
         };
         let address = Address {
             backend: ingress.backend,
-            epoch: ingress.transport_epoch,
+            epoch: transport_epoch,
         };
-        if !self.accepts_reply(address, &event) {
+        if ingress.transport_epoch.is_some() && self.address(ingress.backend) != address {
+            return None;
+        }
+        if let Some(ticket) = ingress.host_failure
+            && !host_asks::accept_failure(self, address, ticket)
+        {
+            return None;
+        }
+        if !self.accepts_reply(address, &event)
+            || !host_asks::accept(self, address, &event, allow_seed)
+        {
             return None;
         }
         apply_at(self, ingress.backend, event, &mut fx);
@@ -1428,7 +1513,8 @@ pub fn apply_app(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
 /// `apply_app` for an event of backend `origin` (notifications and requests
 /// carry the backend they came from).
 pub fn apply_app_from(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
-    if !app.accepts_reply(app.address(origin), &ev) {
+    let address = app.address(origin);
+    if !app.accepts_reply(address, &ev) || !host_asks::accept(app, address, &ev, true) {
         return;
     }
     apply_at(app, origin, ev, fx);
@@ -1527,10 +1613,9 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             if app.first_thread == FirstThread::Never {
                 Rc::make_mut(&mut app.session).status = Session::Ready;
             }
-            crate::screens::onboarding::connected(
-                &mut Rc::make_mut(&mut app.screens).onboarding,
-                fx,
-            );
+            host_asks::step(app, fx, |screens, fx| {
+                crate::screens::onboarding::connected(&mut screens.onboarding, fx)
+            });
             read_session(app, fx);
             // the model catalog is read at connect (`refresh_available_models`): the tier
             // commands of the model and the footer's model name come from it
@@ -1558,6 +1643,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             set_status(app, Session::Failed(Failure::Message(message)));
         }
         AppEv::Disconnected => {
+            host_asks::lost(app, origin);
             connection::lost(app, origin, fx);
             // after the failures of the asks in flight: the session says the connection stopped
             if active_backend(app) == origin {
@@ -1693,12 +1779,11 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 ServerNotification::AccountLoginCompleted(_)
                     | ServerNotification::AccountUpdated(_)
                     | ServerNotification::GatewayOAuthChanged(_)
-            ) {
-                crate::screens::onboarding::observe(
-                    &mut Rc::make_mut(&mut app.screens).onboarding,
-                    &notification,
-                    fx,
-                );
+            ) && origin == BackendId::default()
+            {
+                host_asks::step(app, fx, |screens, fx| {
+                    crate::screens::onboarding::observe(&mut screens.onboarding, &notification, fx)
+                });
             }
             // The import flow: the completion of the import this client started.
             if matches!(
@@ -1974,6 +2059,12 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             if origin != BackendId::default() && matches!(ev, ScreenEv::Onboarding(_)) {
                 return;
             }
+            if matches!(
+                ev,
+                ScreenEv::Agents(agents::Ev::Notice(Some(agents::Notice::ReconnectFailed)))
+            ) {
+                host_asks::lost(app, origin);
+            }
             let background_reconnect = origin != app.screens.agents.displayed
                 && matches!(
                     ev,
@@ -2049,6 +2140,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         app.threads.previews_mut().clear();
                     }
                     if matches!(ev, ScreenEv::Agents(agents::Ev::Reconnecting)) {
+                        host_asks::transport_lost(app, origin);
                         connection::lost(app, origin, fx);
                         // An older page that will never come is a failed one: asking again
                         // retries it.
@@ -2082,7 +2174,12 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             let reconnected = matches!(ev, ScreenEv::Agents(agents::Ev::Reconnected));
             let startup = matches!(ev, ScreenEv::Cells(screens::cells::Ev::Startup(_)));
             if !background_reconnect {
-                screens::apply_ev(Rc::make_mut(&mut app.screens), ev, fx);
+                match ev {
+                    ScreenEv::Onboarding(_) | ScreenEv::Startup(_) | ScreenEv::Import(_) => {
+                        host_asks::step(app, fx, |screens, fx| screens::apply_ev(screens, ev, fx));
+                    }
+                    ev => screens::apply_ev(Rc::make_mut(&mut app.screens), ev, fx),
+                }
             }
             if startup {
                 // The facts came after the first conversation attached: it opens with its card now.
@@ -2090,10 +2187,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             }
             if reconnected && origin == BackendId::default() {
                 // The new server is told the startup facts again.
-                crate::screens::onboarding::connected(
-                    &mut Rc::make_mut(&mut app.screens).onboarding,
-                    fx,
-                );
+                host_asks::reconnected(app, fx);
                 read_session(app, fx);
             }
             release_held_start(app, fx);
@@ -2514,11 +2608,9 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                     }
                     _ => Err(()),
                 };
-                crate::screens::onboarding::session::read(
-                    &mut Rc::make_mut(&mut app.screens).onboarding,
-                    read,
-                    fx,
-                );
+                host_asks::step(app, fx, |screens, fx| {
+                    crate::screens::onboarding::session::read(&mut screens.onboarding, read, fx);
+                });
             }
             AppCtx::OpenSession { action, thread } => {
                 session_opened(app, action, thread, answer, fx);
@@ -2771,6 +2863,15 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
         Intent::Screen(ScreenIntent::Select(intent)) => {
             select::intent(app, intent, fx);
             confirmed(app, fx);
+        }
+        Intent::Screen(
+            intent @ (ScreenIntent::Onboarding(_)
+            | ScreenIntent::Startup(_)
+            | ScreenIntent::Import(_)),
+        ) => {
+            host_asks::step(app, fx, |screens, fx| {
+                screens::apply_intent(screens, intent, fx)
+            });
         }
         Intent::Screen(intent) => screens::apply_intent(Rc::make_mut(&mut app.screens), intent, fx),
         Intent::Feature(intent) => features::intent(app, intent, fx),
@@ -3782,7 +3883,7 @@ fn detach_threads(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx) {
 
 /// What a request that lost its connection fails with: the client's own words for a closed
 /// channel (the ticket's answer is a failure like any the server gives).
-const CONNECTION_LOST: &str = "the connection to the app server was closed";
+pub(crate) const CONNECTION_LOST: &str = "the connection to the app server was closed";
 
 fn is_attach(ctx: &AppCtx) -> bool {
     matches!(

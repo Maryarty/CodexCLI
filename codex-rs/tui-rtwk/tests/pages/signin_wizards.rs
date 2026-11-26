@@ -55,21 +55,15 @@ fn launch_offering(providers: Providers) -> (Harness, ConnEpoch) {
     let Some(epoch) = h.fake.epoch() else {
         panic!("the app attached no backend");
     };
-    h.fake.inject(
-        epoch,
-        ev(Ev::Facts {
-            request: 1,
-            facts: Facts {
-                sign_in: Some(Offer {
-                    chatgpt: true,
-                    api_key: true,
-                    providers,
-                    ..Offer::default()
-                }),
-                ..Facts::default()
-            },
+    h.answer_startup_facts(Facts {
+        sign_in: Some(Offer {
+            chatgpt: true,
+            api_key: true,
+            providers,
+            ..Offer::default()
         }),
-    );
+        ..Facts::default()
+    });
     h.wait_for("the sign-in menu", |s| s.contains("Sign in with ChatGPT"));
     h.t.resize(72, 24);
     h.settle();
@@ -1790,33 +1784,33 @@ mod gateway_device {
     }
 
     /// The app at the oracle's 80x16 with the launch's facts read (no step
-    /// due): the host is asked for the gateway's device code (request 2).
-    fn asked() -> (Harness, ConnEpoch) {
+    /// due): the host is asked for the gateway's device code.
+    fn asked() -> (Harness, ConnEpoch, u64) {
         let mut h = crate::common::start_driven(false, crate::common::WIDTH, crate::common::HEIGHT);
         h.settle();
         let Some(epoch) = h.fake.epoch() else {
             panic!("the app attached no backend");
         };
         h.t.resize(80, 16);
-        inject(
-            &mut h,
-            epoch,
-            ev(Ev::Facts {
-                request: 1,
-                facts: Facts::default(),
-            }),
-        );
-        (h, epoch)
+        h.answer_startup_facts(Facts::default());
+        let request = h.startup_request("the gateway device ask", |ask| match ask {
+            Ask::GatewayDevice {
+                request,
+                thread: None,
+            } => Some(*request),
+            _ => None,
+        });
+        (h, epoch, request)
     }
 
     /// The same with the code on screen.
     fn showing() -> (Harness, ConnEpoch) {
-        let (mut h, epoch) = asked();
+        let (mut h, epoch, request) = asked();
         inject(
             &mut h,
             epoch,
             ev(Ev::GatewayDevice {
-                request: 2,
+                request,
                 code: Some(DeviceCode {
                     login_id: "attempt".into(),
                     url: "https://login.example.com/device".into(),
@@ -1850,10 +1844,10 @@ person gave you this code, cancel.
     // launch's prompts.
     #[test]
     fn the_device_code_is_asked_once_the_facts_are_read() {
-        let (h, _) = asked();
+        let (h, _, request) = asked();
         assert!(
             asks(&h).contains(&Ask::GatewayDevice {
-                request: 2,
+                request,
                 thread: None
             }),
             "{:?}",
@@ -1874,7 +1868,7 @@ person gave you this code, cancel.
         let (mut h, epoch) = showing();
         inject(&mut h, epoch, changed(GatewayOAuthStatus::Succeeded, None));
         assert!(
-            asks(&h).contains(&Ask::Launch { request: 3 }),
+            asks(&h).iter().any(|ask| matches!(ask, Ask::Launch { .. })),
             "{:?}",
             asks(&h)
         );

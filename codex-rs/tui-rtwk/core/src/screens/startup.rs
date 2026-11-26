@@ -429,8 +429,6 @@ pub struct Model {
     /// What the prompts returned, oldest first; the flow that asked reads its
     /// answer here and the host acts on it (a config write, a restart).
     pub answers: Vec<Answer>,
-    /// The next id of a hooks trust request.
-    pub next_request: u64,
     /// The model an accepted migration prompt chose: new threads start on it
     /// (oracle: `config.model` is set before the session starts).
     accepted_model: Option<String>,
@@ -451,8 +449,24 @@ pub enum HistoryLine {
 }
 
 impl Model {
+    pub(crate) fn waits_for(&self, request: u64) -> bool {
+        self.saving_cwd == Some(request)
+            || matches!(&self.asked, Some(Prompt::Hooks(hooks)) if hooks.trust == Trust::Trusting(request))
+    }
+
     pub fn accepted_model(&self) -> Option<&str> {
         self.accepted_model.as_deref()
+    }
+}
+
+pub(crate) fn connection_lost(model: &mut Model, connector: bool) {
+    if let Some(Prompt::Hooks(hooks)) = &mut model.asked
+        && matches!(hooks.trust, Trust::Trusting(_))
+    {
+        hooks.trust = Trust::Failed(crate::app::CONNECTION_LOST.to_owned());
+    }
+    if connector && model.saving_cwd.take().is_some() {
+        model.history.push(HistoryLine::CwdPreferenceNotSaved);
     }
 }
 
@@ -534,7 +548,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
             // The acknowledgment is saved (`notice.hide_gov_cloud_guidance`).
             if answer == Answer::GovCloud {
-                fx.commands.push(AppCommand::Startup {
+                fx.host_command(AppCommand::Startup {
                     ask: onboarding::Ask::AcknowledgeGovCloud,
                 });
             }
@@ -545,7 +559,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 _ => None,
             };
             if let Some(choice) = daemon {
-                fx.commands.push(AppCommand::Startup {
+                fx.host_command(AppCommand::Startup {
                     ask: onboarding::Ask::DaemonChoice { choice },
                 });
             }
@@ -557,7 +571,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 _ => None,
             };
             if let Some(provider) = oss {
-                fx.commands.push(AppCommand::Startup {
+                fx.host_command(AppCommand::Startup {
                     ask: onboarding::Ask::OssChoice { provider },
                 });
             }
@@ -570,7 +584,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 if accepted {
                     model.accepted_model = Some(m.target_model.clone());
                 }
-                fx.commands.push(AppCommand::Startup {
+                fx.host_command(AppCommand::Startup {
                     ask: onboarding::Ask::SaveMigration {
                         from: m.current_model.clone(),
                         to: m.target_model.clone(),
@@ -585,13 +599,10 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             if let Answer::Cwd(selection) = answer
                 && let Some(mode) = cwd::remembered(selection)
             {
-                model.next_request += 1;
-                model.saving_cwd = Some(model.next_request);
-                fx.commands.push(AppCommand::Startup {
-                    ask: onboarding::Ask::SaveResumeCwd {
-                        request: model.next_request,
-                        mode,
-                    },
+                let request = fx.host_request_number();
+                model.saving_cwd = Some(request);
+                fx.host_command(AppCommand::Startup {
+                    ask: onboarding::Ask::SaveResumeCwd { request, mode },
                 });
             }
             model.asked = None;
@@ -604,11 +615,11 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             if matches!(hooks.trust, Trust::Trusting(_)) {
                 return;
             }
-            model.next_request += 1;
-            hooks.trust = Trust::Trusting(model.next_request);
-            fx.commands.push(AppCommand::Startup {
+            let request = fx.host_request_number();
+            hooks.trust = Trust::Trusting(request);
+            fx.host_command(AppCommand::Startup {
                 ask: onboarding::Ask::TrustHooks {
-                    request: model.next_request,
+                    request,
                     updates: hooks.updates.clone(),
                 },
             });
@@ -711,7 +722,9 @@ mod tests {
     fn a_stale_trust_result_is_dropped() {
         let mut model = hooks(Trust::Idle);
         fx_apply(&mut model, Intent::TrustHooks);
-        assert_eq!(model.next_request, 1);
+        assert!(
+            matches!(&model.asked, Some(Prompt::Hooks(hooks)) if hooks.trust == Trust::Trusting(1))
+        );
         fx_ev(
             &mut model,
             Ev::HooksTrusted {
@@ -760,7 +773,9 @@ mod tests {
         let mut model = hooks(Trust::Idle);
         fx_apply(&mut model, Intent::TrustHooks);
         fx_apply(&mut model, Intent::TrustHooks);
-        assert_eq!(model.next_request, 1);
+        assert!(
+            matches!(&model.asked, Some(Prompt::Hooks(hooks)) if hooks.trust == Trust::Trusting(1))
+        );
         fx_apply(&mut model, Intent::Answer(Answer::Hooks(HooksChoice::Skip)));
         assert!(model.asked.is_some() && model.answers.is_empty());
     }

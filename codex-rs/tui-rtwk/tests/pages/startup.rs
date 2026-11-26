@@ -4,6 +4,33 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use crate::common::slot;
+use codex_tui_core::app::Command;
+use codex_tui_core::screens::onboarding::Ask;
+use codex_tui_rtwk::services::backend::fake::FakeHandle;
+
+fn startup_request(fake: &FakeHandle, read: impl Fn(&Ask) -> Option<u64>) -> Option<u64> {
+    fake.commands()
+        .iter()
+        .rev()
+        .find_map(|command| match command {
+            Command::Startup { ask, .. } => read(ask),
+            _ => None,
+        })
+}
+
+fn device(ask: &Ask) -> Option<u64> {
+    match ask {
+        Ask::GatewayDevice { request, .. } => Some(*request),
+        _ => None,
+    }
+}
+
+fn launch(ask: &Ask) -> Option<u64> {
+    match ask {
+        Ask::Launch { request } => Some(*request),
+        _ => None,
+    }
+}
 
 #[test]
 fn startup_slot_is_registered_and_empty() {
@@ -13,9 +40,10 @@ fn startup_slot_is_registered_and_empty() {
 // The host can expose an editable startup draft for an established local launch.
 // A first sign-in or a start page still waits for the startup decision.
 mod gate {
+    use super::{device, launch, startup_request};
     use codex_tui_core::app::{AppEv, Command};
     use codex_tui_core::screens::ScreenEv;
-    use codex_tui_core::screens::onboarding::{Ev, Facts, TrustAsk, TrustCancel, Welcome};
+    use codex_tui_core::screens::onboarding::{Ask, Ev, Facts, TrustAsk, TrustCancel, Welcome};
     use codex_tui_core::screens::startup;
 
     use crate::common::{Harness, ms, start_app};
@@ -36,24 +64,34 @@ mod gate {
         );
     }
 
-    /// The host's answers to the asks that follow the facts: no gateway
-    /// device code (`Ask::GatewayDevice`, request 2), then the launch's
-    /// (`Ask::Launch`, request 3).
-    fn launched(h: &Harness, prompts: Vec<startup::Prompt>) {
+    fn wait_request(h: &mut Harness, read: impl Fn(&Ask) -> Option<u64>) -> u64 {
+        h.wait_until("the startup ask", |h| {
+            startup_request(&h.fake, &read).is_some()
+        });
+        startup_request(&h.fake, read).expect("the startup ask")
+    }
+
+    fn trust_saved(h: &mut Harness) {
+        let request = wait_request(h, |ask| match ask {
+            Ask::WriteTrust { request, .. } => Some(*request),
+            _ => None,
+        });
+        inject(h, Ev::TrustSaved { request });
+    }
+
+    /// The host's answers to the asks that follow the facts: no gateway device code, then the
+    /// prompts due for this launch.
+    fn launched(h: &mut Harness, prompts: Vec<startup::Prompt>) {
+        let request = wait_request(h, device);
         inject(
             h,
             Ev::GatewayDevice {
-                request: 2,
+                request,
                 code: None,
             },
         );
-        inject(
-            h,
-            Ev::Launched {
-                request: 3,
-                prompts,
-            },
-        );
+        let request = wait_request(h, launch);
+        inject(h, Ev::Launched { request, prompts });
     }
 
     fn hooks_due() -> startup::Prompt {
@@ -103,7 +141,7 @@ mod gate {
             h.t.pump_for(ms(5));
             assert!(!h.t.screen().contains(CHAT), "the chat before the launch");
         }
-        launched(&h, Vec::new());
+        launched(&mut h, Vec::new());
         h.wait_for("the chat", |s| s.contains(CHAT));
     }
 
@@ -146,23 +184,10 @@ mod gate {
         assert!(turn_starts(&h).is_empty());
         assert_eq!(thread_starts(&h), 0);
         h.press("enter");
-        inject(&h, Ev::TrustSaved { request: 2 });
+        trust_saved(&mut h);
         h.settle();
         assert_eq!(thread_starts(&h), 0);
-        inject(
-            &h,
-            Ev::GatewayDevice {
-                request: 3,
-                code: None,
-            },
-        );
-        inject(
-            &h,
-            Ev::Launched {
-                request: 4,
-                prompts: Vec::new(),
-            },
-        );
+        launched(&mut h, Vec::new());
         h.wait_until("the confirmed turn", |h| !turn_starts(h).is_empty());
         h.settle();
         assert_eq!(thread_starts(&h), 1);
@@ -178,7 +203,7 @@ mod gate {
         assert!(h.t.screen().contains("› typed before the backend is ready"));
         assert!(turn_starts(&h).is_empty());
         answer(&h, Facts::default());
-        launched(&h, Vec::new());
+        launched(&mut h, Vec::new());
         h.wait_until("the fresh thread", |h| thread_starts(h) == 1);
         h.settle();
         h.t.type_text(" and kept");
@@ -201,24 +226,10 @@ mod gate {
         h.wait_for("the trust prompt", |s| s.contains("trust"));
         assert_eq!(thread_starts(&h), 0, "{}", h.t.screen());
         h.press("enter");
-        inject(&h, Ev::TrustSaved { request: 2 });
+        trust_saved(&mut h);
         h.settle();
         assert_eq!(thread_starts(&h), 0, "the prompts are still to be read");
-        // The device code is asked under 3 and the launch under 4 now.
-        inject(
-            &h,
-            Ev::GatewayDevice {
-                request: 3,
-                code: None,
-            },
-        );
-        inject(
-            &h,
-            Ev::Launched {
-                request: 4,
-                prompts: Vec::new(),
-            },
-        );
+        launched(&mut h, Vec::new());
         h.wait_for("the chat", |s| s.contains(CHAT));
         // The screen can be ahead of what the fake has recorded.
         h.wait_until("the thread start", |h| thread_starts(h) >= 1);
@@ -233,7 +244,7 @@ mod gate {
         answer(&h, Facts::default());
         h.settle();
         assert_eq!(thread_starts(&h), 0);
-        launched(&h, Vec::new());
+        launched(&mut h, Vec::new());
         h.wait_for("the chat", |s| s.contains(CHAT));
         // The screen can be ahead of what the fake has recorded.
         h.wait_until("the thread start", |h| thread_starts(h) >= 1);
@@ -250,7 +261,7 @@ mod gate {
         let mut h = start_app(|app| app.with_awaited_facts(true).with_start_resume(true));
         h.settle();
         answer(&h, Facts::default());
-        launched(&h, vec![hooks_due()]);
+        launched(&mut h, vec![hooks_due()]);
         h.wait_for("the hooks review", |s| s.contains("hooks"));
         assert_eq!(resume_page.count(&h.t), 0, "{}", h.t.screen());
         h.press("esc");
@@ -266,7 +277,7 @@ mod gate {
         let mut h = start_app(|app| app.with_awaited_facts(true).with_start_resume(true));
         h.settle();
         answer(&h, Facts::default());
-        launched(&h, Vec::new());
+        launched(&mut h, Vec::new());
         h.wait_until("the resume picker", |h| resume_page.count(&h.t) == 1);
         h.settle();
         assert_eq!(thread_starts(&h), 0, "{}", h.t.screen());
@@ -317,7 +328,7 @@ mod gate {
         let mut h = awaiting();
         h.settle();
         answer(&h, Facts::default());
-        launched(&h, vec![hooks_due()]);
+        launched(&mut h, vec![hooks_due()]);
         let mut seen = false;
         for _ in 0..200 {
             // the injected event comes from the fake server's thread: wall
@@ -360,6 +371,7 @@ mod gate {
 // for its directory when it differs from this one (the cwd prompt), and opens
 // it in place of a fresh thread (oracle: `run_ratatui_app`).
 mod session {
+    use super::{device, launch, startup_request};
     use std::sync::OnceLock;
 
     use codex_tui_core::app::AppEv;
@@ -506,21 +518,21 @@ mod session {
                     ..Facts::default()
                 },
             });
+            self.until("the device ask", |r| {
+                startup_request(&r.fake, device).is_some()
+            });
             self.inject(Ev::GatewayDevice {
-                request: 2,
+                request: startup_request(&self.fake, device).expect("device ask"),
                 code: None,
             });
             // The launch is asked once the session read is answered and the
             // gateway step is over, on the shell's thread: an answer sent
             // before the ask is dropped as stale.
             self.until("the launch ask", |r| {
-                r.fake
-                    .commands()
-                    .iter()
-                    .any(|c| format!("{c:?}").contains("Launch { request: 3 }"))
+                startup_request(&r.fake, launch).is_some()
             });
             self.inject(Ev::Launched {
-                request: 3,
+                request: startup_request(&self.fake, launch).expect("launch ask"),
                 prompts: Vec::new(),
             });
         }

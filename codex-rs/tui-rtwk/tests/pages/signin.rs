@@ -33,6 +33,13 @@ fn logins(h: &Harness) -> Vec<Ask> {
         .collect()
 }
 
+fn login_request(asks: &[Ask], expected: Login) -> u64 {
+    match asks {
+        [Ask::Login { request, login }] if *login == expected => *request,
+        other => panic!("expected one {expected:?} login, got {other:?}"),
+    }
+}
+
 fn ev(ev: Ev) -> AppEv {
     AppEv::Screen(ScreenEv::Onboarding(ev))
 }
@@ -45,16 +52,10 @@ fn launch(offer: Offer) -> (Harness, ConnEpoch) {
     let Some(epoch) = h.fake.epoch() else {
         panic!("the app attached no backend");
     };
-    h.fake.inject(
-        epoch,
-        ev(Ev::Facts {
-            request: 1,
-            facts: Facts {
-                sign_in: Some(offer),
-                ..Facts::default()
-            },
-        }),
-    );
+    h.answer_startup_facts(Facts {
+        sign_in: Some(offer),
+        ..Facts::default()
+    });
     h.wait_for("the sign-in menu", |s| s.contains("Sign in with ChatGPT"));
     (h, epoch)
 }
@@ -81,13 +82,7 @@ fn chatgpt_sign_in_runs_through_the_host_and_drops_stale_results() {
     let (mut h, epoch) = launch(offer());
     h.press("enter");
     h.settle();
-    assert_eq!(
-        logins(&h),
-        [Ask::Login {
-            request: 2,
-            login: Login::ChatGpt,
-        }]
-    );
+    let request = login_request(&logins(&h), Login::ChatGpt);
     let browser = |request| {
         ev(Ev::Auth(AuthResult {
             request,
@@ -97,21 +92,17 @@ fn chatgpt_sign_in_runs_through_the_host_and_drops_stale_results() {
             },
         }))
     };
-    h.fake.inject(epoch, browser(9));
+    h.fake.inject(epoch, browser(request + 1));
     h.settle();
     assert!(
         !h.t.screen().contains("Finish signing in"),
         "a stale result opens nothing:\n{}",
         h.t.screen()
     );
-    // ... and the login it started is cancelled (review O1).
-    assert_eq!(
-        logins(&h)[1..],
-        [Ask::CancelLogin {
-            login_id: "login-1".into(),
-        }]
-    );
-    h.fake.inject(epoch, browser(2));
+    // A reply for an unissued request has no login to cancel. A late result for an issued,
+    // cancelled attempt is covered by the core's registered-login cleanup regression.
+    assert_eq!(login_request(&logins(&h), Login::ChatGpt), request);
+    h.fake.inject(epoch, browser(request));
     h.wait_for("the browser link", |s| {
         s.contains("Finish signing in via your browser") && s.contains("https://auth.example/login")
     });
@@ -119,14 +110,16 @@ fn chatgpt_sign_in_runs_through_the_host_and_drops_stale_results() {
     h.wait_for("the menu again", |s| s.contains("Sign in with ChatGPT"));
     h.settle();
     assert_eq!(
-        logins(&h)[2..],
+        logins(&h)[1..],
         [Ask::CancelLogin {
             login_id: "login-1".into(),
         }]
     );
     h.press("enter");
     h.settle();
-    h.fake.inject(epoch, browser(3));
+    let fresh = login_request(&logins(&h)[2..], Login::ChatGpt);
+    assert_ne!(fresh, request);
+    h.fake.inject(epoch, browser(fresh));
     h.wait_for("the browser link", |s| s.contains("Finish signing in"));
     h.fake.inject(
         epoch,
@@ -174,17 +167,11 @@ fn a_held_enter_saves_the_prefilled_key_only_when_fresh() {
     h.press("left");
     input(&mut h, PRESS_ENTER);
     h.settle();
-    assert_eq!(
-        logins(&h),
-        [Ask::Login {
-            request: 2,
-            login: Login::ApiKey("sk-env".into()),
-        }]
-    );
+    let request = login_request(&logins(&h), Login::ApiKey("sk-env".into()));
     h.fake.inject(
         epoch,
         ev(Ev::Auth(AuthResult {
-            request: 2,
+            request,
             outcome: Outcome::ApiKeySaved,
         })),
     );
@@ -207,25 +194,20 @@ fn a_login_link_hides_the_logo_and_a_quit_cancels_the_login() {
     let mut h = crate::common::start_sized(false, 80, 44);
     h.settle();
     let epoch = h.fake.epoch().expect("attached");
-    h.fake.inject(
-        epoch,
-        ev(Ev::Facts {
-            request: 1,
-            facts: Facts {
-                welcome: Some(Welcome { animations: true }),
-                sign_in: Some(offer()),
-                ..Facts::default()
-            },
-        }),
-    );
+    h.answer_startup_facts(Facts {
+        welcome: Some(Welcome { animations: true }),
+        sign_in: Some(offer()),
+        ..Facts::default()
+    });
     h.wait_for("the sign-in menu", |s| s.contains("Sign in with ChatGPT"));
     assert_eq!(welcome_row(&h.t.screen()), Some(22), "the logo above it");
     h.press("enter");
     h.settle();
+    let request = login_request(&logins(&h), Login::ChatGpt);
     h.fake.inject(
         epoch,
         ev(Ev::Auth(AuthResult {
-            request: 2,
+            request,
             outcome: Outcome::Browser {
                 login_id: "login-1".into(),
                 url: "https://auth.example/login".into(),
@@ -261,18 +243,11 @@ fn logo_rows(screen: &str) -> String {
 fn the_welcome_logo_stops_and_fades_while_the_api_key_is_typed() {
     let mut h = crate::common::start_sized(false, 80, 44);
     h.settle();
-    let epoch = h.fake.epoch().expect("attached");
-    h.fake.inject(
-        epoch,
-        ev(Ev::Facts {
-            request: 1,
-            facts: Facts {
-                welcome: Some(Welcome { animations: true }),
-                sign_in: Some(offer()),
-                ..Facts::default()
-            },
-        }),
-    );
+    h.answer_startup_facts(Facts {
+        welcome: Some(Welcome { animations: true }),
+        sign_in: Some(offer()),
+        ..Facts::default()
+    });
     h.wait_for("the sign-in menu", |s| s.contains("Sign in with ChatGPT"));
     // The menu: the logo plays.
     h.t.pump_for(Duration::from_millis(500));
@@ -344,15 +319,14 @@ fn gcp_setup_is_asked_of_the_host_refused_and_retried() {
     h.t.resize(40, 18);
     h.press("enter");
     h.settle();
-    let setup = |project: &str, credential: &str| Ask::Login {
-        request: 2,
-        login: Login::Provider(Setup::Gcp(gcp::Params {
-            project_id: project.into(),
+    let setup = |credential: Option<&str>| {
+        Login::Provider(Setup::Gcp(gcp::Params {
+            project_id: "test-project".into(),
             location: None,
-            credential_file: Some(credential.into()),
-        })),
+            credential_file: credential.map(str::to_owned),
+        }))
     };
-    assert_eq!(logins(&h), [setup("test-project", "relative-adc.json")]);
+    let request = login_request(&logins(&h), setup(Some("relative-adc.json")));
     assert!(
         h.t.screen().contains("Validating credentials and saving"),
         "{}",
@@ -367,7 +341,7 @@ fn gcp_setup_is_asked_of_the_host_refused_and_retried() {
     h.fake.inject(
         epoch,
         answer(
-            2,
+            request,
             Err("provider credential_file must be an absolute path".into()),
         ),
     );
@@ -400,21 +374,12 @@ absolute path";
     h.press("ctrl+u");
     h.press("enter");
     h.settle();
-    assert_eq!(
-        logins(&h)[1..],
-        [Ask::Login {
-            request: 3,
-            login: Login::Provider(Setup::Gcp(gcp::Params {
-                project_id: "test-project".into(),
-                location: None,
-                credential_file: None,
-            })),
-        }]
-    );
-    h.fake.inject(epoch, answer(2, Ok(Answer::Written)));
+    let fresh = login_request(&logins(&h)[1..], setup(None));
+    assert_ne!(fresh, request);
+    h.fake.inject(epoch, answer(request, Ok(Answer::Written)));
     h.settle();
     assert!(!h.t.screen().contains("configured"), "stale");
-    h.fake.inject(epoch, answer(3, Ok(Answer::Written)));
+    h.fake.inject(epoch, answer(fresh, Ok(Answer::Written)));
     // The oracle's `{Bedrock,Gcp}Configured` completes the step: the screen
     // ends and the launch goes on, the gateway device code first (its
     // configured line is not kept).

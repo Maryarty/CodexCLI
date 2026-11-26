@@ -637,7 +637,7 @@ impl Script {
                         line: *line,
                         message: format!("{err:?}"),
                     })?;
-                    ingest(app, AppEv::Screen(ev));
+                    app.ingest_seeded_screen(ev);
                 }
                 Step::Clock { .. } => {
                     let now = step

@@ -81,23 +81,23 @@ fn the_startup_page_opens_on_the_launch_facts_and_writes_the_trust() {
     h.wait_for("the trust prompt", |s| s.contains("Folder access"));
     h.press("enter");
     h.settle();
-    assert_eq!(
-        asks(&h),
-        [
-            Ask::Facts { request: 1 },
-            Ask::WriteTrust {
-                request: 2,
-                target: "/workspace/project".into(),
-            },
-        ]
-    );
+    let asks = asks(&h);
+    let [
+        Ask::Facts { request: facts },
+        Ask::WriteTrust { request, target },
+    ] = asks.as_slice()
+    else {
+        panic!("launch facts and one trust write: {asks:?}");
+    };
+    assert_eq!(target, "/workspace/project");
+    assert_ne!(request, facts);
     assert!(
         h.t.screen().contains("Folder access"),
         "the write is awaited"
     );
     h.fake.inject(
         epoch,
-        AppEv::Screen(ScreenEv::Onboarding(Ev::TrustSaved { request: 2 })),
+        AppEv::Screen(ScreenEv::Onboarding(Ev::TrustSaved { request: *request })),
     );
     h.wait_for("the chat", |s| !s.contains("Folder access"));
 }
@@ -169,15 +169,16 @@ fn update_now_quits_the_app_only_after_the_host_stored_the_update() {
     h.wait_for("the update prompt", |s| s.contains("Update available"));
     h.press("1");
     h.settle();
-    assert_eq!(
-        asks(&h),
-        [Ask::Facts { request: 1 }, Ask::RunUpdate { request: 2 }]
-    );
+    let asks = asks(&h);
+    let [Ask::Facts { request: facts }, Ask::RunUpdate { request }] = asks.as_slice() else {
+        panic!("launch facts and one stored update: {asks:?}");
+    };
+    assert_ne!(request, facts);
     assert!(h.t.is_running(), "waits for the host");
     assert!(h.t.screen().contains("Update available"));
     h.fake.inject(
         epoch,
-        AppEv::Screen(ScreenEv::Onboarding(Ev::UpdateQueued { request: 2 })),
+        AppEv::Screen(ScreenEv::Onboarding(Ev::UpdateQueued { request: *request })),
     );
     h.settle();
     assert!(!h.t.is_running(), "quits once the update is stored");
@@ -275,4 +276,67 @@ fn the_startup_steps_still_open_after_the_provider_pick() {
         })),
     );
     h.wait_for("the trust prompt", |s| s.contains("Folder access"));
+}
+
+#[test]
+fn only_an_accepted_startup_failure_reaches_the_process_exit_slot() {
+    use codex_tui_core::app::{Ingress, Session};
+    use codex_tui_core::threads::Failure;
+    use codex_tui_rtwk::app::UiApp;
+    use std::sync::{Arc, Mutex};
+
+    for stale in [true, false] {
+        let slot = Arc::new(Mutex::new(None));
+        let mut h = crate::common::start_app(|app| {
+            app.with_awaited_facts(true)
+                .with_startup_failure_slot(slot.clone())
+        });
+        h.settle();
+        let facts = h
+            .fake
+            .commands()
+            .into_iter()
+            .find(|command| {
+                matches!(
+                    command,
+                    Command::Startup {
+                        ask: Ask::Facts { .. },
+                        ..
+                    }
+                )
+            })
+            .expect("the launch facts command");
+        let epoch = h.fake.epoch().expect("attached");
+        let message = "account/read failed";
+        if stale {
+            let Command::Startup {
+                ask: Ask::Facts { request },
+                ..
+            } = facts
+            else {
+                panic!("launch facts");
+            };
+            h.inject([AppEv::Screen(ScreenEv::Onboarding(Ev::Facts {
+                request,
+                facts: trust_facts(),
+            }))]);
+        }
+        h.fake.inject_ingress(Ingress::host_failure(
+            epoch,
+            Some(epoch),
+            facts.host_ticket().expect("host ticket"),
+            message.into(),
+        ));
+        h.settle();
+        assert_eq!(
+            slot.lock().expect("launch failure slot").as_deref(),
+            (!stale).then_some(message)
+        );
+        let failed = h.t.read_app(|app: &UiApp| {
+            matches!(
+                &app.core.session().status, Session::Failed(Failure::Message(why)) if why == message
+            )
+        });
+        assert_eq!(failed, !stale);
+    }
 }

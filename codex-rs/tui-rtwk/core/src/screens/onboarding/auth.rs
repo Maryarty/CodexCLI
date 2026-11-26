@@ -260,7 +260,10 @@ impl SignIn {
     /// The API key entry is the step's body (`is_text_entry_active`).
     pub fn is_text_entry(&self) -> bool {
         matches!(self.state, State::ApiKey { .. })
-            || self.wizard.as_ref().is_some_and(provider::Wizard::is_text_entry)
+            || self
+                .wizard
+                .as_ref()
+                .is_some_and(provider::Wizard::is_text_entry)
     }
 
     /// `disallow_api_login`.
@@ -448,7 +451,8 @@ pub fn apply_result(
     asks: &mut Vec<Ask>,
 ) {
     let AuthResult { request, outcome } = result;
-    let device = matches!(sign_in.state, State::DeviceCode { request: r, code: None } if r == request);
+    let device =
+        matches!(sign_in.state, State::DeviceCode { request: r, code: None } if r == request);
     let awaited = sign_in
         .awaiting
         .as_ref()
@@ -531,6 +535,19 @@ pub fn apply_result(
             sign_in.error = Some(Error::Unexpected(format!("{other:?}")));
         }
         (None, _) => {}
+    }
+}
+
+/// Stop awaiting credentials or a browser/device attempt from the replaced server.
+pub(super) fn transport_lost(sign_in: &mut SignIn) {
+    let awaiting = sign_in.awaiting.take().is_some();
+    match sign_in.state {
+        State::Browser { .. } | State::DeviceCode { .. } => sign_in.state = State::Pick,
+        State::Provider(_) if awaiting => {
+            sign_in.wizard = None;
+            sign_in.state = State::Pick;
+        }
+        _ => {}
     }
 }
 

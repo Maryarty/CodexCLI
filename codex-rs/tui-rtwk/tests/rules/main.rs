@@ -4,6 +4,7 @@
 //! file is a new line here (`every_test_file_is_registered` fails without it).
 
 mod adr013;
+mod asks;
 mod carried;
 mod connection;
 mod dead_state;
