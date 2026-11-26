@@ -997,7 +997,7 @@ pub enum ThreadCtx {
     StartTurn {
         interrupt: bool,
         message: UserMessage,
-        /// Cleared when an item confirms this submission before the RPC reply.
+        /// Cleared when an item confirms the submission or stream loss moves it to the queue.
         client_id: Option<String>,
         /// The instruction a misalignment failure's review was acknowledged for: its failure
         /// words nothing of the message (`safety::Verb::Continue`).
@@ -2230,6 +2230,20 @@ fn start_temporary(request_id: RequestId, temporary: &structured::Temporary) -> 
     }
 }
 
+/// Lower both local submission intents to the pinned Cloud StartOrSteer input.
+pub fn cloud_submit_params(request: ClientRequest) -> Option<TurnStartParams> {
+    match request {
+        ClientRequest::TurnStart { params, .. } => Some(params),
+        ClientRequest::TurnSteer { params, .. } => Some(TurnStartParams {
+            thread_id: params.thread_id,
+            input: params.input,
+            client_user_message_id: params.client_user_message_id,
+            ..TurnStartParams::default()
+        }),
+        _ => None,
+    }
+}
+
 /// The effects of one thread's `apply`: thread RPCs, with the thread id
 /// and the ticket stamped (R3). This is the only way a thread RPC is made.
 pub struct ThreadFx<'a> {
@@ -2243,6 +2257,8 @@ pub struct ThreadFx<'a> {
     /// The server's collaboration-mode presets at this moment (the app's fact, stamped per
     /// event by `apply_thread`): what a switch of the mode chooses from.
     modes: &'a [screens::select::collaboration::Mask],
+    /// The thread's backend uses native admission, with exact live receipts.
+    cloud: bool,
     /// The app's facts at this moment (the clock the host told, the account, the `[tui]`
     /// settings): what a live completion falls back to when the server's turn carries no duration
     /// or completion time, and what a feature's thread step reads through `ThreadCx::facts`.
@@ -2259,8 +2275,14 @@ impl<'a> ThreadFx<'a> {
             registered: Vec::new(),
             daybreak: Daybreak::Apply,
             modes: &[],
+            cloud: false,
             facts: None,
         }
+    }
+
+    pub(crate) fn with_cloud(mut self, cloud: bool) -> Self {
+        self.cloud = cloud;
+        self
     }
 
     /// The same, with the app's facts of the moment.
@@ -2953,9 +2975,17 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             model.steers_after_interrupt = false;
             model.slots.chat.connection_lost();
         }
+        ThreadEv::ConnectionLost if fx.cloud => retire_submissions(model),
         ThreadEv::ConnectionLost => {}
         ThreadEv::StreamLost => {
+            // Cloud can report the stream loss and then reject admission on the same connection.
             hold_unconfirmed(model);
+            if fx.cloud {
+                model.core.reconciling_submissions |=
+                    matches!(model.queue.first(), Some(Queued::Unconfirmed { .. }));
+            } else {
+                retire_submissions(model);
+            }
             model.core.stream_lost = true;
         }
         ThreadEv::StreamRestored { read, reconciled } => {
@@ -3119,9 +3149,13 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             // yet) the message waits in the queue; with none running it starts
             // a turn, after any older queued message.
             let starting = model.outgoing.any(is_start_turn);
-            // The thread's stream is lost: nothing goes out, a steer included, until it is back
-            // (`should_submit_now`).
-            if model.stream_lost || model.reconciling_submissions {
+            // During recovery or ambiguous admission, later input stays queued. After a Cloud
+            // turn ends, its in-flight steers can still decide whether the next input may start.
+            if model.stream_lost
+                || model.reconciling_submissions
+                || (fx.cloud && matches!(model.queue.first(), Some(Queued::Unconfirmed { .. })))
+                || (!model.is_running() && cloud_admission_pending(model, fx))
+            {
                 enqueue(model, Queued::Message(message), fx);
                 return;
             }
@@ -3206,7 +3240,11 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             let answer = match result {
                 crate::rpc::ReplyResult::Answer(answer) => answer,
                 crate::rpc::ReplyResult::SubmissionUnconfirmed(_) => {
-                    hold_submission_reply(model, ticket, ctx);
+                    hold_submission_reply(model, ticket, ctx, true);
+                    return;
+                }
+                crate::rpc::ReplyResult::CloudSubmission(result) => {
+                    cloud_submission_reply(model, ticket, ctx, result, fx);
                     return;
                 }
             };
@@ -3524,10 +3562,10 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             note_review(model, &item);
             let (echo, released) = match receipt {
                 Some(UserItemEcho::ClientId(id)) => reconcile_id(model, &id),
-                Some(UserItemEcho::Legacy { text, images }) => {
+                Some(UserItemEcho::Legacy { text, images }) if !fx.cloud => {
                     (reconcile_legacy_steer(model, &key, (text, images)), false)
                 }
-                None => (false, false),
+                _ => (false, false),
             };
             let turn_finished = model.finished_turns.contains(&key.turn);
             if !model.authoritative_turns.contains(&key.turn)
@@ -3776,12 +3814,13 @@ fn end_turn(model: &mut ThreadModel, turn: TurnId, end: TurnEnd, fx: &mut Thread
 /// Esc or budget exhaustion ended the turn (`on_interrupted_server_turn`).
 /// With `steers_after_interrupt` the steers go out as one message now; else
 /// what waits (rejected and pending steers, then the queue) goes back to the
-/// composer, never auto-sent. A steer the server admitted to another turn
-/// is left alone.
+/// composer, never auto-sent. Cloud steers still wait for admission or an exact item echo.
+/// A steer admitted to another turn is also left alone.
 fn interrupted(model: &mut ThreadModel, turn: &TurnId, fx: &mut ThreadFx<'_>) {
+    let awaiting_admission = cloud_admission_pending(model, fx);
     let (later, mine): (Vec<_>, Vec<_>) = std::mem::take(&mut model.pending_steers)
         .into_iter()
-        .partition(|steer| steer.admitted.as_ref().is_some_and(|id| id != turn));
+        .partition(|steer| fx.cloud || steer.admitted.as_ref().is_some_and(|id| id != turn));
     let submit = std::mem::take(&mut model.steers_after_interrupt);
     // `on_interrupted_turn`: the steer notice when Esc sent the steers, else
     // the budget's message when the goal stopped the turn, else the plain one.
@@ -3805,7 +3844,8 @@ fn interrupted(model: &mut ThreadModel, turn: &TurnId, fx: &mut ThreadFx<'_>) {
     } else {
         let mut messages = std::mem::take(&mut model.rejected_steers);
         messages.extend(mine.into_iter().map(|steer| steer.message));
-        if !model.reconciling_submissions
+        if !awaiting_admission
+            && !model.reconciling_submissions
             && !matches!(model.queue.first(), Some(Queued::Unconfirmed { .. }))
         {
             messages.extend(model.queue.drain(..).map(Queued::into_message));
@@ -3876,26 +3916,142 @@ fn give_back(model: &mut ThreadModel, messages: Vec<UserMessage>, replace: bool)
     });
 }
 
-/// A transport reply can precede the loss event. It owns just this submission.
-fn hold_submission_reply(model: &mut ThreadModel, ticket: Ticket, ctx: ThreadCtx) {
+/// A reply can put just its own submission on hold, if the exact echo was not seen yet.
+fn hold_submission_reply(
+    model: &mut ThreadModel,
+    ticket: Ticket,
+    ctx: ThreadCtx,
+    await_restore: bool,
+) -> bool {
+    let Some((submitted, client_id, message)) = take_pending_submission(model, ticket, ctx) else {
+        return false;
+    };
+    hold_submission(model, submitted, client_id, message, await_restore);
+    true
+}
+
+fn take_pending_submission(
+    model: &mut ThreadModel,
+    ticket: Ticket,
+    ctx: ThreadCtx,
+) -> Option<(Ticket, String, UserMessage)> {
     match ctx {
         ThreadCtx::StartTurn {
             message,
             client_id: Some(client_id),
             ..
-        } => {
-            hold_submission(model, ticket, client_id, message);
-        }
+        } => Some((ticket, client_id, message)),
         ThreadCtx::Screen(ScreenCtx::Chat(screens::chat::Ctx::Steer { client_id, .. })) => {
+            let index = pending_steer(model, &client_id)?;
+            let steer = model.pending_steers.remove(index);
+            let (submitted, id) = steer.submission?;
+            Some((submitted, id, steer.message))
+        }
+        _ => None,
+    }
+}
+
+fn cloud_submission_reply(
+    model: &mut ThreadModel,
+    ticket: Ticket,
+    ctx: ThreadCtx,
+    result: crate::rpc::CloudSubmission,
+    fx: &mut ThreadFx<'_>,
+) {
+    use crate::rpc::CloudSubmission;
+
+    let held = model.queue.iter().position(
+        |entry| matches!(entry, Queued::Unconfirmed { submitted, .. } if *submitted == ticket),
+    );
+    let (turn, started) = match result {
+        CloudSubmission::Started(turn) => (turn, true),
+        CloudSubmission::Steered(turn) => (turn, false),
+        CloudSubmission::Duplicate | CloudSubmission::Unconfirmed(_) => {
+            let held = held.is_some() || hold_submission_reply(model, ticket, ctx, false);
+            if held && let CloudSubmission::Unconfirmed(message) = result {
+                model.last_error = Some(Failure::Message(message));
+            } else if !held && !model.busy() {
+                send_next(model, fx);
+            }
+            return;
+        }
+        CloudSubmission::Preflight(error) => {
+            let rejected = match held {
+                Some(index) => Some(model.queue.remove(index).into_message()),
+                None => take_pending_submission(model, ticket, ctx).map(|(_, _, message)| message),
+            };
+            if let Some(message) = rejected {
+                model.last_error = Some(Failure::Message(error));
+                recover(model, message);
+            }
+            return;
+        }
+    };
+    // Once the attachment is lost, only the exact live item or recovered history clears a hold.
+    if held.is_some() || model.stream_lost || model.reconciling_submissions {
+        return;
+    }
+    let (expected, message, interrupt) = match ctx {
+        ThreadCtx::StartTurn {
+            interrupt,
+            message,
+            client_id,
+            ..
+        } => {
+            if !started && let Some(client_id) = client_id {
+                model.pending_steers.push(PendingSteer {
+                    message: message.clone(),
+                    submission: Some((ticket, client_id)),
+                    admitted: Some(turn.clone()),
+                });
+            }
+            (None, message, interrupt)
+        }
+        ThreadCtx::Screen(ScreenCtx::Chat(screens::chat::Ctx::Steer {
+            turn: expected,
+            message,
+            client_id,
+            ..
+        })) => {
             if let Some(index) = pending_steer(model, &client_id) {
-                let steer = model.pending_steers.remove(index);
-                if let Some((submitted, id)) = steer.submission {
-                    hold_submission(model, submitted, id, steer.message);
+                if started {
+                    model.pending_steers.remove(index);
+                } else {
+                    model.pending_steers[index].admitted = Some(turn.clone());
                 }
             }
+            (Some(expected), message, false)
         }
-        _ => {}
+        _ => return,
+    };
+    // A native receipt can correct the turn used to make this request.
+    // A different turn observed since dispatch has its own lifecycle.
+    if !model.finished_turns.contains(&turn)
+        && model
+            .running_turn()
+            .is_none_or(|running| Some(running) == expected.as_ref() && running != &turn)
+    {
+        model.turn = TurnState::Idle;
+        start_turn(model, turn.clone(), fx.now());
     }
+    let active = model.running_turn() == Some(&turn);
+    if active && started {
+        model.core.safety.submitted(turn, message);
+    }
+    if active && interrupt {
+        apply_ev(model, ThreadEv::Interrupt, fx);
+    } else if !model.busy() {
+        send_next(model, fx);
+    }
+}
+
+fn cloud_admission_pending(model: &ThreadModel, fx: &ThreadFx<'_>) -> bool {
+    fx.cloud
+        && (model.outgoing.any(is_start_turn)
+            || model
+                .pending_steers
+                .iter()
+                .any(|steer| steer.admitted.is_none()))
 }
 
 fn hold_submission(
@@ -3903,8 +4059,9 @@ fn hold_submission(
     submitted: Ticket,
     client_id: String,
     message: UserMessage,
+    await_restore: bool,
 ) {
-    model.core.reconciling_submissions = true;
+    model.core.reconciling_submissions |= await_restore;
     model.core.history_may_be_incomplete = true;
     // Requests can fail out of order. Keep uncertain messages in submission order before
     // everything that was still waiting to send.
@@ -3926,14 +4083,13 @@ fn hold_submission(
 /// Preserve submitted input ahead of unsent input when the server outcome becomes unknown.
 fn hold_unconfirmed(model: &mut ThreadModel) {
     let mut held = Vec::new();
-    for ticket in model.outgoing.tickets() {
-        if let Some(ThreadCtx::StartTurn {
-            message,
-            client_id: Some(client_id),
-            ..
-        }) = model.outgoing.get(ticket)
+    for (ticket, context) in model.outgoing.iter_mut() {
+        if let ThreadCtx::StartTurn {
+            message, client_id, ..
+        } = context
+            && let Some(client_id) = client_id.take()
         {
-            held.push((ticket, client_id.clone(), message.clone()));
+            held.push((ticket, client_id, message.clone()));
         }
     }
     model.pending_steers.retain_mut(|steer| {
@@ -3944,8 +4100,11 @@ fn hold_unconfirmed(model: &mut ThreadModel) {
         false
     });
     for (ticket, client_id, message) in held {
-        hold_submission(model, ticket, client_id, message);
+        hold_submission(model, ticket, client_id, message, true);
     }
+}
+
+fn retire_submissions(model: &mut ThreadModel) {
     model.outgoing.retain(|ctx| {
         !matches!(
             ctx,

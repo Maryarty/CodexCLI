@@ -18,7 +18,7 @@ use codex_tui_core::fixtures::builders::{
     history_turn, turn_completed, turn_started, user_item_with_receipt,
 };
 use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
-use codex_tui_core::rpc::Reply;
+use codex_tui_core::rpc::{CloudSubmission, Reply};
 use codex_tui_core::screens::{
     ScreenCommand, ScreenEv, ScreenReply, ScreenThreadIntent, agents, chat,
 };
@@ -1039,6 +1039,43 @@ fn a_transport_reply_before_disconnect_preserves_pending_starts_and_steers_once(
     for pending_start in [false, true] {
         for exact_receipt in [None, Some(false), Some(true)] {
             assert_submission_recovery(pending_start, exact_receipt, true);
+        }
+    }
+}
+
+#[test]
+fn a_cloud_submission_without_a_receipt_reopens_for_exact_history_confirmation() {
+    for receipt in [
+        CloudSubmission::Duplicate,
+        CloudSubmission::Unconfirmed("Cloud mutation outcome unknown".to_owned()),
+    ] {
+        for matching in [false, true] {
+            let mut app = ready();
+            let (ticket, client_id) = submission_id(&submit(&mut app, "first message"));
+            submit_or_queue_follow_up(&mut app, true);
+            let fx = run(
+                &mut app,
+                AppEv::Reply(ticket, Reply::cloud_submission(receipt.clone())),
+            );
+            assert!(started_texts(&fx).is_empty());
+            assert!(matches!(
+                &thread(&app).queue()[0],
+                Queued::Unconfirmed { client_id: held, .. } if held == &client_id
+            ));
+
+            let fx = run(
+                &mut app,
+                AppEv::Intent(Intent::OpenThread(ThreadId::new(T))),
+            );
+            let history = resume_history(&mut app, &fx);
+            let fx = reply_history(&mut app, history, matching.then_some(client_id));
+            if matching {
+                assert_eq!(started_texts(&fx), ["follow-up"]);
+                assert!(thread(&app).queue().is_empty());
+            } else {
+                assert!(started_texts(&fx).is_empty());
+                assert_eq!(queued(&app), ["first message", "follow-up"]);
+            }
         }
     }
 }

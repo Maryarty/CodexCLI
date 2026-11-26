@@ -14,7 +14,9 @@ use crate::workspace::Local;
 use codex_app_server_client::AppServerClient;
 use codex_app_server_client::AppServerEvent;
 use codex_app_server_client::AppServerRequestHandle;
+use codex_app_server_client::CloudUserMessageReceipt;
 use codex_app_server_client::EmbeddedNetworkPolicy;
+use codex_app_server_client::TypedRequestError;
 use codex_app_server_client::cloud_backend;
 use codex_app_server_protocol::ServerNotification;
 use codex_config::LoaderOverrides;
@@ -28,6 +30,10 @@ use codex_tui_core::app::Command;
 use codex_tui_core::ids::BackendId;
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::ids::ThreadId;
+use codex_tui_core::ids::Ticket;
+use codex_tui_core::ids::TurnId;
+use codex_tui_core::rpc::CloudSubmission;
+use codex_tui_core::rpc::Reply;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::Ev as AgentsEv;
 use codex_tui_core::screens::dialogs::Ev as DialogsEv;
@@ -195,6 +201,29 @@ async fn run(
     emit_from(&ingress, spec.id, epoch, AppEv::Disconnected);
 }
 
+pub(crate) fn submission_reply(
+    ticket: Ticket,
+    admission: Result<CloudUserMessageReceipt, TypedRequestError>,
+) -> AppEv {
+    let reply = match admission {
+        Ok(CloudUserMessageReceipt::Started(turn)) => {
+            Reply::cloud_submission(CloudSubmission::Started(TurnId::new(&turn.id)))
+        }
+        Ok(CloudUserMessageReceipt::Steered(turn)) => {
+            Reply::cloud_submission(CloudSubmission::Steered(TurnId::new(&turn.id)))
+        }
+        Ok(CloudUserMessageReceipt::Duplicate { .. }) => {
+            Reply::cloud_submission(CloudSubmission::Duplicate)
+        }
+        // The Cloud worker reserves this code for failures before AddUserMessage.
+        Err(TypedRequestError::Server { source, .. }) if source.code == -32602 => {
+            Reply::cloud_submission(CloudSubmission::Preflight(source.message))
+        }
+        Err(error) => Reply::cloud_submission(CloudSubmission::Unconfirmed(error.to_string())),
+    };
+    AppEv::Reply(ticket, reply)
+}
+
 /// The cloud client and the codex home of its config, when the gate lets it
 /// be tried; a failed attempt is told among the startup warnings (the oracle
 /// inserts a history line).
@@ -245,3 +274,6 @@ async fn connect(
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
