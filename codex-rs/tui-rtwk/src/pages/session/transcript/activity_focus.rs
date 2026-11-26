@@ -14,7 +14,7 @@
 //! controller asks to be shown (`take_reveal`).
 
 use std::cell::{Cell, LazyCell, RefCell};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 use rtwk::focus::KeyPress;
 use rtwk::foundation::{Listenable, ValueNotifier};
@@ -100,8 +100,8 @@ pub struct Activity(Rc<Shared>);
 struct Shared {
     /// The stop in focus.
     focused: RefCell<Option<Stop>>,
-    /// The stops the list has rows for, oldest first.
-    folds: RefCell<Option<Rc<Walk>>>,
+    /// Mounted panes publish their stops, with the most recently built pane last.
+    folds: RefCell<Vec<Weak<Walk>>>,
     /// The cells that disclose and which of them are open (Find opens one for its match).
     disclosed: Disclosed,
     open: RefCell<Unfolded>,
@@ -199,8 +199,19 @@ impl Activity {
     }
 
     /// The stops the list has rows for, oldest first.
-    pub(crate) fn set_folds(&self, folds: Option<Rc<Walk>>) {
-        *self.0.folds.borrow_mut() = folds;
+    pub(crate) fn set_folds(&self, walk: Option<&Rc<Walk>>) {
+        let mut folds = self.0.folds.borrow_mut();
+        let Some(walk) = walk else {
+            folds.clear();
+            return;
+        };
+        let walk = Rc::downgrade(walk);
+        folds.retain(|old| old.strong_count() > 0 && !old.ptr_eq(&walk));
+        folds.push(walk);
+    }
+
+    fn active_walk(&self) -> Option<Rc<Walk>> {
+        self.0.folds.borrow().iter().rev().find_map(Weak::upgrade)
     }
 
     /// Opens a closed fold and closes an open one, and puts the focus on it (`toggle_activity`:
@@ -237,10 +248,7 @@ impl Activity {
             return false;
         }
         let last = self
-            .0
-            .folds
-            .borrow()
-            .as_ref()
+            .active_walk()
             .and_then(|walk| walk.stops().last().map(|(_, stop)| stop.clone()));
         let Some(last) = last else {
             return false;
@@ -298,7 +306,7 @@ impl Activity {
         if !self.focused() || pressed(keymap, GLOBAL_FOCUS_ACTIVITY, press) {
             return None;
         }
-        let walk = self.0.folds.borrow().clone();
+        let walk = self.active_walk();
         let stops = walk.as_ref().map_or(&[][..], |walk| walk.stops());
         let at = self.at(stops)?;
         let is = |id: ActionId| pressed(keymap, id, press);
@@ -372,5 +380,37 @@ fn spelled(name: &str) -> String {
         "pageup" => "pgup".to_owned(),
         "pagedown" => "pgdn".to_owned(),
         name => name.to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Activity, Disclosed, ItemKey, Rc, Stop, Walk};
+    use codex_tui_core::ids::{ItemId, TurnId};
+
+    #[test]
+    fn unmounting_a_pane_releases_its_unread_walk_and_reveals_the_previous_one() {
+        let activity = Activity::new(Disclosed::default());
+        let key = ItemKey {
+            turn: TurnId::new("turn"),
+            item: ItemId::new("call"),
+        };
+        let base = Rc::new(Walk::new({
+            let key = key.clone();
+            move || vec![(0, Stop::cell(key))]
+        }));
+        activity.set_folds(Some(&base));
+
+        let snapshot = Rc::new(());
+        let held = Rc::downgrade(&snapshot);
+        let overlay = Rc::new(Walk::new(move || {
+            drop(snapshot);
+            Vec::new()
+        }));
+        activity.set_folds(Some(&overlay));
+        drop(overlay);
+        assert!(held.upgrade().is_none());
+        assert!(activity.begin());
+        assert_eq!(activity.take_reveal(), Some(vec![key]));
     }
 }

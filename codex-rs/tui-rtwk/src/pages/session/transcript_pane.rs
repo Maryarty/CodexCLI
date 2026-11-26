@@ -954,9 +954,12 @@ impl State for ViewportState {
         // the folds and the cells with a control the chat's own list has, for the keys that walk
         // them (F4); the Ctrl+T transcript has none, and leaves the chat's alone. A raw row has
         // no control.
+        if detailed || raw {
+            self.activity.borrow_mut().take();
+        }
         if !detailed {
             let walk = (!raw).then(|| self.activity_walk(&rows, &thread, cells));
-            activity.set_folds(walk.clone());
+            activity.set_folds(walk.as_ref());
             if let Some(ids) = activity.take_reveal()
                 && let Some(logical) = walk.and_then(|walk| walk.row(&ids))
             {
