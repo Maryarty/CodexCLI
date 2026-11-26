@@ -1132,6 +1132,11 @@ macro_rules! feature_dirs {
 
 feature_list!(feature_dirs);
 
+/// Whether a registered feature claims a sheet, verb or dispatch policy for the command.
+pub fn owns_command(command: SlashCommand) -> bool {
+    runs_of(command) || target_of(command).is_some() || command_rule(command).is_some()
+}
+
 /// The intent a permissions pick waits for before it is applied, when a feature needs a setup first
 /// (the Windows sandbox of an Auto pick: its enable prompt, which lets the pick go when the setup
 /// is done); none: the pick is applied at once. The app asks through the list, like every
