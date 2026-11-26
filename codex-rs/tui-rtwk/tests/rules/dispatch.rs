@@ -8,6 +8,17 @@ use codex_tui_core::features::owns_command;
 use crate::adr013::{at, code_tokens, matching, starts};
 use crate::layers::srcscan::crate_dir;
 
+fn dispatch_tokens(source: &str) -> Vec<String> {
+    let mut tokens = code_tokens(source);
+    // The shared lexer separates raw identifier prefixes from their names.
+    for i in (0..tokens.len().saturating_sub(2)).rev() {
+        if starts(&tokens, i, &["r", "#"]) {
+            tokens.drain(i..i + 2);
+        }
+    }
+    tokens
+}
+
 fn owned_command_names() -> BTreeSet<String> {
     SlashCommand::ALL
         .into_iter()
@@ -40,6 +51,10 @@ fn qualified_commands(tokens: &[String]) -> Vec<&str> {
 fn aliases_command_type(tokens: &[String]) -> bool {
     tokens.iter().enumerate().any(|(i, token)| {
         starts(tokens, i, &["SlashCommand", "as"])
+            || (starts(tokens, i, &["SlashCommand", ":", ":", "{"])
+                && tokens[i + 4..matching(tokens, i + 3)]
+                    .windows(2)
+                    .any(|import| import[0] == "self" && import[1] == "as"))
             || (token == "type"
                 && at(tokens, i + 2) == "="
                 && tokens[i + 3..]
@@ -84,7 +99,7 @@ fn the_dispatcher_has_no_feature_owned_command_cases() {
     let path = crate_dir().join("core/src/commands/dispatch.rs");
     let source = std::fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
-    let tokens = code_tokens(&source);
+    let tokens = dispatch_tokens(&source);
     assert!(
         !aliases_command_type(&tokens),
         "use the name SlashCommand in the dispatcher so the command ratchet can read its variants"
@@ -118,7 +133,7 @@ fn the_dispatch_ratchet_distinguishes_command_variants_from_other_names() {
         }
     ";
     assert_eq!(
-        owned_command_references(&code_tokens(source), &owned),
+        owned_command_references(&dispatch_tokens(source), &owned),
         BTreeSet::from([
             "Keymap".into(),
             "Recap".into(),
@@ -129,10 +144,20 @@ fn the_dispatch_ratchet_distinguishes_command_variants_from_other_names() {
     assert!(aliases_command_type(&code_tokens(
         "use super::SlashCommand as Command;"
     )));
+    assert!(aliases_command_type(&dispatch_tokens(
+        "use super::r#SlashCommand::{New, self as Command}; fn dispatch() { Command::Usage; }"
+    )));
     assert!(aliases_command_type(&code_tokens(
         "type Cmd = crate::commands::SlashCommand;"
     )));
     assert!(!aliases_command_type(&code_tokens(
         "type Callback = fn(SlashCommand);"
     )));
+    assert_eq!(
+        owned_command_references(
+            &dispatch_tokens("const CMD: SlashCommand = SlashCommand::r#Mcp;"),
+            &owned
+        ),
+        BTreeSet::from(["Mcp".into()]),
+    );
 }
