@@ -277,6 +277,7 @@ pub struct Transcript {
     order: Rc<Vec<ItemKey>>,
     items: Rc<HashMap<ItemKey, ItemEntry>>,
     layout_revision: u64,
+    reset_revision: u64,
     item_revision: u64,
     activity_revision: u64,
     timings: Rc<HashMap<TurnId, TimedTurn>>,
@@ -394,6 +395,11 @@ impl TurnTiming {
 }
 
 impl Transcript {
+    /// Changes when the retained transcript is replaced from scratch.
+    pub fn reset_revision(&self) -> u64 {
+        self.reset_revision
+    }
+
     /// Changes when the ordered keys or their exploration classification change.
     /// A streamed text or command output delta leaves the layout index valid.
     pub fn layout_revision(&self) -> u64 {
@@ -739,6 +745,7 @@ impl Transcript {
     fn reset(&mut self) {
         *self = Transcript {
             layout_revision: self.layout_revision + 1,
+            reset_revision: self.reset_revision.wrapping_add(1),
             item_revision: self.item_revision,
             ..Transcript::default()
         };
