@@ -5,8 +5,9 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
+use rtwk::Eid;
 use rtwk::editing::TextEditingController;
 use rtwk::foundation::{Listenable, ValueNotifier};
 use rtwk::gestures::SelectionAreaController;
@@ -204,17 +205,54 @@ pub struct TextSelection(Rc<Selected>);
 struct Selected {
     controller: SelectionAreaController,
     held: Rc<ValueNotifier<bool>>,
+    copy_state: Rc<Cell<CopySelectionState>>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct CopySelectionState {
+    surface: Option<Eid>,
+    revision: u64,
+}
+
+/// The mounted area and selection revision at the time a copy was asked for.
+#[derive(Clone, Debug)]
+pub struct SelectionIdentity {
+    controller: Weak<Cell<CopySelectionState>>,
+    state: CopySelectionState,
+}
+
+impl PartialEq for SelectionIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        self.controller.ptr_eq(&other.controller) && self.state == other.state
+    }
+}
+
+impl Eq for SelectionIdentity {}
+
+impl SelectionIdentity {
+    pub fn belongs_to(&self, surface: Eid) -> bool {
+        self.state.surface == Some(surface)
+    }
 }
 
 impl Default for TextSelection {
     fn default() -> TextSelection {
         let controller = SelectionAreaController::new();
         let held = Rc::new(ValueNotifier::new(false));
+        let copy_state = Rc::new(Cell::new(CopySelectionState::default()));
         let (watched, notifier) = (controller.clone(), held.clone());
+        let copy = copy_state.clone();
         controller.add_listener(Rc::new(move || {
+            let mut state = copy.get();
+            state.revision = state.revision.wrapping_add(1);
+            copy.set(state);
             notifier.set_value(watched.has_selection());
         }));
-        TextSelection(Rc::new(Selected { controller, held }))
+        TextSelection(Rc::new(Selected {
+            controller,
+            held,
+            copy_state,
+        }))
     }
 }
 
@@ -232,6 +270,38 @@ impl TextSelection {
     /// Notifies when something comes to be selected and when nothing is any more.
     pub fn listenable(&self) -> Rc<dyn Listenable> {
         self.0.held.clone()
+    }
+
+    /// An area owns this selection while its route and reader are current.
+    pub fn set_copy_surface(&self, surface: Eid, current: bool) {
+        let mut state = self.0.copy_state.get();
+        let owner = if current {
+            Some(surface)
+        } else {
+            state.surface.filter(|owner| *owner != surface)
+        };
+        if owner != state.surface {
+            state.surface = owner;
+            state.revision = state.revision.wrapping_add(1);
+            self.0.copy_state.set(state);
+        }
+    }
+
+    /// A new pointer selection or presentation invalidates the old area's clipboard answers.
+    pub fn revise_copy_surface(&self, surface: Eid) {
+        let mut state = self.0.copy_state.get();
+        if state.surface == Some(surface) {
+            state.revision = state.revision.wrapping_add(1);
+            self.0.copy_state.set(state);
+        }
+    }
+
+    pub fn copy_identity(&self) -> Option<SelectionIdentity> {
+        let state = self.0.copy_state.get();
+        state.surface.map(|_| SelectionIdentity {
+            controller: Rc::downgrade(&self.0.copy_state),
+            state,
+        })
     }
 }
 

@@ -16,10 +16,12 @@ use std::ops::Range;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use rtwk::Cx;
 use rtwk::focus::{KeyCombo, KeyPress};
 use rtwk::foundation::ValueNotifier;
-use rtwk::gestures::SelectionTarget;
+use rtwk::gestures::{SelectionPoint, SelectionTarget};
 use rtwk::layout::{CellPainter, CustomPaint};
+use rtwk::navigation::Route;
 use rtwk_core::canvas::Canvas;
 use rtwk_core::style::{Attrs, Pen};
 
@@ -37,7 +39,7 @@ use super::markdown_text::{self, Kind};
 use super::select;
 use super::strings::Strings;
 use crate::pages::session::cells::text::Part;
-use crate::widgets::thread_ui::{Follow, Input, TextSelection, ThreadUi};
+use crate::widgets::thread_ui::{Follow, Input, SelectionIdentity, TextSelection, ThreadUi};
 
 /// The bit of the request numbers of the copies the transcript asks (the other bits are listed
 /// in `core/src/app/effects.rs`: `1 << 58` is the features', `1 << 59` to `1 << 62` the screens').
@@ -69,35 +71,90 @@ pub struct Cutter {
 /// many answers.
 const KEPT: usize = 32;
 
+/// The reader that issued a copy and the range and navigation it held.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CopyOrigin {
+    pub(super) selection: SelectionIdentity,
+    range: Option<CopyRange>,
+    navigation: u64,
+    keyboard: u32,
+    search: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct CopyRange {
+    endpoints: Option<(SelectionPoint, SelectionPoint)>,
+    text: String,
+}
+
+impl CopyOrigin {
+    pub fn capture<S>(
+        selection: &TextSelection,
+        follow: &Follow,
+        find: &Finder,
+        cx: &mut Cx<'_, S>,
+    ) -> Option<Self> {
+        if !Route::is_current_of(cx) {
+            return None;
+        }
+        let identity = selection.copy_identity()?;
+        let controller = selection.controller();
+        Some(Self {
+            selection: identity,
+            range: controller.has_selection().then(|| CopyRange {
+                endpoints: controller.start().zip(controller.end()),
+                text: controller.text(),
+            }),
+            navigation: follow.moves(),
+            keyboard: select::of(find).listenable().value(),
+            search: find.listenable().value(),
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct SelectionCompletion {
+    pub origin: CopyOrigin,
+    pub clear: bool,
+    pub follow: bool,
+}
+
 /// What the reader asks to be copied.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CopyJob {
     pub text: String,
     pub format: CopyFormat,
     pub destination: CopyDestination,
-    /// The text the selection had, to let it go once the host confirms the copy
-    /// (`tui.copy_on_select_clear_selection`; oracle `pending_copy`): only a selection that
-    /// still reads the same, not one made since.
-    pub clear_after: Option<String>,
-    /// The transcript goes back to its last row once the host confirms the copy (Enter on a
-    /// selection: copy and follow; oracle `CopyAndFollow`).
-    pub follow: bool,
+    completion: Option<SelectionCompletion>,
 }
 
 impl CopyJob {
     /// An explicit copy (a key or the right button) clears the selection after confirmation.
-    pub fn selected(text: String, explicit: bool, settings: &TuiSettings) -> CopyJob {
+    pub fn selected(
+        text: String,
+        explicit: bool,
+        settings: &TuiSettings,
+        origin: Option<CopyOrigin>,
+    ) -> CopyJob {
         CopyJob {
-            clear_after: (explicit || settings.deselect_after_copy).then(|| text.clone()),
+            completion: origin.map(|origin| SelectionCompletion {
+                clear: origin.range.is_some() && (explicit || settings.deselect_after_copy),
+                origin,
+                follow: false,
+            }),
             text,
             format: CopyFormat::PlainText,
             destination: CopyDestination::Clipboard,
-            follow: false,
         }
     }
 
     /// A completed mouse selection on X11 also publishes its exact plain text to PRIMARY.
-    pub fn primary(text: String, settings: &TuiSettings, owner: PrimaryOwner) -> CopyJob {
+    pub fn primary(
+        text: String,
+        settings: &TuiSettings,
+        owner: PrimaryOwner,
+        origin: Option<CopyOrigin>,
+    ) -> CopyJob {
         if !settings.copy_on_select {
             return CopyJob {
                 destination: CopyDestination::Primary(owner),
@@ -106,7 +163,7 @@ impl CopyJob {
         }
         CopyJob {
             destination: CopyDestination::ClipboardAndPrimary(Arc::from(text.as_str()), owner),
-            ..Self::selected(text, false, settings)
+            ..Self::selected(text, false, settings, origin)
         }
     }
 
@@ -116,15 +173,16 @@ impl CopyJob {
             text,
             format: CopyFormat::PlainText,
             destination: CopyDestination::Clipboard,
-            clear_after: None,
-            follow: false,
+            completion: None,
         }
     }
 
     /// Back to the last row once the copy is confirmed.
     #[must_use]
     pub fn following(mut self) -> CopyJob {
-        self.follow = true;
+        if let Some(completion) = &mut self.completion {
+            completion.follow = true;
+        }
         self
     }
 
@@ -152,20 +210,18 @@ pub struct Feedback {
     /// How many characters the copy carried (the oracle counts what was copied, not what is
     /// selected).
     pub characters: usize,
-    /// The text of the selection to let go of when the copy is delivered.
-    pub clear_after: Option<String>,
-    /// The reader goes back to the last row when the copy is delivered.
-    pub follow: bool,
+    /// Selection effects of confirmed delivery, scoped to the reader that issued it.
+    pub(super) completion: Option<SelectionCompletion>,
 }
 
 /// What the view provides to the transcript and the composer gap: the feedback to show.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Shown(pub Option<Feedback>);
 
+#[derive(Clone)]
 struct Sent {
     characters: usize,
-    clear_after: Option<String>,
-    follow: bool,
+    completion: Option<SelectionCompletion>,
 }
 
 /// The UI's record of the copies it asked and the feedback they came to.
@@ -191,8 +247,7 @@ impl CopyLog {
             request,
             Sent {
                 characters: job.ask().characters(),
-                clear_after: job.clear_after.clone(),
-                follow: job.follow,
+                completion: job.completion.clone(),
             },
         );
         while self.sent.len() > KEPT {
@@ -211,7 +266,12 @@ impl CopyLog {
             return;
         }
         self.seen = Some((request, result.clone()));
-        let Some(sent) = self.sent.get(&request) else {
+        let sent = if matches!(result, Ok(CopyStatus::Pending(_))) {
+            self.sent.get(&request).cloned()
+        } else {
+            self.sent.remove(&request)
+        };
+        let Some(sent) = sent else {
             return;
         };
         let result = result.clone().map_err(|_| ());
@@ -231,8 +291,7 @@ impl CopyLog {
             request,
             result,
             characters: sent.characters,
-            clear_after: sent.clear_after.clone(),
-            follow: sent.follow,
+            completion: sent.completion,
         });
     }
 
@@ -1013,8 +1072,7 @@ mod tests {
             text: text.to_owned(),
             format: CopyFormat::PlainText,
             destination: CopyDestination::Clipboard,
-            clear_after: None,
-            follow: false,
+            completion: None,
         }
     }
 
@@ -1063,6 +1121,18 @@ mod tests {
         let done = feedback(&log).expect("feedback");
         assert_eq!(done.result, Ok(CopyStatus::Confirmed));
         assert!(done.version > pending.version);
+    }
+
+    #[test]
+    fn an_already_finished_request_cannot_replace_newer_feedback() {
+        let mut log = CopyLog::default();
+        let (first, _) = log.ask(&job("abc"));
+        answer(&mut log, first, Done::Copy(Ok(CopyStatus::Confirmed)));
+        let (second, _) = log.ask(&job("def"));
+        answer(&mut log, second, Done::Copy(Ok(CopyStatus::Pending(1))));
+        let latest = feedback(&log);
+        answer(&mut log, first, Done::Copy(Ok(CopyStatus::Confirmed)));
+        assert_eq!(feedback(&log), latest);
     }
 
     #[test]

@@ -1599,6 +1599,8 @@ impl State for ViewportState {
             thread: thread_id,
             selection: widget.selection.clone(),
             follow: widget.follow.clone(),
+            detailed,
+            raw,
             caret: caret.caret(),
             find: widget.find.clone(),
         };
