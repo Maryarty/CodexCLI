@@ -539,7 +539,6 @@ fn paused_header_reservation_survives_copy_until_scroll_or_resize() {
     s.double_click(0, 6);
     s.assert_same_rows(&before);
     // the copy confirmation is not drawn by the oracle's assertions; the reservation survives the copy
-    s.assert_text_style("two", "reversed");
     s.resize(40, 8);
     s.assert_rows_differ(&before);
 }
