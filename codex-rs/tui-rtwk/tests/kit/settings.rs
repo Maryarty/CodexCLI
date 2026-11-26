@@ -3,6 +3,7 @@
 
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::facts::{Rendering, TuiSettings};
+use codex_tui_rtwk::app::UiApp;
 
 use super::Screen;
 
@@ -33,6 +34,15 @@ impl Screen {
             copy_on_select,
             deselect_after_copy,
             ..TuiSettings::default()
+        })]);
+    }
+
+    /// Seed the host's local X11 clipboard capability.
+    pub fn primary_selection(&mut self) {
+        let settings = self.h.t.read_app(|app: &UiApp| app.core.tui());
+        self.h.inject([AppEv::Tui(TuiSettings {
+            primary_selection: true,
+            ..settings
         })]);
     }
 

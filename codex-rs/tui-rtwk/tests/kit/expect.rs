@@ -6,12 +6,14 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use codex_app_server_protocol::ServerNotification;
-use codex_tui_core::app::effects::{Ask as Effect, Done};
+use codex_tui_core::app::effects::{Ask as Effect, CopyDestination, Done};
 use codex_tui_core::app::{AppEv, BackendEv, Command};
 use codex_tui_core::data::mention::ToolMention;
 use codex_tui_core::screens::select::review::Commit;
 use codex_tui_core::screens::{ScreenCommand, agents, chat, select};
 use codex_tui_core::threads::{ReviewTarget, ThreadAsk};
+use rtwk::gestures::MouseTracker;
+use rtwk_core::input::{MouseEvent, MouseKind};
 use serde_json::json;
 
 use super::Screen;
@@ -760,6 +762,52 @@ impl Screen {
             })
             .collect();
         pretty_assertions::assert_eq!(copies, expected);
+    }
+
+    /// The exact plain text sent to PRIMARY, with whether each ask also copies to the clipboard.
+    pub fn assert_primary_copies_asked(&self, expected: &[(&str, bool)]) {
+        let primary: Vec<_> = self
+            .commands()
+            .into_iter()
+            .filter_map(|command| match command {
+                Command::Effect {
+                    ask:
+                        Effect::Copy {
+                            text, destination, ..
+                        },
+                    ..
+                } => match destination {
+                    CopyDestination::Primary(_) => Some((text, false)),
+                    CopyDestination::ClipboardAndPrimary(plain, _) => {
+                        Some((plain.to_string(), true))
+                    }
+                    CopyDestination::Clipboard => None,
+                },
+                _ => None,
+            })
+            .collect();
+        let actual: Vec<_> = primary
+            .iter()
+            .map(|(text, clipboard)| (text.as_str(), *clipboard))
+            .collect();
+        pretty_assertions::assert_eq!(actual, expected);
+    }
+
+    /// Releases through the app's mouse tracker, inspecting its native clipboard queue
+    /// before the terminal drains it.
+    pub fn release_with_native_copies(&mut self, x: u16, y: u16, earlier: &[&str]) -> Vec<String> {
+        let tracker = MouseTracker::in_tree(self.h.t.tree().expect("app is mounted"))
+            .expect("app has a mouse tracker");
+        for text in earlier {
+            tracker.queue_clipboard((*text).to_owned());
+        }
+        tracker.dispatch(
+            self.h.t.tree_mut(),
+            &MouseEvent::new(MouseKind::Up, i64::from(x), i64::from(y)),
+        );
+        let pending = tracker.take_clipboard();
+        self.h.advance(100);
+        pending
     }
 
     fn answer_latest_effect(&mut self, pick: impl Fn(&Effect) -> bool, done: Done) {

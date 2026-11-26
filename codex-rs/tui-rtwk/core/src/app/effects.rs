@@ -14,7 +14,7 @@
 //! `Feature::effect_done` and is kept for no screen.
 
 use std::collections::{BTreeMap, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 #[macro_use]
 mod capability;
@@ -57,10 +57,32 @@ pub enum CopyDestination {
     #[default]
     Clipboard,
     /// The X11 PRIMARY selection only, with the copied text.
-    Primary,
+    Primary(PrimaryOwner),
     /// The clipboard, and PRIMARY with this plain text.
-    ClipboardAndPrimary(Arc<str>),
+    ClipboardAndPrimary(Arc<str>, PrimaryOwner),
 }
+
+/// The lifetime of the UI selection whose text may still be published to PRIMARY.
+#[derive(Clone, Debug)]
+pub struct PrimaryOwner(Weak<()>);
+
+impl PrimaryOwner {
+    pub fn new(selection: &Arc<()>) -> Self {
+        Self(Arc::downgrade(selection))
+    }
+
+    pub fn is_current(&self) -> bool {
+        self.0.strong_count() != 0
+    }
+}
+
+impl PartialEq for PrimaryOwner {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.ptr_eq(&other.0)
+    }
+}
+
+impl Eq for PrimaryOwner {}
 
 /// The delivery status a clipboard backend reports (oracle `clipboard_copy.rs` `CopyStatus`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

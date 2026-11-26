@@ -39,6 +39,8 @@ pub struct TuiSettings {
     /// a selection is copied when the mouse is released (default on; `auto` turns it off only
     /// for a direct terminal known to forward its own copy shortcut).
     pub copy_on_select: bool,
+    /// The host can publish local X11 PRIMARY independently of the clipboard.
+    pub primary_selection: bool,
     /// `tui.copy_on_select_clear_selection`: a selection is let go once its copy is confirmed
     /// (default off).
     pub deselect_after_copy: bool,
@@ -62,6 +64,7 @@ impl Default for TuiSettings {
             show_tooltips: true,
             rendering: Rendering::default(),
             copy_on_select: true,
+            primary_selection: false,
             deselect_after_copy: false,
             vim_mode_default: false,
             hide_rate_limit_model_nudge: false,

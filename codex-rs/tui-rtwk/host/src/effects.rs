@@ -116,6 +116,12 @@ pub(crate) fn tui_settings(config: &Config) -> TuiSettings {
     let rendering = config.tui_rendering;
     TuiSettings {
         copy_on_select: copy_on_select(config.tui_copy_on_select, &terminal_info()),
+        primary_selection: environment().primary_available(
+            |name| std::env::var_os(name).map(|value| value.to_string_lossy().into_owned()),
+            cfg!(target_os = "linux"),
+            std::env::var("TERM_PROGRAM")
+                .is_ok_and(|program| program.eq_ignore_ascii_case("vscode")),
+        ),
         deselect_after_copy: config.tui_copy_on_select_clear_selection,
         collapse_turn_details: config.tui_collapse_turn_details,
         show_tooltips: config.show_tooltips,

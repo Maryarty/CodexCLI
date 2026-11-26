@@ -231,6 +231,8 @@ async fn html_is_offered_only_for_markdown() {
 #[tokio::test]
 async fn a_selection_publishes_primary_alone_or_with_the_clipboard() {
     let rig = rig(false, false);
+    let selection = Arc::new(());
+    let owner = codex_tui_core::app::effects::PrimaryOwner::new(&selection);
     let ask = |destination| Ask::Copy {
         text: "**hi**".into(),
         format: CopyFormat::PlainText,
@@ -238,13 +240,17 @@ async fn a_selection_publishes_primary_alone_or_with_the_clipboard() {
     };
     // The oracle answers a PRIMARY-only publication as a request, nothing confirms it.
     assert_eq!(
-        done(&rig, ask(CopyDestination::Primary)).await,
+        done(&rig, ask(CopyDestination::Primary(owner.clone()))).await,
         Done::Copy(Ok(CopyStatus::Unconfirmed))
     );
     assert_eq!(*rig.primary.lock().unwrap(), vec!["**hi**".to_owned()]);
     assert!(rig.written.lock().unwrap().is_empty(), "PRIMARY only");
     assert_eq!(
-        done(&rig, ask(CopyDestination::ClipboardAndPrimary("hi".into()))).await,
+        done(
+            &rig,
+            ask(CopyDestination::ClipboardAndPrimary("hi".into(), owner))
+        )
+        .await,
         Done::Copy(Ok(CopyStatus::Confirmed))
     );
     assert_eq!(
