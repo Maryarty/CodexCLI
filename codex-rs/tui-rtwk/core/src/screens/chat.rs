@@ -72,6 +72,13 @@ pub const DEFAULT_STATUS_LINE_ITEMS: [&str; 3] =
 /// `LUNA_RESERVE_MODEL` (`model_catalog.rs`).
 const LUNA_RESERVE_MODEL: &str = "gpt-reserve";
 
+/// The display name supplied by the configuration for a model provider.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct ModelProviderName {
+    pub id: String,
+    pub name: String,
+}
+
 /// The facts of the status line that need no session: the loaded config
 /// (model, reasoning effort, approval mode, `tui.status_line`,
 /// `tui.status_line_use_colors`) and what the host reads of the workspace
@@ -113,7 +120,7 @@ pub struct StatusFacts {
     pub profile_name: Option<String>,
     pub provider: Option<String>,
     /// Configured display names for the providers a thread refusal can name.
-    pub provider_names: std::collections::BTreeMap<String, String>,
+    pub provider_names: Vec<ModelProviderName>,
     pub version: Option<String>,
     pub animations: bool,
     pub progress_effect: bool,

@@ -544,13 +544,17 @@ impl Strings {
     pub(super) fn provider_message(
         &self,
         lock: &super::live::provider_error::Lock,
-        configured: &std::collections::BTreeMap<String, String>,
+        configured: &[codex_tui_core::screens::chat::ModelProviderName],
     ) -> String {
         use super::live::provider_error::Lock;
         let two = |message: Msg<2>, a: &str, b: &str| {
             Fmt::new(message, [Arg::Text(a), Arg::Text(b)], &self.num).to_string()
         };
-        let provider_name = |id: &str| match configured.get(id).map(|name| name.trim()) {
+        let provider_name = |id: &str| match configured
+            .iter()
+            .find(|entry| entry.id == id)
+            .map(|entry| entry.name.trim())
+        {
             Some("") => id.to_owned(),
             Some(name) => name.to_owned(),
             None => self.provider_name(id),

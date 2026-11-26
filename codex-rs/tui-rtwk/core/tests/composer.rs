@@ -5,8 +5,8 @@ use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, ap
 use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::screens::{ScreenCommand, ScreenEv, agents};
-use codex_tui_core::threads::ThreadAsk;
 use codex_tui_core::threads::composer::{ComposerState, composer_state};
+use codex_tui_core::threads::{ThreadAsk, UserMessage};
 
 const LOCAL: BackendId = BackendId(0);
 const CLOUD: BackendId = BackendId(1);
@@ -138,6 +138,43 @@ fn a_failed_history_refresh_does_not_remove_the_live_writer() {
         composer_state(&app.active_thread(), false),
         ComposerState::Open
     );
+}
+
+#[test]
+fn a_cloud_stream_restore_revives_the_writer_after_a_racing_resume_failure() {
+    let (mut app, _, cloud) = cloud_chat();
+    run(&mut app, CLOUD, stream_lost(cloud.clone()));
+    run(
+        &mut app,
+        LOCAL,
+        AppEv::Intent(Intent::Submit {
+            thread: Some(cloud.clone()),
+            message: UserMessage::text("waiting input"),
+        }),
+    );
+    let resume = resume(&open(&mut app, &cloud), &cloud);
+    run(
+        &mut app,
+        CLOUD,
+        AppEv::Reply(resume, Reply::failed("explicit resume failed")),
+    );
+    assert_eq!(
+        composer_state(&app.active_thread(), false),
+        ComposerState::Unavailable
+    );
+
+    let fx = run(
+        &mut app,
+        CLOUD,
+        AppEv::Backend(BackendEv::StreamRestored(cloud)),
+    );
+    assert_eq!(
+        composer_state(&app.active_thread(), false),
+        ComposerState::Open
+    );
+    assert!(fx.commands().iter().any(|command| {
+        matches!(command, Command::StartTurn { message, .. } if message.text == "waiting input")
+    }));
 }
 
 #[test]

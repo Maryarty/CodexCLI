@@ -2959,6 +2959,10 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             model.core.stream_lost = true;
         }
         ThreadEv::StreamRestored { read, reconciled } => {
+            // A successful Cloud stream attach can race the failure of an explicit resume.
+            if model.core.stream_lost && model.writer == Writer::Unavailable {
+                model.writer = Writer::Attached;
+            }
             model.core.stream_lost = false;
             model.core.history_may_be_incomplete = !read;
             if reconciled

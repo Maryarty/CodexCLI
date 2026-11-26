@@ -76,7 +76,7 @@ pub(in crate::pages::session) fn notice(
     lock: &Lock,
     can_continue: bool,
     location: Option<&str>,
-    provider_names: &std::collections::BTreeMap<String, String>,
+    provider_names: &[codex_tui_core::screens::chat::ModelProviderName],
 ) -> AnyWidget {
     let dim = tokens.dim();
     let mut body = Column::new()

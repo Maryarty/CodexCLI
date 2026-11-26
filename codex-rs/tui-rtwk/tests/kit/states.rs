@@ -177,9 +177,16 @@ impl Screen {
             .h
             .t
             .read_app(|app: &UiApp| (*app.core.screens().chat.status).clone());
-        facts
-            .provider_names
-            .insert("custom-gateway".to_owned(), "Team Gateway".to_owned());
+        facts.provider_names.extend([
+            chat::ModelProviderName {
+                id: "custom-gateway".to_owned(),
+                name: "Team Gateway".to_owned(),
+            },
+            chat::ModelProviderName {
+                id: "old-provider".to_owned(),
+                name: "  ".to_owned(),
+            },
+        ]);
         self.h.inject([
             AppEv::Screen(ScreenEv::Chat(chat::Ev::Status(Box::new(facts)))),
             AppEv::Screen(ScreenEv::Status(

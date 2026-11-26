@@ -77,6 +77,17 @@ pub async fn status(config: &Config) -> StatusFacts {
             ConfigLayerSource::User { profile, .. } => profile.clone(),
             _ => None,
         });
+    let mut provider_names = config
+        .model_providers
+        .iter()
+        .map(
+            |(id, provider)| codex_tui_core::screens::chat::ModelProviderName {
+                id: id.clone(),
+                name: provider.name.clone(),
+            },
+        )
+        .collect::<Vec<_>>();
+    provider_names.sort_unstable_by(|a, b| a.id.cmp(&b.id));
     StatusFacts {
         model: config.model.clone(),
         effort: config
@@ -117,11 +128,7 @@ pub async fn status(config: &Config) -> StatusFacts {
         hostname: codex_config::os_host_name(),
         profile_name,
         provider: Some(config.model_provider_id.clone()),
-        provider_names: config
-            .model_providers
-            .iter()
-            .map(|(id, provider)| (id.clone(), provider.name.clone()))
-            .collect(),
+        provider_names,
         version: Some(env!("CARGO_PKG_VERSION").to_string()),
         animations: config.animations,
         progress_effect: config.tui_effects.progress,
