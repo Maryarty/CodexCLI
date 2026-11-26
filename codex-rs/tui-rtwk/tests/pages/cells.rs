@@ -2186,6 +2186,7 @@ mod raw_mode {
         let agent = Item::Agent {
             text: "- a\n\n| A |\n".into(),
             phase: None,
+            questions: None,
         };
         assert_eq!(text(agent).unwrap(), ["- a", "", "| A |"]);
         let plan = Item::Plan {
@@ -4020,6 +4021,7 @@ mod text_contract {
             Item::Agent {
                 text: md.into(),
                 phase: None,
+                questions: None,
             },
             Item::Reasoning {
                 summary: md.into(),

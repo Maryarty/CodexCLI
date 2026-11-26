@@ -41,7 +41,8 @@ fn every_shape_makes_its_item_and_a_tab_reaches_the_item() {
         items[1],
         Item::Agent {
             text: "a\tb".to_owned(),
-            phase: None
+            phase: None,
+            questions: None,
         },
         "the model's text is kept as it said it, tab included"
     );
@@ -80,8 +81,11 @@ fn an_entry_without_an_end_is_the_live_tail_and_a_commit_ends_its_turn() {
 
 #[test]
 fn a_bad_entry_names_its_line() {
-    let err = parse(&format!("{SESSION}\n{}", r#"{"step":"entry","kind":"nonsense"}"#))
-        .expect_err("fails");
+    let err = parse(&format!(
+        "{SESSION}\n{}",
+        r#"{"step":"entry","kind":"nonsense"}"#
+    ))
+    .expect_err("fails");
     assert_eq!(err.line, 2);
     let err = parse(&format!(
         "{SESSION}\n{}",

@@ -180,6 +180,7 @@ fn live_app_server_turn_completion_repairs_dropped_message_deltas() {
                 // The completed turn's summary says it is the final answer (oracle replay
                 // `phase: phase.clone()`).
                 phase: Some(MessagePhase::FinalAnswer),
+                questions: None,
             },
         ]
     );

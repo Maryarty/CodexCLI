@@ -9,9 +9,11 @@
 
 use rtwk::AnyWidget;
 use rtwk::gestures::ExcludeSelection;
-use rtwk::layout::{CrossAxisAlignment, EdgeInsets, Expanded, Padding, Row};
+use rtwk::layout::{Column, CrossAxisAlignment, EdgeInsets, Expanded, Padding, Row, SizedBox};
+use rtwk::provider::Provider;
 use rtwk::style::Style;
-use rtwk::widgets::Text;
+use rtwk::text::DefaultTextStyle;
+use rtwk::widgets::{Builder, Text};
 use rtwk_rich::markdown::MarkdownTheme;
 
 use crate::pages::session::transcript::copy::Fill;
@@ -19,7 +21,52 @@ use crate::pages::session::transcript::copy::Fill;
 use super::citation;
 use super::dispatch::{CellEnv, Place, below};
 use super::strings::Strings;
+use codex_tui_core::app::facts::{Rendering, TuiSettings};
+use codex_tui_core::question_reply::QuestionText;
 use codex_tui_core::threads::Item;
+
+/// Split the server's visible Markdown at titles corroborated by the question metadata.
+/// When the metadata diverges, keep the remaining visible text as the last section's body.
+pub(crate) fn question_sections<'a>(
+    source: &'a str,
+    questions: &[QuestionText],
+) -> Vec<(&'a str, &'a str)> {
+    let mut rest = source;
+    let mut titles = Vec::new();
+    'questions: for question in questions {
+        rest = rest.trim_start_matches('\n');
+        let title = question.title.replace("\r\n", "\n");
+        let title = title.trim_matches('\n');
+        let Some(after) = rest.strip_prefix(title) else {
+            break;
+        };
+        let start = source.len() - rest.len();
+        titles.push(start..start + title.len());
+        rest = after;
+        for option in &question.options {
+            let option = option.replace("\r\n", "\n");
+            let Some(after) = rest
+                .trim_start_matches('\n')
+                .strip_prefix("- ")
+                .and_then(|text| text.strip_prefix(&option))
+            else {
+                break 'questions;
+            };
+            rest = after;
+        }
+    }
+    titles
+        .iter()
+        .enumerate()
+        .map(|(at, title)| {
+            let end = titles.get(at + 1).map_or(source.len(), |next| next.start);
+            (
+                &source[title.clone()],
+                source[title.end..end].trim_matches('\n'),
+            )
+        })
+        .collect()
+}
 
 /// What a message is drawn with.
 pub struct Look<'a> {
@@ -89,9 +136,16 @@ fn plain(source: &str, live: bool, cwd: Option<&str>, look: &Look<'_>) -> AnyWid
 /// An assistant message: it keeps one column free at the right.
 /// The cell of `item` when it is this file's (`cell_list!`).
 pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
-    let Item::Agent { text, .. } = item else {
+    let Item::Agent {
+        text, questions, ..
+    } = item
+    else {
         return AnyWidget::default();
     };
+    let sections = question_sections(text, questions.as_deref().unwrap_or_default());
+    if !sections.is_empty() {
+        return below(place.separator, questions_view(sections, env, place.fill));
+    }
     below(
         place.separator,
         message_filled(
@@ -110,4 +164,69 @@ pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
             },
         ),
     )
+}
+
+fn questions_view(sections: Vec<(&str, &str)>, env: &CellEnv<'_>, fill: Option<Fill>) -> AnyWidget {
+    let sections = sections
+        .into_iter()
+        .map(|(heading, body)| (heading.to_owned(), body.to_owned()))
+        .collect::<Vec<_>>();
+    let fill = match fill {
+        Some(Fill::Block(block)) => Some(block),
+        _ => None,
+    };
+    let cwd = env.cwd.map(str::to_owned);
+    let cells = env.cells;
+    let accent = env.tokens.accent();
+    let theme = env.markdown.clone();
+    Builder::new(move |cx| {
+        let rendering = Provider::<TuiSettings>::maybe_of(cx, true)
+            .map_or_else(Rendering::default, |settings| settings.rendering);
+        let mut remaining = fill;
+        let mut segment = |source: &str, heading: bool| {
+            let bullet = if heading { "?" } else { " " };
+            let look = Look {
+                bullet,
+                bullet_style: accent.clone(),
+                markdown: &theme,
+                cells,
+            };
+            let local_fill = remaining.and_then(|offset| {
+                let len =
+                    citation::blocks_of(source, false, cwd.as_deref(), cells, rendering).len();
+                remaining = offset.checked_sub(len);
+                (offset < len).then_some(offset)
+            });
+            let markdown = if let Some(block) = local_fill {
+                message_filled(source, false, cwd.as_deref(), &look, Some(block))
+            } else if heading {
+                message(source, false, cwd.as_deref(), &look)
+            } else {
+                Padding::new(
+                    EdgeInsets::only(2, 0, 1, 0),
+                    citation::cited(source, false, cwd.as_deref(), cells, theme.clone()),
+                )
+                .into()
+            };
+            if heading {
+                DefaultTextStyle::new(accent.clone(), markdown).into()
+            } else {
+                markdown
+            }
+        };
+        let mut column = Column::new().cross_axis_alignment(CrossAxisAlignment::Start);
+        for (at, (heading, body)) in sections.iter().enumerate() {
+            if at > 0 {
+                column = column.child(SizedBox::new(None, Some(1), None));
+            }
+            column = column.child(segment(heading, true));
+            if !body.is_empty() {
+                column = column
+                    .child(SizedBox::new(None, Some(1), None))
+                    .child(segment(body, false));
+            }
+        }
+        column.into()
+    })
+    .into()
 }

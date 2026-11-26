@@ -206,7 +206,7 @@ fn suggestion(cx: &AppCx<'_>, thread: &ThreadId) -> Option<StructuredTurn> {
         .iter()
         .filter_map(|(_, item)| match item {
             Item::User(prompt) => Some((prompt.shown().text.into_owned(), None)),
-            Item::Agent { text, phase } => {
+            Item::Agent { text, phase, .. } => {
                 Some((text.clone(), Some(*phase == Some(MessagePhase::Commentary))))
             }
             _ => None,

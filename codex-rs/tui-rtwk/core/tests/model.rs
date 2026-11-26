@@ -506,6 +506,77 @@ fn a_late_turn_started_does_not_revive_an_ended_turn() {
 }
 
 #[test]
+fn an_async_question_observed_while_attaching_registers_before_live_end() {
+    let id = ThreadId::new(T);
+    let turn = TurnId::new("turn-1");
+    for end_before_attach in [false, true] {
+        let mut app = app();
+        let ticket = start_thread_ticket(&run(&mut app, AppEv::Connected));
+        notification(&mut app, turn_started(T, turn.as_str()));
+        let question = serde_json::json!({
+            "method": "item/completed",
+            "params": {
+                "threadId": T,
+                "turnId": turn.as_str(),
+                "completedAtMs": 0,
+                "item": {
+                    "type": "agentMessage",
+                    "id": "early-question",
+                    "text": "Which way?",
+                    "questions": [{ "title": "Which way?", "options": null }]
+                }
+            }
+        });
+        notification(
+            &mut app,
+            BackendEv::Notification(Box::new(serde_json::from_value(question).expect("item"))),
+        );
+        assert!(app.thread(&id).is_none());
+        if end_before_attach {
+            notification(&mut app, turn_completed(T, turn.as_str()));
+        }
+        run(
+            &mut app,
+            AppEv::Reply(ticket, Reply::thread_started(id.clone())),
+        );
+        if !end_before_attach {
+            notification(&mut app, turn_completed(T, turn.as_str()));
+        }
+        let held = app.thread(&id).expect("thread attached");
+        let ends = held
+            .view()
+            .parts()
+            .expect("feature parts")
+            .async_questions
+            .ends();
+        assert_eq!(ends.len(), 1);
+        assert_eq!(ends[0].turn, turn);
+
+        run(&mut app, AppEv::Disconnected);
+        run(
+            &mut app,
+            AppEv::Intent(Intent::Feature(
+                codex_tui_core::question_reply::Intent::TurnEnded {
+                    thread: id.clone(),
+                    turn: turn.clone(),
+                }
+                .into(),
+            )),
+        );
+        let held = app.thread(&id).expect("thread remains after disconnect");
+        assert!(
+            held.view()
+                .parts()
+                .expect("feature parts")
+                .async_questions
+                .ends()
+                .is_empty()
+        );
+        assert!(app.features().async_questions.of(&id).is_empty());
+    }
+}
+
+#[test]
 fn a_delta_before_its_item_creates_the_entry() {
     let mut app = ready();
     notification(&mut app, agent_delta(T, "turn-1", "msg-1", "Hel"));
@@ -516,6 +587,7 @@ fn a_delta_before_its_item_creates_the_entry() {
         Some(Item::Agent {
             text: "Hello".into(),
             phase: None,
+            questions: None,
         })
     );
 }
@@ -607,6 +679,7 @@ fn the_completed_item_replaces_the_streamed_text_in_place() {
             Item::Agent {
                 text: "Hello".into(),
                 phase: None,
+                questions: None,
             },
         ]
     );
@@ -625,6 +698,7 @@ fn replace_turn_takes_the_snapshot_wholesale() {
             Item::Agent {
                 text: "fresh".into(),
                 phase: None,
+                questions: None,
             },
         )],
     );
@@ -636,6 +710,7 @@ fn replace_turn_takes_the_snapshot_wholesale() {
             Item::Agent {
                 text: "fresh".into(),
                 phase: None,
+                questions: None,
             }
         ))
     );

@@ -151,7 +151,10 @@ enum src/features/mod.rs OpenArgs 0
 # read of the limits: the rate limit prompts, the status line) and `fault_words` (a feature words
 # the error of its own thread's turn): 24 -> 28.
 # f-goal: `on_interrupt` (Esc over a running turn of an active goal pauses it): 28 -> 29.
-methods core/src/features/mod.rs Feature 29
+# f-async-questions-turn-end: `on_live_thread_event` reports live completions and terminal facts, and
+# `thread_fact` reconciles an acknowledgement after writer loss. Both have no effect door,
+# and `thread_intent` still checks writer ownership: 29 -> 31.
+methods core/src/features/mod.rs Feature 31
 # fw-hubs-a (P3): the two views a slice reads the app through. `AppView` has 9 `pub fn`s and
 # `ThreadView` 7 (the handles `core`, `slots`, `parts`, `facts` and what depends on the step:
 # `busy`, `has_writer`); a fact one slice wants is that slice's selector over them

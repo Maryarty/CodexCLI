@@ -1053,7 +1053,7 @@ mod phase {
         let transcript = thread.transcript();
         (0..transcript.len())
             .filter_map(|index| match transcript.get(index)?.1 {
-                Item::Agent { text, phase } => Some((text.clone(), phase.clone())),
+                Item::Agent { text, phase, .. } => Some((text.clone(), phase.clone())),
                 _ => None,
             })
             .collect()
@@ -1160,6 +1160,7 @@ mod calls {
         let agent = Item::Agent {
             text: "x".into(),
             phase: None,
+            questions: None,
         };
         assert_eq!(agent.call_count(), 0);
         let patch = Item::Patch(Arc::new(PatchActivity {

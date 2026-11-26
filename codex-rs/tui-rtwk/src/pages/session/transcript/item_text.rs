@@ -19,7 +19,7 @@ use crate::pages::session::cells::citation::blocks_of;
 use crate::pages::session::cells::text::{
     CardFigure, Env, Gap, Part, ReadContext, Room, Texts, texts_at, tool_texts,
 };
-use crate::pages::session::cells::{raw, session_info};
+use crate::pages::session::cells::{agent, raw, session_info};
 
 /// What the texts are read with: the cells' own `Env`, and what the cells that hold Markdown draw
 /// it with (the session's directory, the user's `tui.rendering`, raw output mode, raw reasoning).
@@ -243,7 +243,28 @@ fn markdown_pieces(item: &Item, reading: &Reading<'_>) -> Option<Vec<Piece>> {
                     .collect(),
             )
         }
-        Item::Agent { text, .. } => {
+        Item::Agent {
+            text, questions, ..
+        } => {
+            let sections = agent::question_sections(text, questions.as_deref().unwrap_or_default());
+            if !sections.is_empty() {
+                let mut pieces = Vec::new();
+                for (heading, body) in sections {
+                    pieces.push(Piece::line(Part::gutter("?")));
+                    for source in [heading, body] {
+                        if source.is_empty() {
+                            continue;
+                        }
+                        let mut section = Piece::body(body_of(source, reading)?);
+                        if let Some(mut first) = section.next() {
+                            first.before = "\n\n";
+                            pieces.push(first);
+                            pieces.extend(section);
+                        }
+                    }
+                }
+                return Some(pieces);
+            }
             let body = body_of(text, reading)?;
             Some(
                 std::iter::once(Piece::line(Part::gutter(reading.bullet)))
@@ -321,8 +342,8 @@ pub fn body_nodes(item: &Item, reading: &Reading<'_>) -> Option<Vec<markdown_tex
         Item::User(prompt) => drawn(crate::widgets::markdown::view(
             prompt.shown().text.trim_end(),
         )),
-        Item::Agent { text, .. } | Item::Plan { text } if !text.trim().is_empty() => {
-            body_of(text, reading)
+        Item::Agent { .. } | Item::Plan { .. } => {
+            markdown_text::nodes(&drawn_blocks(item, reading))
         }
         Item::Reasoning { .. } => {
             let summary = item.reasoning_text(reading.raw_reasoning);
@@ -341,14 +362,31 @@ pub fn body_nodes(item: &Item, reading: &Reading<'_>) -> Option<Vec<markdown_tex
 
 /// The blocks the cell of a message or a plan draws, whose code and quotes the copy mode selects.
 pub fn drawn_blocks(item: &Item, reading: &Reading<'_>) -> Vec<Block> {
-    match item {
-        Item::Agent { text, .. } | Item::Plan { text } => blocks_of(
-            text,
+    let blocks = |source: &str| {
+        blocks_of(
+            source,
             false,
             reading.cwd,
             reading.env.cells,
             reading.rendering,
-        ),
+        )
+    };
+    match item {
+        Item::Agent {
+            text, questions, ..
+        } => {
+            let sections = agent::question_sections(text, questions.as_deref().unwrap_or_default());
+            if sections.is_empty() {
+                blocks(text)
+            } else {
+                sections
+                    .iter()
+                    .flat_map(|(heading, body)| [*heading, *body])
+                    .flat_map(blocks)
+                    .collect()
+            }
+        }
+        Item::Plan { text } => blocks(text),
         _ => Vec::new(),
     }
 }

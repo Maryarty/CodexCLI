@@ -5,12 +5,13 @@ use rtwk::provider::read;
 use rtwk::{Cx, Rebuild};
 
 use codex_tui_core::commands::Target;
+use codex_tui_core::question_reply::Intent as QuestionIntent;
 use codex_tui_core::screens::{ScreenStates, ScreenThreadIntent, chat};
-use codex_tui_core::threads::{Ran, ThreadModel};
+use codex_tui_core::threads::{Ran, Restore, ThreadModel};
 
 use crate::app::view::Hs;
-use crate::pages::session::composer::clear_sent;
 use crate::pages::session::composer::queue::run_due;
+use crate::pages::session::composer::{burst, clear_sent};
 use crate::pages::session::live::{plan_mode, put_back, recalled_entry, seed_history};
 use crate::pages::session::open::open;
 use crate::widgets::directives::Edge;
@@ -27,6 +28,26 @@ impl ChatState {
         self.draft_empty = w.ui.composer.text().is_empty() && !self.draft_shell;
     }
 
+    fn restore_draft(restore: &Restore, w: &Chat, cx: &mut Cx<'_, ChatState>) {
+        let table = crate::pages::session::composer::strings::of(cx);
+        let states = read::<ScreenStates, _>(cx);
+        // A reverse search is showing a preview. Edit the stored draft that Esc brings back.
+        w.ui.draft.edit_stored(&w.ui.composer, || {
+            burst::flush_pending(
+                &w.ui.draft,
+                &w.ui.composer,
+                |chars| table.pasted(chars),
+                |n| table.image(n),
+            );
+            let draft = w.ui.draft.submission_with(
+                &w.ui.composer,
+                |n| table.image(n),
+                states.popovers.sources().mentions,
+            );
+            put_back(&w.ui, &restore.onto(draft), |n| table.image(n));
+        });
+    }
+
     pub(super) fn edge(&mut self, edge: Edge, w: &Chat, cx: &mut Cx<'_, ChatState>) -> Rebuild {
         match edge {
             // The composer clears when the model accepted (or queued) the message, not when it
@@ -41,21 +62,37 @@ impl ChatState {
             }
             // Messages the model gave back (an interrupt, a failed steer, the edit-queued key)
             // go into the composer.
-            Edge::Restore(restore) => {
-                let table = crate::pages::session::composer::strings::of(cx);
-                let states = read::<ScreenStates, _>(cx);
-                // behind an open reverse search the draft is the one it kept aside (Esc brings it
-                // back with the messages in front), not the preview shown in its place
-                w.ui.draft.edit_stored(&w.ui.composer, || {
-                    let draft = w.ui.draft.submission_with(
-                        &w.ui.composer,
-                        |n| table.image(n),
-                        states.popovers.sources().mentions,
-                    );
-                    put_back(&w.ui, &restore.onto(draft), |n| table.image(n));
-                });
+            Edge::Restore(thread, restore) => {
+                if read::<ThreadModel, _>(cx).id() != &thread {
+                    return Rebuild::No;
+                }
+                Self::restore_draft(&restore, w, cx);
                 self.sync_draft(w);
                 Rebuild::Yes
+            }
+            Edge::TurnEnded(thread, end) => {
+                let model = read::<ThreadModel, _>(cx);
+                if model.id() != &thread || !self.asking.ended.take(&model, &end.turn) {
+                    return Rebuild::No;
+                }
+                if let Some(restore) = &end.restore {
+                    Self::restore_draft(restore, w, cx);
+                }
+                let restored = end.restore.is_some();
+                let recovered = self.recover_questions(&thread, &end, &w.ui, cx);
+                crate::features::verb(
+                    cx,
+                    QuestionIntent::TurnEnded {
+                        thread,
+                        turn: end.turn,
+                    },
+                );
+                if restored || recovered {
+                    self.sync_draft(w);
+                    Rebuild::Yes
+                } else {
+                    Rebuild::No
+                }
             }
             // The user messages of a resumed thread's turns seed the composer's history
             // (`replay_backend_thread_turns`).

@@ -55,6 +55,7 @@ pub use note::{CdRefusal, ModeNote, Note, NoteKey, RemoveNote, Stub, Toggle, Ton
 pub use processes::{Listed, Terminal, WaitStreak};
 pub use queue::{DueCommand, Queued, Ran};
 use queue::{enqueue, send_next};
+pub(crate) use user_prompt::without_controls;
 pub use user_prompt::{Shown, UserPrompt, request_text};
 
 use std::collections::BTreeMap;
@@ -131,6 +132,7 @@ pub enum Item {
     Agent {
         text: String,
         phase: Option<MessagePhase>,
+        questions: Option<Vec<crate::question_reply::QuestionText>>,
     },
     Tool(Arc<ToolActivity>),
     /// The model's reasoning summary; shown only in the detailed transcript
@@ -264,6 +266,7 @@ impl Text {
             Text::Agent => Item::Agent {
                 text: String::new(),
                 phase: None,
+                questions: None,
             },
             Text::Plan => Item::Plan {
                 text: String::new(),
@@ -925,6 +928,23 @@ pub enum TurnEnd {
     Completed,
     Interrupted,
     Failed,
+}
+
+/// The active turn ended on the live stream, so the page can retire its questions.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LiveTurnEnd {
+    pub turn: TurnId,
+    /// A misalignment stop discards the question drafts.
+    pub recover_questions: bool,
+    /// Input the same live terminal event restored before the questions.
+    pub restore: Option<Restore>,
+}
+
+/// A live fact the thread has applied to the owning model.
+#[derive(Clone, Copy, Debug)]
+pub enum LiveThreadEvent<'a> {
+    ItemCompleted { key: &'a ItemKey, item: &'a Item },
+    TurnEnded(&'a LiveTurnEnd),
 }
 
 /// A message sent to the running turn (`turn/steer`) that the server has not
@@ -1735,6 +1755,10 @@ impl ThreadModel {
 }
 
 impl ThreadCore {
+    pub(crate) fn turn_finished(&self, turn: &TurnId) -> bool {
+        self.finished_turns.contains(turn)
+    }
+
     /// The thread's goal, none when it has none.
     pub fn goal(&self) -> Option<&Goal> {
         self.goal.as_ref()
@@ -2480,7 +2504,7 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
                 started_at: n.turn.started_at,
             },
         )),
-        ServerNotification::TurnCompleted(n) => Some((
+        ServerNotification::TurnCompleted(n) if n.turn.status != TurnStatus::InProgress => Some((
             ThreadId::new(&n.thread_id),
             ThreadEv::TurnCompleted {
                 turn: TurnId::new(&n.turn.id),
@@ -2855,12 +2879,19 @@ fn item_entry(payload: &ThreadItemPayload, completed: bool) -> Option<(ItemId, I
             (ItemId::new(id), Item::User(UserPrompt::from_input(content)))
         }
         ThreadItemPayload::AgentMessage {
-            id, text, phase, ..
+            id,
+            text,
+            phase,
+            questions,
+            ..
         } => (
             ItemId::new(id),
             Item::Agent {
                 text: text.clone(),
                 phase: phase.clone(),
+                questions: questions
+                    .as_ref()
+                    .map(|questions| questions.iter().map(Into::into).collect()),
             },
         ),
         _ => {
@@ -3520,7 +3551,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             safety::misalignment(model, &turn, &fault);
             // Oracle `on_error`: the turn is finalized, then the error row, then
             // the next queued input; the failed turn's own completion is a no-op.
-            end_turn(model, turn.clone(), TurnEnd::Failed, fx);
+            end_live_turn(model, turn.clone(), TurnEnd::Failed, fx);
             model.transcript.report_error(&turn, &fault, fx.daybreak());
         }
         ThreadEv::TurnStarted { turn, started_at } => {
@@ -3574,6 +3605,15 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 _ => (false, false),
             };
             let turn_finished = model.finished_turns.contains(&key.turn);
+            if !turn_finished {
+                features::on_live_thread_event(
+                    &mut model.features,
+                    LiveThreadEvent::ItemCompleted {
+                        key: &key,
+                        item: &item,
+                    },
+                );
+            }
             if !model.authoritative_turns.contains(&key.turn)
                 && !processes::draws_nothing(&item, turn_finished)
             {
@@ -3632,7 +3672,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::TurnEnded { turn, end } => {
             model.legacy_user_completions.remove(&turn);
             processes::turn_ended(model, &turn, end);
-            end_turn(model, turn, end, fx);
+            end_live_turn(model, turn, end, fx);
         }
         ThreadEv::TurnCompleted {
             turn,
@@ -3682,7 +3722,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             if let Some(fault) = &error {
                 model.transcript.report_error(&turn, fault, fx.daybreak());
             }
-            end_turn(model, turn, end, fx);
+            end_live_turn(model, turn, end, fx);
             if released && !model.busy() {
                 send_next(model, fx);
             }
@@ -3765,6 +3805,27 @@ fn live_timing(
         completed_at: known.completed_at.or((now > 0).then_some(now)),
     };
     (merged.duration_ms.is_some() || merged.completed_at.is_some()).then_some(merged)
+}
+
+fn end_live_turn(model: &mut ThreadModel, turn: TurnId, end: TurnEnd, fx: &mut ThreadFx<'_>) {
+    let previous_restore = model.restore().map(Restore::seq);
+    let recover_questions = !model
+        .safety
+        .violation()
+        .is_some_and(|violation| violation.turn.as_ref().is_none_or(|failed| failed == &turn));
+    end_turn(model, turn.clone(), end, fx);
+    let restore = model
+        .restore()
+        .filter(|r| previous_restore != Some(r.seq()))
+        .cloned();
+    features::on_live_thread_event(
+        &mut model.features,
+        LiveThreadEvent::TurnEnded(&LiveTurnEnd {
+            turn,
+            recover_questions,
+            restore,
+        }),
+    );
 }
 
 fn end_turn(model: &mut ThreadModel, turn: TurnId, end: TurnEnd, fx: &mut ThreadFx<'_>) {

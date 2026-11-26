@@ -19,12 +19,12 @@ def notify(method, params):
     return {"step": "notify", "message": {"method": method, "params": params}}
 
 
-def turn_started():
-    return notify("turn/started", {"threadId": THREAD, "turn": STARTED})
+def turn_started(turn="turn-1"):
+    return notify("turn/started", {"threadId": THREAD, "turn": dict(STARTED, id=turn)})
 
 
-def turn_completed():
-    done = dict(STARTED, status="completed", itemsView="summary", durationMs=1000)
+def turn_completed(turn="turn-1", status="completed", error=None):
+    done = dict(STARTED, id=turn, status=status, itemsView="summary", durationMs=1000, error=error)
     return notify("turn/completed", {"threadId": THREAD, "turn": done})
 
 
@@ -37,14 +37,14 @@ def joined(questions):
     return "\n\n".join(parts)
 
 
-def asks(message, questions):
+def asks(message, questions, turn="turn-1"):
     item = {
         "type": "agentMessage", "moderation": None, "id": message, "text": joined(questions),
         "phase": "final_answer", "memoryCitation": None, "delivery": None,
         "questions": [{"title": t, "options": o} for t, o in questions],
         "startedAtMs": None, "completedAtMs": None,
     }
-    return notify("item/completed", {"item": item, "threadId": THREAD, "turnId": "turn-1", "completedAtMs": 0})
+    return notify("item/completed", {"item": item, "threadId": THREAD, "turnId": turn, "completedAtMs": 0})
 
 
 IDE = "# Context from my IDE setup:\n\n## Open tabs:\n- lib.rs: src/lib.rs\n\n## My request for Codex:\n"
@@ -113,3 +113,40 @@ write("q_buffered", asks("buffered", [("Buffered?", None)]), note="questions_tes
 write("q_run", SEED, turn_started(), note="questions_tests.rs:889 a running turn, no questions yet")
 write("q_ask_two", asks("message", TWO), note="questions_tests.rs:889 add_async_questions(message)")
 write("q_remapped", asks("remapped", TWO), note="questions_tests.rs:889 add_async_questions(remapped)")
+
+# question_turn_end_tests.rs: live turn endings recover only their own questions.
+ONE = [("Which way?", None)]
+write("q_turn_end_one", SEED, turn_started(), asks("question", ONE),
+      note="question_turn_end_tests.rs: the running turn with one question")
+write("q_turn_end_open", turn_started(), asks("first", [("Which style?", None)]),
+      asks("second", [("What budget?", None)]),
+      note="question_turn_end_tests.rs: separate messages with ordered questions")
+write("q_turn_end_large", turn_started("turn-2"), asks("large", ONE, "turn-2"),
+      note="question_turn_end_tests.rs: another live turn with a new draft")
+write("q_turn_end_second", turn_completed("turn-2"),
+      note="question_turn_end_tests.rs: the second turn ends")
+write("q_turn_end_multiline", SEED, turn_started(),
+      asks("multiline", [("First line\r\n\r\n\x1b[31mLast\r line?\x1b[0m\x07", None)]),
+      note="question_turn_end_tests.rs: title line breaks and terminal controls")
+ERROR = {"message": "Turn failed", "codexErrorInfo": None, "additionalDetails": None, "misalignment": None}
+write("q_turn_end_error",
+      {"step": "screen", "dir": "chat", "ev": {"pending": {"thread": THREAD, "queued": ["queued prompt"]}}},
+      notify("error", {"threadId": THREAD, "turnId": "turn-1", "error": ERROR, "willRetry": False}),
+      turn_completed(status="failed", error=ERROR),
+      note="question_turn_end_tests.rs: non-retry error followed by the duplicate failed completion")
+write("q_turn_end_interrupted",
+      {"step": "screen", "dir": "chat", "ev": {"pending": {
+          "thread": THREAD, "steers": ["pending steer"], "queued": ["queued prompt"],
+      }}}, turn_completed(status="interrupted"),
+      note="question_turn_end_tests.rs: restore the pending steer and queued prompt before the answer")
+write("q_turn_end_coalesced", turn_completed(), turn_started("turn-2"),
+      asks("new-question", [("A new question?", None)], "turn-2"),
+      asks("question", ONE), asks("late-question", [("An orphan question?", None)]),
+      note="the ended question, the new turn, and two old items before the next frame")
+write("q_turn_end_two", turn_completed(), turn_started("turn-2"),
+      asks("new-question", [("A new question?", None)], "turn-2"), turn_completed("turn-2"),
+      note="two separate live turns with questions end before the next frame")
+write("q_turn_end_desktop_reply", reply(question_id("question", 0), "Which way?", "Desktop answer"),
+      note="a desktop answers after the owner's interruption")
+write("q_turn_end_in_progress", turn_completed(status="inProgress"),
+      note="a partial update does not end the running turn")

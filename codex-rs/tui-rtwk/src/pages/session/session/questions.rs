@@ -16,12 +16,14 @@ use rtwk::{AnyWidget, Cx, Key, Rebuild};
 
 use codex_tui_core::features::FeatureStates;
 use codex_tui_core::ids::ThreadId;
-use codex_tui_core::question_reply::Intent;
+use codex_tui_core::question_reply::{Intent, recovered};
 use codex_tui_core::screens::{ScreenThreadIntent, chat};
-use codex_tui_core::threads::{Queued, ThreadModel, UserMessage};
+use codex_tui_core::threads::{LiveTurnEnd, Queued, ThreadModel, UserMessage};
 
 use crate::app::view::Hs;
+use crate::pages::session::composer::{burst, strings};
 use crate::sheets::approvals::questions::{AQuestion, AsyncQuestions, Host, Kept, Outcome, Seed};
+use crate::widgets::directives::AppliedQuestionEnds;
 use crate::widgets::thread_ui::ThreadUi;
 
 use super::{ChatMsg, ChatState, send};
@@ -35,6 +37,7 @@ pub(super) struct Asking {
     answered: Cell<bool>,
     /// The drafts and the question on show, kept while the editor is closed.
     saved: Rc<RefCell<Kept>>,
+    pub(super) ended: AppliedQuestionEnds,
 }
 
 /// The questions of `thread` that wait.
@@ -73,6 +76,58 @@ pub(super) fn countdown(cx: &mut Cx<'_, ChatState>, thread: &ThreadId) -> Option
 }
 
 impl ChatState {
+    /// Close the ended turn's questions and append their unsent answers to the main draft.
+    pub(super) fn recover_questions(
+        &self,
+        thread: &ThreadId,
+        end: &LiveTurnEnd,
+        ui: &ThreadUi,
+        cx: &mut Cx<'_, ChatState>,
+    ) -> bool {
+        let features = read::<FeatureStates, _>(cx);
+        let waiting = features.async_questions.of(thread);
+        let ended = waiting
+            .iter()
+            .filter(|q| q.turn == end.turn)
+            .collect::<Vec<_>>();
+        if ended.is_empty() {
+            return false;
+        }
+        let mut drafts = Vec::new();
+        {
+            let mut saved = self.asking.saved.borrow_mut();
+            for q in &ended {
+                if end.recover_questions {
+                    if let Some(answer) = saved.take_answer(&q.id, cx)
+                        && let Some(draft) = recovered(&q.title, &answer)
+                    {
+                        drafts.push(draft);
+                    }
+                } else {
+                    saved.discard_answer(&q.id);
+                }
+            }
+        }
+        if ended.len() == waiting.len() {
+            self.asking.open.set(false);
+        }
+        if !drafts.is_empty() {
+            let table = strings::of(cx);
+            let drafts = drafts.join("\n\n");
+            ui.draft.edit_stored(&ui.composer, || {
+                burst::flush_pending(
+                    &ui.draft,
+                    &ui.composer,
+                    |chars| table.pasted(chars),
+                    |n| table.image(n),
+                );
+                ui.draft
+                    .append_recovered_drafts(&ui.composer, &drafts, |chars| table.pasted(chars));
+            });
+        }
+        true
+    }
+
     /// Whether the editor shows: it is open and a question waits.
     pub(super) fn editing(&self, asked: usize) -> bool {
         if asked == 0 {
