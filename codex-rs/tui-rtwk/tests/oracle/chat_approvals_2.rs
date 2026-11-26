@@ -799,10 +799,12 @@ fn question_editor_keeps_working_status_and_queued_messages_visible() {
     // the queue cleared, the status line off, Esc: the ONLY QUESTIONS frame.
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
-        .script(include_str!(
-            "fixtures/chat_approvals_2/q_two_running.jsonl"
-        ))
+        .replay(Vec::new())
         .open();
+    s.feed(
+        &include_str!("fixtures/chat_approvals_2/q_two_running.jsonl")
+            .replace("thread-1", kit::REPLAYED),
+    );
     s.paste("queued follow-up");
     s.keys("tab");
     s.paste("main draft");
@@ -822,10 +824,21 @@ fn question_editor_keeps_working_status_and_queued_messages_visible() {
         vec!["", "• Queued follow-up inputs", "  ↳ queued follow-up"],
         "the rest of the open frame",
     );
-    // the queue is taken back (the last question forward pops it), the turn ends, the question block is collapsed
-    s.keys("alt+up alt+up");
-    s.feed(include_str!("fixtures/chat_approvals_2/q_two_done.jsonl"));
+    // The oracle sets the task idle directly. Reconcile through history after clearing the
+    // seeded queue so there is no automatic follow-up when the model becomes idle.
+    s.feed(
+        &include_str!("fixtures/chat_approvals_2/q_queue_cleared.jsonl")
+            .replace("thread-1", kit::REPLAYED),
+    );
+    s.history_page(
+        vec![kit::replay_turn("turn-1", serde_json::json!([]))],
+        None,
+    );
+    s.assert_contains("1 of 2");
+    s.assert_absent("Working");
     s.keys("esc");
+    s.assert_composer("main draft");
+    s.assert_no_turn();
     s.snap("questions_with_status_and_queue")
         .labelled(&["OPEN", "ONLY QUESTIONS"])
         .frame("ONLY QUESTIONS")

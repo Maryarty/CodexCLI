@@ -43,6 +43,7 @@ pub use entries::debug_entries;
 
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
+use crate::keymap::press::is_escape;
 use crate::keymap::{only_shift, pressed, primary_label as label, unmodified};
 use crate::pages::session::composer::{
     Composer, burst, plain, search, strings as composer_strings,
@@ -540,6 +541,13 @@ impl AsyncState {
     }
 
     fn press(&mut self, key: &KeyPress, w: &AsyncQuestions, cx: &mut Cx<'_, Self>) {
+        // A focused search or Vim edit has already had its chance to take Esc.
+        // On the chat page it closes the question editor before interrupt actions.
+        if w.host.is_some() && is_escape(key) {
+            self.leave_field(cx);
+            self.emit(w, Outcome::Edge { forward: false }, cx);
+            return;
+        }
         let keymap = Rc::clone(&self.keymap);
         let input = self.focus_is_input(w);
         let options = !self.options(w).is_empty();
@@ -644,9 +652,10 @@ impl State for AsyncState {
         let send = cx.local_sender();
         self.keymap = read::<Keymap, _>(cx);
         let keymap = Rc::clone(&self.keymap);
+        let hosted = w.host.is_some();
         self.node
             .set_on_key_event(Some(Rc::new(move |_, key: KeyPress| {
-                if root_takes(&keymap, &key) {
+                if (hosted && is_escape(&key)) || root_takes(&keymap, &key) {
                     send(Msg::Press(key));
                     KeyEventResult::Handled
                 } else {
@@ -812,7 +821,8 @@ impl State for AsyncState {
                     // the chat may have sent a message since: a recall starting now has it
                     follow(&ui, &learned, host.as_ref());
                     // a search, a pending Vim command or a query owns the keys
-                    if modal_keys(&ui.draft) {
+                    // The focused editor also gets first chance at hosted Esc.
+                    if (host.is_some() && is_escape(key)) || modal_keys(&ui.draft) {
                         return false;
                     }
                     if input_takes(&keymap, key, other) {

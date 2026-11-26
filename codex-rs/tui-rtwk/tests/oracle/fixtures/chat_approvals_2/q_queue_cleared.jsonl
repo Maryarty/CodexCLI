@@ -1,0 +1,2 @@
+# questions_tests.rs:595 the cleared preview queue (tools/rtwk-port/async-questions/fixtures.py)
+{"step":"screen","dir":"chat","ev":{"pending":{"thread":"thread-1"}}}

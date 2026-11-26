@@ -75,7 +75,9 @@ TWO = [("Which way?", None), ("Any details?", None)]
 SAME = [("Same title?", None), ("Same title?", None)]
 write("q_two", SEED, asks("message", TWO), note="questions_tests.rs: questions()")
 write("q_two_running", SEED, turn_started(), asks("message", TWO), note="questions_tests.rs:595 turn running, questions()")
-write("q_two_done", SEED, turn_completed(), note="questions_tests.rs:595 the turn ends")
+write("q_two_done", SEED, turn_completed(), note="question_turn_end_tests.rs: live completion of the first turn")
+write("q_queue_cleared", {"step": "screen", "dir": "chat", "ev": {"pending": {"thread": THREAD}}},
+      note="questions_tests.rs:595 the cleared preview queue")
 write("q_single_running", SEED, turn_started(), asks("single", [("Only question?", None)]),
       note="questions_tests.rs:845 single question, turn running")
 write("q_named", SEED, asks("message", [("What next?", ["x" * 300 + " but do not deploy"])]),

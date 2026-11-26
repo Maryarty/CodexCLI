@@ -15,6 +15,36 @@ const INTERRUPTED: &str =
     include_str!("../oracle/fixtures/chat_approvals_2/q_turn_end_interrupted.jsonl");
 
 #[test]
+fn escape_from_an_open_question_keeps_the_running_turn_and_the_draft() {
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(QUESTION)
+        .open();
+    s.keys("alt+up").paste("unsent answer").keys("esc");
+    s.assert_contains("? 1 question");
+    s.assert_contains("Working");
+    s.assert_absent("unsent answer");
+    s.assert_interrupts(0);
+    s.keys("alt+up");
+    s.assert_contains("unsent answer");
+}
+
+#[test]
+fn a_remapped_interrupt_is_still_available_while_answering() {
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(QUESTION)
+        .keymap(&[("chat.interrupt_turn", "f12"), ("list.cancel", "ctrl+g")])
+        .open();
+    s.keys("alt+up f12");
+    s.assert_interrupts(1);
+    s.assert_contains("Type your answer");
+    s.keys("esc");
+    s.assert_contains("? 1 question");
+    s.assert_interrupts(1);
+}
+
+#[test]
 fn a_live_end_recovers_only_its_question_when_next_turn_arrives_before_the_frame() {
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
