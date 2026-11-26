@@ -1,6 +1,7 @@
 #![allow(clippy::expect_used)]
 
 use super::*;
+use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::ErrorNotification;
 use codex_app_server_protocol::ItemCompletedNotification;
 use codex_app_server_protocol::JSONRPCErrorError;
@@ -16,8 +17,8 @@ use codex_app_server_protocol::UserInput;
 use codex_tui_core::app::{AppFx, CodexApp, Intent, apply_app_from};
 use codex_tui_core::fixtures::builders::{turn_completed, turn_started, user_item_with_receipt};
 use codex_tui_core::protocol;
-use codex_tui_core::screens::{ScreenCommand, ScreenThreadIntent, agents, chat};
-use codex_tui_core::threads::{Queued, ThreadAsk, TurnState, UserMessage};
+use codex_tui_core::screens::{ScreenCommand, ScreenThreadIntent, chat};
+use codex_tui_core::threads::{Queued, TurnState, UserMessage, cloud_submit_params};
 
 const THREAD: &str = "cloud-thread";
 const CLOUD: BackendId = BackendId(1);
@@ -116,24 +117,21 @@ fn submission(fx: &AppFx) -> (Ticket, &str, ClientRequest) {
         .expect("user input submitted")
 }
 
-async fn receive(
+fn receive(
     app: &mut CodexApp,
     ticket: Ticket,
     id: &str,
     request: ClientRequest,
     result: Result<CloudUserMessageReceipt, TypedRequestError>,
 ) -> AppFx {
-    let event = submit(ticket, request, async |params| {
-        assert_eq!(params.thread_id, THREAD);
-        assert_eq!(params.client_user_message_id.as_deref(), Some(id));
-        assert!(matches!(
-            params.input.as_slice(),
-            [UserInput::Text { text, .. }] if text == "first input"
-        ));
-        result
-    })
-    .await
-    .expect("native reply");
+    let params = cloud_submit_params(request).expect("native submission on the wire");
+    assert_eq!(params.thread_id, THREAD);
+    assert_eq!(params.client_user_message_id.as_deref(), Some(id));
+    assert!(matches!(
+        params.input.as_slice(),
+        [UserInput::Text { text, .. }] if text == "first input"
+    ));
+    let event = submission_reply(ticket, result);
     let (ingress, mut events) = tokio::sync::mpsc::unbounded_channel();
     let epoch = app.epoch_of(CLOUD);
     emit_from(&ingress, CLOUD, epoch, event);
@@ -189,8 +187,8 @@ fn legacy_completion() -> AppEv {
     )))
 }
 
-#[tokio::test]
-async fn cloud_admission_decides_whether_input_starts_or_steers() {
+#[test]
+fn cloud_admission_decides_whether_input_starts_or_steers() {
     for local_running in [true, false] {
         let mut app = chat(local_running);
         let fx = type_message(&mut app, "first input");
@@ -204,7 +202,7 @@ async fn cloud_admission_decides_whether_input_starts_or_steers() {
         } else {
             CloudUserMessageReceipt::Steered(active("admitted"))
         };
-        receive(&mut app, ticket, id, request, Ok(receipt)).await;
+        receive(&mut app, ticket, id, request, Ok(receipt));
         let thread = app.active_thread();
         assert!(matches!(
             thread.turn(),
@@ -225,8 +223,8 @@ async fn cloud_admission_decides_whether_input_starts_or_steers() {
     }
 }
 
-#[tokio::test]
-async fn cloud_duplicate_and_unknown_wait_for_exact_live_confirmation() {
+#[test]
+fn cloud_duplicate_and_unknown_wait_for_exact_live_confirmation() {
     for receipt in [
         Ok(CloudUserMessageReceipt::Duplicate {
             turn_id: Some("unverified".to_owned()),
@@ -244,7 +242,6 @@ async fn cloud_duplicate_and_unknown_wait_for_exact_live_confirmation() {
         assert_eq!(app.active_thread().pending_steers().len(), 1);
         assert!(
             receive(&mut app, ticket, id, request, receipt)
-                .await
                 .commands()
                 .is_empty()
         );
@@ -265,7 +262,7 @@ async fn cloud_duplicate_and_unknown_wait_for_exact_live_confirmation() {
                 )),
             );
             assert!(matches!(
-                &app.active_thread().queue()[..],
+                app.active_thread().queue(),
                 [Queued::Unconfirmed { client_id, .. }, Queued::Message(message)]
                     if client_id == id && message.text == "follow-up"
             ));
@@ -293,8 +290,8 @@ async fn cloud_duplicate_and_unknown_wait_for_exact_live_confirmation() {
     }
 }
 
-#[tokio::test]
-async fn cloud_preflight_rejection_returns_the_draft_without_replaying_it() {
+#[test]
+fn cloud_preflight_rejection_returns_the_draft_without_replaying_it() {
     for local_running in [false, true] {
         for loss_first in [false, true] {
             let mut app = chat(local_running);
@@ -307,7 +304,7 @@ async fn cloud_preflight_rejection_returns_the_draft_without_replaying_it() {
                     [Queued::Unconfirmed { .. }]
                 ));
             }
-            let fx = receive(&mut app, ticket, id, request, Err(server_error(-32602))).await;
+            let fx = receive(&mut app, ticket, id, request, Err(server_error(-32602)));
             assert!(fx.commands().is_empty());
             let thread = app.active_thread();
             assert!(thread.queue().is_empty());
@@ -346,8 +343,8 @@ fn stream_lost() -> AppEv {
     })
 }
 
-#[tokio::test]
-async fn the_whole_cloud_connection_retires_lost_stream_admission_tickets() {
+#[test]
+fn the_whole_cloud_connection_retires_lost_stream_admission_tickets() {
     let mut app = chat(false);
     let fx = type_message(&mut app, "first input");
     let (ticket, id, request) = submission(&fx);
@@ -360,11 +357,14 @@ async fn the_whole_cloud_connection_retires_lost_stream_admission_tickets() {
         .commands()
         .iter()
         .find_map(|command| match command {
-            Command::Screen {
-                ticket,
-                command: ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Resume { .. })),
-                ..
-            } => Some(*ticket),
+            Command::Screen { ticket, .. }
+                if matches!(
+                    protocol::client_request(command, RequestId::Integer(1), None),
+                    Some(ClientRequest::ThreadResume { .. })
+                ) =>
+            {
+                Some(*ticket)
+            }
             _ => None,
         })
         .expect("reopen the lost stream");
@@ -375,7 +375,7 @@ async fn the_whole_cloud_connection_retires_lost_stream_admission_tickets() {
     assert!(app.active_thread().view().stream_lost());
     step(&mut app, AppEv::Disconnected);
     assert!(!app.active_thread().busy());
-    let fx = receive(&mut app, ticket, id, request, Err(server_error(-32602))).await;
+    let fx = receive(&mut app, ticket, id, request, Err(server_error(-32602)));
     assert!(fx.commands().is_empty());
     assert!(matches!(
         app.active_thread().queue(),
@@ -384,8 +384,8 @@ async fn the_whole_cloud_connection_retires_lost_stream_admission_tickets() {
     assert!(app.active_thread().restore().is_none());
 }
 
-#[tokio::test]
-async fn cloud_turn_end_waits_for_admission_without_draining_or_merging_input() {
+#[test]
+fn cloud_turn_end_waits_for_admission_without_draining_or_merging_input() {
     for end in [TurnStatus::Completed, TurnStatus::Interrupted] {
         for echo_first in [false, true] {
             let mut app = chat(true);
@@ -416,7 +416,7 @@ async fn cloud_turn_end_waits_for_admission_without_draining_or_merging_input() 
             if echo_first {
                 assert!(step(&mut app, exact_echo(id)).commands().is_empty());
             }
-            let fx = receive(&mut app, ticket, id, request, Err(server_error(-32000))).await;
+            let fx = receive(&mut app, ticket, id, request, Err(server_error(-32000)));
             let fx = if echo_first {
                 fx
             } else {
@@ -436,8 +436,8 @@ async fn cloud_turn_end_waits_for_admission_without_draining_or_merging_input() 
     }
 }
 
-#[tokio::test]
-async fn a_cloud_steer_receipt_preserves_the_active_turn_safety_check() {
+#[test]
+fn a_cloud_steer_receipt_preserves_the_active_turn_safety_check() {
     let mut app = chat(true);
     let fx = type_message(&mut app, "first input");
     let (ticket, id, request) = submission(&fx);
@@ -463,7 +463,6 @@ async fn a_cloud_steer_receipt_preserves_the_active_turn_safety_check() {
         id,
         request,
         Ok(CloudUserMessageReceipt::Steered(active("previous"))),
-    )
-    .await;
+    );
     assert!(app.active_thread().safety().is_waiting());
 }

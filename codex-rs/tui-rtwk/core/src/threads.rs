@@ -2230,6 +2230,20 @@ fn start_temporary(request_id: RequestId, temporary: &structured::Temporary) -> 
     }
 }
 
+/// Lower both local submission intents to the pinned Cloud StartOrSteer input.
+pub fn cloud_submit_params(request: ClientRequest) -> Option<TurnStartParams> {
+    match request {
+        ClientRequest::TurnStart { params, .. } => Some(params),
+        ClientRequest::TurnSteer { params, .. } => Some(TurnStartParams {
+            thread_id: params.thread_id,
+            input: params.input,
+            client_user_message_id: params.client_user_message_id,
+            ..TurnStartParams::default()
+        }),
+        _ => None,
+    }
+}
+
 /// The effects of one thread's `apply`: thread RPCs, with the thread id
 /// and the ticket stamped (R3). This is the only way a thread RPC is made.
 pub struct ThreadFx<'a> {

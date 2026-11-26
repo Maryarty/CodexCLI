@@ -18,9 +18,7 @@ use codex_app_server_client::CloudUserMessageReceipt;
 use codex_app_server_client::EmbeddedNetworkPolicy;
 use codex_app_server_client::TypedRequestError;
 use codex_app_server_client::cloud_backend;
-use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::ServerNotification;
-use codex_app_server_protocol::TurnStartParams;
 use codex_config::LoaderOverrides;
 use codex_core::config::Config;
 use codex_core::config::ConfigBuilder;
@@ -203,22 +201,11 @@ async fn run(
     emit_from(&ingress, spec.id, epoch, AppEv::Disconnected);
 }
 
-pub(crate) async fn submit(
+pub(crate) fn submission_reply(
     ticket: Ticket,
-    request: ClientRequest,
-    admit: impl AsyncFnOnce(TurnStartParams) -> Result<CloudUserMessageReceipt, TypedRequestError>,
-) -> Option<AppEv> {
-    let params = match request {
-        ClientRequest::TurnStart { params, .. } => params,
-        ClientRequest::TurnSteer { params, .. } => TurnStartParams {
-            thread_id: params.thread_id,
-            input: params.input,
-            client_user_message_id: params.client_user_message_id,
-            ..TurnStartParams::default()
-        },
-        _ => return None,
-    };
-    let reply = match admit(params).await {
+    admission: Result<CloudUserMessageReceipt, TypedRequestError>,
+) -> AppEv {
+    let reply = match admission {
         Ok(CloudUserMessageReceipt::Started(turn)) => {
             Reply::cloud_submission(CloudSubmission::Started(TurnId::new(&turn.id)))
         }
@@ -234,7 +221,7 @@ pub(crate) async fn submit(
         }
         Err(error) => Reply::cloud_submission(CloudSubmission::Unconfirmed(error.to_string())),
     };
-    Some(AppEv::Reply(ticket, reply))
+    AppEv::Reply(ticket, reply)
 }
 
 /// The cloud client and the codex home of its config, when the gate lets it
