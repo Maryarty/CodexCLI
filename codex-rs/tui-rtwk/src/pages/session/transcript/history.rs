@@ -7,11 +7,31 @@
 //! the same spellings; each asks `candidates` for them, widest first, and takes the first that
 //! fits its row.
 
+use rtwk::Cx;
+use rtwk::provider::read;
 use rtwk::style::{Span, Style};
 
-use codex_tui_core::threads::HistoryState;
+use codex_tui_core::threads::{HistoryState, ThreadModel};
+
+use crate::app::view::Hs;
+use crate::widgets::thread_ui::Follow;
 
 use super::strings::Strings;
+
+/// Ctrl+Home, Alt+<, Home of the sheet (`jump_to_beginning`): the first row, or, with older pages
+/// to come, the wait for it: the view holds while each page asks for the next.
+pub fn to_beginning<S: 'static>(cx: &mut Cx<'_, S>, follow: &Follow) {
+    let thread = read::<ThreadModel, _>(cx);
+    match thread.history_state() {
+        HistoryState::Complete => follow.jump_to_first(),
+        HistoryState::Loading => follow.begin(),
+        HistoryState::Partial | HistoryState::Failed => {
+            follow.begin();
+            let hs = read::<Hs, _>(cx);
+            cx.emit(&hs.load_history, thread.id().clone());
+        }
+    }
+}
 
 /// The three styles of the row.
 #[derive(Clone)]

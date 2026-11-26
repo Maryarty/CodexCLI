@@ -188,3 +188,44 @@ fn a_page_joining_above_keeps_a_selection_held_elsewhere() {
     s.wheel_down(0, 0, 100);
     s.assert_contains("four");
 }
+
+#[test]
+fn the_chat_jumps_to_the_beginning_and_back_to_the_latest() {
+    for (to_top, to_latest) in [("ctrl+home", "ctrl+end"), ("alt+shift+,", "alt+shift+.")] {
+        let mut s = partial(80, 12);
+        // with a draft in the field: the jump is the transcript's (`JumpTarget::from_key`)
+        s.keys(to_top);
+        assert_eq!(
+            s.page_requests(),
+            vec![None, Some("cursor-1".to_owned())],
+            "{to_top}"
+        );
+        // the view holds where it is while the page is on its way
+        s.assert_contains("↑ Loading earlier messages…");
+        s.assert_contains("draft");
+        s.history_page(vec![turn(0)], None);
+        s.assert_contains("prompt 00");
+        s.keys(to_latest);
+        assert!(
+            !s.text().contains("esc latest"),
+            "{to_latest}\n{}",
+            s.text()
+        );
+        s.assert_contains("answer 12");
+    }
+}
+
+#[test]
+fn the_chat_jumps_to_the_first_row_of_a_loaded_history() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 30)
+        .replay(Vec::new())
+        .open();
+    s.wait_for("Ask Codex to do anything");
+    s.history_page((1..=12).rev().map(turn).collect(), None);
+    s.keys("ctrl+home");
+    s.assert_contains("prompt 01");
+    assert!(!s.text().contains("answer 12"), "{}", s.text());
+    s.keys("ctrl+end");
+    s.assert_contains("answer 12");
+}
