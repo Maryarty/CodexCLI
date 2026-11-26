@@ -221,10 +221,6 @@ fn computer_activity_live_and_replay_group_identically() {
 // ORACLE chatwidget/tests/computer_activity_tests.rs:63 computer_activity_keeps_reasoning_in_order_live_and_replayed kind=snap owner=ui-pane
 #[test]
 fn computer_activity_keeps_reasoning_in_order_live_and_replayed() {
-    kit::pending(
-        Owner::UiPane,
-        "the detailed transcript (Ctrl+T) puts a blank row above every row of the group; the oracle has one above each reasoning and none above the call that follows a reasoning (`Place.separator`, transcript_pane.rs: the file of f-history-pages; follow-up f-reasoning-status-2)",
-    );
     // oracle: computer calls 1 and 2 interleaved with reasoning summaries "Inspecting action N" and "Checking action N",
     // live and replayed, in the same order.
     let mut live = Screen::build(Owner::UiPane)
@@ -472,10 +468,6 @@ fn reasoning_status_accepts_bold_text_with_a_plain_suffix() {
 // ORACLE chatwidget/tests/reasoning_status_tests.rs:76 reasoning_status_tracks_items_and_restores_after_tool_activity kind=snap owner=ui-pane
 #[test]
 fn reasoning_status_tracks_items_and_restores_after_tool_activity() {
-    kit::pending(
-        Owner::UiPane,
-        "a delta of an item the turn already completed moves the header (oracle `Late old header`, `Stale heading`: `reasoning_item_id` is cleared at the completion): the header is derived from the transcript and the streamed deltas, the transcript's reasoning item has no completion flag, and the flag is a hook in threads.rs ItemUpsert (f-reasoning-status-2); the oracle's own row snapshots at 80 and 40 columns with the 42 s timer are inline in the oracle test, with no snapshot file",
-    );
     // oracle: the header sequence Working, Researching backend freshness (x4), No summary heading is
     // available., Preparing evidence report (the unified-exec tool step between is `terminal_wait`'s test).
     let mut s = Screen::build(Owner::UiPane)
@@ -1351,13 +1343,17 @@ fn status_widget_and_approval_modal_snapshot() {
 // ORACLE chatwidget/tests/status_and_layout.rs:3095 status_widget_active_snapshot kind=snap owner=ui-pane snap=status_widget_active
 #[test]
 fn status_widget_active_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "the Working row is on the chat screen (`• Working (0s • esc to interrupt)`), the rest of the oracle's snapshot is not: the header `Analyzing` comes from the bold line of a reasoning delta (`on_agent_reasoning_delta`, `reasoning_buffer` and `latest_summary_line`: no reasoning header in the thread model, chunk-live's), the status line `GPT-5.6-Sol default · /tmp/project` is chat_status_2's, and the footer hint row differs (the oracle's chat widget has agents navigation off, ours reads `← for agents · ? for shortcuts`; needs a kit option or a flag for it); the oracle's snapshot is the pane's desired height (8 rows), ours the window's",
-    );
-    // oracle: width 80; a running turn with reasoning "**Analyzing**".
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: turn started, reasoning delta "**Analyzing**"
+    // Probed colours keep the pulsing glyph fixed while the clock starts with this turn.
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 8)
+        .terminal_colors(0xffffff, 0x000000)
+        .live()
+        .open();
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}
+{"step":"screen","dir":"chat","ev":{"status":{"model":"GPT-5.6-Sol","cwd":"/tmp/project","items":["model-with-reasoning","current-dir"]}}}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}"#);
+    s.feed(&lifecycle(&reasoning_parts("analysis", &[]), false));
+    s.feed(&summary_delta("analysis", "**Analyzing**"));
     s.assert_snap("status_widget_active");
 }
 

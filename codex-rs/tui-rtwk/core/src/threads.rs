@@ -3188,6 +3188,11 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             {
                 return;
             }
+            if let ScreenThreadEv::Chat(screens::chat::ThreadEv::Reasoning(reasoning)) = &ev
+                && model.completed_items.contains(&reasoning.key())
+            {
+                return;
+            }
             // The card of a `/status` is a cell of the transcript: its refresh ends there.
             if let ScreenThreadEv::Status(screens::status::ThreadEv::Refreshed {
                 request,
@@ -3254,14 +3259,18 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 if review_prompt(model, &item, echo) {
                     return;
                 }
-                if !model.finished_turns.contains(&key.turn) && matches!(item, Item::Agent { .. }) {
-                    model.completed_items.insert(key.clone());
-                    processes::flush(model, Some(key.turn.clone()));
-                }
-                if let Item::Plan { text } = &item
-                    && !model.finished_turns.contains(&key.turn)
-                {
-                    model.slots.chat.plan.plan_completed(text);
+                if !turn_finished {
+                    match &item {
+                        Item::Agent { .. } => {
+                            model.completed_items.insert(key.clone());
+                            processes::flush(model, Some(key.turn.clone()));
+                        }
+                        Item::Reasoning { .. } => {
+                            model.completed_items.insert(key.clone());
+                        }
+                        Item::Plan { text } => model.slots.chat.plan.plan_completed(text),
+                        _ => {}
+                    }
                 }
                 model.transcript.upsert(key, item);
             }

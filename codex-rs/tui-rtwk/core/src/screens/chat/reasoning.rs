@@ -6,7 +6,7 @@
 //! the only state is what the transcript has not got yet, the streamed deltas (`Live`).
 
 use crate::ids::{ItemId, TurnId};
-use crate::threads::{Item, Transcript};
+use crate::threads::{Item, ItemKey, Transcript};
 
 /// Which stream a delta came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,6 +32,15 @@ pub enum Ev {
 }
 
 impl Ev {
+    pub(crate) fn key(&self) -> ItemKey {
+        match self {
+            Self::Delta { turn, item, .. } | Self::Part { turn, item } => ItemKey {
+                turn: turn.clone(),
+                item: item.clone(),
+            },
+        }
+    }
+
     pub fn turn(&self) -> &TurnId {
         match self {
             Self::Delta { turn, .. } | Self::Part { turn, .. } => turn,

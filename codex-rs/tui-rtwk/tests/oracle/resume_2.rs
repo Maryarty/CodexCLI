@@ -286,17 +286,23 @@ fn thread_to_transcript_cells_renders_core_message_types() {
 // ORACLE resume_picker.rs:7763 thread_to_transcript_cells_retains_summary_and_raw_reasoning_when_enabled kind=ui owner=routes-lists
 #[test]
 fn thread_to_transcript_cells_retains_summary_and_raw_reasoning_when_enabled() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no thread with a reasoning turn (summary `public summary`, raw content `raw reasoning content`) to resume into a transcript with raw reasoning visible",
-    );
     let mut s = Screen::build(Owner::RoutesLists)
         .size(80, 24)
-        .entry("resume", "reasoning_turn")
+        .replay(vec![kit::replay_turn(
+            "turn-1",
+            serde_json::json!([{
+                "type": "reasoning",
+                "id": "reasoning-1",
+                "summary": ["public summary"],
+                "content": ["raw reasoning content"]
+            }]),
+        )])
+        .raw_reasoning()
+        .live()
         .open();
-    s.keys("enter");
+    s.keys("ctrl+t");
     // The oracle's transcript lines at 80 cells: the summary, a blank line, the raw content.
-    s.assert_in_order(&["• public summary", "raw reasoning content"]);
+    s.assert_screen_row_then("• public summary", &["", "  raw reasoning content"]);
 }
 
 // ORACLE resume_picker.rs:7832 moving_to_last_card_scrolls_when_cards_exceed_viewport kind=ui owner=routes-lists

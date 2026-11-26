@@ -1198,7 +1198,17 @@ impl State for ViewportState {
                 return AnyWidget::default();
             };
             let previous = index.checked_sub(1).and_then(|index| transcript.get(index));
-            let separator = previous.is_some() || header.is_some();
+            // The detailed transcript keeps reasoning between computer calls inside the
+            // group. Only the reasoning gets an extra row, not the next call.
+            let joins_computer = detailed
+                && item.group() == Some(codex_tui_core::threads::ItemGroup::Computer)
+                && (0..index)
+                    .rev()
+                    .map_while(|above| transcript.get(above))
+                    .take_while(|(above, _)| above.turn == key.turn)
+                    .find(|(_, item)| !matches!(item, Item::Reasoning { .. }))
+                    .is_some_and(|(_, item)| item.group() == Some(codex_tui_core::threads::ItemGroup::Computer));
+            let separator = (previous.is_some() || header.is_some()) && !joins_computer;
             let place = Place {
                 separator,
                 // only the detailed transcript (oracle `TranscriptView`) draws prompts with no

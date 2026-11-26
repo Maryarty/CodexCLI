@@ -775,14 +775,22 @@ fn unterminated_prose_is_visible_before_completion() {
 // ORACLE chatwidget/tests/status_and_layout.rs:5233 reasoning_delta_does_not_double_schedule_visible_status_redraw kind=ui owner=ui-pane
 #[test]
 fn reasoning_delta_does_not_double_schedule_visible_status_redraw() {
-    kit::pending(
+    kit::na(
         Owner::UiPane,
-        "reasoning and answer streaming headers, prose previews and per-message headers are not built in the chat skeleton",
+        "the oracle counts manual FrameRequester requests before coalescing; rtwk derives frames from view changes (process.md), and this screen test checks the visible header",
     );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: a task started; reasoning delta '**Checking files**' sets the status header
+    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    s.feed(&format!("{BASE}\n{TURN}"));
+    let item =
+        serde_json::json!({"type": "reasoning", "id": "reasoning-1", "summary": [], "content": []});
+    s.feed(
+        &serde_json::json!({"step": "notify", "message": {"method": "item/started", "params": {
+            "threadId": "thread-1", "turnId": "turn-1", "item": item, "startedAtMs": 0
+        }}})
+        .to_string(),
+    );
+    s.feed(r#"{"step":"notify","message":{"method":"item/reasoning/summaryTextDelta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"reasoning-1","summaryIndex":0,"delta":"**Checking files**"}}}"#);
     s.assert_contains("Checking files");
-    // the draw scheduling (frame requests) is not drawn: that half is not asserted here
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5257 reasoning_delta_restores_recreated_status_indicator_header kind=snap owner=ui-pane snap=reasoning_delta_restores_recreated_status_indicator
