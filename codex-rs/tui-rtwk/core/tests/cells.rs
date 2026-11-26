@@ -612,10 +612,12 @@ fn collab(method: &str, call: Value) -> Option<(String, std::sync::Arc<CollabEve
         ThreadEv::ItemStarted {
             key,
             item: Item::Collab(event),
+            ..
         }
         | ThreadEv::ItemUpsert {
             key,
             item: Item::Collab(event),
+            ..
         } => Some((key.item.to_string(), event)),
         other => panic!("not a collab entry: {other:?}"),
     }

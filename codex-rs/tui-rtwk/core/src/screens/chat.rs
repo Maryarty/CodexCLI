@@ -1042,6 +1042,7 @@ pub enum Command {
     /// `turn/steer`: the message joins the running turn `turn`.
     Steer {
         turn: TurnId,
+        client_id: String,
         message: crate::threads::UserMessage,
     },
     /// `thread/settings/update` of the collaboration mode.
@@ -1085,6 +1086,7 @@ pub enum Ctx {
     Steer {
         turn: TurnId,
         retried: bool,
+        client_id: String,
         message: crate::threads::UserMessage,
     },
 }
@@ -1243,9 +1245,14 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
             thread: thread.to_string(),
             command: command.clone(),
         },
-        Command::Steer { turn, message } => crate::threads::ThreadAsk::Steer {
+        Command::Steer {
+            turn,
+            client_id,
+            message,
+        } => crate::threads::ThreadAsk::Steer {
             thread: thread.to_string(),
             turn: turn.to_string(),
+            client_id: client_id.clone(),
             message: message.clone(),
         },
         Command::ApprovePlan(markdown) => crate::threads::ThreadAsk::PrepareApprovedPlan {

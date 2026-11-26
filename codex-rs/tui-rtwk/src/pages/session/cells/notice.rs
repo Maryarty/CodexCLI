@@ -37,6 +37,9 @@ pub fn texts(notice: &Notice, strings: &Strings, detailed: bool) -> Vec<Part> {
         Notice::InterruptedForSteer => {
             row([strings.bullet, strings.interrupted_for_steer].concat())
         }
+        Notice::SubmissionUnconfirmed(text) => {
+            row([strings.bullet, &unconfirmed_words(text)].concat())
+        }
         Notice::NoPreviousMessage => row([strings.bullet, strings.no_previous_message].concat()),
         Notice::PromptReverted => row([strings.bullet, strings.prompt_reverted].concat()),
         Notice::GoalBudgetReached => row(super::error::line(strings.goal_budget_reached, strings)),
@@ -110,6 +113,21 @@ pub fn texts(notice: &Notice, strings: &Strings, detailed: bool) -> Vec<Part> {
     }
 }
 
+fn unconfirmed_words(text: &str) -> String {
+    let preview = if text.trim().is_empty() {
+        "message with attachments".into()
+    } else {
+        let mut boundaries = rtwk_core::unicode::grapheme_boundaries(text);
+        let truncate = boundaries.nth(77);
+        match (truncate, boundaries.nth(2)) {
+            (Some((end, _)), Some(_)) => format!("{}...", &text[..end]),
+            _ => text.to_owned(),
+        }
+    };
+    crate::oracle_strings::live::RECONNECT_COULDN_T_CONFIRM_WHETHER_WAS_SENT
+        .replace("{preview}", &preview)
+}
+
 /// `set_rate_limit_reset_available_hint`: the count, and its noun by `reset_label`.
 fn reset_available_words(count: i64, strings: &Strings) -> String {
     let (lead, one, many, tail) = strings.reset_available;
@@ -174,6 +192,11 @@ impl StatelessWidget for NoticeCell {
             Notice::InterruptedForSteer => Text::rich(vec![
                 Span::styled(strings.bullet, tokens.dim()),
                 Span::styled(strings.interrupted_for_steer, Style::new()),
+            ])
+            .into(),
+            Notice::SubmissionUnconfirmed(text) => Text::rich(vec![
+                Span::styled(strings.bullet, tokens.dim()),
+                Span::styled(unconfirmed_words(text), Style::new()),
             ])
             .into(),
             // `add_info_message`: the bullet, then the line

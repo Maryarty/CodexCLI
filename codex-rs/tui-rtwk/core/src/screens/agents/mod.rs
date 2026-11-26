@@ -821,9 +821,19 @@ pub enum Ctx {
     /// A page of the opened session's history.
     History {
         thread: String,
+        read: HistoryRead,
     },
     Loaded,
     SaveGrouping,
+}
+
+/// Why the app requested this page of history.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HistoryRead {
+    Older,
+    Latest,
+    /// The newest page requested after recovering the thread's connection or stream.
+    SubmissionRecovery,
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {

@@ -3,9 +3,9 @@
 //! Oracle: `agents_overview.rs` (refresh apply, open),
 //! `agents_overview_actions.rs` (action results), `agents_overview_loading.rs`.
 
+use super::DetailRead;
 use crate::ids::ThreadId;
 use crate::threads::{ThreadAsk, ThreadPreviews};
-use super::DetailRead;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -207,7 +207,6 @@ pub(super) fn apply_ev(model: &mut Model, ev: Ev) {
         Ev::Reconnected => model.notice = None,
         Ev::Lagged => lagged(model),
         Ev::Voice(owner) => model.voice = owner,
-
     }
 }
 
@@ -253,7 +252,12 @@ pub(super) fn list(model: &mut Model, cursor: Option<String>, append: bool) -> O
 }
 
 /// The answer of an RPC of ours.
-pub fn apply_answer(model: &mut Model, previews: &mut ThreadPreviews, ctx: Ctx, result: Result<Reply, RpcError>) -> Vec<Out> {
+pub fn apply_answer(
+    model: &mut Model,
+    previews: &mut ThreadPreviews,
+    ctx: Ctx,
+    result: Result<Reply, RpcError>,
+) -> Vec<Out> {
     match (ctx, result) {
         (Ctx::List { append: true }, Ok(Reply::Listed(page))) => {
             super::discovery::on_more_page(model, Some(page));
@@ -285,8 +289,12 @@ pub fn apply_answer(model: &mut Model, previews: &mut ThreadPreviews, ctx: Ctx, 
         (Ctx::Search { id, limit }, Err(_) | Ok(_)) => {
             return super::discovery::on_search_page(model, id, limit, None);
         }
-        (Ctx::Read { thread }, result) => return super::reads::on_read(model, previews, thread, result),
-        (Ctx::Turns { thread }, result) => return super::reads::on_turns(model, previews, thread, result),
+        (Ctx::Read { thread }, result) => {
+            return super::reads::on_read(model, previews, thread, result);
+        }
+        (Ctx::Turns { thread }, result) => {
+            return super::reads::on_turns(model, previews, thread, result);
+        }
         (Ctx::Loaded, result) => return super::reads::on_loaded(model, result),
         (Ctx::Usage { thread, id }, result) => {
             super::usage::finish(model, &thread, id, result.ok());
@@ -335,7 +343,10 @@ pub fn apply_answer(model: &mut Model, previews: &mut ThreadPreviews, ctx: Ctx, 
             }
         }
         (Ctx::Stop { thread }, Ok(Reply::ActiveTurn(Some(turn)))) => {
-            return vec![out(Command::Thread(ThreadAsk::Interrupt { thread, turn }), Ctx::Interrupt)];
+            return vec![out(
+                Command::Thread(ThreadAsk::Interrupt { thread, turn }),
+                Ctx::Interrupt,
+            )];
         }
         (Ctx::Stop { .. } | Ctx::Interrupt, Ok(_)) => {}
         (Ctx::Pin { pinned, .. }, Err(error)) => {
@@ -362,7 +373,10 @@ pub fn apply_answer(model: &mut Model, previews: &mut ThreadPreviews, ctx: Ctx, 
                     thread: thread.to_string(),
                     cursor: None,
                 }),
-                Ctx::History { thread: thread.to_string() },
+                Ctx::History {
+                    thread: thread.to_string(),
+                    read: super::HistoryRead::Latest,
+                },
             )];
         }
         (Ctx::Resume { .. }, Err(error)) => {
@@ -417,7 +431,10 @@ pub fn apply_answer(model: &mut Model, previews: &mut ThreadPreviews, ctx: Ctx, 
                     thread: thread.to_string(),
                     cursor: None,
                 }),
-                Ctx::History { thread: thread.to_string() },
+                Ctx::History {
+                    thread: thread.to_string(),
+                    read: super::HistoryRead::Latest,
+                },
             )];
         }
         // The page of history goes to the thread's transcript (the app

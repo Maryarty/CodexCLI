@@ -59,10 +59,20 @@ pub fn turn_started(thread: &str, turn_id: &str) -> BackendEv {
 
 /// `item/started` of a user message.
 pub fn user_item(thread: &str, turn_id: &str, item: &str, text: &str) -> BackendEv {
+    user_item_with_receipt(thread, turn_id, item, text, None)
+}
+
+pub fn user_item_with_receipt(
+    thread: &str,
+    turn_id: &str,
+    item: &str,
+    text: &str,
+    receipt: Option<String>,
+) -> BackendEv {
     note(ServerNotification::ItemStarted(ItemStartedNotification {
         item: ThreadItem::untimed(ThreadItemPayload::UserMessage {
             id: item.to_string(),
-            client_id: None,
+            client_id: receipt,
             content: vec![UserInput::Text {
                 text: text.to_string(),
                 text_elements: Vec::new(),

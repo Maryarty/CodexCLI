@@ -407,6 +407,7 @@ pub enum Command {
         ticket: Ticket,
         thread: ThreadId,
         message: UserMessage,
+        client_id: String,
         /// The acknowledgement of a misalignment failure, epoch milliseconds: the request
         /// carries the `misalignment_override` metadata (`threads/safety.rs`).
         misalignment_override: Option<i64>,
@@ -811,6 +812,12 @@ impl CodexApp {
     /// The renderer `/export` writes the conversation with (`TranscriptText`).
     pub fn with_transcript_text(mut self, text: TranscriptText) -> Self {
         self.transcript_text = Some(text);
+        self
+    }
+
+    /// A namespace minted by the shell for submission receipts, which outlive a connection.
+    pub fn with_submission_namespace(mut self, namespace: String) -> Self {
+        self.mint.set_submission_namespace(namespace);
         self
     }
 
@@ -1705,18 +1712,29 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         }
         AppEv::Backend(BackendEv::StreamRestored(thread)) => {
             // Only a thread the app marked lost has anything restored (oracle: the flag).
-            if app
-                .threads
-                .get(&thread)
-                .is_some_and(|model| model.stream_lost())
+            if app.screens.agents.owner_of(thread.as_str()) == origin
+                && let Some(model) = app.threads.get(&thread)
+                && model.stream_lost()
             {
-                stream_changed(
+                let reconcile = model.reconciling_submissions();
+                apply_thread(
                     app,
-                    origin,
                     &thread,
-                    ThreadEv::StreamRestored { read: false },
+                    ThreadEv::StreamRestored {
+                        read: false,
+                        reconciled: false,
+                    },
                     fx,
                 );
+                if reconcile {
+                    request_history(
+                        app,
+                        &thread,
+                        None,
+                        agents::HistoryRead::SubmissionRecovery,
+                        fx,
+                    );
+                }
             }
         }
         AppEv::Reply(ticket, reply) => apply_reply(app, ticket, reply, fx),
@@ -2235,7 +2253,25 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                         fx,
                     );
                     apply_thread(app, &thread, threads::history_page_of(&resumed), fx);
-                    fetch_history(app, &thread, fx);
+                    let read = if app
+                        .threads
+                        .get(&thread)
+                        .is_some_and(|model| model.reconciling_submissions())
+                    {
+                        apply_thread(
+                            app,
+                            &thread,
+                            ThreadEv::StreamRestored {
+                                read: false,
+                                reconciled: false,
+                            },
+                            fx,
+                        );
+                        agents::HistoryRead::SubmissionRecovery
+                    } else {
+                        agents::HistoryRead::Latest
+                    };
+                    request_history(app, &thread, None, read, fx);
                 }
             }
             AppCtx::Worktree { backend, step } => step.advance(app, backend, answer, fx),
@@ -2481,10 +2517,16 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 .and_then(|thread| thread.history_cursor())
                 && !app.outgoing.any(|ctx| {
                     matches!(ctx,
-                    AppCtx::Agents(agents::Ctx::History { thread }) if thread == id.as_str())
+                    AppCtx::Agents(agents::Ctx::History { thread, .. }) if thread == id.as_str())
                 })
             {
-                request_history(app, &id, Some(cursor.to_owned()), fx);
+                request_history(
+                    app,
+                    &id,
+                    Some(cursor.to_owned()),
+                    agents::HistoryRead::Older,
+                    fx,
+                );
             }
         }
         Intent::OpenThread(id) => {
@@ -2602,12 +2644,14 @@ fn named(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv) -> ThreadEv {
         item => item,
     };
     match ev {
-        ThreadEv::ItemUpsert { key, item } => ThreadEv::ItemUpsert {
+        ThreadEv::ItemUpsert { key, item, receipt } => ThreadEv::ItemUpsert {
             key,
+            receipt,
             item: rename(item),
         },
-        ThreadEv::ItemStarted { key, item } => ThreadEv::ItemStarted {
+        ThreadEv::ItemStarted { key, item, receipt } => ThreadEv::ItemStarted {
             key,
+            receipt,
             item: rename(item),
         },
         ev => ev,
@@ -2988,10 +3032,21 @@ fn open_verified(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) -> bool {
     true
 }
 
-/// A writer can be reused while its stream and history are current.
+/// A live writer can be reused while its history is current or the recovery page is in flight.
 fn thread_held(app: &CodexApp, id: &ThreadId) -> bool {
     app.threads.get(id).is_some_and(|thread| {
-        thread.has_writer() && !thread.stream_lost() && !thread.history_may_be_incomplete()
+        thread.has_writer()
+            && !thread.stream_lost()
+            && (!thread.history_may_be_incomplete()
+                || app.outgoing.any(|ctx| {
+                    matches!(
+                        ctx,
+                        AppCtx::Agents(agents::Ctx::History {
+                            thread: requested,
+                            read: agents::HistoryRead::SubmissionRecovery,
+                        }) if requested == id.as_str()
+                    )
+                }))
     })
 }
 
@@ -3010,11 +3065,17 @@ fn set_open_cancelled(app: &mut CodexApp, id: &ThreadId, value: bool) -> bool {
 }
 
 fn fetch_history(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) {
-    request_history(app, id, None, fx);
+    request_history(app, id, None, agents::HistoryRead::Latest, fx);
 }
 
-fn request_history(app: &mut CodexApp, id: &ThreadId, cursor: Option<String>, fx: &mut AppFx) {
-    if cursor.is_some() {
+fn request_history(
+    app: &mut CodexApp,
+    id: &ThreadId,
+    cursor: Option<String>,
+    read: agents::HistoryRead,
+    fx: &mut AppFx,
+) {
+    if read == agents::HistoryRead::Older {
         apply_thread(app, id, ThreadEv::HistoryRequested, fx);
     }
     send_agents(
@@ -3026,6 +3087,7 @@ fn request_history(app: &mut CodexApp, id: &ThreadId, cursor: Option<String>, fx
             }),
             ctx: agents::Ctx::History {
                 thread: id.to_string(),
+                read,
             },
         }],
         fx,
@@ -3093,6 +3155,7 @@ fn provider_refusal(app: &mut CodexApp, thread: &ThreadId, error: &RpcError, fx:
 
 /// The reply of an app-scoped screen RPC.
 fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut AppFx) {
+    let mut recovery_history = None;
     let result = match answer {
         Answer::Screen(ScreenReply::Agents(reply)) => Ok(reply),
         Answer::Failed(error) => Err(error),
@@ -3124,7 +3187,22 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
         show_held_thread(app, id.clone(), fx);
         apply_thread(app, &id, threads::history_page_of(thread), fx);
         if stale {
-            apply_thread(app, &id, ThreadEv::StreamRestored { read: true }, fx);
+            let reconciling = app
+                .threads
+                .get(&id)
+                .is_some_and(|model| model.reconciling_submissions());
+            if reconciling {
+                recovery_history = Some(id.clone());
+            }
+            apply_thread(
+                app,
+                &id,
+                ThreadEv::StreamRestored {
+                    read: !reconciling,
+                    reconciled: false,
+                },
+                fx,
+            );
         }
         // `maybe_prompt_resume_paused_goal_after_resume`: a resumed thread's stopped goal asks.
         if matches!(ctx, agents::Ctx::Resume { .. }) {
@@ -3151,21 +3229,51 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
             .entry(ThreadId::new(thread))
             .or_default() += 1;
     }
-    if let (agents::Ctx::History { thread }, Ok(agents::Reply::History { turns, next })) =
-        (&ctx, &result)
+    if let agents::Ctx::History {
+        thread,
+        read: purpose,
+    } = &ctx
     {
         let thread = ThreadId::new(thread);
-        apply_thread(app, &thread, threads::history_page(turns, next.clone()), fx);
+        let read = if let Ok(agents::Reply::History { turns, next }) = &result {
+            apply_thread(app, &thread, threads::history_page(turns, next.clone()), fx);
+            true
+        } else {
+            apply_thread(app, &thread, ThreadEv::HistoryFailed, fx);
+            false
+        };
+        if *purpose == agents::HistoryRead::SubmissionRecovery
+            && app.threads.get(&thread).is_some_and(|model| {
+                model.has_writer() && !model.stream_lost() && model.reconciling_submissions()
+            })
+        {
+            apply_thread(
+                app,
+                &thread,
+                ThreadEv::StreamRestored {
+                    read,
+                    reconciled: true,
+                },
+                fx,
+            );
+        }
     }
-    if let (agents::Ctx::History { thread }, Err(_)) = (&ctx, &result) {
-        apply_thread(app, &ThreadId::new(thread), ThreadEv::HistoryFailed, fx);
-    }
-    let outs = agents::apply_answer(
+    let mut outs = agents::apply_answer(
         &mut Rc::make_mut(&mut app.screens).agents,
         app.threads.previews_mut(),
         ctx,
         result,
     );
+    if let Some(id) = recovery_history {
+        for out in &mut outs {
+            if let agents::Ctx::History { thread, read } = &mut out.ctx
+                && thread == id.as_str()
+                && *read == agents::HistoryRead::Latest
+            {
+                *read = agents::HistoryRead::SubmissionRecovery;
+            }
+        }
+    }
     send_agents(app, outs, fx);
 }
 
@@ -3327,20 +3435,6 @@ impl SessionSlice {
     }
 }
 
-/// The event stream of `thread` was lost or came back: only the backend that owns the thread
-/// speaks of it.
-fn stream_changed(
-    app: &mut CodexApp,
-    origin: BackendId,
-    thread: &ThreadId,
-    ev: ThreadEv,
-    fx: &mut AppFx,
-) {
-    if app.screens.agents.owner_of(thread.as_str()) == origin {
-        apply_thread(app, thread, ev, fx);
-    }
-}
-
 /// The stream of `thread` was lost (oracle `ThreadStreamDisconnected`): the displayed thread of
 /// the backend that owns it is marked, and when no user turn is pending or running the backend is
 /// asked to attach it again, which ends there; every other case shows the error as the line the
@@ -3359,6 +3453,21 @@ fn stream_lost(
     {
         let idle = !model.user_turn_in_flight();
         apply_thread(app, &thread, ThreadEv::StreamLost, fx);
+        if app
+            .threads
+            .get(&thread)
+            .is_some_and(|model| model.reconciling_submissions())
+        {
+            // A read sent before the gap cannot settle recovery across it.
+            app.outgoing.retain(|ctx| {
+                !matches!(
+                    ctx, AppCtx::Agents(agents::Ctx::History {
+                        thread: requested,
+                        read: agents::HistoryRead::Latest | agents::HistoryRead::SubmissionRecovery,
+                    }) if requested == thread.as_str()
+                )
+            });
+        }
         if idle {
             fx.commands
                 .push(Command::ReconnectIdleThread { thread, error });

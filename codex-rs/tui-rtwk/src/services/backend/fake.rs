@@ -14,7 +14,7 @@ use codex_tui_core::app::BackendEv;
 use codex_tui_core::app::Command;
 use codex_tui_core::app::Ingress;
 use codex_tui_core::fixtures::builders::turn_started;
-use codex_tui_core::fixtures::builders::user_item;
+use codex_tui_core::fixtures::builders::user_item_with_receipt;
 use codex_tui_core::ids::BackendId;
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::ids::ThreadId;
@@ -599,6 +599,7 @@ async fn run_as(
                 ticket,
                 thread,
                 message,
+                client_id,
                 ..
             } => {
                 let (n, events, prefix) = scripted.unwrap_or((0, None, None));
@@ -610,11 +611,12 @@ async fn run_as(
                 // As the server does: the turn starts, the user message
                 // is echoed back as an item.
                 emit(AppEv::Backend(turn_started(thread.as_str(), &turn_id)));
-                emit(AppEv::Backend(user_item(
+                emit(AppEv::Backend(user_item_with_receipt(
                     thread.as_str(),
                     &turn_id,
                     &format!("user-{n}"),
                     &message.text,
+                    Some(client_id),
                 )));
                 for event in events.unwrap_or_default() {
                     emit(AppEv::Backend(event));

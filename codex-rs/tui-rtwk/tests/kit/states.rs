@@ -4,13 +4,23 @@
 use codex_tui_core::app::{AppEv, BackendEv, Command, Intent};
 use codex_tui_core::features::windows_sandbox::{Config, Fact, Host, Intent as Sandbox, Mode};
 use codex_tui_core::features::{FeatureFact, FeatureIntent};
+use codex_tui_core::fixtures::builders::turn_started;
 use codex_tui_core::fixtures::script::Answer;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::rpc::Reply;
+use codex_tui_core::screens::{ScreenCommand, ScreenEv, agents, chat};
 use codex_tui_rtwk::app::UiApp;
 
 use super::Screen;
+use super::env::{replay_turn, resume_response};
 use super::seed::{Open, answer};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SubmissionReceipt {
+    Legacy,
+    Unrelated,
+    Exact,
+}
 
 impl Screen {
     /// The composer's input is off, as the oracle's `set_input_enabled(false, ..)` leaves it: the
@@ -102,6 +112,77 @@ impl Screen {
             .inject([AppEv::Backend(BackendEv::StreamRestored(thread))]);
         self.h.advance(100);
         self
+    }
+
+    /// Prepare a start or steer whose answer the server has yet to deliver.
+    pub fn hold_reconnect_submission(&mut self, pending_start: bool) -> &mut Screen {
+        if pending_start {
+            self.h.fake.hold_turn_start();
+        } else {
+            let thread = self.active_thread();
+            self.h
+                .inject([AppEv::Backend(turn_started(thread.as_str(), "turn-1"))]);
+            self.h.advance(100);
+        }
+        self
+    }
+
+    /// Disconnect and reattach the visible thread, with a recovered prompt that carries
+    /// the specified ID. The recovered text matches the submitted text in every case.
+    pub fn recover_submission(&mut self, receipt: SubmissionReceipt, text: &str) -> &mut Screen {
+        let thread = self.active_thread();
+        let client_id = self
+            .h
+            .fake
+            .commands()
+            .into_iter()
+            .rev()
+            .find_map(|command| match command {
+                Command::StartTurn { client_id, .. }
+                | Command::Screen {
+                    command: ScreenCommand::Chat(chat::Command::Steer { client_id, .. }),
+                    ..
+                } => Some(client_id),
+                _ => None,
+            })
+            .expect("a submission in flight");
+        let recovered_id = match receipt {
+            SubmissionReceipt::Legacy => None,
+            SubmissionReceipt::Unrelated => Some("unrelated-submission".to_owned()),
+            SubmissionReceipt::Exact => Some(client_id),
+        };
+        let turn = replay_turn(
+            "turn-1",
+            serde_json::json!([{
+                "type": "userMessage",
+                "id": "recovered",
+                "clientId": recovered_id,
+                "content": [{"type": "text", "text": text, "textElements": []}]
+            }]),
+        );
+        self.h
+            .fake
+            .respond(move |request| match request["method"].as_str() {
+                Some("thread/resume") => Some(Ok(resume_response(thread.as_str(), &[], false))),
+                _ => None,
+            });
+        self.h.inject([
+            AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnecting)),
+            AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnected)),
+        ]);
+        self.history_page(vec![turn], None)
+    }
+
+    pub fn assert_reconnect_queue(&self, expected: &[&str]) {
+        let queued = self.h.t.read_app(|app: &UiApp| {
+            app.core
+                .active_thread()
+                .queue()
+                .iter()
+                .map(|entry| entry.text.clone())
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(queued, expected, "the recovered input queue");
     }
 
     /// The thread is controlled by its parent (the oracle's `set_parent_owned_thread`): the server

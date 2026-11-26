@@ -44,7 +44,7 @@ impl AppCtx {
             Self::Removal { thread, .. }
             | Self::OpenSession { thread, .. }
             | Self::Opening { thread, .. } => app.screens.agents.owner_of(thread.as_str()),
-            Self::Agents(crate::screens::agents::Ctx::History { thread }) => {
+            Self::Agents(crate::screens::agents::Ctx::History { thread, .. }) => {
                 app.screens.agents.owner_of(thread)
             }
             // what the displayed backend is asked

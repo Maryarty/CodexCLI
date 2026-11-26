@@ -4,7 +4,7 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
-use crate::kit::{self, Owner, Screen};
+use crate::kit::{self, Owner, Screen, SubmissionReceipt};
 
 const SESSION: &str = include_str!("fixtures/chat_commands_2/session.jsonl");
 const RUNNING: &str = include_str!("fixtures/chat_commands_2/running.jsonl");
@@ -725,16 +725,40 @@ fn committed_user_message_with_hidden_prompt_context_renders_local_images() {
 // ORACLE chatwidget/tests/composer_submission.rs:2721 reconnect_resumes_unsent_input_and_reconciles_confirmed_submissions kind=snap owner=chat-nav-pane
 #[test]
 fn reconnect_resumes_unsent_input_and_reconciles_confirmed_submissions() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "G-new-reconnect-reconcile: the port keeps one thread model across a lost stream (queue on Enter, drain on restore: built), but it does not capture the first message in flight (a pending steer or a pending start) with its client id, nor reconcile it against the recovered history's receipts, so the notice `Couldn't confirm whether “first message” was sent. It hasn't been resent.` is never raised and an unconfirmed first message is not put back at the head of the queue",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    s.type_text("first message");
-    // The oracle's notice when nothing confirms the first message (the loop runs three id sets).
-    s.assert_contains(
-        "• Couldn't confirm whether “first message” was sent. It hasn't been resent.",
-    );
+    let notice = "• Couldn't confirm whether “first message” was sent. It hasn't been resent.";
+    for pending_start in [false, true] {
+        for receipt in [
+            SubmissionReceipt::Legacy,
+            SubmissionReceipt::Unrelated,
+            SubmissionReceipt::Exact,
+        ] {
+            let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+            s.hold_reconnect_submission(pending_start);
+            s.type_text("first message");
+            s.keys("enter");
+            s.type_text("follow-up");
+            s.keys(if pending_start { "enter" } else { "tab" });
+            s.recover_submission(receipt, "first message");
+            s.assert_requests_of("thread/resume", 1);
+            if receipt == SubmissionReceipt::Exact {
+                s.assert_reconnect_queue(&[]);
+                s.assert_absent(notice);
+                if pending_start {
+                    s.assert_turn_texts(&["first message", "follow-up"]);
+                } else {
+                    s.assert_turn_texts(&["follow-up"]);
+                }
+            } else {
+                s.assert_reconnect_queue(&["first message", "follow-up"]);
+                s.assert_contains(notice);
+                if pending_start {
+                    s.assert_turn_texts(&["first message"]);
+                } else {
+                    s.assert_no_turn();
+                }
+            }
+        }
+    }
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:2827 image_submission_is_portable_for_new_turns_and_steers kind=snap owner=chat-nav-pane snap=portable_image_echo_renders_once

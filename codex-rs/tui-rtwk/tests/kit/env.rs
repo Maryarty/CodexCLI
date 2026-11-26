@@ -530,7 +530,11 @@ pub fn replay_turn(id: &str, items: serde_json::Value) -> serde_json::Value {
 }
 
 /// The server's answer to `thread/resume` for `id`: the thread with `turns`.
-fn resume_response(id: &str, turns: &[serde_json::Value], active: bool) -> serde_json::Value {
+pub(super) fn resume_response(
+    id: &str,
+    turns: &[serde_json::Value],
+    active: bool,
+) -> serde_json::Value {
     let mut thread = serde_json::to_value(listed_thread(id)).expect("a thread");
     if active {
         thread["status"] = serde_json::json!({"type": "active", "activeFlags": []});

@@ -20,6 +20,12 @@ use crate::threads::UserMessage;
 pub enum Queued {
     /// A message for the model.
     Message(UserMessage),
+    /// Submitted before a disconnect; only a matching receipt can remove it automatically.
+    Unconfirmed {
+        message: Box<UserMessage>,
+        client_id: String,
+        submitted: crate::ids::Ticket,
+    },
     /// A message that is sent as it is: no slash or shell parsing (a `!` the user did not type
     /// in shell mode, a paste that merely starts with `/`), and the text as it stood in the
     /// composer when it differs from the message (a `[Pasted Content 1006 chars]` placeholder
@@ -71,6 +77,7 @@ impl Queued {
             | Queued::Literal(message, _)
             | Queued::Command(message)
             | Queued::Shell(message) => message,
+            Queued::Unconfirmed { message, .. } => message,
         }
     }
 
@@ -89,6 +96,7 @@ impl Queued {
             | Queued::Literal(message, _)
             | Queued::Command(message)
             | Queued::Shell(message) => message,
+            Queued::Unconfirmed { message, .. } => *message,
         }
     }
 }
@@ -269,7 +277,10 @@ pub(super) fn enqueue(model: &mut ThreadModel, message: Queued, fx: &mut ThreadF
 pub(super) fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
     // a refused thread keeps what waits (oracle `suppress_queue_autosend`); a command the screen
     // runs is waited for
-    if model.stream_lost
+    if !model.has_writer()
+        || model.stream_lost
+        || model.reconciling_submissions
+        || matches!(model.queue.first(), Some(Queued::Unconfirmed { .. }))
         || model.slots.chat.mcp.is_starting()
         || model.safety.blocks_input()
         || model.slots.chat.provider_error.is_some()
@@ -294,6 +305,10 @@ pub(super) fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
     }
     while !model.queue.is_empty() {
         match model.queue.remove(0) {
+            entry @ Queued::Unconfirmed { .. } => {
+                model.queue.insert(0, entry);
+                return;
+            }
             // a thread whose model is empty takes no turn: the message goes back to the composer
             // and the rest of the queue stays (`submit_user_message`)
             Queued::Message(message) | Queued::Literal(message, _)
