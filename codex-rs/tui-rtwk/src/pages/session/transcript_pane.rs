@@ -12,7 +12,8 @@ use rtwk::gestures::SelectionTarget;
 use rtwk::layout::{Align, Alignment, Column, CrossAxisAlignment, MainAxisSize};
 use rtwk::provider::{read, select, watch};
 use rtwk::scroll::{
-    ItemTexts, ListView, OverscrollNotification, ScrollController, ScrollNotification,
+    ItemTexts, ListView, OverscrollNotification, ScrollBehavior, ScrollConfiguration,
+    ScrollController, ScrollNotification,
 };
 use rtwk::style::{Attrs, Style};
 use rtwk::text::segmenter_of;
@@ -971,6 +972,7 @@ impl State for ViewportState {
             select::<ScreenStates, _, _>(cx, |states| states.cells.show_raw_reasoning);
         let collapse = select::<TuiSettings, _, _>(cx, |settings| settings.collapse_turn_details);
         let rendering = select::<TuiSettings, _, _>(cx, |settings| settings.rendering);
+        let wheel_step = select::<TuiSettings, _, _>(cx, |settings| settings.wheel_rows_per_event);
         let activity = activity_focus::of(&widget.find);
         let disclosed = activity.disclosed();
         let cells = cells_strings::of(cx);
@@ -1508,6 +1510,13 @@ impl State for ViewportState {
                 .selection_text(texts.clone() as Rc<dyn ItemTexts>)
                 .into(),
             None => list.into(),
+        };
+        let list = match wheel_step {
+            Some(step) => {
+                let step = step.min(f64::from(f32::MAX)) as f32;
+                ScrollConfiguration::new(ScrollBehavior::fixed(step), list).into()
+            }
+            None => list,
         };
         // A short reverse list reports its measured height to Align. Its live rows can
         // grow during layout without rebuilding the list widget.

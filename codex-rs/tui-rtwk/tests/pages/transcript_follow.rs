@@ -243,6 +243,71 @@ fn the_wheel_reaching_the_end_hides_the_control() {
 }
 
 #[test]
+fn fractional_wheel_pauses_follow_only_when_it_moves_a_row() {
+    let mut s = chat(80, 12);
+    s.type_text("draft stays");
+    s.mouse_scroll_speed(0.5);
+    s.wheel_up(12, 3, 1);
+    s.assert_contains("row 39");
+    s.assert_absent("Back to bottom");
+    s.wheel_up(12, 3, 1);
+    s.assert_contains("Back to bottom");
+    s.resize(40, 12);
+    s.assert_row(0, "  row 31");
+    let paused = s.shot();
+    s.wheel_down(12, 3, 1);
+    s.assert_same_rows(&paused);
+    s.wheel_down(12, 3, 1);
+    s.assert_row(0, "  row 32");
+    s.keys("esc");
+    s.assert_contains("row 39");
+    s.assert_absent("Back to bottom");
+    s.assert_composer("draft stays");
+}
+
+#[test]
+fn wheel_speed_is_kept_when_switching_between_main_and_side_conversations() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 12)
+        .script(script())
+        .side()
+        .open();
+    s.mouse_scroll_speed(1.5);
+    let rows = (0..40)
+        .map(|i| format!("side row {i:02}"))
+        .collect::<Vec<_>>()
+        .join("  \n");
+    s.live_tail(&rows).commit_live_tail();
+    s.assert_contains("side row 39");
+
+    fn first(s: &Screen, prefix: &str) -> usize {
+        s.rows()
+            .iter()
+            .find_map(|line| line.trim().strip_prefix(prefix)?.parse().ok())
+            .unwrap_or_else(|| panic!("no {prefix} row:\n{}", s.text()))
+    }
+
+    let side = first(&s, "side row ");
+    s.wheel_up(12, 3, 1);
+    assert_eq!(first(&s, "side row "), side - 1);
+    s.keys("esc");
+    s.assert_contains("side row 39");
+    s.keys("ctrl+/");
+    s.assert_absent("side row ");
+    s.assert_contains("row 39");
+    let main = first(&s, "row ");
+    s.wheel_up(12, 3, 1);
+    assert_eq!(first(&s, "row "), main - 1);
+    s.wheel_up(12, 3, 1);
+    assert_eq!(first(&s, "row "), main - 3);
+    s.keys("ctrl+/");
+    s.assert_contains("side row 39");
+    assert_eq!(first(&s, "side row "), side);
+    s.wheel_up(12, 3, 1);
+    assert_eq!(first(&s, "side row "), side - 1);
+}
+
+#[test]
 fn escape_on_the_empty_composer_returns_and_primes_the_backtrack() {
     let mut s = chat(80, 12);
     s.keys("pageup");

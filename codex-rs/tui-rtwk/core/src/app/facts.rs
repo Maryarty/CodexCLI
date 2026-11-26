@@ -25,12 +25,15 @@ impl Default for Rendering {
 }
 
 /// The `[tui]` settings that change what a view shows.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TuiSettings {
     /// `tui.collapse_turn_details`: the tool calls of a finished turn show as one summary line in
     /// the transcript view until the user opens them (oracle `transcript_view`
     /// `collapse_turn_details`).
     pub collapse_turn_details: bool,
+    /// `tui.mouse_scroll_speed`: rows per wheel event, including fractional rows.
+    /// Without an explicit speed the reader uses rtwk's native scroll policy.
+    pub wheel_rows_per_event: Option<f64>,
     /// `tui.show_tooltips`: the startup tooltip under the welcome (default on).
     pub show_tooltips: bool,
     /// `tui.rendering`.
@@ -61,6 +64,7 @@ impl Default for TuiSettings {
     fn default() -> Self {
         Self {
             collapse_turn_details: false,
+            wheel_rows_per_event: None,
             show_tooltips: true,
             rendering: Rendering::default(),
             copy_on_select: true,

@@ -125,6 +125,7 @@ pub(crate) fn tui_settings(config: &Config) -> TuiSettings {
         ),
         deselect_after_copy: config.tui_copy_on_select_clear_selection,
         collapse_turn_details: config.tui_collapse_turn_details,
+        wheel_rows_per_event: config.tui_mouse_scroll_speed,
         show_tooltips: config.show_tooltips,
         vim_mode_default: config.tui_vim_mode_default,
         hide_rate_limit_model_nudge: config.notices.hide_rate_limit_model_nudge.unwrap_or(false),
@@ -837,6 +838,25 @@ mod tests {
         assert_eq!(base64(b"fo"), "Zm8=");
         assert_eq!(base64(b"foo"), "Zm9v");
         assert_eq!(base64("héllo".as_bytes()), "aMOpbGxv");
+    }
+
+    #[tokio::test]
+    async fn transcript_wheel_speed_preserves_the_optional_config_value() {
+        let dir = tempfile::tempdir().expect("config directory");
+        for speed in [None, Some(1.5)] {
+            let overrides = speed
+                .map(|speed| ("tui.mouse_scroll_speed".into(), speed.into()))
+                .into_iter()
+                .collect();
+            let config = codex_core::config::ConfigBuilder::default()
+                .codex_home(dir.path().to_owned())
+                .fallback_cwd(Some(dir.path().to_owned()))
+                .cli_overrides(overrides)
+                .build()
+                .await
+                .expect("load wheel speed config");
+            assert_eq!(tui_settings(&config).wheel_rows_per_event, speed);
+        }
     }
 
     #[test]

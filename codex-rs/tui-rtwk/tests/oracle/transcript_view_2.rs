@@ -888,30 +888,87 @@ fn transcript_footer_keys_remain_distinct_from_prose_and_query_text() {
 }
 
 // ---- oracle: transcript_view/input_tests.rs (6 screen-level tests here; 5 state tests left to chat-live)
+fn wheel_reader(overlay: bool, speed: Option<f64>) -> Screen {
+    let open = Screen::build(Owner::ChatLive).size(60, 16).live();
+    let mut s = if overlay { open.view_overlay() } else { open }.open();
+    if let Some(speed) = speed {
+        s.mouse_scroll_speed(speed);
+    }
+    let rows = (1..=120)
+        .map(|row| format!("row {row:03}"))
+        .collect::<Vec<_>>()
+        .join("  \n");
+    s.live_tail(&rows);
+    s.keys("pageup pageup");
+    s
+}
+
+fn first_wheel_row(s: &Screen) -> i32 {
+    s.rows()
+        .iter()
+        .find_map(|row| {
+            row.trim()
+                .trim_start_matches('•')
+                .trim()
+                .strip_prefix("row ")?
+                .parse()
+                .ok()
+        })
+        .expect("a numbered transcript row")
+}
+
 // ORACLE transcript_view/input_tests.rs:8 mouse_scroll_speed_scales_rows_and_accumulates_fractional_movement kind=snap owner=chat-live snap=mouse_scroll_speed_scales_rows_and_accumulates_fractional_movement
 #[test]
 fn mouse_scroll_speed_scales_rows_and_accumulates_fractional_movement() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no mouse scroll speed setting: the speed 0.5, 1.5 and 3.0 scales each wheel notch",
-    );
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(20, 8)
-        .script(include_str!("fixtures/transcript_view_2/rows24.jsonl"))
-        .open();
-    s.wheel_up(1, 1, 8);
-    s.assert_snap("mouse_scroll_speed_scales_rows_and_accumulates_fractional_movement");
+    for overlay in [false, true] {
+        for (speed, deltas) in [
+            (None, &[-3, 3][..]),
+            (Some(0.5), &[0, -1, 0, 0, 1]),
+            (Some(1.5), &[-1, -2, 1, 2]),
+            (Some(3.0), &[-3, 3]),
+        ] {
+            let mut s = wheel_reader(overlay, speed);
+            let mut expected = first_wheel_row(&s);
+            for (i, &delta) in deltas.iter().enumerate() {
+                if i < deltas.len().div_ceil(2) {
+                    s.wheel_up(5, 5, 1);
+                } else {
+                    s.wheel_down(5, 5, 1);
+                }
+                expected += delta;
+                kit::assert_same(
+                    first_wheel_row(&s),
+                    expected,
+                    &format!("overlay {overlay}, speed {speed:?}, event {i}"),
+                );
+            }
+        }
+    }
 }
 
 // ORACLE transcript_view/input_tests.rs:57 decimal_mouse_scroll_speeds_preserve_whole_rows kind=ui owner=chat-live
 #[test]
 fn decimal_mouse_scroll_speeds_preserve_whole_rows() {
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(20, 8)
-        .script(include_str!("fixtures/transcript_view_2/rows120.jsonl"))
-        .open();
-    s.wheel_up(1, 1, 40);
-    // the oracle: after each event the top row moves by floor(event * speed) whole rows (the formula is the oracle's)
+    for (speed, tenths) in [(0.1, 1), (0.3, 3)] {
+        let mut s = wheel_reader(true, Some(speed));
+        let start = first_wheel_row(&s);
+        for (up, direction) in [(true, -1), (false, 1)] {
+            let origin = first_wheel_row(&s);
+            for event in 1..=100 {
+                if up {
+                    s.wheel_up(5, 5, 1);
+                } else {
+                    s.wheel_down(5, 5, 1);
+                }
+                kit::assert_same(
+                    first_wheel_row(&s),
+                    origin + direction * (event * tenths / 10),
+                    &format!("speed {speed}, direction {direction}, event {event}"),
+                );
+            }
+        }
+        kit::assert_same(first_wheel_row(&s), start, "back to the starting row");
+    }
 }
 
 // ORACLE transcript_view/input_tests.rs:134 hover_links_match_wrapped_click_targets_and_refresh_after_scrolling kind=ui owner=chat-live
