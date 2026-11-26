@@ -26,11 +26,11 @@ use std::any::Any;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::time::Duration;
 use std::time::Instant;
+
+use codex_tui_core::app::effects::PrimaryOwner;
 
 mod html;
 mod machine;
@@ -80,9 +80,19 @@ impl Format {
 pub enum Destination {
     Clipboard,
     /// The X11 PRIMARY selection only.
-    Primary,
+    Primary(PrimaryOwner),
     /// The clipboard, and PRIMARY with the plain text.
-    ClipboardAndPrimary(Arc<str>),
+    ClipboardAndPrimary(Arc<str>, PrimaryOwner),
+}
+
+impl Destination {
+    fn primary<'a>(&'a self, text: &'a Arc<str>) -> Option<(&'a Arc<str>, &'a PrimaryOwner)> {
+        match self {
+            Self::Clipboard => None,
+            Self::Primary(owner) => Some((text, owner)),
+            Self::ClipboardAndPrimary(plain, owner) => Some((plain, owner)),
+        }
+    }
 }
 
 /// What keeps a native clipboard alive (oracle `ClipboardLease`): on X11 and
@@ -404,8 +414,14 @@ pub struct Clipboard {
 struct Inner {
     environment: Environment,
     timeout: Duration,
-    busy: Arc<AtomicBool>,
+    occupancy: Arc<Mutex<Occupancy>>,
     start: Mutex<Start>,
+}
+
+#[derive(Default)]
+struct Occupancy {
+    busy: bool,
+    primary: Option<(Arc<str>, PrimaryOwner)>,
 }
 
 enum Start {
@@ -425,7 +441,7 @@ impl Clipboard {
             inner: Arc::new(Inner {
                 environment,
                 timeout,
-                busy: Arc::new(AtomicBool::new(false)),
+                occupancy: Arc::new(Mutex::new(Occupancy::default())),
                 start: Mutex::new(Start::Idle(Box::new(routes))),
             }),
         }
@@ -433,31 +449,35 @@ impl Clipboard {
 
     /// Whether a copy still holds the worker.
     pub fn is_busy(&self) -> bool {
-        self.inner.busy.load(Ordering::SeqCst)
+        lock_occupancy(&self.inner.occupancy).busy
     }
 
-    /// Copy `text` to the clipboard. A copy while another runs is `Busy`;
-    /// setup that outlasts the budget answers with a timeout, and the copy is
-    /// never delivered afterwards.
+    /// A busy clipboard copy is refused. Its PRIMARY part, if any, replaces
+    /// the pending publication and can run while its selection is current.
     pub async fn copy(&self, text: Arc<str>, format: Format, destination: Destination) -> Done {
-        if self.is_busy() {
-            return Done::of(Ok(Status::Busy));
-        }
-        if text.is_empty() {
-            return Done::of(Err(EMPTY_MESSAGE.to_owned()));
+        {
+            let mut occupancy = lock_occupancy(&self.inner.occupancy);
+            if occupancy.busy {
+                if !text.is_empty()
+                    && let Some((plain, owner)) = destination.primary(&text)
+                    && owner.is_current()
+                {
+                    occupancy.primary = Some((plain.clone(), owner.clone()));
+                }
+                return Done::of(Ok(Status::Busy));
+            }
+            if text.is_empty() {
+                return Done::of(Err(EMPTY_MESSAGE.to_owned()));
+            }
+            occupancy.busy = true;
         }
         let sender = match self.sender() {
             Ok(sender) => sender,
-            Err(error) => return Done::of(Err(error)),
+            Err(error) => {
+                *lock_occupancy(&self.inner.occupancy) = Occupancy::default();
+                return Done::of(Err(error));
+            }
         };
-        if self
-            .inner
-            .busy
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-            .is_err()
-        {
-            return Done::of(Ok(Status::Busy));
-        }
         let setup = Arc::new(Setup::new(Instant::now() + self.inner.timeout));
         let (reply, mut answer) = tokio::sync::oneshot::channel();
         let job = Job {
@@ -468,7 +488,7 @@ impl Clipboard {
             reply,
         };
         if sender.send(job).is_err() {
-            self.inner.busy.store(false, Ordering::SeqCst);
+            *lock_occupancy(&self.inner.occupancy) = Occupancy::default();
             return Done::of(Err("clipboard worker stopped".to_owned()));
         }
         let stopped = || Done::of(Err("clipboard worker stopped".to_owned()));
@@ -508,10 +528,11 @@ impl Clipboard {
         };
         let (sender, incoming) = mpsc::channel::<Job>();
         let environment = self.inner.environment;
-        let busy = Arc::clone(&self.inner.busy);
+        let occupancy = Arc::clone(&self.inner.occupancy);
+        let timeout = self.inner.timeout;
         let spawned = std::thread::Builder::new()
             .name("clipboard-copy".into())
-            .spawn(move || work(routes, environment, &incoming, &busy));
+            .spawn(move || work(routes, environment, &incoming, &occupancy, timeout));
         match spawned {
             Ok(_) => {
                 *start = Start::Running(sender.clone());
@@ -526,12 +547,45 @@ impl Clipboard {
     }
 }
 
+fn lock_occupancy(occupancy: &Mutex<Occupancy>) -> std::sync::MutexGuard<'_, Occupancy> {
+    occupancy.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn next_primary(occupancy: &Mutex<Occupancy>) -> Option<(Arc<str>, PrimaryOwner)> {
+    let mut occupancy = lock_occupancy(occupancy);
+    let pending = occupancy.primary.take();
+    occupancy.busy = pending.is_some();
+    pending
+}
+
+fn publish_primary(
+    routes: &mut dyn Routes,
+    text: &str,
+    owner: &PrimaryOwner,
+    setup: &Setup,
+    lease: &mut Option<Lease>,
+) -> Result<Status, String> {
+    let ended = || "selection ended before PRIMARY delivery".to_owned();
+    if !owner.is_current() {
+        return Err(ended());
+    }
+    routes
+        .primary(text, &|| {
+            if !owner.is_current() {
+                return Err(ended());
+            }
+            setup.begin_delivery()
+        })
+        .map(|outcome| outcome.store(lease))
+}
+
 /// The worker thread: one request at a time, the leases kept between them.
 fn work(
     mut routes: Box<dyn Routes>,
     environment: Environment,
     incoming: &mpsc::Receiver<Job>,
-    busy: &AtomicBool,
+    occupancy: &Mutex<Occupancy>,
+    timeout: Duration,
 ) {
     let mut lease: Option<Lease> = None;
     // An ordinary copy must not relinquish PRIMARY, nor the reverse.
@@ -545,18 +599,11 @@ fn work(
             reply,
         } = job;
         let mut terminal_text: Option<String> = None;
-        let plain = match &destination {
-            Destination::Clipboard => None,
-            Destination::Primary => Some(Arc::clone(&text)),
-            Destination::ClipboardAndPrimary(plain) => Some(Arc::clone(plain)),
-        };
-        let primary = plain.map(|plain| {
-            routes
-                .primary(&plain, &|| setup.begin_delivery())
-                .map(|outcome| outcome.store(&mut primary_lease))
+        let primary = destination.primary(&text).map(|(plain, owner)| {
+            publish_primary(routes.as_mut(), plain, owner, &setup, &mut primary_lease)
         });
         let outcome = match primary {
-            Some(result) if destination == Destination::Primary => {
+            Some(result) if matches!(destination, Destination::Primary(_)) => {
                 result.map(|_| Outcome::Requested)
             }
             // An unavailable PRIMARY must not break the configured clipboard copy.
@@ -579,12 +626,17 @@ fn work(
                 }),
         };
         let result = outcome.map(|outcome| outcome.store(&mut lease));
-        busy.store(false, Ordering::SeqCst);
+        let mut deferred = next_primary(occupancy);
         // An abandoned or dropped asker has nobody to hear it.
         let _ = reply.send(Done {
             result,
             terminal: terminal_text,
         });
+        while let Some((text, owner)) = deferred {
+            let setup = Setup::new(Instant::now() + timeout);
+            let _ = publish_primary(routes.as_mut(), &text, &owner, &setup, &mut primary_lease);
+            deferred = next_primary(occupancy);
+        }
     }
 }
 

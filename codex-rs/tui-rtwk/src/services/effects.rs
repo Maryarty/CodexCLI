@@ -263,8 +263,10 @@ fn format_of(text: &str, format: &CopyFormat) -> Format {
 fn destination_of(destination: CopyDestination) -> Destination {
     match destination {
         CopyDestination::Clipboard => Destination::Clipboard,
-        CopyDestination::Primary => Destination::Primary,
-        CopyDestination::ClipboardAndPrimary(plain) => Destination::ClipboardAndPrimary(plain),
+        CopyDestination::Primary(owner) => Destination::Primary(owner),
+        CopyDestination::ClipboardAndPrimary(plain, owner) => {
+            Destination::ClipboardAndPrimary(plain, owner)
+        }
     }
 }
 

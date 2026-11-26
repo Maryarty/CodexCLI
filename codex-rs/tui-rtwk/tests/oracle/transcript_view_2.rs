@@ -483,22 +483,26 @@ fn copy_on_select_preserves_link_activation_and_ignores_empty_drags() {
 // ORACLE transcript_view/copy_on_select_tests.rs:226 x11_release_preserves_primary_when_auto_copy_is_disabled kind=ui owner=chat-live
 #[test]
 fn x11_release_preserves_primary_when_auto_copy_is_disabled() {
-    kit::pending(
-        Owner::ChatLive,
-        "Needs: f-mouse-primary, check the routed X11 PRIMARY effect with both copy-on-select settings",
-    );
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(20, 5)
-        .script(include_str!("fixtures/transcript_view_2/cafe.jsonl"))
-        .view_only()
-        .open();
-    s.selection_copy_policy(false, false);
-    let row = u16::try_from(s.row_of("visit the café")).unwrap();
-    s.drag(2, row, 16, row);
-    // The X11 PRIMARY transfer is outside the UI. The range stays selected and the
-    // clipboard is untouched.
-    s.assert_text_style("visit the café", "reversed");
-    s.assert_copies_asked(&[]);
+    let text = "visit the café";
+    for copy_on_select in [false, true] {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(20, 5)
+            .script(include_str!("fixtures/transcript_view_2/cafe.jsonl"))
+            .view_only()
+            .open();
+        s.selection_copy_policy(copy_on_select, false);
+        s.primary_selection();
+        let row = u16::try_from(s.row_of(text)).unwrap();
+        s.mouse_down(2, row);
+        s.mouse_drag(16, row);
+        s.assert_copies_asked(&[]);
+        s.mouse_up(16, row);
+        s.assert_text_style(text, "reversed");
+        s.assert_copies_asked(&[text]);
+        s.assert_primary_copies_asked(&[(text, copy_on_select)]);
+        s.mouse_up(16, row);
+        s.assert_copies_asked(&[text]);
+    }
 }
 
 // ---- oracle: transcript_view/diff_source_tests.rs (1 screen-level test here; 2 state tests left to chat-live)

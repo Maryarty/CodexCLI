@@ -14,6 +14,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::ops::Range;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use rtwk::focus::{KeyCombo, KeyPress};
 use rtwk::foundation::ValueNotifier;
@@ -22,7 +23,9 @@ use rtwk::layout::{CellPainter, CustomPaint};
 use rtwk_core::canvas::Canvas;
 use rtwk_core::style::{Attrs, Pen};
 
-use codex_tui_core::app::effects::{Ask, CopyDestination, CopyFormat, CopyStatus, Done};
+use codex_tui_core::app::effects::{
+    Ask, CopyDestination, CopyFormat, CopyStatus, Done, PrimaryOwner,
+};
 use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::threads::Item;
 
@@ -82,10 +85,7 @@ pub struct CopyJob {
 }
 
 impl CopyJob {
-    /// What the reader selected, as plain text for the clipboard. An `explicit` copy (a key or
-    /// the right button) lets the selection go once the host confirms it; one a release made
-    /// does so only when `tui.copy_on_select_clear_selection` says (oracle `selection_copy`:
-    /// `SelectionCopy::EXPLICIT`, `SelectionCopy::on_select`).
+    /// An explicit copy (a key or the right button) clears the selection after confirmation.
     pub fn selected(text: String, explicit: bool, settings: &TuiSettings) -> CopyJob {
         CopyJob {
             clear_after: (explicit || settings.deselect_after_copy).then(|| text.clone()),
@@ -93,6 +93,20 @@ impl CopyJob {
             format: CopyFormat::PlainText,
             destination: CopyDestination::Clipboard,
             follow: false,
+        }
+    }
+
+    /// A completed mouse selection on X11 also publishes its exact plain text to PRIMARY.
+    pub fn primary(text: String, settings: &TuiSettings, owner: PrimaryOwner) -> CopyJob {
+        if !settings.copy_on_select {
+            return CopyJob {
+                destination: CopyDestination::Primary(owner),
+                ..Self::plain(text)
+            };
+        }
+        CopyJob {
+            destination: CopyDestination::ClipboardAndPrimary(Arc::from(text.as_str()), owner),
+            ..Self::selected(text, false, settings)
         }
     }
 
@@ -170,6 +184,9 @@ impl CopyLog {
     pub fn ask(&mut self, job: &CopyJob) -> (u64, Ask) {
         self.asks += 1;
         let request = REQUEST_BIT | self.asks;
+        if matches!(job.destination, CopyDestination::Primary(_)) {
+            return (request, job.ask());
+        }
         self.sent.insert(
             request,
             Sent {

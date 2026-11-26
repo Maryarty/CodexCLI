@@ -11,10 +11,11 @@
 
 use std::cell::Cell;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use rtwk::focus::{KeyCombo, KeyPress};
-use rtwk::foundation::ListenableBuilder;
-use rtwk::gestures::{Listener, PointerEvent, SelectionArea};
+use rtwk::foundation::{Listenable, ListenableBuilder};
+use rtwk::gestures::{Listener, MouseTracker, PointerEvent, SelectionArea};
 use rtwk::navigation::Route;
 use rtwk::provider::{Provider, read, watch};
 use rtwk::scroll::{ScrollMetrics, ScrollNotification};
@@ -26,7 +27,7 @@ use rtwk_core::input::Mods;
 use rtwk_rich::markdown::MarkdownLinkTap;
 
 use codex_tui_core::app::RequestQueue;
-use codex_tui_core::app::effects::CopyStatus;
+use codex_tui_core::app::effects::{CopyDestination, CopyStatus, PrimaryOwner};
 use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::ids::ThreadId;
 
@@ -111,6 +112,46 @@ pub(in crate::pages::session) struct HostState {
     link_press: Rc<Cell<bool>>,
     /// The native Text callback is delivered after the pointer event's listeners.
     link_released: bool,
+    /// A local PRIMARY publication belongs to one left press in this transcript.
+    primary_press: bool,
+    primary_scope: Option<PrimarySelection>,
+}
+
+/// Cancels deferred publication when the range is cleared or a reading mode takes it over.
+struct PrimarySelection {
+    changes: Rc<dyn Listenable>,
+    invalidate: Rc<dyn Fn()>,
+}
+
+impl PrimarySelection {
+    fn new(w: &SelectionHost) -> (Self, PrimaryOwner) {
+        let selection = Arc::new(());
+        let owner = PrimaryOwner::new(&selection);
+        let held = Cell::new(Some(selection));
+        let invalidate: Rc<dyn Fn()> = Rc::new(move || {
+            held.take();
+        });
+        let changes = <dyn Listenable>::merge([
+            Some(w.selection.listenable()),
+            Some(w.find.listenable()),
+            Some(super::select::of(&w.find).listenable()),
+        ]);
+        changes.add_listener(invalidate.clone());
+        (
+            Self {
+                changes,
+                invalidate,
+            },
+            owner,
+        )
+    }
+}
+
+impl Drop for PrimarySelection {
+    fn drop(&mut self) {
+        self.changes.remove_listener(&self.invalidate);
+        (self.invalidate)();
+    }
 }
 
 #[derive(PartialEq, Eq)]
@@ -148,10 +189,16 @@ impl State for HostState {
             self.empty_press = None;
             self.link_press.set(false);
             self.link_released = false;
+            self.primary_press = false;
+            self.primary_scope = None;
         }
     }
 
     fn did_change_dependencies(&mut self, w: &SelectionHost, cx: &mut Cx<'_, Self>) {
+        if !read::<TuiSettings, _>(cx).primary_selection || !w.pointer_route_current(cx, true) {
+            self.primary_press = false;
+            self.primary_scope = None;
+        }
         let shown = watch::<Shown, _>(cx);
         let first = !std::mem::replace(&mut self.mounted, true);
         let Some(feedback) = &shown.0 else {
@@ -177,15 +224,35 @@ impl State for HostState {
     }
 
     fn update(&mut self, msg: Msg, w: &SelectionHost, cx: &mut Cx<'_, Self>) -> Rebuild {
-        let (text, explicit) = match msg {
-            Msg::Copied(text) => (text, false),
-            Msg::Press(press) if press.button == RIGHT_BUTTON => {
-                (w.selection.controller().text(), true)
+        let job = match msg {
+            Msg::Copied(text) => {
+                let settings = read::<TuiSettings, _>(cx);
+                if settings.primary_selection {
+                    take_native_copy(cx, &text);
+                    if !std::mem::take(&mut self.primary_press)
+                        || !w.pointer_route_current(cx, false)
+                    {
+                        return Rebuild::No;
+                    }
+                    let (scope, owner) = PrimarySelection::new(w);
+                    self.primary_scope = Some(scope);
+                    CopyJob::primary(text, &settings, owner)
+                } else {
+                    CopyJob::selected(text, false, &settings)
+                }
             }
+            Msg::Press(press) if press.button == RIGHT_BUTTON => CopyJob::selected(
+                w.selection.controller().text(),
+                true,
+                &read::<TuiSettings, _>(cx),
+            ),
             // a press that is not a copy is the reader selecting: not Find's match any more
             Msg::Press(press) => {
                 super::select::of(&w.find).end_extension();
                 if press.button == 0 {
+                    self.primary_scope = None;
+                    self.primary_press = read::<TuiSettings, _>(cx).primary_selection
+                        && w.pointer_route_current(cx, false);
                     self.empty_press = if w.selection.controller().has_selection() {
                         None
                     } else {
@@ -229,13 +296,16 @@ impl State for HostState {
                 return Rebuild::No;
             }
         };
-        if text.is_empty() {
+        if job.text.is_empty() {
             return Rebuild::No;
         }
-        let settings = read::<TuiSettings, _>(cx);
         let handlers = read::<Hs, _>(cx);
-        let job = CopyJob::selected(text, explicit, &settings);
-        cx.emit(&handlers.copy, copy::mode_of(&w.find).marked(job));
+        let job = if matches!(job.destination, CopyDestination::Primary(_)) {
+            job
+        } else {
+            copy::mode_of(&w.find).marked(job)
+        };
+        cx.emit(&handlers.copy, job);
         Rebuild::No
     }
 
@@ -264,7 +334,7 @@ impl State for HostState {
                 .child(child)
                 .into();
         let controller = w.selection.controller();
-        let copy_on_select = settings.copy_on_select;
+        let copy_on_select = settings.copy_on_select || settings.primary_selection;
         let (find, on_copy) = (w.find.clone(), cx.map(Msg::Copied));
         // the area clears what is selected on Esc where the keys reach it with no focus to start
         // from (the sheet has no composer): the match Find shows is selected, and Esc is Find's
@@ -296,15 +366,33 @@ fn link_modifiers(modifiers: Mods) -> bool {
     modifiers.is_empty() || modifiers.contains(Mods::CTRL) || modifiers.contains(Mods::SUPER)
 }
 
+fn take_native_copy(cx: &Cx<'_, HostState>, text: &str) {
+    if let Some(tracker) = MouseTracker::of(cx) {
+        // SelectionArea appends its OSC 52 payload just before invoking on_copy synchronously.
+        // The typed host effect handles this one, preserving any earlier requests.
+        let mut queued = tracker.take_clipboard();
+        if queued.last().is_some_and(|last| last == text) {
+            queued.pop();
+        }
+        for copy in queued {
+            tracker.queue_clipboard(copy);
+        }
+    }
+}
+
 impl SelectionHost {
     fn links_enabled(&self, cx: &mut Cx<'_, HostState>) -> bool {
         let select = super::select::of(&self.find);
-        Route::is_current_of(cx)
+        self.pointer_route_current(cx, false)
             && !self.find.active()
             && !select.active()
             && !select.extending()
             && !copy::mode_of(&self.find).active()
-            && !Provider::<RequestQueue>::maybe_of(cx, false).is_some_and(|queue| {
+    }
+
+    fn pointer_route_current(&self, cx: &mut Cx<'_, HostState>, listen: bool) -> bool {
+        Route::is_current_of(cx)
+            && !Provider::<RequestQueue>::maybe_of(cx, listen).is_some_and(|queue| {
                 queue
                     .entries
                     .iter()

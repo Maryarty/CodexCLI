@@ -21,6 +21,7 @@ type Text = Box<dyn FnMut(&str) -> Result<(), String> + Send>;
 struct Fake {
     calls: Calls,
     native: Native,
+    primary: Text,
     windows: Text,
     tmux: Text,
 }
@@ -31,6 +32,7 @@ impl Fake {
         let fake = Self {
             calls: Arc::clone(&calls),
             native: Box::new(|_, _| Ok(Some(Lease::new(())))),
+            primary: Box::new(|_| Err("X11 primary selection unavailable".to_owned())),
             windows: Box::new(|_| panic!("the Windows clipboard was not to be written")),
             tmux: Box::new(|_| panic!("tmux was not to be asked")),
         };
@@ -74,10 +76,13 @@ impl Routes for Fake {
 
     fn primary(
         &mut self,
-        _text: &str,
-        _begin_delivery: &dyn Fn() -> Result<(), String>,
+        text: &str,
+        begin_delivery: &dyn Fn() -> Result<(), String>,
     ) -> Result<Outcome, String> {
-        Err("X11 primary selection unavailable".to_owned())
+        begin_delivery()?;
+        self.calls.lock().unwrap().push("primary");
+        (self.primary)(text)?;
+        Ok(Outcome::Copied(None))
     }
 }
 
@@ -711,6 +716,120 @@ async fn copy_plain(clipboard: &Clipboard, text: &str) -> Done {
     clipboard
         .copy(text.into(), Format::Plain, Destination::Clipboard)
         .await
+}
+
+#[tokio::test]
+async fn primary_only_and_combined_copies_write_their_requested_destinations_once() {
+    let (mut fake, calls) = Fake::new();
+    fake.primary = Box::new(|text| {
+        assert_eq!(text, "visit the café");
+        Ok(())
+    });
+    let fake = fake.with_native(|text, _| {
+        assert_eq!(text, "clipboard text");
+        Ok(None)
+    });
+    let clipboard = Clipboard::new(fake, local());
+    let scope = Arc::new(());
+    let owner = PrimaryOwner::new(&scope);
+
+    let primary = clipboard
+        .copy(
+            "visit the café".into(),
+            Format::Plain,
+            Destination::Primary(owner.clone()),
+        )
+        .await;
+    assert!(primary.result.is_ok());
+    assert_eq!(primary.terminal, None);
+    assert_eq!(*calls.lock().unwrap(), ["primary"]);
+
+    let both = clipboard
+        .copy(
+            "clipboard text".into(),
+            Format::Plain,
+            Destination::ClipboardAndPrimary("visit the café".into(), owner),
+        )
+        .await;
+    assert_eq!(both.result, Ok(Status::Confirmed));
+    assert_eq!(both.terminal, None);
+    assert_eq!(*calls.lock().unwrap(), ["primary", "primary", "native"]);
+}
+
+#[tokio::test]
+async fn a_busy_clipboard_publishes_only_the_latest_owned_primary() {
+    for keep_latest in [true, false] {
+        let (started, active) = tokio::sync::oneshot::channel();
+        let mut started = Some(started);
+        let (release, blocked) = mpsc::channel();
+        let (mut fake, calls) = Fake::new();
+        fake.primary = Box::new(|text| {
+            assert_eq!(text, "latest PRIMARY");
+            Ok(())
+        });
+        let fake = fake.with_native(move |text, _| {
+            assert_eq!(text, "first clipboard");
+            started.take().unwrap().send(()).unwrap();
+            blocked.recv().unwrap();
+            Ok(None)
+        });
+        let clipboard = Clipboard::new(fake, local());
+        let running = tokio::spawn({
+            let clipboard = clipboard.clone();
+            async move { copy_plain(&clipboard, "first clipboard").await }
+        });
+        tokio::time::timeout(Duration::from_secs(1), active)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let older = Arc::new(());
+        let latest = Arc::new(());
+        let last = clipboard
+            .copy(
+                "old PRIMARY".into(),
+                Format::Plain,
+                Destination::Primary(PrimaryOwner::new(&older)),
+            )
+            .await;
+        assert_eq!(last.result, Ok(Status::Busy));
+        let last = clipboard
+            .copy(
+                "second clipboard".into(),
+                Format::Plain,
+                Destination::ClipboardAndPrimary(
+                    "latest PRIMARY".into(),
+                    PrimaryOwner::new(&latest),
+                ),
+            )
+            .await;
+        assert_eq!(last.result, Ok(Status::Busy));
+        let expired = PrimaryOwner::new(&Arc::new(()));
+        let late = clipboard
+            .copy(
+                "expired PRIMARY".into(),
+                Format::Plain,
+                Destination::Primary(expired),
+            )
+            .await;
+        assert_eq!(late.result, Ok(Status::Busy));
+        let _current_owner = keep_latest.then_some(latest);
+        release.send(()).unwrap();
+        assert_eq!(running.await.unwrap().result, Ok(Status::Confirmed));
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while clipboard.is_busy() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let expected: &[&str] = if keep_latest {
+            &["native", "primary"]
+        } else {
+            &["native"]
+        };
+        assert_eq!(calls.lock().unwrap().as_slice(), expected);
+    }
 }
 
 #[tokio::test]
