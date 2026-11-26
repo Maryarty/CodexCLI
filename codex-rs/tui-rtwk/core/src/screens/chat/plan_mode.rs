@@ -10,6 +10,14 @@ use codex_protocol::config_types::{CollaborationMode, ModeKind, Settings};
 /// (`PLAN_IMPLEMENTATION_CODING_MESSAGE`).
 pub const IMPLEMENT_MESSAGE: &str = "Implement the plan.";
 
+/// Which completion prompt has priority for this turn.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum PromptPriority {
+    #[default]
+    Ordinary,
+    RateLimit,
+}
+
 /// The question "Implement this plan?" the turn's end raised. `seq` is its number in the
 /// thread: the page opens each number once.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -86,9 +94,17 @@ impl PlanMode {
 
     /// The running turn ended (`maybe_prompt_plan_implementation`): asks when the turn
     /// completed in Plan mode with a proposed plan and nothing waits to be sent.
-    pub(crate) fn turn_ended(&mut self, mode: ModeKind, completed: bool, waiting: bool) {
+    pub(crate) fn turn_ended(
+        &mut self,
+        mode: ModeKind,
+        completed: bool,
+        waiting: bool,
+        priority: PromptPriority,
+    ) {
         self.streaming = false;
-        if completed && !waiting && mode == ModeKind::Plan && self.saw_plan {
+        if priority == PromptPriority::RateLimit {
+            self.prompt = None;
+        } else if completed && !waiting && mode == ModeKind::Plan && self.saw_plan {
             self.asked += 1;
             self.prompt = Some(Prompt {
                 seq: self.asked,

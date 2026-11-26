@@ -1681,8 +1681,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     {
                         refresh_rates(app, origin, status::RateLimitOrigin::Startup, fx);
                     }
-                    // the features follow the rolling limits too (the limit prompts)
-                    features::observe(app, &notification, fx);
+                    features::rolling_limits(app, origin, &note.rate_limits, fx);
                     return;
                 }
                 // The app server says the apps directory changed
@@ -4061,12 +4060,14 @@ pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mu
     let backend = agents.owner_of(thread.as_str());
     let cloud = agents.is_cloud(backend);
     let address = app.address(backend);
+    let priority = features::completion_priority(app, thread, &ev, address, fx);
     if let Some(model) = app.threads.get_mut(thread) {
         threads::apply(
             model,
             ev,
             &mut ThreadFx::new(thread, fx, &mut app.mint)
                 .addressed(address)
+                .with_prompt_priority(priority)
                 .stamped(daybreak)
                 .with_modes(&app.modes)
                 .with_cloud(cloud)

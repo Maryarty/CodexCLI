@@ -325,18 +325,29 @@ fn plan_implementation_popup_shows_after_new_plan_follows_steer() {
     s.assert_contains(PLAN_TITLE);
 }
 
-// ORACLE chatwidget/tests/plan_mode.rs:1067 plan_implementation_popup_skips_when_rate_limit_prompt_pending kind=ui owner=chat-live
-#[test]
-fn plan_implementation_popup_skips_when_rate_limit_prompt_pending() {
-    kit::pending(
-        Owner::ChatLive,
-        "a 92% update and a finished Plan open both dialogs: the Plan completion is presented before the rate-limit feature has resolved model/list",
-    );
+/// The same 92% completion with different catalog responses. The earlier startup list is
+/// distinct from the list the rate-limit offer asks after this turn ends.
+fn plan_pending_rate_offer(models: Result<Vec<serde_json::Value>, &str>) -> Screen {
     let mut s = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+        .size(80, 30)
+        .fake_turn_ids()
         .script(PLAN_ITEM)
         .open();
-    let model = serde_json::json!({
+    let mut reply = serde_json::json!({"step":"respond","method":"model/list"});
+    match models {
+        Ok(models) => reply["result"] = serde_json::json!({"data":models,"nextCursor":null}),
+        Err(reason) => reply["error"] = serde_json::json!({"code":-32000,"message":reason}),
+    }
+    s.feed(&reply.to_string());
+    s.feed(r#"{"step":"screen","dir":"status","ev":{"kind":"account","account":{"chat_gpt":{"email":"user@example.com","plan":"plus"}}}}
+{"step":"screen","dir":"chat","ev":{"status":{"account_usage":true}}}"#);
+    s.feed(include_str!("fixtures/kit/rate_limit_92.jsonl"));
+    s.assert_absent("Approaching rate limits");
+    s
+}
+
+fn lower_cost_model() -> serde_json::Value {
+    serde_json::json!({
         "additionalSpeedTiers": [], "availabilityNux": null, "defaultReasoningEffort": "medium",
         "defaultServiceTier": null, "description": "Lower-cost model",
         "displayName": "GPT-6 Luna", "hidden": false, "id": "gpt-6-luna",
@@ -344,22 +355,119 @@ fn plan_implementation_popup_skips_when_rate_limit_prompt_pending() {
         "modelSpecialty": null, "serviceTiers": [],
         "supportedReasoningEfforts": [{"description": "Balanced", "reasoningEffort": "medium"}],
         "supportsPersonality": false, "upgrade": null, "upgradeInfo": null
-    });
-    s.feed(
-        &serde_json::json!({"step": "respond", "method": "model/list",
-        "result": {"data": [model], "nextCursor": null}})
-        .to_string(),
-    );
-    s.feed(r#"{"step":"screen","dir":"status","ev":{"kind":"account","account":{"chat_gpt":{"email":"user@example.com","plan":"plus"}}}}
-{"step":"screen","dir":"chat","ev":{"status":{"account_usage":true}}}"#);
-    s.feed(include_str!("fixtures/kit/rate_limit_92.jsonl"));
-    s.assert_absent("Approaching rate limits");
+    })
+}
+
+fn complete_with_rate_offer_pending(s: &mut Screen) {
+    let before = s.requests_of("model/list");
     s.feed(TURN_DONE);
-    s.assert_contains("Approaching rate limits");
+    s.assert_requests_of("model/list", before + 1);
+    s.assert_absent("Approaching rate limits");
     s.assert_absent(PLAN_TITLE);
-    s.keys("esc");
+}
+
+// ORACLE chatwidget/tests/plan_mode.rs:1067 plan_implementation_popup_skips_when_rate_limit_prompt_pending kind=ui owner=chat-live
+#[test]
+fn plan_implementation_popup_skips_when_rate_limit_prompt_pending() {
+    for (held, action) in [(true, "esc"), (false, "enter")] {
+        let mut s = plan_pending_rate_offer(Ok(vec![lower_cost_model()]));
+        let before = s.requests_of("model/list");
+        if held {
+            let model_lookup = s.hold_request("model/list");
+            complete_with_rate_offer_pending(&mut s);
+            s.feed(TURN_DONE);
+            s.assert_requests_of("model/list", before + 1);
+            s.release(&model_lookup);
+        } else {
+            s.feed(TURN_DONE);
+        }
+        s.assert_text_count("Approaching rate limits", 1);
+        s.assert_absent(PLAN_TITLE);
+        s.keys(action);
+        s.assert_absent("Approaching rate limits");
+        s.assert_absent(PLAN_TITLE);
+        s.feed(TURN_DONE);
+        s.assert_absent("Approaching rate limits");
+        s.assert_absent(PLAN_TITLE);
+        s.assert_requests_of("model/list", before + 1);
+        s.assert_no_turn();
+        s.assert_model_updates(if held { &[] } else { &["gpt-6-luna"] });
+    }
+
+    for models in [Ok(Vec::new()), Err("model catalog unavailable")] {
+        let mut s = plan_pending_rate_offer(models);
+        let model_lookup = s.hold_request("model/list");
+        complete_with_rate_offer_pending(&mut s);
+        s.release(&model_lookup);
+        // The oracle skips the Plan before it discovers the rate catalog has no offer.
+        s.assert_absent("Approaching rate limits");
+        s.assert_absent(PLAN_TITLE);
+        // A new turn without a reservation can still ask for implementation.
+        let next = PLAN_ITEM
+            .lines()
+            .filter(|line| !line.contains(r#""step":"seed""#))
+            .collect::<Vec<_>>()
+            .join("\n")
+            .replace("turn-1", "turn-2")
+            .replace("plan-1", "plan-2");
+        s.feed(&next);
+        s.feed(&TURN_DONE.replace("turn-1", "turn-2"));
+        s.assert_text_count(PLAN_TITLE, 1);
+        s.keys("esc");
+        s.assert_no_turn();
+    }
+
+    let mut s = plan_pending_rate_offer(Ok(vec![lower_cost_model()]));
+    let model_lookup = s.hold_request("model/list");
+    complete_with_rate_offer_pending(&mut s);
+    s.feed(r#"{"step":"notify","message":{"method":"account/rateLimits/updated","params":{"rateLimits":{"primary":{"usedPercent":92,"windowDurationMins":60},"credits":{"hasCredits":true,"unlimited":false,"balance":"10"}}}}}"#);
+    s.release(&model_lookup);
+    s.assert_absent("Approaching rate limits");
     s.assert_absent(PLAN_TITLE);
     s.assert_no_turn();
+
+    for reply_before_resume in [true, false] {
+        let mut s = plan_pending_rate_offer(Ok(vec![lower_cost_model()]));
+        let model_lookup = s.hold_request("model/list");
+        complete_with_rate_offer_pending(&mut s);
+        s.feed(r#"{"step":"respond","method":"thread/resume","result":{"thread":{"id":"thread-other","sessionId":"thread-other","preview":"Another conversation","ephemeral":false,"modelProvider":"openai","createdAt":1700000000,"updatedAt":1700000100,"status":{"type":"idle"},"cwd":"/other","cliVersion":"0.0.0","source":"cli","name":"Another conversation","turns":[]},"model":"gpt-5","modelProvider":"openai","cwd":"/other","instructionSources":[],"approvalPolicy":"on-request","approvalsReviewer":"user","sandbox":{"type":"dangerFullAccess"},"reasoningEffort":null}}"#);
+        let resume = s.hold_request("thread/resume");
+        s.visit_thread("thread-other");
+        s.assert_request_mentions("thread/resume", "thread-other");
+        if reply_before_resume {
+            s.assert_contains("Proposed Plan");
+            s.release(&model_lookup);
+            s.assert_absent("Approaching rate limits");
+            s.release(&resume);
+        } else {
+            s.release(&resume);
+            s.assert_absent("Proposed Plan");
+            s.release(&model_lookup);
+        }
+        s.assert_absent("Proposed Plan");
+        s.assert_absent("Approaching rate limits");
+        s.assert_absent(PLAN_TITLE);
+        s.visit_thread("thread-1");
+        s.assert_contains("Proposed Plan");
+        s.assert_absent("Approaching rate limits");
+        s.assert_absent(PLAN_TITLE);
+        s.assert_no_turn();
+    }
+
+    for failed in [false, true] {
+        let mut s = plan_pending_rate_offer(Ok(vec![lower_cost_model()]));
+        let model_lookup = s.hold_request("model/list");
+        complete_with_rate_offer_pending(&mut s);
+        s.type_text("a separate turn").keys("enter");
+        s.assert_turn_texts(&["a separate turn"]);
+        if failed {
+            s.feed(r#"{"step":"notify","message":{"method":"error","params":{"threadId":"thread-1","turnId":"fake-turn-1","error":{"message":"Second turn failed","codexErrorInfo":null,"additionalDetails":null},"willRetry":false}}}"#);
+            s.assert_contains("Second turn failed");
+        }
+        s.release(&model_lookup);
+        s.assert_absent("Approaching rate limits");
+        s.assert_absent(PLAN_TITLE);
+    }
 }
 
 // ORACLE chatwidget/tests/plan_mode.rs:1298 enter_submits_when_plan_stream_is_not_active kind=ui owner=chat-live

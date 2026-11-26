@@ -20,21 +20,21 @@
 //! of limit last reached, the credits the last read saw and the seconds the recovery prompt says.
 //! The prompts themselves are wishes the surface shows once (`Wish`); what a pick does comes back
 //! as a verb (`Intent`). The slice reads the stream the features see (`project`): the rolling
-//! `account/rateLimits/updated` notifications, the end of a turn and a turn's failure; and the
-//! app's own reads of the limits (`on_rate_limits_read`), which are on no stream. The owner's
+//! turn's failure. The app calls this feature before applying a routed turn completion, so a Plan
+//! prompt and a rate-limit offer are decided together. The feature also reads rolling limits and
+//! the app's own reads of the limits (`on_rate_limits_read`), which are on no stream. The owner's
 //! e-mail is the app's one nudge path (`PublicVerb::NotifyOwner`: its request, its note), and the
 //! words of an owner's limit error are the slice's (`fault_words`).
 
 use codex_app_server_protocol::{
     ClientRequest, CodexErrorInfo, ModelListParams, ModelListResponse, RateLimitReachedType,
-    RequestId, ServerNotification,
+    RateLimitSnapshot, RequestId, ServerNotification,
 };
 
 use super::{AppCx, AppView, Never, PublicVerb};
 use crate::app::Now;
-use crate::ids::BackendId;
-use crate::ids::ThreadId;
-use crate::rpc::RpcError;
+use crate::ids::{BackendId, ThreadId, TurnId};
+use crate::rpc::{Address, RpcError};
 use crate::screens::chat::Nudge;
 use crate::screens::select::models::{Effort, RESERVE_MODEL};
 use crate::screens::status::{self, RateRead};
@@ -53,7 +53,8 @@ const RECOVERY_MILLIS: i64 = 5_000;
 
 /// `on_rate_limit_error`: what a member of a workspace whose owner ran out is told instead of
 /// the server's words.
-const OWNER_CREDITS_WORDS: &str = "You're out of credits. Your workspace is out of credits. Add credits to continue using Codex.";
+const OWNER_CREDITS_WORDS: &str =
+    "You're out of credits. Your workspace is out of credits. Add credits to continue using Codex.";
 const OWNER_USAGE_WORDS: &str = "Usage limit reached. You've reached your usage limit. Increase your limits to continue using codex.";
 
 /// The model the prompt offers, as the catalog describes it.
@@ -96,21 +97,32 @@ mod rpcs {
 
 pub use rpcs::Ask;
 
-/// What an ask was for.
+/// The turn whose completion reserved the right to offer a lower-cost model.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OfferId {
+    pub(crate) thread: ThreadId,
+    pub(crate) turn: TurnId,
+    pub(crate) address: Address,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ctx {
-    Models,
+    Models(OfferId),
 }
 
 /// What the prompts' sheets say.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
     /// `Switch to {model}`: the thread's next turns use it (`override_turn_context`).
-    Switch { model: String, effort: Effort },
+    Switch {
+        offer: OfferId,
+        model: String,
+        effort: Effort,
+    },
     /// `Yes` of the workspace nudge: the owner is e-mailed.
     Nudge(Nudge),
     /// The switch or recovery prompt is closed (picked, dismissed): nothing keeps a sheet for it.
-    Closed,
+    Closed(OfferId),
     /// The clock reached the moment the recovery prompt's count changes (the feature's own
     /// `wake_at`).
     Tick,
@@ -131,7 +143,10 @@ pub enum Standing {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Wish {
     /// `Approaching rate limits`: offers the lower-cost model.
-    Switch(Candidate),
+    Switch {
+        offer: OfferId,
+        candidate: Candidate,
+    },
     /// The workspace owner is asked for credits or for a higher limit.
     Nudge(Nudge),
 }
@@ -146,10 +161,6 @@ pub enum Failure {
 /// What the slice makes of the stream.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
-    /// An `account/rateLimits/updated`, as far as the prompts read it.
-    Rolling(Sample),
-    /// A turn of `thread` ended.
-    TurnEnded { thread: ThreadId },
     /// A turn of `thread` failed and will not be retried: with a limit error (`kind`) or another.
     Failed {
         thread: ThreadId,
@@ -171,18 +182,20 @@ pub struct Sample {
 }
 
 /// Where the switch prompt is (`RateLimitSwitchPromptState`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 enum Stage {
     #[default]
     Idle,
     /// The usage is high; the prompt waits for the turn to end.
     Pending,
     /// The catalog is asked for the model.
-    Asking,
+    Asking(OfferId),
     Shown,
     /// A read found the usage low again while the prompt was on the screen: it counts down to
     /// `deadline` (milliseconds since the epoch).
-    Recovering { deadline: i64 },
+    Recovering {
+        deadline: i64,
+    },
 }
 
 /// Where a snapshot came from: a read of the account's limits (the authoritative kind, which
@@ -197,6 +210,7 @@ struct Read {
 /// The feature's state.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct State {
+    backend: Option<BackendId>,
     stage: Stage,
     /// The kind of limit last reached (`codex_rate_limit_reached_type`).
     reached: Option<RateLimitReachedType>,
@@ -205,7 +219,7 @@ pub struct State {
     /// rolling updates do not write it, they are judged by it).
     credits: Option<bool>,
     /// The model is offered and the offer still stands (the prompt closes when it does not).
-    offered: bool,
+    offered: Option<OfferId>,
     /// The seconds the recovery prompt says.
     seconds: u64,
     /// The thread whose limit error the slice has words for, and the words.
@@ -214,12 +228,39 @@ pub struct State {
 
 impl State {
     /// What the prompt's sheet shows: the offer, its recovery countdown, or nothing.
-    pub fn standing(&self) -> Standing {
-        match self.stage {
-            Stage::Recovering { .. } if self.offered => Standing::Recovery(self.seconds),
-            _ if self.offered => Standing::Offer,
-            _ => Standing::Gone,
+    pub fn standing(&self, offer: &OfferId) -> Standing {
+        if self.offered.as_ref() != Some(offer) {
+            return Standing::Gone;
         }
+        match self.stage {
+            Stage::Recovering { .. } => Standing::Recovery(self.seconds),
+            _ => Standing::Offer,
+        }
+    }
+
+    fn use_backend(&mut self, backend: BackendId) {
+        if self.backend != Some(backend) {
+            *self = Self {
+                backend: Some(backend),
+                ..Self::default()
+            };
+        }
+    }
+
+    /// Rolling updates from the displayed backend, routed by the app.
+    pub(crate) fn rolling(
+        &mut self,
+        backend: BackendId,
+        snapshot: &RateLimitSnapshot,
+        cx: &AppCx<'_>,
+    ) {
+        self.use_backend(backend);
+        if banner_shows(cx.view()) {
+            self.yield_to_banner();
+        }
+        let hidden = cx.view().facts().tui().hide_rate_limit_model_nudge;
+        let model = model_in_use(cx.view());
+        self.take(&sample_of(snapshot), None, hidden, model.as_deref());
     }
 
     fn workspace_limit_reached(&self) -> bool {
@@ -255,17 +296,17 @@ impl State {
             && sample.used.is_some_and(|used| used < THRESHOLD);
         if sample.codex && (has_workspace_credits || replenished) {
             match self.stage {
-                Stage::Pending | Stage::Asking => self.stage = Stage::Idle,
+                Stage::Pending | Stage::Asking(_) => self.stage = Stage::Idle,
                 Stage::Shown if replenished => {
                     // a prompt the user already closed has nothing to count down
-                    if let Some(read) = read.filter(|_| self.offered) {
+                    if let Some(read) = read.filter(|_| self.offered.is_some()) {
                         self.stage = Stage::Recovering {
                             deadline: read.now + RECOVERY_MILLIS,
                         };
                         self.tick(read.now);
                     }
                 }
-                Stage::Shown => self.offered = false,
+                Stage::Shown => self.offered = None,
                 Stage::Idle | Stage::Recovering { .. } => {}
             }
         }
@@ -292,20 +333,21 @@ impl State {
         let remaining = deadline - now;
         if remaining <= 0 {
             self.stage = Stage::Shown;
-            self.offered = false;
+            self.offered = None;
             self.seconds = 0;
         } else {
-            self.seconds = u64::try_from(remaining.div_euclid(1000) + i64::from(remaining % 1000 != 0))
-                .unwrap_or(1);
+            self.seconds =
+                u64::try_from(remaining.div_euclid(1000) + i64::from(remaining % 1000 != 0))
+                    .unwrap_or(1);
         }
     }
 
     /// A backend banner is on the screen (`show_backend_banner`): it replaces the switch prompt,
     /// which is asked again once the banner is gone, "not the user's decision to dismiss".
     fn yield_to_banner(&mut self) {
-        if self.offered && self.stage == Stage::Shown {
+        if self.offered.is_some() && self.stage == Stage::Shown {
             self.stage = Stage::Pending;
-            self.offered = false;
+            self.offered = None;
         }
     }
 
@@ -324,9 +366,7 @@ impl State {
         });
         match self.reached {
             Some(RateLimitReachedType::WorkspaceMemberCreditsDepleted) => Some(Nudge::Credits),
-            Some(RateLimitReachedType::WorkspaceMemberUsageLimitReached) => {
-                Some(Nudge::UsageLimit)
-            }
+            Some(RateLimitReachedType::WorkspaceMemberUsageLimitReached) => Some(Nudge::UsageLimit),
             _ => None,
         }
     }
@@ -367,7 +407,7 @@ fn failure_of(info: &CodexErrorInfo) -> Option<Failure> {
     }
 }
 
-fn sample_of(snapshot: &codex_app_server_protocol::RateLimitSnapshot) -> Sample {
+fn sample_of(snapshot: &RateLimitSnapshot) -> Sample {
     Sample {
         codex: snapshot
             .limit_id
@@ -388,23 +428,39 @@ fn sample_of(snapshot: &codex_app_server_protocol::RateLimitSnapshot) -> Sample 
     }
 }
 
-/// `maybe_show_pending_rate_limit_prompt`, at the end of a turn.
-fn maybe_show(state: &mut State, cx: &mut AppCx<'_>) {
-    if banner_shows(cx.view()) || matches!(state.stage, Stage::Recovering { .. }) {
-        return;
+/// Whether the offer can be made on the currently displayed thread.
+fn can_offer(view: AppView<'_>) -> bool {
+    !view.facts().tui().hide_rate_limit_model_nudge
+        && !matches!(
+            model_in_use(view).as_deref(),
+            Some(NUDGE_MODEL | RESERVE_MODEL)
+        )
+}
+
+/// Both completion prompts are decided before the thread publishes its Plan question. The
+/// oracle skips that question when an eligible offer is pending, even if the catalog then has
+/// no lower-cost model. Settling or cancelling this reservation never reopens the Plan question.
+pub(crate) fn reserve(
+    state: &mut State,
+    offer: OfferId,
+    cx: &mut AppCx<'_>,
+) -> crate::screens::chat::plan_mode::PromptPriority {
+    use crate::screens::chat::plan_mode::PromptPriority;
+    state.use_backend(offer.address.backend);
+    state.said = None;
+    if matches!(&state.stage, Stage::Asking(previous) if previous != &offer) {
+        state.stage = Stage::Pending;
     }
-    if state.stage != Stage::Pending {
-        return;
+    if state.stage != Stage::Pending || banner_shows(cx.view()) {
+        return PromptPriority::Ordinary;
     }
-    let model = model_in_use(cx.view());
-    if cx.view().facts().tui().hide_rate_limit_model_nudge
-        || matches!(model.as_deref(), Some(NUDGE_MODEL | RESERVE_MODEL))
-    {
+    if !can_offer(cx.view()) {
         state.stage = Stage::Idle;
-        return;
+        return PromptPriority::Ordinary;
     }
-    state.stage = Stage::Asking;
-    cx.ask(None, Ask::Models, Ctx::Models);
+    state.stage = Stage::Asking(offer.clone());
+    cx.ask(Some(&offer.thread), Ask::Models, Ctx::Models(offer.clone()));
+    PromptPriority::RateLimit
 }
 
 /// What a read says that the prompts decide by: the plan's own bucket, none when the read named
@@ -439,12 +495,6 @@ feature! {
         {
             fn project(notification: &ServerNotification) -> Option<Event> {
                 match notification {
-                    ServerNotification::AccountRateLimitsUpdated(update) => {
-                        Some(Event::Rolling(sample_of(&update.rate_limits)))
-                    }
-                    ServerNotification::TurnCompleted(done) => Some(Event::TurnEnded {
-                        thread: ThreadId::new(done.thread_id.clone()),
-                    }),
                     ServerNotification::Error(error) if !error.will_retry => {
                         Some(Event::Failed {
                             thread: ThreadId::new(error.thread_id.clone()),
@@ -460,17 +510,6 @@ feature! {
                     state.yield_to_banner();
                 }
                 match event {
-                    Event::Rolling(sample) => {
-                        let hidden = cx.view().facts().tui().hide_rate_limit_model_nudge;
-                        let model = model_in_use(cx.view());
-                        state.take(&sample, None, hidden, model.as_deref());
-                    }
-                    Event::TurnEnded { thread } => {
-                        state.said = None;
-                        if cx.view().active() == Some(&thread) {
-                            maybe_show(state, cx);
-                        }
-                    }
                     Event::Failed { thread, kind } => {
                         let nudge = kind.and_then(|kind| state.failed(kind));
                         state.said = kind
@@ -488,13 +527,14 @@ feature! {
 
             fn on_rate_limits_read(
                 state: &mut State,
-                _backend: BackendId,
+                backend: BackendId,
                 read: &RateRead,
                 cx: &mut AppCx<'_>,
             ) {
                 if !read.active {
                     return;
                 }
+                state.use_backend(backend);
                 if banner_shows(cx.view()) {
                     state.yield_to_banner();
                 }
@@ -523,23 +563,40 @@ feature! {
                     .map(|(_, words)| (*words).to_owned())
             }
 
+            fn on_shown(state: &mut State, thread: &ThreadId, cx: &mut AppCx<'_>) {
+                state.use_backend(cx.view().screens().agents.owner_of(thread.as_str()));
+                if matches!(&state.stage, Stage::Asking(offer) if offer.thread != *thread) {
+                    // Another turn may claim the still-applicable hint. The old response
+                    // cannot open a sheet for the new conversation.
+                    state.stage = Stage::Pending;
+                }
+                if state.offered.as_ref().is_some_and(|offer| offer.thread != *thread) {
+                    state.offered = None;
+                    state.stage = Stage::Shown;
+                }
+            }
+
             fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
                 match intent {
-                    Intent::Switch { model, effort } => {
-                        state.offered = false;
+                    Intent::Switch { offer, model, effort }
+                        if state.offered.as_ref() == Some(&offer)
+                            && cx.view().active() == Some(&offer.thread) =>
+                    {
+                        state.offered = None;
                         cx.verb(PublicVerb::OverrideTurn {
                             model,
                             effort: Some(effort),
                         });
                     }
                     Intent::Nudge(nudge) => cx.verb(PublicVerb::NotifyOwner(nudge)),
-                    Intent::Closed => {
-                        state.offered = false;
+                    Intent::Closed(offer) if state.offered.as_ref() == Some(&offer) => {
+                        state.offered = None;
                         // a dismissed recovery prompt has no count to keep
                         if matches!(state.stage, Stage::Recovering { .. }) {
                             state.stage = Stage::Shown;
                         }
                     }
+                    Intent::Switch { .. } | Intent::Closed(_) => {}
                     Intent::Tick => state.tick(cx.view().facts().now().millis()),
                 }
             }
@@ -547,7 +604,7 @@ feature! {
             fn wake_at(state: &State) -> Option<(Now, Intent)> {
                 match state.stage {
                     // the moment the count says one second less (the last one: the deadline)
-                    Stage::Recovering { deadline } if state.offered => {
+                    Stage::Recovering { deadline } if state.offered.is_some() => {
                         let seconds = i64::try_from(state.seconds).unwrap_or(1);
                         Some((
                             Now::at_millis(deadline - (seconds - 1) * 1000),
@@ -564,21 +621,27 @@ feature! {
                 result: Result<Reply, RpcError>,
                 cx: &mut AppCx<'_>,
             ) {
-                match (ctx, result) {
-                    (Ctx::Models, Ok(Reply::Candidate(Some(candidate))))
-                        if state.stage == Stage::Asking =>
-                    {
-                        state.stage = Stage::Shown;
-                        state.offered = true;
-                        if let Some(thread) = cx.view().active().cloned() {
-                            cx.wish(thread, Wish::Switch(candidate));
-                        }
-                    }
-                    (Ctx::Models, _) => {
-                        if state.stage == Stage::Asking {
-                            state.stage = Stage::Idle;
-                        }
-                    }
+                let Ctx::Models(offer) = ctx;
+                if !matches!(&state.stage, Stage::Asking(current) if *current == offer) {
+                    return;
+                }
+                state.stage = Stage::Idle;
+                let view = cx.view();
+                if let Ok(Reply::Candidate(Some(candidate))) = result
+                    && view.active() == Some(&offer.thread)
+                    && view.screens().agents.opening.is_none()
+                    && view.active_thread().is_some_and(|thread| {
+                        thread.core().last_ended() == Some(&offer.turn)
+                            && !thread.busy()
+                            && !thread.stream_lost()
+                            && thread.has_writer()
+                    })
+                    && can_offer(view)
+                    && !banner_shows(view)
+                {
+                    state.stage = Stage::Shown;
+                    state.offered = Some(offer.clone());
+                    cx.wish(offer.thread.clone(), Wish::Switch { offer, candidate });
                 }
             }
 

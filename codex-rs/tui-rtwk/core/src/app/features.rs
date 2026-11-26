@@ -7,13 +7,14 @@ use std::rc::Rc;
 
 use super::effects::{self, Done};
 use super::{AppCtx, AppFx, CodexApp, Command, Now, Wake, apply_thread, session_note};
+use crate::features::rate_limit_prompt::{self, OfferId};
 use crate::features::{
     self, AppCx, AppView, FeatureCtx, FeatureFact, FeatureIntent, FeatureThreadIntent, InterestStep,
 };
 use crate::features::{ChatFacts, Connection, FeatureStates, Out, Refusal};
 use crate::ids::{BackendId, ThreadId};
-use crate::rpc::{Answer, RpcError};
-use crate::screens::chat::facts;
+use crate::rpc::{Address, Answer, RpcError};
+use crate::screens::chat::{facts, plan_mode::PromptPriority};
 use crate::screens::status::RateRead;
 use crate::screens::{ScreenThreadIntent, chat};
 use crate::threads::{Note, NoteKey, ThreadEv};
@@ -288,6 +289,53 @@ fn chat_facts(app: &mut CodexApp, wanted: ChatFacts, fx: &mut AppFx) {
         let chat = &mut Rc::make_mut(&mut app.screens).chat;
         chat::apply(chat, chat::Ev::Facts(facts::Ev::Side(wanted.side)), fx);
     }
+}
+
+/// The displayed connection reported rolling usage. Ignore notifications of a different account
+/// here, where the original address is known.
+pub(super) fn rolling_limits(
+    app: &mut CodexApp,
+    backend: BackendId,
+    snapshot: &codex_app_server_protocol::RateLimitSnapshot,
+    fx: &mut AppFx,
+) {
+    if super::session::active_backend(app) == backend {
+        run(app, fx, |states, cx| {
+            states.rate_limit_prompt.rolling(backend, snapshot, cx);
+        });
+    }
+}
+
+/// Resolve which completion prompt may be published before the routed event reaches the model.
+/// Replay and repeat completion cannot reserve a second offer. A server that omitted the
+/// start still gets the limit prompt, as long as it is not completing a different running turn.
+pub(super) fn completion_priority(
+    app: &mut CodexApp,
+    thread: &ThreadId,
+    ev: &ThreadEv,
+    address: Address,
+    fx: &mut AppFx,
+) -> PromptPriority {
+    let ThreadEv::TurnCompleted { turn, .. } = ev else {
+        return PromptPriority::Ordinary;
+    };
+    if app.session.active.as_ref() != Some(thread)
+        || !app.threads.get(thread).is_some_and(|model| {
+            !model.turn_finished(turn) && model.running_turn().is_none_or(|running| running == turn)
+        })
+    {
+        return PromptPriority::Ordinary;
+    }
+    let offer = OfferId {
+        thread: thread.clone(),
+        turn: turn.clone(),
+        address,
+    };
+    let mut priority = PromptPriority::Ordinary;
+    run(app, fx, |states, cx| {
+        priority = rate_limit_prompt::reserve(&mut states.rate_limit_prompt, offer, cx);
+    });
+    priority
 }
 
 /// A notification of the server's stream: every feature that follows it is told its event

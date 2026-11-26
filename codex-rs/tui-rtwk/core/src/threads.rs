@@ -1690,10 +1690,6 @@ impl ThreadModel {
         self.last_error.as_ref()
     }
 
-    pub fn last_ended(&self) -> Option<&TurnId> {
-        self.last_ended.as_ref()
-    }
-
     pub fn read_only(&self) -> bool {
         self.writer == Writer::Foreign
     }
@@ -1736,6 +1732,10 @@ impl ThreadModel {
 }
 
 impl ThreadCore {
+    pub fn last_ended(&self) -> Option<&TurnId> {
+        self.last_ended.as_ref()
+    }
+
     pub(crate) fn turn_finished(&self, turn: &TurnId) -> bool {
         self.finished_turns.contains(turn)
     }
@@ -1814,6 +1814,8 @@ pub struct ThreadFx<'a> {
     mint: &'a mut TicketMint,
     registered: Vec<(Ticket, ThreadCtx)>,
     address: Address,
+    /// The app's arbitration for the completed turn carried by this event.
+    prompt_priority: screens::chat::plan_mode::PromptPriority,
     /// How the Daybreak setting words a cyber refusal at this moment (the app's fact, stamped
     /// per event by `apply_thread`).
     daybreak: Daybreak,
@@ -1837,6 +1839,7 @@ impl<'a> ThreadFx<'a> {
             mint,
             registered: Vec::new(),
             address: Address::default(),
+            prompt_priority: screens::chat::plan_mode::PromptPriority::Ordinary,
             daybreak: Daybreak::Apply,
             modes: &[],
             cloud: false,
@@ -1851,6 +1854,14 @@ impl<'a> ThreadFx<'a> {
 
     pub(crate) fn addressed(mut self, address: Address) -> Self {
         self.address = address;
+        self
+    }
+
+    pub(crate) fn with_prompt_priority(
+        mut self,
+        priority: screens::chat::plan_mode::PromptPriority,
+    ) -> Self {
+        self.prompt_priority = priority;
         self
     }
 
@@ -3425,11 +3436,12 @@ fn end_turn(model: &mut ThreadModel, turn: TurnId, end: TurnEnd, fx: &mut Thread
             || !model.pending_steers.is_empty()
             || !model.rejected_steers.is_empty();
         let mode = model.slots.chat.mode();
-        model
-            .slots
-            .chat
-            .plan
-            .turn_ended(mode, end == TurnEnd::Completed, waiting);
+        model.slots.chat.plan.turn_ended(
+            mode,
+            end == TurnEnd::Completed,
+            waiting,
+            fx.prompt_priority,
+        );
         model.slots.chat.end_turn();
         if end == TurnEnd::Interrupted {
             interrupted(model, &turn, fx);
