@@ -1,0 +1,3 @@
+# question_turn_end_tests.rs: restore the pending steer and queued prompt before the answer (tools/rtwk-port/async-questions/fixtures.py)
+{"step":"screen","dir":"chat","ev":{"pending":{"thread":"thread-1","steers":["pending steer"],"queued":["queued prompt"]}}}
+{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"summary","status":"interrupted","error":null,"startedAt":null,"completedAt":null,"durationMs":1000}}}}

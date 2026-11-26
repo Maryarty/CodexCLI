@@ -499,25 +499,31 @@ fn rendered_blocks(
     table: &'static Strings,
     cutter: &Cutter,
 ) -> Vec<Target> {
-    // the body is the last parts, a part for each node the cell draws the blocks as: when it is
-    // not (a cell that is drawn another way) there is no block to point at
+    // The body is the last non-gutter parts, which must match the complete node sequence.
+    // A question cell can have an excluded prefix between Markdown sections.
     let blocks = drawn_blocks(item, reading);
     let Some(nodes) = markdown_text::nodes(&blocks) else {
         return Vec::new();
     };
-    let Some(first) = parts.len().checked_sub(nodes.len()) else {
+    let body = parts
+        .iter()
+        .enumerate()
+        .filter(|(_, part)| !part.gutter)
+        .collect::<Vec<_>>();
+    let Some(first) = body.len().checked_sub(nodes.len()) else {
         return Vec::new();
     };
-    if parts[first..]
+    let body = &body[first..];
+    if body
         .iter()
         .zip(&nodes)
-        .any(|(part, node)| part.text != node.text)
+        .any(|((_, part), node)| part.text != node.text)
     {
         return Vec::new();
     }
     // where each part starts in the text of the row: a node's range is the node and its offset
     let starts = starts_of(parts);
-    let end_of = |node: usize| starts[first + node] + parts[first + node].text.len();
+    let end_of = |node: usize| starts[body[node].0] + body[node].1.text.len();
     let (mut codes, mut quotes) = sources(cutter, source);
     markdown_text::found(&blocks)
         .into_iter()
@@ -542,7 +548,7 @@ fn rendered_blocks(
             Some(Target {
                 row,
                 fill: block.top.map(Fill::Block),
-                range: starts[first + block.nodes.start]..end_of(block.nodes.end - 1),
+                range: starts[body[block.nodes.start].0]..end_of(block.nodes.end - 1),
                 label,
                 payload,
             })

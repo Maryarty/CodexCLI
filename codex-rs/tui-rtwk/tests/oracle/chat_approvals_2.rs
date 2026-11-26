@@ -275,16 +275,14 @@ fn async_question_notification_expires_when_turn_ends() {
 }
 
 // ---- oracle: chatwidget/tests/question_turn_end_tests.rs (5 screen-level tests here; 0 state tests left to dialogs-pane)
+const TURN_QUESTION: &str = include_str!("fixtures/chat_approvals_2/q_turn_end_one.jsonl");
+const TURN_DONE: &str = include_str!("fixtures/chat_approvals_2/q_two_done.jsonl");
+const SECOND_DONE: &str = include_str!("fixtures/chat_approvals_2/q_turn_end_second.jsonl");
+
 // ORACLE chatwidget/tests/question_turn_end_tests.rs:19 question_turn_end_escapes_command_drafts_before_submission kind=snap owner=dialogs-pane
 #[test]
 fn question_turn_end_escapes_command_drafts_before_submission() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no async-question editor in the composer and no turn-end draft recovery on the chat screen: the question block and its answer are not drawn",
-    );
-    // oracle: a draft (escaped when it starts a command or slash) with one question answered `answer` is recovered at turn end
-    // as `escaped\n\n> Which way?\n\nanswer`; the non-queued submit sends it as one user turn, the queued one queues it (model).
-    let drafts = [
+    for (draft, escaped) in [
         ("!echo partial", "\\!echo partial"),
         ("  !echo partial", "  !echo partial"),
         ("/", "\\/"),
@@ -293,13 +291,36 @@ fn question_turn_end_escapes_command_drafts_before_submission() {
         (" /diff", " /diff"),
         ("/tmp/file", "/tmp/file"),
         ("\\/diff", "\\/diff"),
-    ];
-    for (draft, escaped) in drafts {
-        let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-        // needs feed: turn started; question "Which way?" added; alt+up; paste "answer"; composer set to the draft; turn completed
-        s.assert_in_order(&[escaped, "> Which way?", "answer"]);
-        if draft == "!echo partial" {
-            s.assert_snap("question_turn_end_escaped_shell_command");
+    ] {
+        for queued in [false, true] {
+            let mut s = Screen::build(Owner::DialogsPane)
+                .size(80, 24)
+                .script(TURN_QUESTION)
+                .open();
+            if draft == "!echo partial" {
+                s.type_text(draft);
+            } else {
+                s.draft(draft);
+            }
+            s.keys("alt+up").paste("answer");
+            s.feed(TURN_DONE);
+            let recovered = format!("{escaped}\n\n> Which way?\n\nanswer");
+            // Tabs render as spaces in the terminal. The actual submitted draft is checked below.
+            if !draft.contains('\t') {
+                s.assert_composer(&recovered);
+            }
+            if queued {
+                s.feed(include_str!(
+                    "fixtures/chat_approvals_2/q_turn_end_large.jsonl"
+                ));
+                s.keys("tab");
+                kit::assert_same(s.turns().len(), 0, "the prompt waits for the next live end");
+                s.assert_contains("Queued follow-up inputs");
+                s.feed(SECOND_DONE);
+            } else {
+                s.keys("enter");
+            }
+            s.assert_sole_turn(kit::Turn::text(recovered.trim()));
         }
     }
 }
@@ -307,122 +328,143 @@ fn question_turn_end_escapes_command_drafts_before_submission() {
 // ORACLE chatwidget/tests/question_turn_end_tests.rs:81 question_turn_end_appends_open_drafts_in_order_once kind=snap owner=dialogs-pane snap=large
 #[test]
 fn question_turn_end_appends_open_drafts_in_order_once() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no async-question editor and no turn-end append of open drafts on the chat screen; the `$tool` element draft is not built",
-    );
-    // oracle: history "Earlier answer", composer "$tool existing draft" (an element), two open questions answered in order;
-    // turn end appends the answers once; a second turn end appends nothing; a large (200-repeat) answer becomes a pending paste.
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: turn started; history "Earlier answer"; composer "$tool existing draft"; questions "Which style?", "What budget?"
-    s.keys("alt+up");
-    s.paste("  Over-ear  ");
-    s.keys("alt+up");
-    s.paste("Under 250");
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 28)
+        .message_history(&["Earlier answer"])
+        .script(include_str!("fixtures/composer_3/skill_figma.jsonl"))
+        .open();
+    s.type_text("$figma")
+        .keys("tab")
+        .type_text("existing draft");
+    s.feed(include_str!(
+        "fixtures/chat_approvals_2/q_turn_end_open.jsonl"
+    ));
+    s.keys("alt+up").paste("  Over-ear  ");
+    s.keys("alt+up").paste("Under 250");
     s.keys("ctrl+r e");
-    // needs feed: turn "ended-turn" completed
-    s.assert_in_order(&[
-        "$tool existing draft",
-        "> Which style?",
-        "Over-ear",
-        "> What budget?",
-        "Under 250",
-    ]);
-    s.assert_snap("question_turn_end_recovered_composer");
-    // needs feed: turn "ended-turn" completed again (nothing appended twice)
-    // needs feed: question "Which way?" (large) added
-    s.keys("alt+up");
-    s.paste(&"long answer ".repeat(200));
-    // needs feed: turn "ended-turn" completed
-    s.assert_snap("question_turn_end_large_draft");
+    s.assert_contains("Earlier answer");
+    s.feed(TURN_DONE);
+    let recovered =
+        "$figma existing draft\n\n> Which style?\n\nOver-ear\n\n> What budget?\n\nUnder 250";
+    s.assert_saved_draft(recovered);
+    s.assert_in_order(&["Over-ear", "> What budget?", "Under 250"]);
+    s.feed(TURN_DONE);
+    s.assert_saved_draft(recovered);
+
+    s.feed(include_str!(
+        "fixtures/chat_approvals_2/q_turn_end_large.jsonl"
+    ));
+    let large = "long answer ".repeat(200);
+    s.keys("alt+up").paste(&large);
+    s.feed(SECOND_DONE);
+    s.assert_saved_draft(&format!("{recovered}\n\n[Pasted Content 2413 chars]"));
+    s.assert_contains("[Pasted Content 2413 chars]");
+    s.keys("enter");
+    s.assert_sole_turn(
+        kit::Turn::text(&format!("{recovered}\n\n> Which way?\n\n{}", large.trim()))
+            .skills(&[("figma", "/tmp/user/figma/SKILL.md")]),
+    );
 }
 
 // ORACLE chatwidget/tests/question_turn_end_tests.rs:143 question_turn_end_recovers_collapsed_drafts_on_completion_and_failure kind=snap owner=dialogs-pane
 #[test]
 fn question_turn_end_recovers_collapsed_drafts_on_completion_and_failure() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no async-question editor to collapse and no turn-end recovery of a collapsed draft into the composer on the chat screen",
-    );
-    for status in ["completed", "failed"] {
-        let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-        // oracle: question "Which way?" open; "answer" typed and collapsed (alt+down); "main" typed; history "earlier prompt"
-        // recalled (ctrl+r e); the turn ends (failed also queues a prompt and raises the error): the composer shows "earlier prompt".
-        let _ = status;
-        // needs feed: turn started; question "Which way?"; the turn ends as `status`
-        s.keys("alt+up");
-        s.type_text("answer");
-        s.keys("alt+down");
-        s.type_text("main");
-        s.keys("ctrl+r e");
-        s.assert_contains("earlier prompt");
-        // the recovered draft after Esc
+    for failed in [false, true] {
+        let mut s = Screen::build(Owner::DialogsPane)
+            .size(80, 24)
+            .message_history(&["earlier prompt"])
+            .script(TURN_QUESTION)
+            .open();
+        s.keys("alt+up").type_burst("answer").keys("alt+down");
+        s.type_text("main").keys("ctrl+r e");
+        s.assert_composer("earlier prompt");
+        s.feed(if failed {
+            include_str!("fixtures/chat_approvals_2/q_turn_end_error.jsonl")
+        } else {
+            TURN_DONE
+        });
+        s.assert_composer("earlier prompt");
+        if failed {
+            s.assert_contains("Turn failed");
+            s.assert_sole_turn(kit::Turn::text("queued prompt"));
+        } else {
+            kit::assert_same(s.turns().len(), 0, "completion leaves the draft unsent");
+        }
         s.keys("esc");
-        s.assert_in_order(&["main", "> Which way?", "answer"]);
+        s.assert_composer("main\n\n> Which way?\n\nanswer");
     }
 }
 
 // ORACLE chatwidget/tests/question_turn_end_tests.rs:209 question_turn_end_recovers_after_interruption_restores_queued_input kind=snap owner=dialogs-pane
 #[test]
 fn question_turn_end_recovers_after_interruption_restores_queued_input() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no async-question editor, no composer history search (ctrl+r) and no interruption recovery of queued input and pending steers on the chat screen",
-    );
-    // oracle: three main inputs (history accept, history cancel, buffered typing "+") over a question "Which way?" answered
-    // "answer"; a queued prompt and a pending steer are held; the turn is interrupted: the composer is "earlier prompt"
-    // (history) or the main draft with its typing; the search miss keeps the draft; the recovered draft holds the steer, the prompt and the answer.
     for main_input in ["history_accept", "history_cancel", "buffered_typing"] {
-        let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-        // needs feed: composer "main draft"; turn started; question "Which way?" added
-        s.keys("alt+up");
-        s.paste("answer");
-        s.keys("alt+down");
+        let mut s = Screen::build(Owner::DialogsPane)
+            .size(80, 24)
+            .message_history(&["earlier prompt"])
+            .script(TURN_QUESTION)
+            .draft("main draft")
+            .open();
+        s.keys("alt+up").paste("answer").keys("alt+down");
         if main_input == "buffered_typing" {
-            s.type_text("+");
+            s.type_burst("+");
         } else {
             s.keys("ctrl+r e");
-            s.assert_contains("earlier prompt");
+            s.assert_composer("earlier prompt");
         }
-        // needs feed: queued prompt "queued prompt", pending steer "pending steer"; turn interrupted
+        s.feed(include_str!(
+            "fixtures/chat_approvals_2/q_turn_end_interrupted.jsonl"
+        ));
         if main_input != "buffered_typing" {
-            s.assert_contains("earlier prompt");
+            s.assert_composer("earlier prompt");
             s.keys("z enter");
+            s.assert_contains("reverse-i-search");
             s.assert_contains("main draft");
             s.keys("backspace");
-            if main_input == "history_accept" {
-                s.assert_snap("question_turn_end_keeps_history_search");
-            }
+            s.assert_composer("earlier prompt");
             s.keys(if main_input == "history_accept" {
                 "enter"
             } else {
                 "esc"
             });
         }
+        match main_input {
+            "history_accept" => s.assert_composer("earlier prompt"),
+            "history_cancel" => {
+                s.assert_saved_draft(
+                    "pending steer\nqueued prompt\nmain draft\n\n> Which way?\n\nanswer",
+                );
+            }
+            _ => {
+                s.assert_saved_draft(
+                    "pending steer\nqueued prompt\nmain draft+\n\n> Which way?\n\nanswer",
+                );
+            }
+        }
+        s.assert_absent("Queued follow-up inputs");
+        kit::assert_same(s.turns().len(), 0, "the restored input was not sent");
     }
 }
 
 // ORACLE chatwidget/tests/question_turn_end_tests.rs:297 question_turn_end_keeps_multiline_question_and_answer_as_text kind=ui owner=dialogs-pane
 #[test]
 fn question_turn_end_keeps_multiline_question_and_answer_as_text() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no async-question editor: a question title with CR/LF and escape codes, and its multi-line answer, are not drawn as a recovered composer draft",
-    );
-    // oracle: the title "First line\r\n\r\n\x1b[31mLast\r line?\x1b[0m\x07" is recovered as "> First line", ">", "> Last line?"
-    // (sanitized); the answer "  First answer line\n\nLast answer line  " follows; the composer and the unanswered count are as recovered.
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: turn started; question with that title added
-    s.keys("alt+up");
-    s.paste("  First answer line\n\nLast answer line  ");
-    s.keys("alt+down");
-    // needs feed: turn completed
-    s.assert_in_order(&[
-        "> First line",
-        "> Last line?",
-        "First answer line",
-        "Last answer line",
-    ]);
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/chat_approvals_2/q_turn_end_multiline.jsonl"
+        ))
+        .open();
+    s.keys("alt+up")
+        .paste("  First answer line\n\nLast answer line  ")
+        .keys("alt+down");
+    s.feed(TURN_DONE);
+    let draft = "> First line\n>\n> Last line?\n\nFirst answer line\n\nLast answer line";
+    s.assert_saved_draft(draft);
+    s.assert_in_order(&["> Last line?", "First answer line", "Last answer line"]);
+    s.assert_absent("to answer");
+    s.keys("enter");
+    s.assert_sole_turn(kit::Turn::text(draft));
 }
 
 // ---- oracle: chatwidget/tests/questions_tests.rs (28 screen-level tests here; 4 state tests left to dialogs-pane)
@@ -757,10 +799,12 @@ fn question_editor_keeps_working_status_and_queued_messages_visible() {
     // the queue cleared, the status line off, Esc: the ONLY QUESTIONS frame.
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
-        .script(include_str!(
-            "fixtures/chat_approvals_2/q_two_running.jsonl"
-        ))
+        .replay(Vec::new())
         .open();
+    s.feed(
+        &include_str!("fixtures/chat_approvals_2/q_two_running.jsonl")
+            .replace("thread-1", kit::REPLAYED),
+    );
     s.paste("queued follow-up");
     s.keys("tab");
     s.paste("main draft");
@@ -780,10 +824,21 @@ fn question_editor_keeps_working_status_and_queued_messages_visible() {
         vec!["", "• Queued follow-up inputs", "  ↳ queued follow-up"],
         "the rest of the open frame",
     );
-    // the queue is taken back (the last question forward pops it), the turn ends, the question block is collapsed
-    s.keys("alt+up alt+up");
-    s.feed(include_str!("fixtures/chat_approvals_2/q_two_done.jsonl"));
+    // The oracle sets the task idle directly. Reconcile through history after clearing the
+    // seeded queue so there is no automatic follow-up when the model becomes idle.
+    s.feed(
+        &include_str!("fixtures/chat_approvals_2/q_queue_cleared.jsonl")
+            .replace("thread-1", kit::REPLAYED),
+    );
+    s.history_page(
+        vec![kit::replay_turn("turn-1", serde_json::json!([]))],
+        None,
+    );
+    s.assert_contains("1 of 2");
+    s.assert_absent("Working");
     s.keys("esc");
+    s.assert_composer("main draft");
+    s.assert_no_turn();
     s.snap("questions_with_status_and_queue")
         .labelled(&["OPEN", "ONLY QUESTIONS"])
         .frame("ONLY QUESTIONS")
@@ -1096,19 +1151,36 @@ fn desktop_async_answer_dismisses_only_its_question_and_preserves_the_other_draf
 // ORACLE chatwidget/tests/questions_tests.rs:1068 async_question_markdown_matches_loaded_history kind=snap owner=dialogs-pane
 #[test]
 fn async_question_markdown_matches_loaded_history() {
-    kit::pending(
-        Owner::DialogsPane,
-        "pending(G73) and a need: the snapshot is the Debug dump of the cell's styled lines (`? ` accent prefix, the markdown titles, the options as `  • ` bullets in their own colour: G73 item 4, the bullet style per list), which the kit has no reader for; the cell itself waits on `core/src/threads.rs` `item_entry`, which drops `questions` of the agent message (`Item::Agent { text, phase }`), held by f-startup-draft: the cell is not built",
+    // The oracle compares the styled Debug dump. G73 item 4 tracks the snapshot reader;
+    // compare the rendered rows of the same agent item from both live and history paths.
+    let script = include_str!("fixtures/chat_approvals_2/q_markdown.jsonl");
+    let rows = [
+        "? Keep --verbose for failed runs?",
+        "",
+        "  • Only for CI",
+        "",
+        "? See the guide (https://example.test/guide)?",
+    ];
+    let expect_rows = |s: &Screen| {
+        let top = row_of(s, rows[0]);
+        for (offset, row) in rows.iter().enumerate() {
+            s.assert_row(top + offset, row);
+        }
+    };
+    expect_rows(
+        &Screen::build(Owner::DialogsPane)
+            .size(80, 24)
+            .script(script)
+            .open(),
     );
-    // oracle: an agent message with the questions "Keep `--verbose` for **failed** runs?" (option "Only for **CI**") and
-    // "See the [guide](https://example.test/guide)?" draws the same transcript cell live and as loaded history (async_question_transcript).
-    let s = Screen::build(Owner::DialogsPane)
+    let mut replay = Screen::build(Owner::DialogsPane)
         .size(80, 24)
-        .script(include_str!("fixtures/chat_approvals_2/q_markdown.jsonl"))
+        .replay(Vec::new())
         .open();
-    s.assert_has_row("? Keep --verbose for failed runs?");
-    s.assert_has_row("  • Only for CI");
-    s.assert_has_row("? See the guide (https://example.test/guide)?");
+    let note: serde_json::Value = serde_json::from_str(script.lines().last().unwrap()).unwrap();
+    let items = serde_json::json!([note["message"]["params"]["item"]]);
+    replay.history_page(vec![kit::replay_turn("turn-1", items)], None);
+    expect_rows(&replay);
 }
 
 // ORACLE chatwidget/tests/questions_tests.rs:1109 distinct_async_question_replies_with_identical_text_both_render kind=ui owner=dialogs-pane

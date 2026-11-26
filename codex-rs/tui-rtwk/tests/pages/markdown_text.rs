@@ -7,15 +7,24 @@
 //! `None` for is not modelled (the item has no text there); one it answers
 //! must be the selection.
 
+use std::rc::Rc;
+
+use codex_tui_core::question_reply::QuestionText;
 use codex_tui_core::threads::Item;
+use codex_tui_rtwk::app::theme::Tokens;
 use codex_tui_rtwk::pages::session::cells::agent;
 use codex_tui_rtwk::pages::session::cells::strings::EN as CELLS;
 use codex_tui_rtwk::pages::session::cells::text::Env;
+use codex_tui_rtwk::pages::session::cells::{CellEnv, Place, cell};
 use codex_tui_rtwk::pages::session::strings::EN as CHAT;
-use codex_tui_rtwk::pages::session::transcript::item_text::{Reading, item_text, mounted_text};
+use codex_tui_rtwk::pages::session::transcript::copy::{Cutter, Fill, Targets};
+use codex_tui_rtwk::pages::session::transcript::item_text::{
+    Reading, body_nodes, item_text, mounted_parts, mounted_text,
+};
+use codex_tui_rtwk::pages::session::transcript::strings::EN as TRANSCRIPT;
 use rtwk::AnyWidget;
 use rtwk::gestures::{SelectionArea, SelectionAreaController};
-use rtwk::style::Style;
+use rtwk::style::{Attrs, Style};
 use rtwk_core::input::{Mods, MouseKind};
 use rtwk_rich::markdown::MarkdownTheme;
 
@@ -69,6 +78,7 @@ fn modelled(source: &str) -> Option<String> {
         &Item::Agent {
             text: source.into(),
             phase: None,
+            questions: None,
         },
         &Reading::new(&env(), BULLET),
     )
@@ -168,6 +178,7 @@ fn the_row_model_is_the_mounted_nodes_joined_by_a_line_break() {
         let item = Item::Agent {
             text: (*source).into(),
             phase: None,
+            questions: None,
         };
         let model = mounted_text(&item, &Reading::new(&env(), BULLET));
         let mounted = nodes_of(agent::message(
@@ -189,6 +200,112 @@ fn the_row_model_is_the_mounted_nodes_joined_by_a_line_break() {
         }
     }
     assert!(wrong.is_empty(), "\n{}", wrong.join("\n"));
+}
+
+#[test]
+fn quote_copy_and_fill_follow_the_real_nodes_of_agent_and_question_cells() {
+    let tokens = Tokens::new(Rc::new(rtwk::prelude::ThemeData::DARK));
+    let markdown = MarkdownTheme::default();
+    let style = Style::new();
+    let cell_env = CellEnv {
+        tokens: &tokens,
+        markdown: &markdown,
+        prompt_surface: &style,
+        chat: &CHAT,
+        cells: &CELLS,
+        bullet: BULLET,
+        bullet_style: &style,
+        cwd: None,
+        detailed: false,
+        raw: false,
+        show_raw_reasoning: false,
+    };
+    let model_env = env();
+    let reading = Reading::new(&model_env, BULLET);
+    let cutter = Cutter {
+        pieces: |_| Vec::new(),
+        whole: |_, _| None,
+    };
+    for (text, questions, quote_block) in [
+        ("First paragraph\n\n> Quote to copy", None, 1),
+        (
+            "First **question**?\n- One\n\nSecond question?\n\n> Quote to copy",
+            Some(vec![
+                QuestionText {
+                    title: "First **question**?".into(),
+                    options: vec!["One".into()],
+                },
+                QuestionText {
+                    title: "Second question?".into(),
+                    options: Vec::new(),
+                },
+            ]),
+            3,
+        ),
+    ] {
+        let item = Item::Agent {
+            text: text.into(),
+            phase: None,
+            questions,
+        };
+        let widget = || cell(&item, &cell_env, &Place::default());
+        let mounted = nodes_of(widget()).join("\n");
+        assert_eq!(
+            mounted_text(&item, &reading).as_deref(),
+            Some(mounted.as_str())
+        );
+        assert_eq!(
+            item_text(&item, &reading).as_deref(),
+            Some(selection_of(widget()).as_str()),
+        );
+        let nodes = body_nodes(&item, &reading).expect("mapped Markdown nodes");
+        assert_eq!(
+            nodes
+                .iter()
+                .map(|node| node.text.as_str())
+                .collect::<Vec<_>>(),
+            mounted_parts(&item, &reading)
+                .expect("mapped cell")
+                .iter()
+                .filter(|part| !part.gutter)
+                .map(|part| part.text.as_str())
+                .collect::<Vec<_>>(),
+        );
+        let mut targets = Targets::default();
+        let parts = mounted_parts(&item, &reading).expect("mapped cell");
+        targets.add(0, &item, &parts, &reading, &TRANSCRIPT, &cutter);
+        let [quote] = targets.list.as_slice() else {
+            panic!("expected a copy target for the quote: {:?}", targets.list);
+        };
+        assert_eq!(quote.fill, Some(Fill::Block(quote_block)));
+        assert!(mounted[quote.range.clone()].contains("Quote to copy"));
+        let mut tester = rtwk_test::Tester::with(rtwk_test::Options::new().size(WIDTH, HEIGHT));
+        tester.pump_widget(cell(
+            &item,
+            &cell_env,
+            &Place {
+                fill: quote.fill,
+                ..Place::default()
+            },
+        ));
+        let quote_row = tester
+            .screen()
+            .lines()
+            .position(|row| row.contains("Quote to copy"))
+            .expect("quote shown");
+        assert!(
+            tester
+                .cell(usize::from(WIDTH) - 2, quote_row)
+                .attrs
+                .intersects(Attrs::REVERSE)
+        );
+        assert!(
+            !tester
+                .cell(usize::from(WIDTH) - 2, 0)
+                .attrs
+                .intersects(Attrs::REVERSE)
+        );
+    }
 }
 
 #[test]

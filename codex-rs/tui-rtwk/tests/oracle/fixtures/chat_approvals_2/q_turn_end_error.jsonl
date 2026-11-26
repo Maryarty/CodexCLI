@@ -1,0 +1,4 @@
+# question_turn_end_tests.rs: non-retry error followed by the duplicate failed completion (tools/rtwk-port/async-questions/fixtures.py)
+{"step":"screen","dir":"chat","ev":{"pending":{"thread":"thread-1","queued":["queued prompt"]}}}
+{"step":"notify","message":{"method":"error","params":{"threadId":"thread-1","turnId":"turn-1","error":{"message":"Turn failed","codexErrorInfo":null,"additionalDetails":null,"misalignment":null},"willRetry":false}}}
+{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"summary","status":"failed","error":{"message":"Turn failed","codexErrorInfo":null,"additionalDetails":null,"misalignment":null},"startedAt":null,"completedAt":null,"durationMs":1000}}}}

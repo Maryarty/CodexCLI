@@ -37,7 +37,7 @@ use crate::ids::{BackendId, ThreadId};
 use crate::rpc::{RpcError, ServerError};
 use crate::screens::SeedError;
 use crate::screens::status::RateRead;
-use crate::threads::{Tone, TurnEnd};
+use crate::threads::{LiveThreadEvent, Tone, TurnEnd};
 
 mod cx;
 mod lifecycle;
@@ -408,10 +408,26 @@ pub trait Feature: 'static {
         let _ = (part, ctx, result, cx);
     }
 
+    /// Reconcile a thread-local fact with the feature part even without a writer. An intent
+    /// returned here continues through the writer-gated, effectful `thread_intent`.
+    fn thread_fact(
+        part: &mut Self::ThreadPart,
+        intent: Self::ThreadIntent,
+    ) -> Option<Self::ThreadIntent> {
+        let _ = part;
+        Some(intent)
+    }
+
     /// A turn of the thread ended (completed, failed or interrupted): what waited for it
     /// goes on.
     fn on_turn_end(part: &mut Self::ThreadPart, end: TurnEnd, cx: &mut ThreadCx<'_, '_>) {
         let _ = (part, end, cx);
+    }
+
+    /// The owner applied a live item or terminal event, including notifications held while
+    /// attaching. A terminal event includes any input it returned to the composer.
+    fn on_live_thread_event(part: &mut Self::ThreadPart, event: LiveThreadEvent<'_>) {
+        let _ = (part, event);
     }
 
     /// What the feature makes of a server notification, if it is one it follows (ADR-012, "the
@@ -1050,10 +1066,12 @@ macro_rules! feature_dirs {
             cx: &mut ThreadCx<'_, '_>,
         ) {
             match intent {
-                // an ask of one feature: only where this process writes the thread
                 $(FeatureThreadIntent::$variant(intent) => {
-                    if cx.view.has_writer() {
-                        <$name::$variant as Feature>::thread_intent(&mut parts.$name, intent, cx)
+                    let part = &mut parts.$name;
+                    if let Some(intent) = <$name::$variant as Feature>::thread_fact(part, intent)
+                        && cx.view.has_writer()
+                    {
+                        <$name::$variant as Feature>::thread_intent(part, intent, cx)
                     }
                 })*
                 // a fact: what waited for it goes on, as far as its effects are open
@@ -1087,6 +1105,15 @@ macro_rules! feature_dirs {
         #[allow(unused_variables)]
         pub fn on_turn_end(parts: &mut FeatureThreadParts, end: TurnEnd, cx: &mut ThreadCx<'_, '_>) {
             $(<$name::$variant as Feature>::on_turn_end(&mut parts.$name, end, cx);)*
+        }
+
+        /// Deliver a live fact to thread features, with no effect door.
+        #[allow(unused_variables, dead_code)]
+        pub fn on_live_thread_event(
+            parts: &mut FeatureThreadParts,
+            event: $crate::threads::LiveThreadEvent<'_>,
+        ) {
+            $(<$name::$variant as Feature>::on_live_thread_event(&mut parts.$name, event);)*
         }
 
         /// The thread's turn was interrupted: every feature's hook, in list order.

@@ -138,7 +138,7 @@ impl UserPrompt {
 /// `text` without CSI sequences and control characters but tabs and
 /// newlines. A lone ESC goes on its own; a CSI sequence that never ends
 /// takes the rest of the text with it.
-fn without_controls(text: &str) -> Cow<'_, str> {
+pub(crate) fn without_controls(text: &str) -> Cow<'_, str> {
     let hidden = |ch: char| ch == '\x1b' || ch.is_control() && !matches!(ch, '\n' | '\t');
     if !text.contains(hidden) {
         return Cow::Borrowed(text);

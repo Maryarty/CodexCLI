@@ -13,14 +13,19 @@
 //! asked in `did_change_dependencies` and again in `build`, because a build forgets the selects of
 //! the build before.
 
+use std::cell::RefCell;
+use std::collections::BTreeSet;
+
 use rtwk::layout::SizedBox;
 use rtwk::navigation::Route;
 use rtwk::provider::{read, select};
 use rtwk::{AnyWidget, Cx, Handler, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::app::{Session, SessionSlice};
-use codex_tui_core::ids::ThreadId;
-use codex_tui_core::threads::{DueCommand, Restore, ThreadModel, UserMessage, startup};
+use codex_tui_core::ids::{ThreadId, TurnId};
+use codex_tui_core::threads::{
+    DueCommand, LiveTurnEnd, Restore, ThreadModel, UserMessage, startup,
+};
 
 /// What changed in the model that the page acts on once.
 #[derive(Clone, Debug, PartialEq)]
@@ -35,7 +40,9 @@ pub enum Edge {
     Recorded(UserMessage),
     /// The messages the model gave back to the composer (an interrupt, a failed steer, the
     /// edit-queued key).
-    Restore(Restore),
+    Restore(ThreadId, Restore),
+    /// The turn's async questions ended, after any queued messages were restored.
+    TurnEnded(ThreadId, LiveTurnEnd),
     /// The prompt an edit of the backtrack gives back to the composer.
     Draft(UserMessage),
     /// The turn ended with a proposed plan: "Implement this plan?".
@@ -55,6 +62,27 @@ pub enum Edge {
     ForkFailed,
 }
 
+/// The thread's delivered question ends while core still holds their acknowledgement open.
+#[derive(Default)]
+pub struct AppliedQuestionEnds(RefCell<BTreeSet<TurnId>>);
+
+impl AppliedQuestionEnds {
+    pub fn take(&self, thread: &ThreadModel, turn: &TurnId) -> bool {
+        let ends = question_ends(thread);
+        let held = |turn: &TurnId| ends.iter().any(|end| &end.turn == turn);
+        let mut seen = self.0.borrow_mut();
+        seen.retain(held);
+        held(turn) && seen.insert(turn.clone())
+    }
+}
+
+fn question_ends(thread: &ThreadModel) -> &[LiveTurnEnd] {
+    thread
+        .view()
+        .parts()
+        .map_or(&[], |parts| parts.async_questions.ends())
+}
+
 /// The numbers of a thread the listener compares from one change to the next.
 #[derive(Clone, Debug, PartialEq)]
 struct Counters {
@@ -63,6 +91,7 @@ struct Counters {
     replayed: u64,
     recorded: Option<u64>,
     restore: Option<u64>,
+    live_ends: Vec<LiveTurnEnd>,
     draft: Option<u64>,
     plan: Option<u64>,
     due: Option<u64>,
@@ -91,6 +120,7 @@ fn deps<S: 'static>(cx: &mut Cx<'_, S>) -> Deps {
             replayed: thread.replayed_submissions().generation(),
             recorded: thread.recorded().map(|(seq, _)| seq),
             restore: thread.restore().map(Restore::seq),
+            live_ends: question_ends(thread).to_vec(),
             draft: slots.backtrack.restore.as_ref().map(|restore| restore.seq),
             plan: slots.chat.plan.prompt().map(|prompt| prompt.seq),
             due: thread.due_command().map(DueCommand::seq),
@@ -177,10 +207,30 @@ impl State for ListenerState {
         if Self::moved(before.as_ref(), &now, |c| c.submitted) {
             cx.emit(&w.on_edge, Edge::Submitted);
         }
-        if Self::moved(before.as_ref(), &now, |c| c.restore)
-            && let Some(restore) = read::<ThreadModel, _>(cx).restore().cloned()
+        let owned_restore = now.live_ends.iter().any(|end| {
+            end.restore
+                .as_ref()
+                .is_some_and(|restore| Some(restore.seq()) == now.restore)
+        });
+        let mut restore = (!owned_restore && Self::moved(before.as_ref(), &now, |c| c.restore))
+            .then(|| read::<ThreadModel, _>(cx).restore().cloned())
+            .flatten();
+        let before_ends = before
+            .as_ref()
+            .filter(|before| before.thread == now.thread)
+            .map_or(&[][..], |before| before.live_ends.as_slice());
+        if now.live_ends.iter().all(|end| end.restore.is_none())
+            && let Some(restore) = restore.take()
         {
-            cx.emit(&w.on_edge, Edge::Restore(restore));
+            cx.emit(&w.on_edge, Edge::Restore(now.thread.clone(), restore));
+        }
+        for end in &now.live_ends {
+            if !before_ends.contains(end) {
+                cx.emit(&w.on_edge, Edge::TurnEnded(now.thread.clone(), end.clone()));
+            }
+        }
+        if let Some(restore) = restore {
+            cx.emit(&w.on_edge, Edge::Restore(now.thread.clone(), restore));
         }
         // the replayed submissions of a thread seed the history once per resume, and again from
         // the whole list when older turns came in front: a first look and a switch count

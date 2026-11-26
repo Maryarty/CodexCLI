@@ -57,6 +57,7 @@ fn two_prompts() -> Transcript {
             Item::Agent {
                 text: "answer".into(),
                 phase: None,
+                questions: None,
             },
         ),
         (key("t2", "u2"), Item::User(text_prompt("second"))),
@@ -226,9 +227,13 @@ fn a_backtrack_target_needs_a_visible_user_prompt() {
             Item::Agent {
                 text: "assistant".into(),
                 phase: None,
+                questions: None,
             },
         ),
-        (key("t", "n"), Item::Notice(Notice::ContextCompacted { took: None })),
+        (
+            key("t", "n"),
+            Item::Notice(Notice::ContextCompacted { took: None }),
+        ),
     ];
     assert!(!has_backtrack_target(&transcript(items.clone())));
     items.push((key("t", "u"), Item::User(text_prompt("hello"))));
@@ -260,6 +265,7 @@ fn nth_counts_visible_prompts_from_the_oldest() {
             Item::Agent {
                 text: "answer".into(),
                 phase: None,
+                questions: None,
             },
         ),
         (key("t2", "u2"), Item::User(text_prompt("second"))),

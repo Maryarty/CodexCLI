@@ -43,6 +43,7 @@ pub use entries::debug_entries;
 
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
+use crate::keymap::press::is_escape;
 use crate::keymap::{only_shift, pressed, primary_label as label, unmodified};
 use crate::pages::session::composer::{
     Composer, burst, plain, search, strings as composer_strings,
@@ -88,6 +89,27 @@ pub struct Seed {
 pub struct Kept {
     pub current: Option<String>,
     kept: BTreeMap<String, Slot>,
+}
+
+impl Kept {
+    /// Read the draft underneath any history preview, including keys held by paste detection.
+    pub fn take_answer<S: 'static>(&mut self, id: &str, cx: &mut Cx<'_, S>) -> Option<String> {
+        let Slot { ui, .. } = self.take_slot(id)?;
+        ui.draft.search_cancel(&ui.composer);
+        flush(&ui, cx);
+        Some(ui.draft.expanded(&ui.composer))
+    }
+
+    pub fn discard_answer(&mut self, id: &str) {
+        self.take_slot(id);
+    }
+
+    fn take_slot(&mut self, id: &str) -> Option<Slot> {
+        if self.current.as_deref() == Some(id) {
+            self.current = None;
+        }
+        self.kept.remove(id)
+    }
 }
 
 /// What one question keeps while the editor is closed: the row of its cursor and the controllers
@@ -519,6 +541,13 @@ impl AsyncState {
     }
 
     fn press(&mut self, key: &KeyPress, w: &AsyncQuestions, cx: &mut Cx<'_, Self>) {
+        // A focused search or Vim edit has already had its chance to take Esc.
+        // On the chat page it closes the question editor before interrupt actions.
+        if w.host.is_some() && is_escape(key) {
+            self.leave_field(cx);
+            self.emit(w, Outcome::Edge { forward: false }, cx);
+            return;
+        }
         let keymap = Rc::clone(&self.keymap);
         let input = self.focus_is_input(w);
         let options = !self.options(w).is_empty();
@@ -590,17 +619,43 @@ impl AsyncState {
     }
 }
 
+impl AsyncState {
+    fn keep_answers(&self) {
+        if let Some(saved) = &self.saved {
+            *saved.borrow_mut() = Kept {
+                current: self.questions.get(self.current).map(|q| q.id.clone()),
+                kept: self
+                    .questions
+                    .iter()
+                    .map(|q| {
+                        (
+                            q.id.clone(),
+                            Slot {
+                                selected: q.selected,
+                                ui: q.ui.clone(),
+                                learned: q.learned.clone(),
+                            },
+                        )
+                    })
+                    .collect(),
+            };
+        }
+    }
+}
+
 impl State for AsyncState {
     type Widget = AsyncQuestions;
     type Msg = Msg;
 
     fn init_state(&mut self, w: &AsyncQuestions, cx: &mut Cx<'_, Self>) {
+        self.keep_answers();
         let send = cx.local_sender();
         self.keymap = read::<Keymap, _>(cx);
         let keymap = Rc::clone(&self.keymap);
+        let hosted = w.host.is_some();
         self.node
             .set_on_key_event(Some(Rc::new(move |_, key: KeyPress| {
-                if root_takes(&keymap, &key) {
+                if (hosted && is_escape(&key)) || root_takes(&keymap, &key) {
                     send(Msg::Press(key));
                     KeyEventResult::Handled
                 } else {
@@ -642,6 +697,7 @@ impl State for AsyncState {
         for q in &self.questions {
             follow(&q.ui, &q.learned, w.host.as_ref());
         }
+        self.keep_answers();
         // a question that came in while the editor is open is seen at once
         if arrived {
             self.unseen = true;
@@ -658,23 +714,17 @@ impl State for AsyncState {
 
     fn dispose(&mut self) {
         if let Some(saved) = &self.saved {
-            *saved.borrow_mut() = Kept {
-                current: self.questions.get(self.current).map(|q| q.id.clone()),
-                kept: self
-                    .questions
-                    .iter()
-                    .map(|q| {
-                        (
-                            q.id.clone(),
-                            Slot {
-                                selected: q.selected,
-                                ui: q.ui.clone(),
-                                learned: q.learned.clone(),
-                            },
-                        )
-                    })
-                    .collect(),
-            };
+            let mut saved = saved.borrow_mut();
+            saved.current = self
+                .questions
+                .get(self.current)
+                .filter(|q| saved.kept.contains_key(&q.id))
+                .map(|q| q.id.clone());
+            for q in &self.questions {
+                if let Some(slot) = saved.kept.get_mut(&q.id) {
+                    slot.selected = q.selected;
+                }
+            }
         }
         if let Some(timer) = self.timer.take() {
             timer.cancel();
@@ -771,7 +821,8 @@ impl State for AsyncState {
                     // the chat may have sent a message since: a recall starting now has it
                     follow(&ui, &learned, host.as_ref());
                     // a search, a pending Vim command or a query owns the keys
-                    if modal_keys(&ui.draft) {
+                    // The focused editor also gets first chance at hosted Esc.
+                    if (host.is_some() && is_escape(key)) || modal_keys(&ui.draft) {
                         return false;
                     }
                     if input_takes(&keymap, key, other) {
@@ -841,7 +892,7 @@ fn modal_keys(draft: &crate::widgets::composer_draft::ComposerDraft) -> bool {
 }
 
 /// What typing ahead the paste detector holds goes into `ui`'s text now.
-fn flush(ui: &ThreadUi, cx: &mut Cx<'_, AsyncState>) {
+fn flush<S: 'static>(ui: &ThreadUi, cx: &mut Cx<'_, S>) {
     let table = composer_strings::of(cx);
     burst::flush_pending(
         &ui.draft,

@@ -4,7 +4,23 @@
 
 use serde::Deserialize;
 
-use crate::ids::ThreadId;
+use crate::ids::{ThreadId, TurnId};
+
+/// The visible Markdown of a question and its suggested answers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QuestionText {
+    pub title: String,
+    pub options: Vec<String>,
+}
+
+impl From<&codex_app_server_protocol::AsyncUserInputQuestion> for QuestionText {
+    fn from(question: &codex_app_server_protocol::AsyncUserInputQuestion) -> Self {
+        Self {
+            title: question.title.clone(),
+            options: question.options.clone().unwrap_or_default(),
+        }
+    }
+}
 
 /// What the user decides of a question: the verb of the async-questions feature, kept here so the
 /// session page that says it names no feature (`features::verb` takes it as `Into<FeatureIntent>`).
@@ -12,6 +28,8 @@ use crate::ids::ThreadId;
 pub enum Intent {
     /// The answer of the question went out, or the question was skipped.
     Resolve { thread: ThreadId, id: String },
+    /// Retire the questions owned by a live turn that ended.
+    TurnEnded { thread: ThreadId, turn: TurnId },
     /// The user is at the questions of `thread` (the editor opened, a key or a paste landed in
     /// it): their countdown stops (`snooze_auto_resolution`).
     Snooze { thread: ThreadId },
@@ -99,6 +117,34 @@ pub fn display_text(text: &str) -> Option<String> {
     Some(display_replies(&parse(text)?))
 }
 
+/// Unsent text recovered as an ordinary draft, with each line of its question quoted.
+pub fn recovered(title: &str, answer: &str) -> Option<String> {
+    let answer = answer.trim();
+    if answer.is_empty() {
+        return None;
+    }
+    let end = title.floor_char_boundary(QUESTION_BYTES);
+    let sanitized = crate::threads::without_controls(&title[..end]);
+    let mut quoted = String::new();
+    for (index, line) in sanitized.split_terminator('\n').enumerate() {
+        if index > 0 {
+            quoted.push('\n');
+        }
+        quoted.push('>');
+        if !line.trim().is_empty() {
+            quoted.push(' ');
+        }
+        quoted.push_str(line);
+    }
+    if quoted.is_empty() {
+        quoted.push_str("> ");
+    }
+    if end < title.len() {
+        quoted.push('…');
+    }
+    Some(format!("{quoted}\n\n{answer}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -116,5 +162,26 @@ mod tests {
     fn plain_text_is_no_reply() {
         assert_eq!(parse("> q\n\na"), None);
         assert_eq!(display_text("hello"), None);
+    }
+
+    #[test]
+    fn recovery_quotes_sanitized_lines_and_keeps_the_answer_as_text() {
+        let title = "First line\r\n\r\n\x1b[31mLast\r line?\x1b[0m\x07";
+        assert_eq!(
+            recovered(title, "  First answer line\n\nLast answer line  ").as_deref(),
+            Some("> First line\n>\n> Last line?\n\nFirst answer line\n\nLast answer line"),
+        );
+        assert_eq!(recovered(title, " \n\t"), None);
+        assert_eq!(recovered("", "answer").as_deref(), Some("> \n\nanswer"));
+    }
+
+    #[test]
+    fn recovered_question_title_is_limited_at_a_character_boundary() {
+        let prefix = "x".repeat(QUESTION_BYTES - 1);
+        let answer = "answer";
+        assert_eq!(
+            recovered(&format!("{prefix}é"), answer),
+            Some(format!("> {prefix}…\n\n{answer}")),
+        );
     }
 }

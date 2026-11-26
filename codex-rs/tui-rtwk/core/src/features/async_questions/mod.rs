@@ -20,8 +20,9 @@ use codex_app_server_protocol::{
 
 use super::AppCx;
 use crate::app::Now;
-use crate::ids::ThreadId;
+use crate::ids::{ThreadId, TurnId};
 use crate::question_reply as reply;
+use crate::threads::{Item, LiveThreadEvent, LiveTurnEnd};
 
 /// The marker type of the feature.
 pub struct AsyncQuestions;
@@ -37,6 +38,7 @@ pub struct Question {
     /// The desktop's id of it: the reply says which question it answers.
     pub id: String,
     pub message: String,
+    pub turn: TurnId,
     /// The question, Markdown.
     pub title: String,
     /// The suggested answers (none: answered freely).
@@ -53,12 +55,34 @@ pub enum Event {
     /// An agent message completed with questions.
     Asked {
         thread: ThreadId,
+        turn: TurnId,
         message: String,
         questions: Vec<AsyncUserInputQuestion>,
     },
     /// A user message of the thread answered the questions with these ids (another client's
     /// reply, or the echo of ours).
     Answered { thread: ThreadId, ids: Vec<String> },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ThreadFact {
+    /// The turns that still own questions.
+    Pending(BTreeSet<TurnId>),
+    /// The page applied this end, including any returned input it carried.
+    Acknowledged(TurnId),
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ThreadPart {
+    pending: BTreeSet<TurnId>,
+    synced: bool,
+    ends: Vec<LiveTurnEnd>,
+}
+
+impl ThreadPart {
+    pub fn ends(&self) -> &[LiveTurnEnd] {
+        &self.ends
+    }
 }
 
 /// How long a question that arrives while the editor is closed waits before it is worth a
@@ -120,7 +144,13 @@ impl State {
         Some(at.max(self.now + 1))
     }
 
-    fn ask(&mut self, thread: ThreadId, message: &str, questions: &[AsyncUserInputQuestion]) {
+    fn ask(
+        &mut self,
+        thread: ThreadId,
+        turn: &TurnId,
+        message: &str,
+        questions: &[AsyncUserInputQuestion],
+    ) {
         if questions.is_empty() || !self.seen.insert((thread.clone(), message.to_owned())) {
             return;
         }
@@ -144,6 +174,7 @@ impl State {
                 .push(Question {
                     id,
                     message: message.to_owned(),
+                    turn: turn.clone(),
                     title: question.title.clone(),
                     options,
                 });
@@ -164,6 +195,11 @@ impl State {
                 self.pending.remove(thread);
             }
         }
+    }
+
+    fn sync_turns(&self, thread: &ThreadId, cx: &mut AppCx<'_>) {
+        let turns = self.of(thread).iter().map(|q| q.turn.clone()).collect();
+        cx.thread(thread, ThreadFact::Pending(turns));
     }
 }
 
@@ -190,17 +226,33 @@ feature! {
     impl Feature for AsyncQuestions {
         const NAME: &'static str = "async_questions";
         type State = State;
+        type ThreadPart = ThreadPart;
         type Intent = Intent;
+        type ThreadIntent = ThreadFact;
         type Event = Event;
         {
             fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
                 state.now = cx.view().facts().now().millis();
                 match intent {
-                    Intent::Resolve { thread, id } => state.resolve(&thread, &[id]),
+                    Intent::Resolve { thread, id } => {
+                        state.resolve(&thread, &[id]);
+                        state.sync_turns(&thread, cx);
+                    }
+                    Intent::TurnEnded { thread, turn } => {
+                        let ids = state.of(&thread)
+                            .iter()
+                            .filter(|q| q.turn == turn)
+                            .map(|q| q.id.clone())
+                            .collect::<Vec<_>>();
+                        state.resolve(&thread, &ids);
+                        state.sync_turns(&thread, cx);
+                        cx.thread(&thread, ThreadFact::Acknowledged(turn));
+                    }
                     Intent::Superseded { thread } => {
                         let ids: Vec<String> =
                             state.of(&thread).iter().map(|q| q.id.clone()).collect();
                         state.resolve(&thread, &ids);
+                        state.sync_turns(&thread, cx);
                     }
                     Intent::Snooze { thread } => {
                         let ids: Vec<String> =
@@ -211,6 +263,36 @@ feature! {
                         let now = state.now;
                         state.expires.retain(|_, end| *end > now);
                     }
+                }
+            }
+
+            fn thread_fact(part: &mut ThreadPart, fact: ThreadFact) -> Option<ThreadFact> {
+                match fact {
+                    ThreadFact::Pending(turns) => {
+                        part.pending = turns;
+                        part.synced = true;
+                    }
+                    ThreadFact::Acknowledged(turn) => part.ends.retain(|end| end.turn != turn),
+                }
+                None
+            }
+
+            fn on_live_thread_event(part: &mut ThreadPart, event: LiveThreadEvent<'_>) {
+                match event {
+                    // The app may have observed this while the owner was still attaching.
+                    // In that case its pending fact could not reach the thread yet.
+                    LiveThreadEvent::ItemCompleted { key, item: Item::Agent { questions: Some(questions), .. } }
+                        if !part.synced && !questions.is_empty() =>
+                    {
+                        part.pending.insert(key.turn.clone());
+                    }
+                    LiveThreadEvent::TurnEnded(end)
+                        if part.pending.contains(&end.turn)
+                            && !part.ends.iter().any(|held| held.turn == end.turn) =>
+                    {
+                        part.ends.push(end.clone());
+                    }
+                    _ => {}
                 }
             }
 
@@ -235,6 +317,7 @@ feature! {
                         ..
                     } if !questions.is_empty() => Some(Event::Asked {
                         thread,
+                        turn: TurnId::new(&completed.turn_id),
                         message: id.clone(),
                         questions: questions.clone(),
                     }),
@@ -253,10 +336,20 @@ feature! {
                 match event {
                     Event::Asked {
                         thread,
+                        turn,
                         message,
                         questions,
-                    } => state.ask(thread, &message, &questions),
-                    Event::Answered { thread, ids } => state.resolve(&thread, &ids),
+                    } => {
+                        if cx.view().thread(&thread).is_some_and(|t| t.core().turn_finished(&turn)) {
+                            return;
+                        }
+                        state.ask(thread.clone(), &turn, &message, &questions);
+                        state.sync_turns(&thread, cx);
+                    }
+                    Event::Answered { thread, ids } => {
+                        state.resolve(&thread, &ids);
+                        state.sync_turns(&thread, cx);
+                    }
                 }
             }
         }

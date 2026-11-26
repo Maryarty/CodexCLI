@@ -842,6 +842,14 @@ subscriptions` with default no-ops.
   whether or not this process still writes the thread (a spinner or a pending flag does not stay
   stuck because a provider refusal took the writer); `ThreadCx::request` is `None` without the
   writer, and a feature's ask (`thread_intent`) is not delivered there.
+- **Live thread facts and acknowledgement.** The thread delivers live item completions through
+  `on_live_thread_event`, including items buffered while the owner was attaching. A terminal
+  fact reaches the same hook after the thread applies its lifecycle and returns queued input.
+  Loaded history can reconcile the same turn independently. A feature can retain a terminal fact
+  until the view acknowledges delivery,
+  including across a thread switch. The `thread_fact` handler can apply that acknowledgement
+  after writer loss. It receives only the feature's thread part and the intent. Intents it
+  returns proceed through the existing writer check before the effect-capable handler.
 - **One turn start per step** (framework-2 K2): `ThreadFx::start_turn` returns
   `Err(message)` when a start was already said in the step (`start_said`), giving the message
   back, so two features' hooks cannot double-start. Whether the model is busy is the caller's

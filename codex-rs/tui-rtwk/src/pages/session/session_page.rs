@@ -115,7 +115,7 @@ pub struct ChatState {
     /// stays equal across the page's rebuilds.
     edges: Option<Handler<Edge>>,
     /// The editor of the model's questions: open or not, and its drafts.
-    asking: questions::Asking,
+    asking: Rc<questions::Asking>,
     /// A queued command opened a sheet: the queue goes on when the page is in front again.
     resume: bool,
     /// The read-only thread this page asked to fork and heard no answer of
@@ -186,7 +186,7 @@ impl StatefulWidget for Chat {
     fn create_state(&self) -> ChatState {
         ChatState {
             edges: None,
-            asking: questions::Asking::default(),
+            asking: self.ui.held(Rc::default),
             resume: false,
             forking: None,
             shortcuts: false,
@@ -266,6 +266,8 @@ impl State for ChatState {
 
     fn did_update_widget(&mut self, old: &Chat, w: &Chat, _cx: &mut Cx<'_, Self>) {
         if old != w {
+            self.close_editor();
+            self.asking = w.ui.held(Rc::default);
             *self.composer.borrow_mut() = w.ui.composer.clone();
             *self.draft.borrow_mut() = w.ui.draft.clone();
             *self.modes.borrow_mut() = w.ui.modes.clone();
