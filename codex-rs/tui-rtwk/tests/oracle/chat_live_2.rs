@@ -1109,12 +1109,14 @@ fn live_reasoning_summary_is_not_rendered_twice_when_item_completes() {
         serde_json::json!({"type": "reasoning", "id": "reasoning-1", "summary": ["Summary only"], "content": []}),
     ));
     s.keys("ctrl+t");
-    if times(&s, "Summary only") != 1 {
-        panic!(
-            "the summary is drawn {} times:\n{}",
-            times(&s, "Summary only"),
-            s.text()
-        );
+    // the status row of the running turn says the summary too: it is not the transcript's cell
+    let drawn = s
+        .rows()
+        .iter()
+        .filter(|row| row.contains("Summary only") && !row.contains("esc to interrupt"))
+        .count();
+    if drawn != 1 {
+        panic!("the summary is drawn {drawn} times:\n{}", s.text());
     }
 }
 

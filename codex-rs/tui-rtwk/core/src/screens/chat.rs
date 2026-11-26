@@ -8,6 +8,7 @@ mod banner;
 pub mod facts;
 mod mcp;
 pub mod plan_mode;
+pub mod reasoning;
 
 use std::rc::Rc;
 
@@ -503,6 +504,9 @@ pub struct ThreadPart {
     /// Turns the goal's budget stopped, until their interrupted completion
     /// is seen (oracle `budget_limited_turn_ids`).
     budget_limited: Vec<TurnId>,
+    /// The streamed deltas of the reasoning item in flight, which the status row's header reads
+    /// besides the transcript (`reasoning_header`).
+    live_reasoning: reasoning::Live,
 }
 
 /// The default of `STATUS_DETAILS_DEFAULT_MAX_LINES`.
@@ -576,10 +580,12 @@ impl ThreadPart {
         self.compact_pending = false;
         self.live_compaction = false;
         self.step = None;
+        self.live_reasoning.clear();
     }
 
     pub(crate) fn end_turn(&mut self) {
         self.details = None;
+        self.live_reasoning.clear();
         // a compaction the server never turned into a turn must not hold the thread for good
         self.compact_pending = false;
         self.live_compaction = false;
@@ -593,6 +599,18 @@ impl ThreadPart {
             .clone()
             .map(StatusHeader::Retry)
             .or_else(|| self.mcp.header().map(StatusHeader::Mcp))
+    }
+
+    /// The status row's header the model's reasoning gives the running `turn` (oracle
+    /// `reasoning_header`): its latest usable summary line, none before there is one.
+    /// `show_raw` is `show_raw_agent_reasoning`: the raw reasoning counts too.
+    pub fn reasoning_header(
+        &self,
+        transcript: &crate::threads::Transcript,
+        turn: &TurnId,
+        show_raw: bool,
+    ) -> Option<String> {
+        reasoning::header(transcript, turn, &self.live_reasoning, show_raw)
     }
 
     /// The lines under the status row's header, if the thread sets any.
@@ -784,10 +802,8 @@ pub enum ThreadEv {
         service_tier: Option<String>,
         mode: codex_protocol::config_types::ModeKind,
     },
-    Phase {
-        turn: TurnId,
-        phase: ActivityPhase,
-    },
+    /// The model's reasoning streams (`reasoning::Ev`).
+    Reasoning(reasoning::Ev),
     Compaction {
         turn: TurnId,
         running: bool,
@@ -828,10 +844,10 @@ impl ThreadEv {
     pub(crate) fn turn(&self) -> Option<&TurnId> {
         match self {
             Self::Plan { turn, .. }
-            | Self::Phase { turn, .. }
             | Self::Compaction { turn, .. }
             | Self::Retry { turn, .. }
             | Self::BudgetLimited { turn } => Some(turn),
+            Self::Reasoning(ev) => Some(ev.turn()),
             _ => None,
         }
     }
@@ -960,10 +976,28 @@ pub(crate) fn project(
         }
         ServerNotification::ReasoningSummaryPartAdded(note) => (
             &note.thread_id,
-            ThreadEv::Phase {
+            ThreadEv::Reasoning(reasoning::Ev::Part {
                 turn: TurnId::new(&note.turn_id),
-                phase: ActivityPhase::Thinking,
-            },
+                item: crate::ids::ItemId::new(&note.item_id),
+            }),
+        ),
+        ServerNotification::ReasoningSummaryTextDelta(note) => (
+            &note.thread_id,
+            ThreadEv::Reasoning(reasoning::Ev::Delta {
+                turn: TurnId::new(&note.turn_id),
+                item: crate::ids::ItemId::new(&note.item_id),
+                kind: reasoning::Kind::Summary,
+                delta: note.delta.clone(),
+            }),
+        ),
+        ServerNotification::ReasoningTextDelta(note) => (
+            &note.thread_id,
+            ThreadEv::Reasoning(reasoning::Ev::Delta {
+                turn: TurnId::new(&note.turn_id),
+                item: crate::ids::ItemId::new(&note.item_id),
+                kind: reasoning::Kind::Content,
+                delta: note.delta.clone(),
+            }),
         ),
         ServerNotification::ItemStarted(note)
             if matches!(
@@ -985,10 +1019,6 @@ pub(crate) fn project(
                 ThreadItemPayload::ContextCompaction { .. } => ThreadEv::Compaction {
                     turn,
                     running: false,
-                },
-                ThreadItemPayload::Reasoning { .. } => ThreadEv::Phase {
-                    turn,
-                    phase: ActivityPhase::Working,
                 },
                 _ => return None,
             };
@@ -1129,7 +1159,11 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
             part.provider = Some(provider);
             part.service_tier = Some(service_tier);
         }
-        ThreadEv::Phase { phase, .. } => part.activity = phase,
+        ThreadEv::Reasoning(ev) => {
+            if part.live_reasoning.apply(ev) {
+                part.activity = ActivityPhase::Thinking;
+            }
+        }
         ThreadEv::Compaction { running, .. } => part.live_compaction = running,
         ThreadEv::Compacting(_) | ThreadEv::Safety(_) => {}
         ThreadEv::Name(name) => part.name = name,

@@ -629,7 +629,8 @@ fn raw_grouped_history_retains_terminal_input_and_omits_reasoning() {
             "fixtures/cells_1/raw_grouped_history_retains_terminal_input_and_omits_reasoning.jsonl"
         ))
         .open();
-    s.assert_absent("Inspecting the next file");
+    // the reasoning is no history cell: only the status row's header says it
+    s.assert_rows_with("Inspecting the next file", 1);
     s.assert_contains("first.txt");
 }
 

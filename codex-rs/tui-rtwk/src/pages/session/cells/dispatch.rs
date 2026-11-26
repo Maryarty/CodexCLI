@@ -83,7 +83,7 @@ super::cell_list!(built);
 /// The cell of `item`: its raw source in raw mode when it has one, else the cell of its kind.
 pub fn cell(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
     if env.raw
-        && let Some(lines) = raw::lines(item, env.cells)
+        && let Some(lines) = raw::run_lines(item, &place.rest, env.cells)
     {
         // a prompt that joins the one above has no blank row, raw or not
         let blank = place.separator && !(matches!(item, Item::User(_)) && place.joins_prompt);

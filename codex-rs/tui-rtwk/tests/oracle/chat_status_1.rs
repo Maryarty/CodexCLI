@@ -86,6 +86,27 @@ fn reasoning_item(summary: &str) -> serde_json::Value {
     serde_json::json!({"type": "reasoning", "id": summary, "summary": [summary], "content": []})
 }
 
+/// A reasoning item of `turn-1` with the summary parts `parts` (an empty list: a streamed one).
+fn reasoning_parts(id: &str, parts: &[&str]) -> serde_json::Value {
+    serde_json::json!({"type": "reasoning", "id": id, "summary": parts, "content": []})
+}
+
+/// `method` (a reasoning stream notification) of the item `item` in `turn-1`.
+fn reasoning_stream(method: &str, item: &str, delta: Option<&str>) -> String {
+    let mut params = serde_json::json!({
+        "threadId": "thread-1", "turnId": "turn-1", "itemId": item, "summaryIndex": 0});
+    if let Some(delta) = delta {
+        params["delta"] = serde_json::json!(delta);
+    }
+    serde_json::json!({"step": "notify", "message": {"method": method, "params": params}})
+        .to_string()
+}
+
+/// A summary delta of `item`.
+fn summary_delta(item: &str, delta: &str) -> String {
+    reasoning_stream("item/reasoning/summaryTextDelta", item, Some(delta))
+}
+
 /// `item/started` (`done` false) or `item/completed` of `item` in the turn `turn-1`.
 fn lifecycle(item: &serde_json::Value, done: bool) -> String {
     let (method, at) = if done {
@@ -202,7 +223,7 @@ fn computer_activity_live_and_replay_group_identically() {
 fn computer_activity_keeps_reasoning_in_order_live_and_replayed() {
     kit::pending(
         Owner::UiPane,
-        "the oracle's snapshot joins the compact rows, the group's transcript_lines and raw_lines (copy text); the detailed transcript draws a blank row between the reasoning and the next call that the group's transcript_lines does not, and the copy text of a group is not projected",
+        "the detailed transcript (Ctrl+T) puts a blank row above every row of the group; the oracle has one above each reasoning and none above the call that follows a reasoning (`Place.separator`, transcript_pane.rs: the file of f-history-pages; follow-up f-reasoning-status-2)",
     );
     // oracle: computer calls 1 and 2 interleaved with reasoning summaries "Inspecting action N" and "Checking action N",
     // live and replayed, in the same order.
@@ -248,17 +269,35 @@ fn computer_activity_keeps_reasoning_in_order_live_and_replayed() {
             "├ Inspect page 1",
             "└ Inspect page 2",
         ]);
-        s.keys("ctrl+t");
-        s.assert_in_order(&[
+        // Raw: both calls with their output, no reasoning
+        s.keys("alt+r");
+        s.assert_screen_row_then(
             "• Called cua_repl.js({\"title\":\"Inspect page 1\",\"code\":\"await cua.getState()\"})",
-            "└ Full output for 1",
-            "• Inspecting action 1",
-            "• Checking action 1",
-            "• Called cua_repl.js({\"title\":\"Inspect page 2\",\"code\":\"await cua.getState()\"})",
-            "└ Full output for 2",
-            "• Inspecting action 2",
-            "• Checking action 2",
-        ]);
+            &[
+                "  └ Full output for 1",
+                "• Called cua_repl.js({\"title\":\"Inspect page 2\",\"code\":\"await cua.getState()\"})",
+                "  └ Full output for 2",
+            ],
+        );
+        s.keys("alt+r");
+        // Expanded: a blank row above each reasoning, none above the call after one
+        s.keys("ctrl+t");
+        s.assert_screen_row_then(
+            "• Called cua_repl.js({\"title\":\"Inspect page 1\",\"code\":\"await cua.getState()\"})",
+            &[
+                "  └ Full output for 1",
+                "",
+                "• Inspecting action 1",
+                "",
+                "• Checking action 1",
+                "• Called cua_repl.js({\"title\":\"Inspect page 2\",\"code\":\"await cua.getState()\"})",
+                "  └ Full output for 2",
+                "",
+                "• Inspecting action 2",
+                "",
+                "• Checking action 2",
+            ],
+        );
     }
 }
 
@@ -415,13 +454,18 @@ fn program_status_tracks_live_results_and_resolved_approvals() {
 // ORACLE chatwidget/tests/reasoning_status_tests.rs:37 reasoning_status_accepts_bold_text_with_a_plain_suffix kind=snap owner=ui-pane
 #[test]
 fn reasoning_status_accepts_bold_text_with_a_plain_suffix() {
-    kit::pending(
-        Owner::UiPane,
-        "no reasoning status row (the running header and the reasoning heading) on the chat screen",
-    );
     // oracle: header "Working" before the delta; after the delta "**: running suite" the header reads "Checking tests: running suite".
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: turn started, reasoning item started summary "**Checking tests", delta "**: running suite"
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .script(RUNNING)
+        .open();
+    s.feed(&lifecycle(
+        &reasoning_parts("reasoning", &["**Checking tests"]),
+        false,
+    ));
+    s.assert_contains("Working");
+    s.assert_absent("Checking tests");
+    s.feed(&summary_delta("reasoning", "**: running suite"));
     s.assert_contains("Checking tests: running suite");
 }
 
@@ -430,23 +474,45 @@ fn reasoning_status_accepts_bold_text_with_a_plain_suffix() {
 fn reasoning_status_tracks_items_and_restores_after_tool_activity() {
     kit::pending(
         Owner::UiPane,
-        "no reasoning status row with its header and the 42s timer on the chat screen",
+        "a delta of an item the turn already completed moves the header (oracle `Late old header`, `Stale heading`: `reasoning_item_id` is cleared at the completion): the header is derived from the transcript and the streamed deltas, the transcript's reasoning item has no completion flag, and the flag is a hook in threads.rs ItemUpsert (f-reasoning-status-2); the oracle's own row snapshots at 80 and 40 columns with the 42 s timer are inline in the oracle test, with no snapshot file",
     );
-    // oracle: the running status row (header + timer) at widths 80 and 40, height 1; the header sequence is the
-    // oracle's headers list (checked at each step by the status row, not written yet).
-    let wide = Screen::build(Owner::UiPane).size(80, 1).live().open();
-    wide.assert_snap("reasoning_activity_row_80");
-    let narrow = Screen::build(Owner::UiPane).size(40, 1).live().open();
-    narrow.assert_snap("reasoning_activity_row_40");
+    // oracle: the header sequence Working, Researching backend freshness (x4), No summary heading is
+    // available., Preparing evidence report (the unified-exec tool step between is `terminal_wait`'s test).
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .script(RUNNING)
+        .open();
+    let complete = |s: &mut Screen, id: &str| {
+        s.feed(&lifecycle(&reasoning_parts(id, &[]), true));
+    };
+    s.feed(&lifecycle(&reasoning_parts("first", &[]), false));
+    s.feed(&summary_delta("first", "**Researching backend"));
+    s.assert_contains("Working");
+    s.feed(&summary_delta("first", " freshness**"));
+    s.assert_contains("Researching backend freshness");
+    complete(&mut s, "first");
+    s.feed(&summary_delta("first", "**Late old header**"));
+    s.assert_contains("Researching backend freshness");
+    s.assert_absent("Late old header");
+    s.feed(&lifecycle(&reasoning_parts("second", &[]), false));
+    s.assert_contains("Researching backend freshness");
+    s.feed(&reasoning_stream(
+        "item/reasoning/summaryPartAdded",
+        "first",
+        None,
+    ));
+    complete(&mut s, "first");
+    s.feed(&summary_delta("first", "**Stale heading**"));
+    s.feed(&summary_delta("second", "No summary heading is available."));
+    s.assert_absent("Stale heading");
+    s.assert_contains("No summary heading is available.");
+    s.feed(&summary_delta("second", "\n**Preparing evidence report**"));
+    s.assert_contains("Preparing evidence report");
 }
 
 // ORACLE chatwidget/tests/reasoning_status_tests.rs:271 completed_reasoning_stays_in_expanded_transcript_for_live_and_replay kind=snap owner=ui-pane
 #[test]
 fn completed_reasoning_stays_in_expanded_transcript_for_live_and_replay() {
-    kit::pending(
-        Owner::UiPane,
-        "the status row's header does not follow the reasoning summary (oracle `Live status: The playback clock preserves elapsed time.`): the chat's status header is the retry or MCP startup text only, the same missing feature as reasoning_status_accepts_bold_text_with_a_plain_suffix and reasoning_status_tracks_items_and_restores_after_tool_activity",
-    );
     // oracle: three reasoning items, live and replayed, give the same compact and expanded history; the expanded
     // transcript keeps every summary line; the third item's heading is the live status.
     let summaries = [
@@ -467,6 +533,8 @@ fn completed_reasoning_stays_in_expanded_transcript_for_live_and_replay() {
         .script(RUNNING)
         .open();
     for item in &items {
+        // the oracle's live path ignores a completion of an item it never saw start
+        live.feed(&lifecycle(item, false));
         live.feed(&lifecycle(item, true));
     }
     let mut replayed = Screen::build(Owner::UiPane)

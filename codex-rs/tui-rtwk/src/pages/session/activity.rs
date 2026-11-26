@@ -46,6 +46,9 @@ pub(super) struct Run {
     /// The thread's last failure, or the one the chat screen keeps.
     failure: Option<Failure>,
     chat: chat::ThreadPart,
+    /// The running turn's reasoning header (`ThreadPart::reasoning_header`), without and with
+    /// the raw reasoning: the view picks by `show_raw_agent_reasoning`.
+    reasoning: [Option<String>; 2],
     /// The context compaction under way (`ThreadModel::compaction`): the status row's header,
     /// and the timer counts from its start.
     compaction: Option<ActiveCompaction>,
@@ -67,6 +70,15 @@ pub(super) struct Run {
 impl Run {
     pub(super) fn of(thread: &ThreadModel) -> Run {
         let screen_error = thread.screen_slots().chat.error.clone().map(Failure::from);
+        let reasoning = match thread.turn() {
+            TurnState::Running(running) => [false, true].map(|raw| {
+                thread
+                    .screen_slots()
+                    .chat
+                    .reasoning_header(thread.transcript(), &running.turn, raw)
+            }),
+            TurnState::Idle => [None, None],
+        };
         Run {
             id: thread.id().clone(),
             turn: thread.turn().clone(),
@@ -75,6 +87,7 @@ impl Run {
             transcript_empty: thread.transcript().is_empty(),
             failure: thread.last_error().cloned().or(screen_error),
             chat: thread.screen_slots().chat.clone(),
+            reasoning,
             compaction: thread.compaction().running().cloned(),
             reviews: thread.screen_slots().approvals.reviews.clone(),
             terminals: thread.terminals().len(),
@@ -202,6 +215,9 @@ impl StatelessWidget for StatusSlot {
             TurnState::Idle => None,
         };
         let compacting = run.compacting();
+        let show_raw = select::<ScreenStates, _, _>(cx, |states| states.cells.show_raw_reasoning);
+        // the model's own words, once it has any (oracle `restore_reasoning_status_header`)
+        let reasoning = run.reasoning[usize::from(show_raw)].clone();
         let review = approvals::review_status(approvals::strings::of(cx), &run.reviews);
         // the empty polls own the row unless a review, a retry or the MCP startup does
         let waiting = run
@@ -270,6 +286,7 @@ impl StatelessWidget for StatusSlot {
                                 .map(|header| session_strings.status_header(&header))
                         })
                         .or_else(|| waiting.map(|_| status_strings.terminal_wait.to_string()))
+                        .or_else(|| (!compacting).then(|| reasoning.clone()).flatten())
                         .unwrap_or_else(|| {
                             if compacting {
                                 strings.chat.compacting
@@ -676,10 +693,20 @@ impl State for ActivityState {
             if let Some(bullet) = &bullet {
                 line = line.child(bullet.clone());
             }
-            // the oracle's cut keeps the blank before the `…` (N1)
-            let line = line
-                .child(header.clone())
-                .child(Expanded::new(1, dots_spans(label)));
+            // the oracle's cut keeps the blank before the `…` (N1); a header (the model's own
+            // words) wider than the row is the cut itself: the label is past it
+            let room = width.saturating_sub(if spinner { 2 } else { 0 });
+            let line = if seg.width(&header_text) > room {
+                line.child(Expanded::new(
+                    1,
+                    Text::rich_line(vec![Span::new(header_text.clone())])
+                        .max_lines(Some(1))
+                        .overflow(TextOverflow::Ellipsis),
+                ))
+            } else {
+                line.child(header.clone())
+                    .child(Expanded::new(1, dots_spans(label)))
+            };
             let mut body = Column::new()
                 .main_axis_size(MainAxisSize::Min)
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
