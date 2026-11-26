@@ -148,7 +148,7 @@ fn pager_bindings_use_rendered_page_height_and_keep_control_f_navigation() {
 fn focus_loss_stops_edge_drag_and_preserves_selection_after_focus_returns() {
     kit::pending(
         Owner::ChatLive,
-        "G-new-sel-edge-zone / G-new-sel-focus: SelectionArea scrolls past the viewport edge and does not cancel an edge drag on focus loss",
+        "Needs: f-mouse-edge-scroll, G-new-sel-edge-zone / G-new-sel-focus: SelectionArea scrolls past the viewport edge and does not cancel an edge drag on focus loss",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(40, 12)

@@ -32,6 +32,29 @@ fn returning_a_drag_to_its_origin_leaves_no_selection_to_copy() {
 }
 
 #[test]
+fn returning_to_the_same_cell_after_scrolling_keeps_the_drag_selection() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(20, 8)
+        .script(include_str!(
+            "../oracle/fixtures/transcript_view_5/rows40.jsonl"
+        ))
+        .view_only()
+        .open();
+    s.selection_copy_policy(true, false);
+    s.wheel_up(0, 0, 12);
+    let before = s.shot();
+    s.mouse_down(2, 3);
+    s.mouse_drag(5, 3);
+    s.wheel_down(5, 3, 1);
+    s.assert_rows_differ(&before);
+    s.mouse_drag(2, 3);
+    s.assert_style(2, 3, "reversed");
+    s.mouse_up(2, 3);
+    s.assert_style(2, 3, "reversed");
+    s.assert_copies_asked(&["row 20\nr"]);
+}
+
+#[test]
 fn a_right_aligned_paragraph_selects_the_letters_before_its_reserved_margin() {
     let selection = SelectionAreaController::new();
     let area = SelectionArea::new(Padding::new(

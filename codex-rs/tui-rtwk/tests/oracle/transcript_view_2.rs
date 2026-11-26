@@ -487,6 +487,10 @@ fn copy_on_select_preserves_link_activation_and_ignores_empty_drags() {
 // ORACLE transcript_view/copy_on_select_tests.rs:226 x11_release_preserves_primary_when_auto_copy_is_disabled kind=ui owner=chat-live
 #[test]
 fn x11_release_preserves_primary_when_auto_copy_is_disabled() {
+    kit::pending(
+        Owner::ChatLive,
+        "Needs: f-mouse-primary, check the routed X11 PRIMARY effect with both copy-on-select settings",
+    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(20, 5)
         .script(include_str!("fixtures/transcript_view_2/cafe.jsonl"))

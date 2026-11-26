@@ -13,6 +13,7 @@ use rtwk::focus::{KeyCombo, KeyPress};
 use rtwk::foundation::ListenableBuilder;
 use rtwk::gestures::{Listener, PointerEvent, SelectionArea};
 use rtwk::provider::{read, watch};
+use rtwk::scroll::ScrollMetrics;
 use rtwk::style::{Attrs, Style};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
@@ -91,7 +92,23 @@ pub(in crate::pages::session) struct HostState {
     /// The newest answer of a copy this host has taken in: an older one is none of its business.
     answered: Option<u64>,
     /// Screen cell and reader position of a press that started without a range.
-    empty_press: Option<(i32, i32, u64)>,
+    empty_press: Option<PressOrigin>,
+}
+
+#[derive(PartialEq, Eq)]
+struct PressOrigin {
+    cell: (i32, i32),
+    viewport: ScrollMetrics,
+}
+
+impl PressOrigin {
+    fn capture(follow: &Follow, event: PointerEvent) -> Option<Self> {
+        let position = follow.scroll().as_scroll_controller().try_position().ok()?;
+        Some(Self {
+            cell: (event.screen_x, event.screen_y),
+            viewport: position.metrics(),
+        })
+    }
 }
 
 impl StatefulWidget for SelectionHost {
@@ -141,19 +158,19 @@ impl State for HostState {
             // a press that is not a copy is the reader selecting: not Find's match any more
             Msg::Press(press) => {
                 if press.button == 0 {
-                    self.empty_press = (!w.selection.controller().has_selection()).then_some((
-                        press.screen_x,
-                        press.screen_y,
-                        w.follow.moves(),
-                    ));
+                    self.empty_press = if w.selection.controller().has_selection() {
+                        None
+                    } else {
+                        PressOrigin::capture(&w.follow, press)
+                    };
                 }
                 w.find.pressed();
                 return Rebuild::No;
             }
             Msg::Release(release) => {
                 if release.button == 0
-                    && self.empty_press.take()
-                        == Some((release.screen_x, release.screen_y, w.follow.moves()))
+                    && let Some(origin) = self.empty_press.take()
+                    && PressOrigin::capture(&w.follow, release) == Some(origin)
                     && w.selection.controller().has_selection()
                 {
                     w.selection.controller().clear();

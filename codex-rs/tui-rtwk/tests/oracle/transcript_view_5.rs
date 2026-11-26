@@ -747,7 +747,7 @@ fn single_row_scrolling_crosses_an_entry_separator_in_both_directions() {
 fn selecting_within_an_edge_row_does_not_start_selection_autoscroll() {
     kit::pending(
         Owner::ChatLive,
-        "G-new-sel-edge-zone: a horizontal drag on the top row starts edge scrolling in the reverse ListView",
+        "Needs: f-mouse-edge-scroll, G-new-sel-edge-zone: a horizontal drag on the top row starts edge scrolling in the reverse ListView",
     );
     for edge in [0, 5] {
         let mut s = Screen::build(Owner::ChatLive)
@@ -775,7 +775,7 @@ fn selecting_within_an_edge_row_does_not_start_selection_autoscroll() {
 fn wheel_scrolling_pauses_selection_autoscroll_until_the_next_drag() {
     kit::pending(
         Owner::ChatLive,
-        "G-new-sel-wheel-pause: a wheel move leaves the selection edge timer running, which moves the visible rows during the wait",
+        "Needs: f-mouse-edge-scroll, G-new-sel-wheel-pause: a wheel move leaves the selection edge timer running, which moves the visible rows during the wait",
     );
     for up in [true, false] {
         let mut s = Screen::build(Owner::ChatLive)
