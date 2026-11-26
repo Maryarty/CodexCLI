@@ -129,6 +129,12 @@ impl Screen {
         self
     }
 
+    /// The terminal reports that its window gained focus (CSI I).
+    pub fn focus_in(&mut self) -> &mut Screen {
+        self.h.t.input(b"\x1b[I");
+        self
+    }
+
     // ---- mouse: more than the left button ---------------------------------
 
     /// Presses and releases the right button at (x, y).

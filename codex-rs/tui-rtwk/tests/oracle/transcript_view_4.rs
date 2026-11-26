@@ -1311,29 +1311,33 @@ fn shift_click_extends_from_the_keyboard_marks_fixed_anchor() {
 // ORACLE transcript_view/select_mode_tests.rs:664 existing_mouse_selection_keeps_its_word_or_line_unit kind=ui owner=chat-live
 #[test]
 fn existing_mouse_selection_keeps_its_word_or_line_unit() {
-    kit::pending(
-        Owner::ChatLive,
-        "screen feature: the chat has no transcript select mode taking over a mouse selection (word unit from a double click, line unit from a triple click)",
-    );
     // oracle case 1: a double click on `alpha` (column 1), select mode, h: the word unit keeps `alph` marked
     let mut s = Screen::build(Owner::ChatLive)
         .size(32, 6)
         .script(include_str!(
             "fixtures/transcript_view_4/sm_mouse_word.jsonl"
         ))
+        .view_only()
         .open();
-    s.double_click(1, 0);
+    s.selection_copy_policy(false, false);
+    s.double_click_text("alpha");
+    s.assert_text_style("alpha", "reversed");
     s.keys("leader [");
     s.keys("h");
     s.assert_text_style("alph", "reversed");
+    s.assert_style(6, s.row_of("alpha"), "!reversed");
     // oracle case 2: a triple click on `second` (row 1), select mode, k: the line unit keeps `first\nsecond`
     let mut s = Screen::build(Owner::ChatLive)
         .size(32, 6)
         .script(include_str!(
             "fixtures/transcript_view_4/sm_mouse_line.jsonl"
         ))
+        .view_only()
         .open();
-    s.triple_click(1, 1);
+    s.selection_copy_policy(false, false);
+    let row = u16::try_from(s.row_of("second")).unwrap();
+    s.triple_click(3, row);
+    s.assert_text_style("second", "reversed");
     s.keys("leader [");
     s.keys("k");
     s.assert_text_style("first", "reversed");
@@ -1622,15 +1626,13 @@ fn tool_selection_copies_its_displayed_revision_after_the_tool_commits() {
 // ORACLE transcript_view/selection_tests.rs:452 word_and_line_drags_keep_the_initial_unit_when_direction_changes kind=ui owner=chat-live
 #[test]
 fn word_and_line_drags_keep_the_initial_unit_when_direction_changes() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no word or line unit for a drag: a double-click drag keeps no word unit and a triple-click drag keeps no line unit (no triple click in the kit)",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(32, 5)
         .script(include_str!("fixtures/transcript_view_4/sl_drags.jsonl"))
+        .view_only()
         .open();
     // a word drag from column 9 (double click) to 16 selects `beta gamma`; back to 3 it selects `alpha beta`; back to 16 `beta gamma` again
+    s.click(9, 0);
     s.mouse_down(9, 0);
     s.mouse_drag(16, 0);
     s.assert_text_style("beta gamma", "reversed");
@@ -1639,7 +1641,9 @@ fn word_and_line_drags_keep_the_initial_unit_when_direction_changes() {
     s.mouse_drag(16, 0);
     s.mouse_up(16, 0);
     s.assert_text_style("beta gamma", "reversed");
-    // a line drag from row 1 (KIT GAP: a triple click starts it) to row 0 selects the first two lines
+    // The third press starts the line drag.
+    s.wait(350);
+    s.double_click(4, 1);
     s.mouse_down(4, 1);
     s.mouse_drag(3, 0);
     s.assert_text_style("alpha beta gamma", "reversed");

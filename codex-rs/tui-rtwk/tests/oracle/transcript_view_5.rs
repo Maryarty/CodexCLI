@@ -215,12 +215,22 @@ fn copying_wrapped_text_preserves_only_hard_newlines() {
 fn scrolled_plaintext_selection_matches_painted_tab_and_word_boundaries() {
     kit::pending(
         Owner::ChatLive,
-        "no three-row entry (a hidden row, a tabbed row and a long sentence) and no one-row scroll of a transcript cell yet",
+        "Needs: f-entries-tabs-styles, rtwk paints the tab as one space and puts B at column 4 instead of column 8",
     );
-    let mut s = Screen::build(Owner::ChatLive).size(15, 3).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(15, 3)
+        .script(include_str!(
+            "fixtures/transcript_view_5/scrolled_tab.jsonl"
+        ))
+        .view_only()
+        .open();
+    s.wheel_up(0, 0, 20);
     s.wheel_down(0, 0, 1);
     s.assert_text_at(8, 0, "B");
     s.assert_text_at(0, 2, "w");
+    s.double_click(8, 0);
+    s.assert_text_style("BCD", "reversed");
+    s.assert_copy_asked("BCD");
 }
 
 // ORACLE transcript_view/text_tests.rs:105 visible_rows_preserve_styles_and_wrapped_hyperlinks kind=ui owner=chat-live
@@ -239,17 +249,22 @@ fn visible_rows_preserve_styles_and_wrapped_hyperlinks() {
 // ORACLE transcript_view/text_tests.rs:123 selection_highlights_wide_graphemes_without_trailing_padding kind=ui owner=chat-live
 #[test]
 fn selection_highlights_wide_graphemes_without_trailing_padding() {
-    kit::pending(
-        Owner::ChatLive,
-        "no entry with a wide grapheme between plain letters, and no drag selection over it yet",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(8, 1).live().open();
-    s.drag(1, 0, 2, 0);
-    for column in [1usize, 2] {
-        s.assert_style(column, 0, "reversed");
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(12, 5)
+        .script(include_str!(
+            "fixtures/transcript_view_5/wide_grapheme.jsonl"
+        ))
+        .view_only()
+        .open();
+    let row = s.row_of("a界b");
+    let y = u16::try_from(row).unwrap();
+    s.drag(3, y, 4, y);
+    s.assert_copy_asked("界");
+    for column in [3, 4] {
+        s.assert_style(column, row, "reversed");
     }
-    for column in [0usize, 3, 4, 5, 6, 7] {
-        s.assert_style(column, 0, "plain");
+    for column in [2, 5, 6, 7, 8, 9] {
+        s.assert_style(column, row, "!reversed");
     }
 }
 
@@ -732,20 +747,27 @@ fn single_row_scrolling_crosses_an_entry_separator_in_both_directions() {
 fn selecting_within_an_edge_row_does_not_start_selection_autoscroll() {
     kit::pending(
         Owner::ChatLive,
-        "no drag selection with edge autoscroll in the chat; the forty-row entry has no script shape until the selection exists",
+        "G-new-sel-edge-zone: a horizontal drag on the top row starts edge scrolling in the reverse ListView",
     );
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(20, 6)
-        .script(include_str!("fixtures/transcript_view_5/rows40.jsonl"))
-        .open();
-    s.wheel_up(0, 0, 12);
-    let before = s.shot();
-    s.mouse_down(0, 0);
-    s.wait(500);
-    s.assert_same_rows(&before);
-    s.mouse_drag(3, 0);
-    s.assert_same_rows(&before);
-    s.assert_snap("horizontal_selection_at_edge_0");
+    for edge in [0, 5] {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(20, 6)
+            .script(include_str!("fixtures/transcript_view_5/rows40.jsonl"))
+            .view_only()
+            .open();
+        s.wheel_up(0, 0, 12);
+        let before = s.shot();
+        s.mouse_down(2, edge);
+        s.wait(500);
+        s.assert_same_rows(&before);
+        s.mouse_drag(4, edge);
+        s.assert_same_rows(&before);
+        s.assert_style(3, usize::from(edge), "reversed");
+        s.wait(500);
+        s.assert_same_rows(&before);
+        s.mouse_up(4, edge);
+        s.assert_copy_asked("row");
+    }
 }
 
 // ORACLE transcript_view_tests.rs:811 wheel_scrolling_pauses_selection_autoscroll_until_the_next_drag kind=snap owner=chat-live snap=wheel_stops_selection_autoscroll
@@ -753,24 +775,37 @@ fn selecting_within_an_edge_row_does_not_start_selection_autoscroll() {
 fn wheel_scrolling_pauses_selection_autoscroll_until_the_next_drag() {
     kit::pending(
         Owner::ChatLive,
-        "no drag selection with edge autoscroll and no wheel pause in the chat; the oracle joins the frames of both wheel directions in one snapshot",
+        "G-new-sel-wheel-pause: a wheel move leaves the selection edge timer running, which moves the visible rows during the wait",
     );
     for up in [true, false] {
         let mut s = Screen::build(Owner::ChatLive)
             .size(20, 6)
             .script(include_str!("fixtures/transcript_view_5/rows40.jsonl"))
+            .view_only()
             .open();
         s.wheel_up(0, 0, 12);
-        s.mouse_down(0, 2);
-        if up {
-            s.wheel_up(3, 0, 1);
-            s.mouse_drag(3, 0);
-        } else {
-            s.wheel_down(3, 5, 1);
-            s.mouse_drag(3, 5);
-        }
+        s.mouse_down(2, 2);
+        let edge = if up { 0 } else { 5 };
+        let wheel = |s: &mut Screen| {
+            if up {
+                s.wheel_up(4, edge, 1);
+            } else {
+                s.wheel_down(4, edge, 1);
+            }
+        };
+        wheel(&mut s);
+        s.mouse_drag(4, edge);
+        let scrolling = s.shot();
+        s.wait(100);
+        s.assert_rows_differ(&scrolling);
+        wheel(&mut s);
+        let paused = s.shot();
         s.wait(500);
-        s.assert_snap("wheel_stops_selection_autoscroll");
+        s.assert_same_rows(&paused);
+        s.mouse_drag(4, edge);
+        s.wait(100);
+        s.assert_rows_differ(&paused);
+        s.mouse_up(4, edge);
     }
 }
 

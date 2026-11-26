@@ -81,6 +81,7 @@ pub(in crate::pages::session) enum Msg {
     Copied(String),
     /// A press of the mouse over the transcript; the right button copies what is selected.
     Press(PointerEvent),
+    Release(PointerEvent),
 }
 
 #[derive(Default)]
@@ -89,6 +90,8 @@ pub(in crate::pages::session) struct HostState {
     mounted: bool,
     /// The newest answer of a copy this host has taken in: an older one is none of its business.
     answered: Option<u64>,
+    /// Screen cell and reader position of a press that started without a range.
+    empty_press: Option<(i32, i32, u64)>,
 }
 
 impl StatefulWidget for SelectionHost {
@@ -136,8 +139,25 @@ impl State for HostState {
                 (w.selection.controller().text(), true)
             }
             // a press that is not a copy is the reader selecting: not Find's match any more
-            Msg::Press(_) => {
+            Msg::Press(press) => {
+                if press.button == 0 {
+                    self.empty_press = (!w.selection.controller().has_selection()).then_some((
+                        press.screen_x,
+                        press.screen_y,
+                        w.follow.moves(),
+                    ));
+                }
                 w.find.pressed();
+                return Rebuild::No;
+            }
+            Msg::Release(release) => {
+                if release.button == 0
+                    && self.empty_press.take()
+                        == Some((release.screen_x, release.screen_y, w.follow.moves()))
+                    && w.selection.controller().has_selection()
+                {
+                    w.selection.controller().clear();
+                }
                 return Rebuild::No;
             }
         };
@@ -158,11 +178,14 @@ impl State for HostState {
         } else {
             Attrs::REVERSE
         };
-        let (child, controller, copy_on_select) = (
-            w.child.clone(),
-            w.selection.controller(),
-            settings.copy_on_select,
-        );
+        // The child sees the release before the selection area does. A single-cell drag that
+        // returned to its origin has an empty range in the oracle, so clear it before copy on
+        // release. Presses that selected a word or line keep what their unit selected.
+        let child = Listener::new()
+            .on_pointer_up(cx.map(Msg::Release))
+            .child(w.child.clone());
+        let controller = w.selection.controller();
+        let copy_on_select = settings.copy_on_select;
         let (find, on_copy) = (w.find.clone(), cx.map(Msg::Copied));
         // the area clears what is selected on Esc where the keys reach it with no focus to start
         // from (the sheet has no composer): the match Find shows is selected, and Esc is Find's

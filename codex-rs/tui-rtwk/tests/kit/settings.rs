@@ -27,6 +27,15 @@ impl Default for Renderers {
 }
 
 impl Screen {
+    /// The clipboard policy for mouse selections.
+    pub fn selection_copy_policy(&mut self, copy_on_select: bool, deselect_after_copy: bool) {
+        self.h.inject([AppEv::Tui(TuiSettings {
+            copy_on_select,
+            deselect_after_copy,
+            ..TuiSettings::default()
+        })]);
+    }
+
     /// `tui.collapse_turn_details`: the tool calls of a finished turn fold into one row each
     /// run, and the messages before the answer behind the prompt.
     pub fn collapse_turn_details(&mut self) -> &mut Screen {
