@@ -308,6 +308,16 @@ pub enum AppEv {
     ShuttingDown,
     Backend(BackendEv),
     Reply(Ticket, Reply),
+    /// A reply from the request handle of a connector that may replace its transport.
+    TransportReply {
+        transport_epoch: ConnEpoch,
+        ticket: Ticket,
+        reply: Reply,
+    },
+    /// The connector installed a new request handle. Its ingress epoch stays the same.
+    TransportReplaced {
+        transport_epoch: ConnEpoch,
+    },
     ServerAnswerFailed {
         key: RequestKey,
         message: String,
@@ -569,7 +579,14 @@ impl AppFx {
             ) => *backend,
             AppCtx::Resume(context) => context.backend(),
             AppCtx::SessionRead | AppCtx::OpenSession { .. } => BackendId::default(),
-            _ => app.choose_backend(&command),
+            AppCtx::StartThread { .. }
+            | AppCtx::Agents(_)
+            | AppCtx::Select(_)
+            | AppCtx::RateLimits { .. }
+            | AppCtx::Nudge { .. }
+            | AppCtx::Removal { .. }
+            | AppCtx::Opening { .. }
+            | AppCtx::Feature(_) => app.choose_backend(&command),
         };
         app.outgoing.insert(ticket, app.address(backend), context);
         self.commands.push(command);
@@ -760,6 +777,8 @@ pub struct CodexApp {
     threads: ThreadSet,
     requests: Rc<RequestQueue>,
     request_epochs: BTreeMap<BackendId, ConnEpoch>,
+    /// Request handles replaced in-place, independent of the connector and approval epochs.
+    transport_epochs: BTreeMap<BackendId, ConnEpoch>,
     screens: Rc<ScreenStates>,
     /// The app-scoped state of the feature slices (ADR-012), read through `features()`,
     /// changed only by the features' own steps (`app/features.rs`).
@@ -860,6 +879,7 @@ impl CodexApp {
             threads: ThreadSet::default(),
             requests: Rc::new(RequestQueue::default()),
             request_epochs: BTreeMap::new(),
+            transport_epochs: BTreeMap::new(),
             screens: Rc::new(ScreenStates::default()),
             features: Rc::new(crate::features::FeatureStates::default()),
             interests: Rc::new(crate::features::Interests::default()),
@@ -1107,15 +1127,19 @@ impl CodexApp {
     }
 
     /// Only connection requests still registered on the dispatched connection may go out.
-    pub fn dispatch_backend(&self, command: &Command, tell: Option<Address>) -> Option<BackendId> {
+    pub fn dispatch_route(
+        &self,
+        command: &Command,
+        tell: Option<Address>,
+    ) -> Option<(BackendId, Option<Address>)> {
         let address = match command {
             Command::ReconnectIdleThread { address, .. } => *address,
             _ => match command.ticket() {
                 Some(ticket) => self.request_address(ticket).or(tell)?,
-                None => return Some(self.choose_backend(command)),
+                None => return Some((self.choose_backend(command), None)),
             },
         };
-        (self.epoch_of(address.backend) == address.epoch).then_some(address.backend)
+        (self.address(address.backend) == address).then_some((address.backend, Some(address)))
     }
 
     fn request_address(&self, ticket: Ticket) -> Option<Address> {
@@ -1127,8 +1151,15 @@ impl CodexApp {
     fn address(&self, backend: BackendId) -> Address {
         Address {
             backend,
-            epoch: self.epoch_of(backend),
+            epoch: self.transport_epoch_of(backend),
         }
+    }
+
+    fn transport_epoch_of(&self, backend: BackendId) -> ConnEpoch {
+        self.transport_epochs
+            .get(&backend)
+            .copied()
+            .unwrap_or_else(|| self.epoch_of(backend))
     }
 
     /// Selects an address at registration, or for a local effect that has no RPC ticket.
@@ -1159,6 +1190,11 @@ impl CodexApp {
             | Command::SendAddCreditsNudge { backend, .. } => *backend,
             // The startup page reads and writes this machine's first backend.
             Command::Startup { .. } | Command::Import { .. } => BackendId::default(),
+            // Provider definitions configure the primary app server.
+            Command::Feature {
+                command: crate::features::FeatureCommand::Providers(_),
+                ..
+            } => BackendId::default(),
             Command::Screen { thread, .. } | Command::Feature { thread, .. }
                 if !thread.as_str().is_empty() =>
             {
@@ -1222,20 +1258,31 @@ impl CodexApp {
     /// Attaches the next connection of `backend`: its own epoch, so that a
     /// reconnect of one backend never drops the events of another.
     pub fn attach_backend(&mut self, backend: BackendId) -> ConnEpoch {
-        let epoch = self.request_epoch(backend).next();
+        let epoch = ConnEpoch(
+            self.request_epoch(backend)
+                .0
+                .max(self.transport_epoch_of(backend).0),
+        )
+        .next();
         self.request_epochs.remove(&backend);
+        self.transport_epochs.remove(&backend);
         let session = Rc::make_mut(&mut self.session);
         if backend == BackendId::default() {
             session.epoch = epoch;
         } else {
             session.epochs.insert(backend, epoch);
         }
+        self.drop_requests_of(backend);
+        self.retire_outgoing(backend, &mut AppFx::default());
+        epoch
+    }
+
+    fn retire_outgoing(&mut self, backend: BackendId, fx: &mut AppFx) {
         self.attaching_events
             .retain(|(source, ..)| *source != backend);
-        self.drop_requests_of(backend);
-        detach_threads(self, backend, &mut AppFx::default());
+        detach_threads(self, backend, fx);
         self.fail_in_flight(backend);
-        epoch
+        structured::lost(self, backend, fx);
     }
 
     /// The app-scoped requests the replaced connection of `backend` still owed an answer for: its
@@ -1299,21 +1346,36 @@ impl CodexApp {
     /// sent (`None`, R1), applies the rest and returns the effects for the
     /// shell to run.
     pub fn ingest(&mut self, ingress: Ingress) -> Option<AppFx> {
-        let origin = Address {
-            backend: ingress.backend,
-            epoch: ingress.epoch,
+        if ingress.epoch != self.epoch_of(ingress.backend) {
+            return None;
+        }
+        let (transport_epoch, event) = match ingress.ev {
+            AppEv::TransportReply {
+                transport_epoch,
+                ticket,
+                reply,
+            } => (transport_epoch, AppEv::Reply(ticket, reply)),
+            event => (ingress.epoch, event),
         };
-        if origin != self.address(ingress.backend) || !self.accepts_reply(origin, &ingress.ev) {
+        let address = Address {
+            backend: ingress.backend,
+            epoch: transport_epoch,
+        };
+        if !self.accepts_reply(address, &event) {
             return None;
         }
         let mut fx = AppFx::default();
-        apply_at(self, ingress.backend, ingress.ev, &mut fx);
+        apply_at(self, ingress.backend, event, &mut fx);
         Some(fx)
     }
 
     fn accepts_reply(&self, origin: Address, event: &AppEv) -> bool {
         match event {
-            AppEv::Reply(ticket, _) => self.request_address(*ticket) == Some(origin),
+            AppEv::Reply(ticket, _) => {
+                self.address(origin.backend) == origin
+                    && self.request_address(*ticket) == Some(origin)
+            }
+            AppEv::TransportReply { .. } => false,
             _ => true,
         }
     }
@@ -1420,11 +1482,17 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             .insert(origin, connection);
     }
     match ev {
+        AppEv::TransportReplaced { transport_epoch } => {
+            if transport_epoch == app.transport_epoch_of(origin).next() {
+                app.transport_epochs.insert(origin, transport_epoch);
+                app.retire_outgoing(origin, fx);
+            }
+        }
+        AppEv::TransportReply { .. } => unreachable!("the ingress unwraps a transport reply"),
         AppEv::Connected if origin != BackendId::default() => {
             if app.screens.chat.status.account_usage {
                 refresh_rates(app, origin, status::RateLimitOrigin::Startup, fx);
             }
-            features::connection(app, crate::features::Connection::Up, fx);
         }
         AppEv::Connected => {
             if app.first_thread == FirstThread::Never {
@@ -1454,7 +1522,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 }
             }
             // a reconnect: what the surfaces still want is asked again
-            connection::up(app, fx);
+            connection::up(app, origin, fx);
         }
         AppEv::StartFailed(message) => {
             fx.ends = true;
@@ -1877,6 +1945,15 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             if origin != BackendId::default() && matches!(ev, ScreenEv::Onboarding(_)) {
                 return;
             }
+            let background_reconnect = origin != app.screens.agents.displayed
+                && matches!(
+                    ev,
+                    ScreenEv::Agents(
+                        agents::Ev::Reconnecting
+                            | agents::Ev::Reconnected
+                            | agents::Ev::Notice(Some(agents::Notice::ReconnectFailed))
+                    )
+                );
             match &ev {
                 ScreenEv::Chat(chat::Ev::Status(facts)) if facts.account_usage => {
                     reset::startup(app, fx);
@@ -1939,7 +2016,9 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     app.threads.previews_mut().seed_request(id, preview.clone());
                 }
                 ScreenEv::Agents(agents::Ev::Reconnecting | agents::Ev::Lagged) => {
-                    app.threads.previews_mut().clear();
+                    if !background_reconnect {
+                        app.threads.previews_mut().clear();
+                    }
                     if matches!(ev, ScreenEv::Agents(agents::Ev::Reconnecting)) {
                         connection::lost(app, origin, fx);
                         // An older page that will never come is a failed one: asking again
@@ -1973,7 +2052,9 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             }
             let reconnected = matches!(ev, ScreenEv::Agents(agents::Ev::Reconnected));
             let startup = matches!(ev, ScreenEv::Cells(screens::cells::Ev::Startup(_)));
-            screens::apply_ev(Rc::make_mut(&mut app.screens), ev, fx);
+            if !background_reconnect {
+                screens::apply_ev(Rc::make_mut(&mut app.screens), ev, fx);
+            }
             if startup {
                 // The facts came after the first conversation attached: it opens with its card now.
                 notices::startup(app, fx);
@@ -1988,7 +2069,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             }
             release_held_start(app, fx);
             if reconnected {
-                connection::up(app, fx);
+                connection::up(app, origin, fx);
                 if app.screens.chat.status.account_usage {
                     refresh_rates(app, origin, status::RateLimitOrigin::Startup, fx);
                 }
@@ -2000,11 +2081,13 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 }
                 // A new connection: the list is read again (oracle:
                 // `finish_reconnect` leaves the overview to refresh).
-                let outs = agents::update(
-                    &mut Rc::make_mut(&mut app.screens).agents,
-                    agents::Intent::Open,
-                );
-                send_agents(app, outs, fx);
+                if !background_reconnect {
+                    let outs = agents::update(
+                        &mut Rc::make_mut(&mut app.screens).agents,
+                        agents::Intent::Open,
+                    );
+                    send_agents(app, outs, fx);
+                }
             }
         }
     }
@@ -3279,14 +3362,6 @@ fn screen_answer(
     fx: &mut AppFx,
 ) {
     let other_backend = app.screens.agents.displayed != backend;
-    if other_backend
-        && matches!(
-            ctx,
-            agents::Ctx::List { .. } | agents::Ctx::Search { .. } | agents::Ctx::Loaded
-        )
-    {
-        return;
-    }
     // An older start can still attach to its backend without taking the newly displayed view.
     let background_start =
         other_backend && matches!(ctx, agents::Ctx::Start | agents::Ctx::Fork { .. });
@@ -3296,6 +3371,21 @@ fn screen_answer(
         Answer::Failed(error) => Err(error),
         _ => Err(RpcError::Mismatch),
     };
+    if other_backend {
+        match ctx {
+            agents::Ctx::List { append } => {
+                agents::settle_parked_list(
+                    &mut Rc::make_mut(&mut app.screens).agents,
+                    backend,
+                    append,
+                    result,
+                );
+                return;
+            }
+            agents::Ctx::Search { .. } | agents::Ctx::Loaded => return,
+            _ => {}
+        }
+    }
     if let (
         agents::Ctx::Resume { .. } | agents::Ctx::Fork { .. } | agents::Ctx::Start,
         Ok(

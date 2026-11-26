@@ -163,6 +163,30 @@ fn merge_page(model: &mut Model, owner: BackendId, page: Page) {
     }
 }
 
+/// A list reply settles the same backend's paging even after its view was parked.
+/// Leave refill and detail reads to the next open of that backend's center.
+pub(crate) fn settle_parked_list(
+    model: &mut Model,
+    owner: BackendId,
+    append: bool,
+    result: Result<Reply, RpcError>,
+) {
+    let received = match result {
+        Ok(Reply::Listed(mut page))
+            if !append || page.next_cursor.is_none() || page.next_cursor != model.paging_of(owner).cursor =>
+        {
+            page.append = append;
+            merge_page(model, owner, page);
+            true
+        }
+        _ => false,
+    };
+    let parked = model.parked.entry(owner).or_default();
+    parked.loading = false;
+    parked.failed = !received;
+    parked.want = 0;
+}
+
 pub(super) fn apply_ev(model: &mut Model, ev: Ev) {
     match ev {
         Ev::Listed(page) => merge_page(model, model.displayed, page),

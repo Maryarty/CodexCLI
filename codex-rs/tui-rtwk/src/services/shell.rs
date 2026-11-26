@@ -26,6 +26,7 @@ use codex_tui_core::app::Now;
 use codex_tui_core::app::Wake;
 use codex_tui_core::ids::BackendId;
 use codex_tui_core::ids::ConnEpoch;
+use codex_tui_core::rpc::Address;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::Ev as AgentsEv;
 use codex_tui_core::screens::transcript::diff;
@@ -62,6 +63,58 @@ pub type IngressTx = UnboundedSender<Ingress>;
 /// runtime.
 pub type BackendTask = Pin<Box<dyn Future<Output = ()> + Send>>;
 
+/// A queued command with the request handle it is allowed to use. Local work has no such stamp.
+pub struct Dispatch {
+    command: Command,
+    address: Option<Address>,
+}
+
+impl Dispatch {
+    pub fn new(command: Command, address: Option<Address>) -> Self {
+        Self { command, address }
+    }
+
+    /// Open the envelope just before selecting a handle. Its reply retains that handle's epoch.
+    pub fn on(
+        self,
+        backend: BackendId,
+        transport_epoch: ConnEpoch,
+    ) -> Option<(Command, Option<ConnEpoch>)> {
+        if self
+            .address
+            .is_some_and(|address| address.backend != backend || address.epoch != transport_epoch)
+        {
+            return None;
+        }
+        Some((self.command, self.address.map(|address| address.epoch)))
+    }
+}
+
+/// Take the next command usable on the selected request handle; discard queued stale RPCs.
+pub async fn next_dispatch(
+    commands: &mut UnboundedReceiver<Dispatch>,
+    backend: BackendId,
+    transport_epoch: ConnEpoch,
+) -> Option<(Command, Option<ConnEpoch>)> {
+    while let Some(dispatch) = commands.recv().await {
+        if let Some(command) = dispatch.on(backend, transport_epoch) {
+            return Some(command);
+        }
+    }
+    None
+}
+
+pub fn stamp_reply(event: AppEv, transport_epoch: Option<ConnEpoch>) -> AppEv {
+    match (event, transport_epoch) {
+        (AppEv::Reply(ticket, reply), Some(transport_epoch)) => AppEv::TransportReply {
+            transport_epoch,
+            ticket,
+            reply,
+        },
+        (event, _) => event,
+    }
+}
+
 /// A backend the host connects. It speaks to the app only through the
 /// ingress and the commands, and it never spawns: its work is the future it
 /// returns. The library itself links no server, so its tests build and link
@@ -72,7 +125,7 @@ pub trait Connector: Send {
     fn run(
         self: Box<Self>,
         ingress: IngressTx,
-        commands: UnboundedReceiver<Command>,
+        commands: UnboundedReceiver<Dispatch>,
         epoch: ConnEpoch,
     ) -> BackendTask;
 }
@@ -127,9 +180,9 @@ pub struct Link {
     pub(crate) others: Vec<(BackendId, Backend)>,
     pub(crate) ingress: Option<IngressTx>,
     /// The first backend's commands (`BackendId::default()`).
-    pub(crate) commands: Option<UnboundedSender<Command>>,
+    pub(crate) commands: Option<UnboundedSender<Dispatch>>,
     /// The other backends' commands.
-    pub(crate) other_commands: BTreeMap<BackendId, UnboundedSender<Command>>,
+    pub(crate) other_commands: BTreeMap<BackendId, UnboundedSender<Dispatch>>,
     /// Where the time is read (`Clock`).
     pub(crate) clock: Arc<dyn Clock>,
     /// The nearest moment the app wants the clock told, as of its last step, for the timer.
@@ -275,13 +328,14 @@ pub fn run_effects(app: &UiApp, fx: AppFx) {
         return;
     };
     for (command, tell) in fx.into_dispatch() {
-        let Some(backend) = app.core.dispatch_backend(&command, tell) else {
+        let Some((backend, address)) = app.core.dispatch_route(&command, tell) else {
             continue;
         };
+        let dispatch = Dispatch::new(command, address);
         if let Some(target) = app.link.other_commands.get(&backend) {
-            let _ = target.send(command);
+            let _ = target.send(dispatch);
         } else if backend == BackendId::default() {
-            let _ = commands.send(command);
+            let _ = commands.send(dispatch);
         }
     }
 }

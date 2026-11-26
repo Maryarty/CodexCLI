@@ -45,8 +45,10 @@ use codex_tui_rtwk::services::agents::workspace::Workspace;
 use codex_tui_rtwk::services::backend::rpc::Ids;
 use codex_tui_rtwk::services::shell::BackendTask;
 use codex_tui_rtwk::services::shell::Connector;
+use codex_tui_rtwk::services::shell::Dispatch;
 use codex_tui_rtwk::services::shell::IngressTx;
 use codex_tui_rtwk::services::shell::emit_from;
+use codex_tui_rtwk::services::shell::next_dispatch;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -88,7 +90,7 @@ impl Connector for Cloud {
     fn run(
         self: Box<Self>,
         ingress: IngressTx,
-        commands: UnboundedReceiver<Command>,
+        commands: UnboundedReceiver<Dispatch>,
         epoch: ConnEpoch,
     ) -> BackendTask {
         Box::pin(run(*self, ingress, commands, epoch))
@@ -98,7 +100,7 @@ impl Connector for Cloud {
 async fn run(
     spec: Cloud,
     ingress: IngressTx,
-    mut commands: UnboundedReceiver<Command>,
+    mut commands: UnboundedReceiver<Dispatch>,
     epoch: ConnEpoch,
 ) {
     // Without the cloud the commands routed here are never sent: nothing
@@ -147,14 +149,14 @@ async fn run(
                     emit_from(&ingress, spec.id, epoch, AppEv::Backend(BackendEv::StreamRestored(ThreadId::new(&thread))));
                 }
             },
-            command = commands.recv() => match command {
+            command = next_dispatch(&mut commands, spec.id, epoch) => match command {
                 None => break,
-                Some(Command::RejectRequest { key, .. }) => {
+                Some((Command::RejectRequest { key, .. }, _)) => {
                     if key.epoch == epoch {
                         reject(&client, &key).await;
                     }
                 }
-                Some(Command::ResolveRequest { key, result, .. }) => {
+                Some((Command::ResolveRequest { key, result, .. }, _)) => {
                     if key.epoch == epoch && let Some(ev) = resolve(&client, key, result).await {
                         emit_from(&ingress, spec.id, epoch, ev);
                     }
@@ -162,7 +164,7 @@ async fn run(
                 // The idle displayed thread lost its stream: the backend attaches it again quietly
                 // (`reconnect_idle_thread`); when it does not take it, the error is the thread's
                 // line, as the oracle's handler falls through to it.
-                Some(Command::ReconnectIdleThread { thread, error, .. }) => {
+                Some((Command::ReconnectIdleThread { thread, error, .. }, _)) => {
                     let accepted = matches!(
                         &handle,
                         AppServerRequestHandle::Cloud(cloud) if cloud.reconnect_idle_thread(thread.as_str())
@@ -178,7 +180,7 @@ async fn run(
                         );
                     }
                 }
-                Some(command) => {
+                Some((command, _)) => {
                     let job = work(
                         command.clone(),
                         handle.clone(),

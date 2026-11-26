@@ -7,7 +7,7 @@
 //! A loss settles the asks registered on that connection and tells the features,
 //! which let go of what they held for it.
 
-use super::{AppFx, BackendId, CodexApp, detach_threads, features, structured};
+use super::{AppFx, BackendId, CodexApp, features};
 use crate::features::Connection;
 use crate::screens::onboarding;
 use std::rc::Rc;
@@ -23,19 +23,19 @@ pub(super) fn lost(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx) {
     }
     app.reset_requests(backend);
     app.forget_reads_of(backend);
-    app.attaching_events
-        .retain(|(source, ..)| *source != backend);
-    detach_threads(app, backend, fx);
-    app.fail_in_flight(backend);
-    structured::lost(app, backend, fx);
-    features::connection(app, Connection::Lost, fx);
+    app.retire_outgoing(backend, fx);
+    if backend == BackendId::default() {
+        features::connection(app, Connection::Lost, fx);
+    }
 }
 
 /// A connection of `backend` is up (after a reconnect too): what the surfaces still want is asked
 /// again and the features are told.
-pub(super) fn up(app: &mut CodexApp, fx: &mut AppFx) {
-    features::reconnected(app, fx);
-    features::connection(app, Connection::Up, fx);
+pub(super) fn up(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx) {
+    if backend == BackendId::default() {
+        features::connection(app, Connection::Up, fx);
+    }
+    features::reconnected(app, backend, fx);
 }
 
 #[cfg(test)]

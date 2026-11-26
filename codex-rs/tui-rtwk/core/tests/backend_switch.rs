@@ -473,7 +473,10 @@ fn addressed_rpc_keeps_its_dispatch_backend_after_display_switches() {
     let (app, (_, a), _) = two_agents_news();
     assert_eq!(app.screens().agents.displayed, CLOUD);
     assert_eq!(app.backend_of(&a), LOCAL);
-    assert_eq!(app.dispatch_backend(&a, None), Some(LOCAL));
+    assert_eq!(
+        app.dispatch_route(&a, None).map(|(backend, _)| backend),
+        Some(LOCAL)
+    );
 }
 
 #[test]
@@ -482,7 +485,7 @@ fn addressed_rpc_losing_a_drops_late_a_before_and_after_reattach_and_preserves_b
     let old = app.epoch_of(LOCAL);
     let current_b = app.epoch_of(CLOUD);
     app.ingest(Ingress::of(LOCAL, old, AppEv::Disconnected));
-    assert_eq!(app.dispatch_backend(&a_command, None), None);
+    assert_eq!(app.dispatch_route(&a_command, None), None);
     assert_eq!(
         app.epoch_of(LOCAL),
         old,
@@ -532,6 +535,101 @@ fn addressed_rpc_drops_a_same_epoch_foreign_reply_and_a_duplicate() {
     assert!(app.thread(&ThreadId::new("duplicate")).is_none());
 }
 
+#[test]
+fn addressed_rpc_transport_replacement_keeps_ingress_and_rejects_old_handles() {
+    let mut app = two_backends();
+    let ingress_epoch = app.epoch();
+    let (old_ticket, old_command) = agents_new(&mut app);
+    let transport_epoch = ingress_epoch.next();
+    app.ingest(Ingress::new(
+        ingress_epoch,
+        AppEv::TransportReplaced { transport_epoch },
+    ));
+    assert_eq!(app.epoch(), ingress_epoch);
+    assert_eq!(app.dispatch_route(&old_command, None), None);
+
+    let (fresh, command) = agents_new(&mut app);
+    let (_, address) = app.dispatch_route(&command, None).expect("new live ask");
+    assert_eq!(address.expect("RPC address").epoch, transport_epoch);
+    let answer = |ticket, epoch, id| {
+        Ingress::new(
+            ingress_epoch,
+            AppEv::TransportReply {
+                transport_epoch: epoch,
+                ticket,
+                reply: Reply::screen(ScreenReply::Agents(agents::Reply::Started(Box::new(
+                    thread(id, id),
+                )))),
+            },
+        )
+    };
+    assert!(app.ingest(answer(old_ticket, ingress_epoch, "old")).is_none());
+    assert!(app.ingest(answer(fresh, ingress_epoch, "stale")).is_none());
+    assert!(app.ingest(answer(fresh, transport_epoch, "fresh")).is_some());
+    assert!(app.thread(&ThreadId::new("fresh")).is_some());
+    assert!(app.ingest(answer(fresh, transport_epoch, "duplicate")).is_none());
+
+    let now = codex_tui_core::app::Now::at_secs(125);
+    assert!(app.ingest(Ingress::new(ingress_epoch, AppEv::Clock(now))).is_some());
+    assert_eq!(app.now(), now);
+}
+
+#[test]
+fn addressed_rpc_provider_interest_follows_only_the_primary_connection() {
+    use codex_tui_core::features::{FeatureCommand, FeatureInterest, InterestStep, providers};
+
+    let mut app = two_backends();
+    let cloud_epoch = app.attach_backend(CLOUD);
+    let cloud = cycle(&mut app);
+    arrive_on_cloud(&mut app, &cloud);
+    assert_eq!(app.screens().agents.displayed, CLOUD);
+    let provider_read = |effects: &AppFx| {
+        effects.commands().iter().find_map(|command| match command {
+            Command::Feature {
+                ticket,
+                command: FeatureCommand::Providers(providers::Command::List),
+                ..
+            } => Some(*ticket),
+            _ => None,
+        })
+    };
+    let read = run(
+        &mut app,
+        AppEv::Intent(Intent::Interest(InterestStep::Open(FeatureInterest::from(
+            providers::Interest::List,
+        )))),
+    );
+    let ticket = provider_read(&read).expect("primary provider list");
+    let command = read
+        .commands()
+        .iter()
+        .find(|command| matches!(command, Command::Feature { ticket: t, .. } if *t == ticket))
+        .expect("provider command");
+    assert_eq!(app.backend_of(command), LOCAL);
+
+    app.ingest(Ingress::of(CLOUD, cloud_epoch, AppEv::Disconnected));
+    assert!(app.dispatch_route(command, None).is_some());
+    let primary = app.epoch_of(LOCAL);
+    app.ingest(Ingress::of(
+        LOCAL,
+        primary,
+        AppEv::Screen(ScreenEv::Agents(Ev::Reconnecting)),
+    ));
+    assert!(app.dispatch_route(command, None).is_none());
+    let new_cloud = app.ingest(Ingress::of(
+        CLOUD,
+        cloud_epoch,
+        AppEv::Screen(ScreenEv::Agents(Ev::Reconnected)),
+    )).expect("Cloud up");
+    assert!(provider_read(&new_cloud).is_none());
+    let new_primary = app.ingest(Ingress::of(
+        LOCAL,
+        primary,
+        AppEv::Screen(ScreenEv::Agents(Ev::Reconnected)),
+    )).expect("primary up");
+    assert!(provider_read(&new_primary).is_some());
+}
+
 fn local_turn_waiting_for_a_reply() -> (CodexApp, Ticket, ThreadId) {
     let mut app = two_backends();
     let epoch = app.attach_backend(CLOUD);
@@ -552,7 +650,10 @@ fn local_turn_waiting_for_a_reply() -> (CodexApp, Ticket, ThreadId) {
             _ => None,
         })
         .expect("the local turn");
-    assert_eq!(app.dispatch_backend(command, None), Some(LOCAL));
+    assert_eq!(
+        app.dispatch_route(command, None).map(|(backend, _)| backend),
+        Some(LOCAL)
+    );
     (app, ticket, foreground)
 }
 
@@ -599,6 +700,57 @@ fn addressed_rpc_reattach_retires_old_thread_requests_and_holds_unconfirmed_inpu
     assert!(app.ingest(Ingress::of(LOCAL, old, answer())).is_none());
     assert!(app.ingest(Ingress::of(LOCAL, new, answer())).is_none());
     assert!(!app.active_thread().is_running());
+}
+
+fn open_agents_list(app: &mut CodexApp) -> Ticket {
+    run(app, AppEv::Intent(Intent::Screen(ScreenIntent::Agents(agents::Intent::Open))))
+        .commands().iter().find_map(|command| match command {
+            Command::Screen { ticket, command: ScreenCommand::Agents(agents::Command::List { .. }), .. } => Some(*ticket),
+            _ => None,
+        }).expect("the list")
+}
+
+#[test]
+fn addressed_rpc_a_parked_list_settles_only_its_owner_even_during_reconnect() {
+    for loses_a in [false, true] {
+        let mut app = two_backends();
+        let a_epoch = app.epoch();
+        app.attach_backend(CLOUD);
+        let a = open_agents_list(&mut app);
+        assert!(app.screens().agents.paging_of(LOCAL).loading);
+        let cloud = cycle(&mut app);
+        arrive_on_cloud(&mut app, &cloud);
+        open_agents_list(&mut app);
+        let b_paging = app.screens().agents.paging.clone();
+        assert!(b_paging.loading);
+        let answer = AppEv::Reply(a, Reply::screen(ScreenReply::Agents(agents::Reply::Listed(Page {
+            threads: vec![thread("listed-on-a", "On A")], unread: Vec::new(),
+            next_cursor: Some("next-a".into()), append: false, pins: None,
+        }))));
+        if loses_a {
+            app.ingest(Ingress::of(LOCAL, a_epoch, AppEv::Screen(ScreenEv::Agents(Ev::Reconnecting))));
+            assert!(app.ingest(Ingress::of(LOCAL, a_epoch, answer)).is_none());
+            app.ingest(Ingress::of(LOCAL, a_epoch, AppEv::TransportReplaced {
+                transport_epoch: a_epoch.next(),
+            }));
+            let restored = app.ingest(Ingress::of(LOCAL, a_epoch, AppEv::Screen(ScreenEv::Agents(Ev::Reconnected))))
+                .expect("the restored connection");
+            assert!(restored.commands().iter().all(|c|
+                !matches!(c, Command::Screen { command: ScreenCommand::Agents(agents::Command::List { .. }), .. })));
+        } else {
+            app.ingest(Ingress::of(LOCAL, a_epoch, answer));
+            assert_eq!(app.screens().agents.owner_of("listed-on-a"), LOCAL);
+        }
+        assert_eq!(app.screens().agents.paging, b_paging);
+        let a_paging = app.screens().agents.paging_of(LOCAL).clone();
+        assert!(!a_paging.loading);
+        assert_eq!(a_paging.failed, loses_a);
+        let (ticket, backend) = start_ticket(&cycle(&mut app));
+        assert_eq!(backend, LOCAL);
+        run(&mut app, AppEv::Reply(ticket, Reply::thread_started(ThreadId::new("local-again"))));
+        assert_eq!(app.screens().agents.displayed, LOCAL);
+        assert_eq!(app.screens().agents.paging, a_paging);
+    }
 }
 
 fn name_of(app: &CodexApp, id: &str) -> Option<String> {

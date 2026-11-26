@@ -29,9 +29,8 @@ fn agents(ev: AgentsEv) -> AppEv {
 }
 
 /// Tells the app the connection is lost, then tries `connect` until it
-/// answers or the budget ends. `Some(client)`: the app was told
-/// `Reconnected` (the host then tells it the facts of the new server);
-/// `None`: it was told `ReconnectFailed`.
+/// answers or the budget ends. The host announces success once the new request handle is in
+/// place. If the budget ends, the app is told `ReconnectFailed`.
 pub async fn restore<C, F, Fut>(mut connect: F, ingress: &IngressTx, epoch: ConnEpoch) -> Option<C>
 where
     F: FnMut() -> Fut,
@@ -45,10 +44,7 @@ where
             connect().await
         };
         match tokio::time::timeout_at(deadline, attempt).await {
-            Ok(Some(client)) => {
-                emit(ingress, epoch, agents(AgentsEv::Reconnected));
-                return Some(client);
-            }
+            Ok(Some(client)) => return Some(client),
             Ok(None) => {}
             Err(_) => break,
         }

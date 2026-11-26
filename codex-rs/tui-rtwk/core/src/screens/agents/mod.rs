@@ -69,6 +69,7 @@ pub use notifications::observe;
 pub use notifications::observes;
 pub use refresh::Out;
 pub use refresh::apply_answer;
+pub(crate) use refresh::settle_parked_list;
 pub use refresh::attach_loaded;
 pub(crate) use refresh::finish_start;
 pub use refresh::is_active_writer;
