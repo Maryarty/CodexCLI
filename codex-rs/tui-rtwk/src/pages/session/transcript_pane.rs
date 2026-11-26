@@ -548,9 +548,8 @@ fn row_texts(
         let key = transcript.get(row.range.start).map(|(key, _)| key);
         keys.push(key.cloned());
         let reading = Reading {
-            revealed: disclosed.map_or(true, |disclosed| {
-                key.is_some_and(|key| disclosed.is_open(key))
-            }),
+            revealed: disclosed
+                .is_none_or(|disclosed| key.is_some_and(|key| disclosed.is_open(key))),
             ..*reading
         };
         match row_parts(transcript, row, &reading) {

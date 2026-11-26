@@ -293,10 +293,10 @@ fn count_spans(
     vec![
         Span::new(strings.count_open),
         Span::styled(strings.plus, added_style.clone()),
-        Span::styled(added.to_string(), added_style.clone()),
+        Span::styled(added.to_string(), added_style),
         Span::new(strings.gap),
         Span::styled(strings.minus, removed_style.clone()),
-        Span::styled(removed.to_string(), removed_style.clone()),
+        Span::styled(removed.to_string(), removed_style),
         Span::new(strings.count_close),
     ]
 }
