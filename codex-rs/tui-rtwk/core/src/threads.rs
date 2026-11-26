@@ -102,10 +102,10 @@ use crate::ids::ThreadId;
 use crate::ids::Ticket;
 use crate::ids::TicketMint;
 use crate::ids::TurnId;
-use crate::rpc::Answer;
 use crate::rpc::Pending;
 use crate::rpc::Reply;
 use crate::rpc::RpcError;
+use crate::rpc::{Address, Answer};
 use crate::screens;
 use crate::screens::ScreenCommand;
 use crate::screens::ScreenCtx;
@@ -1483,12 +1483,11 @@ impl ThreadSet {
         self.held.iter()
     }
 
-    /// The thread whose model holds this ticket.
-    pub fn owner_of(&self, ticket: Ticket) -> Option<ThreadId> {
+    /// The owner and original connection of a thread RPC.
+    pub(crate) fn request(&self, ticket: Ticket) -> Option<(&ThreadId, Address)> {
         self.held
             .iter()
-            .find(|(_, model)| model.outgoing.contains(ticket))
-            .map(|(id, _)| id.clone())
+            .find_map(|(id, model)| model.outgoing.address(ticket).map(|address| (id, address)))
     }
 
     /// The thread is gone (archived or deleted): the app holds no model of it
@@ -2251,6 +2250,7 @@ pub struct ThreadFx<'a> {
     out: &'a mut AppFx,
     mint: &'a mut TicketMint,
     registered: Vec<(Ticket, ThreadCtx)>,
+    address: Address,
     /// How the Daybreak setting words a cyber refusal at this moment (the app's fact, stamped
     /// per event by `apply_thread`).
     daybreak: Daybreak,
@@ -2273,6 +2273,7 @@ impl<'a> ThreadFx<'a> {
             out,
             mint,
             registered: Vec::new(),
+            address: Address::default(),
             daybreak: Daybreak::Apply,
             modes: &[],
             cloud: false,
@@ -2282,6 +2283,11 @@ impl<'a> ThreadFx<'a> {
 
     pub(crate) fn with_cloud(mut self, cloud: bool) -> Self {
         self.cloud = cloud;
+        self
+    }
+
+    pub(crate) fn addressed(mut self, address: Address) -> Self {
+        self.address = address;
         self
     }
 
@@ -2921,7 +2927,7 @@ fn reset_history(model: &mut ThreadModel) {
 pub fn apply(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     apply_ev(model, ev, fx);
     for (ticket, ctx) in std::mem::take(&mut fx.registered) {
-        model.outgoing.insert(ticket, ctx);
+        model.outgoing.insert(ticket, fx.address, ctx);
     }
 }
 

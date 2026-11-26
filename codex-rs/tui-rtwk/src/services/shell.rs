@@ -274,8 +274,10 @@ pub fn run_effects(app: &UiApp, fx: AppFx) {
     let Some(commands) = &app.link.commands else {
         return;
     };
-    for command in fx.into_commands() {
-        let backend = app.core.backend_of(&command);
+    for (command, tell) in fx.into_dispatch() {
+        let Some(backend) = app.core.dispatch_backend(&command, tell) else {
+            continue;
+        };
         if let Some(target) = app.link.other_commands.get(&backend) {
             let _ = target.send(command);
         } else if backend == BackendId::default() {

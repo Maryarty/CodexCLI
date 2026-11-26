@@ -16,8 +16,10 @@ use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::screens::agents::{Ev, Page};
 use codex_tui_core::screens::onboarding::consent::{self, Checked, Target};
-use codex_tui_core::screens::{ScreenCommand, ScreenEv, ScreenIntent, agents, onboarding};
-use codex_tui_core::threads::UserMessage;
+use codex_tui_core::screens::{
+    ScreenCommand, ScreenEv, ScreenIntent, ScreenReply, agents, onboarding,
+};
+use codex_tui_core::threads::{ThreadAsk, UserMessage};
 
 const LOCAL: BackendId = BackendId(0);
 const CLOUD: BackendId = BackendId(1);
@@ -412,6 +414,191 @@ fn thread(id: &str, name: &str) -> codex_app_server_protocol::Thread {
         "daybreakEnabled": null, "turns": []
     }))
     .expect("a thread")
+}
+
+fn agents_new(app: &mut CodexApp) -> (Ticket, Command) {
+    run(
+        app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Agents(agents::Intent::New(
+            None,
+        )))),
+    )
+    .into_commands()
+    .into_iter()
+    .find_map(|command| match &command {
+        Command::Screen {
+            ticket,
+            command: ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Start { .. })),
+            ..
+        } => Some((*ticket, command)),
+        _ => None,
+    })
+    .expect("command-center New asks thread/start")
+}
+
+fn two_agents_news() -> (CodexApp, (Ticket, Command), Ticket) {
+    let mut app = two_backends();
+    let cloud_epoch = app.attach_backend(CLOUD);
+    assert_eq!(app.epoch(), cloud_epoch);
+    let a = agents_new(&mut app);
+    assert_eq!(app.backend_of(&a.1), LOCAL);
+    let cloud = cycle(&mut app);
+    arrive_on_cloud(&mut app, &cloud);
+    let (b, command) = agents_new(&mut app);
+    assert_eq!(app.backend_of(&command), CLOUD);
+    (app, a, b)
+}
+
+fn answer_new(
+    app: &mut CodexApp,
+    backend: BackendId,
+    epoch: codex_tui_core::ids::ConnEpoch,
+    ticket: Ticket,
+    id: &str,
+) -> Option<AppFx> {
+    app.ingest(Ingress::of(
+        backend,
+        epoch,
+        AppEv::Reply(
+            ticket,
+            Reply::screen(ScreenReply::Agents(agents::Reply::Started(Box::new(
+                thread(id, id),
+            )))),
+        ),
+    ))
+}
+
+#[test]
+fn addressed_rpc_keeps_its_dispatch_backend_after_display_switches() {
+    let (app, (_, a), _) = two_agents_news();
+    assert_eq!(app.screens().agents.displayed, CLOUD);
+    assert_eq!(app.backend_of(&a), LOCAL);
+    assert_eq!(app.dispatch_backend(&a, None), Some(LOCAL));
+}
+
+#[test]
+fn addressed_rpc_losing_a_drops_late_a_before_and_after_reattach_and_preserves_b() {
+    let (mut app, (a, a_command), b) = two_agents_news();
+    let old = app.epoch_of(LOCAL);
+    let current_b = app.epoch_of(CLOUD);
+    app.ingest(Ingress::of(LOCAL, old, AppEv::Disconnected));
+    assert_eq!(app.dispatch_backend(&a_command, None), None);
+    assert_eq!(
+        app.epoch_of(LOCAL),
+        old,
+        "the late reply can still carry the current epoch"
+    );
+    answer_new(&mut app, LOCAL, old, a, "late-a-before");
+    assert!(app.thread(&ThreadId::new("late-a-before")).is_none());
+    let new = app.attach_backend(LOCAL);
+    assert_ne!(new, old);
+    assert!(answer_new(&mut app, LOCAL, old, a, "late-a-after").is_none());
+    answer_new(&mut app, LOCAL, new, a, "retired-a");
+    assert!(app.thread(&ThreadId::new("retired-a")).is_none());
+    answer_new(&mut app, CLOUD, current_b, b, "b-survived");
+    assert_eq!(app.screens().agents.owner_of("b-survived"), CLOUD);
+    assert!(app.thread(&ThreadId::new("b-survived")).is_some());
+}
+
+#[test]
+fn addressed_rpc_losing_b_preserves_a_while_b_is_displayed() {
+    let (mut app, (a, _), b) = two_agents_news();
+    let current_a = app.epoch_of(LOCAL);
+    let old = app.epoch_of(CLOUD);
+    app.ingest(Ingress::of(CLOUD, old, AppEv::Disconnected));
+    assert_eq!(app.screens().agents.displayed, CLOUD);
+    answer_new(&mut app, CLOUD, old, b, "late-b");
+    assert!(app.thread(&ThreadId::new("late-b")).is_none());
+    answer_new(&mut app, LOCAL, current_a, a, "a-survived");
+    assert!(app.thread(&ThreadId::new("a-survived")).is_some());
+    assert_eq!(app.screens().agents.owner_of("a-survived"), LOCAL);
+}
+
+#[test]
+fn addressed_rpc_drops_a_same_epoch_foreign_reply_and_a_duplicate() {
+    let (mut app, (a, _), _) = two_agents_news();
+    let epoch = app.epoch_of(CLOUD);
+    assert_eq!(
+        epoch,
+        app.epoch_of(LOCAL),
+        "matching epochs do not make a matching origin"
+    );
+    answer_new(&mut app, CLOUD, epoch, a, "wrong-owner");
+    assert!(app.thread(&ThreadId::new("wrong-owner")).is_none());
+    answer_new(&mut app, LOCAL, epoch, a, "correct-owner");
+    assert!(app.thread(&ThreadId::new("correct-owner")).is_some());
+    assert_eq!(app.screens().agents.owner_of("correct-owner"), LOCAL);
+    answer_new(&mut app, LOCAL, epoch, a, "duplicate");
+    assert!(app.thread(&ThreadId::new("duplicate")).is_none());
+}
+
+fn local_turn_waiting_for_a_reply() -> (CodexApp, Ticket, ThreadId) {
+    let mut app = two_backends();
+    let epoch = app.attach_backend(CLOUD);
+    assert_eq!(epoch, app.epoch());
+    let foreground = ThreadId::new("local-1");
+    let effects = run(
+        &mut app,
+        AppEv::Intent(Intent::Submit {
+            thread: Some(foreground.clone()),
+            message: UserMessage::text("one turn"),
+        }),
+    );
+    let (ticket, command) = effects
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::StartTurn { ticket, .. } => Some((*ticket, command)),
+            _ => None,
+        })
+        .expect("the local turn");
+    assert_eq!(app.dispatch_backend(command, None), Some(LOCAL));
+    (app, ticket, foreground)
+}
+
+#[test]
+fn addressed_rpc_a_thread_reply_checks_its_origin_before_consuming_its_ticket() {
+    let (mut app, ticket, foreground) = local_turn_waiting_for_a_reply();
+    let epoch = app.epoch();
+    let answer = || {
+        AppEv::Reply(
+            ticket,
+            Reply::turn_started(
+                foreground.clone(),
+                codex_tui_core::ids::TurnId::new("one-turn"),
+            ),
+        )
+    };
+    assert!(app.ingest(Ingress::of(CLOUD, epoch, answer())).is_none());
+    assert!(app.active_thread().outgoing().contains(ticket));
+    assert!(app.ingest(Ingress::of(LOCAL, epoch, answer())).is_some());
+    assert!(app.active_thread().is_running());
+    assert!(app.ingest(Ingress::of(LOCAL, epoch, answer())).is_none());
+}
+
+#[test]
+fn addressed_rpc_reattach_retires_old_thread_requests_and_holds_unconfirmed_input() {
+    let (mut app, ticket, foreground) = local_turn_waiting_for_a_reply();
+    let old = app.epoch();
+    let new = app.attach_backend(LOCAL);
+    assert_ne!(new, old);
+    assert!(!app.active_thread().outgoing().contains(ticket));
+    assert!(matches!(
+        app.active_thread().queue().first(),
+        Some(codex_tui_core::threads::Queued::Unconfirmed { .. })
+    ));
+    let answer = || {
+        AppEv::Reply(
+            ticket,
+            Reply::turn_started(
+                foreground.clone(),
+                codex_tui_core::ids::TurnId::new("stale-turn"),
+            ),
+        )
+    };
+    assert!(app.ingest(Ingress::of(LOCAL, old, answer())).is_none());
+    assert!(app.ingest(Ingress::of(LOCAL, new, answer())).is_none());
+    assert!(!app.active_thread().is_running());
 }
 
 fn name_of(app: &CodexApp, id: &str) -> Option<String> {

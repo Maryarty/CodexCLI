@@ -152,9 +152,7 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
             command,
             ctx,
         } => {
-            let ticket = app.mint.next();
-            app.outgoing.insert(ticket, AppCtx::Feature(ctx));
-            fx.commands.push(Command::Feature {
+            fx.ask(app, AppCtx::Feature(ctx), |_, ticket| Command::Feature {
                 ticket,
                 thread,
                 command,

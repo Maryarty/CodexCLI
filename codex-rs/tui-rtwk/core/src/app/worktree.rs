@@ -67,8 +67,10 @@ pub(super) enum Step {
 impl Step {
     pub(super) fn create(app: &mut CodexApp, cwd: Option<String>, fx: &mut AppFx) {
         let backend = app.screens.agents.displayed;
-        let ticket = Self::Creating { chat: None }.wait(app, backend);
-        fx.commands.push(Command::CreateWorktree { ticket, cwd });
+        Self::Creating { chat: None }.ask(app, backend, fx, |ticket| Command::CreateWorktree {
+            ticket,
+            cwd,
+        });
     }
 
     /// `StartManagedWorktree` of the chat (`start_managed_worktree`): the source-only checks,
@@ -127,25 +129,31 @@ impl Step {
             fork: fork && has_history,
             name,
         });
-        let ticket = Self::Creating { chat }.wait(app, backend);
-        fx.commands.push(Command::CreateWorktree { ticket, cwd });
+        Self::Creating { chat }.ask(app, backend, fx, |ticket| Command::CreateWorktree {
+            ticket,
+            cwd,
+        });
     }
 
-    fn wait(self, app: &mut CodexApp, backend: BackendId) -> Ticket {
-        let ticket = app.mint.next();
-        app.outgoing.insert(
-            ticket,
+    fn ask(
+        self,
+        app: &mut CodexApp,
+        backend: BackendId,
+        fx: &mut AppFx,
+        build: impl FnOnce(Ticket) -> Command,
+    ) {
+        fx.ask(
+            app,
             AppCtx::Worktree {
                 backend,
                 step: self,
             },
+            |_, ticket| build(ticket),
         );
-        ticket
     }
 
     fn request(self, ask: ThreadAsk, app: &mut CodexApp, backend: BackendId, fx: &mut AppFx) {
-        let ticket = self.wait(app, backend);
-        fx.commands.push(Command::Screen {
+        self.ask(app, backend, fx, |ticket| Command::Screen {
             ticket,
             thread: ThreadId::default(),
             command: ScreenCommand::Agents(agents::Command::Thread(ask)),
@@ -185,13 +193,12 @@ impl Step {
             ) => {
                 let id = ThreadId::new(&thread.id);
                 let cwd = thread.cwd.display().to_string();
-                let ticket = Self::Binding {
+                Self::Binding {
                     checkout: checkout.clone(),
                     thread: id.clone(),
                     chat,
                 }
-                .wait(app, backend);
-                fx.commands.push(Command::BindWorktree {
+                .ask(app, backend, fx, |ticket| Command::BindWorktree {
                     ticket,
                     checkout,
                     thread: id,

@@ -139,20 +139,18 @@ fn ask(app: &mut CodexApp, id: u64, ask: ThreadAsk, fx: &mut AppFx) {
         return;
     };
     let backend = run.backend;
-    let ticket = app.mint.next();
-    app.outgoing
-        .insert(ticket, AppCtx::Structured { run: id, backend });
-    fx.commands.push(Command::Screen {
-        ticket,
-        thread: ThreadId::default(),
-        command: ScreenCommand::Agents(agents::Command::Thread(ask)),
+    fx.ask(app, AppCtx::Structured { run: id, backend }, |_, ticket| {
+        Command::Screen {
+            ticket,
+            thread: ThreadId::default(),
+            command: ScreenCommand::Agents(agents::Command::Thread(ask)),
+        }
     });
 }
 
 /// An RPC nobody waits for (`thread/unsubscribe`, `turn/interrupt`): the answer is dropped.
-fn tell(app: &mut CodexApp, ask: ThreadAsk, fx: &mut AppFx) {
-    let ticket = app.mint.next();
-    fx.commands.push(Command::Screen {
+fn tell(app: &mut CodexApp, backend: BackendId, ask: ThreadAsk, fx: &mut AppFx) {
+    fx.tell(app, backend, |ticket| Command::Screen {
         ticket,
         thread: ThreadId::default(),
         command: ScreenCommand::Agents(agents::Command::Thread(ask)),
@@ -226,16 +224,16 @@ fn started(app: &mut CodexApp, id: u64, thread: String, as_asked: bool, fx: &mut
     let Some(run) = app.structured.runs.get(&id) else {
         return;
     };
+    let backend = run.backend;
     if !as_asked {
-        tell(app, ThreadAsk::Unsubscribe { thread }, fx);
+        tell(app, backend, ThreadAsk::Unsubscribe { thread }, fx);
         return finish(app, id, Err(Why::NotReadOnly), fx);
     }
     // The feature may have gone stale while the thread started: the turn never starts.
     if !features::structured_wanted(app, &run.ctx) {
-        tell(app, ThreadAsk::Unsubscribe { thread }, fx);
+        tell(app, backend, ThreadAsk::Unsubscribe { thread }, fx);
         return finish(app, id, Err(Why::Unwanted), fx);
     }
-    let backend = run.backend;
     let turn = ThreadAsk::StructuredTurn {
         thread: thread.clone(),
         kind: run.turn.kind,
@@ -346,13 +344,13 @@ fn finish(app: &mut CodexApp, id: u64, result: Result<String, Why>, fx: &mut App
             thread: thread.to_string(),
             turn: turn.clone(),
         };
-        tell(app, interrupt, fx);
+        tell(app, run.backend, interrupt, fx);
     }
     if let Some(thread) = run.phase.thread().filter(|_| result != Err(Why::Lost)) {
         let unsubscribe = ThreadAsk::Unsubscribe {
             thread: thread.to_string(),
         };
-        tell(app, unsubscribe, fx);
+        tell(app, run.backend, unsubscribe, fx);
     }
     features::structured_done(app, run.ctx, result, fx);
 }
