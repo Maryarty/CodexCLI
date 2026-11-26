@@ -4081,6 +4081,7 @@ pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mu
                     &app.keymap,
                 )),
         );
+        crate::features::revalidate_rate_offer(&mut app.features, model.view());
     }
     reset::settle_hint(app, thread, fx);
 }

@@ -1187,5 +1187,13 @@ pub fn daybreak_of(thread: ThreadView<'_>) -> Option<bool> {
     small_cmds::daybreak_of(thread)
 }
 
+// The app owns turn completion and account boundaries. The slice owns the offer and its
+// eligibility; expose its operations through the feature list.
+pub(crate) use rate_limit_prompt::{
+    origin_available as rate_offer_origin_available, reserve as reserve_completion_prompt,
+    retire as retire_rate_offer, revalidate as revalidate_rate_offer,
+    rolling as rolling_rate_limits,
+};
+
 #[cfg(test)]
 mod framework;

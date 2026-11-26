@@ -31,7 +31,7 @@ use codex_app_server_protocol::{
     RateLimitSnapshot, RequestId, ServerNotification,
 };
 
-use super::{AppCx, AppView, FeatureStates, Never, PublicVerb};
+use super::{AppCx, AppView, FeatureStates, Never, PublicVerb, ThreadView};
 use crate::app::Now;
 use crate::ids::{BackendId, ThreadId, TurnId};
 use crate::rpc::{Address, RpcError};
@@ -254,6 +254,13 @@ impl State {
         };
     }
 
+    fn dismiss(&mut self) {
+        self.offered = None;
+        if matches!(self.stage, Stage::Recovering { .. }) {
+            self.stage = Stage::Shown;
+        }
+    }
+
     fn workspace_limit_reached(&self) -> bool {
         self.spend_control == Some(true)
             || matches!(
@@ -445,6 +452,27 @@ pub(crate) fn retire(states: &mut std::rc::Rc<FeatureStates>, backend: BackendId
     }
 }
 
+/// The conversation is still ready to act on the completion that made the offer.
+pub(crate) fn origin_available(thread: ThreadView<'_>, turn: &TurnId) -> bool {
+    thread.core().last_ended() == Some(turn)
+        && !thread.busy()
+        && !thread.stream_lost()
+        && thread.has_writer()
+}
+
+/// A new turn can arrive while the sheet has the input. An accepted thread transition that
+/// supersedes its completion takes the old offer down without waiting for a user's key.
+pub(crate) fn revalidate(states: &mut std::rc::Rc<FeatureStates>, thread: ThreadView<'_>) {
+    if states
+        .rate_limit_prompt
+        .offered
+        .as_ref()
+        .is_some_and(|offer| thread.id() == &offer.thread && !origin_available(thread, &offer.turn))
+    {
+        std::rc::Rc::make_mut(states).rate_limit_prompt.dismiss();
+    }
+}
+
 /// Whether the offer can be made on the currently displayed thread.
 fn can_offer(view: AppView<'_>) -> bool {
     !view.facts().tui().hide_rate_limit_model_nudge
@@ -608,12 +636,13 @@ feature! {
             fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
                 match intent {
                     Intent::Switch { offer, model, effort }
-                        if state.offered.as_ref() == Some(&offer)
+                        if state.standing(&offer) == Standing::Offer
                             && cx.view().active() == Some(&offer.thread) =>
                     {
-                        state.offered = None;
+                        state.dismiss();
                         cx.verb(PublicVerb::OverrideTurn {
                             thread: offer.thread,
+                            turn: offer.turn,
                             address: offer.address,
                             model,
                             effort: Some(effort),
@@ -621,11 +650,7 @@ feature! {
                     }
                     Intent::Nudge(nudge) => cx.verb(PublicVerb::NotifyOwner(nudge)),
                     Intent::Closed(offer) if state.offered.as_ref() == Some(&offer) => {
-                        state.offered = None;
-                        // a dismissed recovery prompt has no count to keep
-                        if matches!(state.stage, Stage::Recovering { .. }) {
-                            state.stage = Stage::Shown;
-                        }
+                        state.dismiss();
                     }
                     Intent::Switch { .. } | Intent::Closed(_) => {}
                     Intent::Tick => state.tick(cx.view().facts().now().millis()),
@@ -665,12 +690,7 @@ feature! {
                 if let Ok(Reply::Candidate(Some(candidate))) = result
                     && view.active() == Some(&offer.thread)
                     && !view.navigation_pending()
-                    && view.active_thread().is_some_and(|thread| {
-                        thread.core().last_ended() == Some(&offer.turn)
-                            && !thread.busy()
-                            && !thread.stream_lost()
-                            && thread.has_writer()
-                    })
+                    && view.active_thread().is_some_and(|thread| origin_available(thread, &offer.turn))
                     && can_offer(view)
                 {
                     state.stage = Stage::Shown;

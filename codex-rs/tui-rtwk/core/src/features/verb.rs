@@ -4,7 +4,7 @@
 //! UI for the UI to hand on (the old `Wish::{Status, Model}` relay). A wish is for showing
 //! something once; a verb is for changing something.
 
-use crate::ids::ThreadId;
+use crate::ids::{ThreadId, TurnId};
 use crate::rpc::Address;
 use crate::screens::chat::{Nudge, StatusOverride};
 use crate::screens::select::models::{Effort, Selection};
@@ -30,6 +30,7 @@ pub enum PublicVerb {
     /// answer.
     OverrideTurn {
         thread: ThreadId,
+        turn: TurnId,
         address: Address,
         model: String,
         effort: Option<Effort>,

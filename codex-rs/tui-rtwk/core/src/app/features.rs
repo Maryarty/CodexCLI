@@ -7,7 +7,6 @@ use std::rc::Rc;
 
 use super::effects::{self, Done};
 use super::{AppCtx, AppFx, CodexApp, Command, Now, Wake, apply_thread, session_note};
-use crate::features::rate_limit_prompt;
 use crate::features::{
     self, AppCx, AppView, FeatureCtx, FeatureFact, FeatureIntent, FeatureThreadIntent, InterestStep,
 };
@@ -40,13 +39,15 @@ pub(super) fn view(app: &CodexApp) -> AppView<'_> {
 
 /// App-owned openings can still be in flight when their source conversation is on display.
 pub(super) fn navigation_pending(app: &CodexApp) -> bool {
-    app.outgoing.any(|ctx| match ctx {
-        AppCtx::Opening { .. }
-        | AppCtx::OpenThread {
-            cancelled: false, ..
-        } => true,
-        AppCtx::NewConversation { source, .. } => source == &app.session.active,
-        _ => false,
+    app.outgoing.any(|ctx| {
+        matches!(
+            ctx,
+            AppCtx::Opening { .. }
+                | AppCtx::OpenThread {
+                    cancelled: false,
+                    ..
+                }
+        ) || matches!(ctx, AppCtx::NewConversation { source, .. } if source == &app.session.active)
     })
 }
 
@@ -316,14 +317,14 @@ pub(super) fn rolling_limits(
 ) {
     if super::session::active_backend(app) == backend {
         run(app, fx, |states, cx| {
-            rate_limit_prompt::rolling(states, backend, snapshot, cx);
+            features::rolling_rate_limits(states, backend, snapshot, cx);
         });
     }
 }
 
 /// Retire the offer of the connection or account that ended.
 pub(super) fn retire_rate_offer(app: &mut CodexApp, backend: BackendId) {
-    rate_limit_prompt::retire(&mut app.features, backend);
+    features::retire_rate_offer(&mut app.features, backend);
 }
 
 /// Resolve which completion prompt may be published before the routed event reaches the model.
@@ -348,7 +349,7 @@ pub(super) fn completion_priority(
     }
     let mut priority = PromptPriority::Ordinary;
     run(app, fx, |states, cx| {
-        priority = rate_limit_prompt::reserve(states, thread, turn, address, cx);
+        priority = features::reserve_completion_prompt(states, thread, turn, address, cx);
     });
     priority
 }

@@ -500,7 +500,23 @@ fn plan_implementation_popup_skips_when_rate_limit_prompt_pending() {
 
     rate_offer_waits_behind_a_banner();
     rate_offer_lifetime_ends_with_the_connection_or_account();
+    rate_offer_lifetime_ends_when_a_new_turn_starts();
     rate_offer_cannot_interrupt_a_new_conversation();
+}
+
+fn rate_offer_lifetime_ends_when_a_new_turn_starts() {
+    let mut s = plan_pending_rate_offer(Ok(vec![lower_cost_model()]));
+    s.feed(TURN_DONE);
+    s.assert_text_count("Approaching rate limits", 1);
+    s.feed(RUNNING);
+    s.assert_text_count("Approaching rate limits", 1);
+    s.feed(&RUNNING.replace("turn-1", "turn-2"));
+    s.assert_contains("Working");
+    s.assert_absent("Approaching rate limits");
+    s.assert_absent(PLAN_TITLE);
+    s.keys("enter");
+    s.assert_model_updates(&[]);
+    s.assert_no_turn();
 }
 
 fn rate_offer_cannot_interrupt_a_new_conversation() {
