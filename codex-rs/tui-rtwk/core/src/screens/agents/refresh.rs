@@ -171,16 +171,19 @@ pub(crate) fn settle_parked_list(
     append: bool,
     result: Result<Reply, RpcError>,
 ) {
-    let received = match result {
-        Ok(Reply::Listed(mut page))
-            if !append || page.next_cursor.is_none() || page.next_cursor != model.paging_of(owner).cursor =>
-        {
-            page.append = append;
-            merge_page(model, owner, page);
-            true
-        }
-        _ => false,
+    let page = match result {
+        Ok(Reply::Listed(page)) => Some(page),
+        _ => None,
     };
+    if append {
+        super::discovery::on_more_page(model, owner, page);
+        return;
+    }
+    let received = page.is_some();
+    if let Some(mut page) = page {
+        page.append = false;
+        merge_page(model, owner, page);
+    }
     let parked = model.parked.entry(owner).or_default();
     parked.loading = false;
     parked.failed = !received;
@@ -284,11 +287,11 @@ pub fn apply_answer(
 ) -> Vec<Out> {
     match (ctx, result) {
         (Ctx::List { append: true }, Ok(Reply::Listed(page))) => {
-            super::discovery::on_more_page(model, Some(page));
+            super::discovery::on_more_page(model, model.displayed, Some(page));
             return super::discovery::refill(model);
         }
         (Ctx::List { append: true }, Err(_) | Ok(_)) => {
-            super::discovery::on_more_page(model, None);
+            super::discovery::on_more_page(model, model.displayed, None);
         }
         (Ctx::List { append: false }, Ok(Reply::Listed(mut page))) => {
             page.append = false;

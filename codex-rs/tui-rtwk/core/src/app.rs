@@ -308,16 +308,6 @@ pub enum AppEv {
     ShuttingDown,
     Backend(BackendEv),
     Reply(Ticket, Reply),
-    /// A reply from the request handle of a connector that may replace its transport.
-    TransportReply {
-        transport_epoch: ConnEpoch,
-        ticket: Ticket,
-        reply: Reply,
-    },
-    /// The connector installed a new request handle. Its ingress epoch stays the same.
-    TransportReplaced {
-        transport_epoch: ConnEpoch,
-    },
     ServerAnswerFailed {
         key: RequestKey,
         message: String,
@@ -374,7 +364,18 @@ pub enum AppEv {
 pub struct Ingress {
     pub backend: BackendId,
     pub epoch: ConnEpoch,
-    pub ev: AppEv,
+    delivery: Delivery,
+}
+
+#[derive(Clone, Debug)]
+enum Delivery {
+    Event(AppEv),
+    TransportReply {
+        transport_epoch: ConnEpoch,
+        ticket: Ticket,
+        reply: Reply,
+    },
+    TransportReplaced(ConnEpoch),
 }
 
 impl Ingress {
@@ -385,7 +386,50 @@ impl Ingress {
 
     /// An event of `backend`.
     pub fn of(backend: BackendId, epoch: ConnEpoch, ev: AppEv) -> Self {
-        Self { backend, epoch, ev }
+        Self {
+            backend,
+            epoch,
+            delivery: Delivery::Event(ev),
+        }
+    }
+
+    /// A reply from the handle selected by a connector that may replace its transport.
+    pub fn transport_reply(
+        backend: BackendId,
+        epoch: ConnEpoch,
+        transport_epoch: ConnEpoch,
+        ticket: Ticket,
+        reply: Reply,
+    ) -> Self {
+        Self {
+            backend,
+            epoch,
+            delivery: Delivery::TransportReply {
+                transport_epoch,
+                ticket,
+                reply,
+            },
+        }
+    }
+
+    /// The connector installed a request handle without replacing its ingress.
+    pub fn transport_replaced(
+        backend: BackendId,
+        epoch: ConnEpoch,
+        transport_epoch: ConnEpoch,
+    ) -> Self {
+        Self {
+            backend,
+            epoch,
+            delivery: Delivery::TransportReplaced(transport_epoch),
+        }
+    }
+
+    pub fn event(&self) -> Option<&AppEv> {
+        match &self.delivery {
+            Delivery::Event(ev) => Some(ev),
+            _ => None,
+        }
     }
 }
 
@@ -1349,13 +1393,24 @@ impl CodexApp {
         if ingress.epoch != self.epoch_of(ingress.backend) {
             return None;
         }
-        let (transport_epoch, event) = match ingress.ev {
-            AppEv::TransportReply {
+        let mut fx = AppFx::default();
+        let (transport_epoch, event) = match ingress.delivery {
+            Delivery::TransportReplaced(transport_epoch) => {
+                if transport_epoch != self.transport_epoch_of(ingress.backend).next() {
+                    return None;
+                }
+                self.transport_epochs
+                    .insert(ingress.backend, transport_epoch);
+                self.retire_outgoing(ingress.backend, &mut fx);
+                finish_apply(self, false, &mut fx);
+                return Some(fx);
+            }
+            Delivery::TransportReply {
                 transport_epoch,
                 ticket,
                 reply,
             } => (transport_epoch, AppEv::Reply(ticket, reply)),
-            event => (ingress.epoch, event),
+            Delivery::Event(event) => (ingress.epoch, event),
         };
         let address = Address {
             backend: ingress.backend,
@@ -1364,7 +1419,6 @@ impl CodexApp {
         if !self.accepts_reply(address, &event) {
             return None;
         }
-        let mut fx = AppFx::default();
         apply_at(self, ingress.backend, event, &mut fx);
         Some(fx)
     }
@@ -1375,7 +1429,6 @@ impl CodexApp {
                 self.address(origin.backend) == origin
                     && self.request_address(*ticket) == Some(origin)
             }
-            AppEv::TransportReply { .. } => false,
             _ => true,
         }
     }
@@ -1410,6 +1463,10 @@ fn apply_at(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
         Rc::make_mut(&mut app.session).cloud_switch = None;
     }
     apply_event(app, origin, ev, fx);
+    finish_apply(app, lists, fx);
+}
+
+fn finish_apply(app: &mut CodexApp, lists: bool, fx: &mut AppFx) {
     consent::follow(app, fx);
     sync_cloud_switch(app);
     mentions::sync(app, fx);
@@ -1482,13 +1539,6 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             .insert(origin, connection);
     }
     match ev {
-        AppEv::TransportReplaced { transport_epoch } => {
-            if transport_epoch == app.transport_epoch_of(origin).next() {
-                app.transport_epochs.insert(origin, transport_epoch);
-                app.retire_outgoing(origin, fx);
-            }
-        }
-        AppEv::TransportReply { .. } => unreachable!("the ingress unwraps a transport reply"),
         AppEv::Connected if origin != BackendId::default() => {
             if app.screens.chat.status.account_usage {
                 refresh_rates(app, origin, status::RateLimitOrigin::Startup, fx);

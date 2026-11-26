@@ -541,9 +541,10 @@ fn addressed_rpc_transport_replacement_keeps_ingress_and_rejects_old_handles() {
     let ingress_epoch = app.epoch();
     let (old_ticket, old_command) = agents_new(&mut app);
     let transport_epoch = ingress_epoch.next();
-    app.ingest(Ingress::new(
+    app.ingest(Ingress::transport_replaced(
+        LOCAL,
         ingress_epoch,
-        AppEv::TransportReplaced { transport_epoch },
+        transport_epoch,
     ));
     assert_eq!(app.epoch(), ingress_epoch);
     assert_eq!(app.dispatch_route(&old_command, None), None);
@@ -552,25 +553,36 @@ fn addressed_rpc_transport_replacement_keeps_ingress_and_rejects_old_handles() {
     let (_, address) = app.dispatch_route(&command, None).expect("new live ask");
     assert_eq!(address.expect("RPC address").epoch, transport_epoch);
     let answer = |ticket, epoch, id| {
-        Ingress::new(
+        Ingress::transport_reply(
+            LOCAL,
             ingress_epoch,
-            AppEv::TransportReply {
-                transport_epoch: epoch,
-                ticket,
-                reply: Reply::screen(ScreenReply::Agents(agents::Reply::Started(Box::new(
-                    thread(id, id),
-                )))),
-            },
+            epoch,
+            ticket,
+            Reply::screen(ScreenReply::Agents(agents::Reply::Started(Box::new(
+                thread(id, id),
+            )))),
         )
     };
-    assert!(app.ingest(answer(old_ticket, ingress_epoch, "old")).is_none());
+    assert!(
+        app.ingest(answer(old_ticket, ingress_epoch, "old"))
+            .is_none()
+    );
     assert!(app.ingest(answer(fresh, ingress_epoch, "stale")).is_none());
-    assert!(app.ingest(answer(fresh, transport_epoch, "fresh")).is_some());
+    assert!(
+        app.ingest(answer(fresh, transport_epoch, "fresh"))
+            .is_some()
+    );
     assert!(app.thread(&ThreadId::new("fresh")).is_some());
-    assert!(app.ingest(answer(fresh, transport_epoch, "duplicate")).is_none());
+    assert!(
+        app.ingest(answer(fresh, transport_epoch, "duplicate"))
+            .is_none()
+    );
 
     let now = codex_tui_core::app::Now::at_secs(125);
-    assert!(app.ingest(Ingress::new(ingress_epoch, AppEv::Clock(now))).is_some());
+    assert!(
+        app.ingest(Ingress::new(ingress_epoch, AppEv::Clock(now)))
+            .is_some()
+    );
     assert_eq!(app.now(), now);
 }
 
@@ -616,17 +628,21 @@ fn addressed_rpc_provider_interest_follows_only_the_primary_connection() {
         AppEv::Screen(ScreenEv::Agents(Ev::Reconnecting)),
     ));
     assert!(app.dispatch_route(command, None).is_none());
-    let new_cloud = app.ingest(Ingress::of(
-        CLOUD,
-        cloud_epoch,
-        AppEv::Screen(ScreenEv::Agents(Ev::Reconnected)),
-    )).expect("Cloud up");
+    let new_cloud = app
+        .ingest(Ingress::of(
+            CLOUD,
+            cloud_epoch,
+            AppEv::Screen(ScreenEv::Agents(Ev::Reconnected)),
+        ))
+        .expect("Cloud up");
     assert!(provider_read(&new_cloud).is_none());
-    let new_primary = app.ingest(Ingress::of(
-        LOCAL,
-        primary,
-        AppEv::Screen(ScreenEv::Agents(Ev::Reconnected)),
-    )).expect("primary up");
+    let new_primary = app
+        .ingest(Ingress::of(
+            LOCAL,
+            primary,
+            AppEv::Screen(ScreenEv::Agents(Ev::Reconnected)),
+        ))
+        .expect("primary up");
     assert!(provider_read(&new_primary).is_some());
 }
 
@@ -651,7 +667,8 @@ fn local_turn_waiting_for_a_reply() -> (CodexApp, Ticket, ThreadId) {
         })
         .expect("the local turn");
     assert_eq!(
-        app.dispatch_route(command, None).map(|(backend, _)| backend),
+        app.dispatch_route(command, None)
+            .map(|(backend, _)| backend),
         Some(LOCAL)
     );
     (app, ticket, foreground)
@@ -703,11 +720,127 @@ fn addressed_rpc_reattach_retires_old_thread_requests_and_holds_unconfirmed_inpu
 }
 
 fn open_agents_list(app: &mut CodexApp) -> Ticket {
-    run(app, AppEv::Intent(Intent::Screen(ScreenIntent::Agents(agents::Intent::Open))))
-        .commands().iter().find_map(|command| match command {
-            Command::Screen { ticket, command: ScreenCommand::Agents(agents::Command::List { .. }), .. } => Some(*ticket),
+    run(
+        app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Agents(agents::Intent::Open))),
+    )
+    .commands()
+    .iter()
+    .find_map(|command| match command {
+        Command::Screen {
+            ticket,
+            command: ScreenCommand::Agents(agents::Command::List { .. }),
+            ..
+        } => Some(*ticket),
+        _ => None,
+    })
+    .expect("the list")
+}
+
+#[test]
+fn addressed_rpc_parked_refill_keeps_the_window_and_buffers_extra_rows() {
+    let mut app = two_backends();
+    let a_epoch = app.epoch();
+    app.attach_backend(CLOUD);
+    let a = open_agents_list(&mut app);
+    let page = |ticket, ids: &[&str], cursor: Option<&str>| {
+        AppEv::Reply(
+            ticket,
+            Reply::screen(ScreenReply::Agents(agents::Reply::Listed(Page {
+                threads: ids.iter().map(|id| thread(id, id)).collect(),
+                unread: Vec::new(),
+                next_cursor: cursor.map(str::to_owned),
+                append: false,
+                pins: None,
+            }))),
+        )
+    };
+    run(&mut app, page(a, &["archive-a", "keep-a"], Some("next-a")));
+    run(
+        &mut app,
+        AppEv::Backend(BackendEv::Notification(Box::new(
+            ServerNotification::ThreadArchived(
+                codex_app_server_protocol::ThreadArchivedNotification {
+                    thread_id: "archive-a".into(),
+                },
+            ),
+        ))),
+    );
+    let refresh = run(
+        &mut app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Agents(
+            agents::Intent::Refresh,
+        ))),
+    );
+    let refreshed = refresh
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Screen {
+                ticket,
+                command: ScreenCommand::Agents(agents::Command::List { cursor: None }),
+                ..
+            } => Some(*ticket),
             _ => None,
-        }).expect("the list")
+        })
+        .expect("A refresh after the removal");
+    let refill = run(&mut app, page(refreshed, &["keep-a"], Some("next-a")));
+    let next = refill
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Screen {
+                ticket,
+                command:
+                    ScreenCommand::Agents(agents::Command::List {
+                        cursor: Some(cursor),
+                    }),
+                ..
+            } if cursor == "next-a" => Some(*ticket),
+            _ => None,
+        })
+        .expect("one refill of A");
+    assert_eq!(app.screens().agents.paging.want, 1);
+    assert_eq!(app.screens().agents.paging.refill, 1);
+    let cloud = cycle(&mut app);
+    arrive_on_cloud(&mut app, &cloud);
+    open_agents_list(&mut app);
+    let b_paging = app.screens().agents.paging.clone();
+    app.ingest(Ingress::of(
+        LOCAL,
+        a_epoch,
+        page(next, &["fill-a", "buffer-a", "buffer-a2"], None),
+    ));
+    assert_eq!(app.screens().agents.paging, b_paging);
+    let a_paging = app.screens().agents.paging_of(LOCAL);
+    assert_eq!(a_paging.refill, 0);
+    assert!(!a_paging.loading && a_paging.has_more);
+    assert_eq!(
+        a_paging
+            .buffer
+            .iter()
+            .map(|row| row.id.as_str())
+            .collect::<Vec<_>>(),
+        ["buffer-a", "buffer-a2"]
+    );
+    assert!(name_of(&app, "fill-a").is_some());
+    assert!(name_of(&app, "buffer-a").is_none());
+    assert_eq!(app.screens().agents.owner_of("fill-a"), LOCAL);
+    let (ticket, _) = start_ticket(&cycle(&mut app));
+    run(
+        &mut app,
+        AppEv::Reply(ticket, Reply::thread_started(ThreadId::new("local-again"))),
+    );
+    assert_eq!(app.screens().agents.displayed, LOCAL);
+    run(
+        &mut app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Agents(
+            agents::Intent::ShowMore,
+        ))),
+    );
+    assert!(app.screens().agents.paging.buffer.is_empty());
+    assert!(name_of(&app, "buffer-a").is_some());
+    assert!(name_of(&app, "buffer-a2").is_some());
 }
 
 #[test]
@@ -723,20 +856,38 @@ fn addressed_rpc_a_parked_list_settles_only_its_owner_even_during_reconnect() {
         open_agents_list(&mut app);
         let b_paging = app.screens().agents.paging.clone();
         assert!(b_paging.loading);
-        let answer = AppEv::Reply(a, Reply::screen(ScreenReply::Agents(agents::Reply::Listed(Page {
-            threads: vec![thread("listed-on-a", "On A")], unread: Vec::new(),
-            next_cursor: Some("next-a".into()), append: false, pins: None,
-        }))));
+        let answer = AppEv::Reply(
+            a,
+            Reply::screen(ScreenReply::Agents(agents::Reply::Listed(Page {
+                threads: vec![thread("listed-on-a", "On A")],
+                unread: Vec::new(),
+                next_cursor: Some("next-a".into()),
+                append: false,
+                pins: None,
+            }))),
+        );
         if loses_a {
-            app.ingest(Ingress::of(LOCAL, a_epoch, AppEv::Screen(ScreenEv::Agents(Ev::Reconnecting))));
+            app.ingest(Ingress::of(
+                LOCAL,
+                a_epoch,
+                AppEv::Screen(ScreenEv::Agents(Ev::Reconnecting)),
+            ));
             assert!(app.ingest(Ingress::of(LOCAL, a_epoch, answer)).is_none());
-            app.ingest(Ingress::of(LOCAL, a_epoch, AppEv::TransportReplaced {
-                transport_epoch: a_epoch.next(),
-            }));
-            let restored = app.ingest(Ingress::of(LOCAL, a_epoch, AppEv::Screen(ScreenEv::Agents(Ev::Reconnected))))
+            app.ingest(Ingress::transport_replaced(LOCAL, a_epoch, a_epoch.next()));
+            let restored = app
+                .ingest(Ingress::of(
+                    LOCAL,
+                    a_epoch,
+                    AppEv::Screen(ScreenEv::Agents(Ev::Reconnected)),
+                ))
                 .expect("the restored connection");
-            assert!(restored.commands().iter().all(|c|
-                !matches!(c, Command::Screen { command: ScreenCommand::Agents(agents::Command::List { .. }), .. })));
+            assert!(restored.commands().iter().all(|c| !matches!(
+                c,
+                Command::Screen {
+                    command: ScreenCommand::Agents(agents::Command::List { .. }),
+                    ..
+                }
+            )));
         } else {
             app.ingest(Ingress::of(LOCAL, a_epoch, answer));
             assert_eq!(app.screens().agents.owner_of("listed-on-a"), LOCAL);
@@ -747,7 +898,10 @@ fn addressed_rpc_a_parked_list_settles_only_its_owner_even_during_reconnect() {
         assert_eq!(a_paging.failed, loses_a);
         let (ticket, backend) = start_ticket(&cycle(&mut app));
         assert_eq!(backend, LOCAL);
-        run(&mut app, AppEv::Reply(ticket, Reply::thread_started(ThreadId::new("local-again"))));
+        run(
+            &mut app,
+            AppEv::Reply(ticket, Reply::thread_started(ThreadId::new("local-again"))),
+        );
         assert_eq!(app.screens().agents.displayed, LOCAL);
         assert_eq!(app.screens().agents.paging, a_paging);
     }

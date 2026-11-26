@@ -251,15 +251,13 @@ pub(super) fn interest(app: &mut CodexApp, step: InterestStep, fx: &mut AppFx) {
 
 /// The connection is new: ask again for the interests it serves.
 pub(super) fn reconnected(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx) {
-    use features::{FeatureInterest, rename};
+    use features::FeatureInterest;
 
     for interest in app.interests.all() {
         let agents = &app.screens.agents;
         let owner = match &interest {
             FeatureInterest::Providers(_) => BackendId::default(),
-            FeatureInterest::Rename(rename::Interest::Title { thread }) => {
-                agents.owner_of(thread.as_str())
-            }
+            FeatureInterest::Rename(interest) => agents.owner_of(interest.thread().as_str()),
             _ => agents.displayed,
         };
         if owner != backend {

@@ -138,8 +138,9 @@ fn receive(
         .try_recv()
         .unwrap_or_else(|error| panic!("reply at host ingress: {error}"));
     assert_eq!(event.epoch, epoch);
-    let mut fx = AppFx::default();
-    apply_app_from(app, event.backend, event.ev, &mut fx);
+    let fx = app
+        .ingest(event)
+        .unwrap_or_else(|| panic!("current Cloud reply"));
     app.assert_consistent();
     fx
 }

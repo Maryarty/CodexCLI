@@ -34,6 +34,7 @@ use codex_protocol::protocol::SessionSource;
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::BackendEv;
 use codex_tui_core::app::Command;
+use codex_tui_core::app::Ingress;
 use codex_tui_core::app::effects::ConfigEdit;
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::ids::RequestKey;
@@ -67,7 +68,6 @@ use codex_tui_rtwk::services::shell::Dispatch;
 use codex_tui_rtwk::services::shell::IngressTx;
 use codex_tui_rtwk::services::shell::emit;
 use codex_tui_rtwk::services::shell::next_dispatch;
-use codex_tui_rtwk::services::shell::stamp_reply;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
@@ -716,9 +716,12 @@ async fn run(
                         ),
                     };
                     let job = latest.wrap(&command, job);
-                    inflight.push(Box::pin(async move {
-                        job.await.map(|event| stamp_reply(event, reply_epoch))
-                    }));
+                    let job = if let Some(reply_epoch) = reply_epoch {
+                        transport_reply(job, ingress.clone(), epoch, reply_epoch)
+                    } else {
+                        job
+                    };
+                    inflight.push(job);
                 }
             },
             // The reloaded config changed the provider: the embedded server
@@ -893,13 +896,34 @@ async fn run(
 
 fn announce_replacement(ingress: &IngressTx, epoch: ConnEpoch, transport_epoch: &mut ConnEpoch) {
     *transport_epoch = transport_epoch.next();
-    emit(
-        ingress,
+    let _ = ingress.send(Ingress::transport_replaced(
+        codex_tui_core::ids::BackendId::default(),
         epoch,
-        AppEv::TransportReplaced {
-            transport_epoch: *transport_epoch,
-        },
-    );
+        *transport_epoch,
+    ));
+}
+
+fn transport_reply(
+    job: Boxed<Option<AppEv>>,
+    ingress: IngressTx,
+    epoch: ConnEpoch,
+    transport_epoch: ConnEpoch,
+) -> Boxed<Option<AppEv>> {
+    Box::pin(async move {
+        match job.await {
+            Some(AppEv::Reply(ticket, reply)) => {
+                let _ = ingress.send(Ingress::transport_reply(
+                    codex_tui_core::ids::BackendId::default(),
+                    epoch,
+                    transport_epoch,
+                    ticket,
+                    reply,
+                ));
+                None
+            }
+            event => event,
+        }
+    })
 }
 
 /// `Ask::ConfigWrite` of a dialog (`/theme`, `/title`, `/statusline`, `/memories`): the edits go

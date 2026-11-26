@@ -136,7 +136,7 @@ async fn the_attempts_follow_the_oracles_delays_and_the_app_is_told() {
     );
     let first = rx.try_recv().expect("told first");
     assert_eq!(first.epoch, EPOCH);
-    assert_eq!(agents(&first.ev), &Ev::Reconnecting);
+    assert_eq!(agents(first.event().unwrap()), &Ev::Reconnecting);
     assert!(rx.try_recv().is_err());
 }
 
@@ -149,9 +149,12 @@ async fn the_budget_ends_in_reconnect_failed() {
     let client: Option<()> = restore(|| async { None }, &tx, EPOCH).await;
     assert_eq!(client, None);
     assert_eq!(start.elapsed(), Duration::from_secs(120));
-    assert_eq!(agents(&rx.try_recv().unwrap().ev), &Ev::Reconnecting);
     assert_eq!(
-        agents(&rx.try_recv().unwrap().ev),
+        agents(rx.try_recv().unwrap().event().unwrap()),
+        &Ev::Reconnecting
+    );
+    assert_eq!(
+        agents(rx.try_recv().unwrap().event().unwrap()),
         &Ev::Notice(Some(Notice::ReconnectFailed))
     );
     assert!(rx.try_recv().is_err());

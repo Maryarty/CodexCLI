@@ -104,17 +104,6 @@ pub async fn next_dispatch(
     None
 }
 
-pub fn stamp_reply(event: AppEv, transport_epoch: Option<ConnEpoch>) -> AppEv {
-    match (event, transport_epoch) {
-        (AppEv::Reply(ticket, reply), Some(transport_epoch)) => AppEv::TransportReply {
-            transport_epoch,
-            ticket,
-            reply,
-        },
-        (event, _) => event,
-    }
-}
-
 /// A backend the host connects. It speaks to the app only through the
 /// ingress and the commands, and it never spawns: its work is the future it
 /// returns. The library itself links no server, so its tests build and link
