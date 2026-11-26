@@ -3,7 +3,31 @@
 
 use rtwk::focus::{KeyCombo, KeyPress};
 
+use codex_tui_core::threads::ItemKey;
+
 use super::{Motion, Pos, Rc, RowTexts, Select, TextSelection, lines, mouse_range, moved};
+
+/// A byte in the text of a transcript row. A prepend can change the row's index.
+pub(super) struct Endpoint {
+    item: ItemKey,
+    offset: usize,
+}
+
+impl Endpoint {
+    fn new(rows: &RowTexts, pos: Pos) -> Option<Self> {
+        Some(Self {
+            item: rows.item_key(pos.row)?.clone(),
+            offset: pos.offset,
+        })
+    }
+
+    fn resolve(&self, rows: &RowTexts) -> Option<Pos> {
+        Some(Pos {
+            row: rows.row_of_item(&self.item)?,
+            offset: self.offset,
+        })
+    }
+}
 
 pub(super) enum Range {
     Starting {
@@ -12,8 +36,8 @@ pub(super) enum Range {
         motion: Vec<Motion>,
     },
     Extending {
-        anchor: Pos,
-        end: Pos,
+        anchor: Endpoint,
+        end: Endpoint,
         column: Option<usize>,
         motion: Vec<Motion>,
     },
@@ -103,7 +127,14 @@ impl Select {
                 end,
                 column,
                 motion,
-            } => (anchor, end, column, motion),
+            } => {
+                let Some((anchor, end)) = anchor.resolve(rows).zip(end.resolve(rows)) else {
+                    selection.controller().clear();
+                    self.notify();
+                    return;
+                };
+                (anchor, end, column, motion)
+            }
         };
         let lines = lines(rows);
         let in_rows = |point: Pos| {
@@ -125,9 +156,15 @@ impl Select {
             data.cursor = end;
             data.reveal = true;
         }
+        let Some((saved_anchor, saved_end)) =
+            Endpoint::new(rows, anchor).zip(Endpoint::new(rows, end))
+        else {
+            self.notify();
+            return;
+        };
         self.0.data.borrow_mut().keyboard = Some(Range::Extending {
-            anchor,
-            end,
+            anchor: saved_anchor,
+            end: saved_end,
             column,
             motion: Vec::new(),
         });

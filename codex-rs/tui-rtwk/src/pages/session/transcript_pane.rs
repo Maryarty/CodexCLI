@@ -441,14 +441,17 @@ impl ViewportState {
     ) -> Rc<RowTexts> {
         let transcript = thread.transcript();
         let mut texts: Vec<String> = Vec::with_capacity(rows.len() + usize::from(header));
+        let mut keys = Vec::with_capacity(texts.capacity());
         // per row, per line: a gutter (the caret of select mode skips it); a row with no text
         // (the cells that have none yet) is one line the caret skips too
         let mut gutters: Vec<Vec<bool>> = Vec::with_capacity(texts.capacity());
         if header {
             texts.push(String::new());
+            keys.push(None);
             gutters.push(vec![true]);
         }
         for row in rows {
+            keys.push(transcript.get(row.range.start).map(|(key, _)| key.clone()));
             match row_parts(transcript, row, reading) {
                 Some(parts) => {
                     texts.push(
@@ -472,7 +475,7 @@ impl ViewportState {
             }
         }
         let fresh =
-            RowTexts::new(texts, reverse, transcript.layout_revision()).with_gutters(gutters);
+            RowTexts::new(texts, keys, reverse, transcript.layout_revision()).with_gutters(gutters);
         let mut kept = self.texts.borrow_mut();
         if let Some(old) = kept.as_ref()
             && **old == fresh

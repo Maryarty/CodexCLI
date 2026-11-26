@@ -27,7 +27,7 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use codex_tui_core::threads::ThreadModel;
+use codex_tui_core::threads::{ItemKey, ThreadModel};
 use rtwk::gestures::SelectionPoint;
 use rtwk::render::RenderId;
 use rtwk::scroll::ItemTexts;
@@ -110,6 +110,8 @@ pub fn reading(ui: &ThreadUi) -> Option<Finder> {
 pub struct RowTexts {
     /// The text of each row, oldest first.
     texts: Vec<String>,
+    /// The first item's key is the row identity used by the list. The session header has no item.
+    keys: Vec<Option<ItemKey>>,
     /// Per row, per line of its text: the line is a gutter (a bullet, a prompt mark) the select
     /// mode's caret never stops on and a copy leaves out. Empty when no row has one.
     gutters: Vec<Vec<bool>>,
@@ -120,7 +122,12 @@ pub struct RowTexts {
 }
 
 impl RowTexts {
-    pub fn new(texts: Vec<String>, reverse: bool, revision: u64) -> RowTexts {
+    pub fn new(
+        texts: Vec<String>,
+        keys: Vec<Option<ItemKey>>,
+        reverse: bool,
+        revision: u64,
+    ) -> RowTexts {
         let mut at = 0;
         let starts = texts
             .iter()
@@ -132,6 +139,7 @@ impl RowTexts {
             .collect();
         RowTexts {
             texts,
+            keys,
             gutters: Vec::new(),
             starts,
             reverse,
@@ -153,6 +161,16 @@ impl RowTexts {
     /// The text of row `row` (oldest first): empty past the last.
     pub fn row_text(&self, row: usize) -> &str {
         self.texts.get(row).map_or("", String::as_str)
+    }
+
+    /// The transcript item whose row this is, if the row has one.
+    pub(super) fn item_key(&self, row: usize) -> Option<&ItemKey> {
+        self.keys.get(row)?.as_ref()
+    }
+
+    /// The current logical row of this item, following any older history that joined.
+    pub(super) fn row_of_item(&self, key: &ItemKey) -> Option<usize> {
+        self.keys.iter().position(|item| item.as_ref() == Some(key))
     }
 
     /// Whether line `line` of row `row` is a gutter.
@@ -191,7 +209,7 @@ impl RowTexts {
 
 impl PartialEq for RowTexts {
     fn eq(&self, other: &RowTexts) -> bool {
-        self.reverse == other.reverse && self.texts == other.texts
+        self.reverse == other.reverse && self.texts == other.texts && self.keys == other.keys
     }
 }
 

@@ -42,6 +42,30 @@ fn typing_clears_a_mouse_selection_and_the_composer_receives_the_key() {
 }
 
 #[test]
+fn an_older_history_page_keeps_the_keyboard_selection_on_its_original_row() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(42, 16)
+        .replay(Vec::new())
+        .view_only()
+        .open();
+    s.selection_copy_policy(false, false);
+    s.partial_history_of(&["preceding message", "canonical text"]);
+    s.double_click_text("canonical");
+    s.keys("shift+left ctrl+c");
+    s.assert_text_style("canonica", "reversed");
+    s.assert_copies_asked(&["canonica"]);
+
+    s.join_older_page(&["historical message"], false);
+    s.assert_contains("historical message");
+    s.assert_text_style("canonica", "reversed");
+    s.assert_text_style("preceding", "!reversed");
+    s.keys("ctrl+c");
+    s.assert_copies_asked(&["canonica", "canonica"]);
+    s.keys("right ctrl+c");
+    s.assert_copies_asked(&["canonica", "canonica", "canonical"]);
+}
+
+#[test]
 fn arrow_extension_keeps_graphemes_and_the_column_across_a_short_line() {
     let mut s = Screen::build(Owner::ChatLive)
         .size(32, 12)
