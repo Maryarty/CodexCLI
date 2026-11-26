@@ -4,20 +4,22 @@
 
 use std::sync::Arc;
 
-use super::{Item, Transcript};
+use super::{Item, ItemKey, Transcript};
 use crate::screens::status::{Limits, StatusCard};
 
 impl Transcript {
+    /// The card selected by the Copy feature's per-thread source, including its latest refresh.
+    pub(crate) fn status_at(&self, key: &ItemKey) -> Option<&Arc<StatusCard>> {
+        match self.item(key)? {
+            Item::Status { card, .. } => Some(card),
+            _ => None,
+        }
+    }
+
     /// The card of the newest `/status` entry (oracle `last_status_copy_targets`:
     /// the copy picker offers the last one).
     pub fn last_status(&self) -> Option<&Arc<StatusCard>> {
-        self.order
-            .iter()
-            .rev()
-            .find_map(|key| match self.item(key) {
-                Some(Item::Status { card, .. }) => Some(card),
-                _ => None,
-            })
+        self.order.iter().rev().find_map(|key| self.status_at(key))
     }
 
     /// The refreshes the cells of this transcript still wait for.

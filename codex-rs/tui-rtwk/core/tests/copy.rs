@@ -184,6 +184,72 @@ fn a_picker_row_copies_its_text_in_its_format_under_its_label() {
 }
 
 #[test]
+fn status_picker_rows_ask_for_plain_text_clipboard() {
+    let mut app = app(&[]);
+    let fx = verb(
+        &mut app,
+        CopyIntent::StatusText {
+            thread: ThreadId::new(T),
+            text: "/work/a*b".to_owned(),
+            label: "Directory".to_owned(),
+        },
+    );
+    let asks = asks(&fx);
+    assert_eq!(asks.len(), 1);
+    assert_eq!(
+        asks[0].1,
+        Ask::Copy {
+            text: "/work/a*b".to_owned(),
+            format: CopyFormat::PlainText,
+            destination: CopyDestination::Clipboard,
+        }
+    );
+}
+
+#[test]
+fn a_new_picker_reads_the_refreshed_status_while_the_old_wish_keeps_its_snapshot() {
+    let fixture = r#"{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"status","ev":{"kind":"account","account":{"chat_gpt":{"email":"user@example.com","plan":"plus"}}}}
+{"step":"screen","dir":"chat","ev":{"status":{"account_usage":true}}}"#;
+    let mut app = build(fixture).expect("plays").app;
+    let fx = run(
+        &mut app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
+            thread: Some(ThreadId::new(T)),
+            command: SlashCommand::Status,
+            intent: SessionIntent::Status,
+        }))),
+    );
+    let read = fx
+        .commands()
+        .iter()
+        .find(|command| matches!(command, Command::ReadRateLimits { .. }))
+        .expect("refresh for this Status card");
+    command(&mut app);
+    let old = wishes(&app);
+    let [FeatureWish::Copier(Wish::Status { card: before, .. })] = old.as_slice() else {
+        panic!("a Status picker was expected, got {old:?}");
+    };
+    assert!(before.limits.refreshing);
+
+    let (ticket, reply) = codex_tui_core::protocol::reply(
+        read,
+        Ok(json!({"rateLimits":{"primary":{"usedPercent":42,"windowDurationMins":300}}})),
+    )
+    .expect("the backend's typed refresh reply");
+    run(&mut app, AppEv::Reply(ticket, reply));
+    command(&mut app);
+    let current = wishes(&app);
+    let Some(FeatureWish::Copier(Wish::Status { card: after, .. })) = current.last() else {
+        panic!("the refreshed Status card should still be copyable, got {current:?}");
+    };
+    assert!(before.limits.refreshing);
+    assert!(!after.limits.refreshing);
+    assert_eq!(after.number, before.number);
+    assert_eq!(after.limits.snapshots.len(), 1);
+}
+
+#[test]
 fn the_hosts_answers_are_notes_under_the_label_that_was_asked() {
     let mut app = app(&["x"]);
     for (done, label) in [

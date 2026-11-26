@@ -219,6 +219,7 @@ pub(super) fn run(
         return;
     }
     let outcome = dispatch_with_tiers(line, &facts, &tiers);
+    features::supersede_status_copy(&outcome, session.active.as_ref(), cx, hs);
     match outcome {
         Outcome::NotACommand => {
             // The decision is `apply`'s (R10): it starts a turn or queues
@@ -229,7 +230,6 @@ pub(super) fn run(
             } else if !line.trim().is_empty() || w.ui.draft.remote_count() > 0 {
                 record(cx);
                 let message = queue::message(line, w, cx, &states);
-                // (the queue key and the drain left before dispatch)
                 queue::send(cx, hs, message, session.active.clone());
             }
         }

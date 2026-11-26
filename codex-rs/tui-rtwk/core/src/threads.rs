@@ -2504,6 +2504,7 @@ fn item_upsert(
 /// the server's page is applied over it.
 fn reset_history(model: &mut ThreadModel) {
     model.transcript.reset();
+    features::clear_copy_status(&mut model.features);
     model.history_next = None;
     model.history_ask = HistoryAsk::Idle;
     Rc::make_mut(&mut model.finished_turns).clear();
@@ -2517,6 +2518,15 @@ fn reset_history(model: &mut ThreadModel) {
 pub fn apply(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     apply_ev(model, ev, fx);
     for (ticket, ctx) in std::mem::take(&mut fx.registered) {
+        if matches!(
+            ctx,
+            ThreadCtx::StartTurn { .. }
+                | ThreadCtx::Screen(ScreenCtx::Chat(
+                    screens::chat::Ctx::Steer { .. } | screens::chat::Ctx::Shell
+                ))
+        ) {
+            features::clear_copy_status(&mut model.features);
+        }
         model.outgoing.insert(ticket, fx.address, ctx);
     }
 }
@@ -3200,6 +3210,9 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     return;
                 }
                 if !turn_finished {
+                    if new_copy_response(&model.transcript, &key, &item) {
+                        features::clear_copy_status(&mut model.features);
+                    }
                     match &item {
                         Item::Agent { .. } => {
                             model.completed_items.insert(key.clone());
@@ -3264,6 +3277,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             model.legacy_user_completions.remove(&turn);
             processes::turn_ended(model, &turn, end);
             let released = reconcile_ids(model, &receipts);
+            let live = !model.turn_finished(&turn);
             match snapshot {
                 // A list with no item says nothing of a turn whose items came as they ran: the
                 // oracle's live chat keeps what the notifications drew (an interrupted turn's
@@ -3276,6 +3290,9 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                             turn: turn.clone(),
                             item: id.clone(),
                         };
+                        if live && new_copy_response(&model.transcript, &key, item) {
+                            features::clear_copy_status(&mut model.features);
+                        }
                         processes::track(model, &key, item);
                     }
                     model.transcript.replace_turn(&turn, items);
@@ -3283,14 +3300,15 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 Some(TurnSnapshot::Summary(items))
                     if !model.authoritative_turns.contains(&turn) =>
                 {
-                    for (item, entry) in items {
-                        model.transcript.upsert(
-                            ItemKey {
-                                turn: turn.clone(),
-                                item,
-                            },
-                            entry,
-                        );
+                    for (id, item) in items {
+                        let key = ItemKey {
+                            turn: turn.clone(),
+                            item: id,
+                        };
+                        if live && new_copy_response(&model.transcript, &key, &item) {
+                            features::clear_copy_status(&mut model.features);
+                        }
+                        model.transcript.upsert(key, item);
                     }
                 }
                 _ => {}
@@ -4088,6 +4106,11 @@ fn is_start_turn(ctx: &ThreadCtx) -> bool {
     matches!(ctx, ThreadCtx::StartTurn { .. })
 }
 
+fn new_copy_response(transcript: &Transcript, key: &ItemKey, item: &Item) -> bool {
+    matches!(item, Item::Agent { text, .. } | Item::Plan { text } if !text.trim().is_empty())
+        && (transcript.streaming.contains_key(key) || transcript.item(key) != Some(item))
+}
+
 fn apply_appended(model: &mut ThreadModel, turn: Option<TurnId>, item: Item) {
     let turn = turn
         .or_else(|| match &model.turn {
@@ -4097,6 +4120,9 @@ fn apply_appended(model: &mut ThreadModel, turn: Option<TurnId>, item: Item) {
         .or_else(|| model.transcript.last_turn().cloned())
         .unwrap_or_default();
     let key = model.transcript.mint(turn);
+    if matches!(item, Item::Status { .. }) {
+        features::remember_copy_status(&mut model.features, key.clone());
+    }
     model.transcript.upsert(key, item);
 }
 
@@ -4140,6 +4166,7 @@ fn start_turn(model: &mut ThreadModel, turn: TurnId, now: i64) {
     model.core.safety.turn_started(&turn);
     match &model.turn {
         TurnState::Idle => {
+            features::clear_copy_status(&mut model.features);
             hooks::clear(model);
             model.slots.chat.begin_turn();
             model.turn = TurnState::Running(RunningTurn {

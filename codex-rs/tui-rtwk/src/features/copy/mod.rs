@@ -9,15 +9,17 @@ pub mod targets;
 
 use std::rc::Rc;
 
-use rtwk::AnyWidget;
+use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::features::Scope;
 use codex_tui_core::features::copy::{
     Copier, Intent, Note, Wish, copy_markdown, strip_line_directives,
 };
+use codex_tui_core::ids::ThreadId;
 use codex_tui_core::keymap::actions::GLOBAL_COPY;
 
 use super::{FeatureAction, FeatureView, InPlace, Shown};
+use crate::app::view::Hs;
 use crate::pages::session::strings::Strings as SessionStrings;
 use crate::pages::session::transcript::copy as copy_mode;
 use crate::widgets::thread_ui::ThreadUi;
@@ -58,6 +60,9 @@ fn pieces(source: &str) -> Vec<copy_mode::Piece> {
 impl FeatureView for Copier {
     /// On the chat's own transcript `/copy` is copy mode, not the picker.
     fn in_place(wish: &Wish, ui: &ThreadUi) -> InPlace<Intent> {
+        if matches!(wish, Wish::Status { .. }) {
+            return InPlace::Not;
+        }
         if begins_mode(ui) {
             return InPlace::Took;
         }
@@ -66,7 +71,7 @@ impl FeatureView for Copier {
             Wish::Mode { thread } => InPlace::Declined(Intent::Nothing {
                 thread: thread.clone(),
             }),
-            Wish::Picker { .. } => InPlace::Not,
+            Wish::Picker { .. } | Wish::Status { .. } => InPlace::Not,
         }
     }
 
@@ -74,14 +79,16 @@ impl FeatureView for Copier {
     /// open for it. `Wish::Mode` has no sheet: the mode began in place or the presenter says it
     /// could not (`Intent::Nothing`).
     fn shown(wish: &Wish, _scope: &Scope) -> Option<Shown> {
-        let Wish::Picker { response, .. } = wish.clone() else {
-            return None;
+        let source = match wish.clone() {
+            Wish::Picker { response, .. } => picker::Source::Response(response),
+            Wish::Status { thread, card } => picker::Source::Status { thread, card },
+            Wish::Mode { .. } => return None,
         };
         Some(Shown {
             held_by: None,
             open: Rc::new(move || -> AnyWidget {
                 picker::CopyPicker {
-                    response: response.clone(),
+                    source: source.clone(),
                 }
                 .into()
             }),
@@ -100,5 +107,39 @@ impl FeatureView for Copier {
 
     fn note_words(note: &Note, _words: &SessionStrings) -> String {
         strings::note(note)
+    }
+}
+
+/// Commands handled or refused by the page still supersede the thread's Status copy source.
+pub fn supersede_status_copy<S: 'static>(
+    outcome: &codex_tui_core::commands::Outcome,
+    thread: Option<&ThreadId>,
+    cx: &mut Cx<'_, S>,
+    hs: &Hs,
+) {
+    use codex_tui_core::commands::{Notice, Outcome, SessionIntent, SlashCommand};
+
+    let supersedes = match outcome {
+        Outcome::Open(_) | Outcome::Tier(_) | Outcome::Insert(_) | Outcome::Quit => true,
+        Outcome::Session { intent, .. } => matches!(intent, SessionIntent::Vim),
+        Outcome::Notice(notice) => {
+            notice.is_recalled()
+                && !matches!(
+                    notice,
+                    Notice::DisabledDuringTask(SlashCommand::Copy)
+                        | Notice::UnavailableInSide(SlashCommand::Copy)
+                        | Notice::UnavailableInReview(SlashCommand::Copy)
+                        | Notice::SessionStarting(SlashCommand::Copy)
+                        | Notice::NotAvailable(SlashCommand::Copy)
+                )
+        }
+        Outcome::NotACommand => false,
+    };
+    if supersedes && let Some(thread) = thread {
+        super::verb_by(
+            cx,
+            hs,
+            codex_tui_core::features::supersede_copy_status(thread.clone()),
+        );
     }
 }

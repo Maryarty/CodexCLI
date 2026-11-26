@@ -15,7 +15,7 @@ use rtwk::layout::{
     Column, CrossAxisAlignment, EdgeInsets, Grid, GridPlacement, GridTrack, MainAxisSize, Padding,
     Row, SizedBox,
 };
-use rtwk::provider::select;
+use rtwk::provider::{read, select};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::segmenter_of;
 use rtwk::widgets::Text;
@@ -28,7 +28,7 @@ use codex_tui_core::screens::status::{
 };
 
 use super::super::text::{Part, Room};
-use super::bar::{BAR_CELLS, bar};
+use super::bar::{self, BAR_CELLS, bar};
 use super::strings::{self, Strings};
 use super::usage;
 use crate::app::theme::Tokens;
@@ -193,6 +193,84 @@ fn tracks(entries: &[Entry], seg: Measure, width: i32) -> (i32, i32) {
 }
 
 impl StatusCell {
+    /// The status card's plain contents before terminal wrapping, for the copy picker.
+    pub(crate) fn clipboard_text<S: 'static>(card: &StatusCard, cx: &mut Cx<'_, S>) -> String {
+        let s = strings::of(cx);
+        let look = Look {
+            s,
+            faint: Style::default(),
+            accent: Style::default(),
+            bold: Style::default(),
+        };
+        let figure = read::<FeatureStates, _>(cx)
+            .thread_usage
+            .card_figure(card.number);
+        let entries = entries(card, figure.as_ref().map(Option::as_ref), &look);
+        let seg = segmenter_of(cx);
+        let (_, value_room) = tracks(&entries, seg, i32::MAX);
+        let value_indent = usize::try_from(i32::MAX - value_room).unwrap_or_default();
+        let indent = " ".repeat(usize::try_from(INDENT).unwrap_or_default());
+        let mut lines = vec![
+            format!(
+                "{}{}{}",
+                s.title_mark,
+                s.title_name,
+                s.title_version(&card.version)
+            ),
+            String::new(),
+        ];
+        if card.usage_link {
+            lines.extend([
+                format!("{indent}{}{}{}", s.usage_visit, s.usage_url, s.usage_for),
+                format!("{indent}{}", s.usage_info),
+                String::new(),
+            ]);
+        }
+        for entry in entries {
+            match entry {
+                Entry::Blank => lines.push(String::new()),
+                Entry::Reserve(_) => {}
+                Entry::Row { label, value } => {
+                    let pad =
+                        " ".repeat(value_indent.saturating_sub(indent.len() + seg.width(&label)));
+                    let prefix = format!("{indent}{label}{pad}");
+                    match value {
+                        Value::Spans(spans) => lines.push(format!("{prefix}{}", span_text(&spans))),
+                        Value::Window {
+                            percent_left,
+                            reset,
+                            details,
+                        } => {
+                            let (_, spans) = window_spans(
+                                percent_left,
+                                reset.as_deref(),
+                                details.as_deref(),
+                                &look,
+                                seg,
+                                value_room,
+                            );
+                            let mut values = spans.iter().map(|spans| span_text(spans));
+                            let first = values.next().unwrap_or_default();
+                            lines.push(format!(
+                                "{prefix}{}{first}",
+                                bar::text(i64::from(percent_left))
+                            ));
+                            let align = " ".repeat(value_indent);
+                            lines.extend(values.map(|value| format!("{align}{value}")));
+                        }
+                    }
+                }
+            }
+        }
+        lines
+            .iter()
+            .map(|line| line.trim_end())
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim()
+            .to_owned()
+    }
+
     /// The status card's text nodes at the mounted width. The usage bar paints
     /// cells directly and contributes no selectable text.
     pub(crate) fn texts(

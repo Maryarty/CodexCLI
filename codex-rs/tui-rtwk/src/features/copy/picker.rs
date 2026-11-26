@@ -5,6 +5,7 @@
 //! Flutter's `showModalBottomSheet` over a list of options.
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use rtwk::overlay::close_dialog;
 use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
@@ -12,23 +13,41 @@ use rtwk_core::unicode::grapheme_boundaries;
 
 use codex_tui_core::app::effects::CopyFormat;
 use codex_tui_core::features::copy::{Intent, Response, strip_line_directives};
+use codex_tui_core::ids::ThreadId;
+use codex_tui_core::screens::status::StatusCard;
 
-use super::strings::{BLOCKQUOTE, CODE_BLOCK, PICKER_TITLE, WHOLE_RESPONSE, code_in};
+use super::strings::{
+    BLOCKQUOTE, CODE_BLOCK, PICKER_TITLE, STATUS_DIRECTORY, STATUS_MODEL, STATUS_SESSION_ID,
+    STATUS_THREAD_NAME, WHOLE_RESPONSE, WHOLE_STATUS, code_in,
+};
 use super::targets::{self, Target};
 use crate::features::verb;
+use crate::pages::session::cells::status::StatusCell;
 use crate::widgets::picker::list::{Columns, Item, List};
 use crate::widgets::picker::{Event, Picker};
 
 /// The most graphemes of a row's preview.
 const PREVIEW_GRAPHEMES: usize = 72;
 
-/// The picker over `response`.
 #[derive(Clone, Debug, PartialEq)]
-pub struct CopyPicker {
-    pub response: Response,
+pub enum Source {
+    Response(Response),
+    Status {
+        thread: ThreadId,
+        card: Arc<StatusCard>,
+    },
 }
 
-pub struct PickerState;
+/// The picker over the copy source selected by the thread.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CopyPicker {
+    pub source: Source,
+}
+
+#[derive(Default)]
+pub struct PickerState {
+    choices: Vec<Choice>,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Msg {
@@ -43,7 +62,7 @@ struct Choice {
 }
 
 /// The rows of the picker for `response` (`show_copy_picker`).
-fn choices(response: &Response) -> Vec<Choice> {
+fn response_choices(response: &Response) -> Vec<Choice> {
     let mut choices = vec![Choice {
         label: WHOLE_RESPONSE.to_owned(),
         text: response.markdown.clone(),
@@ -52,7 +71,8 @@ fn choices(response: &Response) -> Vec<Choice> {
     for target in targets::extract(&response.source) {
         match target {
             Target::Code { language, content } => choices.push(Choice {
-                label: language.map_or_else(|| CODE_BLOCK.to_owned(), |language| code_in(&language)),
+                label: language
+                    .map_or_else(|| CODE_BLOCK.to_owned(), |language| code_in(&language)),
                 text: content,
                 format: CopyFormat::PlainText,
             }),
@@ -72,6 +92,36 @@ fn choices(response: &Response) -> Vec<Choice> {
         }
     }
     choices
+}
+
+fn choices(source: &Source, cx: &mut Cx<'_, PickerState>) -> Vec<Choice> {
+    let card = match source {
+        Source::Status { card, .. } => card,
+        Source::Response(response) => return response_choices(response),
+    };
+    let whole = StatusCell::clipboard_text(card, cx);
+    [
+        (WHOLE_STATUS, Some(whole.as_str())),
+        (
+            STATUS_MODEL,
+            Some(card.model_id.as_deref().unwrap_or(&card.model)),
+        ),
+        (STATUS_DIRECTORY, Some(card.directory.as_str())),
+        (STATUS_THREAD_NAME, card.thread_name()),
+        (
+            STATUS_SESSION_ID,
+            card.session_id.as_deref().filter(|id| !id.is_empty()),
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(label, text)| {
+        Some(Choice {
+            label: label.to_owned(),
+            text: text?.to_owned(),
+            format: CopyFormat::PlainText,
+        })
+    })
+    .collect()
 }
 
 /// `truncate_text`: at most `max` graphemes, the last three dots when it is cut.
@@ -116,7 +166,7 @@ impl StatefulWidget for CopyPicker {
     type State = PickerState;
 
     fn create_state(&self) -> PickerState {
-        PickerState
+        PickerState::default()
     }
 }
 
@@ -126,6 +176,12 @@ impl State for PickerState {
     type Widget = CopyPicker;
     type Msg = Msg;
 
+    fn did_change_dependencies(&mut self, w: &CopyPicker, cx: &mut Cx<'_, Self>) {
+        if self.choices.is_empty() {
+            self.choices = choices(&w.source, cx);
+        }
+    }
+
     fn update(&mut self, msg: Msg, w: &CopyPicker, cx: &mut Cx<'_, Self>) -> Rebuild {
         let Msg::Picked(event) = msg;
         match event {
@@ -133,7 +189,7 @@ impl State for PickerState {
                 let picked = id
                     .parse::<usize>()
                     .ok()
-                    .and_then(|index| choices(&w.response).into_iter().nth(index));
+                    .and_then(|index| self.choices.get(index));
                 let Some(Choice {
                     label,
                     text,
@@ -142,14 +198,19 @@ impl State for PickerState {
                 else {
                     return Rebuild::No;
                 };
-                verb(
-                    cx,
-                    Intent::Text {
-                        text,
-                        label,
-                        format,
+                let intent = match &w.source {
+                    Source::Response(_) => Intent::Text {
+                        text: text.clone(),
+                        label: label.clone(),
+                        format: format.clone(),
                     },
-                );
+                    Source::Status { thread, .. } => Intent::StatusText {
+                        thread: thread.clone(),
+                        text: text.clone(),
+                        label: label.clone(),
+                    },
+                };
+                verb(cx, intent);
             }
             Event::Cancel => {}
             _ => return Rebuild::No,
@@ -158,8 +219,8 @@ impl State for PickerState {
         Rebuild::No
     }
 
-    fn build(&self, w: &CopyPicker, cx: &mut Cx<'_, Self>) -> AnyWidget {
+    fn build(&self, _w: &CopyPicker, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let on: Handler<Event> = cx.map(Msg::Picked);
-        Picker::new(Rc::new(list(&choices(&w.response))), on).into()
+        Picker::new(Rc::new(list(&self.choices)), on).into()
     }
 }

@@ -1195,5 +1195,18 @@ pub(crate) use rate_limit_prompt::{
     rolling as rolling_rate_limits,
 };
 
+pub(crate) fn remember_copy_status(parts: &mut FeatureThreadParts, key: crate::threads::ItemKey) {
+    parts.copy.remember_status(key);
+}
+
+pub(crate) fn clear_copy_status(parts: &mut FeatureThreadParts) {
+    parts.copy.clear_status();
+}
+
+/// A later command in this thread takes precedence over its previous Status card.
+pub fn supersede_copy_status(thread: crate::ids::ThreadId) -> FeatureIntent {
+    copy::Intent::StatusSuperseded { thread }.into()
+}
+
 #[cfg(test)]
 mod framework;

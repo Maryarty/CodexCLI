@@ -12,20 +12,30 @@ pub(super) const BAR_CELLS: i32 = 20;
 
 /// The bar alone: `[`, whole `█` cells for the share left, `░` for the rest, `]`.
 pub(super) fn bar(percent_left: i64) -> AnyWidget {
-    let filled = ((percent_left.clamp(0, 100) * Bar::CELLS) as f64 / 100.0).round() as i32;
     CustomPaint::new()
-        .painter(Bar { filled })
+        .painter(Bar {
+            filled: filled_cells(percent_left),
+        })
         .size(BAR_CELLS + 2, 1)
         .into()
+}
+
+pub(super) fn text(percent_left: i64) -> String {
+    let filled = filled_cells(percent_left);
+    format!(
+        "[{}{}]",
+        "█".repeat(usize::try_from(filled).unwrap_or_default()),
+        "░".repeat(usize::try_from(BAR_CELLS - filled).unwrap_or_default()),
+    )
+}
+
+fn filled_cells(percent_left: i64) -> i32 {
+    ((percent_left.clamp(0, 100) * i64::from(BAR_CELLS)) as f64 / 100.0).round() as i32
 }
 
 #[derive(Debug)]
 struct Bar {
     filled: i32,
-}
-
-impl Bar {
-    const CELLS: i64 = BAR_CELLS as i64;
 }
 
 impl CellPainter for Bar {

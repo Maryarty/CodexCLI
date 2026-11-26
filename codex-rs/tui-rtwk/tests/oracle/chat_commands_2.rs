@@ -743,56 +743,182 @@ fn slash_copy_picker_previews_whole_response_code_blocks_and_blockquotes() {
 // ORACLE chatwidget/tests/slash_commands.rs:1861 slash_copy_picker_copies_status_fields_and_preserves_source_after_copying kind=snap owner=chat-nav-pane snap=slash_copy_picker_status_fields snap=slash_copy_whole_status
 #[test]
 fn slash_copy_picker_copies_status_fields_and_preserves_source_after_copying() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no /copy picker: the port answers /copy with 'not available yet', so the picker rows are not drawn; the snapshot's [[workspace]] and VERSION placeholders need the cwd and version seeds",
-    );
-    // The oracle sets the cwd, the thread name and the model before /status; the kit cannot set them.
     let mut s = Screen::build(Owner::ChatNavPane)
-        .size(100, 24)
-        .script(SESSION)
+        .size(100, 30)
+        .owned_transcript()
+        .script(ORIGINAL)
         .open();
-    s.type_text("/status").keys("esc enter enter");
+    status_settings(&mut s, "gpt-5.5", "/workspace");
+    status_thread_name(&mut s, "Clipboard example");
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"version":"VERSION","cwd":"/workspace","account_usage":true}}}
+{"step":"respond","method":"account/rateLimits/read","result":{"rateLimits":{}}}"#);
+    s.type_text("/status").keys("enter");
+    status_settings(&mut s, "gpt-5.4", "/another-workspace");
+    status_thread_name(&mut s, "New name");
+
+    // The keyboard's whole-response shortcut still bypasses the Status picker.
+    s.keys("ctrl+o");
+    s.assert_copies_asked(&["Original reply"]);
+    s.answer_copy(Ok(()));
     s.type_text("/copy").keys("enter");
-    s.assert_snap("slash_copy_picker_status_fields");
-    s.keys("enter");
-    // The whole status (slash_copy_whole_status) is clipboard data, not drawn.
+    for field in [
+        "1. Whole status",
+        "2. Model",
+        "3. Directory",
+        "4. Thread name",
+        "5. Session ID",
+    ] {
+        s.assert_contains(field);
+    }
+    s.keys("esc");
+    s.assert_copies_asked(&["Original reply"]);
+
+    let whole = ">_ OpenAI Codex (vVERSION)
+
+  Visit https://chatgpt.com/settings/usage for up-to-date
+  information on rate limits and credits
+
+  Model:               gpt-5.5 (reasoning medium, summaries auto)
+  Model provider:      openai
+  Directory:           /workspace
+  Permissions:         Workspace (Ask for approval)
+  Agents.md:           <none>
+  Thread name:         Clipboard example
+  Collaboration mode:  Default
+  Session:             thread-1
+
+  Token usage:         0 total  (0 input + 0 output)
+  Limits:              not available for this account";
+    let mut expected = vec!["Original reply"];
+    for (key, value) in [
+        ("1", whole),
+        ("2", "gpt-5.5"),
+        ("3", "/workspace"),
+        ("4", "Clipboard example"),
+        ("5", "thread-1"),
+    ] {
+        s.type_text("/copy").keys("enter");
+        s.assert_contains("1. Whole status");
+        s.keys(key);
+        s.assert_absent("Copy to clipboard");
+        expected.push(value);
+        s.assert_copies_asked(&expected);
+        s.answer_copy(Ok(()));
+    }
+
+    // The host confirmation follows the originating Status even after a thread switch.
+    s.type_text("/copy").keys("enter");
+    s.assert_contains("1. Whole status");
+    s.keys("3");
+    expected.push("/workspace");
+    s.assert_copies_asked(&expected);
+    s.server_resumes("thread-other")
+        .visit_thread("thread-other");
+    s.assert_active_thread("thread-other");
+    s.answer_copy(Err("held clipboard result"));
+    s.assert_absent("held clipboard result");
+    s.visit_thread("thread-1");
+    s.assert_active_thread("thread-1");
+    s.assert_contains("Copy failed: held clipboard result");
+    s.assert_no_turn();
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:1914 slash_copy_status_omits_missing_fields_and_copies_full_directory kind=ui owner=chat-nav-pane
 #[test]
 fn slash_copy_status_omits_missing_fields_and_copies_full_directory() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no /copy picker: the port answers /copy with 'not available yet', so the picker rows are not drawn; the status card above the picker shows the rows the test asserts absent, which the kit cannot scope",
+    let directory = format!("/workspace/{}nested", "nested/".repeat(20));
+    let mut s = Screen::build(Owner::ChatNavPane).size(60, 20).live().open();
+    s.feed(
+        &serde_json::json!({
+            "step": "screen", "dir": "status", "ev": {
+                "kind": "status_card", "version": "VERSION", "model": "GPT-5.4",
+                "model_id": "gpt-5.4", "directory": directory, "home": "/workspace",
+                "thread_name": "", "permissions": {"sandbox": "workspace", "approval": "on_request"},
+                "tokens": {"input": 0, "cached_input": 0, "output": 0, "total": 0}
+            }
+        }).to_string(),
     );
-    let mut s = Screen::build(Owner::ChatNavPane).live().open();
-    s.type_text("/status").keys("esc enter enter");
     s.type_text("/copy").keys("enter");
     s.assert_contains("2. Model");
     s.assert_contains("3. Directory");
     s.assert_absent("Thread name");
     s.assert_absent("Session ID");
     s.keys("3");
+    s.assert_copies_asked(&[&directory]);
+    s.answer_copy(Ok(()));
+    s.assert_contains("Copied Directory to clipboard");
+    s.assert_no_turn();
+}
+
+fn status_settings(s: &mut Screen, model: &str, cwd: &str) {
+    s.feed(
+        &serde_json::json!({
+            "step": "notify", "message": {"method": "thread/settings/updated", "params": {
+                "threadId": "thread-1", "threadSettings": {
+                    "cwd": cwd, "model": model, "modelProvider": "openai", "effort": "medium",
+                    "approvalPolicy": "on-request", "approvalsReviewer": "user",
+                    "sandboxPolicy": {"type": "dangerFullAccess"},
+                    "collaborationMode": {"mode": "default", "settings": {
+                        "model": model, "reasoning_effort": "medium", "developer_instructions": null
+                    }}
+                }
+            }}
+        })
+        .to_string(),
+    );
+}
+
+fn status_thread_name(s: &mut Screen, name: &str) {
+    s.feed(
+        &serde_json::json!({
+            "step": "notify", "message": {"method": "thread/name/updated", "params": {
+                "threadId": "thread-1", "threadName": name
+            }}
+        })
+        .to_string(),
+    );
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:1936 slash_copy_status_yields_to_later_turns_and_commands_even_after_refresh kind=ui owner=chat-nav-pane
 #[test]
 fn slash_copy_status_yields_to_later_turns_and_commands_even_after_refresh() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no /copy picker: the port answers /copy with 'not available yet', so the picker rows are not drawn; the ServiceTier case needs a model catalog seed",
-    );
     for next in [
         "response",
         "user_turn",
         "command",
         "inline_command",
         "rejected_inline_command",
+        "service_tier",
         "shell_command",
     ] {
-        let mut s = Screen::build(Owner::ChatNavPane).script(ORIGINAL).open();
-        s.type_text("/status").keys("esc enter enter");
+        let mut s = Screen::build(Owner::ChatNavPane)
+            .script(ORIGINAL)
+            .fake_turn_ids()
+            .open();
+        if next == "service_tier" {
+            let catalog = include_str!("fixtures/chat_commands_2/speed_catalog.json")
+                .replace(r#""name":"priority""#, r#""name":"Fast""#);
+            s.feed(&format!(
+                r#"{{"step":"respond","method":"model/list","result":{catalog}}}
+{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"gpt-5.5","cwd":"/tmp/project","fast_mode":true}}}}}}"#
+            ));
+            status_settings(&mut s, "gpt-5.5", "/tmp/project");
+            s.type_text("/model").keys("enter");
+            s.assert_contains("Select Model");
+            s.keys("esc");
+            s.assert_absent("Select Model");
+        }
+        if next == "rejected_inline_command" {
+            s.feed(TURN2_STARTED);
+        }
+        let refresh = s.hold_request("account/rateLimits/read");
+        s.feed(r#"{"step":"screen","dir":"status","ev":{"kind":"account","account":{"chat_gpt":{"email":"user@example.com","plan":"plus"}}}}
+{"step":"screen","dir":"chat","ev":{"status":{"account_usage":true,"fast_mode":true,"model":"gpt-5.5"}}}"#);
+        let refresh_count = s.requests_of("account/rateLimits/read");
+        s.feed(r#"{"step":"respond","method":"account/rateLimits/read","result":{"rateLimits":{"primary":{"usedPercent":42,"windowDurationMins":300}}}}"#);
+        s.type_text("/status").keys("enter");
+        s.assert_requests_of("account/rateLimits/read", refresh_count + 1);
+        s.assert_contains("refresh requested");
         s.type_text("/copy").keys("enter");
         s.assert_contains("1. Whole status");
         s.keys("esc");
@@ -811,19 +937,30 @@ fn slash_copy_status_yields_to_later_turns_and_commands_even_after_refresh() {
                     .keys("esc enter enter");
             }
             "rejected_inline_command" => {
-                s.feed(TURN2_STARTED);
                 s.type_text("/cd /tmp").keys("esc enter enter");
+                s.assert_contains("'/cd' is disabled while a task is in progress.");
+                s.keys("ctrl+u");
+            }
+            "service_tier" => {
+                s.type_text("/fast").keys("enter");
+                s.assert_absent("Unrecognized command");
+                s.assert_request_mentions("thread/settings/update", "priority");
             }
             _ => {
                 s.type_text("!echo hello").keys("esc enter enter");
             }
         }
+        s.release(&refresh);
+        s.assert_absent("refresh requested");
         s.type_text("/copy").keys("enter");
         s.assert_contains("1. Whole response");
-        s.keys("esc");
+        s.keys("1");
+        s.assert_copies_asked(&[if next == "response" {
+            "Next reply"
+        } else {
+            "Original reply"
+        }]);
     }
-    // ServiceTier (`handle_service_tier_command_dispatch`) needs a model catalog with service
-    // tiers, which the kit cannot seed: that case is the pending reason's.
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2002 slash_copy_status_yields_to_queued_commands_after_queued_status kind=ui owner=chat-nav-pane
@@ -837,7 +974,8 @@ fn slash_copy_status_yields_to_queued_commands_after_queued_status() {
         s.assert_contains("/status");
         s.type_text("/copy").keys("enter");
         s.assert_contains("1. Whole response");
-        s.keys("esc");
+        s.keys("1");
+        s.assert_copies_asked(&["Original reply"]);
     }
 }
 

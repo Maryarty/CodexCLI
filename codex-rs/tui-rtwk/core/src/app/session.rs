@@ -159,6 +159,15 @@ pub(super) fn session_intent(
     fx: &mut AppFx,
 ) {
     use crate::commands::SessionIntent as S;
+    if command != crate::commands::SlashCommand::Copy
+        && let Some(thread) = &source
+    {
+        super::features::intent(
+            app,
+            crate::features::supersede_copy_status(thread.clone()),
+            fx,
+        );
+    }
     match intent {
         // `/clear` starts the conversation where the session is; `/new` and `/fork` first ask
         // where it runs where a local repository offers a new checkout

@@ -11,6 +11,12 @@ pub const PICKER_TITLE: &str = "Copy to clipboard";
 /// The row of the whole response (oracle `show_copy_picker`).
 pub const WHOLE_RESPONSE: &str = "Whole response";
 
+pub const WHOLE_STATUS: &str = "Whole status";
+pub const STATUS_MODEL: &str = "Model";
+pub const STATUS_DIRECTORY: &str = "Directory";
+pub const STATUS_THREAD_NAME: &str = "Thread name";
+pub const STATUS_SESSION_ID: &str = "Session ID";
+
 /// The row of a code block that names no language.
 pub const CODE_BLOCK: &str = "Code block";
 
