@@ -3518,11 +3518,13 @@ fn stream_lost(
 
 /// Clear the writer and its pending RPCs after the connection is lost.
 fn detach_threads(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx) {
+    let cloud = app.screens.agents.is_cloud(backend);
     let held: Vec<_> = app
         .threads
         .iter()
         .filter(|(id, model)| {
-            model.has_writer() && app.screens.agents.owner_of(id.as_str()) == backend
+            app.screens.agents.owner_of(id.as_str()) == backend
+                && (model.has_writer() || (cloud && model.stream_lost()))
         })
         .map(|(id, _)| id.clone())
         .collect();
@@ -3686,6 +3688,8 @@ pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mu
     } else {
         crate::screens::cells::Daybreak::Apply
     };
+    let agents = &app.screens.agents;
+    let cloud = agents.is_cloud(agents.owner_of(thread.as_str()));
     if let Some(model) = app.threads.get_mut(thread) {
         threads::apply(
             model,
@@ -3693,6 +3697,7 @@ pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mu
             &mut ThreadFx::new(thread, fx, &mut app.mint)
                 .stamped(daybreak)
                 .with_modes(&app.modes)
+                .with_cloud(cloud)
                 .with_facts(AppFacts::new(
                     app.now,
                     &app.tui,

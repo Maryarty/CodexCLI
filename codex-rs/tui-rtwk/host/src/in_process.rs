@@ -1200,6 +1200,12 @@ pub(crate) fn work(
             ..
         }) => Box::pin(async move {
             let request = protocol::client_request(&command, ids.next(), model.as_deref())?;
+            if let AppServerRequestHandle::Cloud(cloud) = &handle {
+                return crate::cloud::submit(ticket, request, |params| {
+                    cloud.submit_user_message(params)
+                })
+                .await;
+            }
             let own_message = wire::reads_message_only(&request);
             let response = handle.request_typed::<serde_json::Value>(request).await;
             let (ticket, reply) = match response {

@@ -88,6 +88,19 @@ pub struct Reply(ReplyResult);
 pub(crate) enum ReplyResult {
     Answer(Answer),
     SubmissionUnconfirmed(String),
+    CloudSubmission(CloudSubmission),
+}
+
+/// Cloud decides at admission whether input starts a turn or joins one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CloudSubmission {
+    Started(TurnId),
+    Steered(TurnId),
+    /// The ID was seen before. The reply says nothing about turn lifecycle.
+    Duplicate,
+    Unconfirmed(String),
+    /// The Cloud worker rejected the request before making a submission.
+    Preflight(String),
 }
 
 impl Reply {
@@ -98,6 +111,10 @@ impl Reply {
     /// The connection failed while a submission was in flight. Receipt still needs verification.
     pub fn submission_unconfirmed(message: impl Into<String>) -> Self {
         Self(ReplyResult::SubmissionUnconfirmed(message.into()))
+    }
+
+    pub fn cloud_submission(result: CloudSubmission) -> Self {
+        Self(ReplyResult::CloudSubmission(result))
     }
 
     pub fn thread_started(thread: ThreadId) -> Self {
@@ -244,6 +261,12 @@ impl<C> Pending<C> {
         self.entries.get(&ticket)
     }
 
+    pub(crate) fn iter_mut(&mut self) -> impl Iterator<Item = (Ticket, &mut C)> {
+        self.entries
+            .iter_mut()
+            .map(|(ticket, context)| (*ticket, context))
+    }
+
     pub fn contains(&self, ticket: Ticket) -> bool {
         self.entries.contains_key(&ticket)
     }
@@ -275,6 +298,7 @@ impl<C> Pending<C> {
             ReplyResult::SubmissionUnconfirmed(message) => {
                 Answer::Failed(RpcError::Remote(message))
             }
+            ReplyResult::CloudSubmission(_) => Answer::Failed(RpcError::Mismatch),
         };
         Some((ctx, answer))
     }

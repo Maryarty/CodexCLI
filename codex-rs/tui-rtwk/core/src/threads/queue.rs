@@ -280,6 +280,7 @@ pub(super) fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
     if !model.has_writer()
         || model.stream_lost
         || model.reconciling_submissions
+        || super::cloud_admission_pending(model, fx)
         || matches!(model.queue.first(), Some(Queued::Unconfirmed { .. }))
         || model.slots.chat.mcp.is_starting()
         || model.safety.blocks_input()
