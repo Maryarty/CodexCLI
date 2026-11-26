@@ -308,11 +308,11 @@ impl RowTextCache {
 
 #[cfg(test)]
 mod tests {
-    use codex_tui_core::app::{AppEv, AppFx, apply_app};
+    use codex_tui_core::app::AppEv;
     use codex_tui_core::fixtures::builders::{
         agent_delta, command_output, command_started, turn_started,
     };
-    use codex_tui_core::fixtures::script::build;
+    use codex_tui_core::fixtures::sandbox::Sandbox;
 
     use super::{Kind, Part, ROW_TEXT_LIMIT, Rc, Reading, Row, RowText, RowTextCache, row_parts};
     use crate::pages::session::cells::text::Env;
@@ -355,11 +355,10 @@ mod tests {
             source.push('\n');
         }
         source.push_str(LIVE);
-        let Ok(played) = build(&source) else {
+        let Ok(mut sandbox) = Sandbox::play(&source) else {
             panic!("valid transcript fixture");
         };
-        let mut app = played.app;
-        let before = app.active_thread();
+        let before = sandbox.app().active_thread();
         let rows: Vec<_> = (0..before.transcript().len())
             .map(|index| Row {
                 range: index..index + 1,
@@ -381,12 +380,13 @@ mod tests {
             assert_eq!(cache.prepared, 81);
         }
 
-        apply_app(
-            &mut app,
-            AppEv::Backend(agent_delta(THREAD, "live", "tail", " follow-up")),
-            &mut AppFx::default(),
-        );
-        let after = app.active_thread();
+        sandbox.send(AppEv::Backend(agent_delta(
+            THREAD,
+            "live",
+            "tail",
+            " follow-up",
+        )));
+        let after = sandbox.app().active_thread();
         let scanned = cache.read(&after, &rows, true, true, &reading, None);
         let selected = cache.read(&after, &rows, true, true, &reading, Some(&disclosed));
         assert_eq!(cache.prepared, 82);
@@ -398,16 +398,10 @@ mod tests {
 
     #[test]
     fn alternating_search_and_mounted_views_reuses_closed_tool_projections() {
-        let Ok(played) = build(SEED) else {
+        let Ok(mut sandbox) = Sandbox::play(SEED) else {
             panic!("valid seed fixture");
         };
-        let mut app = played.app;
-        let mut fx = AppFx::default();
-        apply_app(
-            &mut app,
-            AppEv::Backend(turn_started(THREAD, "run")),
-            &mut fx,
-        );
+        sandbox.send(AppEv::Backend(turn_started(THREAD, "run")));
         let output = "first output\nsecond output\nthird output\nfourth output\n";
         for item in ["first", "second", "third", "fourth"] {
             let Ok(started) = command_started(THREAD, "run", item, "printf test") else {
@@ -416,10 +410,10 @@ mod tests {
             let Ok(delta) = command_output(THREAD, "run", item, output) else {
                 panic!("valid output notification");
             };
-            apply_app(&mut app, AppEv::Backend(started), &mut fx);
-            apply_app(&mut app, AppEv::Backend(delta), &mut fx);
+            sandbox.send(AppEv::Backend(started));
+            sandbox.send(AppEv::Backend(delta));
         }
-        let thread = app.active_thread();
+        let thread = sandbox.app().active_thread();
         let rows: Vec<_> = (0..thread.transcript().len())
             .map(|index| Row {
                 range: index..index + 1,
@@ -447,27 +441,21 @@ mod tests {
 
     #[test]
     fn large_search_rows_keep_every_byte_without_pinning_them_in_the_cache() {
-        let Ok(played) = build(SEED) else {
+        let Ok(mut sandbox) = Sandbox::play(SEED) else {
             panic!("valid seed fixture");
         };
-        let mut app = played.app;
-        let mut fx = AppFx::default();
-        apply_app(
-            &mut app,
-            AppEv::Backend(turn_started(THREAD, "run")),
-            &mut fx,
-        );
+        sandbox.send(AppEv::Backend(turn_started(THREAD, "run")));
         let Ok(started) = command_started(THREAD, "run", "tool", "printf test") else {
             panic!("valid shell command");
         };
-        apply_app(&mut app, AppEv::Backend(started), &mut fx);
+        sandbox.send(AppEv::Backend(started));
         let mut output = "older output\n".repeat(ROW_TEXT_LIMIT / 4);
         output.push_str("tail of output\n");
         let Ok(delta) = command_output(THREAD, "run", "tool", &output) else {
             panic!("valid output notification");
         };
-        apply_app(&mut app, AppEv::Backend(delta), &mut fx);
-        let thread = app.active_thread();
+        sandbox.send(AppEv::Backend(delta));
+        let thread = sandbox.app().active_thread();
         let rows = [Row {
             range: 0..1,
             kind: Kind::Cell,
@@ -488,23 +476,17 @@ mod tests {
 
     #[test]
     fn grouped_rows_invalidate_for_any_member_and_disclosure_or_room() {
-        let Ok(played) = build(SEED) else {
+        let Ok(mut sandbox) = Sandbox::play(SEED) else {
             panic!("valid seed fixture");
         };
-        let mut app = played.app;
-        let mut fx = AppFx::default();
-        apply_app(
-            &mut app,
-            AppEv::Backend(turn_started(THREAD, "run")),
-            &mut fx,
-        );
+        sandbox.send(AppEv::Backend(turn_started(THREAD, "run")));
         for key in ["first", "second"] {
             let Ok(started) = command_started(THREAD, "run", key, "printf test") else {
                 panic!("valid shell command");
             };
-            apply_app(&mut app, AppEv::Backend(started), &mut fx);
+            sandbox.send(AppEv::Backend(started));
         }
-        let before = app.active_thread();
+        let before = sandbox.app().active_thread();
         let rows = [Row {
             range: 0..2,
             kind: Kind::Cell,
@@ -519,8 +501,8 @@ mod tests {
         let Ok(delta) = command_output(THREAD, "run", "second", "new output") else {
             panic!("valid output notification");
         };
-        apply_app(&mut app, AppEv::Backend(delta), &mut fx);
-        let after = app.active_thread();
+        sandbox.send(AppEv::Backend(delta));
+        let after = sandbox.app().active_thread();
         cache.read(&after, &rows, false, false, &reading, Some(&disclosed));
         assert_eq!(cache.prepared, 2);
         let Some((first, _)) = after.transcript().get(0) else {
@@ -542,20 +524,20 @@ mod tests {
 
     #[test]
     fn reader_context_change_drops_old_thread_text_even_at_the_same_revision() {
-        let Ok(first) = build(concat!(
+        let Ok(first) = Sandbox::play(concat!(
             "{\"step\":\"seed\",\"seed\":\"session\",\"thread\":\"thread-1\"}\n",
             "{\"step\":\"entry\",\"kind\":\"agent\",\"text\":\"# First body\"}",
         )) else {
             panic!("valid first thread");
         };
-        let Ok(second) = build(concat!(
+        let Ok(second) = Sandbox::play(concat!(
             "{\"step\":\"seed\",\"seed\":\"session\",\"thread\":\"thread-2\"}\n",
             "{\"step\":\"entry\",\"kind\":\"agent\",\"thread\":\"thread-2\",\"text\":\"# Second body\"}",
         )) else {
             panic!("valid second thread");
         };
-        let first = first.app.active_thread();
-        let second = second.app.active_thread();
+        let first = first.app().active_thread();
+        let second = second.app().active_thread();
         let rows = [Row {
             range: 0..1,
             kind: Kind::Cell,
