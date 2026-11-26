@@ -2,8 +2,6 @@
 //! position and preserves the parser for a row while its item key is mounted.
 
 use std::cell::{Cell, RefCell};
-use std::fmt::Write as _;
-use std::hash::{DefaultHasher, Hasher};
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -37,7 +35,7 @@ use super::cells::text::Env;
 use super::cells::user;
 use super::cells::{CellEnv, Place, cell};
 use super::strings as chat_strings;
-use super::transcript::activity_focus::{self, Activity, Stop};
+use super::transcript::activity_focus::{self, Activity, Stop, Walk};
 use super::transcript::copy::{self as copying, Targets};
 use super::transcript::find::{Finder, Held, RowTexts};
 use super::transcript::item_text::{Reading, body_nodes, mounted_parts, row_parts};
@@ -80,11 +78,12 @@ struct Placed {
 
 pub(super) struct ViewportState {
     layout: RefCell<Option<RowLayout>>,
+    activity: RefCell<Option<ActivityLayout>>,
     /// The prompt the list was last scrolled to show.
     shown: RefCell<Option<ItemKey>>,
     /// The first row the list showed, to see rows come in above it.
     first: RefCell<Option<(ThreadId, ItemKey)>>,
-    /// The last visible row the reader's thread had (its key and a fingerprint of it, not a copy:
+    /// The last visible row the reader's thread had (its key and content revision, not a copy:
     /// the thread model is the one place the row lives), to see it change: a row after it, or
     /// the row itself grown; rows above it (an older page) are none of the reader's news.
     tail: Option<(ThreadId, ItemKey, u64)>,
@@ -179,6 +178,13 @@ struct RowLayout {
     collapse: bool,
     opened: u64,
     shown: Shown,
+}
+
+struct ActivityLayout {
+    rows: Rc<[Row]>,
+    revision: u64,
+    strings: &'static cells_strings::Strings,
+    walk: Rc<Walk>,
 }
 
 /// The rows of the list and the plan of the folds they were made from.
@@ -615,21 +621,6 @@ fn in_running_turn(thread: &ThreadModel, key: &ItemKey) -> bool {
     matches!(thread.turn(), TurnState::Running(running) if running.turn == key.turn)
 }
 
-/// A hash of what the row shows, to tell that it changed (`Item` has no
-/// `Hash`; its `Debug` text is written into the hasher, not collected).
-fn fingerprint(item: &Item) -> u64 {
-    struct Sink(DefaultHasher);
-    impl std::fmt::Write for Sink {
-        fn write_str(&mut self, text: &str) -> std::fmt::Result {
-            self.0.write(text.as_bytes());
-            Ok(())
-        }
-    }
-    let mut sink = Sink(DefaultHasher::new());
-    let _ = write!(sink, "{item:?}");
-    sink.0.finish()
-}
-
 /// The ids of the fold a row draws, if it draws one: a prompt with messages behind it, a run of
 /// calls (a lone finished search is the row it is).
 fn fold_of(row: &Row, transcript: &codex_tui_core::threads::Transcript) -> Option<Vec<ItemKey>> {
@@ -669,15 +660,41 @@ fn stop_of(
     has.then(|| Stop::cell(key.clone()))
 }
 
-/// The stops of the rows, oldest first.
-fn stops(
-    rows: &[Row],
-    transcript: &codex_tui_core::threads::Transcript,
-    strings: &'static cells_strings::Strings,
-) -> Vec<Stop> {
-    rows.iter()
-        .filter_map(|row| stop_of(row, transcript, strings))
-        .collect()
+impl ViewportState {
+    fn activity_walk(
+        &self,
+        rows: &Rc<[Row]>,
+        thread: &Rc<ThreadModel>,
+        strings: &'static cells_strings::Strings,
+    ) -> Rc<Walk> {
+        let revision = thread.transcript().activity_revision();
+        let mut cache = self.activity.borrow_mut();
+        if let Some(layout) = cache.as_ref()
+            && Rc::ptr_eq(&layout.rows, rows)
+            && layout.revision == revision
+            && std::ptr::eq(layout.strings, strings)
+        {
+            return layout.walk.clone();
+        }
+        let walk = Rc::new(Walk::new({
+            let (rows, thread) = (rows.clone(), thread.clone());
+            move || {
+                rows.iter()
+                    .enumerate()
+                    .filter_map(|(index, row)| {
+                        stop_of(row, thread.transcript(), strings).map(|stop| (index, stop))
+                    })
+                    .collect()
+            }
+        }));
+        *cache = Some(ActivityLayout {
+            rows: rows.clone(),
+            revision,
+            strings,
+            walk: walk.clone(),
+        });
+        walk
+    }
 }
 
 impl StatefulWidget for Pane {
@@ -686,6 +703,7 @@ impl StatefulWidget for Pane {
     fn create_state(&self) -> Self::State {
         ViewportState {
             layout: RefCell::default(),
+            activity: RefCell::default(),
             shown: RefCell::default(),
             first: RefCell::default(),
             tail: None,
@@ -774,7 +792,11 @@ impl State for ViewportState {
             .rows
             .last()
             .and_then(|row| transcript.get(row.range.end - 1))
-            .map(|(key, item)| (thread.id().clone(), key.clone(), fingerprint(item)));
+            .and_then(|(key, _)| {
+                transcript
+                    .item_revision(key)
+                    .map(|revision| (thread.id().clone(), key.clone(), revision))
+            });
         if let (Some(before), Some(now)) = (&self.tail, &tail)
             && before.0 == now.0
             && before != now
@@ -933,17 +955,10 @@ impl State for ViewportState {
         // them (F4); the Ctrl+T transcript has none, and leaves the chat's alone. A raw row has
         // no control.
         if !detailed {
-            let walk = if raw {
-                Vec::new()
-            } else {
-                stops(&rows, thread.transcript(), cells)
-            };
-            activity.set_folds(walk);
+            let walk = (!raw).then(|| self.activity_walk(&rows, &thread, cells));
+            activity.set_folds(walk.clone());
             if let Some(ids) = activity.take_reveal()
-                && let Some(logical) = rows.iter().position(|row| {
-                    stop_of(row, thread.transcript(), cells)
-                        .is_some_and(|stop| stop.ids.iter().any(|id| ids.contains(id)))
-                })
+                && let Some(logical) = walk.and_then(|walk| walk.row(&ids))
             {
                 let logical = logical + usize::from(header.is_some());
                 widget.follow.scroll().ensure_index_visible(if reverse {

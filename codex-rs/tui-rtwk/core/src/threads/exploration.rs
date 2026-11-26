@@ -176,7 +176,7 @@ impl Transcript {
             let Some(item) = Rc::make_mut(&mut self.items).get_mut(&key) else {
                 continue;
             };
-            let Item::Tool(tool) = Rc::make_mut(item) else {
+            let Item::Tool(tool) = Rc::make_mut(&mut item.item) else {
                 continue;
             };
             let tool = Arc::make_mut(tool);
@@ -187,6 +187,9 @@ impl Transcript {
             if let ToolKind::Shell { exit_code, .. } = &mut tool.kind {
                 *exit_code = Some(exit_code.filter(|code| *code != 0).unwrap_or(1));
             }
+            self.item_revision += 1;
+            self.activity_revision += 1;
+            item.revision = self.item_revision;
         }
     }
 }

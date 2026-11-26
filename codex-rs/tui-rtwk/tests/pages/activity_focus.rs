@@ -245,6 +245,24 @@ fn f4_walks_the_cells_that_disclose_and_enter_opens_the_one_in_focus() {
 }
 
 #[test]
+fn f4_sees_a_control_added_by_output_to_an_existing_row() {
+    let mut s = Screen::build(Owner::ChatLive).size(80, 30).live().open();
+    s.feed(r#"{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","startedAtMs":0,"item":{"type":"commandExecution","id":"call-id","command":"echo output","cwd":"/tmp/project","processId":null,"source":"agent","status":"inProgress","commandActions":[],"aggregatedOutput":null,"exitCode":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"item/commandExecution/outputDelta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"call-id","delta":"one\ntwo\nthree\n"}}}
+"#);
+    s.keys("f4");
+    s.assert_absent(HINTS);
+    s.feed(r#"{"step":"notify","message":{"method":"item/commandExecution/outputDelta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"call-id","delta":"four\n"}}}
+"#);
+    s.assert_contains("+ 1 line (⌃t to expand)");
+    s.keys("f4");
+    s.assert_contains(HINTS);
+    s.keys("enter");
+    s.assert_contains("− Hide details");
+}
+
+#[test]
 fn right_opens_a_cell_and_left_closes_it_and_neither_toggles_twice() {
     for view in [true, false] {
         let mut s = cells(80, view);

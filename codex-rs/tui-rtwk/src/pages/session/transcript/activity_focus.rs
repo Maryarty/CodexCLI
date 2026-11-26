@@ -13,7 +13,7 @@
 //! tells which stops its rows have (`set_folds`, oldest first) and scrolls to the one the
 //! controller asks to be shown (`take_reveal`).
 
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell, LazyCell, RefCell};
 use std::rc::Rc;
 
 use rtwk::focus::KeyPress;
@@ -71,6 +71,27 @@ impl Stop {
     }
 }
 
+type Stops = Vec<(usize, Stop)>;
+
+/// The printed rows that F4 can visit. Prepare them on the first navigation request.
+pub(crate) struct Walk(LazyCell<Stops, Box<dyn FnOnce() -> Stops>>);
+
+impl Walk {
+    pub(crate) fn new(collect: impl FnOnce() -> Stops + 'static) -> Self {
+        Self(LazyCell::new(Box::new(collect)))
+    }
+
+    fn stops(&self) -> &[(usize, Stop)] {
+        &self.0
+    }
+
+    pub(crate) fn row(&self, ids: &[ItemKey]) -> Option<usize> {
+        self.stops()
+            .iter()
+            .find_map(|(row, stop)| stop.overlaps(ids).then_some(*row))
+    }
+}
+
 /// The folds and the cells that disclose in the thread's transcript: which are open, which has
 /// the focus.
 #[derive(Clone)]
@@ -80,7 +101,7 @@ struct Shared {
     /// The stop in focus.
     focused: RefCell<Option<Stop>>,
     /// The stops the list has rows for, oldest first.
-    folds: RefCell<Vec<Stop>>,
+    folds: RefCell<Option<Rc<Walk>>>,
     /// The cells that disclose and which of them are open (Find opens one for its match).
     disclosed: Disclosed,
     open: RefCell<Unfolded>,
@@ -178,7 +199,7 @@ impl Activity {
     }
 
     /// The stops the list has rows for, oldest first.
-    pub fn set_folds(&self, folds: Vec<Stop>) {
+    pub(crate) fn set_folds(&self, folds: Option<Rc<Walk>>) {
         *self.0.folds.borrow_mut() = folds;
     }
 
@@ -215,7 +236,12 @@ impl Activity {
             self.leave();
             return false;
         }
-        let last = self.0.folds.borrow().last().cloned();
+        let last = self
+            .0
+            .folds
+            .borrow()
+            .as_ref()
+            .and_then(|walk| walk.stops().last().map(|(_, stop)| stop.clone()));
         let Some(last) = last else {
             return false;
         };
@@ -247,24 +273,20 @@ impl Activity {
 
     /// Where the stop in focus is among the stops; none lets go of the focus (one that went with
     /// its rows).
-    fn at(&self) -> Option<usize> {
+    fn at(&self, stops: &[(usize, Stop)]) -> Option<usize> {
         let focused = self.0.focused.borrow().clone()?;
-        let at = self
-            .0
-            .folds
-            .borrow()
+        let at = stops
             .iter()
-            .position(|stop| focused.overlaps(&stop.ids));
+            .position(|(_, stop)| focused.overlaps(&stop.ids));
         if at.is_none() {
             self.leave();
         }
         at
     }
 
-    fn focus_at(&self, at: usize) {
-        let stop = self.0.folds.borrow().get(at).cloned();
-        if let Some(stop) = stop {
-            *self.0.focused.borrow_mut() = Some(stop);
+    fn focus_at(&self, stops: &[(usize, Stop)], at: usize) {
+        if let Some((_, stop)) = stops.get(at) {
+            *self.0.focused.borrow_mut() = Some(stop.clone());
             self.0.reveal.set(true);
             self.changed();
         }
@@ -276,31 +298,33 @@ impl Activity {
         if !self.focused() || pressed(keymap, GLOBAL_FOCUS_ACTIVITY, press) {
             return None;
         }
-        let at = self.at()?;
+        let walk = self.0.folds.borrow().clone();
+        let stops = walk.as_ref().map_or(&[][..], |walk| walk.stops());
+        let at = self.at(stops)?;
         let is = |id: ActionId| pressed(keymap, id, press);
-        let last = self.0.folds.borrow().len().saturating_sub(1);
-        let stop = self.0.folds.borrow().get(at).cloned()?;
+        let last = stops.len().saturating_sub(1);
+        let (_, stop) = &stops[at];
         if is(LIST_CANCEL) {
             self.leave();
         } else if is(LIST_ACCEPT) {
-            self.toggle_stop(&stop);
+            self.toggle_stop(stop);
         } else if is(LIST_MOVE_LEFT) || is(LIST_MOVE_RIGHT) {
             // the key that does what the stop is not yet: right opens, left closes
-            if self.is_stop_open(&stop) != is(LIST_MOVE_RIGHT) {
-                self.toggle_stop(&stop);
+            if self.is_stop_open(stop) != is(LIST_MOVE_RIGHT) {
+                self.toggle_stop(stop);
             }
         } else if is(LIST_MOVE_UP) {
-            self.focus_at(at.saturating_sub(1));
+            self.focus_at(stops, at.saturating_sub(1));
         } else if is(LIST_PAGE_UP) {
-            self.focus_at(at.saturating_sub(PAGE));
+            self.focus_at(stops, at.saturating_sub(PAGE));
         } else if is(LIST_JUMP_TOP) {
-            self.focus_at(0);
+            self.focus_at(stops, 0);
         } else if is(LIST_MOVE_DOWN) {
-            self.focus_at((at + 1).min(last));
+            self.focus_at(stops, (at + 1).min(last));
         } else if is(LIST_PAGE_DOWN) {
-            self.focus_at((at + PAGE).min(last));
+            self.focus_at(stops, (at + PAGE).min(last));
         } else if is(LIST_JUMP_BOTTOM) {
-            self.focus_at(last);
+            self.focus_at(stops, last);
         } else {
             // ordinary text resumes composing: navigation never becomes a text editor
             self.leave();

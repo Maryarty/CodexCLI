@@ -520,6 +520,24 @@ fn a_delta_before_its_item_creates_the_entry() {
 }
 
 #[test]
+fn streaming_updates_only_the_row_content_revision() {
+    let mut app = ready();
+    notification(&mut app, agent_delta(T, "turn-1", "msg-1", "Hel"));
+    let before = thread(&app).transcript().clone();
+    let (key, _) = before.get(0).expect("streamed response");
+    let first = before.item_revision(key).expect("row revision");
+    notification(&mut app, agent_delta(T, "turn-1", "msg-1", "lo"));
+    let model = thread(&app);
+    let after = model.transcript();
+    assert_eq!(after.layout_revision(), before.layout_revision());
+    assert_eq!(after.activity_revision(), before.activity_revision());
+    let grew = after.item_revision(key).expect("row revision after append");
+    assert!(grew > first);
+    notification(&mut app, agent_completed(T, "turn-1", "msg-1", "Hello"));
+    assert_eq!(thread(&app).transcript().item_revision(key), Some(grew));
+}
+
+#[test]
 fn the_completed_item_replaces_the_streamed_text_in_place() {
     let mut app = ready();
     notification(&mut app, user_item(T, "turn-1", "user-1", "hi"));

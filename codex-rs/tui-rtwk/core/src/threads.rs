@@ -295,8 +295,10 @@ impl Text {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Transcript {
     order: Rc<Vec<ItemKey>>,
-    items: Rc<HashMap<ItemKey, Rc<Item>>>,
+    items: Rc<HashMap<ItemKey, ItemEntry>>,
     layout_revision: u64,
+    item_revision: u64,
+    activity_revision: u64,
     timings: Rc<HashMap<TurnId, TimedTurn>>,
     /// The turns that ended as completed (oracle: a turn with its `FinalMessageSeparator`),
     /// whatever time the server gave them.
@@ -310,8 +312,29 @@ pub struct Transcript {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct StreamingItem {
-    item: Rc<Item>,
+    entry: ItemEntry,
     committed: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ItemEntry {
+    item: Rc<Item>,
+    revision: u64,
+}
+
+impl ItemEntry {
+    fn updated(before: Option<&Self>, item: Item, revision: &mut u64) -> Self {
+        if let Some(before) = before
+            && *before.item == item
+        {
+            return before.clone();
+        }
+        *revision += 1;
+        Self {
+            item: Rc::new(item),
+            revision: *revision,
+        }
+    }
 }
 
 /// How much of a thread's history the transcript holds (oracle `TranscriptHistoryState`
@@ -365,6 +388,17 @@ impl Transcript {
     /// A streamed text or command output delta leaves the layout index valid.
     pub fn layout_revision(&self) -> u64 {
         self.layout_revision
+    }
+
+    /// Changes when an item that can change the transcript's activity controls is updated.
+    /// A consumer must also account for changes to the row layout.
+    pub fn activity_revision(&self) -> u64 {
+        self.activity_revision
+    }
+
+    /// The revision of one row's content, independent of its position.
+    pub fn item_revision(&self, key: &ItemKey) -> Option<u64> {
+        self.entry(key).map(|entry| entry.revision)
     }
 
     pub fn len(&self) -> usize {
@@ -465,11 +499,15 @@ impl Transcript {
         any
     }
 
-    fn item(&self, key: &ItemKey) -> Option<&Item> {
+    fn entry(&self, key: &ItemKey) -> Option<&ItemEntry> {
         self.streaming
             .get(key)
-            .map(|live| live.item.as_ref())
-            .or_else(|| self.items.get(key).map(Rc::as_ref))
+            .map(|live| &live.entry)
+            .or_else(|| self.items.get(key))
+    }
+
+    fn item(&self, key: &ItemKey) -> Option<&Item> {
+        self.entry(key).map(|entry| entry.item.as_ref())
     }
 
     /// Inserts or replaces the entry; a replaced entry keeps its place. A web
@@ -494,9 +532,20 @@ impl Transcript {
         {
             Arc::make_mut(tool).output = Some(output.clone());
         }
-        let was_live = self.streaming.remove(&key).is_some();
-        let before = Rc::make_mut(&mut self.items).insert(key.clone(), Rc::new(item));
-        if !was_live && before.is_none() {
+        let live = self.streaming.remove(&key);
+        let before = live
+            .as_ref()
+            .map(|live| &live.entry)
+            .or_else(|| self.items.get(&key));
+        let entry = ItemEntry::updated(before, item, &mut self.item_revision);
+        let activity = |item: &Item| matches!(item, Item::Tool(_) | Item::Patch(_) | Item::Web(_));
+        if before.is_none_or(|before| before.revision != entry.revision)
+            && (activity(&entry.item) || before.is_some_and(|before| activity(&before.item)))
+        {
+            self.activity_revision += 1;
+        }
+        let before = Rc::make_mut(&mut self.items).insert(key.clone(), entry);
+        if live.is_none() && before.is_none() {
             Rc::make_mut(&mut self.order).push(key);
         }
     }
@@ -574,25 +623,33 @@ impl Transcript {
         let live = match self.streaming.entry(key) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
-                let (item, committed) = match self.items.get(entry.key()) {
-                    Some(item) => match kind.text_of(item) {
+                let (value, committed) = match self.items.get(entry.key()) {
+                    Some(item) => match kind.text_of(&item.item) {
                         Some(text) => (item.clone(), text.len()),
                         None => return,
                     },
                     None => {
                         Rc::make_mut(&mut self.order).push(entry.key().clone());
                         self.layout_revision += 1;
-                        (Rc::new(kind.empty()), 0)
+                        (
+                            ItemEntry::updated(None, kind.empty(), &mut self.item_revision),
+                            0,
+                        )
                     }
                 };
-                entry.insert(StreamingItem { item, committed })
+                entry.insert(StreamingItem {
+                    entry: value,
+                    committed,
+                })
             }
         };
-        if let Some(text) = kind.text_mut(Rc::make_mut(&mut live.item)) {
+        if let Some(text) = kind.text_mut(Rc::make_mut(&mut live.entry.item)) {
             if let Some(last) = delta.rfind('\n') {
                 live.committed = text.len() + last + 1;
             }
             text.push_str(delta);
+            self.item_revision += 1;
+            live.entry.revision = self.item_revision;
         }
     }
 
@@ -607,29 +664,32 @@ impl Transcript {
                 let Some(item) = self.items.get(entry.key()) else {
                     return;
                 };
-                if !matches!(item.as_ref(), Item::Tool(tool) if tool.status == ToolStatus::Running)
+                if !matches!(item.item.as_ref(), Item::Tool(tool) if tool.status == ToolStatus::Running)
                 {
                     return;
                 }
                 entry.insert(StreamingItem {
-                    item: item.clone(),
+                    entry: item.clone(),
                     committed: 0,
                 })
             }
         };
-        if let Item::Tool(tool) = Rc::make_mut(&mut live.item)
+        if let Item::Tool(tool) = Rc::make_mut(&mut live.entry.item)
             && tool.status == ToolStatus::Running
         {
             Arc::make_mut(tool)
                 .output
                 .get_or_insert_with(String::new)
                 .push_str(delta);
+            self.item_revision += 1;
+            self.activity_revision += 1;
+            live.entry.revision = self.item_revision;
         }
     }
 
     fn finish_streams(&mut self, turn: &TurnId) {
         for (key, live) in self.streaming.extract_if(|key, _| &key.turn == turn) {
-            Rc::make_mut(&mut self.items).insert(key, live.item);
+            Rc::make_mut(&mut self.items).insert(key, live.entry);
         }
     }
 
@@ -638,6 +698,7 @@ impl Transcript {
     fn reset(&mut self) {
         *self = Transcript {
             layout_revision: self.layout_revision + 1,
+            item_revision: self.item_revision,
             ..Transcript::default()
         };
     }
@@ -657,15 +718,22 @@ impl Transcript {
             .collect();
         let stored = Rc::make_mut(&mut self.items);
         let order = Rc::make_mut(&mut self.order);
+        let mut replaced = HashMap::new();
         order.retain(|key| {
             if full.contains(&key.turn) {
-                stored.remove(key);
+                if let Some(item) = stored.remove(key) {
+                    replaced.insert(key.clone(), item);
+                }
                 false
             } else {
                 true
             }
         });
-        self.streaming.retain(|key, _| !full.contains(&key.turn));
+        replaced.extend(
+            self.streaming
+                .extract_if(|key, _| full.contains(&key.turn))
+                .map(|(key, live)| (key, live.entry)),
+        );
         let mut older = Vec::new();
         for HistoryTurn {
             turn, items, error, ..
@@ -688,7 +756,11 @@ impl Transcript {
                     && let std::collections::hash_map::Entry::Vacant(entry) =
                         stored.entry(key.clone())
                 {
-                    entry.insert(Rc::new(value));
+                    entry.insert(ItemEntry::updated(
+                        replaced.get(&key),
+                        value,
+                        &mut self.item_revision,
+                    ));
                     older.push(key);
                 }
             }
@@ -696,7 +768,7 @@ impl Transcript {
             if let Some(fault) = error
                 && !matches!(fault, Fault::Misalignment { .. })
                 && !order.iter().chain(older.iter()).any(|key| {
-                    key.turn == turn && stored.get(key).is_some_and(|held| fault.is(held))
+                    key.turn == turn && stored.get(key).is_some_and(|held| fault.is(&held.item))
                 })
             {
                 self.minted += 1;
@@ -704,7 +776,10 @@ impl Transcript {
                     turn: turn.clone(),
                     item: ItemId::new(format!("#{}", self.minted)),
                 };
-                stored.insert(key.clone(), Rc::new(fault.item(daybreak)));
+                stored.insert(
+                    key.clone(),
+                    ItemEntry::updated(None, fault.item(daybreak), &mut self.item_revision),
+                );
                 older.push(key);
             }
         }
@@ -718,7 +793,12 @@ impl Transcript {
     /// snapshot wins, it is never merged by id (R4).
     pub fn replace_turn(&mut self, turn: &TurnId, items: Vec<(ItemId, Item)>) {
         self.layout_revision += 1;
-        self.streaming.retain(|key, _| &key.turn != turn);
+        let live: HashMap<_, _> = self
+            .streaming
+            .extract_if(|key, _| &key.turn == turn)
+            .map(|(key, live)| (key, live.entry))
+            .collect();
+        let mut replaced = HashMap::new();
         let history = Rc::make_mut(&mut self.items);
         let order = Rc::make_mut(&mut self.order);
         let first = order
@@ -728,7 +808,9 @@ impl Transcript {
         // The server's items only: an entry it has no item for (an error, a hook run) is ours.
         order.retain(|key| {
             if &key.turn == turn && !Self::is_minted(key) {
-                history.remove(key);
+                if let Some(item) = history.remove(key) {
+                    replaced.insert(key.clone(), item);
+                }
                 false
             } else {
                 true
@@ -740,7 +822,9 @@ impl Transcript {
                 turn: turn.clone(),
                 item,
             };
-            if history.insert(key.clone(), Rc::new(entry)).is_none() {
+            let before = live.get(&key).or_else(|| replaced.get(&key));
+            let entry = ItemEntry::updated(before, entry, &mut self.item_revision);
+            if history.insert(key.clone(), entry).is_none() {
                 keys.push(key);
             }
         }
