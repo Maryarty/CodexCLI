@@ -12,8 +12,8 @@ use crate::features::{
 };
 use crate::features::{ChatFacts, Connection, FeatureStates, Out, Refusal};
 use crate::ids::{BackendId, ThreadId};
-use crate::rpc::{Answer, RpcError};
-use crate::screens::chat::facts;
+use crate::rpc::{Address, Answer, RpcError};
+use crate::screens::chat::{facts, plan_mode::PromptPriority};
 use crate::screens::status::RateRead;
 use crate::screens::{ScreenThreadIntent, chat};
 use crate::threads::{Note, NoteKey, ThreadEv};
@@ -33,7 +33,22 @@ pub(super) fn view(app: &CodexApp) -> AppView<'_> {
     .with_keys(&app.keymap)
     .with_banner(shown_banner(app))
     .with_rates(shown_rates(app))
+    .with_navigation_pending(navigation_pending(app))
     .at(app.now)
+}
+
+/// App-owned openings can still be in flight when their source conversation is on display.
+pub(super) fn navigation_pending(app: &CodexApp) -> bool {
+    app.outgoing.any(|ctx| {
+        matches!(
+            ctx,
+            AppCtx::Opening { .. }
+                | AppCtx::OpenThread {
+                    cancelled: false,
+                    ..
+                }
+        ) || matches!(ctx, AppCtx::NewConversation { source, .. } if source == &app.session.active)
+    })
 }
 
 /// The backend banner occurrence of the account the thread in use belongs to.
@@ -57,6 +72,7 @@ pub(super) fn run(
     step: impl FnOnce(&mut FeatureStates, &mut AppCx<'_>),
 ) {
     let backend = super::session::active_backend(app);
+    let navigating = navigation_pending(app);
     let out = {
         let view = AppView::new(
             app.session.active.as_ref(),
@@ -70,6 +86,7 @@ pub(super) fn run(
         .with_keys(&app.keymap)
         .with_banner(app.session.backend_banners.get(&backend))
         .with_rates(app.session.rate_limits.get(&backend))
+        .with_navigation_pending(navigating)
         .at(app.now);
         let mut cx = AppCx::new(view);
         step(Rc::make_mut(&mut app.features), &mut cx);
@@ -288,6 +305,53 @@ fn chat_facts(app: &mut CodexApp, wanted: ChatFacts, fx: &mut AppFx) {
         let chat = &mut Rc::make_mut(&mut app.screens).chat;
         chat::apply(chat, chat::Ev::Facts(facts::Ev::Side(wanted.side)), fx);
     }
+}
+
+/// The displayed connection reported rolling usage. Ignore notifications of a different account
+/// here, where the original address is known.
+pub(super) fn rolling_limits(
+    app: &mut CodexApp,
+    backend: BackendId,
+    snapshot: &codex_app_server_protocol::RateLimitSnapshot,
+    fx: &mut AppFx,
+) {
+    if super::session::active_backend(app) == backend {
+        run(app, fx, |states, cx| {
+            features::rolling_rate_limits(states, backend, snapshot, cx);
+        });
+    }
+}
+
+/// Retire the offer of the connection or account that ended.
+pub(super) fn retire_rate_offer(app: &mut CodexApp, backend: BackendId) {
+    features::retire_rate_offer(&mut app.features, backend);
+}
+
+/// Resolve which completion prompt may be published before the routed event reaches the model.
+/// Replay and repeat completion cannot reserve a second offer. A server that omitted the
+/// start still gets the limit prompt, as long as it is not completing a different running turn.
+pub(super) fn completion_priority(
+    app: &mut CodexApp,
+    thread: &ThreadId,
+    ev: &ThreadEv,
+    address: Address,
+    fx: &mut AppFx,
+) -> PromptPriority {
+    let ThreadEv::TurnCompleted { turn, .. } = ev else {
+        return PromptPriority::Ordinary;
+    };
+    if app.session.active.as_ref() != Some(thread)
+        || !app.threads.get(thread).is_some_and(|model| {
+            !model.turn_finished(turn) && model.running_turn().is_none_or(|running| running == turn)
+        })
+    {
+        return PromptPriority::Ordinary;
+    }
+    let mut priority = PromptPriority::Ordinary;
+    run(app, fx, |states, cx| {
+        priority = features::reserve_completion_prompt(states, thread, turn, address, cx);
+    });
+    priority
 }
 
 /// A notification of the server's stream: every feature that follows it is told its event

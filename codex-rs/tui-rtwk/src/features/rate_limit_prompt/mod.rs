@@ -11,8 +11,8 @@ use std::rc::Rc;
 
 use rtwk::AnyWidget;
 
-use codex_tui_core::features::{Feature, Scope};
 use codex_tui_core::features::rate_limit_prompt::{RateLimitPrompt, Wish};
+use codex_tui_core::features::{Feature, Scope};
 
 use self::sheet::{Kind, Prompt};
 use super::{FeatureView, Shown};
@@ -22,7 +22,10 @@ impl FeatureView for RateLimitPrompt {
     /// A prompt opens once for the wish, over the chat, at the bottom like the oracle's pane.
     fn shown(wish: &Wish, _scope: &Scope) -> Option<Shown> {
         let kind = match wish {
-            Wish::Switch(candidate) => Kind::Switch(candidate.clone()),
+            Wish::Switch { offer, candidate } => Kind::Switch {
+                offer: offer.clone(),
+                candidate: candidate.clone(),
+            },
             Wish::Nudge(nudge) => Kind::Nudge(*nudge),
         };
         Some(Shown {

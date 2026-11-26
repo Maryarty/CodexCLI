@@ -152,6 +152,7 @@ pub struct AppView<'a> {
     keys: Option<&'a Keymap>,
     banner: Option<&'a BannerOccurrence>,
     rates: Option<&'a status::RateLimits>,
+    navigation_pending: bool,
     now: Now,
 }
 
@@ -175,6 +176,7 @@ impl<'a> AppView<'a> {
             keys: None,
             banner: None,
             rates: None,
+            navigation_pending: false,
             now: Now::default(),
         }
     }
@@ -201,6 +203,16 @@ impl<'a> AppView<'a> {
     pub(crate) fn with_rates(mut self, rates: Option<&'a status::RateLimits>) -> Self {
         self.rates = rates;
         self
+    }
+
+    /// The owner is opening or making a conversation from the current one.
+    pub(crate) fn with_navigation_pending(mut self, pending: bool) -> Self {
+        self.navigation_pending = pending;
+        self
+    }
+
+    pub(crate) fn navigation_pending(self) -> bool {
+        self.navigation_pending
     }
 
     /// The moment the app was last told.

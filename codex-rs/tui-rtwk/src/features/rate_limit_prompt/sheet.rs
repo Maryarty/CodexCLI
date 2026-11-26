@@ -11,7 +11,7 @@ use rtwk::provider::select;
 use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::features::FeatureStates;
-use codex_tui_core::features::rate_limit_prompt::{Candidate, Intent, Standing};
+use codex_tui_core::features::rate_limit_prompt::{Candidate, Intent, OfferId, Standing};
 use codex_tui_core::screens::chat::Nudge;
 
 use super::strings;
@@ -22,7 +22,10 @@ use crate::widgets::picker::{Event, Picker};
 #[derive(Clone, Debug, PartialEq)]
 pub enum Kind {
     /// `Approaching rate limits`, offering the model.
-    Switch(Candidate),
+    Switch {
+        offer: OfferId,
+        candidate: Candidate,
+    },
     /// The workspace owner is asked for credits or a higher limit.
     Nudge(Nudge),
 }
@@ -52,8 +55,11 @@ impl_widget!(stateful eq Prompt);
 impl PromptState {
     /// What the switch prompt shows: asked in `did_change_dependencies` and again in `build`,
     /// because a build forgets the selects of the build before.
-    fn standing(cx: &mut Cx<'_, Self>) -> Standing {
-        select::<FeatureStates, Standing, _>(cx, |features| features.rate_limit_prompt.standing())
+    fn standing(cx: &mut Cx<'_, Self>, offer: &OfferId) -> Standing {
+        let offer = offer.clone();
+        select::<FeatureStates, Standing, _>(cx, move |features| {
+            features.rate_limit_prompt.standing(&offer)
+        })
     }
 }
 
@@ -62,7 +68,9 @@ impl State for PromptState {
     type Msg = Msg;
 
     fn did_change_dependencies(&mut self, w: &Prompt, cx: &mut Cx<'_, Self>) {
-        if matches!(w.kind, Kind::Switch(_)) && Self::standing(cx) == Standing::Gone {
+        if let Kind::Switch { offer, .. } = &w.kind
+            && Self::standing(cx, offer) == Standing::Gone
+        {
             close_dialog::<_, ()>(cx, None);
         }
     }
@@ -70,22 +78,26 @@ impl State for PromptState {
     fn update(&mut self, msg: Msg, w: &Prompt, cx: &mut Cx<'_, Self>) -> Rebuild {
         let Msg::Picked(event) = msg;
         match (&w.kind, &event) {
-            (Kind::Switch(candidate), Event::Choose(id)) => match id.as_str() {
+            (Kind::Switch { offer, .. }, _) if Self::standing(cx, offer) == Standing::Gone => {}
+            (Kind::Switch { offer, candidate }, Event::Choose(id)) => match id.as_str() {
                 strings::SWITCH => verb(
                     cx,
                     Intent::Switch {
+                        offer: offer.clone(),
                         model: candidate.model.clone(),
                         effort: candidate.effort.clone(),
                     },
                 ),
                 strings::NEVER => {
                     hide_rate_limit_prompt(cx);
-                    verb(cx, Intent::Closed);
+                    verb(cx, Intent::Closed(offer.clone()));
                 }
-                strings::KEEP | strings::DISMISS => verb(cx, Intent::Closed),
+                strings::KEEP | strings::DISMISS => verb(cx, Intent::Closed(offer.clone())),
                 _ => return Rebuild::No,
             },
-            (Kind::Switch(_), Event::Cancel) => verb(cx, Intent::Closed),
+            (Kind::Switch { offer, .. }, Event::Cancel) => {
+                verb(cx, Intent::Closed(offer.clone()));
+            }
             (Kind::Nudge(nudge), Event::Choose(id)) => match id.as_str() {
                 strings::YES => verb(cx, Intent::Nudge(*nudge)),
                 strings::NO => {}
@@ -101,7 +113,7 @@ impl State for PromptState {
     fn build(&self, w: &Prompt, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let on: Handler<Event> = cx.map(Msg::Picked);
         let list = match &w.kind {
-            Kind::Switch(candidate) => match Self::standing(cx) {
+            Kind::Switch { offer, candidate } => match Self::standing(cx, offer) {
                 Standing::Recovery(seconds) => strings::recovery_menu(seconds),
                 Standing::Offer | Standing::Gone => strings::switch_menu(candidate),
             },
