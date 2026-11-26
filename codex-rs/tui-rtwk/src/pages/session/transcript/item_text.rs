@@ -6,10 +6,8 @@
 //! `Gap` they declare, and this file fills it with [`markdown_text`] over the
 //! blocks the cell draws (`citation::blocks_of`, `widgets::markdown::view`):
 //! the assistant's message, a prompt with markup, the reasoning summary, the proposed plan, a
-//! delegated message and the session card's tip. What is still a gap (a tool
-//! call, a patch, a status or a decision, which draw by room) answers `None`: such an
-//! item has no text here, and a reader of this function treats it as it does
-//! an item that is not selectable.
+//! delegated message and the session card's tip. Tool and status cells use
+//! the same text and width rules as their mounted forms.
 
 use codex_tui_core::app::facts::Rendering;
 use codex_tui_core::threads::{Item, Notice, ToolActivity, Transcript};
@@ -18,8 +16,10 @@ use rtwk_rich::markdown::{Block, MarkdownView};
 use super::markdown_text;
 use super::turn_details::{Kind, Row};
 use crate::pages::session::cells::citation::blocks_of;
-use crate::pages::session::cells::text::{Env, Gap, Part, Texts, texts};
-use crate::pages::session::cells::{exec, raw, session_info};
+use crate::pages::session::cells::text::{
+    CardFigure, Env, Gap, Part, ReadContext, Room, Texts, texts_at, tool_texts,
+};
+use crate::pages::session::cells::{raw, session_info};
 
 /// What the texts are read with: the cells' own `Env`, and what the cells that hold Markdown draw
 /// it with (the session's directory, the user's `tui.rendering`, raw output mode, raw reasoning).
@@ -37,6 +37,11 @@ pub struct Reading<'a> {
     /// full content): a shell call is its expanded form. Select mode and copy mode keep the rows
     /// as the list draws them.
     pub revealed: bool,
+    /// Width of the transcript's cells.
+    pub room: Room,
+    pub status_words: &'static crate::pages::session::cells::status::strings::Strings,
+    pub approval_words: &'static crate::sheets::approvals::strings::Strings,
+    pub(crate) usage: Option<CardFigure<'a>>,
 }
 
 impl<'a> Reading<'a> {
@@ -50,6 +55,10 @@ impl<'a> Reading<'a> {
             raw: false,
             raw_reasoning: false,
             revealed: false,
+            room: Room::default(),
+            status_words: &crate::pages::session::cells::status::strings::EN,
+            approval_words: &crate::sheets::approvals::strings::EN,
+            usage: None,
         }
     }
 }
@@ -125,15 +134,16 @@ fn opened_env<'a>(env: &Env<'a>) -> Env<'a> {
 }
 
 /// The parts of the list row `row` of `transcript`, what [`mounted_parts`] says of its first item
-/// and, for a run of tool calls, of all of them (the row draws them together: an exploration, a
-/// computer group). A row that is a fold of a turn's calls draws that fold, whose text is not the
-/// item's: no parts.
+/// and, for an exploration or computer row, of all the calls it draws together.
+/// Fold summaries do not expose their hidden members to the mounted selection model.
 pub fn row_parts(transcript: &Transcript, row: &Row, reading: &Reading<'_>) -> Option<Vec<Part>> {
+    if let Kind::Tools(group) = &row.kind
+        && !group.is_lone_search(transcript)
+    {
+        return None;
+    }
     let (_, item) = transcript.get(row.range.start)?;
-    if reading.revealed && matches!(item, Item::Tool(_)) {
-        if matches!(row.kind, Kind::Tools(_)) {
-            return None;
-        }
+    if !reading.raw && matches!(item, Item::Tool(_)) {
         let calls: Vec<&ToolActivity> = row
             .range
             .clone()
@@ -142,7 +152,14 @@ pub fn row_parts(transcript: &Transcript, row: &Row, reading: &Reading<'_>) -> O
                 _ => None,
             })
             .collect();
-        return exec::texts(&calls, &opened_env(reading.env));
+        let opened;
+        let env = if reading.revealed {
+            opened = opened_env(reading.env);
+            &opened
+        } else {
+            reading.env
+        };
+        return tool_texts(&calls, env, reading.room);
     }
     mounted_parts(item, reading)
 }
@@ -175,13 +192,23 @@ pub fn mounted_pieces(item: &Item, reading: &Reading<'_>) -> Option<Vec<Piece>> 
         );
     }
     let opened;
-    let env = if reading.revealed && matches!(item, Item::Tool(_)) {
+    let env = if reading.revealed && matches!(item, Item::Tool(_) | Item::Patch(_)) {
         opened = opened_env(env);
         &opened
     } else {
         env
     };
-    match texts(item, env) {
+    match texts_at(
+        item,
+        env,
+        &ReadContext {
+            cwd: reading.cwd,
+            room: reading.room,
+            status: reading.status_words,
+            approvals: reading.approval_words,
+            usage: reading.usage,
+        },
+    ) {
         Texts::Exact(parts) => Some(parts.into_iter().map(Piece::line).collect()),
         Texts::Gap(Gap::Markdown) => markdown_pieces(item, reading),
         Texts::Gap(Gap::Rows) => None,

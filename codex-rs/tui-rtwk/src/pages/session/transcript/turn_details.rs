@@ -194,6 +194,20 @@ impl Plan {
     }
 }
 
+/// Reveal a member as its own full cell for Find. A summary whose first
+/// member is matched gives its place to that member; other summaries stay.
+pub(in crate::pages::session) fn reveal(rows: &mut Vec<Row>, index: usize) {
+    let row = Row {
+        range: index..index + 1,
+        kind: Kind::Cell,
+    };
+    match rows.binary_search_by_key(&index, |row| row.range.start) {
+        Ok(pos) if matches!(rows[pos].kind, Kind::Tools(_)) => rows[pos] = row,
+        Ok(_) => {}
+        Err(pos) => rows.insert(pos, row),
+    }
+}
+
 fn is_prompt(transcript: &Transcript, index: usize) -> bool {
     matches!(transcript.get(index), Some((_, Item::User(_))))
 }

@@ -124,3 +124,163 @@ fn a_header_cut_by_a_narrow_room_does_not_shift_the_match() {
     s.type_text("second");
     s.assert_text_style("second", "reversed");
 }
+
+const TOGETHER: &str = r#"{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"entry","kind":"exec","turn":"t","item":"a","command":"printf first\nprintf first needle","output":"private first","end":false}
+{"step":"entry","kind":"exec","turn":"t","item":"b","command":"printf second\nprintf second needle","output":"private second","start":false,"end":false}
+"#;
+
+#[test]
+fn a_folded_tool_run_reveals_only_the_matched_member() {
+    let mut s = compact(TOGETHER, 68, 24);
+    s.collapse_turn_details();
+    s.assert_absent("private");
+    s.keys("/");
+    s.type_text("needle");
+    s.assert_contains("private second");
+    s.assert_absent("private first");
+    s.assert_text_style("needle", "reversed");
+    s.keys("ctrl+p");
+    s.assert_contains("private first");
+    s.assert_absent("private second");
+    s.assert_text_style("needle", "reversed");
+    s.keys("esc");
+    s.assert_absent("private");
+}
+
+#[test]
+fn an_opened_tool_fold_keeps_its_labels_after_find_closes() {
+    let mut s = compact(TOGETHER, 68, 24);
+    s.collapse_turn_details();
+    s.keys("f4 enter esc");
+    s.assert_contains("▾");
+    s.keys("/");
+    s.type_text("second needle");
+    s.assert_contains("private second");
+    s.keys("esc");
+    s.assert_contains("▾");
+    s.assert_absent("private second");
+}
+
+const PATCH: &str = r#"{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"notify","message":{"method":"item/completed","params":{"threadId":"thread-1","turnId":"t","completedAtMs":0,"item":{"type":"fileChange","id":"p","status":"completed","changes":[{"path":"notes.txt","kind":{"type":"add"},"diff":"first\nsecond\nthird\npatch needle\n"}]}}}}
+"#;
+
+#[test]
+fn a_diff_match_reveals_a_line_outside_the_compact_preview() {
+    let mut s = compact(PATCH, 60, 22);
+    s.assert_contains("notes.txt");
+    s.assert_absent("patch needle");
+    s.keys("/");
+    s.type_text("patch needle");
+    s.assert_text_style("patch needle", "reversed");
+    s.keys("esc");
+    s.assert_absent("patch needle");
+}
+
+#[test]
+fn find_reads_a_dynamic_result_outside_the_compact_tail() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(36, 22)
+        .live()
+        .view_compact()
+        .open();
+    s.feed(r#"{"step":"notify","message":{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","completedAtMs":0,"item":{"type":"dynamicToolCall","id":"d","namespace":"sample","tool":"inspect","arguments":{"path":"example"},"status":"completed","success":true,"durationMs":25,"contentItems":[{"type":"inputText","text":"result needle\n2\n3\n4\n5"}]}}}}"#);
+    s.assert_absent("result needle");
+    s.keys("/");
+    s.type_text("result needle");
+    s.assert_text_style("result needle", "reversed");
+    s.keys("esc");
+    s.assert_absent("result needle");
+}
+
+#[test]
+fn accepting_find_keeps_the_hidden_commentary_row_in_select_mode() {
+    let turn = crate::kit::replay_turn(
+        "t",
+        serde_json::json!([
+            {"type":"userMessage","id":"prompt","clientId":null,"content":[{"type":"text","text":"Inspect","text_elements":[]}],"startedAtMs":null,"completedAtMs":null},
+            {"type":"agentMessage","id":"note","text":"folded commentary needle","phase":"commentary","moderation":null,"memoryCitation":null,"delivery":null,"questions":null,"startedAtMs":null,"completedAtMs":null},
+            {"type":"agentMessage","id":"answer","text":"Final answer","phase":"final_answer","moderation":null,"memoryCitation":null,"delivery":null,"questions":null,"startedAtMs":null,"completedAtMs":null}
+        ]),
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(60, 24)
+        .replay(vec![turn])
+        .live()
+        .view_compact()
+        .open();
+    s.collapse_turn_details();
+    s.assert_contains("Final answer");
+    s.assert_absent("folded commentary");
+    s.keys("leader [ /");
+    s.type_text("folded commentary");
+    s.assert_text_style("folded commentary", "reversed");
+    s.keys("enter");
+    s.assert_contains("folded commentary needle");
+    s.keys("q");
+    s.assert_contains("folded commentary needle");
+}
+
+#[test]
+fn resizing_an_mcp_invocation_keeps_the_highlight_on_the_same_argument() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .live()
+        .view_compact()
+        .open();
+    s.feed(r#"{"step":"notify","message":{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","completedAtMs":0,"item":{"type":"mcpToolCall","id":"m","server":"server","tool":"inspect","status":"completed","arguments":{"path":"needle"},"appContext":null,"mcpAppUi":null,"pluginId":null,"readOnlyHint":null,"result":{"content":[],"structuredContent":null,"_meta":null,"isError":false},"error":null,"durationMs":null}}}}"#);
+    s.keys("/");
+    s.type_text("needle");
+    s.assert_text_style("needle", "reversed");
+    s.resize(20, 24);
+    s.assert_text_style("needle", "reversed");
+    s.resize(80, 24);
+    s.assert_text_style("needle", "reversed");
+}
+
+#[test]
+fn accepting_a_command_match_keeps_its_output_open_after_select_mode() {
+    let mut s = compact(OUTPUT, 60, 22);
+    s.keys("leader [ /");
+    s.type_text("hidden needle");
+    s.assert_text_style("hidden needle", "reversed");
+    s.keys("enter");
+    s.assert_contains("hidden needle");
+    s.keys("q");
+    s.assert_contains("hidden needle");
+}
+
+#[test]
+fn an_older_page_finds_each_member_of_its_folded_tool_run() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(68, 24)
+        .replay(Vec::new())
+        .view_compact()
+        .open();
+    s.collapse_turn_details();
+    s.partial_history_of(&["newer answer"]);
+    s.keys("/");
+    s.type_text("historical needle");
+    s.assert_find_footer(
+        80,
+        "Searching earlier history… · full transcript · esc cancel",
+    );
+    let commands = ["first result", "second result"].map(|output| serde_json::json!({
+        "type": "commandExecution", "id": output, "command": "printf logs", "cwd": "/work",
+        "processId": null, "source": "agent", "status": "completed", "commandActions": [],
+        "aggregatedOutput": format!("{output}: historical needle"), "exitCode": 0, "durationMs": null,
+        "startedAtMs": null, "completedAtMs": null
+    }));
+    s.history_page(
+        vec![crate::kit::replay_turn("old", serde_json::json!(commands))],
+        None,
+    );
+    s.assert_contains("second result: historical needle");
+    s.assert_absent("first result:");
+    s.assert_text_style("historical needle", "reversed");
+    s.keys("ctrl+p");
+    s.assert_contains("first result: historical needle");
+    s.assert_absent("second result:");
+    s.assert_text_style("historical needle", "reversed");
+}

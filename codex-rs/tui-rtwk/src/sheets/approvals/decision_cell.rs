@@ -7,7 +7,7 @@
 //! The model says what happened (`Decided`, core); the words are `strings.rs`'s.
 
 use rtwk::layout::{CrossAxisAlignment, Expanded, Row, SizedBox};
-use rtwk::style::Span;
+use rtwk::style::{Span, Style};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
 use rtwk_core::unicode::grapheme_boundaries;
@@ -38,32 +38,67 @@ impl StatelessWidget for DecisionCell {
     fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
         let s = strings::of(cx);
         let tokens = Tokens::of(cx);
-        let (actor, subject, outcome) = match &self.decided {
-            Decided::Permissions(grant) => return Text::new(grant_line(s, *grant)).into(),
-            Decided::Request {
-                actor,
-                subject,
-                outcome,
-            } => (*actor, subject, outcome),
-            Decided::Reviewed { verdict, about } => {
-                let spans = reviewed(s, tokens.bold(), tokens.dim(), *verdict, about);
-                return cell(Span::styled(s.refused_mark, tokens.error()), spans);
-            }
-        };
-        let say = Say {
-            s,
+        let (mark, spans) = decision_parts(&self.decided, s, Some(&tokens));
+        match mark {
+            Some(mark) => cell(mark, spans),
+            None => Text::rich(spans).into(),
+        }
+    }
+}
+
+impl DecisionCell {
+    /// Text nodes in the same order as the decision widget.
+    pub(crate) fn texts(decided: &Decided, s: &Strings) -> Vec<String> {
+        let (mark, spans) = decision_parts(decided, s, None);
+        mark.into_iter()
+            .map(|mark| mark.text.to_string())
+            .chain(std::iter::once(joined(&spans)))
+            .collect()
+    }
+}
+
+fn decision_parts(
+    decided: &Decided,
+    s: &Strings,
+    tokens: Option<&Tokens>,
+) -> (Option<Span>, Vec<Span>) {
+    let bold = tokens.map(Tokens::bold).unwrap_or_default();
+    let dim = tokens.map(Tokens::dim).unwrap_or_default();
+    let error = tokens.map(Tokens::error).unwrap_or_default();
+    let (actor, subject, outcome) = match decided {
+        Decided::Permissions(grant) => return (None, vec![Span::new(grant_line(s, *grant))]),
+        Decided::Request {
             actor,
             subject,
-            bold: tokens.bold(),
-            dim: tokens.dim(),
-        };
-        let mark = if approves(outcome) {
-            Span::styled(s.approved_mark, tokens.success())
-        } else {
-            Span::styled(s.refused_mark, tokens.error())
-        };
-        cell(mark, say.summary(outcome))
-    }
+            outcome,
+        } => (*actor, subject, outcome),
+        Decided::Reviewed { verdict, about } => {
+            return (
+                Some(Span::styled(s.refused_mark, error)),
+                reviewed(s, bold, dim, *verdict, about),
+            );
+        }
+    };
+    let say = Say {
+        s,
+        actor,
+        subject,
+        bold,
+        dim,
+    };
+    let mark = if approves(outcome) {
+        Span::styled(
+            s.approved_mark,
+            tokens.map(Tokens::success).unwrap_or_default(),
+        )
+    } else {
+        Span::styled(s.refused_mark, error)
+    };
+    (Some(mark), say.summary(outcome))
+}
+
+fn joined(spans: &[Span]) -> String {
+    spans.iter().map(|span| span.text.as_ref()).collect()
 }
 
 /// A line `/auto-review` or the reviewer's paths added to the history (oracle `new_info_event`:
@@ -82,26 +117,36 @@ impl StatelessWidget for ReviewLineCell {
     fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
         let s = strings::of(cx);
         let tokens = Tokens::of(cx);
-        let info = |message: &'static str, hint: &'static str| {
-            Text::rich(vec![
-                Span::styled(s.info_mark, tokens.dim()),
-                Span::new(message),
-                Span::new(s.info_gap),
-                Span::styled(hint, tokens.dim()),
-            ])
-        };
-        let error = |message: String| {
-            Text::rich(vec![
-                Span::styled(s.error_mark, tokens.error()),
-                Span::styled(message, tokens.error()),
-            ])
-        };
-        match &self.line {
-            ReviewLine::NoDenials => info(s.no_denials, s.no_denials_hint).into(),
-            ReviewLine::RetryApproved => info(s.retry_approved, s.retry_approved_hint).into(),
-            ReviewLine::DenialGone => error(s.denial_gone.to_string()).into(),
-            ReviewLine::Unlocalized(failure) => error(s.unlocalized(failure).to_string()).into(),
-        }
+        Text::rich(review_parts(&self.line, s, tokens.dim(), tokens.error())).into()
+    }
+}
+
+impl ReviewLineCell {
+    pub(crate) fn text(line: &ReviewLine, s: &Strings) -> String {
+        joined(&review_parts(line, s, Style::default(), Style::default()))
+    }
+}
+
+fn review_parts(line: &ReviewLine, s: &Strings, dim: Style, red: Style) -> Vec<Span> {
+    let info = |message: &'static str, hint: &'static str| {
+        vec![
+            Span::styled(s.info_mark, dim.clone()),
+            Span::new(message),
+            Span::new(s.info_gap),
+            Span::styled(hint, dim.clone()),
+        ]
+    };
+    let error = |message: String| {
+        vec![
+            Span::styled(s.error_mark, red.clone()),
+            Span::styled(message, red.clone()),
+        ]
+    };
+    match line {
+        ReviewLine::NoDenials => info(s.no_denials, s.no_denials_hint),
+        ReviewLine::RetryApproved => info(s.retry_approved, s.retry_approved_hint),
+        ReviewLine::DenialGone => error(s.denial_gone.to_string()),
+        ReviewLine::Unlocalized(failure) => error(s.unlocalized(failure).to_string()),
     }
 }
 

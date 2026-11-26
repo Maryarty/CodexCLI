@@ -15,18 +15,19 @@ use rtwk::layout::{
     Column, CrossAxisAlignment, EdgeInsets, Grid, GridPlacement, GridTrack, MainAxisSize, Padding,
     Row, SizedBox,
 };
+use rtwk::provider::select;
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::segmenter_of;
 use rtwk::widgets::Text;
-use rtwk::provider::select;
 use rtwk::{AnyWidget, Cx, LayoutBuilder, StatelessWidget, impl_widget};
 
-use codex_tui_core::format::format_tokens_compact;
 use codex_tui_core::features::FeatureStates;
+use codex_tui_core::format::format_tokens_compact;
 use codex_tui_core::screens::status::{
     Account, Figure, LimitData, LimitRow, RowValue, StatusCard, UsageInterest,
 };
 
+use super::super::text::{Part, Room};
 use super::bar::{BAR_CELLS, bar};
 use super::strings::{self, Strings};
 use super::usage;
@@ -62,7 +63,13 @@ impl StatelessWidget for StatusCell {
         });
         let sheet = LayoutBuilder::new(move |cx, constraints| -> AnyWidget {
             let width = i32::max(constraints.max_width, 0);
-            sheet(&card, held.as_ref().map(Option::as_ref), &look, segmenter_of(cx), width)
+            sheet(
+                &card,
+                held.as_ref().map(Option::as_ref),
+                &look,
+                segmenter_of(cx),
+                width,
+            )
         });
         // the card shows the usage of its thread: the feature asks for it for as long as it is drawn
         Interest::new(UsageInterest::Card(number), sheet).into()
@@ -91,7 +98,10 @@ pub(super) enum Value {
 }
 
 pub(super) enum Entry {
-    Row { label: String, value: Value },
+    Row {
+        label: String,
+        value: Value,
+    },
     Blank,
     /// A label the column is made wide enough for, with no row of its own (the oracle's
     /// `push_label` of what a figure will show).
@@ -114,23 +124,8 @@ fn sheet(
     width: i32,
 ) -> AnyWidget {
     let s = look.s;
-    // Room for the two-cell title mark even in a tiny terminal.
-    let indent = if width >= INDENT + 2 { INDENT } else { 0 };
     let entries = entries(card, held, look);
-    let label_width = entries
-        .iter()
-        .filter_map(|entry| match entry {
-            Entry::Row { label, .. } | Entry::Reserve(label) => {
-                Some(i32::try_from(seg.width(label)).unwrap_or(i32::MAX))
-            }
-            Entry::Blank => None,
-        })
-        .max()
-        .unwrap_or(0);
-    // No room left for a value beside its label: each row flows as one
-    // paragraph under the indent.
-    let room = width - indent - label_width - GAP;
-    let flows = room <= 0;
+    let (indent, room) = tracks(&entries, seg, width);
     let mut column = Column::new()
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
@@ -170,12 +165,100 @@ fn sheet(
             .child(blank());
     }
     column
-        .child(if flows {
+        .child(if room <= 0 {
             flowing(entries, look, indent)
         } else {
             labelled(entries, look, indent, seg, room)
         })
         .into()
+}
+
+fn tracks(entries: &[Entry], seg: Measure, width: i32) -> (i32, i32) {
+    // Room for the two-cell title mark even in a tiny terminal.
+    let indent = if width >= INDENT + 2 { INDENT } else { 0 };
+    let label_width = entries
+        .iter()
+        .filter_map(|entry| match entry {
+            Entry::Row { label, .. } | Entry::Reserve(label) => {
+                Some(i32::try_from(seg.width(label)).unwrap_or(i32::MAX))
+            }
+            Entry::Blank => None,
+        })
+        .max()
+        .unwrap_or(0);
+    // No room left for a value beside its label: each row flows as one
+    // paragraph under the indent.
+    let room = width - indent - label_width - GAP;
+    (indent, room)
+}
+
+impl StatusCell {
+    /// The status card's text nodes at the mounted width. The usage bar paints
+    /// cells directly and contributes no selectable text.
+    pub(crate) fn texts(
+        card: &StatusCard,
+        held: Option<Option<&Figure>>,
+        strings: &'static Strings,
+        room: Room,
+    ) -> Vec<Part> {
+        let look = Look {
+            s: strings,
+            faint: Style::default(),
+            accent: Style::default(),
+            bold: Style::default(),
+        };
+        let entries = entries(card, held, &look);
+        let (_, value_room) = tracks(&entries, room.segmenter, room.width);
+        let mut parts = vec![
+            Part::text(strings.command),
+            Part::text(format!(
+                "{}{}{}",
+                strings.title_mark,
+                strings.title_name,
+                strings.title_version(&card.version)
+            )),
+        ];
+        if card.usage_link {
+            parts.push(Part::text(format!(
+                "{}{}{}",
+                strings.usage_visit, strings.usage_url, strings.usage_for
+            )));
+            parts.push(Part::text(strings.usage_info));
+        }
+        for entry in entries {
+            let Entry::Row { label, value } = entry else {
+                continue;
+            };
+            if value_room <= 0 || overflows(&value, room.segmenter, value_room) {
+                parts.push(Part::text(span_text(&paragraph_spans(label, value, &look))));
+                continue;
+            }
+            parts.push(Part::text(label));
+            match value {
+                Value::Spans(spans) => parts.push(Part::text(span_text(&spans))),
+                Value::Window {
+                    percent_left,
+                    reset,
+                    details,
+                } => {
+                    let (_, lines) = window_spans(
+                        percent_left,
+                        reset.as_deref(),
+                        details.as_deref(),
+                        &look,
+                        room.segmenter,
+                        value_room,
+                    );
+                    parts.extend(lines.into_iter().map(|line| Part::text(span_text(&line))));
+                }
+            }
+        }
+        parts
+    }
+}
+
+fn span_text(spans: &[Span]) -> String {
+    spans.iter().map(|span| span.text.as_ref()).collect()
 }
 
 /// The rows as a `Grid`: labels, two cells, values of `room` cells. A value
@@ -238,6 +321,10 @@ fn flowing(entries: Vec<Entry>, look: &Look, indent: i32) -> AnyWidget {
 
 /// One row as a paragraph: the label, a gap, the value.
 fn paragraph(label: String, value: Value, look: &Look) -> AnyWidget {
+    Text::rich(paragraph_spans(label, value, look)).into()
+}
+
+fn paragraph_spans(label: String, value: Value, look: &Look) -> Vec<Span> {
     let mut spans = vec![
         Span::styled(label, look.faint.clone()),
         Span::new(look.s.gap),
@@ -256,7 +343,7 @@ fn paragraph(label: String, value: Value, look: &Look) -> AnyWidget {
             }
         }
     }
-    Text::rich(spans).into()
+    spans
 }
 
 fn value_cell(value: Value, look: &Look, seg: Measure, room: i32) -> AnyWidget {
@@ -289,6 +376,33 @@ fn window(
     seg: Measure,
     room: i32,
 ) -> AnyWidget {
+    let (with_bar, lines) = window_spans(percent_left, reset, details, look, seg, room);
+    let mut lines = lines.into_iter();
+    let first = Text::rich(lines.next().unwrap_or_default());
+    let head: AnyWidget = if with_bar {
+        Row::new()
+            .child(bar(i64::from(percent_left)))
+            .child(first)
+            .into()
+    } else {
+        first.into()
+    };
+    Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(head)
+        .children(lines.map(Text::rich).map(AnyWidget::from))
+        .into()
+}
+
+fn window_spans(
+    percent_left: i32,
+    reset: Option<&str>,
+    details: Option<&str>,
+    look: &Look,
+    seg: Measure,
+    room: i32,
+) -> (bool, Vec<Vec<Span>>) {
     let width = |text: &str| i32::try_from(seg.width(text)).unwrap_or(i32::MAX);
     let summary = look.s.percent_left(percent_left).to_string();
     let with_bar = BAR_CELLS + 2 + 1 + width(&summary) <= room;
@@ -307,31 +421,14 @@ fn window(
         line.push(Span::styled(look.s.space, look.faint.clone()));
         line.push(Span::styled(reset.to_owned(), look.faint.clone()));
     }
-    let head: AnyWidget = if with_bar {
-        Row::new()
-            .child(bar(i64::from(percent_left)))
-            .child(Text::rich(line))
-            .into()
-    } else {
-        Text::rich(line).into()
-    };
-    let mut column = Column::new()
-        .main_axis_size(MainAxisSize::Min)
-        .cross_axis_alignment(CrossAxisAlignment::Stretch)
-        .child(head);
+    let mut lines = vec![line];
     if let Some(reset) = reset.filter(|_| inline.is_none()) {
-        column = column.child(Text::rich(vec![Span::styled(
-            reset.to_owned(),
-            look.faint.clone(),
-        )]));
+        lines.push(vec![Span::styled(reset.to_owned(), look.faint.clone())]);
     }
     if let Some(details) = details {
-        column = column.child(Text::rich(vec![Span::styled(
-            details.to_owned(),
-            look.faint.clone(),
-        )]));
+        lines.push(vec![Span::styled(details.to_owned(), look.faint.clone())]);
     }
-    column.into()
+    (with_bar, lines)
 }
 
 fn plain(text: impl Into<String>) -> Value {

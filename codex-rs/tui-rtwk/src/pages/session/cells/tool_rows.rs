@@ -91,11 +91,10 @@ pub fn detail_row(index: usize, text: impl Into<String>, tokens: &Tokens) -> Any
 /// `dimmed_output_line`): `wrap` lets it take more rows, else one clipped.
 pub fn ansi_row(index: usize, line: &str, tokens: &Tokens, wrap: bool, clip: usize) -> AnyWidget {
     let dim = tokens.dim().attrs(Attrs::DIM);
-    let line = if !wrap && line.len() > clip {
-        let prefix = &line[..line.floor_char_boundary(clip)];
-        format!("{prefix}{MORE}")
+    let line = if wrap {
+        std::borrow::Cow::Borrowed(line)
     } else {
-        line.to_owned()
+        compact_output(line, clip)
     };
     let mut spans: Vec<Span> = Vec::new();
     for (index, parsed) in rtwk::ansi::parse_ansi(&line).into_iter().enumerate() {
@@ -119,6 +118,15 @@ pub fn ansi_row(index: usize, line: &str, tokens: &Tokens, wrap: bool, clip: usi
         },
         dim,
     )
+}
+
+pub(super) fn compact_output(line: &str, clip: usize) -> std::borrow::Cow<'_, str> {
+    if line.len() > clip {
+        let prefix = &line[..line.floor_char_boundary(clip)];
+        std::borrow::Cow::Owned(format!("{prefix}{MORE}"))
+    } else {
+        std::borrow::Cow::Borrowed(line)
+    }
 }
 
 /// What [`ansi_row`] shows of `line`, wrapped: its lines with the colour codes taken out.
