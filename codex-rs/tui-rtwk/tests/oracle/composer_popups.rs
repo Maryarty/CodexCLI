@@ -190,8 +190,12 @@ fn vim_normal_history_search_preview_places_cursor_on_last_char() {
     s.keys("ctrl+r");
     s.type_text("git");
     s.assert_row(prompt(&s), "› git status");
-    s.assert_contains("reverse-i-search: git");
-    // the caret is on the last character of the preview
+    // The oracle unit test inspects the preview's internal cursor. While the search is open,
+    // composer_layout places the terminal cursor in the query.
+    s.assert_cursor_on_row_of("reverse-i-search: git");
+    s.keys("enter");
+    s.assert_absent("reverse-i-search");
+    s.assert_row(prompt(&s), "› git status");
     s.assert_cursor(2 + "git statu".len(), prompt(&s));
 }
 

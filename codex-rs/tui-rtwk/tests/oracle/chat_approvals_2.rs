@@ -366,6 +366,12 @@ fn question_turn_end_appends_open_drafts_in_order_once() {
     );
 }
 
+fn assert_history_preview(s: &Screen) {
+    // The query owns the terminal cursor. The draft preview is the separate prompt row.
+    s.assert_has_row("› earlier prompt");
+    s.assert_cursor_on_row_of("reverse-i-search: e  enter accept");
+}
+
 // ORACLE chatwidget/tests/question_turn_end_tests.rs:143 question_turn_end_recovers_collapsed_drafts_on_completion_and_failure kind=snap owner=dialogs-pane
 #[test]
 fn question_turn_end_recovers_collapsed_drafts_on_completion_and_failure() {
@@ -377,13 +383,13 @@ fn question_turn_end_recovers_collapsed_drafts_on_completion_and_failure() {
             .open();
         s.keys("alt+up").type_burst("answer").keys("alt+down");
         s.type_text("main").keys("ctrl+r e");
-        s.assert_composer("earlier prompt");
+        assert_history_preview(&s);
         s.feed(if failed {
             include_str!("fixtures/chat_approvals_2/q_turn_end_error.jsonl")
         } else {
             TURN_DONE
         });
-        s.assert_composer("earlier prompt");
+        assert_history_preview(&s);
         if failed {
             s.assert_contains("Turn failed");
             s.assert_sole_turn(kit::Turn::text("queued prompt"));
@@ -410,18 +416,18 @@ fn question_turn_end_recovers_after_interruption_restores_queued_input() {
             s.type_burst("+");
         } else {
             s.keys("ctrl+r e");
-            s.assert_composer("earlier prompt");
+            assert_history_preview(&s);
         }
         s.feed(include_str!(
             "fixtures/chat_approvals_2/q_turn_end_interrupted.jsonl"
         ));
         if main_input != "buffered_typing" {
-            s.assert_composer("earlier prompt");
+            assert_history_preview(&s);
             s.keys("z enter");
             s.assert_contains("reverse-i-search");
             s.assert_contains("main draft");
             s.keys("backspace");
-            s.assert_composer("earlier prompt");
+            assert_history_preview(&s);
             s.keys(if main_input == "history_accept" {
                 "enter"
             } else {
