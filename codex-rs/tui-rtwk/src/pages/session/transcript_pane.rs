@@ -12,12 +12,13 @@ use rtwk::gestures::SelectionTarget;
 use rtwk::layout::{Align, Alignment, Column, CrossAxisAlignment, MainAxisSize};
 use rtwk::provider::{read, select, watch};
 use rtwk::scroll::{
-    ItemTexts, ListView, OverscrollNotification, ScrollController, ScrollNotification,
+    ItemTexts, ListView, OverscrollNotification, ScrollBehavior, ScrollConfiguration,
+    ScrollController, ScrollNotification,
 };
 use rtwk::style::{Attrs, Style};
 use rtwk::text::segmenter_of;
 use rtwk::{
-    AnyWidget, BuildCx, Cx, Key, LayoutBuilder, NotificationListener, Rebuild, State,
+    AnyWidget, BuildCx, Cx, GlobalKey, Key, LayoutBuilder, NotificationListener, Rebuild, State,
     StatefulWidget, StatelessWidget, impl_widget,
 };
 
@@ -1511,11 +1512,12 @@ impl State for ViewportState {
         };
         // A short reverse list reports its measured height to Align. Its live rows can
         // grow during layout without rebuilding the list widget.
-        let list = if reverse {
+        let list: AnyWidget = if reverse {
             Align::new(Alignment::BOTTOM_LEFT, list).into()
         } else {
             list
         };
+        let list = AnyWidget::from(WheelPolicy { child: list }).with_key(Key::value(reverse));
         let send = cx.local_sender();
         let follow = widget.follow.clone();
         // every thread owns its reader (#57499; Flutter's `PageStorageKey` per list): the list of
@@ -1580,6 +1582,49 @@ impl State for ViewportState {
 }
 
 impl_widget!(stateful eq Pane);
+
+/// A list in one thread scope and direction keeps its position when an optional
+/// native wheel policy is inserted or removed.
+#[derive(Clone, PartialEq)]
+struct WheelPolicy {
+    child: AnyWidget,
+}
+
+struct WheelPolicyState {
+    list_key: GlobalKey,
+}
+
+impl StatefulWidget for WheelPolicy {
+    type State = WheelPolicyState;
+
+    fn create_state(&self) -> Self::State {
+        WheelPolicyState {
+            list_key: GlobalKey::new(),
+        }
+    }
+}
+
+impl State for WheelPolicyState {
+    type Widget = WheelPolicy;
+    type Msg = ();
+
+    fn build(&self, widget: &WheelPolicy, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        let step = select::<TuiSettings, _, _>(cx, |settings| settings.wheel_rows_per_event);
+        let list = widget.child.clone().with_key(&self.list_key);
+        match step {
+            Some(step) => {
+                // Keep positive speeds representable and each native delta within i32, even
+                // across the longest stream that rtwk accumulates in i64.
+                let max_step = (i32::MAX as f32).next_down();
+                let step = (step as f32).clamp(f32::from_bits(1), max_step);
+                ScrollConfiguration::new(ScrollBehavior::fixed(step), list).into()
+            }
+            None => list,
+        }
+    }
+}
+
+impl_widget!(stateful eq WheelPolicy);
 
 type DrawRow = Rc<dyn Fn(&ThreadModel, usize) -> AnyWidget>;
 

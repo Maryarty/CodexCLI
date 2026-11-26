@@ -243,6 +243,128 @@ fn the_wheel_reaching_the_end_hides_the_control() {
 }
 
 #[test]
+fn changing_wheel_speed_keeps_the_paused_viewport() {
+    let mut s = chat(80, 12);
+    s.type_text("draft stays");
+    s.keys("pageup pageup");
+    s.assert_contains("Back to bottom");
+    s.assert_absent("row 39");
+    let paused = s.shot();
+    for speed in [Some(0.5), Some(1.5), None] {
+        s.mouse_scroll_speed(speed);
+        s.assert_same_rows(&paused);
+        s.assert_composer("draft stays");
+    }
+    s.keys("esc");
+    s.assert_contains("row 39");
+    s.assert_absent("Back to bottom");
+    s.assert_composer("draft stays");
+}
+
+#[test]
+fn wheel_step_clamps_finite_config_values_to_native_range() {
+    use crate::common::{ms, start_driven_with};
+    use codex_tui_core::app::{AppEv, facts::TuiSettings};
+    use rtwk::scroll::{ScrollBehavior, ScrollConfiguration};
+    use rtwk_core::input::{MouseEvent, MouseKind};
+    use rtwk_core::scroll::ScrollInput;
+    use rtwk_test::{Options, find};
+
+    let mut h = start_driven_with(false, Options::new().size(80, 12));
+    h.connect();
+    h.advance(100);
+    let configuration = find::by_type::<ScrollConfiguration>();
+    for (requested, step) in [
+        (1e-100, f32::from_bits(1)),
+        (1.5, 1.5),
+        (1e100, 2_147_483_520.0),
+    ] {
+        h.inject([AppEv::Tui(TuiSettings {
+            wheel_rows_per_event: Some(requested),
+            ..TuiSettings::default()
+        })]);
+        h.advance(100);
+        h.t.widget(&configuration, |scope: &ScrollConfiguration| {
+            assert_eq!(scope.behavior, ScrollBehavior::fixed(step));
+        });
+    }
+
+    let behavior =
+        h.t.widget(&configuration, |scope: &ScrollConfiguration| scope.behavior);
+    let mut wheel = ScrollInput::new(behavior);
+    let event = MouseEvent::new(MouseKind::WheelDown, 12, 3);
+    for time in [0, 10, 20] {
+        assert!(wheel.event(ms(time), &event));
+        assert_eq!(wheel.take().map(|delta| delta.rows), Some(2_147_483_520));
+    }
+}
+
+#[test]
+fn fractional_wheel_pauses_follow_only_when_it_moves_a_row() {
+    let mut s = chat(80, 12);
+    s.type_text("draft stays");
+    s.mouse_scroll_speed(Some(0.5));
+    s.wheel_up(12, 3, 1);
+    s.assert_contains("row 39");
+    s.assert_absent("Back to bottom");
+    s.wheel_up(12, 3, 1);
+    s.assert_contains("Back to bottom");
+    s.resize(40, 12);
+    s.assert_row(0, "  row 31");
+    let paused = s.shot();
+    s.wheel_down(12, 3, 1);
+    s.assert_same_rows(&paused);
+    s.wheel_down(12, 3, 1);
+    s.assert_row(0, "  row 32");
+    s.keys("esc");
+    s.assert_contains("row 39");
+    s.assert_absent("Back to bottom");
+    s.assert_composer("draft stays");
+}
+
+#[test]
+fn wheel_speed_is_kept_when_switching_between_main_and_side_conversations() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 12)
+        .script(script())
+        .side()
+        .open();
+    s.mouse_scroll_speed(Some(1.5));
+    let rows = (0..40)
+        .map(|i| format!("side row {i:02}"))
+        .collect::<Vec<_>>()
+        .join("  \n");
+    s.live_tail(&rows).commit_live_tail();
+    s.assert_contains("side row 39");
+
+    fn first(s: &Screen, prefix: &str) -> usize {
+        s.rows()
+            .iter()
+            .find_map(|line| line.trim().strip_prefix(prefix)?.parse().ok())
+            .unwrap_or_else(|| panic!("no {prefix} row:\n{}", s.text()))
+    }
+
+    let side = first(&s, "side row ");
+    s.wheel_up(12, 3, 1);
+    assert_eq!(first(&s, "side row "), side - 1);
+    s.keys("esc");
+    s.assert_contains("side row 39");
+    s.keys("ctrl+/");
+    s.assert_absent("side row ");
+    s.assert_contains("row 39");
+    let main = first(&s, "row ");
+    s.wheel_up(12, 3, 1);
+    assert_eq!(first(&s, "row "), main - 1);
+    s.wheel_up(12, 3, 1);
+    assert_eq!(first(&s, "row "), main - 3);
+    s.keys("ctrl+/");
+    s.assert_contains("side row 39");
+    assert_eq!(first(&s, "side row "), side);
+    s.wheel_up(12, 3, 1);
+    assert_eq!(first(&s, "side row "), side - 1);
+}
+
+#[test]
 fn escape_on_the_empty_composer_returns_and_primes_the_backtrack() {
     let mut s = chat(80, 12);
     s.keys("pageup");
