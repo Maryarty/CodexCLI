@@ -115,9 +115,13 @@ impl SelectedTool {
             return None;
         }
         let transcript = live.transcript();
+        // New rows at the tail do not change the selected revision. A
+        // prepend or replacement changes the first item and lets paging work
+        // on the new physical list.
         if selected.as_ref().is_some_and(|before| {
             before.id() != live.id()
-                || before.transcript().layout_revision() != transcript.layout_revision()
+                || before.transcript().get(0).map(|(key, _)| key)
+                    != transcript.get(0).map(|(key, _)| key)
         }) {
             selected.take();
         }
@@ -247,7 +251,10 @@ impl RowTexts {
 
 impl PartialEq for RowTexts {
     fn eq(&self, other: &RowTexts) -> bool {
-        self.reverse == other.reverse && self.texts == other.texts && self.keys == other.keys
+        self.reverse == other.reverse
+            && self.texts == other.texts
+            && self.keys == other.keys
+            && self.gutters == other.gutters
     }
 }
 

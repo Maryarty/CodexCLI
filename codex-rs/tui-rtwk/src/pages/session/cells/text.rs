@@ -17,8 +17,8 @@
 //! own), and a model drifts from the widgets, so each cell keeps its `texts`
 //! beside its `build` and the test is the guard.
 //!
-//! A cell whose text is made by a rtwk widget (Markdown, a diff) has no text
-//! here yet, and says [`Gap`]: the rows of the gap are in the pack.
+//! Markdown is read by the transcript's Markdown projection. For other
+//! rows the cell supplies the text in its mounted order.
 
 use codex_tui_core::threads::{Item, Notice, ToolActivity, ToolKind};
 
@@ -145,9 +145,7 @@ pub enum Gap {
     /// gives no function of the source (rtwk-gaps G-new, "text of a Markdown
     /// document that is not mounted").
     Markdown,
-    /// The cell's rows are not written down: a tool call's compact rows follow the room (a
-    /// shell call has text in its detailed and expanded forms, `exec::texts`), a patch's body is a
-    /// rtwk diff view, a status card's rows are the host's facts.
+    /// A tool row has no matching projected cell.
     Rows,
 }
 
@@ -240,9 +238,7 @@ pub(crate) fn texts_at(item: &Item, env: &Env<'_>, cx: &ReadContext<'_>) -> Text
         Item::Tool(tool) => {
             tool_texts(&[tool.as_ref()], env, cx.room).map_or(Texts::Gap(Gap::Rows), Texts::Exact)
         }
-        Item::Patch(activity) => {
-            patch::texts(activity, cx.cwd, env).map_or(Texts::Gap(Gap::Rows), Texts::Exact)
-        }
+        Item::Patch(activity) => Texts::Exact(patch::texts(activity, cx.cwd, env)),
         Item::Status { card, .. } => {
             let held = cx.usage.and_then(|figure| figure(card.number));
             Texts::Exact(super::status::StatusCell::texts(

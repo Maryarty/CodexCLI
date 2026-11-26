@@ -1249,12 +1249,12 @@ fn accepted_find_repeats_into_the_select_cursor() {
 fn accepted_find_pins_an_expanded_match_before_select_mode_exits() {
     kit::pending(
         Owner::ChatLive,
-        "G-new-find-room-text: the oracle's hidden match is the output of a command cell (`ExecCell`) that its compact draw cuts to a tail, the accepted Find expands it and select mode pins that expansion; the port's tool rows have no text (`Gap::Rows`), so Find reads no output and has nothing to expand or pin",
+        "G-new-sel-reveal: the match is inside a 41-line command output in the six-row reverse list; Find expands and pins the cell, but ListController::ensure_index_visible only reveals the bottom of a tall reverse item and jump_to_index_rows ignores its intra-item row offset",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(32, 6)
         .script(include_str!("fixtures/transcript_view_4/sm_pin.jsonl"))
-        .view_only()
+        .view_compact()
         .open();
     s.keys("leader [");
     s.keys("/");

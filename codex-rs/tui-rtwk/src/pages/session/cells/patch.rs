@@ -492,11 +492,7 @@ fn line_sign(kind: DiffLineKind, strings: &Strings) -> &'static str {
 }
 
 /// Every text node of the full diff, in the virtual list's selection order.
-pub(super) fn texts(
-    activity: &PatchActivity,
-    cwd: Option<&str>,
-    env: &Env<'_>,
-) -> Option<Vec<Part>> {
+pub(super) fn texts(activity: &PatchActivity, cwd: Option<&str>, env: &Env<'_>) -> Vec<Part> {
     let strings = env.cells;
     let changes = &activity.changes;
     let span_text = |spans: Vec<Span>| {
@@ -516,7 +512,7 @@ pub(super) fn texts(
         if !env.detailed && !env.expanded {
             // The remaining nodes are clipped by painted rows per file. The
             // summary is a selectable prefix at every width.
-            return Some(parts);
+            return parts;
         }
         for (index, change) in changes.iter().enumerate() {
             if changes.len() > 1 {
@@ -558,7 +554,7 @@ pub(super) fn texts(
             strings.file_branch, strings.error_unavailable
         )));
     }
-    Some(parts)
+    parts
 }
 
 /// A file edit.

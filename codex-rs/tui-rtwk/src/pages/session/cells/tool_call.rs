@@ -11,7 +11,7 @@ use rtwk::layout::{Column, CrossAxisAlignment, MainAxisSize};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{TextOverflow, segmenter_of};
 use rtwk::widgets::Text;
-use rtwk::{AnyWidget, LayoutBuilder};
+use rtwk::{AnyWidget, Key, LayoutBuilder};
 
 use codex_tui_core::threads::{
     BlockBody, DynamicCall, DynamicOutput, McpCall, McpResultKind, ToolStatus,
@@ -177,7 +177,9 @@ pub fn transcript(call: McpCall, strings: &'static Strings, tokens: Tokens) -> A
             let index = if inline { index } else { index + 1 };
             column = column.child(detail_row(index, row, tokens));
         }
-        column.into()
+        // The two arrangements mount different selectable nodes. Keep their
+        // identities separate so the list discards the old node lengths.
+        AnyWidget::from(column).with_key(Key::value(inline))
     })
     .into()
 }

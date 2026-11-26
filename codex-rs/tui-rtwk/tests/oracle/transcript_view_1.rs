@@ -813,11 +813,10 @@ fn double_escape_browses_prompts_without_reverting_and_explains_editing() {
 // ORACLE app/owned_transcript_tests.rs:1647 find_refreshes_live_details_before_searching_the_first_query kind=snap owner=chat-live snap=compact_overlay_finds_hidden_live_text
 #[test]
 fn find_refreshes_live_details_before_searching_the_first_query() {
+    let script = include_str!("fixtures/transcript_view_1/running_command.jsonl");
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
-        .script(include_str!(
-            "fixtures/transcript_view_1/running_command.jsonl"
-        ))
+        .script(script)
         .open();
     s.assert_absent("needle");
     s.collapse_turn_details();
@@ -830,6 +829,18 @@ fn find_refreshes_live_details_before_searching_the_first_query() {
     s.paste("needle");
     s.assert_contains("enter accept");
     s.assert_contains("printf needle");
+
+    let mut overlay = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(script)
+        .view_compact()
+        .open();
+    overlay.collapse_turn_details();
+    overlay.assert_absent("printf needle");
+    overlay.keys("f3");
+    overlay.paste("needle");
+    overlay.assert_text_style("needle", "reversed");
+    overlay.assert_contains("printf needle");
 }
 
 // ORACLE app/owned_transcript_tests.rs:1750 fullscreen_composer_mouse_copy_and_input_ownership kind=snap owner=chat-live snap=fullscreen_composer_right_click_copy

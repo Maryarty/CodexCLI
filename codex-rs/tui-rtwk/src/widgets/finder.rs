@@ -352,6 +352,32 @@ impl Finder {
         self.notify();
     }
 
+    /// Keep the same occurrence when a cell's laid-out node boundaries change.
+    pub(crate) fn reflow_match(&self, before: &str, now: &str) {
+        if before == now {
+            return;
+        }
+        let mut data = self.0.data.borrow_mut();
+        if data.reader || data.want == Want::Restart {
+            return;
+        }
+        let Some(hit) = data.current.as_ref() else {
+            return;
+        };
+        let Some(occurrence) =
+            occurrences(before, &data.folded).position(|range| range == hit.range)
+        else {
+            return;
+        };
+        let range = occurrences(now, &data.folded).nth(occurrence);
+        if let Some(range) = range {
+            let row = hit.row;
+            data.current = Some(Hit { row, range });
+            data.unshown = true;
+            data.reshown = true;
+        }
+    }
+
     /// The match, if there is one.
     pub fn current(&self) -> Option<Hit> {
         self.0.data.borrow().current.clone()
@@ -845,25 +871,44 @@ fn fitting(text: &str, limit: usize) -> usize {
     end
 }
 
-/// The first match of the folded `query` in `text` from `direction` (the last when older), as
-/// bytes of `text` itself: the lowercase of a character can be longer or shorter than it, so the
-/// match is mapped back to the characters it covers (`find_literal`).
-fn find_literal(text: &str, query: &str, direction: Direction) -> Option<Range<usize>> {
-    let mut folded = String::new();
-    let mut spans = Vec::new();
-    for (start, character) in text.char_indices() {
-        for lowercase in character.to_lowercase() {
-            folded.push(lowercase);
-            spans.push((folded.len(), start..start + character.len_utf8()));
+/// The case-folded text and the original byte range of each folded character.
+struct FoldedText {
+    text: String,
+    spans: Vec<(usize, Range<usize>)>,
+}
+
+impl FoldedText {
+    fn new(text: &str) -> Self {
+        let mut folded = String::new();
+        let mut spans = Vec::new();
+        for (start, character) in text.char_indices() {
+            for lowercase in character.to_lowercase() {
+                folded.push(lowercase);
+                spans.push((folded.len(), start..start + character.len_utf8()));
+            }
+        }
+        Self {
+            text: folded,
+            spans,
         }
     }
+
+    fn original_range(&self, start: usize, end: usize) -> Option<Range<usize>> {
+        let first = self.spans.partition_point(|(at, _)| *at <= start);
+        let last = self.spans.partition_point(|(at, _)| *at < end);
+        Some(self.spans.get(first)?.1.start..self.spans.get(last)?.1.end)
+    }
+}
+
+/// The first match of the folded `query` in `text` from `direction` (the last when older), as
+/// bytes of `text` itself.
+fn find_literal(text: &str, query: &str, direction: Direction) -> Option<Range<usize>> {
+    let folded = FoldedText::new(text);
     let start = match direction {
-        Direction::Older => folded.rfind(query),
-        Direction::Newer => folded.find(query),
+        Direction::Older => folded.text.rfind(query),
+        Direction::Newer => folded.text.find(query),
     }?;
-    let first = spans.partition_point(|(end, _)| *end <= start);
-    let last = spans.partition_point(|(end, _)| *end < start + query.len());
-    Some(spans.get(first)?.1.start..spans.get(last)?.1.end)
+    folded.original_range(start, start + query.len())
 }
 
 /// The next match from `from` (a row and a byte of its text) in `direction`, never wrapping: in
@@ -911,6 +956,22 @@ fn floor_boundary(text: &str, at: usize) -> usize {
         at -= 1;
     }
     at
+}
+
+fn occurrences<'a>(text: &str, query: &'a str) -> impl Iterator<Item = Range<usize>> + 'a {
+    let folded = FoldedText::new(text);
+    let mut start = 0;
+    std::iter::from_fn(move || {
+        let found = start + folded.text.get(start..)?.find(query)?;
+        let range = folded.original_range(found, found + query.len())?;
+        // Advance past one source character so overlapping matches count, but
+        // expansions of a single source character are seen only once.
+        let after = folded
+            .spans
+            .partition_point(|(_, source)| source.start <= range.start);
+        start = folded.spans.get(after.checked_sub(1)?)?.0;
+        Some(range)
+    })
 }
 
 /// What a key means to Find, wherever it is read (editing or reading).

@@ -6,10 +6,8 @@
 //! `Gap` they declare, and this file fills it with [`markdown_text`] over the
 //! blocks the cell draws (`citation::blocks_of`, `widgets::markdown::view`):
 //! the assistant's message, a prompt with markup, the reasoning summary, the proposed plan, a
-//! delegated message and the session card's tip. What is still a gap (a tool
-//! call, a patch, a status or a decision, which draw by room) answers `None`: such an
-//! item has no text here, and a reader of this function treats it as it does
-//! an item that is not selectable.
+//! delegated message and the session card's tip. Tool and status cells use
+//! the same text and width rules as their mounted forms.
 
 use codex_tui_core::app::facts::Rendering;
 use codex_tui_core::threads::{Item, Notice, ToolActivity, Transcript};
@@ -136,9 +134,8 @@ fn opened_env<'a>(env: &Env<'a>) -> Env<'a> {
 }
 
 /// The parts of the list row `row` of `transcript`, what [`mounted_parts`] says of its first item
-/// and, for a run of tool calls, of all of them (the row draws them together: an exploration, a
-/// computer group). A row that is a fold of a turn's calls draws that fold, whose text is not the
-/// item's: no parts.
+/// and, for an exploration or computer row, of all the calls it draws together.
+/// Fold summaries do not expose their hidden members to the mounted selection model.
 pub fn row_parts(transcript: &Transcript, row: &Row, reading: &Reading<'_>) -> Option<Vec<Part>> {
     if let Kind::Tools(group) = &row.kind
         && !group.is_lone_search(transcript)

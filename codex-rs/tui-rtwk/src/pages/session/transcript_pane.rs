@@ -93,6 +93,7 @@ pub(super) struct ViewportState {
     width: i32,
     revealed_rows: RefCell<Option<RevealedRows>>,
     scan_first: RefCell<Option<(ThreadId, ItemKey, usize)>>,
+    scan_match: RefCell<Option<(ItemKey, String)>>,
     /// Where each reader that was left scrolled up stood (Flutter's `PageStorage` bucket of a
     /// `PageStorageKey` per list): a thread's reader is its own, so it is as it was when the
     /// reader comes back (#57499).
@@ -775,6 +776,7 @@ impl StatefulWidget for Pane {
             width: Room::default().width,
             revealed_rows: RefCell::default(),
             scan_first: RefCell::default(),
+            scan_match: RefCell::default(),
             left: Vec::new(),
             restoring: None,
             finding: RefCell::default(),
@@ -1098,7 +1100,33 @@ impl State for ViewportState {
                 disclosed.set_found(None);
             }
             let texts = row_texts(&thread, &scan, header.is_some(), reverse, &reading, None);
+            let scan_entry = |hit: &Hit| {
+                let row = scan.get(hit.row.checked_sub(lead)?)?;
+                let (key, _) = thread.transcript().get(row.range.start)?;
+                Some((key, texts.row_text(hit.row)))
+            };
+            let mut scan_match = self.scan_match.borrow_mut();
+            if let Some((held_key, before)) = scan_match.as_ref()
+                && let Some((key, now)) = search.current().as_ref().and_then(scan_entry)
+                && key == held_key
+            {
+                search.reflow_match(before, now);
+            }
             hit = search.advance(&texts, more);
+            match search.current().as_ref().and_then(scan_entry) {
+                Some((key, text))
+                    if scan_match
+                        .as_ref()
+                        .is_none_or(|(old, previous)| old != key || previous != text) =>
+                {
+                    *scan_match = Some((key.clone(), text.to_owned()));
+                }
+                Some(_) => {}
+                None => {
+                    scan_match.take();
+                }
+            }
+
             if search.take_load() {
                 load(Msg::Load(thread.id().clone()));
             }
@@ -1116,6 +1144,7 @@ impl State for ViewportState {
             }
         } else {
             self.scan_first.borrow_mut().take();
+            self.scan_match.borrow_mut().take();
             disclosed.set_found(None);
         }
         let current = search.active().then(|| search.current()).flatten();

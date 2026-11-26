@@ -221,3 +221,66 @@ fn accepting_find_keeps_the_hidden_commentary_row_in_select_mode() {
     s.keys("q");
     s.assert_contains("folded commentary needle");
 }
+
+#[test]
+fn resizing_an_mcp_invocation_keeps_the_highlight_on_the_same_argument() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .live()
+        .view_compact()
+        .open();
+    s.feed(r#"{"step":"notify","message":{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","completedAtMs":0,"item":{"type":"mcpToolCall","id":"m","server":"server","tool":"inspect","status":"completed","arguments":{"path":"needle"},"appContext":null,"mcpAppUi":null,"pluginId":null,"readOnlyHint":null,"result":{"content":[],"structuredContent":null,"_meta":null,"isError":false},"error":null,"durationMs":null}}}}"#);
+    s.keys("/");
+    s.type_text("needle");
+    s.assert_text_style("needle", "reversed");
+    s.resize(20, 24);
+    s.assert_text_style("needle", "reversed");
+    s.resize(80, 24);
+    s.assert_text_style("needle", "reversed");
+}
+
+#[test]
+fn accepting_a_command_match_keeps_its_output_open_after_select_mode() {
+    let mut s = compact(OUTPUT, 60, 22);
+    s.keys("leader [ /");
+    s.type_text("hidden needle");
+    s.assert_text_style("hidden needle", "reversed");
+    s.keys("enter");
+    s.assert_contains("hidden needle");
+    s.keys("q");
+    s.assert_contains("hidden needle");
+}
+
+#[test]
+fn an_older_page_finds_each_member_of_its_folded_tool_run() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(68, 24)
+        .replay(Vec::new())
+        .view_compact()
+        .open();
+    s.collapse_turn_details();
+    s.partial_history_of(&["newer answer"]);
+    s.keys("/");
+    s.type_text("historical needle");
+    s.assert_find_footer(
+        80,
+        "Searching earlier history… · full transcript · esc cancel",
+    );
+    let commands = ["first result", "second result"].map(|output| serde_json::json!({
+        "type": "commandExecution", "id": output, "command": "printf logs", "cwd": "/work",
+        "processId": null, "source": "agent", "status": "completed", "commandActions": [],
+        "aggregatedOutput": format!("{output}: historical needle"), "exitCode": 0, "durationMs": null,
+        "startedAtMs": null, "completedAtMs": null
+    }));
+    s.history_page(
+        vec![crate::kit::replay_turn("old", serde_json::json!(commands))],
+        None,
+    );
+    s.assert_contains("second result: historical needle");
+    s.assert_absent("first result:");
+    s.assert_text_style("historical needle", "reversed");
+    s.keys("ctrl+p");
+    s.assert_contains("first result: historical needle");
+    s.assert_absent("second result:");
+    s.assert_text_style("historical needle", "reversed");
+}
