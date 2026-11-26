@@ -20,10 +20,10 @@ use codex_tui_core::fixtures::builders::{
 use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
 use codex_tui_core::rpc::{CloudSubmission, Reply};
 use codex_tui_core::screens::{
-    ScreenCommand, ScreenEv, ScreenReply, ScreenThreadIntent, agents, chat,
+    ScreenCommand, ScreenEv, ScreenIntent, ScreenReply, ScreenThreadIntent, agents, chat, select,
 };
 use codex_tui_core::threads::ThreadAsk;
-use codex_tui_core::threads::queue::Dispatched;
+use codex_tui_core::threads::queue::{Dispatched, QueueEvent, QueueOperation};
 use codex_tui_core::threads::{Item, Notice, Queued, Ran, ThreadModel, UserMessage};
 use pretty_assertions::assert_eq;
 use std::rc::Rc;
@@ -125,6 +125,17 @@ fn dispatched(command: Option<SlashCommand>, modal: bool) -> Ran {
     })
 }
 
+fn report_due(app: &CodexApp, outcome: Ran) -> chat::ThreadIntent {
+    let thread = thread(app);
+    let due = thread.due_command().expect("queued command is due");
+    chat::ThreadIntent::QueueEvent(due.report(outcome))
+}
+
+fn ran(app: &mut CodexApp, outcome: Ran) -> AppFx {
+    let report = report_due(app, outcome);
+    intent(app, report)
+}
+
 fn notice_count(app: &CodexApp) -> usize {
     let thread = thread(app);
     let transcript = thread.transcript();
@@ -148,7 +159,6 @@ fn a_command_waits_in_the_queue_until_the_turn_ends_then_goes_to_the_screen() {
     let model = thread(&app);
     let due = model.due_command().expect("handed to the screen");
     assert_eq!(due.line().text, "/status");
-    assert_eq!(due.seq(), 1);
 }
 
 #[test]
@@ -158,12 +168,99 @@ fn a_command_that_lets_the_queue_go_on_sends_the_next_message() {
     tab(&mut app, "hello after status", false);
     notify(&mut app, turn_completed(T, "turn-1"));
     assert_eq!(queued(&app), ["hello after status"], "waits for the screen");
-    let fx = intent(
-        &mut app,
-        chat::ThreadIntent::QueueRan(dispatched(Some(SlashCommand::Status), false)),
-    );
+    let fx = ran(&mut app, dispatched(Some(SlashCommand::Status), false));
     assert_eq!(started_texts(&fx), ["hello after status"]);
     assert!(thread(&app).due_command().is_none());
+}
+
+#[test]
+fn a_reopened_thread_rejects_the_previous_threads_queue_report() {
+    let mut app = ready();
+    tab(&mut app, "/status", false);
+    let stale = report_due(&app, dispatched(Some(SlashCommand::Status), false));
+    let old = issued_operation(&app);
+    let fx = run(
+        &mut app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Select(
+            select::Intent::Confirmed(select::Confirm::Archive { running: false }),
+        ))),
+    );
+    let archive = fx
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Screen {
+                ticket,
+                command: ScreenCommand::Agents(agents::Command::Archive { .. }),
+                ..
+            } => Some(*ticket),
+            _ => None,
+        })
+        .expect("archive was sent");
+    run(
+        &mut app,
+        AppEv::Reply(
+            archive,
+            Reply::thread(codex_tui_core::threads::ThreadReply::Done),
+        ),
+    );
+    let id = ThreadId::new(T);
+    assert!(app.thread(&id).is_none());
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Agents(agents::Ev::Listed(agents::Page {
+            threads: vec![listed(T)],
+            unread: Vec::new(),
+            next_cursor: None,
+            append: false,
+            pins: None,
+        }))),
+    );
+    let fx = run(&mut app, AppEv::Intent(Intent::OpenThread(id)));
+    let resume = resume_ticket(&fx).expect("same id reopened");
+    run(
+        &mut app,
+        AppEv::Reply(
+            resume,
+            Reply::screen(ScreenReply::Agents(agents::Reply::Resumed(Box::new(
+                listed(T),
+            )))),
+        ),
+    );
+    tab(&mut app, "/status", false);
+    let current = issued_operation(&app);
+    assert_ne!(current, old);
+    tab(&mut app, "after the new status", false);
+    assert!(started_texts(&intent(&mut app, stale)).is_empty());
+    assert_eq!(issued_operation(&app), current);
+    let fx = ran(&mut app, dispatched(Some(SlashCommand::Status), false));
+    assert_eq!(started_texts(&fx), ["after the new status"]);
+}
+
+#[test]
+fn a_duplicate_acknowledgment_cannot_consume_the_next_command() {
+    let mut app = running();
+    tab(&mut app, "/status", false);
+    tab(&mut app, "/status", false);
+    tab(&mut app, "after both commands", false);
+    notify(&mut app, turn_completed(T, "turn-1"));
+    let first_ack = report_due(&app, dispatched(Some(SlashCommand::Status), false));
+    assert!(started_texts(&intent(&mut app, first_ack.clone())).is_empty());
+    let model = thread(&app);
+    let second = model.due_command().expect("second queued command").clone();
+    let repeated = intent(&mut app, first_ack);
+    assert!(
+        started_texts(&repeated).is_empty(),
+        "the second command is still due"
+    );
+    assert_eq!(thread(&app).due_command(), Some(&second));
+    let second_ack = chat::ThreadIntent::QueueEvent(
+        second.report(dispatched(Some(SlashCommand::Status), false)),
+    );
+    assert_eq!(
+        started_texts(&intent(&mut app, second_ack)),
+        ["after both commands"]
+    );
 }
 
 #[test]
@@ -172,15 +269,292 @@ fn a_menu_command_stops_the_queue_until_the_screen_resumes_it() {
     tab(&mut app, "/model", false);
     tab(&mut app, "hello after selection", false);
     notify(&mut app, turn_completed(T, "turn-1"));
-    let fx = intent(
-        &mut app,
-        chat::ThreadIntent::QueueRan(dispatched(Some(SlashCommand::Model), true)),
-    );
+    let operation = issued_operation(&app);
+    let fx = open_queued_picker(&mut app, operation.clone());
     assert!(started_texts(&fx).is_empty(), "the picker opened first");
     assert_eq!(queued(&app), ["hello after selection"]);
-    // the sheet settled
+    // A generic nudge can reconsider admission but the picker still owns this operation.
     let fx = intent(&mut app, chat::ThreadIntent::QueueResume);
+    assert!(started_texts(&fx).is_empty());
+    let fx = intent(
+        &mut app,
+        chat::ThreadIntent::QueueEvent(QueueEvent::PickerClosed(operation)),
+    );
     assert_eq!(started_texts(&fx), ["hello after selection"]);
+}
+
+fn issued_operation(app: &CodexApp) -> QueueOperation {
+    thread(app)
+        .due_command()
+        .expect("queued command is due")
+        .operation()
+        .clone()
+}
+
+fn open_queued_picker(app: &mut CodexApp, operation: QueueOperation) -> AppFx {
+    run(
+        app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Select(
+            select::Intent::OpenModels(Box::new(select::ModelOpen {
+                operation: Some(operation),
+                current: select::Current::new("gpt-5.6"),
+            })),
+        ))),
+    )
+}
+
+#[test]
+fn only_the_matching_picker_close_releases_the_queue_in_each_event_order() {
+    #[derive(Clone, Copy)]
+    enum Event {
+        Lag,
+        Recover,
+        Nudge,
+    }
+    use Event::{Lag, Nudge, Recover};
+    for events in [
+        [Lag, Recover, Nudge],
+        [Lag, Nudge, Recover],
+        [Recover, Lag, Nudge],
+        [Recover, Nudge, Lag],
+        [Nudge, Lag, Recover],
+        [Nudge, Recover, Lag],
+    ] {
+        let mut app = running();
+        tab(&mut app, "/model", false);
+        tab(&mut app, "/model", false);
+        tab(&mut app, "after both pickers", false);
+        notify(&mut app, turn_completed(T, "turn-1"));
+        let first = issued_operation(&app);
+        let stale_ack = report_due(&app, dispatched(Some(SlashCommand::Model), false));
+        assert!(started_texts(&open_queued_picker(&mut app, first.clone())).is_empty());
+        assert!(
+            thread(&app).due_command().is_none(),
+            "owned picker is not issued again"
+        );
+        assert!(
+            started_texts(&intent(
+                &mut app,
+                chat::ThreadIntent::QueueEvent(QueueEvent::PickerOpened(first.clone()))
+            ))
+            .is_empty()
+        );
+
+        for event in events {
+            let fx = match event {
+                Lag => notify(&mut app, BackendEv::Lagged(1)),
+                Recover => {
+                    assert!(started_texts(&notify(&mut app, lost(T))).is_empty());
+                    notify(&mut app, restored(T))
+                }
+                Nudge => intent(&mut app, chat::ThreadIntent::QueueResume),
+            };
+            assert!(
+                started_texts(&fx).is_empty(),
+                "the first picker still owns admission"
+            );
+        }
+        assert!(started_texts(&intent(&mut app, stale_ack.clone())).is_empty());
+        assert!(
+            started_texts(&intent(
+                &mut app,
+                chat::ThreadIntent::QueueEvent(QueueEvent::PickerClosed(first.clone()))
+            ))
+            .is_empty()
+        );
+        let second = issued_operation(&app);
+        assert_ne!(first, second);
+        assert!(started_texts(&open_queued_picker(&mut app, second.clone())).is_empty());
+        assert!(
+            started_texts(&intent(
+                &mut app,
+                chat::ThreadIntent::QueueEvent(QueueEvent::PickerClosed(first))
+            ))
+            .is_empty()
+        );
+        assert!(started_texts(&intent(&mut app, stale_ack)).is_empty());
+        assert_eq!(
+            started_texts(&intent(
+                &mut app,
+                chat::ThreadIntent::QueueEvent(QueueEvent::PickerClosed(second.clone()))
+            )),
+            ["after both pickers"]
+        );
+        assert!(
+            started_texts(&intent(
+                &mut app,
+                chat::ThreadIntent::QueueEvent(QueueEvent::PickerOpened(second.clone()))
+            ))
+            .is_empty()
+        );
+        assert!(
+            started_texts(&intent(
+                &mut app,
+                chat::ThreadIntent::QueueEvent(QueueEvent::PickerClosed(second))
+            ))
+            .is_empty()
+        );
+    }
+}
+
+#[test]
+fn a_declined_queued_picker_does_not_leave_a_hold_or_a_show() {
+    let mut app = running();
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Select(select::Ev::Provider(
+            select::Provider::Saving,
+        ))),
+    );
+    tab(&mut app, "/model", false);
+    tab(&mut app, "after refusal", false);
+    notify(&mut app, turn_completed(T, "turn-1"));
+    let operation = issued_operation(&app);
+    let fx = open_queued_picker(&mut app, operation.clone());
+    assert_eq!(started_texts(&fx), ["after refusal"]);
+    assert!(app.screens().select.shows.pending().next().is_none());
+    assert!(started_texts(&open_queued_picker(&mut app, operation)).is_empty());
+}
+
+#[test]
+fn a_picker_closed_while_detached_releases_the_hold_when_the_writer_returns() {
+    for opened in [false, true] {
+        let mut app = running();
+        tab(&mut app, "/model", false);
+        tab(&mut app, "after reconnect", false);
+        notify(&mut app, turn_completed(T, "turn-1"));
+        let operation = issued_operation(&app);
+        if opened {
+            open_queued_picker(&mut app, operation.clone());
+            intent(
+                &mut app,
+                chat::ThreadIntent::QueueEvent(QueueEvent::PickerOpened(operation.clone())),
+            );
+        }
+        run(
+            &mut app,
+            AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnecting)),
+        );
+        let fx = if opened {
+            intent(
+                &mut app,
+                chat::ThreadIntent::QueueEvent(QueueEvent::PickerClosed(operation)),
+            )
+        } else {
+            let declined = open_queued_picker(&mut app, operation);
+            assert!(app.screens().select.shows.pending().next().is_none());
+            declined
+        };
+        assert!(thread(&app).due_command().is_none());
+        assert!(started_texts(&fx).is_empty());
+        let history = reattach(&mut app);
+        assert_eq!(
+            started_texts(&reply_history(&mut app, history, None)),
+            ["after reconnect"]
+        );
+    }
+}
+
+#[test]
+fn a_picker_close_is_addressed_to_its_original_thread() {
+    const B: &str = "thread-2";
+    let mut app = running();
+    tab(&mut app, "/model", false);
+    tab(&mut app, "for original thread", false);
+    notify(&mut app, turn_completed(T, "turn-1"));
+    let original = issued_operation(&app);
+    let stale_ack = report_due(&app, dispatched(Some(SlashCommand::Model), false));
+    open_queued_picker(&mut app, original.clone());
+    intent(
+        &mut app,
+        chat::ThreadIntent::QueueEvent(QueueEvent::PickerOpened(original.clone())),
+    );
+
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Agents(agents::Ev::Listed(agents::Page {
+            threads: vec![listed(B)],
+            unread: Vec::new(),
+            next_cursor: None,
+            append: false,
+            pins: None,
+        }))),
+    );
+    let fx = run(
+        &mut app,
+        AppEv::Intent(Intent::OpenThread(ThreadId::new(B))),
+    );
+    let ticket = fx
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Screen {
+                ticket,
+                command:
+                    ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Resume { thread })),
+                ..
+            } if thread == B => Some(*ticket),
+            _ => None,
+        })
+        .expect("the second thread is resumed");
+    run(
+        &mut app,
+        AppEv::Reply(
+            ticket,
+            Reply::screen(ScreenReply::Agents(agents::Reply::Resumed(Box::new(
+                listed(B),
+            )))),
+        ),
+    );
+    assert_eq!(thread(&app).id().as_str(), B);
+    let on_second = |app: &mut CodexApp, intent: chat::ThreadIntent| {
+        run(
+            app,
+            AppEv::Intent(Intent::ThreadScreen {
+                thread: ThreadId::new(B),
+                intent: ScreenThreadIntent::Chat(intent),
+            }),
+        )
+    };
+    notify(&mut app, turn_started(B, "second-turn"));
+    for text in ["/model", "for second thread"] {
+        on_second(
+            &mut app,
+            chat::ThreadIntent::Queue(Queued::of(UserMessage::text(text), false)),
+        );
+    }
+    notify(&mut app, turn_completed(B, "second-turn"));
+    let second = issued_operation(&app);
+    assert!(started_texts(&on_second(&mut app, stale_ack)).is_empty());
+    assert_eq!(issued_operation(&app), second);
+    open_queued_picker(&mut app, second.clone());
+    assert!(
+        started_texts(&on_second(
+            &mut app,
+            chat::ThreadIntent::QueueEvent(QueueEvent::PickerClosed(original.clone()))
+        ))
+        .is_empty()
+    );
+    let fx = intent(
+        &mut app,
+        chat::ThreadIntent::QueueEvent(QueueEvent::PickerClosed(original)),
+    );
+    assert_eq!(started_texts(&fx), ["for original thread"]);
+    assert!(
+        fx.commands()
+            .iter()
+            .any(|c| matches!(c, Command::StartTurn { thread, .. } if thread.as_str() == T))
+    );
+    let fx = on_second(
+        &mut app,
+        chat::ThreadIntent::QueueEvent(QueueEvent::PickerClosed(second)),
+    );
+    assert_eq!(started_texts(&fx), ["for second thread"]);
+    assert!(
+        fx.commands()
+            .iter()
+            .any(|c| matches!(c, Command::StartTurn { thread, .. } if thread.as_str() == B))
+    );
 }
 
 #[test]
@@ -189,10 +563,7 @@ fn a_continue_command_that_opened_a_popup_stops_all_the_same() {
     tab(&mut app, "/rename", false);
     tab(&mut app, "hello after rename", false);
     notify(&mut app, turn_completed(T, "turn-1"));
-    let fx = intent(
-        &mut app,
-        chat::ThreadIntent::QueueRan(dispatched(Some(SlashCommand::Rename), true)),
-    );
+    let fx = ran(&mut app, dispatched(Some(SlashCommand::Rename), true));
     assert!(
         started_texts(&fx).is_empty(),
         "the Name thread prompt is open"
@@ -207,10 +578,7 @@ fn an_unknown_command_lets_the_queue_go_on() {
     tab(&mut app, "/does-not-exist", false);
     tab(&mut app, "next", false);
     notify(&mut app, turn_completed(T, "turn-1"));
-    let fx = intent(
-        &mut app,
-        chat::ThreadIntent::QueueRan(dispatched(None, false)),
-    );
+    let fx = ran(&mut app, dispatched(None, false));
     assert_eq!(started_texts(&fx), ["next"]);
 }
 
@@ -220,7 +588,7 @@ fn a_line_that_went_to_the_model_stops_the_queue() {
     tab(&mut app, "/usr/bin/env", false);
     tab(&mut app, "next", false);
     notify(&mut app, turn_completed(T, "turn-1"));
-    let fx = intent(&mut app, chat::ThreadIntent::QueueRan(Ran::Submitted));
+    let fx = ran(&mut app, Ran::Submitted);
     assert!(started_texts(&fx).is_empty());
     assert_eq!(queued(&app), ["next"]);
 }
@@ -228,11 +596,13 @@ fn a_line_that_went_to_the_model_stops_the_queue() {
 #[test]
 fn a_report_without_a_due_command_is_nothing() {
     let mut app = running();
+    tab(&mut app, "/status", false);
+    notify(&mut app, turn_completed(T, "turn-1"));
+    let report = report_due(&app, dispatched(Some(SlashCommand::Status), false));
+    intent(&mut app, report.clone());
+    notify(&mut app, turn_started(T, "turn-2"));
     tab(&mut app, "next", false);
-    let fx = intent(
-        &mut app,
-        chat::ThreadIntent::QueueRan(dispatched(Some(SlashCommand::Status), false)),
-    );
+    let fx = intent(&mut app, report);
     assert!(fx.commands().is_empty());
     assert_eq!(queued(&app), ["next"]);
 }

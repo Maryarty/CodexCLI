@@ -25,6 +25,7 @@ use rtwk::overlay::DialogOptions;
 
 use codex_tui_core::screens::select::Opening;
 use codex_tui_core::screens::select::apps::Link;
+use codex_tui_core::threads::queue::QueueOperation;
 
 use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
@@ -555,8 +556,25 @@ pub fn shown(opening: &Opening) -> (AnyWidget, DialogOptions) {
         Opening::Apps => (apps::sheet(), apps::options()),
         Opening::Quick(menu) => (quick::sheet(menu), quick::options()),
         Opening::Permissions(menu) => (permissions::sheet(menu.clone()), permissions::options()),
-        Opening::Models(menu) => (models::sheet(menu.clone()), models::options()),
+        Opening::Models(menu) => (
+            models::sheet(menu.clone(), models::Completion::Intent),
+            models::options(),
+        ),
     }
+}
+
+/// A queued model sheet returns its result to the native dialog's scoped callback.
+pub(crate) fn queued_model(
+    opening: &Opening,
+    operation: &QueueOperation,
+) -> Option<(AnyWidget, DialogOptions)> {
+    let Opening::Models(menu) = opening else {
+        return None;
+    };
+    Some((
+        models::sheet(menu.clone(), models::Completion::Dialog(operation.clone())),
+        models::options(),
+    ))
 }
 
 /// Opens the first parameterisation (debug menu, no seeded model).

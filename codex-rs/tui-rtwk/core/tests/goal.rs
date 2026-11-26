@@ -569,18 +569,21 @@ fn a_goal_set_lets_the_queue_go_on() {
         "the command is handed to the screen first"
     );
     // the screen ran the command it was handed: `/goal` stops the queue
+    let origin = app.active_thread();
+    let report = origin
+        .due_command()
+        .expect("queued goal is due")
+        .report(Ran::Dispatched(Dispatched {
+            command: Some(SlashCommand::Goal),
+            modal: false,
+            can_change_directory: true,
+            managed_worktree: false,
+        }));
     let fx = run(
         &mut app,
         AppEv::Intent(Intent::ThreadScreen {
             thread: ThreadId::new(T),
-            intent: ScreenThreadIntent::Chat(chat::ThreadIntent::QueueRan(Ran::Dispatched(
-                Dispatched {
-                    command: Some(SlashCommand::Goal),
-                    modal: false,
-                    can_change_directory: true,
-                    managed_worktree: false,
-                },
-            ))),
+            intent: ScreenThreadIntent::Chat(chat::ThreadIntent::QueueEvent(report)),
         }),
     );
     assert!(started_texts(&fx).is_empty(), "the goal stops the queue");

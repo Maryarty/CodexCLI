@@ -17,6 +17,7 @@ use codex_tui_core::threads::{Queued, Ran, ThreadModel, UserMessage};
 
 use crate::app::view::Hs;
 use crate::pages::session::actions::{reserve_only, run};
+use crate::pages::session::composer::queue::DeferredLine;
 use crate::pages::session::composer::queue::{Delivery, message};
 use crate::pages::session::composer::submission;
 use crate::sheets::select::hud::{self, Step};
@@ -123,7 +124,14 @@ fn recall(input: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs) {
             ScreenThreadIntent::Chat(chat::ThreadIntent::Queue(Queued::of(message, false)));
         cx.emit(&hs.thread_screen, (thread.id().clone(), queued));
     } else {
-        let mut ran = Ran::Submitted;
-        run(input, Some(&message), w, cx, hs, Delivery::Drain, &mut ran);
+        run(
+            input,
+            Some(DeferredLine::Preset(&message)),
+            w,
+            cx,
+            hs,
+            Delivery::Drain,
+            &mut Some(Ran::Submitted),
+        );
     }
 }

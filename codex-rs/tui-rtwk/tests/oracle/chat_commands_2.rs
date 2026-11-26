@@ -112,13 +112,7 @@ fn queued_empty_bang_shell_reports_help_when_dequeued_and_drains_next_input() {
 // ORACLE chatwidget/tests/slash_commands.rs:476 queued_settings_selection_applies_before_next_input kind=ui owner=chat-nav-pane
 #[test]
 fn queued_settings_selection_applies_before_next_input() {
-    let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
-    // the server lists one model (the oracle narrows its catalog to one, `gpt-5.6-terra`)
-    let catalog = include_str!("fixtures/chat_commands_2/speed_catalog.json").trim();
-    s.feed(&format!(
-        r#"{{"step":"respond","method":"model/list","result":{catalog}}}
-{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"gpt-5.2"}}}}}}"#
-    ));
+    let mut s = running_with_model_picker_catalog();
     s.type_text("/model").keys("tab");
     s.type_text("hello after selection").keys("tab");
     s.feed(DONE);
@@ -132,6 +126,176 @@ fn queued_settings_selection_applies_before_next_input() {
     // the turn is the queued message, sent once the selection settled (which model and effort
     // it carries is the thread settings' own, not a field of the start command)
     s.assert_turn_texts(&["hello after selection"]);
+}
+
+#[test]
+fn queued_model_picker_owns_its_follow_up_through_stream_recovery() {
+    for accept in [false, true] {
+        let mut s = running_with_model_picker_catalog();
+        s.type_text("/model").keys("tab");
+        s.type_text("after recovery").keys("tab");
+        s.feed(DONE);
+        s.assert_contains("Select Model and Effort");
+        s.assert_no_turn();
+        s.feed(r#"{"step":"lagged","skipped":1}"#);
+        s.assert_contains("Select Model and Effort");
+        s.assert_no_turn();
+        s.stream_lost("temporary gap").stream_restored();
+        s.assert_contains("Select Model and Effort");
+        s.assert_no_turn();
+        if accept {
+            s.keys("enter");
+            s.assert_no_turn();
+            s.keys("enter");
+        } else {
+            s.keys("esc");
+        }
+        s.assert_turn_texts(&["after recovery"]);
+        s.feed(r#"{"step":"lagged","skipped":1}"#);
+        s.assert_turn_texts(&["after recovery"]);
+    }
+}
+
+#[test]
+fn queued_model_picker_does_not_apply_to_a_newly_resumed_thread() {
+    let mut s = running_with_model_picker_catalog();
+    s.type_text("/model").keys("tab");
+    s.type_text("continue the first thread").keys("tab");
+    let resume = s.hold_request("thread/resume");
+    s.server_resumes("thread-2").visit_thread("thread-2");
+    s.assert_requests_of("thread/resume", 1);
+    s.assert_active_thread("thread-1");
+    s.feed(DONE);
+    s.assert_contains("Select Model and Effort");
+    s.assert_no_turn();
+    s.release(&resume);
+    s.assert_active_thread("thread-2");
+    s.assert_contains("Select Model and Effort");
+    s.keys("enter").keys("enter");
+    s.assert_absent("Select Model and Effort");
+    s.assert_requests_of("thread/settings/update", 0);
+    s.assert_active_thread("thread-2");
+    s.assert_turn_texts(&["continue the first thread"]);
+    s.assert_started_turn_on("thread-1");
+}
+
+#[test]
+fn queued_model_picker_waits_for_the_settings_acknowledgement() {
+    for succeeds in [true, false] {
+        let mut s = running_with_model_picker_catalog();
+        s.type_text("/model").keys("tab");
+        s.type_text("after the model changes").keys("tab");
+        let settings = s.hold_request("thread/settings/update");
+        if succeeds {
+            s.server_answers("thread/settings/update", serde_json::json!({}));
+        } else {
+            s.server_refuses(
+                "thread/settings/update",
+                Some(-32000),
+                "model setting refused",
+            );
+        }
+        s.feed(DONE);
+        s.assert_contains("Select Model and Effort");
+        s.keys("enter").keys("enter");
+        s.assert_absent("Select Model and Effort");
+        s.assert_thread_model_patch("thread-1", "gpt-5.5");
+        s.assert_no_turn();
+        s.feed(r#"{"step":"lagged","skipped":1}"#);
+        s.assert_no_turn();
+        s.release(&settings);
+        s.assert_turn_texts(&["after the model changes"]);
+    }
+}
+
+#[test]
+fn queued_model_picker_keeps_late_result_notes_in_the_original_thread() {
+    let mut s = running_with_model_picker_catalog();
+    let settings = s.hold_request("thread/settings/update");
+    let default = s.hold_request("config/batchWrite");
+    s.server_refuses(
+        "thread/settings/update",
+        Some(-32000),
+        "original task rejected update",
+    );
+    s.server_answers(
+        "config/batchWrite",
+        serde_json::json!({
+            "status": "ok", "version": "v", "filePath": "/c", "overriddenMetadata": null
+        }),
+    );
+    s.type_text("/model").keys("tab");
+    s.type_text("continue the original thread").keys("tab");
+    s.feed(DONE);
+    s.keys("enter").keys("enter");
+    s.assert_thread_model_patch("thread-1", "gpt-5.5");
+    s.assert_requests_of("config/batchWrite", 1);
+    s.server_resumes("thread-2").visit_thread("thread-2");
+    s.assert_active_thread("thread-2");
+    s.release(&default);
+    s.assert_no_turn();
+    s.assert_absent("Model changed to gpt-5.5");
+    s.release(&settings);
+    s.assert_absent("original task rejected update");
+    s.assert_turn_texts(&["continue the original thread"]);
+    s.assert_started_turn_on("thread-1");
+    s.visit_thread("thread-1");
+    s.assert_active_thread("thread-1");
+    s.assert_contains("Model changed to gpt-5.5");
+    s.assert_contains("original task rejected update");
+}
+
+fn running_with_model_picker_catalog() -> Screen {
+    let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
+    let catalog = include_str!("fixtures/chat_commands_2/speed_catalog.json").trim();
+    s.feed(&format!(
+        r#"{{"step":"respond","method":"model/list","result":{catalog}}}
+{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"gpt-5.2"}}}}}}"#
+    ));
+    s.server_answers("thread/settings/update", serde_json::json!({}));
+    s
+}
+
+#[test]
+fn a_queued_model_picker_refusal_drains_without_opening_a_surface() {
+    let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
+    s.feed(r#"{"step":"screen","dir":"select","ev":{"kind":"provider","state":"saving"}}"#);
+    s.type_text("/model").keys("tab");
+    s.type_text("after refusal").keys("tab");
+    s.assert_no_turn();
+    s.feed(DONE);
+    s.assert_absent("Select Model and Effort");
+    s.assert_contains("Saving the default provider");
+    s.assert_turn_texts(&["after refusal"]);
+}
+
+#[test]
+fn a_queued_model_picker_releases_the_queue_when_loading_fails() {
+    for switch in [false, true] {
+        let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
+        let catalog = s.hold_request("model/list");
+        s.type_text("/model").keys("tab");
+        s.type_text("after catalog failure").keys("tab");
+        s.feed(DONE);
+        s.assert_contains("Loading models");
+        s.assert_no_turn();
+        if switch {
+            s.server_resumes("thread-2").visit_thread("thread-2");
+            s.assert_active_thread("thread-2");
+            s.assert_contains("Loading models");
+        }
+        s.server_refuses("model/list", Some(-32000), "model catalog unavailable");
+        s.release(&catalog);
+        s.assert_absent("Loading models");
+        s.assert_turn_texts(&["after catalog failure"]);
+        s.assert_started_turn_on("thread-1");
+        if switch {
+            s.assert_absent("Could not load models");
+            s.visit_thread("thread-1");
+            s.assert_active_thread("thread-1");
+        }
+        s.assert_contains("Could not load models");
+    }
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:529 queued_bare_rename_drains_next_input_after_name_update kind=ui owner=chat-nav-pane

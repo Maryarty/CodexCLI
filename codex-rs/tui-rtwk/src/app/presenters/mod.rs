@@ -16,9 +16,12 @@ use rtwk::app::AppCx;
 
 use codex_tui_core::app::{AppEv, Intent};
 use codex_tui_core::features::Scope;
-use codex_tui_core::screens::ScreenIntent;
-use codex_tui_core::screens::select::Intent as SelectIntent;
+use codex_tui_core::screens::select::{
+    Intent as SelectIntent, ModelCompletion, ModelResult, QueuedModelShow,
+};
 use codex_tui_core::screens::transcript::Intent as TranscriptIntent;
+use codex_tui_core::screens::{ScreenIntent, ScreenThreadIntent, chat};
+use codex_tui_core::threads::queue::{QueueEvent, QueueOperation};
 
 use crate::app::UiApp;
 use crate::features::InPlace;
@@ -87,25 +90,85 @@ fn present_shows(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
         .cloned()
         .collect();
     for show in shows {
-        let Some(place) = app.ui.presenter.place().get() else {
-            return;
+        let operation = show
+            .queued_model
+            .as_ref()
+            .map(|queued| queued.operation().clone());
+        let admissible = match &show.queued_model {
+            Some(QueuedModelShow::Requested(operation)) => {
+                app.core.session().active.as_ref() == Some(operation.thread())
+            }
+            Some(QueuedModelShow::Withdrawn(_)) => false,
+            None => true,
         };
-        let opening = show.opening.clone();
-        let options = crate::sheets::select::shown(&opening).1;
-        let dialog = cx.show_dialog_from::<()>(
-            place,
-            move |_| crate::sheets::select::shown(&opening).0,
-            options,
-            |_app, _answer, _cx| {},
-        );
-        if dialog.is_closed() {
+        let opened = if let Some(place) = app.ui.presenter.place().get()
+            && admissible
+        {
+            if let Some(operation) = operation.clone() {
+                if let Some((sheet, options)) =
+                    crate::sheets::select::queued_model(&show.opening, &operation)
+                {
+                    let dialog = cx.show_dialog_from::<ModelResult>(
+                        place,
+                        move |_| sheet.clone(),
+                        options,
+                        move |app, answer, _cx| match answer {
+                            Some(result) => {
+                                app.send(AppEv::Intent(Intent::Screen(ScreenIntent::Select(
+                                    SelectIntent::Settle(ModelCompletion::Queued {
+                                        operation,
+                                        result,
+                                    }),
+                                ))));
+                            }
+                            None => queue_model_picker(app, operation, QueueEvent::PickerClosed),
+                        },
+                    );
+                    !dialog.is_closed()
+                } else {
+                    false
+                }
+            } else {
+                let opening = show.opening;
+                let options = crate::sheets::select::shown(&opening).1;
+                let dialog = cx.show_dialog_from::<()>(
+                    place,
+                    move |_| crate::sheets::select::shown(&opening).0,
+                    options,
+                    |_app, _answer, _cx| {},
+                );
+                !dialog.is_closed()
+            }
+        } else {
+            false
+        };
+        if !opened && operation.is_none() {
             return;
         }
         app.ui.presenters.taken_select = show.seq;
         app.send(AppEv::Intent(Intent::Screen(ScreenIntent::Select(
             SelectIntent::Shown(show.seq),
         ))));
+        if let Some(operation) = operation {
+            if opened {
+                queue_model_picker(app, operation, QueueEvent::PickerOpened);
+            } else {
+                queue_model_picker(app, operation, QueueEvent::PickerClosed);
+            }
+        }
     }
+}
+
+fn queue_model_picker(
+    app: &mut UiApp,
+    operation: QueueOperation,
+    receipt: impl FnOnce(QueueOperation) -> QueueEvent,
+) {
+    let thread = operation.thread().clone();
+    app.send(AppEv::Intent(Intent::ThreadScreen {
+        thread,
+        intent: ScreenThreadIntent::Chat(chat::ThreadIntent::QueueEvent(receipt(operation))),
+    }));
 }
 
 fn present_wishes(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {

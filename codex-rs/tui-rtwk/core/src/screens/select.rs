@@ -14,6 +14,7 @@ use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ThreadFx;
+use crate::threads::queue::QueueOperation;
 
 pub mod agent_picker;
 pub mod apps;
@@ -27,8 +28,8 @@ pub mod quick_dials;
 pub mod reasoning;
 pub mod review;
 pub mod worktree;
-pub use models::{Catalog, Current, ModelMenu, Preset, Provider, Selection};
 use models::{Answer, Effort, GaveUp, PlanSource};
+pub use models::{Catalog, Current, ModelMenu, Preset, Provider, Selection};
 pub use permissions::{PermissionsMenu, Profiles};
 
 pub const NAME: &str = "select";
@@ -61,6 +62,22 @@ pub struct Show {
     /// Numbers the shows in the order they were made; what a presenter says it showed.
     pub seq: u64,
     pub opening: Opening,
+    /// Only the queued model picker carries a continuation back to the thread owner.
+    pub queued_model: Option<QueuedModelShow>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum QueuedModelShow {
+    Requested(QueueOperation),
+    Withdrawn(QueueOperation),
+}
+
+impl QueuedModelShow {
+    pub fn operation(&self) -> &QueueOperation {
+        match self {
+            Self::Requested(operation) | Self::Withdrawn(operation) => operation,
+        }
+    }
 }
 
 /// What a show opens.
@@ -103,10 +120,15 @@ pub struct Shows {
 
 impl Shows {
     fn push(&mut self, opening: Opening) {
+        self.push_owned(opening, None);
+    }
+
+    fn push_owned(&mut self, opening: Opening, operation: Option<QueueOperation>) {
         self.seq += 1;
         self.queue.push_back(Show {
             seq: self.seq,
             opening,
+            queued_model: operation.map(QueuedModelShow::Requested),
         });
     }
 
@@ -117,7 +139,17 @@ impl Shows {
 
     /// The shows of the `/model` family not shown yet are given up (a provider write came first).
     fn forget_models(&mut self) {
-        self.queue.retain(|show| !matches!(show.opening, Opening::Models(_)));
+        self.queue.retain_mut(|show| {
+            if !matches!(show.opening, Opening::Models(_)) {
+                return true;
+            }
+            if let Some(QueuedModelShow::Requested(operation)) = &show.queued_model {
+                show.queued_model = Some(QueuedModelShow::Withdrawn(operation.clone()));
+            }
+            // The presenter must settle an owned show it has not already mounted. If it
+            // is mounted, the picker sees the provider change and its own close settles.
+            show.queued_model.is_some()
+        });
     }
 
     /// The shows still to show, oldest first.
@@ -139,7 +171,11 @@ pub enum Picked {
     Tier(String),
     /// A step of a reasoning shortcut: the thread's effort for its next turns, nothing saved;
     /// in Plan mode (`plan`) the Plan override only.
-    Effort { model: String, effort: Effort, plan: bool },
+    Effort {
+        model: String,
+        effort: Effort,
+        plan: bool,
+    },
     /// The answer of a confirmation was Yes (No picks nothing).
     Confirmed(Confirm),
     /// A review target the `/review` menus settled on (the instructions typed, a branch, a
@@ -181,7 +217,10 @@ pub enum Note {
     /// `Reasoning shortcuts are unavailable for {model}.`
     ReasoningUnavailable(String),
     /// `Reasoning is already at the lowest level ({effort}).` / `...highest...`
-    ReasoningBound { direction: reasoning::Direction, effort: Effort },
+    ReasoningBound {
+        direction: reasoning::Direction,
+        effort: Effort,
+    },
     /// `Ultra is available under /model -> ... -> More reasoning...`: a raise stops before Ultra.
     UltraAvailable(String),
     /// `Permission selection requested: {label}`: the server took a profile
@@ -220,7 +259,10 @@ pub enum Note {
     /// The input is not a preset: the reason as an error.
     PresetInvalid(quick_dials::Invalid),
     /// `Preset {slot}: {reason}`: a saved preset that does not validate (an error).
-    PresetBroken { slot: u8, reason: quick_dials::Invalid },
+    PresetBroken {
+        slot: u8,
+        reason: quick_dials::Invalid,
+    },
     /// `Preset {slot} is defined outside your user config. Edit its source configuration
     /// instead.` (an error).
     PresetOutside(u8),
@@ -369,7 +411,11 @@ impl Model {
                     dial: Some(dial),
                 }
             }
-            Open::Editor { target, dial, composer } => {
+            Open::Editor {
+                target,
+                dial,
+                composer,
+            } => {
                 let dial = dial.unwrap_or_else(|| {
                     // `composer_quick_dial_text`: images and linked mentions cannot be saved.
                     let input = if composer.images {
@@ -389,7 +435,9 @@ impl Model {
                 Quick::Sources(quick_dials::sources(&settings, &self.catalog))
             }
             Open::Recall(slot) => {
-                let Some(saved) = self.quick.get(slot) else { return };
+                let Some(saved) = self.quick.get(slot) else {
+                    return;
+                };
                 match saved.dial.validate() {
                     Ok(()) => self.picked.push(Picked::Recall(saved.dial.input.clone())),
                     Err(reason) => self.notes.push(Note::PresetBroken { slot, reason }),
@@ -419,10 +467,11 @@ impl Model {
     /// write is gone, a new one opens on the editor.
     fn restore_editor(&mut self, slot: u8, dial: Option<quick_dials::Dial>) {
         if let Some(dial) = dial {
-            self.shows.push(Opening::Quick(Box::new(quick_dials::Menu::Editor {
-                target: quick_dials::Target::Slot(slot),
-                dial,
-            })));
+            self.shows
+                .push(Opening::Quick(Box::new(quick_dials::Menu::Editor {
+                    target: quick_dials::Target::Slot(slot),
+                    dial,
+                })));
         }
     }
 
@@ -463,7 +512,10 @@ impl Model {
             }
         };
         current.discover = true;
-        self.profiles.inline = Some(Inline::Discovering { args, current: current.clone() });
+        self.profiles.inline = Some(Inline::Discovering {
+            args,
+            current: current.clone(),
+        });
         if !self.apply_inline() {
             self.open_permissions(current);
         }
@@ -561,13 +613,27 @@ impl Model {
 
     /// `open_model_popup_with_presets`: the quick menu, or a note when the
     /// catalog has nothing to offer.
-    fn open_models(&mut self, current: Current) {
-        let menu = ModelMenu::Models(current);
-        if menu.is_empty(&self.catalog) {
-            self.notes.push(if menu.is_reserve() { Note::ReserveUnavailable } else { Note::NoAdditionalModels });
-        } else {
-            self.shows.push(Opening::Models(menu));
+    fn open_models(&mut self, current: Current, operation: Option<QueueOperation>) {
+        if let Some(why) = self.catalog.unavailable() {
+            self.notes.push(Note::ModelPickerUnavailable(why));
+            return;
         }
+        let request = self.catalog.request();
+        let menu = if self.catalog.presets.is_empty() {
+            ModelMenu::Loading { current, request }
+        } else {
+            let menu = ModelMenu::Models(current);
+            if menu.is_empty(&self.catalog) {
+                self.notes.push(if menu.is_reserve() {
+                    Note::ReserveUnavailable
+                } else {
+                    Note::NoAdditionalModels
+                });
+                return;
+            }
+            menu
+        };
+        self.shows.push_owned(Opening::Models(menu), operation);
     }
 
     /// A catalog arrived (the startup one, or the answer of a request): a
@@ -657,6 +723,57 @@ pub enum Ev {
     AppSwitched { id: String, enabled: bool },
 }
 
+/// A model request may belong to one issued command of a thread's queue.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModelOpen {
+    pub operation: Option<QueueOperation>,
+    pub current: Current,
+}
+
+/// A result returned when a model sheet closes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModelResult {
+    Picked(Selection),
+    GaveUp(GaveUp),
+}
+
+/// The sheet's result or the reason a page left while another page remains.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModelCompletion {
+    Inline(Selection),
+    Queued {
+        operation: QueueOperation,
+        result: ModelResult,
+    },
+    QueuedPageGaveUp {
+        operation: QueueOperation,
+        why: GaveUp,
+    },
+}
+
+pub(crate) fn model_picker_note(why: GaveUp) -> Note {
+    match why {
+        GaveUp::NotLoaded => Note::ModelsNotLoaded,
+        GaveUp::Empty { reserve: true } => Note::ReserveUnavailable,
+        GaveUp::Empty { reserve: false } => Note::NoAdditionalModels,
+    }
+}
+
+/// A queued model pick may have a config write in addition to its thread update.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum QueuedModelWrite {
+    Applying(QueueOperation),
+    SavingDefault(QueueOperation),
+}
+
+impl QueuedModelWrite {
+    pub(crate) fn operation(&self) -> &QueueOperation {
+        match self {
+            Self::Applying(operation) | Self::SavingDefault(operation) => operation,
+        }
+    }
+}
+
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
@@ -666,11 +783,10 @@ pub enum Intent {
     /// `/model`: the quick menu on the catalog held (`Loading models…` while
     /// it is empty), and the catalog is asked for again: the request is
     /// `Catalog::pending`.
-    OpenModels(Current),
-    /// A page of the `/model` sheet settled on a model and effort: the app applies it.
-    Settle(Selection),
-    /// The sheet of `/model` gave up and closed: `Loading models…` that could not be read, or a
-    /// list a refresh left with no choice. Only the sheet knows the user was looking at it.
+    OpenModels(Box<ModelOpen>),
+    /// A model sheet settled on a choice or an owned picker reported its result.
+    Settle(ModelCompletion),
+    /// An inline model sheet gave up because its models failed to load or there were no choices.
     GiveUp(GaveUp),
     /// The catalog is asked for, with no menu: the app does it when it connects.
     LoadModels,
@@ -679,10 +795,16 @@ pub enum Intent {
     OpenPermissions(permissions::Current),
     /// `/permissions <profile> ..`: the profile is picked without a menu once the catalog is
     /// read (`select_permission_profile`); `current` is what the thread has now.
-    PermissionsArgs { args: String, current: permissions::Current },
+    PermissionsArgs {
+        args: String,
+        current: permissions::Current,
+    },
     /// The next or previous built-in mode (`handle_permission_shortcut`): the pick of the cycle,
     /// or the catalog asked for when none is held.
-    PermissionShortcut { forward: bool, current: permissions::Current },
+    PermissionShortcut {
+        forward: bool,
+        current: permissions::Current,
+    },
     /// The permission menus settled on a pick (the sheet's, or the confirmation's Continue): the
     /// app applies it and the inline pick that waited is the settled one.
     SetPermissions(permissions::Selection),
@@ -752,7 +874,25 @@ pub enum Intent {
     ServiceTier { id: String, current: Option<String> },
     /// A reasoning shortcut on the thread `current` describes: `plan` is the thread in Plan
     /// mode (the step is its override only), `started` the session being configured.
-    Reasoning { direction: reasoning::Direction, current: Current, plan: bool, started: bool },
+    Reasoning {
+        direction: reasoning::Direction,
+        current: Current,
+        plan: bool,
+        started: bool,
+    },
+}
+
+impl Intent {
+    pub fn open_models(current: Current) -> Self {
+        Self::OpenModels(Box::new(ModelOpen {
+            operation: None,
+            current,
+        }))
+    }
+
+    pub fn settle(selection: Selection) -> Self {
+        Self::Settle(ModelCompletion::Inline(selection))
+    }
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -768,21 +908,28 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         // replaces itself with the browser, or closes; a failure is said unless it was given up.
         Ev::Worktrees { request, result } => {
             if let Some(error) = model.worktree.answered(request, result) {
-                model.notes.push(Note::Worktree(worktree::WorktreeLine::ListFailed(error)));
+                model
+                    .notes
+                    .push(Note::Worktree(worktree::WorktreeLine::ListFailed(error)));
             }
         }
         Ev::WorktreeRemoved { request, result } => {
             if let Some(root) = model.worktree.removed(request) {
                 model.notes.push(match result {
                     Ok(()) => Note::Worktree(worktree::WorktreeLine::Removed { root }),
-                    Err(error) => Note::Worktree(worktree::WorktreeLine::RemoveFailed { root, error }),
+                    Err(error) => {
+                        Note::Worktree(worktree::WorktreeLine::RemoveFailed { root, error })
+                    }
                 });
             }
         }
         Ev::Dials(slots) => model.quick.set(slots),
         Ev::PresetWritten { slot, dial, result } => match result {
             Ok(()) => {
-                model.quick.written(quick_dials::Write { slot, dial: dial.clone() });
+                model.quick.written(quick_dials::Write {
+                    slot,
+                    dial: dial.clone(),
+                });
                 model.notes.push(if dial.is_some() {
                     Note::PresetSaved(slot)
                 } else {
@@ -858,26 +1005,14 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::Confirm(confirm) => model.shows.push(Opening::Confirm(confirm)),
         Intent::Confirmed(confirm) => model.picked.push(Picked::Confirmed(confirm)),
         Intent::Shown(seq) => model.shows.shown(seq),
-        Intent::OpenModels(current) => {
-            if let Some(why) = model.catalog.unavailable() {
-                model.notes.push(Note::ModelPickerUnavailable(why));
-                return;
-            }
-            let request = model.catalog.request();
-            if model.catalog.presets.is_empty() {
-                model.shows.push(Opening::Models(ModelMenu::Loading { current, request }));
-            } else {
-                model.open_models(current);
-            }
+        Intent::OpenModels(request) => {
+            let ModelOpen { operation, current } = *request;
+            model.open_models(current, operation);
         }
-        // A pick of the sheet of `/model`: the app applies it (`Picked::Selection`).
-        Intent::Settle(selection) => model.picked.push(Picked::Selection(selection)),
-        // A sheet of `/model` gave up for a reason only it could tell (the user was looking).
-        Intent::GiveUp(why) => model.notes.push(match why {
-            GaveUp::NotLoaded => Note::ModelsNotLoaded,
-            GaveUp::Empty { reserve: true } => Note::ReserveUnavailable,
-            GaveUp::Empty { reserve: false } => Note::NoAdditionalModels,
-        }),
+        Intent::Settle(ModelCompletion::Inline(selection)) => {
+            model.picked.push(Picked::Selection(selection))
+        }
+        Intent::GiveUp(why) => model.notes.push(model_picker_note(why)),
         Intent::LoadModels => {
             if model.catalog.unavailable().is_none() {
                 model.catalog.request();
@@ -901,14 +1036,21 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             };
             model.picked.push(Picked::Tier(next));
         }
-        Intent::Reasoning { direction, current, plan, started } => {
-            match reasoning::step(&model.catalog, &current, direction, started) {
-                reasoning::Outcome::Set(effort) => {
-                    model.picked.push(Picked::Effort { model: current.model, effort, plan });
-                }
-                reasoning::Outcome::Say(note) => model.notes.push(note),
+        Intent::Reasoning {
+            direction,
+            current,
+            plan,
+            started,
+        } => match reasoning::step(&model.catalog, &current, direction, started) {
+            reasoning::Outcome::Set(effort) => {
+                model.picked.push(Picked::Effort {
+                    model: current.model,
+                    effort,
+                    plan,
+                });
             }
-        }
+            reasoning::Outcome::Say(note) => model.notes.push(note),
+        },
         Intent::OpenApps { enabled } => model.open_apps(enabled),
         // `/review`: the presets, over the session's working directory.
         Intent::OpenReview { cwd } => {
@@ -917,22 +1059,38 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         }
         // `/new` and `/fork` (`show_session_checkout_picker`): the choice of checkout, or none
         // where there is no local repository to make one in.
-        Intent::OpenCheckout { mode, name, available, cwd, thread } => {
+        Intent::OpenCheckout {
+            mode,
+            name,
+            available,
+            cwd,
+            thread,
+        } => {
             model.worktree.open(cwd, thread);
             if available {
                 let menu = worktree::Menu::Checkout { mode, name };
                 model.shows.push(Opening::Worktree(menu));
             } else {
-                model.picked.push(Picked::Worktree(worktree::Pick::Current { mode, name }));
+                model
+                    .picked
+                    .push(Picked::Worktree(worktree::Pick::Current { mode, name }));
             }
         }
         // `/worktree` (`show_managed_worktree_picker`).
-        Intent::OpenWorktrees { available, cwd, thread } => {
+        Intent::OpenWorktrees {
+            available,
+            cwd,
+            thread,
+        } => {
             if available {
                 model.worktree.open(cwd, thread);
-                model.shows.push(Opening::Worktree(worktree::Menu::Worktrees));
+                model
+                    .shows
+                    .push(Opening::Worktree(worktree::Menu::Worktrees));
             } else {
-                model.notes.push(Note::Worktree(worktree::WorktreeLine::Unavailable));
+                model
+                    .notes
+                    .push(Note::Worktree(worktree::WorktreeLine::Unavailable));
             }
         }
         // What a page of `/review` settled on (`Picked::Review`), and the list a page asks of the
@@ -963,7 +1121,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::OpenAppPage(_) => {}
         Intent::AppUnlinked(id) => model.app_unlinked(&id),
         // The answer is acted on by the app (`app/select.rs`); the screen keeps no record of it.
-        Intent::PlanAnswer(_) => {}
+        Intent::PlanAnswer(_) | Intent::Settle(_) => {}
     }
 }
 
@@ -1066,14 +1224,19 @@ pub enum Ctx {
     Settings {
         setting: Setting,
         then: Option<Note>,
+        operation: Option<QueueOperation>,
     },
     /// A pick's write: the pick whose line follows a saved write.
     Write {
         setting: Setting,
         then: Option<Note>,
+        queued: Option<QueuedModelWrite>,
     },
     /// The write of an app's switch: the directory takes it once it is saved.
-    App { id: String, enabled: bool },
+    App {
+        id: String,
+        enabled: bool,
+    },
     /// The write of a preset: the slot follows once it is saved.
     Preset {
         slot: u8,
@@ -1081,7 +1244,9 @@ pub enum Ctx {
     },
     /// `model/list` for an automatic model switch of a usage banner that finds no catalog
     /// (`app/banners.rs`).
-    Fallback { backend: crate::ids::BackendId },
+    Fallback {
+        backend: crate::ids::BackendId,
+    },
     /// The settings update of such a switch: the model and effort it asked for, and why.
     Switch {
         backend: crate::ids::BackendId,
@@ -1245,7 +1410,10 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
     Ok(match seed {
         SeedEv::Catalog { presets } => Ev::Loaded(presets),
         SeedEv::Provider { state } => Ev::Provider(state),
-        SeedEv::Loading { current } => model(ModelMenu::Loading { current, request: 0 }),
+        SeedEv::Loading { current } => model(ModelMenu::Loading {
+            current,
+            request: 0,
+        }),
         SeedEv::Models { current } => model(ModelMenu::Models(current)),
         SeedEv::AllModels { current } => model(ModelMenu::AllModels(current)),
         SeedEv::Reasoning { preset, current } => model(ModelMenu::Reasoning { preset, current }),
@@ -1298,7 +1466,10 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
                     (Perms::FullAccess { current, pick }, None)
                 }
             };
-            Ev::Seeded { opening: Opening::Permissions(menu), failure }
+            Ev::Seeded {
+                opening: Opening::Permissions(menu),
+                failure,
+            }
         }
     })
 }

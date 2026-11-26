@@ -6,7 +6,9 @@ use rtwk::Cx;
 use codex_tui_core::commands::SlashCommand;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::question_reply::Intent as QuestionIntent;
-use codex_tui_core::screens::{ScreenIntent, ScreenStates, ScreenThreadIntent, chat, popovers};
+use codex_tui_core::screens::{
+    ScreenIntent, ScreenStates, ScreenThreadIntent, chat, popovers, select,
+};
 use codex_tui_core::threads::queue::Dispatched;
 use codex_tui_core::threads::{DueCommand, Queued, Ran, UserMessage};
 
@@ -91,6 +93,37 @@ pub(in crate::pages::session) fn keep(
     cx.emit(&hs.thread_screen, (thread.clone(), intent));
 }
 
+/// A supplied line can come from the queue or an immediately recalled preset.
+#[derive(Clone, Copy)]
+pub(in crate::pages::session) enum DeferredLine<'a> {
+    Due(&'a DueCommand),
+    Preset(&'a UserMessage),
+}
+
+impl<'a> DeferredLine<'a> {
+    pub(in crate::pages::session) fn message(self) -> &'a UserMessage {
+        match self {
+            Self::Due(due) => due.line(),
+            Self::Preset(message) => message,
+        }
+    }
+}
+
+pub(in crate::pages::session) fn scope_select(
+    mut intent: select::Intent,
+    deferred: Option<DeferredLine<'_>>,
+    ran: &mut Option<Ran>,
+) -> select::Intent {
+    if let (Some(DeferredLine::Due(due)), select::Intent::OpenModels(request)) =
+        (deferred, &mut intent)
+    {
+        request.operation = Some(due.operation().clone());
+        // The select reducer acknowledges this exact request. A second report could release it.
+        *ran = None;
+    }
+    intent
+}
+
 /// The queued command that is due runs through the dispatch a typed line does
 /// (`submit_queued_slash_prompt`); what it did is the thread's to hear of (`QueueRan`).
 pub(in crate::pages::session) fn run_due(
@@ -98,10 +131,18 @@ pub(in crate::pages::session) fn run_due(
     w: &Chat,
     cx: &mut Cx<'_, ChatState>,
     hs: &Hs,
-) -> Ran {
-    let mut ran = Ran::Dispatched(none_opened());
+) -> Option<Ran> {
+    let mut ran = Some(Ran::Dispatched(none_opened()));
     let line = due.line();
-    run(&line.text, Some(line), w, cx, hs, Delivery::Drain, &mut ran);
+    run(
+        &line.text,
+        Some(DeferredLine::Due(due)),
+        w,
+        cx,
+        hs,
+        Delivery::Drain,
+        &mut ran,
+    );
     ran
 }
 

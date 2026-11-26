@@ -14,12 +14,12 @@ use codex_tui_core::commands::{
 use codex_tui_core::ids::Cwd;
 use codex_tui_core::screens::composer::{self, ShellLine};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, popovers};
-use codex_tui_core::threads::{Failure, Note, NoteKey, Ran, ThreadModel, Toggle, UserMessage};
+use codex_tui_core::threads::{Failure, Note, NoteKey, Ran, ThreadModel, Toggle};
 
 use crate::app::view::Hs;
 use crate::features;
 use crate::pages::session::composer::clear_sent;
-use crate::pages::session::composer::queue::{self, Delivery};
+use crate::pages::session::composer::queue::{self, DeferredLine, Delivery};
 use crate::pages::session::open::{note_opened, open};
 
 /// The chat screen of one thread's controllers.
@@ -108,19 +108,19 @@ pub(super) fn reasoning_shortcut(
 }
 
 pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs, send: Delivery) {
-    run(line, None, w, cx, hs, send, &mut Ran::Submitted);
+    run(line, None, w, cx, hs, send, &mut Some(Ran::Submitted));
 }
 
-/// `line` as the composer sends it, `queued` being the message a due command is (its images and
-/// mentions are its own, not the draft's); `ran` tells how the queue goes on.
+/// `line` as the composer sends it. A deferred line supplies its own images and mentions.
+/// The result tells how to continue if this dispatch came from the queue.
 pub(super) fn run(
     line: &str,
-    queued: Option<&UserMessage>,
+    deferred: Option<DeferredLine<'_>>,
     w: &Chat,
     cx: &mut Cx<'_, ChatState>,
     hs: &Hs,
     send: Delivery,
-    ran: &mut Ran,
+    ran: &mut Option<Ran>,
 ) {
     let drained = send == Delivery::Drain;
     // An empty line is nothing to run: the composer was already taken by the
@@ -223,9 +223,9 @@ pub(super) fn run(
         Outcome::NotACommand => {
             // The decision is `apply`'s (R10): it starts a turn or queues
             // the message; the composer clears when it has.
-            *ran = Ran::Submitted;
-            if let Some(message) = queued {
-                cx.emit(&hs.submit, message.clone());
+            *ran = Some(Ran::Submitted);
+            if let Some(deferred) = deferred {
+                cx.emit(&hs.submit, deferred.message().clone());
             } else if !line.trim().is_empty() || w.ui.draft.remote_count() > 0 {
                 record(cx);
                 let message = queue::message(line, w, cx, &states);
@@ -240,7 +240,7 @@ pub(super) fn run(
             command,
             ..
         }) => {
-            *ran = queue::opened_by(command);
+            *ran = Some(queue::opened_by(command));
             record(cx);
             clear_sent(&w.ui);
             let args = features::OpenArgs::of(
@@ -252,7 +252,7 @@ pub(super) fn run(
             note_opened(Target::Feature(feature));
         }
         Outcome::Open(opened) => {
-            *ran = queue::opened_by(opened.command);
+            *ran = Some(queue::opened_by(opened.command));
             record(cx);
             clear_sent(&w.ui);
             if opened.target == Target::Usage {
@@ -311,9 +311,6 @@ pub(super) fn run(
                 reserve_only(&session, &states, &thread),
                 review_cwd(&states, &thread),
             ) {
-                // `/review`, `/apps`, `/permissions` and `/model` are sheets of their own: the model
-                // asks for them and the presenter shows them (a `/model` the provider blocks shows
-                // nothing: a note).
                 shown_by_presenter = matches!(
                     intent,
                     codex_tui_core::screens::select::Intent::OpenReview { .. }
@@ -321,7 +318,10 @@ pub(super) fn run(
                         | codex_tui_core::screens::select::Intent::OpenPermissions(_)
                         | codex_tui_core::screens::select::Intent::OpenModels(_)
                 );
-                cx.emit(&hs.screen, ScreenIntent::Select(intent));
+                cx.emit(
+                    &hs.screen,
+                    ScreenIntent::Select(queue::scope_select(intent, deferred, ran)),
+                );
             }
             if opened.command == SlashCommand::Warnings {
                 open_warnings(cx);
@@ -348,7 +348,7 @@ pub(super) fn run(
             say(cx, Note::from(NoteKey::Toggled(Toggle::Vim, on)));
         }
         Outcome::Session { command, intent } => {
-            *ran = queue::session_ran(command);
+            *ran = Some(queue::session_ran(command));
             record(cx);
             clear_sent(&w.ui);
             screen(
@@ -457,7 +457,7 @@ fn select_intent(
 ) -> Option<codex_tui_core::screens::select::Intent> {
     use codex_tui_core::screens::select::{Intent, models, permissions};
     match command {
-        SlashCommand::Model => Some(Intent::OpenModels(models::Current {
+        SlashCommand::Model => Some(Intent::open_models(models::Current {
             reserve,
             ..models::Current::from_facts(facts)
         })),
