@@ -9,7 +9,7 @@ use std::time::Duration;
 use rtwk::binding::AppBinding;
 use rtwk::foundation::{Listenable, VoidCallback};
 use rtwk::gestures::SelectionTarget;
-use rtwk::layout::{Column, CrossAxisAlignment, MainAxisSize};
+use rtwk::layout::{Align, Alignment, Column, CrossAxisAlignment, MainAxisSize};
 use rtwk::provider::{read, select, watch};
 use rtwk::scroll::{
     ItemTexts, ListView, OverscrollNotification, ScrollController, ScrollNotification,
@@ -1394,12 +1394,20 @@ impl State for ViewportState {
         .find_index(finder)
         .controller(widget.follow.scroll())
         .stick_to_bottom(!reverse)
-        .reverse(reverse);
+        .reverse(reverse)
+        .shrink_wrap(reverse);
         let list: AnyWidget = match &texts {
             Some(texts) => list
                 .selection_text(texts.clone() as Rc<dyn ItemTexts>)
                 .into(),
             None => list.into(),
+        };
+        // A short reverse list reports its measured height to Align. Its live rows can
+        // grow during layout without rebuilding the list widget.
+        let list = if reverse {
+            Align::new(Alignment::BOTTOM_LEFT, list).into()
+        } else {
+            list
         };
         let send = cx.local_sender();
         let follow = widget.follow.clone();

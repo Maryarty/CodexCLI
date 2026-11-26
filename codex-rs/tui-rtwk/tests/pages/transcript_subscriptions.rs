@@ -37,8 +37,14 @@ fn row(h: &Harness, turn: &str, item: &str) -> (Eid, AnyWidget) {
     (element, tree.widget(child).clone())
 }
 
+fn height(h: &Harness, element: Eid) -> i32 {
+    let tree = h.t.tree().expect("mounted app");
+    let render = tree.render_object_of(element).expect("row render object");
+    tree.render_tree().size(render).h
+}
+
 #[test]
-fn a_delta_burst_rebuilds_its_mounted_row_without_rebuilding_the_list_or_other_rows() {
+fn live_deltas_update_and_resize_their_row_without_rebuilding_the_list_or_other_rows() {
     let mut h = start_driven(false, 80, 30);
     h.wait_idle();
     h.fake.script_turn(vec![
@@ -59,6 +65,7 @@ fn a_delta_burst_rebuilds_its_mounted_row_without_rebuilding_the_list_or_other_r
     let before_list = list(&h);
     let (history_id, before_history) = row(&h, "turn-1", "msg-1");
     let (live_id, before_live) = row(&h, "turn-2", "msg-2");
+    let before_height = height(&h, live_id);
     let epoch = h.fake.epoch().expect("attached");
     // Both notifications reach the backend before the next frame.
     for delta in [" second", " third"] {
@@ -78,6 +85,27 @@ fn a_delta_burst_rebuilds_its_mounted_row_without_rebuilding_the_list_or_other_r
     assert!(AnyWidget::identical(&before_history, &history));
     assert_eq!(live_id, new_live_id);
     assert!(!AnyWidget::identical(&before_live, &live));
+    assert_eq!(height(&h, live_id), before_height);
+
+    h.fake.inject(
+        epoch,
+        AppEv::Backend(agent_delta(
+            FAKE_THREAD,
+            "turn-2",
+            "msg-2",
+            "\n\n## Later heading\n",
+        )),
+    );
+    h.wait_for("the whole answer after it grows", |screen| {
+        screen.contains("• first second third") && screen.contains("## Later heading")
+    });
+    assert!(height(&h, live_id) > before_height);
+    assert!(AnyWidget::identical(&before_list, &list(&h)));
+    assert!(AnyWidget::identical(
+        &before_history,
+        &row(&h, "turn-1", "msg-1").1
+    ));
+    assert_eq!(live_id, row(&h, "turn-2", "msg-2").0);
 
     h.fake
         .inject(epoch, AppEv::Backend(turn_completed(FAKE_THREAD, "turn-2")));
