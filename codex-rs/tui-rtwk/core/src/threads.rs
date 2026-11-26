@@ -314,6 +314,36 @@ pub struct Transcript {
 struct StreamingItem {
     entry: ItemEntry,
     committed: usize,
+    output: Option<OutputLines>,
+}
+
+/// The command output's line count after trimming trailing CR/LF, as used by
+/// its preview. Separators after the last visible line become interior lines
+/// if a later delta adds more content.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct OutputLines {
+    initial: usize,
+    breaks: usize,
+    visible: usize,
+}
+
+impl OutputLines {
+    fn of(text: &str) -> Self {
+        let mut lines = Self::default();
+        lines.append(text);
+        lines.initial = lines.visible;
+        lines
+    }
+
+    fn append(&mut self, delta: &str) {
+        for byte in delta.bytes() {
+            match byte {
+                b'\n' => self.breaks += 1,
+                b'\r' => {}
+                _ => self.visible = self.breaks + 1,
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -390,10 +420,29 @@ impl Transcript {
         self.layout_revision
     }
 
-    /// Changes when an item that can change the transcript's activity controls is updated.
-    /// A consumer must also account for changes to the row layout.
+    /// Changes when a tool, patch or search is upserted with different content.
+    /// Activity controls can also depend on the row layout and streamed output.
     pub fn activity_revision(&self) -> u64 {
         self.activity_revision
+    }
+
+    /// The preview line count of an output receiving shell command deltas.
+    pub fn streamed_shell_output_line_count(&self, key: &ItemKey) -> Option<usize> {
+        Some(self.streaming.get(key)?.output.as_ref()?.visible)
+    }
+
+    /// The initial and current output line counts of shell commands receiving deltas.
+    /// The counts leave off trailing CR/LF and are updated from the new bytes alone.
+    pub fn streamed_shell_output_lines(
+        &self,
+    ) -> impl Iterator<Item = (&ItemKey, &ToolActivity, usize, usize)> {
+        self.streaming.iter().filter_map(|(key, live)| {
+            let Item::Tool(tool) = live.entry.item.as_ref() else {
+                return None;
+            };
+            let lines = live.output.as_ref()?;
+            Some((key, tool.as_ref(), lines.initial, lines.visible))
+        })
     }
 
     /// The revision of one row's content, independent of its position.
@@ -645,6 +694,7 @@ impl Transcript {
                 entry.insert(StreamingItem {
                     entry: value,
                     committed,
+                    output: None,
                 })
             }
         };
@@ -669,13 +719,17 @@ impl Transcript {
                 let Some(item) = self.items.get(entry.key()) else {
                     return;
                 };
-                if !matches!(item.item.as_ref(), Item::Tool(tool) if tool.status == ToolStatus::Running)
-                {
+                let Item::Tool(tool) = item.item.as_ref() else {
+                    return;
+                };
+                if tool.status != ToolStatus::Running {
                     return;
                 }
                 entry.insert(StreamingItem {
                     entry: item.clone(),
                     committed: 0,
+                    output: matches!(tool.kind, ToolKind::Shell { .. })
+                        .then(|| OutputLines::of(tool.output.as_deref().unwrap_or_default())),
                 })
             }
         };
@@ -686,8 +740,10 @@ impl Transcript {
                 .output
                 .get_or_insert_with(String::new)
                 .push_str(delta);
+            if let Some(lines) = &mut live.output {
+                lines.append(delta);
+            }
             self.item_revision += 1;
-            self.activity_revision += 1;
             live.entry.revision = self.item_revision;
         }
     }

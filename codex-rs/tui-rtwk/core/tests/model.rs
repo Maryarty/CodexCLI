@@ -9,8 +9,9 @@ use codex_tui_core::app::{
     AppEv, AppFx, BackendEv, CodexApp, Command, Intent, PendingRequest, Session, apply_app,
 };
 use codex_tui_core::fixtures::builders::{
-    agent_completed, agent_delta, server_request_resolved, tool_input_request, turn_completed,
-    turn_error, turn_failed, turn_started, user_item, user_item_with_receipt,
+    agent_completed, agent_delta, command_output, command_progress, command_started,
+    server_request_resolved, tool_input_request, turn_completed, turn_error, turn_failed,
+    turn_started, user_item, user_item_with_receipt,
 };
 use codex_tui_core::ids::{
     ConnEpoch, ItemId, RequestKey, ServerRequestId, ThreadId, Ticket, TurnId,
@@ -535,6 +536,53 @@ fn streaming_updates_only_the_row_content_revision() {
     assert!(grew > first);
     notification(&mut app, agent_completed(T, "turn-1", "msg-1", "Hello"));
     assert_eq!(thread(&app).transcript().item_revision(key), Some(grew));
+}
+
+#[test]
+fn streamed_command_line_counts_match_the_trimmed_output_across_split_crlf() {
+    let mut app = ready();
+    let (turn, item, command) = ("turn-1", "call-1", "echo stdout");
+    notification(
+        &mut app,
+        command_started(T, turn, item, command).expect("start"),
+    );
+    let initial = "one\r\ntwo\r";
+    notification(
+        &mut app,
+        command_progress(T, turn, item, command, initial).expect("progress"),
+    );
+    let (layout_revision, metadata_revision) = {
+        let model = thread(&app);
+        let transcript = model.transcript();
+        (transcript.layout_revision(), transcript.activity_revision())
+    };
+    let mut output = initial.to_owned();
+    for delta in ["\n", "\n\r", " ", "\r", "\n", " четыре", "\n\n", "\r"] {
+        notification(
+            &mut app,
+            command_output(T, turn, item, delta).expect("delta"),
+        );
+        output.push_str(delta);
+        let model = thread(&app);
+        let transcript = model.transcript();
+        let (key, tool, before, current) = transcript
+            .streamed_shell_output_lines()
+            .next()
+            .expect("streaming shell output");
+        assert_eq!(key.item.as_str(), item);
+        assert_eq!(tool.output.as_deref(), Some(output.as_str()));
+        assert_eq!(before, 2);
+        assert_eq!(
+            transcript.streamed_shell_output_line_count(key),
+            Some(current)
+        );
+        assert_eq!(
+            current,
+            output.trim_end_matches(['\r', '\n']).lines().count()
+        );
+        assert_eq!(transcript.layout_revision(), layout_revision);
+        assert_eq!(transcript.activity_revision(), metadata_revision);
+    }
 }
 
 #[test]

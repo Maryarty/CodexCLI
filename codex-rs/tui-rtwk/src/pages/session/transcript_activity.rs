@@ -13,12 +13,11 @@ use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 use rtwk_rich::highlight::SyntaxTheme;
 
-use codex_tui_core::threads::{McpCall, ToolActivity, ToolKind};
+use codex_tui_core::threads::{ItemKey, McpCall, ToolActivity, ToolKind, Transcript};
 
 use crate::app::theme::Tokens;
 
 use super::cells::disclosure::{self, disclosing};
-use super::cells::strings::Strings;
 use super::cells::tool_rows::{BULLET, Env, Parts};
 use super::cells::{computer_activity, exec, tool_call};
 
@@ -26,17 +25,40 @@ use super::cells::{computer_activity, exec, tool_call};
 pub(super) struct ToolRow {
     pub first: Arc<ToolActivity>,
     pub rest: Vec<Arc<ToolActivity>>,
+    pub output_lines: Option<usize>,
     pub detailed: bool,
 }
 
-/// Whether the row of `calls` (the tool items of a row, the first one's the row's) draws a control
-/// while it is closed: a shell call with more to show (`exec::has_control`), an MCP, dynamic or
-/// computer call always. F4 walks the cells that have one.
-pub fn has_control(calls: &[&ToolActivity], strings: &Strings) -> bool {
-    match calls.first().map(|call| &call.kind) {
-        Some(ToolKind::Shell { .. }) => exec::has_control(calls, strings),
-        Some(ToolKind::Mcp(_) | ToolKind::Dynamic(_)) => true,
-        None => false,
+/// Whether the tool row draws a closed control, which makes it an F4 stop.
+pub(super) fn has_control(first: &ToolActivity) -> bool {
+    match first.kind {
+        ToolKind::Shell { .. } => exec::has_control(first),
+        ToolKind::Mcp(_) | ToolKind::Dynamic(_) => true,
+    }
+}
+
+/// Inputs that can change F4 stops for a fixed layout. Growing stdout only
+/// changes the walk when a running shell gains an output control.
+#[derive(Clone, PartialEq)]
+pub(super) struct ActivityStamp {
+    metadata: u64,
+    output_stops: Vec<ItemKey>,
+}
+
+impl ActivityStamp {
+    pub(super) fn of(transcript: &Transcript) -> Self {
+        let mut output_stops: Vec<_> = transcript
+            .streamed_shell_output_lines()
+            .filter(|(_, tool, initial, current)| {
+                exec::gained_output_control(tool, *initial, *current)
+            })
+            .map(|(key, _, _, _)| key.clone())
+            .collect();
+        output_stops.sort_unstable();
+        Self {
+            metadata: transcript.activity_revision(),
+            output_stops,
+        }
     }
 }
 
@@ -82,7 +104,7 @@ impl State for ToolRowState {
         };
         let calls: Vec<&ToolActivity> = widget.calls().collect();
         let parts = match &calls[0].kind {
-            ToolKind::Shell { .. } => exec::parts(&calls, &env),
+            ToolKind::Shell { .. } => exec::parts(&calls, &env, widget.output_lines),
             ToolKind::Mcp(_) if calls[0].is_computer_activity() => {
                 let group: Vec<&McpCall> = calls
                     .iter()

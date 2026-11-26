@@ -24,7 +24,7 @@ use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::backtrack::nth_user;
-use codex_tui_core::threads::{HistoryState, Item, ItemKey, ThreadModel, ToolActivity, TurnState};
+use codex_tui_core::threads::{HistoryState, Item, ItemKey, ThreadModel, TurnState};
 
 use crate::app::theme;
 use crate::app::view::Hs;
@@ -50,7 +50,7 @@ use super::transcript::strings as transcript_strings;
 use super::transcript::turn_details::{
     Anchor, FoldRow, Kind, Plan, PromptFold, Row, Words, arrow, prompt_label,
 };
-use super::transcript_activity::has_control;
+use super::transcript_activity::{ActivityStamp, has_control};
 
 /// The transcript with a prompt marked (Flutter: a `ListView` whose item
 /// `selected: true` is drawn highlighted and scrolled into view when it
@@ -182,8 +182,7 @@ struct RowLayout {
 
 struct ActivityLayout {
     rows: Rc<[Row]>,
-    revision: u64,
-    strings: &'static cells_strings::Strings,
+    stamp: ActivityStamp,
     walk: Rc<Walk>,
 }
 
@@ -633,46 +632,26 @@ fn fold_of(row: &Row, transcript: &codex_tui_core::threads::Transcript) -> Optio
 
 /// The stop of F4 a row draws, if it draws one: its fold, or the cell of a call or a patch that
 /// has a control (`+ Show details`). The key of a cell is its row's first item, as `tile` has it.
-fn stop_of(
-    row: &Row,
-    transcript: &codex_tui_core::threads::Transcript,
-    strings: &'static cells_strings::Strings,
-) -> Option<Stop> {
+fn stop_of(row: &Row, transcript: &codex_tui_core::threads::Transcript) -> Option<Stop> {
     if let Some(fold) = fold_of(row, transcript) {
         return Some(Stop::fold(fold));
     }
     let (key, item) = transcript.get(row.range.start)?;
     let has = match item {
         Item::Patch(patch) => !patch.changes.is_empty(),
-        Item::Tool(_) => {
-            let calls: Vec<&ToolActivity> = row
-                .range
-                .clone()
-                .filter_map(|index| match transcript.get(index) {
-                    Some((_, Item::Tool(tool))) => Some(tool.as_ref()),
-                    _ => None,
-                })
-                .collect();
-            has_control(&calls, strings)
-        }
+        Item::Tool(tool) => has_control(tool),
         _ => false,
     };
     has.then(|| Stop::cell(key.clone()))
 }
 
 impl ViewportState {
-    fn activity_walk(
-        &self,
-        rows: &Rc<[Row]>,
-        thread: &Rc<ThreadModel>,
-        strings: &'static cells_strings::Strings,
-    ) -> Rc<Walk> {
-        let revision = thread.transcript().activity_revision();
+    fn activity_walk(&self, rows: &Rc<[Row]>, thread: &Rc<ThreadModel>) -> Rc<Walk> {
+        let stamp = ActivityStamp::of(thread.transcript());
         let mut cache = self.activity.borrow_mut();
         if let Some(layout) = cache.as_ref()
             && Rc::ptr_eq(&layout.rows, rows)
-            && layout.revision == revision
-            && std::ptr::eq(layout.strings, strings)
+            && layout.stamp == stamp
         {
             return layout.walk.clone();
         }
@@ -682,15 +661,14 @@ impl ViewportState {
                 rows.iter()
                     .enumerate()
                     .filter_map(|(index, row)| {
-                        stop_of(row, thread.transcript(), strings).map(|stop| (index, stop))
+                        stop_of(row, thread.transcript()).map(|stop| (index, stop))
                     })
                     .collect()
             }
         }));
         *cache = Some(ActivityLayout {
             rows: rows.clone(),
-            revision,
-            strings,
+            stamp,
             walk: walk.clone(),
         });
         walk
@@ -889,8 +867,7 @@ impl State for ViewportState {
                 (
                     thread.id().clone(),
                     transcript.layout_revision(),
-                    // A tool output update can add a details control to the F4 walk.
-                    transcript.activity_revision(),
+                    ActivityStamp::of(transcript),
                     thread.can_load_history(),
                     thread.history_state(),
                     thread.read_only(),
@@ -969,7 +946,7 @@ impl State for ViewportState {
             self.activity.borrow_mut().take();
         }
         if !detailed {
-            let walk = (!raw).then(|| self.activity_walk(&rows, &thread, cells));
+            let walk = (!raw).then(|| self.activity_walk(&rows, &thread));
             activity.set_folds(walk.as_ref());
             if let Some(ids) = activity.take_reveal()
                 && let Some(logical) = walk.and_then(|walk| walk.row(&ids))
@@ -1256,6 +1233,7 @@ impl State for ViewportState {
                 highlighted: marked.as_ref() == Some(key),
                 fill: copier.fill_of(listed),
                 streaming: transcript.is_agent_streaming(key),
+                streamed_shell_output_lines: transcript.streamed_shell_output_line_count(key),
                 rest: (index + 1..range.end)
                     .filter_map(|index| match transcript.get(index) {
                         Some((_, Item::Tool(tool))) => Some(tool.clone()),
