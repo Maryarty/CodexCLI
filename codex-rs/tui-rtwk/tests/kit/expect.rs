@@ -348,6 +348,25 @@ impl Screen {
         pretty_assertions::assert_eq!(got, targets, "link targets:\n{}", self.text());
     }
 
+    /// The cells carrying the link, from the rendered terminal.
+    pub fn wrapped_link_cells(&self, url: &str) -> Vec<(u16, u16)> {
+        let grid = self.grid();
+        let positions: Vec<_> = (0..grid.height)
+            .flat_map(|y| (0..grid.width).map(move |x| (x, y)))
+            .filter(|&(x, y)| grid.cell(x, y).link.as_deref() == Some(url))
+            .map(|(x, y)| (u16::try_from(x).unwrap(), u16::try_from(y).unwrap()))
+            .collect();
+        assert!(
+            positions
+                .first()
+                .zip(positions.last())
+                .is_some_and(|(first, last)| first.1 != last.1),
+            "the link must occupy more than one row:\n{}",
+            self.text(),
+        );
+        positions
+    }
+
     /// The cells that carry a link, read in order, spell `url`, and every link goes to it.
     pub fn assert_links_spell(&self, url: &str) {
         let grid = self.grid();
@@ -710,6 +729,29 @@ impl Screen {
                 .map_err(str::to_owned),
         );
         self.answer_latest_effect(|ask| matches!(ask, Effect::Copy { .. }), done);
+    }
+
+    /// The terminal accepted the copy but could not confirm delivery.
+    pub fn answer_copy_unconfirmed(&mut self) {
+        self.answer_latest_effect(
+            |ask| matches!(ask, Effect::Copy { .. }),
+            Done::Copy(Ok(codex_tui_core::app::effects::CopyStatus::Unconfirmed)),
+        );
+    }
+
+    pub fn assert_copies_asked(&self, expected: &[&str]) {
+        let copies: Vec<_> = self
+            .commands()
+            .into_iter()
+            .filter_map(|command| match command {
+                Command::Effect {
+                    ask: Effect::Copy { text, .. },
+                    ..
+                } => Some(text),
+                _ => None,
+            })
+            .collect();
+        pretty_assertions::assert_eq!(copies, expected);
     }
 
     fn answer_latest_effect(&mut self, pick: impl Fn(&Effect) -> bool, done: Done) {

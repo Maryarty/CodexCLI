@@ -395,35 +395,61 @@ fn copy_navigation_keeps_bottom_context_when_prompt_header_appears() {
 // ORACLE transcript_view/copy_on_select_tests.rs:26 copy_on_select_waits_for_release_and_confirmed_delivery kind=snap owner=chat-live snap=copy_on_select_waits_for_release_and_confirmed_delivery
 #[test]
 fn copy_on_select_waits_for_release_and_confirmed_delivery() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no copy-on-select setting and no mouse drag selection that holds until release; the kit has no seed for the setting",
-    );
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(20, 1)
-        .script(include_str!("fixtures/transcript_view_2/sel_text.jsonl"))
-        .open();
-    s.drag(0, 0, 8, 0);
-    // the oracle: the highlight shows `selected` (8 cells) reversed after the release
-    s.assert_text_style("selected", "reversed");
+    for (enabled, clear) in [(false, false), (true, false), (true, true)] {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(20, 5)
+            .script(include_str!("fixtures/transcript_view_2/sel_text.jsonl"))
+            .view_only()
+            .open();
+        s.selection_copy_policy(enabled, clear);
+        let row = u16::try_from(s.row_of("selected text")).unwrap();
+        if !enabled {
+            s.drag(2, row, 9, row);
+            s.assert_text_style("selected", "reversed");
+            s.assert_copies_asked(&[]);
+            continue;
+        }
+        let mut copies = Vec::new();
+        for delivery in [Ok(false), Err("clipboard unavailable"), Ok(true)] {
+            s.mouse_down(2, row);
+            s.mouse_drag(9, row);
+            s.assert_copies_asked(&copies);
+            s.mouse_up(9, row);
+            copies.push("selected");
+            s.assert_copies_asked(&copies);
+            s.assert_text_style("selected", "reversed");
+            match delivery {
+                Ok(true) => s.answer_copy(Ok(())),
+                Ok(false) => s.answer_copy_unconfirmed(),
+                Err(error) => s.answer_copy(Err(error)),
+            }
+            let cleared = clear && delivery == Ok(true);
+            s.assert_text_style("selected", if cleared { "!reversed" } else { "reversed" });
+            s.wait(350);
+        }
+    }
 }
 
 // ORACLE transcript_view/copy_on_select_tests.rs:145 copy_on_select_copies_word_and_line_on_release_without_dragging kind=ui owner=chat-live
 #[test]
 fn copy_on_select_copies_word_and_line_on_release_without_dragging() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no word and line selection on repeated clicks (double and triple click), so no word or line highlight is drawn",
-    );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(24, 1)
+        .size(24, 5)
         .script(include_str!("fixtures/transcript_view_2/alpha.jsonl"))
+        .view_only()
         .open();
-    // the oracle: click 1 selects nothing, click 2 selects `beta`, click 3 selects the line
-    s.double_click(7, 0);
+    s.selection_copy_policy(true, false);
+    let row = u16::try_from(s.row_of("alpha beta gamma")).unwrap();
+    s.click(9, row);
+    s.assert_copies_asked(&[]);
+    s.mouse_down(9, row);
+    s.assert_copies_asked(&[]);
+    s.mouse_up(9, row);
     s.assert_text_style("beta", "reversed");
-    s.click(7, 0);
+    s.assert_copies_asked(&["beta"]);
+    s.click(9, row);
     s.assert_text_style("alpha beta gamma", "reversed");
+    s.assert_copies_asked(&["beta", "alpha beta gamma"]);
 }
 
 // ORACLE transcript_view/copy_on_select_tests.rs:179 copy_on_select_preserves_link_activation_and_ignores_empty_drags kind=ui owner=chat-live
@@ -431,17 +457,31 @@ fn copy_on_select_copies_word_and_line_on_release_without_dragging() {
 fn copy_on_select_preserves_link_activation_and_ignores_empty_drags() {
     kit::pending(
         Owner::ChatLive,
-        "the chat has no drag selection over a link that copies on release and keeps the link activation for a click",
+        "Needs: f-link-open, a stationary click opens the link on release",
     );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(30, 2)
+        .size(36, 6)
         .script(include_str!("fixtures/transcript_view_2/link.jsonl"))
+        .view_only()
         .open();
-    s.click(2, 0);
-    s.assert_link("example.com", "https://example.com/docs");
-    // the oracle: a drag from column 2 to 5 selects `exa`, released at 5 copies it; released at 2 selects nothing
-    s.drag(2, 0, 5, 0);
+    s.selection_copy_policy(true, false);
+    let row = u16::try_from(s.row_of("example.com")).unwrap();
+    s.mouse_down(2, row);
+    s.assert_opened_urls(&[]);
+    s.mouse_up(2, row);
+    s.assert_opened_urls(&["https://example.com/docs"]);
+    s.wait(350);
+    s.drag(2, row, 4, row);
     s.assert_text_style("exa", "reversed");
+    s.assert_copies_asked(&["exa"]);
+    s.wait(350);
+    s.mouse_down(2, row);
+    s.mouse_drag(4, row);
+    s.mouse_drag(2, row);
+    s.mouse_up(2, row);
+    s.assert_text_style("exa", "!reversed");
+    s.assert_copies_asked(&["exa"]);
+    s.assert_opened_urls(&["https://example.com/docs"]);
 }
 
 // ORACLE transcript_view/copy_on_select_tests.rs:226 x11_release_preserves_primary_when_auto_copy_is_disabled kind=ui owner=chat-live
@@ -449,15 +489,20 @@ fn copy_on_select_preserves_link_activation_and_ignores_empty_drags() {
 fn x11_release_preserves_primary_when_auto_copy_is_disabled() {
     kit::pending(
         Owner::ChatLive,
-        "the chat has no PRIMARY selection publish and no copy-on-select setting; the visible half is the selection that stays after release",
+        "Needs: f-mouse-primary, check the routed X11 PRIMARY effect with both copy-on-select settings",
     );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(20, 1)
+        .size(20, 5)
         .script(include_str!("fixtures/transcript_view_2/cafe.jsonl"))
+        .view_only()
         .open();
-    s.drag(0, 0, 14, 0);
-    // the oracle: the selection `visit the café` stays after the release; the PRIMARY publish is not drawn
+    s.selection_copy_policy(false, false);
+    let row = u16::try_from(s.row_of("visit the café")).unwrap();
+    s.drag(2, row, 16, row);
+    // The X11 PRIMARY transfer is outside the UI. The range stays selected and the
+    // clipboard is untouched.
     s.assert_text_style("visit the café", "reversed");
+    s.assert_copies_asked(&[]);
 }
 
 // ---- oracle: transcript_view/diff_source_tests.rs (1 screen-level test here; 2 state tests left to chat-live)
@@ -828,16 +873,26 @@ fn decimal_mouse_scroll_speeds_preserve_whole_rows() {
 fn hover_links_match_wrapped_click_targets_and_refresh_after_scrolling() {
     kit::pending(
         Owner::ChatLive,
-        "the chat's transcript has no link hover target that matches a wrapped link's click target and refreshes after scrolling",
+        "Needs: f-link-open, Ctrl-click activates visible wrapped link cells",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(20, 8)
         .script(include_str!("fixtures/transcript_view_2/links.jsonl"))
+        .view_only()
         .open();
-    s.assert_contains("wide 界 wrapped");
+    s.keys("ctrl+home");
+    let url = "https://example.com";
+    let cells = s.wrapped_link_cells(url);
+    for &(x, y) in &cells {
+        s.ctrl_click(x, y);
+    }
+    let expected = vec![url; cells.len()];
+    s.assert_opened_urls(&expected);
     s.wheel_down(1, 1, 20);
-    // the oracle: after scrolling 20 rows the hovered link cells no longer match any target
-    s.assert_absent("wide 界 wrapped");
+    for (x, y) in cells {
+        s.ctrl_click(x, y);
+    }
+    s.assert_opened_urls(&expected);
 }
 
 // ORACLE transcript_view/input_tests.rs:178 shift_click_extends_a_double_clicked_word_in_both_directions kind=snap owner=chat-live snap=shift_click_extends_a_double_clicked_word_in_both_directions
@@ -873,16 +928,18 @@ fn ordinary_click_opens_bare_and_markdown_links_on_release() {
 // ORACLE transcript_view/input_tests.rs:310 selection_mouse_does_not_open_links kind=ui owner=chat-live
 #[test]
 fn selection_mouse_does_not_open_links() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no selection gesture on a link that keeps the link from opening (Ctrl and no modifier)",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(60, 8)
         .script(include_str!("fixtures/transcript_view_2/docs.jsonl"))
+        .view_only()
         .open();
-    s.drag(1, 0, 4, 0);
-    s.assert_text_style("docs", "reversed");
+    s.keys("leader [");
+    s.assert_contains("enter/q close");
+    let row = u16::try_from(s.row_of("docs")).unwrap();
+    s.click(3, row);
+    s.ctrl_click(3, row);
+    s.assert_opened_urls(&[]);
+    s.assert_contains("enter/q close");
 }
 
 // ---- oracle: transcript_view/layout_tests.rs (3 screen-level tests here; 0 state tests left to chat-live)

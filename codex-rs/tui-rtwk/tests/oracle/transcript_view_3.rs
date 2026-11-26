@@ -582,35 +582,52 @@ fn prompt_margin_and_blank_background_survive_resize_without_changing_copy() {
 // ORACLE transcript_view/prompt_style_tests.rs:111 reserved_margin_uses_the_same_alignment_for_painting_and_selection kind=ui owner=chat-live
 #[test]
 fn reserved_margin_uses_the_same_alignment_for_painting_and_selection() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "the chat has no right-aligned line with a reserved right margin, so the painted margin and its highlight cannot be seeded",
+        "rtwk uses the same render object to paint and provide selection offsets; a right-aligned Text with an inset is exercised in selection_units",
     );
-    let s = Screen::build(Owner::ChatLive).size(8, 1).live().open();
-    s.assert_text_at(4, 0, "ab");
-    s.assert_style(4, 0, "reversed bg=DarkGray");
-    s.assert_style(0, 0, "bg=DarkGray !reversed");
 }
 
 // ---- oracle: transcript_view/right_click_copy_tests.rs (2 screen-level tests here; 0 state tests left to chat-live)
 // ORACLE transcript_view/right_click_copy_tests.rs:12 right_click_retains_selection_until_confirmed_and_preserves_reading_position kind=snap owner=chat-live snap=codex_tui__transcript_view__input__right_click_copy_tests__right_click_retains_selection_until_confirmed_and_preserves_reading_position
 #[test]
 fn right_click_retains_selection_until_confirmed_and_preserves_reading_position() {
-    kit::pending(
-        Owner::ChatLive,
-        "screen feature: the chat has no transcript selection copied by a right click and no copy feedback row (`Copy failed · try again`, `Copy sent to terminal · paste to verify`, `Copied 14 chars to host clipboard`); the kit sends the right click (`right_click`) and has no clipboard answer to seed the three results",
-    );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(40, 4)
+        .size(40, 8)
         .script(include_str!("fixtures/transcript_view_3/right_click.jsonl"))
         .open();
+    s.selection_copy_policy(false, true);
     s.wheel_up(0, 0, 1);
-    // a triple click selects the first line, the right click copies it; the reading position stays
-    s.triple_click(0, 0);
-    s.right_click(4, 0);
-    s.assert_row(0, "selected text");
-    s.assert_row(1, "second line");
-    s.assert_row(2, "third line");
+    let row = s.row_of("selected text");
+    s.triple_click(0, u16::try_from(row).unwrap());
+    s.assert_text_style("selected text", "reversed");
+    let before = s.shot();
+    for result in [Err("clipboard unavailable"), Ok(false), Ok(true)] {
+        s.right_click(4, u16::try_from(row).unwrap());
+        s.assert_copy_asked("selected text");
+        let (feedback, selected) = match result {
+            Err(error) => {
+                s.answer_copy(Err(error));
+                ("Copy failed", true)
+            }
+            Ok(false) => {
+                s.answer_copy_unconfirmed();
+                ("Copy sent to terminal", true)
+            }
+            Ok(true) => {
+                s.answer_copy(Ok(()));
+                ("Copied 13 chars", false)
+            }
+        };
+        s.assert_contains(feedback);
+        s.assert_same_rows_in(&before, row..row + 3);
+        s.assert_text_style(
+            "selected text",
+            if selected { "reversed" } else { "!reversed" },
+        );
+    }
+    s.right_click(4, u16::try_from(row).unwrap());
+    s.assert_copies_asked(&["selected text", "selected text", "selected text"]);
 }
 
 // ORACLE transcript_view/right_click_copy_tests.rs:80 right_click_requires_a_nonempty_selection_and_a_press_inside_the_transcript kind=ui owner=chat-live

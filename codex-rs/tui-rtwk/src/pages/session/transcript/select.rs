@@ -183,6 +183,8 @@ struct Data {
     active: bool,
     /// The caret has not been placed: the pane does it with the first rows it reads.
     placed: bool,
+    /// The first frame of select mode can take over the native area's range.
+    adopt: bool,
     cursor: Pos,
     mark: Option<Mark>,
     /// The display column up and down keep.
@@ -230,6 +232,7 @@ impl Default for Select {
             data: RefCell::new(Data {
                 active: false,
                 placed: false,
+                adopt: false,
                 cursor: Pos::default(),
                 mark: None,
                 column: None,
@@ -345,6 +348,8 @@ impl Select {
             }
             data.active = true;
             data.placed = false;
+            data.adopt = true;
+            data.list = None;
             data.mark = None;
             data.column = None;
             data.shown = None;
@@ -767,10 +772,25 @@ impl Select {
                 }
             }));
         }
-        // the list's object is the one a selection of it tells (a range across rows needs it)
-        if self.0.data.borrow().list.is_none()
+        let entering = std::mem::take(&mut self.0.data.borrow_mut().adopt);
+        if entering {
+            if let Some((start, end)) = controller.start().zip(controller.end())
+                && let Some((mark, cursor)) = mouse_mark(
+                    rows,
+                    &controller.text(),
+                    (start.object == end.object).then_some(start.offset),
+                )
+            {
+                let mut data = self.0.data.borrow_mut();
+                data.mark = Some(mark);
+                data.cursor = cursor;
+                data.reveal = false;
+            }
+        } else if self.0.data.borrow().list.is_none()
             && let Some(point) = controller.start()
         {
+            // Once the mode's selectable list has applied a range, its render object can be
+            // used for ranges extending across rows.
             self.0.data.borrow_mut().list = Some(point.object);
         }
         let wanted = self.range(rows);
@@ -835,6 +855,71 @@ impl Select {
     pub fn watching(&self) -> bool {
         !std::mem::replace(&mut self.0.data.borrow_mut().watched, true)
     }
+}
+
+/// The ordinary transcript selects its rendered children. Match the selection against the
+/// logical text of the select mode, excluding gutters. A renderer's byte offset can identify
+/// repeated words on one line; repeated matches at the same offset have no unambiguous anchor.
+fn mouse_mark(rows: &RowTexts, selected: &str, offset: Option<usize>) -> Option<(Mark, Pos)> {
+    let selected = selected.trim_end_matches('\n');
+    if selected.is_empty() {
+        return None;
+    }
+
+    let mut text = String::new();
+    let mut starts = Vec::new();
+    for line in lines(rows) {
+        starts.push((text.len(), line));
+        text.push_str(&rows.row_text(line.row)[line.start..line.end]);
+        text.push('\n');
+    }
+    let locate = |at| {
+        let (start, line) = starts[starts.partition_point(|(start, _)| *start <= at) - 1];
+        (line, line.start + at - start)
+    };
+    // A selected substring may overlap another occurrence ("aa" in "aaa").
+    let first_char = selected.chars().next()?.len_utf8();
+    let mut after = 0;
+    let mut matches = std::iter::from_fn(|| {
+        let start = text.get(after..)?.find(selected)? + after;
+        after = start + first_char;
+        Some(start)
+    })
+    .peekable();
+    let first = matches.next()?;
+    let start = if matches.peek().is_some() {
+        let offset = offset?;
+        let mut at_offset = std::iter::once(first).chain(matches).filter(|&index| {
+            let (line, at) = locate(index);
+            at - line.start == offset
+        });
+        let only = at_offset.next()?;
+        if at_offset.next().is_some() {
+            return None;
+        }
+        only
+    } else {
+        first
+    };
+    let (first, from) = locate(start);
+    let (last, to) = locate(start + selected.len());
+    let unit = if from == first.start && to == last.end {
+        Unit::Line
+    } else {
+        Unit::Character
+    };
+    let mark = Mark {
+        anchor: Pos {
+            row: first.row,
+            offset: from,
+        },
+        unit,
+    };
+    let cursor = Pos {
+        row: last.row,
+        offset: TextBuffer::new(rows.row_text(last.row)).character_start_before(to),
+    };
+    Some((mark, cursor))
 }
 
 /// The lines of the text a caret can stop on, in the order of the text.

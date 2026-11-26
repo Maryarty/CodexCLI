@@ -146,10 +146,30 @@ fn pager_bindings_use_rendered_page_height_and_keep_control_f_navigation() {
 // ORACLE pager_overlay/transcript_tests.rs:248 focus_loss_stops_edge_drag_and_preserves_selection_after_focus_returns kind=snap owner=chat-live
 #[test]
 fn focus_loss_stops_edge_drag_and_preserves_selection_after_focus_returns() {
-    kit::missing(
+    kit::pending(
         Owner::ChatLive,
-        "the selection, find and copy of a sheet are made over the texts the rows show (rtwk `ListView::item_text`, one line per transcript row equal to what it renders, the items drawing their part through `ListView::selection_of`); the texts are chunk-cells' and are not wired on the list yet (w2-transcript wires find, select and copy on it; transcript chunk steps 4-7)",
+        "Needs: f-mouse-edge-scroll, G-new-sel-edge-zone / G-new-sel-focus: SelectionArea scrolls past the viewport edge and does not cancel an edge drag on focus loss",
     );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(40, 12)
+        .script(include_str!("fixtures/transcript_view_5/rows40.jsonl"))
+        .view_overlay()
+        .open();
+    s.keys("ctrl+home");
+    let from = u16::try_from(s.row_of("row 01")).unwrap();
+    s.mouse_down(2, from);
+    s.mouse_drag(7, 7);
+    s.wait(50);
+    s.assert_text_style("row 01", "reversed");
+    s.assert_text_style("row 07", "reversed");
+    let selected = s.shot();
+    s.focus_out();
+    s.wait(500);
+    s.focus_in();
+    s.wait(500);
+    s.assert_same_rows(&selected);
+    s.assert_text_style("row 01", "reversed");
+    s.assert_text_style("row 07", "reversed");
 }
 
 // ORACLE pager_overlay/transcript_tests.rs:354 opening_find_retains_the_selected_mutable_revision kind=ui owner=chat-live
