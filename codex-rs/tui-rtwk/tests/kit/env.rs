@@ -549,7 +549,7 @@ pub(super) fn resume_response(
 }
 
 /// A listed thread of the server (`thread/list`), idle, in `/work`.
-fn listed_thread(id: &str) -> codex_app_server_protocol::Thread {
+pub(super) fn listed_thread(id: &str) -> codex_app_server_protocol::Thread {
     let json = serde_json::json!({
         "id": id, "environments": null, "extra": null, "sessionId": id,
         "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,

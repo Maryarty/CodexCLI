@@ -238,22 +238,25 @@ fn configured_pet_loads_are_scoped_across_widget_replacements() {
 // ORACLE chatwidget/rendering_tests.rs:79 owned_bottom_pane_preserves_draft_cursor_and_read_only_notice kind=ui owner=chat-live
 #[test]
 fn owned_bottom_pane_preserves_draft_cursor_and_read_only_notice() {
-    kit::pending(
-        Owner::ChatLive,
-        "G-new-external-writer-state: no external-writer state on the chat screen: the thread open in another app, whose notice replaces the composer, has no feed step",
-    );
-    // oracle: the draft stays in the composer while live output lands in the transcript; the notice replaces the composer and has no cursor.
-    let mut s = Screen::build(Owner::ChatLive).size(60, 8).live().open();
-    s.type_text("draft stays here");
-    s.assert_contains("draft stays here");
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(60, 8)
+        .owned_transcript()
+        .live()
+        .open();
+    s.paste("draft stays here");
+    s.keys("left left");
+    s.assert_composer("draft stays here");
+    let (x, y) = s.grid().cursor.expect("the draft's cursor");
     s.feed(&agent_delta(
         "turn-1",
         "live output belongs in the transcript",
     ));
-    s.assert_contains("draft stays here");
-    // The external-writer step (no feed yet) is followed by the notice and a hidden cursor.
+    s.assert_composer("draft stays here");
+    s.assert_cursor(x, y);
+    s.becomes_foreign_writer();
     s.assert_contains("This conversation is open in another app");
     s.assert_cursor_hidden();
+    s.assert_saved_draft("draft stays here");
 }
 
 // ORACLE chatwidget/rendering_tests.rs:130 owned_live_history_keeps_all_sources_in_each_presentation kind=snap owner=chat-live
@@ -429,20 +432,9 @@ fn external_writer_notice_offers_command_center() {
 /// A thread whose rollout file the server named: the saved chat the notice's `c` continues.
 const SAVED_CHAT: &str = include_str!("fixtures/chat_commands_3/rollout.jsonl");
 
-/// The server refused `thread-1` for its model provider (`error` is the failure's JSON).
-fn provider_error(error: &str) -> String {
-    format!(
-        r#"{{"step":"screen","dir":"chat","ev":{{"provider_error":{{"thread":"thread-1","error":{error}}}}}}}"#
-    )
-}
-
 // ORACLE chatwidget/rendering_tests.rs:557 provider_error_preserves_draft_and_survives_thread_navigation kind=snap owner=chat-live snap=provider_errors
 #[test]
 fn provider_error_preserves_draft_and_survives_thread_navigation() {
-    kit::pending(
-        Owner::ChatLive,
-        "G-new-provider-facts: the mismatch frames name the provider the config calls `Team Gateway` and the remote server the connection is to: the app has no fact for the config's model providers or the launch's remote address (StatusFacts of core/src/screens/chat.rs and host/src/facts.rs), so the notice names the id and has no location row",
-    );
     let not_configured = r#"{"type":"modelProviderNotConfigured","modelProvider":"old-provider"}"#;
     let mismatch = r#"{"type":"modelProviderMismatch","modelProvider":"custom-gateway","currentModelProvider":"amazon-bedrock-runtime"}"#;
     let policy_provider = r#"{"type":"modelProviderPolicyConflict","modelProvider":"openai","requiredModelProvider":"amazon-bedrock"}"#;
@@ -471,18 +463,20 @@ fn provider_error_preserves_draft_and_survives_thread_navigation() {
             .script(SAVED_CHAT)
             .open();
         s.type_text("unsent draft");
-        s.feed(&provider_error(error));
+        s.provider_refusal(error, frame.contains("_remote_"));
         // the chat takes no input: typing, a paste and Enter send nothing
         s.type_text("x");
         s.paste("ignored paste");
         s.keys("enter");
         s.assert_no_turn();
         s.assert_absent("ignored paste");
+        s.assert_saved_draft("unsent draft");
         // oracle: the bottom pane of the notice at this width, in the frame the case names.
         s.snap("provider_errors").frame(frame).at(1, 0).assert();
-        // the notice survives a visit to the other chats and back
-        s.keys("esc");
-        s.keys("esc");
+        s.visit_thread("thread-other");
+        s.assert_absent("🔒");
+        s.visit_thread("thread-1");
+        s.assert_saved_draft("unsent draft");
         s.snap("provider_errors").frame(frame).at(1, 0).assert();
     }
 }

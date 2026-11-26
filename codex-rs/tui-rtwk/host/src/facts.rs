@@ -117,6 +117,11 @@ pub async fn status(config: &Config) -> StatusFacts {
         hostname: codex_config::os_host_name(),
         profile_name,
         provider: Some(config.model_provider_id.clone()),
+        provider_names: config
+            .model_providers
+            .iter()
+            .map(|(id, provider)| (id.clone(), provider.name.clone()))
+            .collect(),
         version: Some(env!("CARGO_PKG_VERSION").to_string()),
         animations: config.animations,
         progress_effect: config.tui_effects.progress,

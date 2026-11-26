@@ -14,6 +14,8 @@ pub enum ComposerState {
     ReadOnly,
     /// The thread's parent controls it: only the commands `parent_owned_takes` allows go.
     ParentOwned,
+    /// The thread's cached transcript and draft remain after a failed stream attach.
+    Unavailable,
     /// This process holds no writer, or the server refused the thread for its model provider.
     Disabled,
     /// Text, commands and shell lines are taken.
@@ -38,6 +40,8 @@ pub fn composer_state(model: &ThreadModel, shutting_down: bool) -> ComposerState
         ComposerState::ShuttingDown
     } else if model.read_only() {
         ComposerState::ReadOnly
+    } else if model.writer == Writer::Unavailable {
+        ComposerState::Unavailable
     } else if model.slots.chat.parent_owned {
         ComposerState::ParentOwned
     } else if model.writer == Writer::Detached || model.slots.chat.provider_error.is_some() {

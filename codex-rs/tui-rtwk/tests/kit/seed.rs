@@ -48,6 +48,7 @@ pub struct Open {
     pub(super) height: u16,
     pub(super) seed: Seed,
     pub(super) early: bool,
+    pub(super) quittable: bool,
     pub(super) first_frame: bool,
     pub(super) held_start: bool,
     /// The fake mints `fake-turn-{n}` for the turns the app starts (`Open::fake_turn_ids`).
@@ -85,6 +86,7 @@ impl Screen {
             height: crate::common::HEIGHT,
             seed: Seed::Live,
             early: false,
+            quittable: false,
             first_frame: false,
             held_start: false,
             fake_turns: false,
@@ -169,6 +171,12 @@ impl Open {
     /// `tests/oracle/fixtures/`).
     pub fn script(mut self, jsonl: &'static str) -> Open {
         self.seed = Seed::Script(jsonl);
+        self
+    }
+
+    /// Start the real app view with a frame loop that accepts its quit action.
+    pub fn quittable(mut self) -> Open {
+        self.quittable = true;
         self
     }
 
@@ -311,9 +319,10 @@ impl Open {
     fn driven(&self, debug: bool) -> Harness {
         let initial = self.initial.clone();
         let launch = self.launch.clone();
-        let h = crate::common::start_driven_as(
+        let h = crate::common::start_driven_mode(
             debug,
             self.env.options(self.width, self.height),
+            self.quittable,
             move |app| {
                 let app = match launch {
                     Some(start) => app.with_start_session(start),

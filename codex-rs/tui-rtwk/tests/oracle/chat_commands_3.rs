@@ -33,18 +33,19 @@ const ROLLOUT: &str = include_str!("fixtures/chat_commands_3/rollout.jsonl");
 // ORACLE chatwidget/tests/slash_commands.rs:2210 slash_copy_picker_remains_available_from_parent_owned_threads kind=ui owner=chat-nav-pane
 #[test]
 fn slash_copy_picker_remains_available_from_parent_owned_threads() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "G-new-copy-picker: the /copy picker (Whole response) is not built, and no seed sets a parent-owned thread with a transcript copy source",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .agent_says("Safe local copy")
+        .open();
+    s.parent_owned();
     s.type_text("/cop");
     s.keys("tab");
     s.assert_absent("Whole response");
     s.keys("enter");
     s.assert_contains("Whole response");
     s.keys("1");
-    // The oracle also asserts that copying submits no agent turn (no core op): not drawn.
+    s.assert_copy_asked("Safe local copy");
+    s.assert_no_turn();
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2383 slash_copy_reports_when_no_agent_response_exists kind=snap owner=chat-nav-pane snap=slash_copy_no_output_info_message

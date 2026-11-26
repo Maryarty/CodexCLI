@@ -204,6 +204,15 @@ pub fn start_driven_as(
     options: Options,
     configure: impl FnOnce(UiApp) -> UiApp,
 ) -> Harness {
+    start_driven_mode(debug, options, false, configure)
+}
+
+pub fn start_driven_mode(
+    debug: bool,
+    options: Options,
+    quittable: bool,
+    configure: impl FnOnce(UiApp) -> UiApp,
+) -> Harness {
     let runtime: &'static tokio::runtime::Runtime = Box::leak(Box::new(
         tokio::runtime::Builder::new_current_thread()
             .enable_time()
@@ -215,12 +224,16 @@ pub fn start_driven_as(
     let (server, fake) = FakeServer::new();
     let app = configure(UiApp::new(Backend::Fake(server)).with_debug_screens(debug));
     let mut t = Tester::with(options);
-    t.pump_widget(localized(root(app_view(app)), Lang::En));
+    if quittable {
+        t.pump_app(app_view(app));
+    } else {
+        t.pump_widget(localized(root(app_view(app)), Lang::En));
+    }
     let mut h = Harness {
         t,
         fake,
         driver: Some(runtime),
-        quittable: false,
+        quittable,
         _runtime: guard,
     };
     h.t.pump_for(ms(200));

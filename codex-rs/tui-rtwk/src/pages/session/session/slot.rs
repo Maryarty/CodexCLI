@@ -10,8 +10,10 @@ use rtwk::provider::select;
 use rtwk::style::Theme;
 use rtwk::widgets::Text;
 
+use codex_tui_core::ids::BackendId;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::backtrack::Targets;
+use codex_tui_core::screens::composer::restricted::Restricted;
 use codex_tui_core::threads::composer::{ComposerState, composer_state};
 
 use crate::pages::session::composer::strings as composer_strings;
@@ -62,8 +64,28 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
             SizedBox::shrink().into(),
         )
     } else if let Some(lock) = &frame.provider {
+        let location = (frame.drawn.owner == BackendId::default())
+            .then(|| {
+                select::<ScreenStates, Option<String>, _>(cx, |states| {
+                    states
+                        .status
+                        .remote
+                        .as_ref()
+                        .filter(|remote| !remote.local_daemon)
+                        .map(|remote| remote.address.clone())
+                })
+            })
+            .flatten();
         (
-            provider_error::notice(cx, chat_strings, tokens, lock, frame.can_continue, None),
+            provider_error::notice(
+                cx,
+                chat_strings,
+                tokens,
+                lock,
+                frame.can_continue,
+                location.as_deref(),
+                &frame.drawn.status.provider_names,
+            ),
             provider_error::footer(cx, chat_strings, tokens, frame.can_continue),
         )
     } else if thread.read_only() {
@@ -86,6 +108,9 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
         match held {
             ComposerState::ParentOwned => composer = composer.worded(Placeholder::ParentOwned),
             ComposerState::ShuttingDown => composer = composer.disabled(Placeholder::ShuttingDown),
+            ComposerState::Unavailable => {
+                composer = composer.restricted(Restricted::UnavailableThread)
+            }
             ComposerState::Open if frame.setting_up => {
                 composer = composer.disabled(Placeholder::SetupRunning);
             }

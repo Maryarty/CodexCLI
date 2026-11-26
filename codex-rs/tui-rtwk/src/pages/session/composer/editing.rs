@@ -25,8 +25,8 @@ use codex_tui_core::keymap::fixed::{
     CLEAR_FOR_CTRL_C, DISMISS, ENTER, FIELD_DELETE_BACKWARD, FIELD_DELETE_BACKWARD_WORD,
     FIELD_DELETE_FORWARD, FIELD_DELETE_FORWARD_WORD, FIELD_DOWN, FIELD_KILL_LINE_END,
     FIELD_KILL_LINE_START, FIELD_LEFT, FIELD_LINE_END, FIELD_LINE_START, FIELD_RIGHT, FIELD_UP,
-    FIELD_WORD_LEFT, FIELD_WORD_RIGHT, FIELD_YANK, HISTORY_NEXT, HISTORY_PREVIOUS, PASTE_IMAGE,
-    TAB,
+    FIELD_WORD_LEFT, FIELD_WORD_RIGHT, FIELD_YANK, HISTORY_NEXT, HISTORY_PREVIOUS,
+    INTERRUPT_OR_QUIT, PASTE_IMAGE, TAB,
 };
 use codex_tui_core::keymap::{ActionId, Binding, Keymap};
 use codex_tui_core::kit::vim::{EditorAction, VimPending};
@@ -273,6 +273,9 @@ fn restricted_key(
     key: &KeyPress,
     mode: Restricted,
 ) -> Option<bool> {
+    if mode == Restricted::Disconnected && pressed(&data.keymap, INTERRUPT_OR_QUIT, key) {
+        return Some(false);
+    }
     let expanded = data.draft.restrict(c);
     data.suggest.hide(c.text());
     let submit = pressed(&data.keymap, COMPOSER_SUBMIT, key);

@@ -3153,6 +3153,21 @@ fn provider_refusal(app: &mut CodexApp, thread: &ThreadId, error: &RpcError, fx:
     }
 }
 
+/// An already known conversation can still be shown from cache if its non-embedded backend
+/// answered the resume without attaching it.
+fn can_show_unavailable(app: &CodexApp, thread: &ThreadId) -> bool {
+    let backend = app.screens.agents.owner_of(thread.as_str());
+    let non_embedded = app.screens.agents.is_cloud(backend)
+        || backend == BackendId::default() && app.screens.status.remote.is_some();
+    non_embedded
+        && app.session.connections.get(&backend) == Some(&ConnectionState::Connected)
+        && app.threads.get(thread).is_some_and(|held| {
+            !held.read_only()
+                && held.provider_error().is_none()
+                && (!held.has_writer() || held.stream_lost())
+        })
+}
+
 /// The reply of an app-scoped screen RPC.
 fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut AppFx) {
     let mut recovery_history = None;
@@ -3221,6 +3236,13 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
         session.active = Some(id.clone());
         session.status = Session::Ready;
         provider_refusal(app, &id, error, fx);
+    } else if let (agents::Ctx::Resume { thread }, Err(_)) = (&ctx, &result)
+        && can_show_unavailable(app, thread)
+    {
+        app.threads.open(thread, Origin::Unavailable);
+        agents::attach_loaded(&mut Rc::make_mut(&mut app.screens).agents, thread.as_str());
+        show_held_thread(app, thread.clone(), fx);
+        return;
     }
     if let (agents::Ctx::Fork { thread }, Err(_)) = (&ctx, &result) {
         let session = Rc::make_mut(&mut app.session);

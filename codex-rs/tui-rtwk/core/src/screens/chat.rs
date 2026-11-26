@@ -112,6 +112,8 @@ pub struct StatusFacts {
     pub hostname: Option<String>,
     pub profile_name: Option<String>,
     pub provider: Option<String>,
+    /// Configured display names for the providers a thread refusal can name.
+    pub provider_names: std::collections::BTreeMap<String, String>,
     pub version: Option<String>,
     pub animations: bool,
     pub progress_effect: bool,
@@ -152,6 +154,7 @@ impl Default for StatusFacts {
             hostname: None,
             profile_name: None,
             provider: None,
+            provider_names: Default::default(),
             version: None,
             animations: true,
             progress_effect: true,

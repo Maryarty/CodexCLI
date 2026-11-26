@@ -7,12 +7,12 @@ use codex_tui_core::features::{FeatureFact, FeatureIntent};
 use codex_tui_core::fixtures::builders::turn_started;
 use codex_tui_core::fixtures::script::Answer;
 use codex_tui_core::ids::ThreadId;
-use codex_tui_core::rpc::Reply;
+use codex_tui_core::rpc::{Reply, ServerError};
 use codex_tui_core::screens::{ScreenCommand, ScreenEv, agents, chat};
 use codex_tui_rtwk::app::UiApp;
 
 use super::Screen;
-use super::env::{replay_turn, resume_response};
+use super::env::{listed_thread, replay_turn, resume_response};
 use super::seed::{Open, answer};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -102,6 +102,169 @@ impl Screen {
         })]);
         self.h.advance(100);
         self
+    }
+
+    /// Pause the live connection like the remote host does before reconnecting.
+    pub fn reconnecting(&mut self) -> &mut Screen {
+        self.h
+            .inject([AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnecting))]);
+        self.h.advance(100);
+        self
+    }
+
+    /// The displayed thread loses its stream and the subsequent resume hits an active writer.
+    pub fn becomes_foreign_writer(&mut self) -> &mut Screen {
+        self.reopen_with_refusal("thread already has an active writer")
+    }
+
+    /// A stream that cannot be reattached leaves the cached thread unavailable.
+    pub fn becomes_unavailable(&mut self) -> &mut Screen {
+        self.h.inject([AppEv::Screen(ScreenEv::Status(
+            codex_tui_core::screens::status::Ev::Connection(Some(
+                codex_tui_core::screens::status::Remote {
+                    address: "ws://devbox.example.com:4500/".into(),
+                    version: "unknown".into(),
+                    local_daemon: false,
+                },
+            )),
+        ))]);
+        self.refuse_resume("conversation no longer available".into());
+        self.reconnecting();
+        self.h
+            .inject([AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnected))]);
+        self.h.advance(100);
+        self
+    }
+
+    /// The backend now attaches the displayed thread again.
+    pub fn restore_writer(&mut self) -> &mut Screen {
+        let thread = self.active_thread();
+        self.h.fake.respond(|request| {
+            let id = request["params"]["threadId"].as_str()?;
+            (request["method"] == "thread/resume").then(|| Ok(resume_response(id, &[], false)))
+        });
+        self.h.inject([AppEv::Intent(Intent::OpenThread(thread))]);
+        self.h.advance(100);
+        self
+    }
+
+    fn reopen_with_refusal(&mut self, error: impl Into<ServerError>) -> &mut Screen {
+        let thread = self.active_thread();
+        self.refuse_resume(error.into());
+        self.stream_lost("Cloud stream ended. Reopen the conversation to reconnect.");
+        self.h.inject([AppEv::Intent(Intent::OpenThread(thread))]);
+        self.h.advance(100);
+        self
+    }
+
+    fn refuse_resume(&mut self, error: ServerError) {
+        let original = self.active_thread();
+        self.h.fake.respond(move |request| {
+            if request["method"] != "thread/resume" {
+                return None;
+            }
+            let id = request["params"]["threadId"].as_str()?;
+            Some(if id == original.as_str() {
+                Err(error.clone())
+            } else {
+                Ok(resume_response(id, &[], false))
+            })
+        });
+    }
+
+    pub fn provider_refusal(&mut self, error: &str, remote: bool) -> &mut Screen {
+        let mut facts = self
+            .h
+            .t
+            .read_app(|app: &UiApp| (*app.core.screens().chat.status).clone());
+        facts
+            .provider_names
+            .insert("custom-gateway".to_owned(), "Team Gateway".to_owned());
+        self.h.inject([
+            AppEv::Screen(ScreenEv::Chat(chat::Ev::Status(Box::new(facts)))),
+            AppEv::Screen(ScreenEv::Status(
+                codex_tui_core::screens::status::Ev::Connection(remote.then(|| {
+                    codex_tui_core::screens::status::Remote {
+                        address: "ws://devbox.example.com:4500/".into(),
+                        version: "unknown".into(),
+                        local_daemon: false,
+                    }
+                })),
+            )),
+        ]);
+        self.reopen_with_refusal(ServerError {
+            code: Some(-32000),
+            message: "provider refused resume".to_owned(),
+            data: Some(serde_json::from_str(error).expect("typed provider error")),
+        })
+    }
+
+    /// Open another task through the same intent a row in the command center uses.
+    pub fn visit_thread(&mut self, id: &str) -> &mut Screen {
+        self.show_task_list(&[id]);
+        self.h
+            .inject([AppEv::Intent(Intent::OpenThread(ThreadId::new(id)))]);
+        self.h.advance(100);
+        self
+    }
+
+    pub fn show_task_list(&mut self, threads: &[&str]) -> &mut Screen {
+        self.h
+            .inject([AppEv::Screen(ScreenEv::Agents(agents::Ev::Listed(
+                agents::Page {
+                    threads: threads.iter().map(|id| listed_thread(id)).collect(),
+                    unread: Vec::new(),
+                    next_cursor: None,
+                    append: false,
+                    pins: None,
+                },
+            )))]);
+        self.h.advance(100);
+        self
+    }
+
+    pub fn assert_thread_unavailable(&self) {
+        use codex_tui_core::threads::composer::{ComposerState, composer_state};
+        let state = self
+            .h
+            .t
+            .read_app(|app: &UiApp| composer_state(&app.core.active_thread(), false));
+        assert_eq!(state, ComposerState::Unavailable);
+    }
+
+    /// The large paste is still represented by a single placeholder in the editor.
+    pub fn assert_saved_paste(&self) {
+        let draft = self.h.t.read_app(|app: &UiApp| {
+            app.ui
+                .thread_ui
+                .get(app.core.session().active.as_ref())
+                .composer
+                .text()
+                .to_string()
+        });
+        assert!(
+            draft.starts_with("[Pasted Content"),
+            "uncompressed draft of {} bytes",
+            draft.len()
+        );
+    }
+
+    /// The thread's composer controller retains the draft even when the editor is hidden.
+    pub fn assert_saved_draft(&self, expected: &str) {
+        let draft = self.h.t.read_app(|app: &UiApp| {
+            app.ui
+                .thread_ui
+                .get(app.core.session().active.as_ref())
+                .composer
+                .text()
+                .to_string()
+        });
+        assert_eq!(draft, expected);
+    }
+
+    /// The quit request made it through the live widget to the terminal frame loop.
+    pub fn assert_quitting(&self, quitting: bool) {
+        assert_eq!(!self.h.t.is_running(), quitting);
     }
 
     /// The event stream of the thread is back (`ThreadStreamReconnected`).

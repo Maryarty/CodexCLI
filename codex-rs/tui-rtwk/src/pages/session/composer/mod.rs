@@ -602,7 +602,7 @@ impl ComposerState {
         if w.bare || w.plain.is_some() {
             return None;
         }
-        if w.restricted.is_some() {
+        if w.restricted == Some(Restricted::DraftHandoff) {
             return w.restricted;
         }
         let session = watch::<SessionSlice, _>(cx);
@@ -615,6 +615,7 @@ impl ComposerState {
             Some(ConnectionState::Reconnecting | ConnectionState::Disconnected)
         )
         .then_some(Restricted::Disconnected)
+        .or(w.restricted)
     }
 
     /// `field` with the popup of the suggestions over or under it: a

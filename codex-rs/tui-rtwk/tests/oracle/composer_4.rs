@@ -565,24 +565,26 @@ fn handoff_edit_discards_stale_command_before_ordinary_enter() {
 fn offline_delete_reveals_the_edited_row_without_moving_the_caret() {
     kit::pending(
         Owner::ChatLive,
-        "G-new-offline-composer-screen: screen: the page draws its `Reconnecting…` row above and the footer under the composer (the oracle's snapshot is the composer alone at 40x8), and a composer scrolled by the wheel shows no `↑` cue at the end of its first row; the offline Delete itself acts (tests/pages/composer_draft.rs)",
+        "G65: TextArea repaints its caret in view after a wheel event and exposes no detached composer viewport or overflow arrow. The offline Delete edit and unchanged caret are covered in pages::composer_draft.",
     );
-    let mut s = offline(40, 8);
+    let mut s = offline(40, 10);
     let text = (1..=20)
         .map(|n| format!("line {n:02} abc"))
         .collect::<Vec<_>>()
         .join("\n");
     type_lines(&mut s, &text);
-    // the caret before the `b` of the last line
     s.keys("left left");
-    let row = s
-        .rows()
-        .iter()
-        .position(|r| r.contains("line 20 abc"))
-        .unwrap_or(0);
-    s.wheel_up(2, cell(row), 3);
+    let (x, row) = s.grid().cursor.expect("the draft's cursor");
+    s.wheel_up(cell(x), cell(row), 3);
+    for key in ["enter", "tab"] {
+        s.keys(key);
+        s.assert_cursor_hidden();
+        s.assert_saved_draft(&text);
+    }
     s.keys("delete");
-    s.assert_snap("offline_delete_after_wheel");
+    s.assert_saved_draft(&text.replace("line 20 abc", "line 20 ac"));
+    s.assert_cursor(x, row);
+    s.assert_snap_region("offline_delete_after_wheel", row.saturating_sub(6), 0);
 }
 
 // ORACLE bottom_pane/chat_composer/reconnect_tests.rs:116 reconnect_expands_pastes_preserving_images_and_cursor kind=ui owner=chat-live
@@ -611,14 +613,33 @@ fn reconnect_edit_removes_deleted_attachment_and_paste_metadata() {
 // ORACLE bottom_pane/chat_composer/reconnect_tests.rs:297 unavailable_thread_expands_pasted_commands_without_dispatching kind=ui owner=chat-live
 #[test]
 fn unavailable_thread_expands_pasted_commands_without_dispatching() {
-    kit::pending(
-        Owner::ChatLive,
-        "G-new-unavailable-thread: core has no unavailable-thread fact (a Cloud thread whose channel is not live after reopen; oracle `thread_unavailable`), so the composer never takes `Restricted::UnavailableThread` and Enter on a pasted `/clear <1001 chars>` neither expands the paste into the text nor stays put",
-    );
     let mut s = chat(100, 24);
-    s.paste(&format!("/clear {}", "x".repeat(1001)));
+    s.becomes_unavailable();
+    s.assert_thread_unavailable();
+    let command = format!("/clear {}", "x".repeat(1001));
+    s.paste(&command);
+    s.assert_saved_paste();
     s.keys("enter");
-    s.assert_row_starts_with(prompt(&s), "› /clear xxxx");
+    s.assert_saved_draft(&command);
+    s.assert_absent("[Pasted Content");
+    s.assert_no_turn();
+    s.assert_requests_of("thread/resume", 1);
+    s.restore_writer();
+    s.assert_requests_of("thread/resume", 2);
+    s.assert_saved_draft(&command);
+    s.keys("ctrl+u");
+    s.type_text("back online");
+    s.keys("enter");
+    s.assert_turn_texts(&["back online"]);
+
+    let mut offline = chat(100, 24);
+    offline.becomes_unavailable();
+    offline.reconnecting();
+    offline.paste(&command);
+    offline.assert_saved_draft(&command);
+    offline.keys("enter");
+    offline.assert_saved_draft(&command);
+    offline.assert_no_turn();
 }
 
 // ---- oracle: bottom_pane/chat_composer/snapshot_tests.rs (3 screen-level tests here; 0 state tests left to chat-live)

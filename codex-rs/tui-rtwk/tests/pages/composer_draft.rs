@@ -222,6 +222,34 @@ mod offline {
         );
     }
 
+    #[test]
+    fn delete_edits_the_offline_row_without_moving_the_caret() {
+        use codex_tui_rtwk::app::UiApp;
+        let mut h = offline();
+        h.t.paste("line 19 abc\nline 20 abc");
+        h.advance(100);
+        h.press("left");
+        h.press("left");
+        let draft = |h: &Harness| {
+            h.t.read_app(|app: &UiApp| {
+                let editor = app.ui.thread_ui.get(app.core.session().active.as_ref());
+                (
+                    editor.composer.text(),
+                    editor.composer.selection().extent_offset,
+                )
+            })
+        };
+        let (text, caret) = draft(&h);
+        for key in ["enter", "tab"] {
+            h.press(key);
+            assert_eq!(draft(&h), (text.clone(), caret));
+        }
+        h.press("delete");
+        let (edited, position) = draft(&h);
+        assert_eq!(edited.as_ref(), "line 19 abc\nline 20 ac");
+        assert_eq!(position, caret);
+    }
+
     /// `restricted_input_preserves_blocked_drafts`: a command that needs the
     /// connection stays in the draft, with no popup over it.
     #[test]

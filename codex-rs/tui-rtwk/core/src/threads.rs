@@ -1384,6 +1384,7 @@ enum Writer {
     Attached,
     Detached,
     Foreign,
+    Unavailable,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1398,6 +1399,8 @@ pub enum Origin {
     Resumed,
     /// A thread another process writes (`is_active_writer`): shown read-only.
     ForeignWriter,
+    /// A retained thread whose stream could not be attached again.
+    Unavailable,
 }
 
 /// The models of the threads one process holds, the only place a
@@ -1447,6 +1450,10 @@ impl ThreadSet {
         );
         model.writer = match origin {
             Origin::ForeignWriter => Writer::Foreign,
+            Origin::Unavailable => {
+                model.core.history_may_be_incomplete = true;
+                Writer::Unavailable
+            }
             Origin::Started | Origin::Resumed => Writer::Attached,
         };
         model

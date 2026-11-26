@@ -76,13 +76,14 @@ pub(in crate::pages::session) fn notice(
     lock: &Lock,
     can_continue: bool,
     location: Option<&str>,
+    provider_names: &std::collections::BTreeMap<String, String>,
 ) -> AnyWidget {
     let dim = tokens.dim();
     let mut body = Column::new()
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(Text::new(strings.provider_title(lock, can_continue)).style(tokens.bold()))
-        .child(Text::new(strings.provider_message(lock)).style(dim.clone()));
+        .child(Text::new(strings.provider_message(lock, provider_names)).style(dim.clone()));
     if let Some(address) = location {
         body = body.child(Text::new(strings.provider_location(address)).style(dim));
     }

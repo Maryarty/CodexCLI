@@ -170,7 +170,7 @@ fn thread_shape(cx: &mut Cx<'_, ChatState>) {
             thread.id().clone(),
             thread.turn().clone(),
             thread.can_interrupt(),
-            thread.read_only(),
+            codex_tui_core::threads::composer::composer_state(thread, false),
             thread.transcript().is_empty(),
             thread.queue().len(),
             thread.pending_steers().len(),

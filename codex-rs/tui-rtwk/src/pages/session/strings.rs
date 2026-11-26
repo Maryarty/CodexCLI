@@ -540,26 +540,34 @@ impl Strings {
         Fmt::new(message, [Arg::Text(arg)], &self.num).to_string()
     }
 
-    /// The words under the notice's title (`provider_error_message`); a provider the app does
-    /// not ship with is named by its id.
-    pub(super) fn provider_message(&self, lock: &super::live::provider_error::Lock) -> String {
+    /// The words under the notice's title (`provider_error_message`).
+    pub(super) fn provider_message(
+        &self,
+        lock: &super::live::provider_error::Lock,
+        configured: &std::collections::BTreeMap<String, String>,
+    ) -> String {
         use super::live::provider_error::Lock;
         let two = |message: Msg<2>, a: &str, b: &str| {
             Fmt::new(message, [Arg::Text(a), Arg::Text(b)], &self.num).to_string()
         };
+        let provider_name = |id: &str| match configured.get(id).map(|name| name.trim()) {
+            Some("") => id.to_owned(),
+            Some(name) => name.to_owned(),
+            None => self.provider_name(id),
+        };
         match lock {
             Lock::Mismatch { provider, current } => two(
                 self.provider_mismatch,
-                &self.provider_name(provider),
-                &self.provider_name(current),
+                &provider_name(provider),
+                &provider_name(current),
             ),
             Lock::NotConfigured { provider } => {
-                self.one(self.provider_not_configured, &self.provider_name(provider))
+                self.one(self.provider_not_configured, &provider_name(provider))
             }
             Lock::PolicyProvider { provider, required } => two(
                 self.provider_policy_provider,
-                &self.provider_name(provider),
-                &self.provider_name(required),
+                &provider_name(provider),
+                &provider_name(required),
             ),
             Lock::PolicySettings => self.provider_policy_settings.to_owned(),
         }

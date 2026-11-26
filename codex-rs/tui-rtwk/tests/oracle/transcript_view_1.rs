@@ -428,10 +428,6 @@ fn composer_paste_releases_selection_and_retains_normal_cursor_movement() {
 // ORACLE app/owned_transcript_tests.rs:78 external_writer_escape_returns_to_command_center_without_editing kind=snap owner=chat-live snap=external_writer_escape_command_center snap=external_writer_escape_offline_command_center
 #[test]
 fn external_writer_escape_returns_to_command_center_without_editing() {
-    kit::pending(
-        Owner::ChatLive,
-        "G-new-external-writer-state: Esc and Left leave the read-only chat for the command center (built); the snapshots differ by what the kit cannot stage: the oracle's list is still `Loading tasks…` (the foreign_writer seed lists the thread, which the chat needs to open it) and the offline variant needs a lost connection (`Reconnecting…`, stale list), for which the kit has no step",
-    );
     for (detailed, scrolled, offline) in [
         (false, false, false),
         (false, true, false),
@@ -440,21 +436,50 @@ fn external_writer_escape_returns_to_command_center_without_editing() {
     ] {
         let mut s = Screen::build(Owner::ChatLive)
             .size(96, 24)
-            .foreign_writer("thread-foreign")
+            .owned_transcript()
             .live()
             .open();
+        s.becomes_foreign_writer();
+        let prompt = |id: &str, text: &str| {
+            kit::replay_turn(
+                id,
+                serde_json::json!([{
+                    "type": "userMessage", "id": id,
+                    "content": [{"type": "text", "text": text, "textElements": []}]
+                }]),
+            )
+        };
+        let first = if scrolled {
+            std::iter::repeat_n("First prompt", 30)
+                .collect::<Vec<_>>()
+                .join("\n")
+        } else {
+            "First prompt".to_owned()
+        };
+        s.history_page(
+            vec![prompt("turn-2", "Second prompt"), prompt("turn-1", &first)],
+            None,
+        );
+        s.assert_contains("This conversation is open in another app");
         if detailed {
             s.keys("ctrl+t");
         }
         if scrolled {
-            s.wheel_up(0, 4, 4);
+            s.wheel_up(4, 5, 8);
+        }
+        if offline {
+            s.reconnecting();
         }
         s.keys("esc");
-        s.assert_absent("draft");
+        s.assert_contains("Agent command center");
+        s.assert_saved_draft("");
+        s.assert_no_turn();
         if offline {
-            s.assert_snap("external_writer_escape_offline_command_center");
+            s.assert_snap_region("external_writer_escape_offline_command_center", 0, 0);
         } else if !detailed && !scrolled {
-            s.assert_snap("external_writer_escape_command_center");
+            s.assert_snap_region("external_writer_escape_command_center", 0, 0);
+        } else {
+            s.assert_contains("Loading tasks");
         }
     }
 }
@@ -729,21 +754,26 @@ fn find_owns_editor_chords_without_changing_the_composer_draft() {
 // ORACLE app/owned_transcript_tests.rs:1317 offline_find_closes_before_the_next_ctrl_c_quits kind=ui owner=chat-live
 #[test]
 fn offline_find_closes_before_the_next_ctrl_c_quits() {
-    kit::pending(
-        Owner::ChatLive,
-        "G-new-offline-composer-screen: no offline state (reconnect pause) on the owned transcript with a Find query: the 'Find: needle' query row, the hidden '⌃c quit' hint, and ctrl+c closing Find before quitting are not built; the quit exit is not visible",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
+        .owned_transcript()
+        .quittable()
         .script(include_str!("fixtures/transcript_view_1/needle.jsonl"))
         .open();
-    s.type_text("offline draft");
-    s.keys("ctrl+t /");
+    s.paste("offline draft");
+    s.keys("ctrl+t f3");
     s.paste("needle");
-    s.assert_has_row("Find: needle");
+    s.reconnecting();
+    s.assert_has_row_trimmed("Find: needle");
+    s.grid().cursor.expect("the offline Find cursor");
+    s.assert_cursor_on_row_of("Find: needle");
     s.assert_absent("⌃c quit");
     s.keys("ctrl+c");
-    s.assert_contains("offline draft");
+    s.assert_quitting(false);
+    s.assert_absent("Find: needle");
+    s.assert_saved_draft("offline draft");
+    s.keys("ctrl+t ctrl+c");
+    s.assert_quitting(true);
 }
 
 // ORACLE app/owned_transcript_tests.rs:1461 slash_picker_overlays_history_without_moving_the_transcript_or_composer kind=snap owner=chat-live snap=slash_picker_overlays_history
