@@ -81,6 +81,7 @@ fn rename(app: &mut CodexApp, name: Option<&str>) -> AppFx {
 fn submit(app: &mut CodexApp, name: &str) -> AppFx {
     let intent = rename::Intent::Set {
         thread: ThreadId::new(T),
+        generation: generation(app),
         name: name.to_owned(),
     };
     run(
@@ -100,23 +101,43 @@ fn wishes(app: &CodexApp) -> Vec<rename::Wish> {
         .collect()
 }
 
-fn interested() -> FeatureInterest {
+fn generation(app: &CodexApp) -> rename::Gen {
+    let Some(rename::Wish::Name { generation, .. }) = wishes(app).pop() else {
+        panic!("the name prompt has a generation");
+    };
+    generation
+}
+
+fn interested(app: &CodexApp) -> FeatureInterest {
     FeatureInterest::Rename(Interest::Title {
         thread: ThreadId::new(T),
+        generation: generation(app),
     })
 }
 
 /// The prompt is up: its interest in the title suggestion is the first, and asks the host.
 fn open_prompt(app: &mut CodexApp) -> AppFx {
+    let interest = interested(app);
     run(
         app,
-        AppEv::Intent(Intent::Interest(InterestStep::Open(interested()))),
+        AppEv::Intent(Intent::Interest(InterestStep::Open(interest))),
     )
+}
+
+fn close_prompt(app: &mut CodexApp) {
+    let interest = interested(app);
+    run(
+        app,
+        AppEv::Intent(Intent::Interest(InterestStep::Close(interest))),
+    );
 }
 
 /// What the feature knows of the suggestion for the prompt of the thread.
 fn title(app: &CodexApp) -> Option<Remote<Option<String>>> {
-    app.features().rename.title(&ThreadId::new(T)).cloned()
+    app.features()
+        .rename
+        .title(&ThreadId::new(T), generation(app))
+        .cloned()
 }
 
 /// A conversation to name the thread by: one exchange.
@@ -193,6 +214,7 @@ fn a_bare_rename_wishes_the_prompt_with_the_name() {
         wishes(&app),
         [rename::Wish::Name {
             thread: ThreadId::new(T),
+            generation: 1,
             existing: "Old name".to_owned(),
         }]
     );
@@ -211,6 +233,7 @@ fn a_thread_without_a_name_wishes_an_empty_field() {
         wishes(&app),
         [rename::Wish::Name {
             thread: ThreadId::new(T),
+            generation: 1,
             existing: String::new(),
         }]
     );
@@ -372,10 +395,8 @@ fn a_conversation_with_nothing_to_name_it_by_has_no_suggestion() {
         "completedAtMs": 0, "startedAtMs": 0,
         "item": {"type": "agentMessage", "id": "c1", "text": "thinking", "phase": "commentary"}}}),
     );
-    run(
-        &mut app,
-        AppEv::Intent(Intent::Interest(InterestStep::Close(interested()))),
-    );
+    close_prompt(&mut app);
+    rename(&mut app, None);
     let fx = open_prompt(&mut app);
     assert_eq!(thread_asks(&fx), vec![]);
     assert_eq!(title(&app), Some(Remote::Ready(None)));
@@ -419,6 +440,7 @@ fn a_cloud_conversation_has_no_suggestion() {
     );
     let cloud = FeatureInterest::Rename(Interest::Title {
         thread: ThreadId::new("cloud-1"),
+        generation: 1,
     });
     let fx = run(
         &mut app,
@@ -432,7 +454,7 @@ fn a_cloud_conversation_has_no_suggestion() {
     assert_eq!(
         app.features()
             .rename
-            .title(&ThreadId::new("cloud-1"))
+            .title(&ThreadId::new("cloud-1"), 1)
             .cloned(),
         Some(Remote::Ready(None))
     );
@@ -442,10 +464,7 @@ fn a_cloud_conversation_has_no_suggestion() {
 fn a_late_answer_after_the_prompt_closed_goes_nowhere() {
     let (mut app, fx) = prompted();
     walk(&mut app, &fx, json!({}));
-    run(
-        &mut app,
-        AppEv::Intent(Intent::Interest(InterestStep::Close(interested()))),
-    );
+    close_prompt(&mut app);
     assert_eq!(title(&app), None);
     says(&mut app, r#"{"title": "Late"}"#);
     let fx = ends(&mut app, "completed");
@@ -463,11 +482,8 @@ fn a_late_answer_after_the_prompt_closed_goes_nowhere() {
 fn a_prompt_opened_again_does_not_take_the_earlier_answer() {
     let (mut app, first) = prompted();
     walk_in(&mut app, &first, json!({}), "temp-a", "turn-a");
-    run(
-        &mut app,
-        AppEv::Intent(Intent::Interest(InterestStep::Close(interested()))),
-    );
-    let second = open_prompt(&mut app);
+    close_prompt(&mut app);
+    let second = open_title(&mut app);
     walk_in(&mut app, &second, json!({}), "temp-b", "turn-b");
     says_in(&mut app, "temp-a", "turn-a", r#"{"title": "Stale"}"#);
     ends_in(&mut app, "temp-a", "turn-a", "completed");
@@ -475,6 +491,21 @@ fn a_prompt_opened_again_does_not_take_the_earlier_answer() {
     says_in(&mut app, "temp-b", "turn-b", r#"{"title": "Fresh"}"#);
     ends_in(&mut app, "temp-b", "turn-b", "completed");
     assert_eq!(title(&app), Some(Remote::Ready(Some("Fresh".to_owned()))));
+}
+
+#[test]
+fn closing_an_earlier_prompt_does_not_cancel_its_replacement() {
+    let mut app = ready();
+    open_title(&mut app);
+    let earlier = interested(&app);
+    open_title(&mut app);
+    run(
+        &mut app,
+        AppEv::Intent(Intent::Interest(InterestStep::Close(earlier))),
+    );
+    assert_eq!(title(&app), Some(Remote::Ready(None)));
+    let fx = submit(&mut app, "New name");
+    assert_eq!(renamed_to(&fx), Some("New name".to_owned()));
 }
 
 #[test]

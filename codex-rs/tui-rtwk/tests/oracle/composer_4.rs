@@ -744,18 +744,19 @@ fn normal_mode_explicit_paste_is_its_own_edit_and_replaces_stale_redo() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:300 deleting_a_selected_remote_image_is_one_undoable_vim_edit kind=ui owner=chat-live
 #[test]
 fn deleting_a_selected_remote_image_is_one_undoable_vim_edit() {
-    kit::pending(
-        Owner::ChatLive,
-        "the kit toggles Vim with a bound key (F9) but this body is not written for it, and no seed for set_remote_image_urls: the port selects and deletes the row as one Vim edit (tests/pages/composer_images.rs, composer/editing.rs)",
-    );
+    let url = "https://example.com/remote-vim.png";
     let mut s = chat(100, 24);
+    s.remote_images(&[url]);
     vim_draft(&mut s, "abc");
-    s.type_text("xu");
-    s.assert_row(prompt(&s), "› abc");
-    s.keys("up");
-    s.keys("delete");
+    s.assert_text_count("[Image #1]", 1);
+    s.keys("up delete");
+    s.assert_absent("[Image #1]");
+    s.assert_composer("abc");
     s.type_text("u");
-    s.assert_row(prompt(&s), "› abc");
+    s.assert_text_count("[Image #1]", 1);
+    s.assert_composer("abc");
+    s.keys("i enter");
+    s.assert_sole_turn(kit::Turn::text("abc").remote_images(&[url]));
 }
 
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:322 direct_edits_join_the_active_vim_insert_transaction kind=ui owner=chat-live
@@ -908,22 +909,20 @@ fn undo_and_redo_restore_deleted_large_paste_payload() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:584 undo_and_redo_restore_deleted_image_attachment kind=ui owner=chat-live
 #[test]
 fn undo_and_redo_restore_deleted_image_attachment() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body, and no kit seed for remote image URLs (the page draws the rows, tests/pages/composer_images.rs): the `[Image #1]` placeholder is not drawn and Vim undo does not restore it",
-    );
     let mut s = chat(100, 24);
     s.type_text("alpha ");
-    // attach_image(example.png) at the caret: no kit call yet
-    let p = prompt(&s);
-    s.assert_row(p, "› alpha [Image #1]");
-    s.keys("esc");
-    s.type_text("x");
-    s.assert_row(p, "› alpha");
+    let path = s.attach_image("vim-undo-image.png");
+    s.assert_composer("alpha [Image #1]");
+    s.keys("f9");
+    s.type_text("0wx");
+    s.assert_absent("[Image #1]");
     s.type_text("u");
-    s.assert_row(p, "› alpha [Image #1]");
+    s.assert_composer("alpha [Image #1]");
     s.keys("ctrl+r");
-    s.assert_row(p, "› alpha");
+    s.assert_absent("[Image #1]");
+    s.type_text("u");
+    s.keys("i enter");
+    s.assert_sole_turn(kit::Turn::text("alpha [Image #1]").image_paths(&[&path]));
 }
 
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:614 vim_replace_yank_preserves_existing_image_and_recovers_atomically kind=ui owner=chat-live

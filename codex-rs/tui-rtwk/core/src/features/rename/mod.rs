@@ -72,7 +72,11 @@ pub enum Intent {
         name: Option<String>,
     },
     /// The name prompt submitted for `thread`: an empty name is the error line.
-    Set { thread: ThreadId, name: String },
+    Set {
+        thread: ThreadId,
+        generation: Gen,
+        name: String,
+    },
 }
 
 /// What is asked of one thread.
@@ -80,6 +84,12 @@ pub enum Intent {
 pub enum ThreadIntent {
     /// Rename the thread to this name (an empty one renames nothing).
     Set(String),
+    /// The name prompt owns queued input until it closes or submits.
+    AwaitName(Gen),
+    /// This rename was cancelled before a name was submitted.
+    CancelName(Gen),
+    /// Carry the accepted name from the form to the server request.
+    Submit { generation: Gen, name: String },
 }
 
 /// What an ask was for.
@@ -87,6 +97,8 @@ pub enum ThreadIntent {
 pub enum Ctx {
     /// `thread/name/set`.
     SetName,
+    /// The result belongs to this submission of the prompt.
+    Submitted(Gen),
     /// The title the model was asked to suggest for this thread's prompt, by the request's
     /// generation: the answer of a prompt that was closed and opened again belongs to the
     /// earlier request and is dropped (`State::titles`).
@@ -100,6 +112,7 @@ pub enum Ctx {
 pub enum Wish {
     Name {
         thread: ThreadId,
+        generation: Gen,
         /// The thread's name; empty when it has none.
         existing: String,
     },
@@ -109,13 +122,13 @@ pub enum Wish {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Interest {
     /// A name prompt for `thread` is open: its title suggestion is asked for and kept.
-    Title { thread: ThreadId },
+    Title { thread: ThreadId, generation: Gen },
 }
 
 impl Interest {
     pub(crate) fn thread(&self) -> &ThreadId {
         match self {
-            Self::Title { thread } => thread,
+            Self::Title { thread, .. } => thread,
         }
     }
 }
@@ -125,17 +138,52 @@ impl Interest {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct State {
     titles: BTreeMap<ThreadId, (Gen, Remote<Option<String>>)>,
-    /// The generation of the last request made (O4: a request's answer is told by its gen).
-    asked: Gen,
+    /// Each prompt, its title suggestion and its submitted name share an identity.
+    generation: Gen,
 }
 
-/// Which request for a title an answer belongs to.
+/// What the name prompt submitted for a single thread.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ThreadPart {
+    prompt: Option<Gen>,
+    awaiting: Option<(Gen, String)>,
+}
+
+impl ThreadPart {
+    pub(crate) fn holds_queue(&self) -> bool {
+        self.prompt.is_some() || self.awaiting.is_some()
+    }
+
+    /// A matching notification confirms the server already stored the requested name.
+    pub(crate) fn name_updated(&mut self, name: Option<&str>) -> bool {
+        if self
+            .awaiting
+            .as_ref()
+            .is_some_and(|(_, asked)| Some(asked.as_str()) == name)
+        {
+            self.awaiting = None;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn connection_lost(&mut self) {
+        // Only the submitted RPC depends on this transport.
+        self.awaiting = None;
+    }
+}
+
+/// Which request for a title or a name an answer belongs to.
 pub type Gen = u64;
 
 impl State {
     /// What is known of the suggestion for `thread`'s prompt: none when it was not asked for.
-    pub fn title(&self, thread: &ThreadId) -> Option<&Remote<Option<String>>> {
-        self.titles.get(thread).map(|(_, title)| title)
+    pub fn title(&self, thread: &ThreadId, generation: Gen) -> Option<&Remote<Option<String>>> {
+        self.titles
+            .get(thread)
+            .filter(|(current, _)| *current == generation)
+            .map(|(_, title)| title)
     }
 }
 
@@ -163,7 +211,7 @@ fn blocked(cx: &AppCx<'_>) -> bool {
 
 /// A bare `/rename`: the prompt over the thread in use is asked of the surface, prefilled with
 /// the thread's name.
-fn open(cx: &mut AppCx<'_>, source: Option<ThreadId>) {
+fn open(state: &mut State, cx: &mut AppCx<'_>, source: Option<ThreadId>) {
     let Some(thread) = source.filter(|id| cx.view().thread(id).is_some()) else {
         return cx.note(None, Note::SessionStarting);
     };
@@ -176,15 +224,25 @@ fn open(cx: &mut AppCx<'_>, source: Option<ThreadId>) {
         .and_then(name)
         .map(str::to_owned)
         .unwrap_or_default();
-    cx.wish(thread.clone(), Wish::Name { thread, existing });
+    state.generation += 1;
+    let generation = state.generation;
+    cx.thread(&thread, ThreadIntent::AwaitName(generation));
+    cx.wish(
+        thread.clone(),
+        Wish::Name {
+            thread,
+            generation,
+            existing,
+        },
+    );
 }
 
 /// The name the user submitted: the thread is renamed, an empty name is the error line.
-fn set(cx: &mut AppCx<'_>, thread: ThreadId, text: &str) {
+fn set(cx: &mut AppCx<'_>, thread: ThreadId, generation: Gen, text: &str) {
     match normalize_thread_name(text) {
         None => cx.note(Some(thread), Note::NameEmpty),
         Some(_) if blocked(cx) => cx.note(Some(thread), Note::SideRename),
-        Some(name) => cx.thread(&thread, ThreadIntent::Set(name)),
+        Some(name) => cx.thread(&thread, ThreadIntent::Submit { generation, name }),
     }
 }
 
@@ -248,7 +306,7 @@ impl Feature for Rename {
     const RUNS: &'static [SlashCommand] = &[SlashCommand::Rename];
 
     type State = State;
-    type ThreadPart = ();
+    type ThreadPart = ThreadPart;
     type Target = Never<Self>;
     type Intent = Intent;
     type ThreadIntent = ThreadIntent;
@@ -268,13 +326,17 @@ impl Feature for Rename {
         Self::intent(state, Intent::Command { source, name }, cx);
     }
 
-    fn intent(_state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
+    fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
         let (source, name) = match intent {
             Intent::Command { source, name } => (source, name),
-            Intent::Set { thread, name } => return set(cx, thread, &name),
+            Intent::Set {
+                thread,
+                generation,
+                name,
+            } => return set(cx, thread, generation, &name),
         };
         match name {
-            None => open(cx, source),
+            None => open(state, cx, source),
             Some(_) if blocked(cx) => cx.note(source, Note::SideRename),
             Some(name) => {
                 if let Some(thread) = source {
@@ -303,10 +365,16 @@ impl Feature for Rename {
     /// A name prompt is open (`open`): the model is asked for a title from the thread's
     /// conversation, once; the last prompt closed forgets it.
     fn on_interest(state: &mut State, interest: &Interest, open: bool, cx: &mut AppCx<'_>) {
-        let Interest::Title { thread } = interest;
+        let Interest::Title { thread, generation } = interest;
+        let at = *generation;
         if open {
-            state.asked += 1;
-            let at = state.asked;
+            if state
+                .titles
+                .get(thread)
+                .is_some_and(|(current, _)| *current > at)
+            {
+                return;
+            }
             match suggestion(cx, thread) {
                 Some(turn) => {
                     state.titles.insert(thread.clone(), (at, Remote::loading()));
@@ -320,14 +388,70 @@ impl Feature for Rename {
                 }
             }
         } else {
-            state.titles.remove(thread);
+            if state
+                .titles
+                .get(thread)
+                .is_some_and(|(current, _)| *current == at)
+            {
+                state.titles.remove(thread);
+            }
+            cx.thread(thread, ThreadIntent::CancelName(at));
         }
     }
 
-    fn thread_intent(_part: &mut (), intent: ThreadIntent, cx: &mut ThreadCx<'_, '_>) {
-        let ThreadIntent::Set(name) = intent;
-        if !name.trim().is_empty() {
-            cx.request(Ctx::SetName, Command::SetName(name));
+    fn thread_fact(part: &mut ThreadPart, intent: ThreadIntent) -> Option<ThreadIntent> {
+        match intent {
+            ThreadIntent::AwaitName(generation) => {
+                part.prompt = Some(generation);
+                None
+            }
+            ThreadIntent::CancelName(generation) => {
+                if part.prompt == Some(generation) {
+                    part.prompt = None;
+                }
+                None
+            }
+            ThreadIntent::Submit { generation, .. } => {
+                if part.prompt != Some(generation) {
+                    return None;
+                }
+                part.prompt = None;
+                Some(intent)
+            }
+            ThreadIntent::Set(_) => Some(intent),
+        }
+    }
+
+    fn thread_intent(part: &mut ThreadPart, intent: ThreadIntent, cx: &mut ThreadCx<'_, '_>) {
+        match intent {
+            ThreadIntent::Set(name) if !name.trim().is_empty() => {
+                cx.request(Ctx::SetName, Command::SetName(name));
+            }
+            ThreadIntent::Submit { generation, name } => {
+                if cx
+                    .request(Ctx::Submitted(generation), Command::SetName(name.clone()))
+                    .is_some()
+                {
+                    part.awaiting = Some((generation, name));
+                }
+            }
+            ThreadIntent::Set(_) | ThreadIntent::AwaitName(_) | ThreadIntent::CancelName(_) => {}
+        }
+    }
+
+    fn thread_answered(
+        part: &mut ThreadPart,
+        ctx: Ctx,
+        _result: Result<Reply, RpcError>,
+        _cx: &mut ThreadCx<'_, '_>,
+    ) {
+        if let Ctx::Submitted(generation) = ctx
+            && part
+                .awaiting
+                .as_ref()
+                .is_some_and(|(current, _)| *current == generation)
+        {
+            part.awaiting = None;
         }
     }
 

@@ -20,12 +20,17 @@ use crate::pages::session::strings::Strings as SessionStrings;
 impl FeatureView for Rename {
     /// The prompt opens once for the wish, over the chat, at the bottom like the oracle's pane.
     fn shown(wish: &Wish, _scope: &Scope) -> Option<Shown> {
-        let Wish::Name { thread, existing } = wish.clone();
+        let Wish::Name {
+            thread,
+            generation,
+            existing,
+        } = wish.clone();
         Some(Shown {
             held_by: None,
             open: Rc::new(move || -> AnyWidget {
                 NamePrompt {
                     thread: thread.clone(),
+                    generation,
                     existing: existing.clone(),
                 }
                 .into()

@@ -12,6 +12,7 @@
 use std::path::PathBuf;
 
 use crate::common;
+use crate::kit::{self, Owner, Screen};
 
 use codex_tui_core::app::Command;
 use codex_tui_core::threads::LocalImage;
@@ -444,4 +445,49 @@ mod page {
             .count();
         assert_eq!(asked, 1);
     }
+}
+
+#[test]
+fn failed_image_preparation_restores_the_local_and_remote_draft_before_retry() {
+    let remote = "https://example.com/remote.png";
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .remote_images(&[remote])
+        .open();
+    s.hold_image_preparation();
+    let path = s.attach_image("bad-image.png");
+    s.type_text(" describe");
+    s.assert_composer("[Image #2] describe");
+    s.keys("enter");
+    s.assert_sole_turn(
+        kit::Turn::text("[Image #2] describe")
+            .image_paths(&[&path])
+            .remote_images(&[remote]),
+    );
+    s.assert_no_request("turn/start");
+    s.fail_image_preparation("Failed to prepare image: missing file");
+    s.assert_contains("Failed to prepare image: missing file");
+    s.assert_composer("[Image #2] describe");
+    s.keys("enter");
+    s.assert_turn_texts(&["[Image #2] describe", "[Image #2] describe"]);
+    s.assert_no_request("turn/start");
+}
+
+#[test]
+fn pending_image_preparation_allows_editing_and_keeps_the_next_draft() {
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.hold_image_preparation();
+    let path = s.attach_image("held-prepare.png");
+    s.type_text(" describe").keys("enter");
+    s.assert_no_request("turn/start");
+    s.type_text("new draft").keys("left");
+    s.assert_composer("new draft");
+    s.keys("enter");
+    s.assert_sole_turn(kit::Turn::text("[Image #1] describe").image_paths(&[&path]));
+    s.assert_contains("new draft");
+    s.fail_image_preparation("Failed to prepare image: interrupted");
+    s.assert_contains("[Image #1] describe");
+    s.assert_contains("new draft");
+    s.assert_no_request("turn/start");
 }

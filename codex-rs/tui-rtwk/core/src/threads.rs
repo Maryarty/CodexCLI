@@ -2506,6 +2506,9 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         model.slots.chat.clear_retry();
     }
     safety::observe(model, &ev);
+    if matches!(ev, ThreadEv::ConnectionLost | ThreadEv::StreamLost) {
+        model.features.rename.connection_lost();
+    }
     match ev {
         // the thread's own facts ride the chat's events (`threads/compaction.rs`, `safety.rs`)
         ThreadEv::Screen(ScreenThreadEv::Chat(screens::chat::ThreadEv::Compacting(ev))) => {
@@ -3032,9 +3035,13 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             text,
         ))) => give_back(model, vec![UserMessage::text(text)], true),
         ThreadEv::QuietInterrupts(quiet) => model.quiet_interrupts = quiet,
-        ThreadEv::FeatureIntent(intent) => with_features(model, fx, |parts, cx| {
-            features::apply_thread_intent(parts, intent, cx);
-        }),
+        ThreadEv::FeatureIntent(intent) => {
+            let rename_held_queue = model.features.rename.holds_queue();
+            with_features(model, fx, |parts, cx| {
+                features::apply_thread_intent(parts, intent, cx);
+            });
+            resume_after_rename(model, fx, rename_held_queue);
+        }
         // The queue's five intents (Tab, the screen's report of a command it ran, what stopped
         // the queue is over, the hold and the edit key) are `threads/queue.rs`'s; it gives back
         // the others, which are the screens'.
@@ -3082,8 +3089,16 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             {
                 model.transcript.finish_status(*request, limits.clone());
             }
+            let named = if let ScreenThreadEv::Chat(screens::chat::ThreadEv::Name(name)) = &ev {
+                model.features.rename.name_updated(name.as_deref())
+            } else {
+                false
+            };
             screens::apply_thread_ev(&mut model.slots, ev, fx);
             append_history(model);
+            if named && !model.busy() {
+                send_next(model, fx);
+            }
         }
         ThreadEv::TurnError { turn, fault } => {
             // A refusal that alternatives are prepared for waits for the turn's own end.
@@ -3285,9 +3300,17 @@ fn feature_reply(
     if let Err(error) = &result {
         model.last_error = Some(Failure::from(error.clone()));
     }
+    let rename_held_queue = model.features.rename.holds_queue();
     with_features(model, fx, |parts, cx| {
         features::apply_thread_reply(parts, ctx, result, cx);
     });
+    resume_after_rename(model, fx, rename_held_queue);
+}
+
+fn resume_after_rename(model: &mut ThreadModel, fx: &mut ThreadFx<'_>, held: bool) {
+    if held && !model.features.rename.holds_queue() && !model.busy() {
+        send_next(model, fx);
+    }
 }
 
 /// The lifecycle hooks of the features (ADR-012), in list order, after the thread's own

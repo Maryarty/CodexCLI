@@ -51,15 +51,11 @@ fn slash_copy_picker_remains_available_from_parent_owned_threads() {
 // ORACLE chatwidget/tests/slash_commands.rs:2383 slash_copy_reports_when_no_agent_response_exists kind=snap owner=chat-nav-pane snap=slash_copy_no_output_info_message
 #[test]
 fn slash_copy_reports_when_no_agent_response_exists() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the /copy command and its no-output info cell are not built; the transcript-mode seed (Terminal) is not reachable black-box",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    s.type_text("/copy");
-    s.keys("enter");
-    s.assert_snap("slash_copy_no_output_info_message");
-    s.assert_contains("No agent response to copy");
+    s.type_text("/copy").keys("enter");
+    s.assert_text_count("No agent response to copy", 1);
+    s.assert_copies_asked(&[]);
+    s.assert_no_turn();
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2400 slash_export_opens_destination_picker kind=snap owner=chat-nav-pane snap=slash_export_completion_message snap=slash_export_destination_picker snap=slash_export_filename_prompt
@@ -206,20 +202,47 @@ fn slash_keymap_invalid_args_show_usage() {
 // ORACLE chatwidget/tests/slash_commands.rs:2581 copy_shortcut_can_be_remapped kind=ui owner=chat-nav-pane
 #[test]
 fn copy_shortcut_can_be_remapped() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the seed sets global.copy = alt+v (`.keymap(..)` is read), but the chat has no copy action (`No agent response to copy` is nowhere in the port): `alt+v` does nothing",
-    );
+    let image_requests = |screen: &Screen| {
+        screen
+            .commands_named("Effect")
+            .iter()
+            .filter(|command| command.contains("ClipboardImage"))
+            .count()
+    };
+
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
-        .live()
+        .agent_says("Copy this response")
         .keymap(&[("global.copy", "alt+v")])
         .open();
     s.keys("ctrl+o");
-    s.assert_absent("No agent response to copy");
+    s.assert_copies_asked(&[]);
     s.keys("alt+v");
-    s.assert_contains("No agent response to copy");
-    // The oracle's paste-key half (ctrl+v, alt+v as PasteImage) is an action return, not drawn.
+    s.assert_copies_asked(&["Copy this response"]);
+    kit::assert_same(image_requests(&s), 0, "Copy didn't also ask for a paste");
+    s.assert_no_turn();
+
+    let mut empty = Screen::build(Owner::ChatNavPane)
+        .keymap(&[("global.copy", "alt+v")])
+        .open();
+    empty.keys("alt+v");
+    empty.assert_contains("No agent response to copy");
+    empty.assert_copies_asked(&[]);
+    kit::assert_same(
+        image_requests(&empty),
+        0,
+        "Copy still owns the key without a response",
+    );
+
+    let path = kit::image_file_sized("legacy-paste.png", 1, 1);
+    for key in ["ctrl+v", "alt+v"] {
+        let mut ordinary = Screen::build(Owner::ChatNavPane).open();
+        ordinary.keys(key);
+        kit::assert_same(image_requests(&ordinary), 1, "legacy image paste");
+        ordinary.clipboard_image(&path);
+        ordinary.assert_composer("[Image #1]");
+        ordinary.assert_copies_asked(&[]);
+    }
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2653 legacy_image_paste_ignores_buffered_press_until_other_input kind=ui owner=chat-nav-pane
@@ -234,15 +257,23 @@ fn legacy_image_paste_ignores_buffered_press_until_other_input() {
 // ORACLE chatwidget/tests/slash_commands.rs:2688 copy_shortcut_submits_markdown_and_reports_completion_once kind=snap owner=chat-nav-pane
 #[test]
 fn copy_shortcut_submits_markdown_and_reports_completion_once() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the copy action with a pending clipboard status (pending_copy), its confirmed completion and the unconfirmed notice are not built; the agent markdown seed is not reachable black-box",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let markdown = "# Heading\n\n**A response**";
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .agent_says(markdown)
+        .open();
     s.keys("ctrl+o");
-    s.assert_snap("pending_copy");
-    s.assert_contains("Copied last message to clipboard");
-    s.assert_snap("unconfirmed_copy");
+    s.assert_copies_asked(&[markdown]);
+    s.answer_copy_pending(1);
+    s.assert_contains("Copying last message");
+    s.assert_absent("Copied last message to clipboard");
+    s.answer_copy(Ok(()));
+    s.assert_text_count("Copied last message to clipboard", 1);
+    s.keys("ctrl+o");
+    s.assert_copies_asked(&[markdown, markdown]);
+    s.answer_copy_unconfirmed();
+    s.assert_text_count("Copy unconfirmed; /export saves chat", 1);
+    s.assert_no_turn();
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2816 queued_menu_slash_keeps_agent_turn_complete_notification kind=ui owner=chat-nav-pane

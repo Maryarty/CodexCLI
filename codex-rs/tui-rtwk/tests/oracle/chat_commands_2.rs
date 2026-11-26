@@ -137,18 +137,94 @@ fn queued_settings_selection_applies_before_next_input() {
 // ORACLE chatwidget/tests/slash_commands.rs:529 queued_bare_rename_drains_next_input_after_name_update kind=ui owner=chat-nav-pane
 #[test]
 fn queued_bare_rename_drains_next_input_after_name_update() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no Name thread prompt: /rename opens no dialog in the port, and Tab does not queue it while a turn runs",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
-    s.type_text("/rename").keys("tab");
-    s.type_text("hello after rename").keys("tab");
-    s.feed(DONE);
-    s.assert_contains("Name thread");
-    s.paste("Queued rename").keys("enter");
-    s.feed(RENAMED);
-    s.assert_contains("hello after rename");
+    for settlement in [
+        "notify",
+        "acknowledge",
+        "refuse",
+        "cancel",
+        "restore-prompt",
+        "restore-submitted",
+    ] {
+        let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
+        s.type_text("/rename").keys("tab");
+        s.type_text("hello after rename").keys("tab");
+        s.assert_no_turn();
+        s.feed(DONE);
+        s.assert_contains("Name thread");
+        s.feed(r#"{"step":"lagged","skipped":1}"#);
+        s.assert_contains("Name thread");
+        s.assert_no_turn();
+        if settlement == "restore-prompt" {
+            s.stream_lost("temporary gap").stream_restored();
+            s.assert_contains("Name thread");
+            s.assert_no_turn();
+        }
+
+        if settlement == "cancel" {
+            s.keys("esc");
+            s.assert_set_names(&[]);
+        } else {
+            s.paste("Queued rename").keys("enter");
+            s.assert_set_names(&["Queued rename"]);
+            s.assert_no_turn();
+            s.feed(r#"{"step":"notify","message":{"method":"thread/name/updated","params":{"threadId":"thread-1","threadName":"Earlier suggestion"}}}"#);
+            s.assert_no_turn();
+
+            let request = s
+                .commands()
+                .into_iter()
+                .find(|command| format!("{command:?}").contains("SetName(\"Queued rename\")"))
+                .expect("the rename request");
+            match settlement {
+                "notify" | "restore-prompt" => {
+                    s.feed(RENAMED);
+                }
+                "restore-submitted" => {
+                    s.stream_lost("lost rename reply").stream_restored();
+                }
+                "acknowledge" => s.answer_request(&request, serde_json::json!({})),
+                "refuse" => {
+                    s.answer_error(&request, "rename rejected");
+                }
+                _ => unreachable!(),
+            }
+        }
+        s.assert_turn_texts(&["hello after rename"]);
+        s.feed(RENAMED);
+        s.assert_turn_texts(&["hello after rename"]);
+    }
+
+    let mut inline = Screen::build(Owner::ChatNavPane)
+        .fake_turn_ids()
+        .script(RUNNING)
+        .open();
+    for text in ["/rename Inline name", "first follow-up", "second follow-up"] {
+        inline.type_text(text).keys("tab");
+    }
+    inline.assert_no_turn();
+    inline.feed(DONE);
+    inline.assert_absent("Name thread");
+    inline.assert_set_names(&["Inline name"]);
+    inline.assert_turn_texts(&["first follow-up"]);
+
+    let mut side = Screen::build(Owner::ChatNavPane)
+        .side()
+        .fake_turn_ids()
+        .open();
+    let running = RUNNING
+        .lines()
+        .filter(|line| !line.contains(r#""step": "seed""#))
+        .collect::<Vec<_>>()
+        .join("\n");
+    side.feed(&running.replace("thread-1", kit::SIDE_THREAD));
+    side.type_text("/rename").keys("tab");
+    side.type_text("continue on the side").keys("tab");
+    side.assert_no_turn();
+    side.feed(&DONE.replace("thread-1", kit::SIDE_THREAD));
+    side.assert_contains("Side conversations cannot be renamed.");
+    side.assert_absent("Name thread");
+    side.assert_set_names(&[]);
+    side.assert_turn_texts(&["continue on the side"]);
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:673 queued_unknown_slash_reports_error_when_dequeued kind=ui owner=chat-nav-pane
@@ -427,15 +503,13 @@ fn no_op_stub_slash_command_is_available_from_local_recall() {
 // ORACLE chatwidget/tests/slash_commands.rs:1627 slash_copy_picker_uses_completed_commentary_during_active_turn kind=snap owner=chat-nav-pane
 #[test]
 fn slash_copy_picker_uses_completed_commentary_during_active_turn() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no /copy picker: the port answers /copy with 'not available yet', so the picker rows are not drawn",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).script(COMMENTARY).open();
     s.type_text("/copy").keys("enter");
-    s.assert_snap("slash_copy_picker_uses_completed_commentary_during_active_turn");
+    s.assert_contains("Whole response");
+    s.assert_contains("sh code");
     s.keys("1");
-    // The copied commentary ("Whole response") is clipboard data, not drawn.
+    s.assert_copies_asked(&["Here is the command:\n\n```sh\necho current\n```"]);
+    s.assert_no_turn();
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:1664 slash_copy_state_tracks_plan_item_completion kind=ui owner=chat-nav-pane

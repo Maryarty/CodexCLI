@@ -780,14 +780,8 @@ fn image_submission_is_portable_for_new_turns_and_steers() {
 fn image_preparation_failure_restores_full_input_without_submitting() {
     kit::pending(
         Owner::ChatNavPane,
-        "no seed for an image that fails preparation (a removed or oversized file) on a draft with a remote image and a $file mention; the kit cannot remove or grow a file under the app",
+        "pages::composer_images covers held failure and retry with local and remote attachments; remaining cases assert bound skill preservation, steer and oversized inputs",
     );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    s.keys("enter");
-    // The oracle's history row names the failure: "Failed to prepare image:", or "32 MiB" when oversized.
-    s.assert_contains("Failed to prepare image:");
-    // The oracle's restored input is the bottom pane snapshot: its region row is set when the pane is laid out.
-    s.assert_snap("image_preparation_restored_input");
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:3060 image_preparation_keeps_input_responsive_and_preserves_pending_input kind=snap owner=chat-nav-pane snap=image_preparation_disconnected snap=image_preparation_in_progress
@@ -795,11 +789,6 @@ fn image_preparation_failure_restores_full_input_without_submitting() {
 fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
     kit::pending(
         Owner::ChatNavPane,
-        "no seed for an image still being prepared on a held worker (nine scenarios: thread switch, disconnect, interrupt, escape, ...); the kit cannot hold the worker",
+        "pages::composer_images covers editing and queued input during held preparation; the oracle also exercises nine interruption, ownership and connection variants",
     );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    s.keys("x right");
-    s.assert_contains("x");
-    s.assert_snap("image_preparation_in_progress");
-    // The oracle's disconnected scenario compares image_preparation_disconnected.
 }
