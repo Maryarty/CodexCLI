@@ -431,10 +431,6 @@ fn history_search_paste_preserves_original_draft_on_miss_and_cancel() {
 // ORACLE bottom_pane/chat_composer/history_search_paste_tests.rs:186 history_search_paste_uses_full_sanitized_text kind=ui owner=chat-nav-pane
 #[test]
 fn history_search_paste_uses_full_sanitized_text() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "screen bug (history search row): the sanitized text and the image path cases pass (the kit writes the png, `image_file`); a large paste (1001 chars) as the query overflows the search row by 2 columns (RenderFlex, the `+2` counter beside the wrapped query), which the app logs as an error",
-    );
     // the pasted text is the query, sanitized (CR LF and escape codes), in place of a placeholder
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
@@ -454,16 +450,25 @@ fn history_search_paste_uses_full_sanitized_text() {
     s.paste(&path);
     s.assert_contains(&format!("reverse-i-search: {path}"));
     s.assert_absent("[Image #1]");
-    // a large paste is its text, no `[Pasted Content N chars]` placeholder
+    // Only the end of the full paste distinguishes the match from the newer prompt.
+    let prefix = "x".repeat(1000);
+    let query = format!("{prefix}a");
+    let newer = format!("{prefix}b");
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
-        .script(include_str!("fixtures/composer_popups/h_sanitized.jsonl"))
+        .live()
+        .message_history(&[&query, &newer])
         .open();
     s.type_text("draft").keys("ctrl+r");
-    s.paste(&"x".repeat(1001));
+    s.paste(&query);
+    s.wait_for("› xxxxxxxxxx");
     s.assert_contains("reverse-i-search:");
-    s.assert_contains(&"x".repeat(70));
     s.assert_absent("[Pasted Content");
+    s.keys("enter");
+    s.assert_absent("reverse-i-search:");
+    s.assert_no_turn();
+    s.keys("enter");
+    s.assert_turn_texts(&[&query]);
 }
 
 // ---- oracle: bottom_pane/chat_composer/mentions_layout_tests.rs (3 screen-level tests here; 0 state tests left to chat-nav-pane)
