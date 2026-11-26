@@ -25,6 +25,7 @@ use rtwk::overlay::DialogOptions;
 
 use codex_tui_core::screens::select::Opening;
 use codex_tui_core::screens::select::apps::Link;
+use codex_tui_core::threads::queue::QueueOperation;
 
 use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
@@ -562,13 +563,16 @@ pub fn shown(opening: &Opening) -> (AnyWidget, DialogOptions) {
     }
 }
 
-/// A queued model sheet returns its choice to the native dialog's scoped callback.
-pub(crate) fn queued_model(opening: &Opening) -> Option<(AnyWidget, DialogOptions)> {
+/// A queued model sheet returns its result to the native dialog's scoped callback.
+pub(crate) fn queued_model(
+    opening: &Opening,
+    operation: &QueueOperation,
+) -> Option<(AnyWidget, DialogOptions)> {
     let Opening::Models(menu) = opening else {
         return None;
     };
     Some((
-        models::sheet(menu.clone(), models::Completion::Dialog),
+        models::sheet(menu.clone(), models::Completion::Dialog(operation.clone())),
         models::options(),
     ))
 }

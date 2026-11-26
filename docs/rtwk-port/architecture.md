@@ -551,7 +551,7 @@ The route callback carries the operation it received when it opened. Cancellatio
 refusal settles that generation once, even if its writer detached. A selection can
 change settings only while its original thread is active and still holds the operation.
 An accepted selection retains the operation through the confirmation of the write that
-affects the next turn. Its write responses report in its original conversation. Lag,
+affects the next turn. Picker failures and write responses report in its original conversation. Lag,
 reconnect, feature settlement and page-front events can
 reconsider admission through the same queue gate. Admission still waits for recovery.
 The private phases and

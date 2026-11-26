@@ -166,11 +166,14 @@ fn holds_picker(due: &DueCommand, operation: &QueueOperation) -> bool {
 }
 
 pub(crate) fn can_apply_model(model: &ThreadModel, operation: &QueueOperation) -> bool {
-    model.has_writer()
-        && model
-            .due
-            .as_ref()
-            .is_some_and(|due| holds_picker(due, operation))
+    model.has_writer() && has_model_picker(model, operation)
+}
+
+pub(crate) fn has_model_picker(model: &ThreadModel, operation: &QueueOperation) -> bool {
+    model
+        .due
+        .as_ref()
+        .is_some_and(|due| holds_picker(due, operation))
 }
 
 /// A report can advance only the operation that issued it.

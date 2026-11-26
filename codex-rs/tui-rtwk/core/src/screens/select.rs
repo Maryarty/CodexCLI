@@ -730,14 +730,33 @@ pub struct ModelOpen {
     pub current: Current,
 }
 
-/// A model choice returned from the sheet. A queued sheet carries its original operation.
+/// A result returned when a model sheet closes.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ModelChoice {
+pub enum ModelResult {
+    Picked(Selection),
+    GaveUp(GaveUp),
+}
+
+/// The sheet's result or the reason a page left while another page remains.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModelCompletion {
     Inline(Selection),
     Queued {
         operation: QueueOperation,
-        selection: Selection,
+        result: ModelResult,
     },
+    QueuedPageGaveUp {
+        operation: QueueOperation,
+        why: GaveUp,
+    },
+}
+
+pub(crate) fn model_picker_note(why: GaveUp) -> Note {
+    match why {
+        GaveUp::NotLoaded => Note::ModelsNotLoaded,
+        GaveUp::Empty { reserve: true } => Note::ReserveUnavailable,
+        GaveUp::Empty { reserve: false } => Note::NoAdditionalModels,
+    }
 }
 
 /// A queued model pick may have a config write in addition to its thread update.
@@ -765,10 +784,9 @@ pub enum Intent {
     /// it is empty), and the catalog is asked for again: the request is
     /// `Catalog::pending`.
     OpenModels(Box<ModelOpen>),
-    /// A page of the `/model` sheet settled on a model and effort: the app applies it.
-    Settle(ModelChoice),
-    /// The sheet of `/model` gave up and closed: `Loading models…` that could not be read, or a
-    /// list a refresh left with no choice. Only the sheet knows the user was looking at it.
+    /// A model sheet settled on a choice or an owned picker reported its result.
+    Settle(ModelCompletion),
+    /// An inline model sheet gave up because its models failed to load or there were no choices.
     GiveUp(GaveUp),
     /// The catalog is asked for, with no menu: the app does it when it connects.
     LoadModels,
@@ -873,7 +891,7 @@ impl Intent {
     }
 
     pub fn settle(selection: Selection) -> Self {
-        Self::Settle(ModelChoice::Inline(selection))
+        Self::Settle(ModelCompletion::Inline(selection))
     }
 }
 
@@ -991,16 +1009,10 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             let ModelOpen { operation, current } = *request;
             model.open_models(current, operation);
         }
-        // A pick of the sheet of `/model`: the app applies it (`Picked::Selection`).
-        Intent::Settle(ModelChoice::Inline(selection)) => {
+        Intent::Settle(ModelCompletion::Inline(selection)) => {
             model.picked.push(Picked::Selection(selection))
         }
-        // A sheet of `/model` gave up for a reason only it could tell (the user was looking).
-        Intent::GiveUp(why) => model.notes.push(match why {
-            GaveUp::NotLoaded => Note::ModelsNotLoaded,
-            GaveUp::Empty { reserve: true } => Note::ReserveUnavailable,
-            GaveUp::Empty { reserve: false } => Note::NoAdditionalModels,
-        }),
+        Intent::GiveUp(why) => model.notes.push(model_picker_note(why)),
         Intent::LoadModels => {
             if model.catalog.unavailable().is_none() {
                 model.catalog.request();
@@ -1109,7 +1121,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::OpenAppPage(_) => {}
         Intent::AppUnlinked(id) => model.app_unlinked(&id),
         // The answer is acted on by the app (`app/select.rs`); the screen keeps no record of it.
-        Intent::PlanAnswer(_) | Intent::Settle(ModelChoice::Queued { .. }) => {}
+        Intent::PlanAnswer(_) | Intent::Settle(_) => {}
     }
 }
 

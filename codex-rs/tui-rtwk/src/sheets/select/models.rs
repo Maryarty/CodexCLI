@@ -24,9 +24,10 @@ use rtwk::overlay::{DialogOptions, close_dialog};
 use rtwk::provider::{read, select};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::screens::select::models::{Catalog, Heading, ModelMenu, Next, Onward};
-use codex_tui_core::screens::select::{Intent, Opening};
+use codex_tui_core::screens::select::models::{Catalog, GaveUp, Heading, ModelMenu, Next, Onward};
+use codex_tui_core::screens::select::{Intent, ModelCompletion, ModelResult, Opening};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates};
+use codex_tui_core::threads::queue::QueueOperation;
 
 use super::strings;
 use crate::app::debug::seeded::Seeded;
@@ -68,17 +69,17 @@ pub fn options() -> DialogOptions {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Completion {
     Intent,
-    Dialog,
+    Dialog(QueueOperation),
 }
 
 fn route(menu: ModelMenu, completion: Completion) -> PageRoute<()> {
     PageRoute::new(move |_| {
         bottom(Page {
             menu: menu.clone(),
-            completion,
+            completion: completion.clone(),
         })
     })
 }
@@ -136,6 +137,20 @@ fn close(cx: &mut Cx<'_, PageState>) {
     close_dialog::<_, ()>(cx, None);
 }
 
+fn finish(cx: &mut Cx<'_, PageState>, completion: &Completion, result: ModelResult) {
+    match completion {
+        Completion::Intent => {
+            let intent = match result {
+                ModelResult::Picked(selection) => Intent::settle(selection),
+                ModelResult::GaveUp(why) => Intent::GiveUp(why),
+            };
+            say(cx, intent);
+            close(cx);
+        }
+        Completion::Dialog(_) => close_dialog(cx, Some(result)),
+    }
+}
+
 /// Esc: the page under this one shows again, the first page closes the sheet.
 fn back(cx: &mut Cx<'_, PageState>) {
     let nav = Navigator::of(cx);
@@ -155,13 +170,7 @@ impl PageState {
             Onward::Replace(menu) => {
                 drop(Navigator::of(cx).push_replacement::<()>(route(menu, completion)));
             }
-            Onward::Done(selection) => match completion {
-                Completion::Intent => {
-                    say(cx, Intent::settle(selection));
-                    close(cx);
-                }
-                Completion::Dialog => close_dialog(cx, Some(selection)),
-            },
+            Onward::Done(selection) => finish(cx, &completion, ModelResult::Picked(selection)),
             // The plan scope question stands alone: every page under it goes.
             Onward::Prompt(menu) => {
                 drop(
@@ -173,15 +182,25 @@ impl PageState {
     }
 
     /// The page leaves the sheet, the pages over it stay; the last one closes it.
-    fn leave(&self, cx: &mut Cx<'_, Self>) {
+    fn give_up(&self, cx: &mut Cx<'_, Self>, completion: &Completion, why: GaveUp) {
         let nav = Navigator::of(cx);
         match &self.route {
             Some(route) if nav.can_pop() => {
+                let intent = match completion {
+                    Completion::Intent => Intent::GiveUp(why),
+                    Completion::Dialog(operation) => {
+                        Intent::Settle(ModelCompletion::QueuedPageGaveUp {
+                            operation: operation.clone(),
+                            why,
+                        })
+                    }
+                };
+                say(cx, intent);
                 if nav.routes().contains(route) {
                     nav.remove_route(route);
                 }
             }
-            _ => close(cx),
+            _ => finish(cx, completion, ModelResult::GaveUp(why)),
         }
     }
 }
@@ -209,23 +228,20 @@ impl State for PageState {
         match msg {
             Msg::Picked(Event::Choose(id)) => {
                 let step = w.menu.choose(&catalog_now(cx), &id, false);
-                self.step(cx, step, w.completion);
+                self.step(cx, step, w.completion.clone());
             }
             // The `s` key: this session only.
             Msg::Picked(Event::Secondary(id)) => {
                 let step = w.menu.choose(&catalog_now(cx), &id, true);
-                self.step(cx, step, w.completion);
+                self.step(cx, step, w.completion.clone());
             }
             Msg::Picked(Event::Cancel) => back(cx),
             // These lists have no toggles, order, tabs or hot keys.
             Msg::Picked(_) => {}
             Msg::Next(Next::Close) => close(cx),
-            Msg::Next(Next::GiveUp(why)) => {
-                say(cx, Intent::GiveUp(why));
-                self.leave(cx);
-            }
+            Msg::Next(Next::GiveUp(why)) => self.give_up(cx, &w.completion, why),
             Msg::Next(Next::Replace(menu)) => {
-                drop(Navigator::of(cx).push_replacement::<()>(route(*menu, w.completion)));
+                drop(Navigator::of(cx).push_replacement::<()>(route(*menu, w.completion.clone())));
             }
         }
         Rebuild::No

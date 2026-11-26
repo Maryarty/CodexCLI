@@ -17,7 +17,7 @@ use rtwk::app::AppCx;
 use codex_tui_core::app::{AppEv, Intent};
 use codex_tui_core::features::Scope;
 use codex_tui_core::screens::select::{
-    Intent as SelectIntent, ModelChoice, QueuedModelShow, Selection,
+    Intent as SelectIntent, ModelCompletion, ModelResult, QueuedModelShow,
 };
 use codex_tui_core::screens::transcript::Intent as TranscriptIntent;
 use codex_tui_core::screens::{ScreenIntent, ScreenThreadIntent, chat};
@@ -105,17 +105,19 @@ fn present_shows(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
             && admissible
         {
             if let Some(operation) = operation.clone() {
-                if let Some((sheet, options)) = crate::sheets::select::queued_model(&show.opening) {
-                    let dialog = cx.show_dialog_from::<Selection>(
+                if let Some((sheet, options)) =
+                    crate::sheets::select::queued_model(&show.opening, &operation)
+                {
+                    let dialog = cx.show_dialog_from::<ModelResult>(
                         place,
                         move |_| sheet.clone(),
                         options,
                         move |app, answer, _cx| match answer {
-                            Some(selection) => {
+                            Some(result) => {
                                 app.send(AppEv::Intent(Intent::Screen(ScreenIntent::Select(
-                                    SelectIntent::Settle(ModelChoice::Queued {
+                                    SelectIntent::Settle(ModelCompletion::Queued {
                                         operation,
-                                        selection,
+                                        result,
                                     }),
                                 ))));
                             }

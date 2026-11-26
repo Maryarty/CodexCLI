@@ -47,13 +47,24 @@ pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx)
         }
         return;
     }
-    if let select::Intent::Settle(select::ModelChoice::Queued {
-        operation,
-        selection,
-    }) = intent
-    {
-        settle_queued_picker(app, operation, selection, fx);
-        return;
+    match intent {
+        select::Intent::Settle(select::ModelCompletion::Queued { operation, result }) => {
+            match result {
+                select::ModelResult::Picked(selection) => {
+                    settle_queued_picker(app, operation, selection, fx)
+                }
+                select::ModelResult::GaveUp(why) => {
+                    model_picker_gave_up(app, &operation, why, fx);
+                    queued_picker_event(app, &operation, QueueEvent::PickerClosed, fx);
+                }
+            }
+            return;
+        }
+        select::Intent::Settle(select::ModelCompletion::QueuedPageGaveUp { operation, why }) => {
+            model_picker_gave_up(app, &operation, why, fx);
+            return;
+        }
+        _ => {}
     }
     let queued = if let select::Intent::OpenModels(request) = &intent
         && let Some(operation) = &request.operation
@@ -164,6 +175,21 @@ fn settle_queued_picker(
     queued_picker_event(app, &operation, QueueEvent::PickerAccepted, fx);
     model_pick(app, selection, Some(operation), fx);
     drain(app, fx);
+}
+
+fn model_picker_gave_up(
+    app: &mut CodexApp,
+    operation: &QueueOperation,
+    why: select::models::GaveUp,
+    fx: &mut AppFx,
+) {
+    if app
+        .threads
+        .get(operation.thread())
+        .is_some_and(|thread| queue::has_model_picker(thread, operation))
+    {
+        write_notes(app, Some(operation), [select::model_picker_note(why)], fx);
+    }
 }
 
 /// The preset writes the menus settled on, asked of the config (one `config/batchWrite` each).

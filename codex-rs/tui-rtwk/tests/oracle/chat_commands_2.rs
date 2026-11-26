@@ -271,17 +271,31 @@ fn a_queued_model_picker_refusal_drains_without_opening_a_surface() {
 
 #[test]
 fn a_queued_model_picker_releases_the_queue_when_loading_fails() {
-    let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
-    let catalog = s.hold_request("model/list");
-    s.type_text("/model").keys("tab");
-    s.type_text("after catalog failure").keys("tab");
-    s.feed(DONE);
-    s.assert_contains("Loading models");
-    s.assert_no_turn();
-    s.server_refuses("model/list", Some(-32000), "model catalog unavailable");
-    s.release(&catalog);
-    s.assert_absent("Loading models");
-    s.assert_turn_texts(&["after catalog failure"]);
+    for switch in [false, true] {
+        let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
+        let catalog = s.hold_request("model/list");
+        s.type_text("/model").keys("tab");
+        s.type_text("after catalog failure").keys("tab");
+        s.feed(DONE);
+        s.assert_contains("Loading models");
+        s.assert_no_turn();
+        if switch {
+            s.server_resumes("thread-2").visit_thread("thread-2");
+            s.assert_active_thread("thread-2");
+            s.assert_contains("Loading models");
+        }
+        s.server_refuses("model/list", Some(-32000), "model catalog unavailable");
+        s.release(&catalog);
+        s.assert_absent("Loading models");
+        s.assert_turn_texts(&["after catalog failure"]);
+        s.assert_started_turn_on("thread-1");
+        if switch {
+            s.assert_absent("Could not load models");
+            s.visit_thread("thread-1");
+            s.assert_active_thread("thread-1");
+        }
+        s.assert_contains("Could not load models");
+    }
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:529 queued_bare_rename_drains_next_input_after_name_update kind=ui owner=chat-nav-pane
