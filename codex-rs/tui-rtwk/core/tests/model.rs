@@ -10,7 +10,7 @@ use codex_tui_core::app::{
 };
 use codex_tui_core::fixtures::builders::{
     agent_completed, agent_delta, server_request_resolved, tool_input_request, turn_completed,
-    turn_error, turn_failed, turn_started, user_item,
+    turn_error, turn_failed, turn_started, user_item, user_item_with_receipt,
 };
 use codex_tui_core::ids::{
     ConnEpoch, ItemId, RequestKey, ServerRequestId, ThreadId, Ticket, TurnId,
@@ -170,12 +170,25 @@ fn steers(fx: &AppFx) -> Vec<(Ticket, String, String)> {
         .filter_map(|c| match c {
             Command::Screen {
                 ticket,
-                command: ScreenCommand::Chat(chat::Command::Steer { turn, message }),
+                command: ScreenCommand::Chat(chat::Command::Steer { turn, message, .. }),
                 ..
             } => Some((*ticket, turn.to_string(), message.text.clone())),
             _ => None,
         })
         .collect()
+}
+
+fn steer_receipt(fx: &AppFx) -> String {
+    fx.commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Screen {
+                command: ScreenCommand::Chat(chat::Command::Steer { client_id, .. }),
+                ..
+            } => Some(client_id.clone()),
+            _ => None,
+        })
+        .unwrap()
 }
 
 /// The texts of the steers the server has not yet echoed.
@@ -1051,17 +1064,33 @@ fn restored(app: &CodexApp) -> Vec<String> {
 #[test]
 fn the_echo_of_a_steer_clears_its_pending_entry_in_order() {
     let mut app = running();
-    let first = steers(&submit(&mut app, "one"));
-    let second = steers(&submit(&mut app, "two"));
+    let first_fx = submit(&mut app, "one");
+    let second_fx = submit(&mut app, "two");
+    let first = steers(&first_fx);
+    let second = steers(&second_fx);
     assert_eq!(first.len() + second.len(), 2, "a double Enter sends both");
     assert_eq!(
         pending_steers(&app),
         ["one", "two"].map(String::from).to_vec()
     );
     run(&mut app, AppEv::Reply(first[0].0, steered("turn-1")));
-    notification(&mut app, user_item(T, "turn-1", "item-1", "one"));
-    assert_eq!(pending_steers(&app), vec!["two".to_string()]);
-    notification(&mut app, user_item(T, "turn-1", "item-2", "two"));
+    notification(&mut app, user_item(T, "turn-1", "other-client", "one"));
+    assert_eq!(pending_steers(&app), ["one", "two"]);
+    notification(
+        &mut app,
+        user_item_with_receipt(T, "turn-1", "item-1", "one", Some(steer_receipt(&first_fx))),
+    );
+    assert_eq!(pending_steers(&app), ["two"]);
+    notification(
+        &mut app,
+        user_item_with_receipt(
+            T,
+            "turn-1",
+            "item-2",
+            "two",
+            Some(steer_receipt(&second_fx)),
+        ),
+    );
     assert!(pending_steers(&app).is_empty());
     assert!(queued(&app).is_empty());
 }
@@ -1070,8 +1099,12 @@ fn the_echo_of_a_steer_clears_its_pending_entry_in_order() {
 #[test]
 fn a_late_steer_reply_is_harmless() {
     let mut app = running();
-    let sent = steers(&submit(&mut app, "one"));
-    notification(&mut app, user_item(T, "turn-1", "item-1", "one"));
+    let sent_fx = submit(&mut app, "one");
+    let sent = steers(&sent_fx);
+    notification(
+        &mut app,
+        user_item_with_receipt(T, "turn-1", "item-1", "one", Some(steer_receipt(&sent_fx))),
+    );
     assert!(pending_steers(&app).is_empty());
     let fx = run(&mut app, AppEv::Reply(sent[0].0, steered("turn-1")));
     assert!(fx.commands().is_empty());
@@ -2127,8 +2160,11 @@ fn the_review_prompt_user_item_adds_no_row_in_review_mode() {
 fn the_echo_of_a_steer_is_drawn_in_review_mode() {
     let mut app = running();
     notification(&mut app, entered_review(T, "turn-1", "current changes"));
-    submit(&mut app, "follow-up");
-    notification(&mut app, user_item(T, "turn-1", "echo", "follow-up"));
+    let fx = submit(&mut app, "follow-up");
+    notification(
+        &mut app,
+        user_item_with_receipt(T, "turn-1", "echo", "follow-up", Some(steer_receipt(&fx))),
+    );
     assert!(
         items_of(&app)
             .iter()

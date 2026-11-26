@@ -226,6 +226,8 @@ pub enum Notice {
     /// The turn was interrupted to send the steers that waited
     /// (`Model interrupted to submit steer instructions.`).
     InterruptedForSteer,
+    /// The first submission still awaiting an exact receipt after reconnecting.
+    SubmissionUnconfirmed(String),
     /// The goal's token budget stopped the turn (`Goal budget reached`).
     GoalBudgetReached,
     /// Esc Esc with no prompt to edit (`NO_PREVIOUS_MESSAGE_TO_EDIT`).

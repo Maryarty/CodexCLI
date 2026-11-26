@@ -86,7 +86,9 @@ pub struct UiApp {
 impl UiApp {
     pub fn new(backend: shell::Backend) -> Self {
         Self::over(
-            CodexApp::new().with_transcript_text(export_text::renderer()),
+            CodexApp::new()
+                .with_submission_namespace(codex_protocol::ThreadId::new().to_string())
+                .with_transcript_text(export_text::renderer()),
             backend,
         )
     }

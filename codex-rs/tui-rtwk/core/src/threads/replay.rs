@@ -104,13 +104,19 @@ fn hidden_nested_review_turn(previous: &Turn, turn: &Turn) -> bool {
     )
 }
 
-/// The turns of a page, newest first as the server lists them, projected in transcript order,
-/// with the submissions they seed (also in transcript order).
-pub(super) fn project(turns: &[Turn]) -> (Vec<HistoryTurn>, Vec<Submission>) {
+pub(super) struct HistoryProjection {
+    pub turns: Vec<HistoryTurn>,
+    pub submissions: Vec<Submission>,
+    pub receipts: Vec<String>,
+}
+
+/// The turns of a page and the submissions they seed, projected in transcript order.
+pub(super) fn project(turns: &[Turn]) -> HistoryProjection {
     let chronological: Vec<&Turn> = turns.iter().rev().collect();
     let mut in_review = false;
     let mut submissions = Vec::new();
     let mut projected = Vec::new();
+    let mut receipts = Vec::new();
     for (index, turn) in chronological.iter().enumerate() {
         let hidden = index
             .checked_sub(1)
@@ -121,7 +127,13 @@ pub(super) fn project(turns: &[Turn]) -> (Vec<HistoryTurn>, Vec<Submission>) {
             match payload {
                 ThreadItemPayload::EnteredReviewMode { .. } => in_review = true,
                 ThreadItemPayload::ExitedReviewMode { .. } => in_review = false,
-                ThreadItemPayload::UserMessage { id, content, .. } => {
+                ThreadItemPayload::UserMessage {
+                    id,
+                    client_id,
+                    content,
+                } => {
+                    // A hidden row can still confirm a local submission.
+                    receipts.extend(client_id.iter().cloned());
                     if hidden || in_review {
                         continue;
                     }
@@ -176,5 +188,9 @@ pub(super) fn project(turns: &[Turn]) -> (Vec<HistoryTurn>, Vec<Submission>) {
             items,
         });
     }
-    (projected, submissions)
+    HistoryProjection {
+        turns: projected,
+        submissions,
+        receipts,
+    }
 }

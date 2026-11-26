@@ -821,6 +821,7 @@ pub enum Ctx {
     /// A page of the opened session's history.
     History {
         thread: String,
+        latest: bool,
     },
     Loaded,
     SaveGrouping,

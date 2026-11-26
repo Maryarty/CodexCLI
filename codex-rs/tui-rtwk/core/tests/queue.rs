@@ -6,18 +6,24 @@
 //! starts the next turn, a command is handed to the screen and the queue waits for what it
 //! reports, a shell line runs, a bare `!` says how to use it.
 
-use codex_app_server_protocol::{ErrorNotification, ServerNotification, TurnError};
+use codex_app_server_protocol::{
+    ClientRequest, ErrorNotification, RequestId, ServerNotification, ThreadItemPayload, TurnError,
+};
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app, apply_app_from};
 use codex_tui_core::commands::{
     DispatchCx, Outcome, QueueDrain, SlashCommand, Target, dispatch_queued,
 };
-use codex_tui_core::fixtures::builders::{turn_completed, turn_started};
+use codex_tui_core::fixtures::builders::{
+    history_turn, turn_completed, turn_started, user_item_with_receipt,
+};
 use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
-use codex_tui_core::screens::{ScreenCommand, ScreenReply, ScreenThreadIntent, agents, chat};
+use codex_tui_core::screens::{
+    ScreenCommand, ScreenEv, ScreenReply, ScreenThreadIntent, agents, chat,
+};
 use codex_tui_core::threads::ThreadAsk;
 use codex_tui_core::threads::queue::Dispatched;
-use codex_tui_core::threads::{Item, Queued, Ran, ThreadModel, UserMessage};
+use codex_tui_core::threads::{Item, Notice, Queued, Ran, ThreadModel, UserMessage};
 use pretty_assertions::assert_eq;
 use std::rc::Rc;
 
@@ -744,38 +750,168 @@ fn opening_a_thread_with_a_gap_reads_it_again_and_a_sound_one_is_only_shown() {
     assert!(resume_ticket(&fx).is_none());
 }
 
-/// A steer in flight when the stream was lost: the thread read again holds its user message, so
-/// the steer is received and no longer pending (oracle `restore_reconnected_input` with the
-/// ids the history confirms); a steer the history lacks stays as it was.
-#[test]
-fn a_steer_the_reread_history_confirms_is_no_longer_pending() {
-    let mut app = running();
-    let fx = submit(&mut app, "steer me");
-    assert!(steered(&fx));
-    submit(&mut app, "unseen");
-    assert_eq!(thread(&app).pending_steers().len(), 2);
-    notify(&mut app, lost(T));
-    notify(&mut app, restored(T));
-    let fx = run(
-        &mut app,
-        AppEv::Intent(Intent::OpenThread(ThreadId::new(T))),
-    );
-    let ticket = resume_ticket(&fx).expect("the gap is read");
-    let mut read = listed(T);
-    read.turns = vec![codex_tui_core::fixtures::builders::history_turn(
-        "turn-1", "steer me", "ok",
-    )];
+fn submission_id(fx: &AppFx) -> (Ticket, String) {
+    fx.commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::StartTurn {
+                ticket, client_id, ..
+            }
+            | Command::Screen {
+                ticket,
+                command: ScreenCommand::Chat(chat::Command::Steer { client_id, .. }),
+                ..
+            } => {
+                let wire =
+                    codex_tui_core::protocol::client_request(command, RequestId::Integer(1), None);
+                let wire_id = match wire {
+                    Some(ClientRequest::TurnStart { params, .. }) => params.client_user_message_id,
+                    Some(ClientRequest::TurnSteer { params, .. }) => params.client_user_message_id,
+                    _ => panic!("submission should encode as turn/start or turn/steer"),
+                };
+                assert_eq!(wire_id.as_deref(), Some(client_id.as_str()));
+                Some((*ticket, client_id.clone()))
+            }
+            _ => None,
+        })
+        .expect("a submitted start or steer")
+}
+
+fn history_ticket(fx: &AppFx) -> Ticket {
+    fx.commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Screen {
+                ticket,
+                command:
+                    ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::History {
+                        thread,
+                        cursor: None,
+                    })),
+                ..
+            } if thread == T => Some(*ticket),
+            _ => None,
+        })
+        .expect("a fresh history read")
+}
+
+fn reply_history(app: &mut CodexApp, ticket: Ticket, receipt: Option<String>) -> AppFx {
+    let mut turn = history_turn("turn-1", "first message", "ok");
+    if let ThreadItemPayload::UserMessage { client_id, .. } = &mut turn.items[0].payload {
+        *client_id = receipt;
+    } else {
+        panic!("history should begin with the user's message");
+    }
     run(
-        &mut app,
+        app,
         AppEv::Reply(
             ticket,
-            Reply::screen(ScreenReply::Agents(agents::Reply::Resumed(Box::new(read)))),
+            Reply::screen(ScreenReply::Agents(agents::Reply::History {
+                turns: vec![turn],
+                next: None,
+            })),
         ),
-    );
-    let pending: Vec<_> = thread(&app)
-        .pending_steers()
-        .iter()
-        .map(|steer| steer.message().text.clone())
-        .collect();
-    assert_eq!(pending, ["unseen"]);
+    )
+}
+
+#[test]
+fn same_thread_reattach_reconciles_only_an_exact_start_or_steer_receipt() {
+    for pending_start in [false, true] {
+        for exact_receipt in [None, Some(false), Some(true)] {
+            let mut app = if pending_start { ready() } else { running() };
+            let (ticket, client_id) = submission_id(&submit(&mut app, "first message"));
+            submit_or_queue_follow_up(&mut app, pending_start);
+            run(
+                &mut app,
+                AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnecting)),
+            );
+            assert_eq!(queued(&app), ["first message", "follow-up"]);
+            let fx = run(
+                &mut app,
+                AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnected)),
+            );
+            let resume = resume_ticket(&fx).expect("same thread resumes on reconnect");
+            let fx = run(
+                &mut app,
+                AppEv::Reply(
+                    resume,
+                    Reply::screen(ScreenReply::Agents(agents::Reply::Resumed(Box::new(
+                        listed(T),
+                    )))),
+                ),
+            );
+            let history = history_ticket(&fx);
+            assert!(started_texts(&fx).is_empty(), "await the latest page");
+            assert!(matches!(
+                &thread(&app).queue()[0],
+                Queued::Unconfirmed { .. }
+            ));
+            let fx = run(
+                &mut app,
+                AppEv::Reply(ticket, Reply::failed("no active turn to steer")),
+            );
+            assert!(started_texts(&fx).is_empty(), "retire the old request");
+            assert_eq!(queued(&app), ["first message", "follow-up"]);
+            let receipt = exact_receipt.map(|exact| {
+                if exact {
+                    client_id.clone()
+                } else {
+                    "unrelated".into()
+                }
+            });
+            let fx = reply_history(&mut app, history, receipt);
+            let notice = thread(&app).transcript().iter().any(|(_, item)| matches!(
+                item, Item::Notice(Notice::SubmissionUnconfirmed(text)) if text == "first message"
+            ));
+            if exact_receipt == Some(true) {
+                assert_eq!(started_texts(&fx), ["follow-up"]);
+                assert!(thread(&app).queue().is_empty());
+                assert!(!notice);
+            } else {
+                assert!(started_texts(&fx).is_empty());
+                assert_eq!(queued(&app), ["first message", "follow-up"]);
+                assert!(notice);
+                let fx = notify(
+                    &mut app,
+                    user_item_with_receipt(
+                        T,
+                        "turn-1",
+                        "late-exact-receipt",
+                        "first message",
+                        Some(client_id),
+                    ),
+                );
+                assert_eq!(
+                    started_texts(&fx),
+                    ["follow-up"],
+                    "live receipt releases the queue"
+                );
+                assert!(thread(&app).queue().is_empty());
+            }
+        }
+    }
+}
+
+fn submit_or_queue_follow_up(app: &mut CodexApp, pending_start: bool) {
+    let fx = if pending_start {
+        submit(app, "follow-up")
+    } else {
+        tab(app, "follow-up", false)
+    };
+    assert!(started_texts(&fx).is_empty());
+    assert!(!steered(&fx));
+    assert_eq!(queued(app), ["follow-up"]);
+}
+
+#[test]
+fn a_live_stream_restore_reads_exact_receipts_before_sending_follow_ups() {
+    let mut app = running();
+    let (_, client_id) = submission_id(&submit(&mut app, "first message"));
+    tab(&mut app, "follow-up", false);
+    notify(&mut app, lost(T));
+    assert_eq!(queued(&app), ["first message", "follow-up"]);
+    let fx = notify(&mut app, restored(T));
+    assert!(started_texts(&fx).is_empty());
+    let fx = reply_history(&mut app, history_ticket(&fx), Some(client_id));
+    assert_eq!(started_texts(&fx), ["follow-up"]);
 }

@@ -3511,11 +3511,13 @@ mod text_contract {
             text: "look at [Image #1] and @src/main.rs".into(),
             elements: vec![8..18, 23..34],
             images: vec![1],
+            client_id: None,
         }));
         agrees(Item::User(UserPrompt {
             text: "".into(),
             elements: vec![],
             images: vec![1, 2],
+            client_id: None,
         }));
     }
 

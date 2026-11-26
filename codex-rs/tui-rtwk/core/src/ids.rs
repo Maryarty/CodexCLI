@@ -92,12 +92,23 @@ impl Ticket {
 
 /// The one source of tickets, kept by the app.
 #[derive(Clone, Debug, Default)]
-pub struct TicketMint(u64);
+pub struct TicketMint {
+    sequence: u64,
+    submission_namespace: String,
+}
 
 impl TicketMint {
     pub(crate) fn next(&mut self) -> Ticket {
-        self.0 += 1;
-        Ticket::new(self.0)
+        self.sequence += 1;
+        Ticket::new(self.sequence)
+    }
+
+    pub(crate) fn set_submission_namespace(&mut self, namespace: String) {
+        self.submission_namespace = namespace;
+    }
+
+    pub(crate) fn submission_id(&self, ticket: Ticket) -> String {
+        format!("{}:{}", self.submission_namespace, ticket.seq())
     }
 }
 

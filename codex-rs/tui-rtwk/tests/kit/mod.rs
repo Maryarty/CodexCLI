@@ -68,7 +68,7 @@ pub use side::SIDE_THREAD;
 #[allow(unused_imports)]
 pub use sparkle::{Dots, split_frames};
 #[allow(unused_imports)]
-pub use states::image_file_sized;
+pub use states::{SubmissionReceipt, image_file_sized};
 
 #[allow(unused_imports)]
 pub use labels::{normalize as normalize_rows, normalize_key_names, normalize_labels};

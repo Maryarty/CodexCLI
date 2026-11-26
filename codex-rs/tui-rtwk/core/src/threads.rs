@@ -788,6 +788,7 @@ pub enum TurnEnd {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PendingSteer {
     message: UserMessage,
+    client_id: Option<String>,
     /// The turn the server said it joined.
     admitted: Option<TurnId>,
 }
@@ -851,6 +852,8 @@ pub enum ThreadCtx {
     StartTurn {
         interrupt: bool,
         message: UserMessage,
+        /// Cleared when an item confirms this submission before the RPC reply.
+        client_id: Option<String>,
         /// The instruction a misalignment failure's review was acknowledged for: its failure
         /// words nothing of the message (`safety::Verb::Continue`).
         acknowledged: bool,
@@ -908,6 +911,7 @@ pub enum ThreadEv {
     /// whose stream was lost or came back).
     StreamRestored {
         read: bool,
+        reconciled: bool,
     },
     /// An app-scoped error for this thread.
     Failure(Failure),
@@ -942,6 +946,7 @@ pub enum ThreadEv {
         turns: Vec<HistoryTurn>,
         next: Option<String>,
         submissions: Vec<replay::Submission>,
+        receipts: Vec<String>,
         replace: bool,
         /// The thread runs (the server's status is `active`, or the page is not the resume's
         /// own): a turn without an end is the running one. An idle thread's unfinished turn
@@ -1198,6 +1203,7 @@ pub struct ThreadCore {
     /// `history_may_be_incomplete`): opening the thread again reads its history from the server
     /// instead of showing what is held.
     history_may_be_incomplete: bool,
+    reconciling_submissions: bool,
     writer: Writer,
 }
 
@@ -1365,6 +1371,7 @@ impl ThreadModel {
                 safety: safety::Safety::default(),
                 stream_lost: false,
                 history_may_be_incomplete: false,
+                reconciling_submissions: false,
                 last_ended: None,
                 finished_turns: Rc::default(),
                 authoritative_turns: Rc::default(),
@@ -1610,6 +1617,10 @@ impl ThreadCore {
         self.history_may_be_incomplete
     }
 
+    pub(crate) fn reconciling_submissions(&self) -> bool {
+        self.reconciling_submissions
+    }
+
     /// The turn that runs, if one does (`ThreadCx::interrupt`).
     pub(crate) fn running_turn(&self) -> Option<&TurnId> {
         match &self.turn {
@@ -1695,6 +1706,7 @@ pub enum ThreadAsk {
     Steer {
         thread: String,
         turn: String,
+        client_id: String,
         message: UserMessage,
     },
     Compact {
@@ -1900,6 +1912,7 @@ impl ThreadAsk {
             ThreadAsk::Steer {
                 thread,
                 turn,
+                client_id,
                 message,
             } => ClientRequest::TurnSteer {
                 request_id,
@@ -1907,6 +1920,7 @@ impl ThreadAsk {
                     thread_id: thread.clone(),
                     input: crate::protocol::turn_input_in(message, Some(thread.as_str())),
                     expected_turn_id: turn.clone(),
+                    client_user_message_id: Some(client_id.clone()),
                     ..Default::default()
                 },
             },
@@ -2141,11 +2155,13 @@ impl<'a> ThreadFx<'a> {
             return Err(message);
         }
         let ticket = self.mint.next();
+        let client_id = self.mint.submission_id(ticket);
         self.registered.push((
             ticket,
             ThreadCtx::StartTurn {
                 interrupt: false,
                 message: message.clone(),
+                client_id: Some(client_id.clone()),
                 acknowledged: false,
             },
         ));
@@ -2153,6 +2169,7 @@ impl<'a> ThreadFx<'a> {
             ticket,
             thread: self.thread.clone(),
             message,
+            client_id,
             misalignment_override: None,
         });
         Ok(ticket)
@@ -2169,11 +2186,13 @@ impl<'a> ThreadFx<'a> {
             return Err(message);
         }
         let ticket = self.mint.next();
+        let client_id = self.mint.submission_id(ticket);
         self.registered.push((
             ticket,
             ThreadCtx::StartTurn {
                 interrupt: false,
                 message: message.clone(),
+                client_id: Some(client_id.clone()),
                 acknowledged: true,
             },
         ));
@@ -2181,6 +2200,7 @@ impl<'a> ThreadFx<'a> {
             ticket,
             thread: self.thread.clone(),
             message,
+            client_id,
             misalignment_override: Some(stamp),
         });
         Ok(ticket)
@@ -2215,14 +2235,17 @@ impl<'a> ThreadFx<'a> {
         command: impl Into<ScreenCommand>,
     ) -> Ticket {
         let ticket = self.mint.next();
-        let ctx = ctx.into();
+        self.request_at(ticket, ctx.into(), command.into());
+        ticket
+    }
+
+    fn request_at(&mut self, ticket: Ticket, ctx: ScreenCtx, command: ScreenCommand) {
         self.registered.push((ticket, ThreadCtx::Screen(ctx)));
         self.out.commands.push(Command::Screen {
             ticket,
             thread: self.thread.clone(),
-            command: command.into(),
+            command,
         });
-        ticket
     }
 
     /// An RPC of a feature slice: `ctx` is kept with the ticket and comes back with the
@@ -2568,11 +2591,16 @@ fn turn_snapshot(turn: &codex_app_server_protocol::Turn) -> Option<TurnSnapshot>
 /// The server lists newest turns first. Project them in transcript order (`replay`: the review
 /// prompts and hidden nested review turns are left out, the submissions are kept).
 pub fn history_page(turns: &[codex_app_server_protocol::Turn], next: Option<String>) -> ThreadEv {
-    let (turns, submissions) = replay::project(turns);
+    let replay::HistoryProjection {
+        turns,
+        submissions,
+        receipts,
+    } = replay::project(turns);
     ThreadEv::HistoryPage {
         turns,
         next,
         submissions,
+        receipts,
         replace: false,
         running: true,
     }
@@ -2590,12 +2618,14 @@ pub fn history_page_of(thread: &codex_app_server_protocol::Thread) -> ThreadEv {
             turns,
             next,
             submissions,
+            receipts,
             replace,
             ..
         } => ThreadEv::HistoryPage {
             turns,
             next,
             submissions,
+            receipts,
             replace,
             running,
         },
@@ -2610,6 +2640,7 @@ pub fn history_reset() -> ThreadEv {
         turns: Vec::new(),
         next: None,
         submissions: Vec::new(),
+        receipts: Vec::new(),
         replace: true,
         running: true,
     }
@@ -2617,8 +2648,14 @@ pub fn history_reset() -> ThreadEv {
 
 fn item_entry(payload: &ThreadItemPayload, completed: bool) -> Option<(ItemId, Item)> {
     Some(match payload {
-        ThreadItemPayload::UserMessage { id, content, .. } => {
-            (ItemId::new(id), Item::User(UserPrompt::from_input(content)))
+        ThreadItemPayload::UserMessage {
+            id,
+            client_id,
+            content,
+        } => {
+            let mut prompt = UserPrompt::from_input(content);
+            prompt.client_id.clone_from(client_id);
+            (ItemId::new(id), Item::User(prompt))
         }
         ThreadItemPayload::AgentMessage {
             id, text, phase, ..
@@ -2709,13 +2746,14 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             model.recorded = Some((seq, message));
         }
         ThreadEv::ConnectionLost if model.has_writer() => {
+            hold_unconfirmed(model);
+            model.core.history_may_be_incomplete |= model.reconciling_submissions;
             model.writer = Writer::Detached;
             // the stream went with the connection: an attach again starts a live one
             model.core.stream_lost = false;
             model.outgoing = Pending::default();
             model.turn = TurnState::Idle;
-            // A steer in flight will never be echoed: it goes back to the
-            // composer with the rest that waited.
+            // Known refusals can be edited in the composer.
             let mut messages = std::mem::take(&mut model.rejected_steers);
             messages.extend(
                 std::mem::take(&mut model.pending_steers)
@@ -2727,10 +2765,26 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             model.slots.chat.connection_lost();
         }
         ThreadEv::ConnectionLost => {}
-        ThreadEv::StreamLost => model.core.stream_lost = true,
-        ThreadEv::StreamRestored { read } => {
+        ThreadEv::StreamLost => {
+            hold_unconfirmed(model);
+            model.core.stream_lost = true;
+        }
+        ThreadEv::StreamRestored { read, reconciled } => {
             model.core.stream_lost = false;
             model.core.history_may_be_incomplete = !read;
+            if reconciled
+                && std::mem::take(&mut model.core.reconciling_submissions)
+                && let Some(Queued::Unconfirmed { message, .. }) = model.queue.first()
+            {
+                apply_appended(
+                    model,
+                    None,
+                    Item::Notice(Notice::SubmissionUnconfirmed(
+                        crate::question_reply::display_text(&message.text)
+                            .unwrap_or_else(|| message.text.clone()),
+                    )),
+                );
+            }
             if !model.busy() {
                 send_next(model, fx);
             }
@@ -2769,6 +2823,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             turns,
             next,
             submissions,
+            receipts,
             replace,
             running,
         } => {
@@ -2784,6 +2839,10 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     .is_some_and(|latest| matches!(latest.error, Some(Fault::Misalignment { .. })))
             {
                 safety::replayed(model);
+            }
+            let mut released = false;
+            for receipt in &receipts {
+                released |= reconcile_id(model, receipt).1;
             }
             for snapshot in &turns {
                 if snapshot.end.is_some() {
@@ -2810,9 +2869,6 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     }
                 }
             }
-            if model.core.stream_lost || model.core.history_may_be_incomplete {
-                confirm_steers(model, &turns);
-            }
             let timings: Vec<_> = turns
                 .iter()
                 .map(|entry| (entry.turn.clone(), entry.timing))
@@ -2822,6 +2878,9 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             model.transcript.remember_timings(timings);
             model.history_next = next.filter(|cursor| Some(cursor) != model.history_next.as_ref());
             model.history_ask = HistoryAsk::Idle;
+            if released && !model.busy() {
+                send_next(model, fx);
+            }
         }
         ThreadEv::HistoryRequested => model.history_ask = HistoryAsk::Loading,
         // Without a cursor there is no page to retry: the first read's failure is the
@@ -2871,7 +2930,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             let starting = model.outgoing.any(is_start_turn);
             // The thread's stream is lost: nothing goes out, a steer included, until it is back
             // (`should_submit_now`).
-            if model.stream_lost {
+            if model.stream_lost || model.reconciling_submissions {
                 enqueue(model, Queued::Message(message), fx);
                 return;
             }
@@ -2895,11 +2954,15 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             if let (TurnState::Running(running), false) = (&model.turn, starting) {
                 let turn = running.turn.clone();
                 model.slots.chat.plan.steered();
+                let ticket = fx.mint();
+                let client_id = fx.mint.submission_id(ticket);
                 model.pending_steers.push(PendingSteer {
                     message: message.clone(),
+                    client_id: Some(client_id.clone()),
                     admitted: None,
                 });
-                model.last_submit = Some(steer(fx, turn, false, message));
+                steer(fx, ticket, turn, false, message, client_id);
+                model.last_submit = Some(ticket);
                 return;
             }
             // MCP servers still starting hold the message (oracle
@@ -2955,9 +3018,10 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                         turn,
                         retried,
                         message,
+                        client_id,
                     })),
                     answer,
-                ) => steer_reply(model, turn, retried, message, answer, fx),
+                ) => steer_reply(model, turn, retried, message, client_id, answer, fx),
                 // the live terminals of a resumed thread: a page, then the next or the end; a list
                 // that fails ends the restore with nothing (oracle `unwrap_or_default`)
                 (
@@ -3171,6 +3235,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 .into_iter()
                 .map(|text| PendingSteer {
                     message: UserMessage::text(text),
+                    client_id: None,
                     admitted: None,
                 })
                 .collect();
@@ -3241,21 +3306,26 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::ItemStarted { key, item } => {
             processes::track(model, &key, &item);
             note_review(model, &item);
-            if !model.finished_turns.contains(&key.turn) && model.transcript.item(&key).is_none() {
-                let echo = steer_echoed(model, &item);
-                if !review_prompt(model, &item, echo) && !processes::draws_nothing(&item, false) {
-                    model.transcript.upsert(key, item);
-                }
+            let (echo, released) = reconcile_receipt(model, &item);
+            if !model.finished_turns.contains(&key.turn)
+                && model.transcript.item(&key).is_none()
+                && !review_prompt(model, &item, echo)
+                && !processes::draws_nothing(&item, false)
+            {
+                model.transcript.upsert(key, item);
+            }
+            if released && !model.busy() {
+                send_next(model, fx);
             }
         }
         ThreadEv::ItemUpsert { key, item } => {
             processes::track(model, &key, &item);
             note_review(model, &item);
+            let (echo, released) = reconcile_receipt(model, &item);
             let turn_finished = model.finished_turns.contains(&key.turn);
             if !model.authoritative_turns.contains(&key.turn)
                 && !processes::draws_nothing(&item, turn_finished)
             {
-                let echo = model.transcript.item(&key).is_none() && steer_echoed(model, &item);
                 if review_prompt(model, &item, echo) {
                     return;
                 }
@@ -3273,6 +3343,9 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     }
                 }
                 model.transcript.upsert(key, item);
+            }
+            if released && !model.busy() {
+                send_next(model, fx);
             }
         }
         ThreadEv::PlanUpdated { turn, update } => {
@@ -3317,6 +3390,9 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             error,
         } => {
             processes::turn_ended(model, &turn, end);
+            let released = snapshot
+                .as_ref()
+                .is_some_and(|snapshot| reconcile_snapshot(model, snapshot));
             match snapshot {
                 // A list with no item says nothing of a turn whose items came as they ran: the
                 // oracle's live chat keeps what the notifications drew (an interrupted turn's
@@ -3355,6 +3431,9 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 model.transcript.report_error(&turn, fault, fx.daybreak());
             }
             end_turn(model, turn, end, fx);
+            if released && !model.busy() {
+                send_next(model, fx);
+            }
         }
     }
 }
@@ -3518,22 +3597,41 @@ fn interrupted(model: &mut ThreadModel, turn: &TurnId, fx: &mut ThreadFx<'_>) {
     } else {
         let mut messages = std::mem::take(&mut model.rejected_steers);
         messages.extend(mine.into_iter().map(|steer| steer.message));
-        messages.extend(model.queue.drain(..).map(Queued::into_message));
+        if !model.reconciling_submissions
+            && !matches!(model.queue.first(), Some(Queued::Unconfirmed { .. }))
+        {
+            messages.extend(model.queue.drain(..).map(Queued::into_message));
+        }
         give_back(model, messages, false);
     }
     model.pending_steers = later;
 }
 
 /// `turn/steer` of `message` to `turn`.
-fn steer(fx: &mut ThreadFx<'_>, turn: TurnId, retried: bool, message: UserMessage) -> Ticket {
-    fx.request(
+fn steer(
+    fx: &mut ThreadFx<'_>,
+    ticket: Ticket,
+    turn: TurnId,
+    retried: bool,
+    message: UserMessage,
+    client_id: String,
+) {
+    fx.request_at(
+        ticket,
         screens::chat::Ctx::Steer {
             turn: turn.clone(),
             retried,
             message: message.clone(),
-        },
-        screens::chat::Command::Steer { turn, message },
-    )
+            client_id: client_id.clone(),
+        }
+        .into(),
+        screens::chat::Command::Steer {
+            turn,
+            message,
+            client_id,
+        }
+        .into(),
+    );
 }
 
 /// A message that never left goes back to the composer whole; what waits in
@@ -3570,33 +3668,87 @@ fn give_back(model: &mut ThreadModel, messages: Vec<UserMessage>, replace: bool)
     });
 }
 
-/// The user's item of a steer came back: its pending entry is done.
-fn steer_echoed(model: &mut ThreadModel, item: &Item) -> bool {
-    if let Item::User(prompt) = item
-        && let Some(index) = model
-            .pending_steers
-            .iter()
-            .position(|steer| steer.message.text == prompt.text)
-    {
-        model.pending_steers.remove(index);
-        return true;
+/// Preserve submitted input ahead of unsent input when the server outcome becomes unknown.
+fn hold_unconfirmed(model: &mut ThreadModel) {
+    let mut held = Vec::new();
+    for ticket in model.outgoing.tickets() {
+        if let Some(ThreadCtx::StartTurn {
+            message,
+            client_id: Some(client_id),
+            ..
+        }) = model.outgoing.get(ticket)
+        {
+            held.push(Queued::Unconfirmed {
+                message: Box::new(message.clone()),
+                client_id: client_id.clone(),
+            });
+        }
     }
-    false
+    model.pending_steers.retain_mut(|steer| {
+        let Some(client_id) = steer.client_id.take() else {
+            return true;
+        };
+        held.push(Queued::Unconfirmed {
+            message: Box::new(std::mem::take(&mut steer.message)),
+            client_id,
+        });
+        false
+    });
+    if !held.is_empty() {
+        model.core.reconciling_submissions = true;
+        let first_unsent = model
+            .queue
+            .iter()
+            .take_while(|entry| matches!(entry, Queued::Unconfirmed { .. }))
+            .count();
+        model.queue.splice(first_unsent..first_unsent, held);
+    }
+    model.outgoing.retain(|ctx| {
+        !matches!(
+            ctx,
+            ThreadCtx::StartTurn { .. }
+                | ThreadCtx::Screen(ScreenCtx::Chat(screens::chat::Ctx::Steer { .. }))
+        )
+    });
 }
 
-/// A thread read again after its stream was lost or its gap unread: a pending steer whose user message the server's
-/// turns hold was received, so it is no longer pending (oracle `reconcile_recovered_messages`
-/// drops the steers whose submission the history confirms). The port has no submission ids on
-/// steers; the text is the key, as for the echo (`steer_echoed`).
-fn confirm_steers(model: &mut ThreadModel, turns: &[HistoryTurn]) {
-    model.pending_steers.retain(|steer| {
-        !turns.iter().any(|turn| {
-            let (TurnSnapshot::Full(items) | TurnSnapshot::Summary(items)) = &turn.items;
-            items.iter().any(
-                |(_, item)| matches!(item, Item::User(prompt) if prompt.text == steer.message.text),
-            )
-        })
-    });
+/// A server item confirms only the submission that supplied this client ID.
+fn reconcile_receipt(model: &mut ThreadModel, item: &Item) -> (bool, bool) {
+    let Item::User(UserPrompt {
+        client_id: Some(client_id),
+        ..
+    }) = item
+    else {
+        return (false, false);
+    };
+    reconcile_id(model, client_id)
+}
+
+fn reconcile_id(model: &mut ThreadModel, client_id: &str) -> (bool, bool) {
+    if let Some(ThreadCtx::StartTurn { client_id, .. }) = model.outgoing.find_mut(
+        |ctx| matches!(ctx, ThreadCtx::StartTurn { client_id: Some(id), .. } if id == client_id),
+    ) {
+        *client_id = None;
+    }
+    let pending = model.pending_steers.len();
+    model
+        .pending_steers
+        .retain(|steer| steer.client_id.as_deref() != Some(client_id));
+    let queued = model.queue.len();
+    model.queue.retain(
+        |entry| !matches!(entry, Queued::Unconfirmed { client_id: id, .. } if id == client_id),
+    );
+    let released = queued != model.queue.len();
+    (pending != model.pending_steers.len() || released, released)
+}
+
+fn reconcile_snapshot(model: &mut ThreadModel, snapshot: &TurnSnapshot) -> bool {
+    let (TurnSnapshot::Full(items) | TurnSnapshot::Summary(items)) = snapshot;
+    let mut released = false;
+    for (_, item) in items {
+        released |= reconcile_receipt(model, item).1;
+    }
+    released
 }
 
 /// In review mode the server's user item is the review prompt, not something
@@ -3681,20 +3833,17 @@ fn steer_reply(
     turn: TurnId,
     retried: bool,
     message: UserMessage,
+    client_id: String,
     answer: Answer,
     fx: &mut ThreadFx<'_>,
 ) {
     let position = model
         .pending_steers
         .iter()
-        .position(|steer| steer.message == message);
+        .position(|steer| steer.client_id.as_deref() == Some(client_id.as_str()));
     let failure = match answer {
         Answer::Screen(screens::ScreenReply::Chat(screens::chat::Reply::Steered(admitted))) => {
-            if let Some(index) = model
-                .pending_steers
-                .iter()
-                .position(|steer| steer.admitted.is_none() && steer.message == message)
-            {
+            if let Some(index) = position {
                 model.pending_steers[index].admitted = Some(admitted);
             }
             return;
@@ -3749,7 +3898,8 @@ fn steer_reply(
             {
                 running.turn = actual.clone();
             }
-            steer(fx, actual, true, message);
+            let ticket = fx.mint();
+            steer(fx, ticket, actual, true, message, client_id);
         }
         Refusal::Changed(_) | Refusal::Other => {
             if let Some(index) = position {
