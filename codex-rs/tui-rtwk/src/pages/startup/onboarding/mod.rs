@@ -274,6 +274,9 @@ pub struct StartupPageState {
     answers_from: usize,
     /// A startup prompt was asked and is not on screen yet.
     asking: bool,
+    /// The page was held open for the provider panel's pick: the steps the facts bring come
+    /// next.
+    held: bool,
     /// Told by the gateway wizard whether its form's mark rests on Save (the logo then keeps
     /// its colour).
     resting: signin::Resting,
@@ -295,6 +298,7 @@ impl StatefulWidget for StartupPage {
             import_from: 0,
             answers_from: 0,
             asking: false,
+            held: false,
             resting: signin::Resting::default(),
         }
     }
@@ -327,6 +331,14 @@ impl State for StartupPageState {
             }
             // the question of a `/cd` is asked while the model holds it open
             Step::Consent => core::consent::open(&screens.onboarding).map(|_| Step::Consent),
+            // The facts came after the provider panel's hold: the steps they bring are due now.
+            Step::Prompts if self.held && !screens.onboarding.holding() => {
+                self.held = false;
+                match current(Step::Update, &screens.onboarding) {
+                    Some(step) => Some(step),
+                    None => self.after_steps(&screens, cx),
+                }
+            }
             Step::Device | Step::Prompts => self.after_steps(&screens, cx),
             _ => match current(at, &screens.onboarding) {
                 Some(step) => Some(step),
@@ -505,6 +517,7 @@ impl StartupPageState {
     /// facts).
     fn prompts(&mut self, screens: &Slice, cx: &mut Cx<'_, Self>) -> Option<Step> {
         let model = &screens.onboarding;
+        self.held |= model.holding();
         if screens.prompt_asked {
             self.asking = false;
             return Some(Step::Prompts);
@@ -512,11 +525,15 @@ impl StartupPageState {
         if self.asking || model.awaits_launch() {
             return Some(Step::Prompts);
         }
-        // The recovery menu was cancelled: the host ends the launch with the error it read.
-        if screens.daemon_ended {
+        // The recovery menu or the provider panel was cancelled: the host ends the launch with
+        // the error it has.
+        if screens.host_ends {
             return Some(Step::Prompts);
         }
-        let first = model.prompts.first()?.clone();
+        // The provider panel's pick is held until the facts come.
+        let Some(first) = model.prompts.first().cloned() else {
+            return model.holding().then_some(Step::Prompts);
+        };
         self.asking = true;
         let hs = read::<Hs, _>(cx);
         cx.emit(
@@ -535,8 +552,9 @@ impl StartupPageState {
 struct Slice {
     onboarding: core::Model,
     prompt_asked: bool,
-    /// The recovery menu was cancelled (the app ends on the host's error).
-    daemon_ended: bool,
+    /// The recovery menu or the provider panel was cancelled (the app ends on the host's
+    /// error).
+    host_ends: bool,
     import_phase: ImportPhase,
     import_generation: u64,
 }
@@ -545,12 +563,13 @@ fn slice(cx: &mut Cx<'_, StartupPageState>) -> Slice {
     select::<ScreenStates, Slice, _>(cx, |states| Slice {
         onboarding: states.onboarding.clone(),
         prompt_asked: states.startup.asked.is_some(),
-        daemon_ended: states.startup.answers.iter().any(|a| {
+        host_ends: states.startup.answers.iter().any(|a| {
             matches!(
                 a,
                 codex_tui_core::screens::startup::Answer::Daemon(
                     codex_tui_core::screens::startup::DaemonChoice::Cancel
                 ) | codex_tui_core::screens::startup::Answer::DaemonQuit
+                    | codex_tui_core::screens::startup::Answer::OssCancelled
             )
         }),
         import_phase: states.import.phase,
@@ -559,14 +578,14 @@ fn slice(cx: &mut Cx<'_, StartupPageState>) -> Slice {
 }
 
 /// Whether a startup prompt's answer ends the app (Ctrl-C on a prompt, the
-/// migration's exit, the unarchive prompt's quit). The recovery menu's Cancel and Ctrl-C end
-/// it too, but with the host's error text (`Ask::DaemonChoice`): the page waits for it.
+/// migration's exit, the unarchive prompt's quit). The recovery menu's Cancel and Ctrl-C and
+/// the provider panel's Ctrl-C end it too, but with the host's error text (`Ask::DaemonChoice`,
+/// `Ask::OssChoice`): the page waits for it.
 fn exits(answer: codex_tui_core::screens::startup::Answer) -> bool {
     use codex_tui_core::screens::startup::{Answer, MigrationOutcome, UnarchiveChoice};
     matches!(
         answer,
         Answer::CwdExit
-            | Answer::OssCancelled
             | Answer::Migration(MigrationOutcome::Exit)
             | Answer::Unarchive(UnarchiveChoice::Quit)
     )

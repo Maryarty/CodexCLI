@@ -27,6 +27,7 @@ use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::onboarding::{
     Ask, Ev, Facts, TrustAsk, TrustCancel, UpdateOffer, Welcome,
 };
+use codex_tui_core::screens::startup::{Provider, Status};
 
 fn asks(h: &crate::common::Harness) -> Vec<Ask> {
     h.fake
@@ -180,4 +181,98 @@ fn update_now_quits_the_app_only_after_the_host_stored_the_update() {
     );
     h.settle();
     assert!(!h.t.is_running(), "quits once the update is stored");
+}
+
+/// `--oss` with both or no local server (oracle `oss_selection.rs`): the host asks the provider
+/// before the config exists, the panel shows over the startup page, and a row answers the host
+/// (the launch task takes it).
+#[test]
+fn the_provider_panel_shows_before_connect_and_a_row_answers() {
+    let mut h = crate::common::start();
+    h.settle();
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake.inject(
+        epoch,
+        AppEv::Screen(ScreenEv::Onboarding(Ev::OssPick {
+            lmstudio: Status::NotRunning,
+            ollama: Status::NotRunning,
+        })),
+    );
+    h.wait_for("the provider panel", |s| {
+        s.contains("Select an open-source provider")
+    });
+    assert!(h.t.screen().contains("LM Studio"), "{}", h.t.screen());
+    assert!(h.t.screen().contains("Ollama"), "{}", h.t.screen());
+    h.press("down");
+    h.press("enter");
+    h.settle();
+    assert_eq!(
+        asks(&h).last(),
+        Some(&Ask::OssChoice {
+            provider: Some(Provider::Ollama)
+        })
+    );
+    assert!(
+        !h.t.screen().contains("Select an open-source provider"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// The oracle ends the launch on Ctrl-C with its error; the page asks the host and waits for
+/// that error (`StartFailed`) instead of ending silently.
+#[test]
+fn ctrl_c_on_the_provider_panel_ends_only_on_the_host_error() {
+    let mut h = crate::common::start_quittable(false);
+    h.settle();
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake.inject(
+        epoch,
+        AppEv::Screen(ScreenEv::Onboarding(Ev::OssPick {
+            lmstudio: Status::Running,
+            ollama: Status::Running,
+        })),
+    );
+    h.wait_for("the provider panel", |s| {
+        s.contains("Select an open-source provider")
+    });
+    h.press("ctrl+c");
+    h.settle();
+    assert_eq!(asks(&h).last(), Some(&Ask::OssChoice { provider: None }));
+    assert!(h.t.is_running(), "the host's error ends the app");
+    h.fake.inject(
+        epoch,
+        AppEv::StartFailed("OSS provider selection was cancelled by user".into()),
+    );
+    h.settle();
+    assert!(!h.t.is_running());
+}
+
+/// The page is held from the pick until the facts: the steps they bring (here the folder trust)
+/// open after the panel instead of the page leaving with the last prompt.
+#[test]
+fn the_startup_steps_still_open_after_the_provider_pick() {
+    let mut h = crate::common::start();
+    h.settle();
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake.inject(
+        epoch,
+        AppEv::Screen(ScreenEv::Onboarding(Ev::OssPick {
+            lmstudio: Status::NotRunning,
+            ollama: Status::NotRunning,
+        })),
+    );
+    h.wait_for("the provider panel", |s| {
+        s.contains("Select an open-source provider")
+    });
+    h.press("enter");
+    h.settle();
+    h.fake.inject(
+        epoch,
+        AppEv::Screen(ScreenEv::Onboarding(Ev::Facts {
+            request: 1,
+            facts: trust_facts(),
+        })),
+    );
+    h.wait_for("the trust prompt", |s| s.contains("Folder access"));
 }

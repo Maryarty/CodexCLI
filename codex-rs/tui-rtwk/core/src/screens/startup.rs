@@ -549,6 +549,18 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                     ask: onboarding::Ask::DaemonChoice { choice },
                 });
             }
+            // The provider panel is answered before the config exists: the launch task takes
+            // the pick (Ctrl-C is no provider, which ends the launch).
+            let oss = match answer {
+                Answer::Oss(provider) => Some(Some(provider)),
+                Answer::OssCancelled => Some(None),
+                _ => None,
+            };
+            if let Some(provider) = oss {
+                fx.commands.push(AppCommand::Startup {
+                    ask: onboarding::Ask::OssChoice { provider },
+                });
+            }
             // The migration's answer is saved (`PersistModelMigrationPromptAcknowledged`,
             // accepted: `PersistModelSelection` too); an exit saves nothing.
             if let (Prompt::Migration(m), Answer::Migration(outcome)) = (prompt, answer)
@@ -854,6 +866,42 @@ mod tests {
             assert_eq!(asks_of(&mut model, Intent::Answer(answer)), ask(choice));
             assert_eq!(model.answers, vec![answer]);
         }
+    }
+
+    fn oss_panel() -> Model {
+        Model {
+            asked: Some(Prompt::Oss(OssPrompt {
+                lmstudio: Status::NotRunning,
+                ollama: Status::NotRunning,
+            })),
+            ..Model::default()
+        }
+    }
+
+    // oss_selection.rs: the panel is answered before the config exists; the launch task takes
+    // the pick (`Ask::OssChoice`).
+    #[test]
+    fn answering_the_provider_panel_asks_the_host() {
+        for provider in [Provider::LmStudio, Provider::Ollama] {
+            let mut model = oss_panel();
+            assert_eq!(
+                asks_of(&mut model, Intent::Answer(Answer::Oss(provider))),
+                [onboarding::Ask::OssChoice {
+                    provider: Some(provider)
+                }]
+            );
+            assert_eq!(model.answers, vec![Answer::Oss(provider)]);
+        }
+    }
+
+    // Ctrl-C on the panel is `__CANCELLED__`: no provider, the launch ends.
+    #[test]
+    fn cancelling_the_provider_panel_asks_the_host_with_none() {
+        let mut model = oss_panel();
+        assert_eq!(
+            asks_of(&mut model, Intent::Answer(Answer::OssCancelled)),
+            [onboarding::Ask::OssChoice { provider: None }]
+        );
     }
 
     // A menu that is not asked takes no answer; the disabled restart row has no answer.

@@ -388,6 +388,8 @@ where
             return None;
         }
         Ask::DaemonChoice { choice } => return daemon_choice(&startup, choice).await,
+        // The provider panel is answered before this worker exists: the launch task takes it.
+        Ask::OssChoice { .. } => return None,
         Ask::AcknowledgeGovCloud => {
             let config = startup.current.read().await.clone();
             crate::providers::acknowledge_gov_cloud(&config).await;
