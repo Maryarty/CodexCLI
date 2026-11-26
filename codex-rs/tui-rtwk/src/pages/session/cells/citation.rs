@@ -705,16 +705,18 @@ mod tests {
         let mut stream = LiveMarkdown::default();
         let rendering = Rendering::default();
         let prefix = "See [source][key].\n\n";
-        let first = cached(&mut stream, prefix, None, rendering).blocks.unwrap();
-        let appended = format!("{prefix}next paragraph\n\n");
+        let first = cached(&mut stream, prefix, None, rendering)
+            .blocks
+            .unwrap_or_default();
+        let appended = [prefix, "next paragraph\n\n"].concat();
         let second = cached(&mut stream, &appended, None, rendering)
             .blocks
-            .unwrap();
+            .unwrap_or_default();
         assert!(Arc::ptr_eq(&first[0], &second[0]));
-        let defined = format!("{appended}[key]: https://example.com\n");
+        let defined = [appended.as_str(), "[key]: https://example.com\n"].concat();
         let third = cached(&mut stream, &defined, None, rendering)
             .blocks
-            .unwrap();
+            .unwrap_or_default();
         assert!(!Arc::ptr_eq(&second[0], &third[0]));
         assert_eq!(
             Some(third),
