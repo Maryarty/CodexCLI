@@ -547,7 +547,10 @@ fn reconnects(fx: &AppFx) -> Vec<ThreadId> {
     fx.commands()
         .iter()
         .filter_map(|command| match command {
-            Command::ReconnectIdleThread { thread, .. } => Some(thread.clone()),
+            Command::Effect {
+                ask: codex_tui_core::app::effects::Ask::ReconnectIdleThread { thread, .. },
+                ..
+            } => Some(thread.clone()),
             _ => None,
         })
         .collect()

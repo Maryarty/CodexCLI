@@ -272,7 +272,7 @@ fn opening_the_page_asks_the_browser_for_the_validated_url_and_keeps_the_request
     let fx = send(&mut app, approvals(ApprovalIntent::OpenLink { key }));
     assert!(matches!(
         fx.commands(),
-        [Command::OpenUrl { url, .. }] if url == "https://example.test/install"
+        [Command::Effect { ask: codex_tui_core::app::effects::Ask::OpenUrl { url, .. }, .. }] if url == "https://example.test/install"
     ));
     assert_eq!(app.requests().entries.len(), 1);
 }

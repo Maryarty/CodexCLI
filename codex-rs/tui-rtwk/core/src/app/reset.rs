@@ -7,26 +7,42 @@
 use std::rc::Rc;
 
 use super::session::refresh_rates;
-use super::{AppFx, CodexApp, active_backend, apply_thread};
-use crate::ids::ThreadId;
+use super::{AppCtx, AppFx, CodexApp, Command, active_backend, apply_thread};
+use crate::ids::{BackendId, ThreadId};
+use crate::rpc::{Answer, RpcError};
 use crate::screens::status::{RateLimitOrigin, ResetCredits};
 use crate::screens::usage::{self, reset};
+use crate::screens::{ScreenCommand, ScreenReply};
 use crate::threads::{Item, Notice, ThreadEv, ToolStatus};
 
 fn state(app: &mut CodexApp) -> &mut reset::State {
     &mut Rc::make_mut(&mut app.screens).usage.reset
 }
 
-/// `Intent::Menu` and `Intent::Resets`: the reads they need are started here; every other usage
-/// intent is the model's own (`usage::step`). False for an intent that is not one of these.
+/// The account's reset reads and redemptions. Usage report intents stay in the screen.
 pub(super) fn intent(app: &mut CodexApp, intent: &usage::Intent, fx: &mut AppFx) -> bool {
+    let backend = active_backend(app);
     let origin = match intent {
         usage::Intent::Menu => state(app).open_menu().map(RateLimitOrigin::Menu),
-        usage::Intent::Resets => Some(RateLimitOrigin::ResetPicker(state(app).open_resets())),
+        usage::Intent::Resets => {
+            let state = state(app);
+            state.picker_backend = Some(backend);
+            Some(RateLimitOrigin::ResetPicker(state.open_resets()))
+        }
+        usage::Intent::Redeem { credit_id } => {
+            let next = state(app).redeem(credit_id.clone());
+            send_redemption(app, next, fx);
+            return true;
+        }
+        usage::Intent::Retry => {
+            let next = state(app).retry();
+            send_redemption(app, next, fx);
+            return true;
+        }
         _ => return false,
     };
     if let Some(origin) = origin {
-        refresh_rates(app, active_backend(app), origin, fx);
+        refresh_rates(app, backend, origin, fx);
     }
     true
 }
@@ -46,14 +62,22 @@ pub(super) fn startup(app: &mut CodexApp, fx: &mut AppFx) {
 /// answer that carried none and `Err` for a read that failed.
 pub(super) fn read_done(
     app: &mut CodexApp,
+    backend: BackendId,
     origin: RateLimitOrigin,
     credits: Result<Option<ResetCredits>, ()>,
     fx: &mut AppFx,
 ) {
     match origin {
         RateLimitOrigin::Menu(request) => state(app).menu_read(request, credits),
-        RateLimitOrigin::ResetPicker(request) => state(app).list_read(request, credits),
-        RateLimitOrigin::ResetConsume => state(app).after_reset_read(credits),
+        RateLimitOrigin::ResetPicker(request) => {
+            let state = state(app);
+            if state.picker_backend == Some(backend) {
+                state.list_read(request, credits);
+            }
+        }
+        RateLimitOrigin::ResetConsume(generation) => {
+            state(app).after_reset_read_for(backend, generation, credits);
+        }
         RateLimitOrigin::Hint(request) => {
             if let Some(count) = state(app).hint_read(request, credits)
                 && let Some(thread) = app.session.active.clone()
@@ -108,21 +132,54 @@ pub(super) fn settle_hint(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx)
     }
 }
 
-/// The host's answer to a redemption: a reset reads the credits again for the count left.
-pub(super) fn redeemed(
+fn send_redemption(app: &mut CodexApp, next: reset::Next, fx: &mut AppFx) {
+    let reset::Next::Redeem { key, credit_id } = next else {
+        return;
+    };
+    let active = active_backend(app);
+    let state = state(app);
+    let selected = state.picker_backend.unwrap_or(active);
+    let Some(redemption) = state.redemption.as_mut() else {
+        return;
+    };
+    let backend = *redemption.backend.get_or_insert(selected);
+    let command = usage::Command::Redeem(reset::Consume::Redeem {
+        key: key.clone(),
+        credit_id,
+    });
+    fx.ask(app, AppCtx::Redemption { key, backend }, |_, ticket| {
+        Command::Screen {
+            ticket,
+            thread: ThreadId::default(),
+            command: ScreenCommand::Usage(command),
+        }
+    });
+}
+
+/// A redemption which reset the windows refreshes the same account's credits.
+pub(super) fn answered(
     app: &mut CodexApp,
+    backend: BackendId,
     key: &str,
-    result: Result<reset::Outcome, String>,
+    answer: Answer,
     fx: &mut AppFx,
 ) {
+    let result = match answer {
+        Answer::Screen(ScreenReply::Usage(usage::Reply::Redeemed(outcome))) => Ok(outcome),
+        Answer::Failed(RpcError::Remote(message) | RpcError::Malformed(message)) => Err(message),
+        Answer::Failed(error) => Err(format!("{error:?}")),
+        _ => Err(format!("{:?}", RpcError::Mismatch)),
+    };
     if state(app).redeemed(key, result) == reset::Next::Read {
-        refresh_rates(app, active_backend(app), RateLimitOrigin::ResetConsume, fx);
+        let generation = app.screens.usage.reset.refresh_generation();
+        refresh_rates(app, backend, RateLimitOrigin::ResetConsume(generation), fx);
     }
 }
 
 /// The account changed: what was asked of the old one is not the new one's.
-pub(super) fn clear(app: &mut CodexApp) {
-    state(app).clear();
+pub(super) fn account_changed(app: &mut CodexApp, origin: BackendId) {
+    let active = active_backend(app) == origin;
+    state(app).account_changed(origin, active);
 }
 
 /// The warnings a sample of the limits made due (oracle `on_rate_limit_snapshot_from`): one

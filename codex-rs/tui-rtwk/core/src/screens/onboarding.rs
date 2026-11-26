@@ -21,6 +21,7 @@ use codex_app_server_protocol::ServerNotification;
 use serde::Deserialize;
 
 use crate::app::AppFx;
+#[cfg(test)]
 use crate::app::Command as AppCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
@@ -105,7 +106,7 @@ pub struct Model {
 /// it back, and one the page no longer waits for is dropped.
 pub type Request = u64;
 
-/// What the startup page asks the host for (the root `Command::Startup`):
+/// What the startup page asks the host for (`effects::Ask::Startup`):
 /// IO the host runs, answered with this page's events under the ask's number.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ask {
@@ -716,7 +717,7 @@ pub(crate) fn transport_replaced(model: &mut Model, fx: &mut AppFx) {
 }
 
 fn ask(fx: &mut AppFx, ask: Ask) {
-    fx.host_command(AppCommand::Startup { ask });
+    fx.host(crate::app::effects::Ask::Startup { ask });
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -1321,7 +1322,10 @@ mod tests {
         std::mem::take(&mut fx.commands)
             .into_iter()
             .filter_map(|command| match command {
-                AppCommand::Startup { ask } => Some(ask),
+                AppCommand::Effect {
+                    ask: crate::app::effects::Ask::Startup { ask },
+                    ..
+                } => Some(ask),
                 _ => None,
             })
             .collect()

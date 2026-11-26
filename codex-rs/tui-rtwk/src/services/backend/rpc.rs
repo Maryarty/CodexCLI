@@ -33,6 +33,10 @@ pub const USAGE_TIMEOUT: Duration = Duration::from_secs(65);
 /// The text of a failed usage fetch that timed out.
 pub const USAGE_TIMED_OUT: &str = "dashboard usage request timed out";
 
+/// `RATE_LIMIT_RESET_REQUEST_TIMEOUT`.
+const REDEEM_TIMEOUT: Duration = Duration::from_secs(30);
+const REDEEM_TIMED_OUT: &str = "account/rateLimitResetCredit/consume timed out in TUI";
+
 /// Request ids, shared by every request of a connection.
 #[derive(Clone, Debug, Default)]
 pub struct Ids(Arc<AtomicI64>);
@@ -104,18 +108,36 @@ where
         };
         return Some((*ticket, reply));
     }
+    // Secondary Cloud has no usage-reset RPC. Resolve the issued ticket here
+    // without sending a mutation to the wrong provider.
+    if facts.cloud
+        && let Command::Screen {
+            ticket,
+            command: ScreenCommand::Usage(_),
+            ..
+        } = &command
+    {
+        return Some((
+            *ticket,
+            Reply::failed("Usage resets are unavailable on this backend."),
+        ));
+    }
     let request = protocol::client_request(&command, ids.next(), model.as_deref())?;
-    let usage = matches!(
-        &command,
+    let timeout = match &command {
         Command::Screen {
             command: ScreenCommand::Agents(AgentsCommand::Usage { .. }),
             ..
-        }
-    );
-    let result = if usage {
-        match tokio::time::timeout(usage_timeout, send(request)).await {
+        } => Some((usage_timeout, USAGE_TIMED_OUT)),
+        Command::Screen {
+            command: ScreenCommand::Usage(_),
+            ..
+        } => Some((REDEEM_TIMEOUT, REDEEM_TIMED_OUT)),
+        _ => None,
+    };
+    let result = if let Some((timeout, message)) = timeout {
+        match tokio::time::timeout(timeout, send(request)).await {
             Ok(result) => result,
-            Err(_) => Err(ServerError::from(USAGE_TIMED_OUT)),
+            Err(_) => Err(ServerError::from(message)),
         }
     } else {
         send(request).await

@@ -266,9 +266,9 @@ pub(super) fn session_intent(
         // `AppEvent::OpenDesktopThread`: the Desktop app takes the thread by its link.
         S::App => match source {
             Some(thread) => {
-                fx.commands.push(Command::OpenUrl {
-                    url: [DESKTOP_THREAD_URL, thread.as_str()].concat(),
-                });
+                fx.host(crate::app::effects::Ask::open_url_or_report(
+                    [DESKTOP_THREAD_URL, thread.as_str()].concat(),
+                ));
                 session_note(app, Some(thread), Note::from(NoteKey::DesktopOpened), fx);
             }
             None => session_note(

@@ -16,7 +16,7 @@ use codex_config::types::CopyOnSelect;
 use codex_core::config::Config;
 use codex_terminal_detection::{TerminalInfo, TerminalName, terminal_info};
 use codex_tui_core::app::AppEv;
-use codex_tui_core::app::Command;
+use codex_tui_core::app::effects::Ask;
 use codex_tui_core::app::effects::Chain;
 use codex_tui_core::app::effects::ConfigEdit;
 use codex_tui_core::app::effects::DaemonAsk;
@@ -36,6 +36,7 @@ use codex_tui_rtwk::services::backend::rpc::Ids;
 use codex_tui_rtwk::services::clipboard::Clipboard;
 use codex_tui_rtwk::services::clipboard::Machine;
 use codex_tui_rtwk::services::clipboard::environment;
+use codex_tui_rtwk::services::effects::Outcome;
 use codex_tui_rtwk::services::effects::Services;
 use codex_tui_rtwk::services::file_search::InProcessSearch;
 use codex_tui_rtwk::services::history::file::MessageHistory;
@@ -246,42 +247,33 @@ impl Effects {
     /// library's services, then this machine's own (`Own`).
     pub(crate) fn run(
         self: &Arc<Self>,
-        command: &Command,
+        request: u64,
+        ask: Ask,
         exec: impl WorkspaceExec + 'static,
         link: Option<Link>,
-    ) -> Option<Boxed<Option<AppEv>>> {
+        connection: impl HostDoors<Out = Outcome> + Send + 'static,
+    ) -> Boxed<Option<AppEv>> {
         let this = Arc::clone(self);
-        if let Command::Effect { request, ask, .. } = command {
-            let (request, ask) = (*request, ask.clone());
-            return Some(Box::pin(async move {
-                let doors = Chain(
-                    codex_tui_rtwk::services::effects::Doors {
-                        services: &this.services,
-                        exec: &exec,
-                    },
+        Box::pin(async move {
+            let doors = Chain(
+                codex_tui_rtwk::services::effects::Doors {
+                    services: &this.services,
+                    exec: &exec,
+                },
+                Chain(
                     Own {
                         effects: &this,
                         link: link.as_ref(),
                     },
-                );
-                let (done, terminal) = run_ask(&doors, ask).await?;
-                if let Some(text) = terminal {
-                    (this.terminal)(&text);
-                }
-                Some(AppEv::Effect { request, done })
-            }));
-        }
-        if !matches!(command, Command::Popovers { .. } | Command::OpenUrl { .. }) {
-            return None;
-        }
-        let command = command.clone();
-        Some(Box::pin(async move {
-            let ran = this.services.run(command, &exec).await?;
+                    connection,
+                ),
+            );
+            let ran = run_ask(&doors, ask).await?.finish(request)?;
             if let Some(text) = ran.terminal {
                 (this.terminal)(&text);
             }
             Some(ran.ev)
-        }))
+        })
     }
 }
 
@@ -307,11 +299,11 @@ struct Own<'a> {
 }
 
 impl HostDoors for Own<'_> {
-    type Out = (Done, Option<String>);
+    type Out = Outcome;
 
     async fn git_branches(&self, cwd: Option<String>) -> Option<Self::Out> {
         let cwd = at(cwd);
-        Some((
+        Some(Outcome::Effect(
             Done::GitBranches {
                 branches: codex_git_utils::local_git_branches(&cwd).await,
                 current: codex_git_utils::current_branch_name(&cwd).await,
@@ -329,11 +321,14 @@ impl HostDoors for Own<'_> {
                 subject: entry.subject,
             })
             .collect();
-        Some((Done::GitLog(commits), None))
+        Some(Outcome::Effect(Done::GitLog(commits), None))
     }
 
     async fn background_server(&self, ask: DaemonAsk) -> Option<Self::Out> {
-        Some((crate::daemon::run(ask, &self.effects.update).await, None))
+        Some(Outcome::Effect(
+            crate::daemon::run(ask, &self.effects.update).await,
+            None,
+        ))
     }
 
     // The external editor is the host's own: it reads the config and runs a program.
@@ -354,26 +349,29 @@ impl HostDoors for Own<'_> {
                 "no config to read the sandbox policy from".to_owned(),
             )),
         };
-        Some((Done::Editor(done), None))
+        Some(Outcome::Effect(Done::Editor(done), None))
     }
 
     // A write of the config file is the app server's, and the facts the dialogs read follow it.
     async fn config_write(&self, edits: Vec<ConfigEdit>) -> Option<Self::Out> {
         let link = self.link?;
-        Some((crate::in_process::config_write(edits, link).await, None))
+        Some(Outcome::Effect(
+            crate::in_process::config_write(edits, link).await,
+            None,
+        ))
     }
 
     async fn worktrees(&self, cwd: String) -> Option<Self::Out> {
         let link = self.link?;
         let done =
             crate::workspace::list(link.codex_home.clone(), cwd, &link.ids, &link.handle).await;
-        Some((done, None))
+        Some(Outcome::Effect(done, None))
     }
 
     async fn worktree_remove(&self, cwd: String, root: String) -> Option<Self::Out> {
         let link = self.link?;
         let removed = crate::workspace::remove_worktree(link.codex_home.clone(), cwd, root).await;
-        Some((Done::WorktreeRemoved(removed), None))
+        Some(Outcome::Effect(Done::WorktreeRemoved(removed), None))
     }
 }
 
@@ -473,6 +471,7 @@ mod tests {
 
     use codex_tui_core::app::AppFx;
     use codex_tui_core::app::CodexApp;
+    use codex_tui_core::app::Command;
     use codex_tui_core::app::Intent;
     use codex_tui_core::app::apply_app;
     use codex_tui_core::app::effects::Ask;
@@ -614,10 +613,18 @@ mod tests {
         }
     }
 
+    struct NoConnection;
+
+    impl HostDoors for NoConnection {
+        type Out = codex_tui_rtwk::services::effects::Outcome;
+    }
+
     async fn answer(rig: &Rig, command: Command) -> Option<AppEv> {
+        let Command::Effect { request, ask, .. } = command else {
+            panic!("a host effect");
+        };
         rig.effects
-            .run(&command, NoExec, None)
-            .expect("this machine's command")
+            .run(request, ask, NoExec, None, NoConnection)
             .await
     }
 
@@ -795,27 +802,31 @@ mod tests {
         assert!(ev.is_none());
     }
 
-    // `Command::OpenUrl` is core's to make (a banner's link, `/app`); the arm hands the url to the
-    // services, which the browser opens or reports.
     #[tokio::test]
     async fn open_url_says_nothing_when_it_opens_and_why_when_it_fails() {
-        let rig = rig(false, false);
-        assert!(
-            rig.effects
-                .services
-                .open_url("https://x.test".into())
-                .await
-                .is_none()
-        );
-        assert_eq!(
-            *rig.opened.lock().unwrap(),
-            vec!["https://x.test".to_owned()]
-        );
-        let rig = self::rig(false, true);
+        use codex_tui_core::app::effects::BrowserReport;
+
+        let url = "https://x.test";
+        let ask = || {
+            Command::host(Ask::OpenUrl {
+                url: url.into(),
+                report: BrowserReport::ErrorLine,
+            })
+        };
+        let opened = rig(false, false);
+        assert!(answer(&opened, ask()).await.is_none());
+        assert_eq!(*opened.opened.lock().unwrap(), vec![url.to_owned()]);
+
+        let failed = self::rig(false, true);
         assert!(matches!(
-            rig.effects.services.open_url("https://x.test".into()).await,
+            answer(&failed, ask()).await,
             Some(AppEv::ErrorLine { message })
                 if message == "Failed to open browser for https://x.test: no display"
+        ));
+        assert!(matches!(
+            answer(&failed, command_of(Intent::Effect { request: 13, ask: Ask::open_url(url.into()) })).await,
+            Some(AppEv::Effect { request: 13, done: Done::Opened(Err(error)) })
+                if error == "no display"
         ));
     }
 

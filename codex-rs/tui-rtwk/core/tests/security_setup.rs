@@ -140,12 +140,7 @@ fn the_banner_action_opens_its_page_and_a_failure_is_an_error_line() {
     let [Command::Effect { request, ask, .. }] = fx.commands() else {
         panic!("expected one ask, got {:?}", fx.commands());
     };
-    assert_eq!(
-        ask,
-        &Ask::OpenUrl {
-            url: "https://chatgpt.com/a".into()
-        }
-    );
+    assert_eq!(ask, &Ask::open_url("https://chatgpt.com/a".into()));
     run(
         &mut app,
         AppEv::Effect {

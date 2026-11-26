@@ -10,7 +10,7 @@ use codex_protocol::account::PlanType;
 use codex_tui_core::screens::usage::models::{AccountAnalyticsHistory, AccountAnalyticsUnit};
 use codex_tui_core::screens::usage::{
     AccountReply, Ask, AskKind, Control, Ev, GroupName, Intent, Load, LoadError, Model, Note,
-    ReportKey, ReportReply, Section, UsageChoice, Stamp, View, settle, step,
+    ReportKey, ReportReply, Section, Stamp, UsageChoice, View, settle, step,
 };
 use pretty_assertions::assert_eq;
 
@@ -67,7 +67,11 @@ fn load(model: &mut Model, keys: Vec<ReportKey>) -> Vec<Ask> {
         .collect()
 }
 
-fn history_of(model: &Model, sel: &UsageChoice, section: Section) -> Load<std::rc::Rc<AccountAnalyticsHistory>> {
+fn history_of(
+    model: &Model,
+    sel: &UsageChoice,
+    section: Section,
+) -> Load<std::rc::Rc<AccountAnalyticsHistory>> {
     View::new(model, sel).history(section)
 }
 
@@ -295,7 +299,11 @@ fn a_range_change_reloads_only_its_group_and_keeps_the_other_reports() {
     assert_eq!(sections_asked(&asks), [Section::Usage]);
     assert_eq!(sel.ranges, [1, 0, 0]);
     assert!(history_of(&model, &sel, Section::Usage).is_loading());
-    assert!(history_of(&model, &sel, Section::Activity).ready().is_some());
+    assert!(
+        history_of(&model, &sel, Section::Activity)
+            .ready()
+            .is_some()
+    );
     match &asks[0].what {
         AskKind::Report { days, .. } => assert_eq!(*days, 30),
         other => panic!("{other:?}"),
@@ -525,7 +533,9 @@ fn the_date_range_of_a_section_ends_on_the_session_day() {
     sel.pick(&model, Section::Usage);
     sel.next_range(&model);
     assert_eq!(
-        sel.section_date_range(&model, Section::Usage).start().to_string(),
+        sel.section_date_range(&model, Section::Usage)
+            .start()
+            .to_string(),
         "2026-08-11"
     );
     assert_eq!(model.model_name("gpt-5"), "GPT-5");
@@ -605,7 +615,10 @@ fn the_asks_go_to_the_host_as_usage_commands_and_the_answers_come_back_through_t
         .commands()
         .iter()
         .filter_map(|command| match command {
-            Command::Usage { ask, .. } => Some(ask.clone()),
+            Command::Effect {
+                ask: codex_tui_core::app::effects::Ask::Usage { ask, .. },
+                ..
+            } => Some(ask.clone()),
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -626,7 +639,15 @@ fn the_asks_go_to_the_host_as_usage_commands_and_the_answers_come_back_through_t
     let later = fx
         .commands()
         .iter()
-        .filter(|command| matches!(command, Command::Usage { .. }))
+        .filter(|command| {
+            matches!(
+                command,
+                Command::Effect {
+                    ask: codex_tui_core::app::effects::Ask::Usage { .. },
+                    ..
+                }
+            )
+        })
         .count();
     assert!(later >= 1, "the profile is asked: {:?}", fx.commands());
 }

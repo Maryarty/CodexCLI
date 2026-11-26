@@ -20,7 +20,8 @@
 //! ```
 //!
 //! `by owner_field` and the payload of the variant are optional; `new Answer(..)` declares the
-//! `Done` variant, `shared Answer` names one another entry declared.
+//! `Done` variant, `shared Answer` names one another entry declared. An
+//! entry without an arrow keeps its own typed continuation.
 
 /// See the module's words.
 macro_rules! host_capability_list {
@@ -31,7 +32,7 @@ macro_rules! host_capability_list {
                 $( ( $($tf:ident : $tt:ty),* $(,)? ) )?
                 $( { $($f:ident : $t:ty),* $(,)? } )?
                 $( by $owner:ident )?
-                -> $(new $dv:ident $db:tt)? $(shared $sv:ident)? ;
+                $( -> $(new $dv:ident $db:tt)? $(shared $sv:ident)? )? ;
         )*
     ) => {
         /// What the host is asked.
@@ -47,13 +48,21 @@ macro_rules! host_capability_list {
         /// share one).
         #[derive(Clone, Debug, PartialEq, Eq)]
         pub enum Done {
-            $( $(
+            $( $( $(
                 #[doc = concat!("The answer to `Ask::", stringify!($v), "`.")]
                 $dv $db,
-            )? )*
+            )? )? )*
         }
 
         impl Ask {
+            /// The registered name of a capability, for receipts and diagnostics.
+            #[allow(unused_variables)]
+            pub fn name(&self) -> &'static str {
+                match self {
+                    $( Self::$v $( ( $($tf),* ) )? $( { $($f),* } )? => stringify!($v), )*
+                }
+            }
+
             /// The thread the ask is about, if it is about one: the connection of its owner runs
             /// it (the routing of `CodexApp::backend_of`).
             pub fn thread(&self) -> Option<&ThreadId> {

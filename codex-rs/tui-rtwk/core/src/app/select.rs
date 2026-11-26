@@ -41,7 +41,7 @@ pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx)
             .app(id)
             .and_then(|found| found.install_url.clone())
         {
-            fx.commands.push(Command::OpenUrl { url });
+            fx.host(crate::app::effects::Ask::open_url_or_report(url));
         }
         return;
     }

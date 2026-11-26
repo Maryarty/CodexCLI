@@ -27,6 +27,7 @@ use codex_features::Feature;
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::BackendEv;
 use codex_tui_core::app::Command;
+use codex_tui_core::app::effects::{Ask as HostAsk, IdleStreamError};
 use codex_tui_core::ids::BackendId;
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::ids::ThreadId;
@@ -164,7 +165,10 @@ async fn run(
                 // The idle displayed thread lost its stream: the backend attaches it again quietly
                 // (`reconnect_idle_thread`); when it does not take it, the error is the thread's
                 // line, as the oracle's handler falls through to it.
-                Some((Command::ReconnectIdleThread { thread, error, .. }, _)) => {
+                Some((Command::Effect {
+                    ask: HostAsk::ReconnectIdleThread { thread, error: IdleStreamError(error), .. },
+                    ..
+                }, _)) => {
                     let accepted = matches!(
                         &handle,
                         AppServerRequestHandle::Cloud(cloud) if cloud.reconnect_idle_thread(thread.as_str())

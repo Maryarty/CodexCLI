@@ -144,12 +144,16 @@ fn checks(fx: &AppFx) -> Vec<(u64, Target, TrustCancel)> {
     fx.commands()
         .iter()
         .filter_map(|c| match c {
-            Command::Startup {
+            Command::Effect {
                 ask:
-                    Ask::CheckConsent {
-                        request,
-                        target,
-                        cancel,
+                    codex_tui_core::app::effects::Ask::Startup {
+                        ask:
+                            Ask::CheckConsent {
+                                request,
+                                target,
+                                cancel,
+                            },
+                        ..
                     },
                 ..
             } => Some((*request, target.clone(), *cancel)),
@@ -163,8 +167,12 @@ fn writes(fx: &AppFx) -> Vec<(u64, String)> {
     fx.commands()
         .iter()
         .filter_map(|c| match c {
-            Command::Startup {
-                ask: Ask::WriteTrust { request, target },
+            Command::Effect {
+                ask:
+                    codex_tui_core::app::effects::Ask::Startup {
+                        ask: Ask::WriteTrust { request, target },
+                        ..
+                    },
                 ..
             } => Some((*request, target.clone())),
             _ => None,

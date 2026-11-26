@@ -21,7 +21,10 @@ fn asks_of(app: &mut CodexApp, ev: AppEv) -> Vec<Ask> {
     fx.into_commands()
         .into_iter()
         .filter_map(|command| match command {
-            Command::Startup { ask, .. } => Some(ask),
+            Command::Effect {
+                ask: codex_tui_core::app::effects::Ask::Startup { ask, .. },
+                ..
+            } => Some(ask),
             _ => None,
         })
         .collect()

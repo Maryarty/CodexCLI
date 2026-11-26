@@ -13,11 +13,14 @@ use codex_tui_core::app::AppEv;
 use codex_tui_core::app::BackendEv;
 use codex_tui_core::app::Command;
 use codex_tui_core::app::Ingress;
+use codex_tui_core::app::effects::{HostDoors, run_ask};
+use codex_tui_core::app::worktree::Checkout as WorktreeCheckout;
 use codex_tui_core::fixtures::builders::turn_started;
 use codex_tui_core::fixtures::builders::user_item_with_receipt;
 use codex_tui_core::ids::BackendId;
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::ids::ThreadId;
+use codex_tui_core::ids::Ticket;
 use codex_tui_core::ids::TurnId;
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::rpc::ServerError;
@@ -25,7 +28,6 @@ use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::DirKeys;
 use codex_tui_core::screens::agents::Ev as AgentsEv;
 use codex_tui_core::screens::import::Places;
-use codex_tui_core::screens::usage::reset::Consume;
 use codex_tui_core::screens::usage::{
     AccountReply, Ask as UsageAsk, AskKind, Ev as UsageEv, LoadError as UsageError, ReportReply,
 };
@@ -606,8 +608,8 @@ async fn run_as(
                     Some(id) => format!("{FAKE_THREAD}-{}", id.0),
                 })),
             )),
-            Command::StartTurn { .. }
-                if shared.lock().is_ok_and(|guard| guard.hold_turn_start) => {}
+            Command::StartTurn { .. } if shared.lock().is_ok_and(|guard| guard.hold_turn_start) => {
+            }
             Command::StartTurn {
                 ticket,
                 thread,
@@ -635,149 +637,27 @@ async fn run_as(
                     emit(AppEv::Backend(event));
                 }
             }
-            // Slot RPCs are recorded; a test replies with `inject`, or the
-            // responder answers them as the client does.
             Command::RejectRequest { .. }
             | Command::ResolveRequest { .. }
-            | Command::InterruptTurn { .. }
-            | Command::ReconnectIdleThread { .. }
-            | Command::OpenUrl { .. }
-            // Host-run asks (the clipboard, the diff, the history file, the analytics, the
-            // device): recorded; a test answers with `inject` of the matching `AppEv`.
-            | Command::Popovers { .. }
-            | Command::Effect { .. }
-            | Command::VerifyUser { .. } => {}
-            // A usage-limit redemption is the account's, not the analytics host's: the responder
-            // answers the `account/rateLimitResetCredit/consume` as the server does (the other
-            // asks of the usage page stay recorded, a test answers them with `inject`).
-            Command::Usage {
-                ask:
-                    UsageAsk {
-                        what: AskKind::Redeem { key, credit_id },
-                        ..
-                    },
-                ..
-            } => {
-                let responder = shared.lock().ok().and_then(|guard| guard.responder.clone());
-                let Some(responder) = responder else { continue };
-                let ingress = ingress.clone();
-                let ids = ids.clone();
-                let log = shared.clone();
-                tokio::spawn(async move {
-                    let send = request_sender(log, responder);
-                    let redeem = Consume::Redeem {
-                        key: key.clone(),
-                        credit_id,
-                    };
-                    let result = match send(redeem.request(ids.next())).await {
-                        Ok(answer) => redeem.reply(answer).map_err(|error| format!("{error:?}")),
-                        Err(error) => Err(error.to_string()),
-                    };
-                    let ev = AppEv::Screen(ScreenEv::Usage(UsageEv::Redeemed { key, result }));
-                    let _ = ingress.send(Ingress::of(backend, epoch, ev));
-                });
-            }
-            // The account and the reports of a page a test scripted (`usage_accounts`): answered
-            // under the ask's session and stamp, as the host does; a failed lookup is the host's
-            // message.
-            Command::Usage {
-                ask:
-                    UsageAsk {
-                        session,
-                        stamp,
-                        what: AskKind::Account,
-                    },
-                ..
-            } => {
-                let answer = shared.lock().ok().and_then(|mut guard| guard.usage.account());
-                if let Some(result) = answer {
-                    emit(AppEv::Screen(ScreenEv::Usage(UsageEv::Account {
-                        session,
-                        stamp,
-                        result: result.map_err(UsageError::from),
-                    })));
-                }
-            }
-            Command::Usage {
-                ask:
-                    UsageAsk {
-                        session,
-                        stamp,
-                        what: AskKind::Report { section, .. },
-                    },
-                ..
-            } => {
-                let answer = shared.lock().ok().and_then(|guard| guard.usage.report.clone());
-                if let Some(result) = answer {
-                    emit(AppEv::Screen(ScreenEv::Usage(UsageEv::Report {
-                        session,
-                        stamp,
-                        section,
-                        result: result.map_err(UsageError::from),
-                    })));
-                }
-            }
-            Command::Usage { .. } => {}
-            // The scripted server has no launch facts: nothing is due.
-            Command::Startup { .. } => {}
-            // The import flow: answered as the responder scripts the
-            // `externalAgentConfig` requests; with none, or with none for
-            // them, the flow stays where it is (the oracle waits on the server).
-            Command::Import { ask, .. } => {
-                let responder = shared.lock().ok().and_then(|guard| guard.responder.clone());
-                let Some(responder) = responder else { continue };
-                let ingress = ingress.clone();
-                let ids = ids.clone();
-                let log = shared.clone();
-                tokio::spawn(async move {
-                    let site = import::Site {
-                        cwd: None,
-                        places: Box::new(|_| Places::default()),
-                    };
-                    let send = request_sender(log, responder);
-                    if let Some(ev) = import::run(ask, site, ids, send).await {
-                        let _ = ingress.send(Ingress::of(backend, epoch, ev));
+            | Command::InterruptTurn { .. } => {}
+            Command::Effect { ask, .. } => {
+                let doors = FakeDoors {
+                    shared: &shared,
+                    ids: &ids,
+                    workspace: &server.workspace,
+                };
+                match run_ask(&doors, ask).await {
+                    Some(FakeWork::Ready(event)) => emit(*event),
+                    Some(FakeWork::Spawn(job)) => {
+                        let ingress = ingress.clone();
+                        tokio::spawn(async move {
+                            if let Some(event) = job.await {
+                                let _ = ingress.send(Ingress::of(backend, epoch, event));
+                            }
+                        });
                     }
-                });
-            }
-            Command::Directories { cwds, .. } => {
-                let workspace = server.workspace.clone();
-                let ingress = ingress.clone();
-                tokio::spawn(async move {
-                    let ev = directories(workspace, cwds).await;
-                    let _ = ingress.send(Ingress::of(backend, epoch, ev));
-                });
-            }
-            Command::SaveGrouping { grouping, .. } => {
-                let workspace = server.workspace.clone();
-                let ingress = ingress.clone();
-                tokio::spawn(async move {
-                    if let Some(ev) = save_grouping(workspace, grouping).await {
-                        let _ = ingress.send(Ingress::of(backend, epoch, ev));
-                    }
-                });
-            }
-            Command::CreateWorktree { ticket, cwd, .. } => {
-                let workspace = server.workspace.clone();
-                let ingress = ingress.clone();
-                tokio::spawn(async move {
-                    let ev = create_worktree(workspace, ticket, cwd).await;
-                    let _ = ingress.send(Ingress::of(backend, epoch, ev));
-                });
-            }
-            Command::BindWorktree {
-                ticket,
-                checkout,
-                thread,
-                cwd,
-                ..
-            } => {
-                let workspace = server.workspace.clone();
-                let ingress = ingress.clone();
-                tokio::spawn(async move {
-                    let ev = bind_worktree(workspace, ticket, checkout, thread, cwd).await;
-                    let _ = ingress.send(Ingress::of(backend, epoch, ev));
-                });
+                    None => {}
+                }
             }
             other @ (Command::Screen { .. }
             | Command::Feature { .. }
@@ -811,6 +691,120 @@ async fn run_as(
 }
 
 /// The responder answers `thread/start` (asked without logging it).
+/// Scripts can answer immediately or do the same asynchronous work as the
+/// host. Unscripted capabilities remain recorded for the test to answer.
+struct FakeDoors<'a> {
+    shared: &'a Arc<Mutex<Shared>>,
+    ids: &'a Ids,
+    workspace: &'a Arc<FakeWorkspace>,
+}
+
+enum FakeWork {
+    Ready(Box<AppEv>),
+    Spawn(Boxed<Option<AppEv>>),
+}
+
+impl FakeDoors<'_> {
+    fn responder(&self) -> Option<Responder> {
+        self.shared.lock().ok()?.responder.clone()
+    }
+}
+
+impl HostDoors for FakeDoors<'_> {
+    type Out = FakeWork;
+
+    async fn import(&self, ask: codex_tui_core::screens::import::Request) -> Option<FakeWork> {
+        let responder = self.responder()?;
+        let (log, ids) = (self.shared.clone(), self.ids.clone());
+        Some(FakeWork::Spawn(Box::pin(async move {
+            let site = import::Site {
+                cwd: None,
+                places: Box::new(|_| Places::default()),
+            };
+            let send = request_sender(log, responder);
+            import::run(ask, site, ids, send).await
+        })))
+    }
+
+    async fn directories(&self, cwds: Vec<String>) -> Option<FakeWork> {
+        let workspace = self.workspace.clone();
+        Some(FakeWork::Spawn(Box::pin(async move {
+            Some(directories(workspace, cwds).await)
+        })))
+    }
+
+    async fn save_grouping(&self, grouping: String) -> Option<FakeWork> {
+        let workspace = self.workspace.clone();
+        Some(FakeWork::Spawn(Box::pin(async move {
+            save_grouping(workspace, grouping).await
+        })))
+    }
+
+    async fn create_worktree(&self, ticket: Ticket, cwd: Option<String>) -> Option<FakeWork> {
+        let workspace = self.workspace.clone();
+        Some(FakeWork::Spawn(Box::pin(async move {
+            Some(create_worktree(workspace, ticket, cwd).await)
+        })))
+    }
+
+    async fn bind_worktree(
+        &self,
+        ticket: Ticket,
+        checkout: WorktreeCheckout,
+        thread: ThreadId,
+        cwd: String,
+    ) -> Option<FakeWork> {
+        let workspace = self.workspace.clone();
+        Some(FakeWork::Spawn(Box::pin(async move {
+            Some(bind_worktree(workspace, ticket, checkout, thread, cwd).await)
+        })))
+    }
+
+    async fn usage(&self, ask: UsageAsk) -> Option<FakeWork> {
+        let UsageAsk {
+            session,
+            stamp,
+            what,
+        } = ask;
+        let event = match what {
+            AskKind::Account => {
+                let result = self
+                    .shared
+                    .lock()
+                    .ok()?
+                    .usage
+                    .account()?
+                    .map_err(UsageError::from);
+                UsageEv::Account {
+                    session,
+                    stamp,
+                    result,
+                }
+            }
+            AskKind::Report { section, .. } => {
+                let result = self
+                    .shared
+                    .lock()
+                    .ok()?
+                    .usage
+                    .report
+                    .clone()?
+                    .map_err(UsageError::from);
+                UsageEv::Report {
+                    session,
+                    stamp,
+                    section,
+                    result,
+                }
+            }
+            _ => return None,
+        };
+        Some(FakeWork::Ready(Box::new(AppEv::Screen(ScreenEv::Usage(
+            event,
+        )))))
+    }
+}
+
 fn scripts_thread_start(shared: &Arc<Mutex<Shared>>, command: &Command, ids: &Ids) -> bool {
     let responder = shared.lock().ok().and_then(|guard| guard.responder.clone());
     let Some(responder) = responder else {

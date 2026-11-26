@@ -72,20 +72,9 @@ pub fn client_request(
         Command::Feature {
             thread, command, ..
         } => Some(crate::features::wire(command, thread, request_id)),
-        Command::RejectRequest { .. }
-        | Command::ResolveRequest { .. }
-        | Command::CreateWorktree { .. }
-        | Command::BindWorktree { .. }
-        | Command::Directories { .. }
-        | Command::SaveGrouping { .. }
-        | Command::Startup { .. }
-        | Command::OpenUrl { .. }
-        | Command::Import { .. }
-        | Command::Popovers { .. }
-        | Command::Usage { .. }
-        | Command::Effect { .. }
-        | Command::VerifyUser { .. }
-        | Command::ReconnectIdleThread { .. } => None,
+        Command::RejectRequest { .. } | Command::ResolveRequest { .. } | Command::Effect { .. } => {
+            None
+        }
     }
 }
 
@@ -182,20 +171,9 @@ pub fn reply(
                 Err(message) => Reply::failed(message),
             },
         )),
-        Command::RejectRequest { .. }
-        | Command::ResolveRequest { .. }
-        | Command::CreateWorktree { .. }
-        | Command::BindWorktree { .. }
-        | Command::Directories { .. }
-        | Command::SaveGrouping { .. }
-        | Command::Startup { .. }
-        | Command::OpenUrl { .. }
-        | Command::Import { .. }
-        | Command::Popovers { .. }
-        | Command::Usage { .. }
-        | Command::Effect { .. }
-        | Command::VerifyUser { .. }
-        | Command::ReconnectIdleThread { .. } => None,
+        Command::RejectRequest { .. } | Command::ResolveRequest { .. } | Command::Effect { .. } => {
+            None
+        }
     }
 }
 

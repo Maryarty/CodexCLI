@@ -382,14 +382,19 @@ fn make_worktree(
     while let Some(command) = effects.into_commands().into_iter().next() {
         let event = runtime().block_on(async {
             match command {
-                Command::CreateWorktree { ticket, cwd, .. } => {
-                    create_worktree(workspace.clone(), ticket, cwd).await
-                }
-                Command::BindWorktree {
-                    ticket,
-                    checkout,
-                    thread,
-                    cwd,
+                Command::Effect {
+                    ask: codex_tui_core::app::effects::Ask::CreateWorktree { ticket, cwd, .. },
+                    ..
+                } => create_worktree(workspace.clone(), ticket, cwd).await,
+                Command::Effect {
+                    ask:
+                        codex_tui_core::app::effects::Ask::BindWorktree {
+                            ticket,
+                            checkout,
+                            thread,
+                            cwd,
+                            ..
+                        },
                     ..
                 } => bind_worktree(workspace.clone(), ticket, checkout, thread, cwd).await,
                 command => {
@@ -1221,7 +1226,10 @@ fn a_grouping_change_is_saved_to_the_config_but_the_directory_one() {
             .into_commands()
             .into_iter()
             .filter_map(|command| match command {
-                Command::SaveGrouping { grouping, .. } => Some(grouping),
+                Command::Effect {
+                    ask: codex_tui_core::app::effects::Ask::SaveGrouping { grouping, .. },
+                    ..
+                } => Some(grouping),
                 _ => None,
             })
             .collect();
@@ -1595,4 +1603,79 @@ fn open_a_back_open_b_back_open_a_resumes_each_thread_once() {
         .collect();
     assert_eq!(resumed.len(), 2, "{resumed:?}");
     assert_ne!(resumed[0], resumed[1], "{resumed:?}");
+}
+
+fn request_redemption() -> Command {
+    use codex_tui_core::screens::ScreenCommand;
+    use codex_tui_core::screens::usage;
+
+    let mut app = CodexApp::new();
+    run(
+        &mut app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Usage(usage::Intent::Redeem {
+            credit_id: Some("credit".to_owned()),
+        }))),
+    )
+    .into_commands()
+    .into_iter()
+    .find(|command| {
+        matches!(
+            command,
+            Command::Screen {
+                command: ScreenCommand::Usage(_),
+                ..
+            }
+        )
+    })
+    .expect("redemption RPC")
+}
+
+#[tokio::test(start_paused = true)]
+async fn redemption_uses_the_shared_rpc_and_its_own_timeout() {
+    let command = request_redemption();
+    let started = tokio::time::Instant::now();
+    let (_, reply) = answer(command, LOCAL, Ids::default(), None, |request| {
+        let ClientRequest::ConsumeAccountRateLimitResetCredit { params, .. } = request else {
+            panic!("expected redemption");
+        };
+        assert_eq!(params.credit_id.as_deref(), Some("credit"));
+        assert!(!params.idempotency_key.is_empty());
+        std::future::pending()
+    })
+    .await
+    .expect("timeout is a result under the original ticket");
+    assert_eq!(started.elapsed(), Duration::from_secs(30));
+    assert_eq!(
+        reply,
+        codex_tui_core::rpc::Reply::failed("account/rateLimitResetCredit/consume timed out in TUI")
+    );
+}
+
+#[tokio::test]
+async fn an_unsupported_cloud_redemption_settles_without_sending_a_mutation() {
+    let command = request_redemption();
+    let Command::Screen { ticket, .. } = &command else {
+        panic!("the pending redemption");
+    };
+    let expected = *ticket;
+    let result = answer(
+        command,
+        Facts {
+            cloud: true,
+            worktrees: false,
+        },
+        Ids::default(),
+        None,
+        |_| -> std::future::Ready<Result<Value, ServerError>> {
+            panic!("a secondary Cloud backend must not receive this mutation");
+        },
+    )
+    .await;
+    assert_eq!(
+        result,
+        Some((
+            expected,
+            codex_tui_core::rpc::Reply::failed("Usage resets are unavailable on this backend.",)
+        ))
+    );
 }

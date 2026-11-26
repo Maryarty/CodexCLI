@@ -21,11 +21,13 @@ mod capability;
 
 use super::Command;
 use crate::features::FeatureCtx;
-use crate::ids::{RequestKey, ThreadId};
+use crate::ids::{RequestKey, ThreadId, Ticket};
+use crate::rpc::Address;
 use crate::screens::approvals::verify::{AttemptId, Cause, Verifications};
 use crate::screens::select::review::Commit;
 use crate::screens::select::worktree::Entry as WorktreeEntry;
 use crate::screens::transcript::diff;
+use crate::screens::{import, onboarding, popovers, usage};
 
 /// How many answers are kept: a screen reads the answer to its latest request.
 const KEPT: usize = 32;
@@ -175,7 +177,7 @@ host_capability_list! {
     open_desktop => OpenDesktop { thread: ThreadId } -> new Opened(Result<(), String>);
     /// Opens a page in the user's browser (oracle `AppEvent::OpenUrlInBrowser`): a feature's
     /// link (the sign-in page of a plugin's app). Answered by `Done::Opened`.
-    open_url => OpenUrl { url: String } -> shared Opened;
+    open_url => OpenUrl { url: String, report: BrowserReport } -> shared Opened;
     /// The local branches of the repository in `cwd` (the default branch first) and the one
     /// checked out: the `/review` base-branch picker (oracle `local_git_branches`,
     /// `current_branch_name`). The answer has the current branch (none: detached HEAD, or no
@@ -220,7 +222,47 @@ host_capability_list! {
     /// The lock a session holds while it is the one in use (oracle `session_lock`): taken, or
     /// released. Answered by nothing, or why it could not be taken (another process holds it).
     session_lock => SessionLock { thread: ThreadId, held: bool } -> new Locked(Result<(), String>);
+    /// Run a startup step. Its screen owns the continuation through a possible restart.
+    startup => Startup { ask: onboarding::Ask };
+    /// Detect or import settings under the import screen's ticket.
+    import => Import { ask: import::Request };
+    /// The popup's local history, mentions, clipboard image, or search service.
+    popovers => Popovers { ask: popovers::Ask, thread: Option<ThreadId> };
+    /// An analytics read under the usage screen's session and stamp.
+    usage => Usage { ask: usage::Ask };
+    /// Read the canonical directory and repository keys for the command center.
+    directories => Directories { cwds: Vec<String> };
+    /// Save the command center's grouping preference.
+    save_grouping => SaveGrouping { grouping: String };
+    /// Create a checkout under the app's existing ticket.
+    create_worktree => CreateWorktree { ticket: Ticket, cwd: Option<String> };
+    /// Bind the started thread to that checkout.
+    bind_worktree => BindWorktree {
+        ticket: Ticket, checkout: super::worktree::Checkout, thread: ThreadId, cwd: String,
+    };
+    /// Ask the local verification device to sign the owning request's challenge.
+    verify_user => VerifyUser {
+        key: RequestKey, attempt: Attempt, params: codex_app_server_protocol::UserVerificationVerifyParams,
+    };
+    /// Rejoin an idle thread on the same physical connection after its stream ends.
+    reconnect_idle_thread => ReconnectIdleThread {
+        address: Address, thread: ThreadId, error: IdleStreamError,
+    };
 }
+
+/// Whether the browser result goes back to the caller or only a failure is shown.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BrowserReport {
+    Effect,
+    ErrorLine,
+}
+
+/// The error to show if the thread's idle stream cannot be restored.
+#[derive(Clone, Debug, PartialEq)]
+pub struct IdleStreamError(pub Box<codex_app_server_protocol::ErrorNotification>);
+
+// The pinned error and its payload are equatable; the wire type only derives PartialEq.
+impl Eq for IdleStreamError {}
 
 /// What `Ask::Audio` asks of the audio devices.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -241,6 +283,20 @@ pub struct TerminalColors {
 }
 
 impl Ask {
+    pub fn open_url(url: String) -> Self {
+        Self::OpenUrl {
+            url,
+            report: BrowserReport::Effect,
+        }
+    }
+
+    pub(crate) fn open_url_or_report(url: String) -> Self {
+        Self::OpenUrl {
+            url,
+            report: BrowserReport::ErrorLine,
+        }
+    }
+
     /// How many characters a copy puts on the clipboard (the oracle's feedback counts what was
     /// copied, not what is selected, and in characters, not bytes or cells); none for another ask.
     pub fn characters(&self) -> usize {

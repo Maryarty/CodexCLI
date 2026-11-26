@@ -354,7 +354,10 @@ impl Harness {
                 .iter()
                 .rev()
                 .find_map(|command| match command {
-                    Command::Startup { ask, .. } => read(ask),
+                    Command::Effect {
+                        ask: codex_tui_core::app::effects::Ask::Startup { ask, .. },
+                        ..
+                    } => read(ask),
                     _ => None,
                 });
             request.is_some()

@@ -525,9 +525,13 @@ fn a_worktree_for_a_conversation_is_refused_with_no_idle_thread_to_start_it_from
         }),
     );
     assert!(
-        !fx.commands()
-            .iter()
-            .any(|c| matches!(c, Command::CreateWorktree { .. })),
+        !fx.commands().iter().any(|c| matches!(
+            c,
+            Command::Effect {
+                ask: codex_tui_core::app::effects::Ask::CreateWorktree { .. },
+                ..
+            }
+        )),
         "{:?}",
         fx.commands()
     );

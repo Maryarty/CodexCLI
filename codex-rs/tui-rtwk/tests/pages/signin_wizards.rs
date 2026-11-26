@@ -28,8 +28,12 @@ fn logins(h: &Harness) -> Vec<(u64, Login)> {
         .commands()
         .into_iter()
         .filter_map(|command| match command {
-            Command::Startup {
-                ask: Ask::Login { request, login },
+            Command::Effect {
+                ask:
+                    codex_tui_core::app::effects::Ask::Startup {
+                        ask: Ask::Login { request, login },
+                        ..
+                    },
                 ..
             } => Some((request, login)),
             _ => None,
@@ -667,8 +671,11 @@ fn credential_entries_share_region_and_keep_aws_secrets_hidden() {
         h.fake.commands().iter().any(|command| {
             matches!(
                 command,
-                Command::Startup {
-                    ask: Ask::GatewayDevice { .. },
+                Command::Effect {
+                    ask: codex_tui_core::app::effects::Ask::Startup {
+                        ask: Ask::GatewayDevice { .. },
+                        ..
+                    },
                     ..
                 }
             )
@@ -1002,10 +1009,10 @@ mod gateway {
         assert!(
             h.fake.commands().iter().any(|command| matches!(
                 command,
-                Command::Startup {
+                Command::Effect { ask: codex_tui_core::app::effects::Ask::Startup {
                     ask: Ask::SelectGateway { provider_id, .. },
                     ..
-                } if provider_id == "office"
+                }, .. } if provider_id == "office"
             )),
             "{:?}",
             h.fake.commands()
@@ -1540,7 +1547,10 @@ mod gateway_oauth {
             .commands()
             .into_iter()
             .filter_map(|command| match command {
-                Command::Startup { ask, .. } => Some(ask),
+                Command::Effect {
+                    ask: codex_tui_core::app::effects::Ask::Startup { ask, .. },
+                    ..
+                } => Some(ask),
                 _ => None,
             })
             .collect()
@@ -1753,7 +1763,10 @@ mod gateway_device {
             .commands()
             .into_iter()
             .filter_map(|command| match command {
-                Command::Startup { ask, .. } => Some(ask),
+                Command::Effect {
+                    ask: codex_tui_core::app::effects::Ask::Startup { ask, .. },
+                    ..
+                } => Some(ask),
                 _ => None,
             })
             .collect()

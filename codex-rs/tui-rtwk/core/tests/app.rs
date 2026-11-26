@@ -37,8 +37,12 @@ fn starts(fx: &AppFx) -> usize {
 
 fn launch_request(fx: &AppFx) -> Option<u64> {
     fx.commands().iter().find_map(|c| match c {
-        Command::Startup {
-            ask: Ask::Launch { request },
+        Command::Effect {
+            ask:
+                codex_tui_core::app::effects::Ask::Startup {
+                    ask: Ask::Launch { request },
+                    ..
+                },
             ..
         } => Some(*request),
         _ => None,
@@ -55,8 +59,12 @@ fn launch_ask(app: &mut CodexApp, fx: &AppFx) -> u64 {
         .commands()
         .iter()
         .find_map(|c| match c {
-            Command::Startup {
-                ask: Ask::GatewayDevice { request, .. },
+            Command::Effect {
+                ask:
+                    codex_tui_core::app::effects::Ask::Startup {
+                        ask: Ask::GatewayDevice { request, .. },
+                        ..
+                    },
                 ..
             } => Some(*request),
             _ => None,
@@ -198,8 +206,12 @@ fn a_startup_screen_holds_the_thread_until_the_launch_is_known() {
         .commands()
         .iter()
         .find_map(|command| match command {
-            Command::Startup {
-                ask: Ask::WriteTrust { request, .. },
+            Command::Effect {
+                ask:
+                    codex_tui_core::app::effects::Ask::Startup {
+                        ask: Ask::WriteTrust { request, .. },
+                        ..
+                    },
                 ..
             } => Some(*request),
             _ => None,
@@ -404,8 +416,11 @@ fn a_remote_reconnect_before_the_facts_asks_for_them_again() {
             .filter(|c| {
                 matches!(
                     c,
-                    Command::Startup {
-                        ask: Ask::Facts { .. },
+                    Command::Effect {
+                        ask: codex_tui_core::app::effects::Ask::Startup {
+                            ask: Ask::Facts { .. },
+                            ..
+                        },
                         ..
                     }
                 )
@@ -598,8 +613,12 @@ fn a_forked_session_opens_the_copy() {
 /// The device ask in `fx`, with the thread provider it carries.
 fn device_ask(fx: &AppFx) -> Option<Option<Resumed>> {
     fx.commands().iter().find_map(|c| match c {
-        Command::Startup {
-            ask: Ask::GatewayDevice { thread, .. },
+        Command::Effect {
+            ask:
+                codex_tui_core::app::effects::Ask::Startup {
+                    ask: Ask::GatewayDevice { thread, .. },
+                    ..
+                },
             ..
         } => Some(thread.clone()),
         _ => None,
@@ -664,8 +683,12 @@ fn resume_reads_the_provider_before_the_device_ask() {
         .commands()
         .iter()
         .find_map(|command| match command {
-            Command::Startup {
-                ask: Ask::GatewayDevice { request, .. },
+            Command::Effect {
+                ask:
+                    codex_tui_core::app::effects::Ask::Startup {
+                        ask: Ask::GatewayDevice { request, .. },
+                        ..
+                    },
                 ..
             } => Some((*request, command)),
             _ => None,
@@ -776,8 +799,12 @@ fn a_remembered_choice_is_saved_and_a_failed_save_leaves_a_line() {
         .commands()
         .iter()
         .find_map(|c| match c {
-            Command::Startup {
-                ask: Ask::SaveResumeCwd { request, mode },
+            Command::Effect {
+                ask:
+                    codex_tui_core::app::effects::Ask::Startup {
+                        ask: Ask::SaveResumeCwd { request, mode },
+                        ..
+                    },
                 ..
             } => Some((*request, *mode)),
             _ => None,
@@ -824,8 +851,12 @@ fn an_unknown_id_ends_the_launch_with_the_oracles_message() {
         .commands()
         .iter()
         .find_map(|c| match c {
-            Command::Startup {
-                ask: Ask::GatewayDevice { request, .. },
+            Command::Effect {
+                ask:
+                    codex_tui_core::app::effects::Ask::Startup {
+                        ask: Ask::GatewayDevice { request, .. },
+                        ..
+                    },
                 ..
             } => Some(*request),
             _ => None,
@@ -842,8 +873,12 @@ fn an_unknown_id_ends_the_launch_with_the_oracles_message() {
         .commands()
         .iter()
         .find_map(|c| match c {
-            Command::Startup {
-                ask: Ask::FailLaunch { message },
+            Command::Effect {
+                ask:
+                    codex_tui_core::app::effects::Ask::Startup {
+                        ask: Ask::FailLaunch { message },
+                        ..
+                    },
                 ..
             } => Some(message.clone()),
             _ => None,

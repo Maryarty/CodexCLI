@@ -190,10 +190,14 @@ fn consent_request(fx: &AppFx, to: &Target) -> u64 {
     fx.commands()
         .iter()
         .find_map(|command| match command {
-            Command::Startup {
+            Command::Effect {
                 ask:
-                    onboarding::Ask::CheckConsent {
-                        request, target, ..
+                    codex_tui_core::app::effects::Ask::Startup {
+                        ask:
+                            onboarding::Ask::CheckConsent {
+                                request, target, ..
+                            },
+                        ..
                     },
                 ..
             } if target == to => Some(*request),
@@ -958,4 +962,204 @@ fn a_notification_of_a_foreign_thread_is_dropped_by_origin() {
     assert_eq!(app.screens().agents.owner_of("fresh"), CLOUD);
     apply_app_from(&mut app, LOCAL, name_updated("fresh", "Other"), &mut fx);
     assert_eq!(app.screens().agents.owner_of("fresh"), CLOUD);
+}
+
+#[test]
+fn redemption_retries_on_the_picker_backend_and_discards_stale_receipts() {
+    use codex_app_server_protocol::{ClientRequest, RequestId};
+    use codex_tui_core::protocol;
+    use codex_tui_core::screens::usage;
+
+    let mut app = two_backends();
+    let epoch = app.epoch();
+    let cloud_epoch = app.attach_backend(CLOUD);
+    let invoke = |app: &mut CodexApp, intent| {
+        run(
+            app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Usage(intent))),
+        )
+    };
+    let picker = invoke(&mut app, usage::Intent::Resets);
+    assert!(
+        picker
+            .commands()
+            .iter()
+            .any(|command| matches!(command, Command::ReadRateLimits { backend: LOCAL, .. }))
+    );
+
+    let switch = cycle(&mut app);
+    arrive_on_cloud(&mut app, &switch);
+    assert_eq!(app.screens().agents.displayed, CLOUD);
+
+    let attempt = |effects: AppFx| {
+        let command = effects
+            .into_commands()
+            .into_iter()
+            .find(|command| {
+                matches!(
+                    command,
+                    Command::Screen {
+                        command: ScreenCommand::Usage(_),
+                        ..
+                    }
+                )
+            })
+            .expect("redeem a credit");
+        let wire = protocol::client_request(&command, RequestId::Integer(7), None);
+        let Some(ClientRequest::ConsumeAccountRateLimitResetCredit { params, .. }) = wire else {
+            panic!("the ordinary account RPC");
+        };
+        assert_eq!(params.credit_id.as_deref(), Some("one-credit"));
+        (command, params.idempotency_key)
+    };
+    let (first, key) = attempt(invoke(
+        &mut app,
+        usage::Intent::Redeem {
+            credit_id: Some("one-credit".to_owned()),
+        },
+    ));
+    let route = |app: &CodexApp, command: &Command| {
+        app.dispatch_route(command, None)
+            .map(|(backend, address)| (backend, address.expect("physical request address").epoch))
+    };
+    assert_eq!(route(&app, &first), Some((LOCAL, epoch)));
+
+    let receipt = |command| {
+        protocol::reply_from_server(command, Ok(serde_json::json!({ "outcome": "reset" })))
+            .expect("decoded credit receipt")
+    };
+    let (first_ticket, first_reply) = receipt(&first);
+    assert!(
+        app.ingest(Ingress::of(
+            CLOUD,
+            cloud_epoch,
+            AppEv::Reply(first_ticket, first_reply.clone())
+        ))
+        .is_none()
+    );
+
+    let replacement = epoch.next();
+    assert!(
+        app.ingest(Ingress::transport_replaced(LOCAL, epoch, replacement))
+            .is_some()
+    );
+    assert_eq!(route(&app, &first), None);
+    assert!(
+        app.ingest(Ingress::transport_reply(
+            LOCAL,
+            epoch,
+            epoch,
+            first_ticket,
+            first_reply
+        ))
+        .is_none()
+    );
+
+    let (retry, retry_key) = attempt(invoke(&mut app, usage::Intent::Retry));
+    assert_eq!(retry_key, key);
+    assert_eq!(route(&app, &retry), Some((LOCAL, replacement)));
+    let (ticket, reply) = receipt(&retry);
+    assert_ne!(ticket, first_ticket);
+    let arrived =
+        |transport| Ingress::transport_reply(LOCAL, epoch, transport, ticket, reply.clone());
+    assert!(app.ingest(arrived(epoch)).is_none());
+    let refreshed = app
+        .ingest(arrived(replacement))
+        .expect("current receipt accepted");
+    assert!(
+        refreshed
+            .commands()
+            .iter()
+            .any(|command| matches!(command, Command::ReadRateLimits { backend: LOCAL, .. }))
+    );
+    assert!(app.ingest(arrived(replacement)).is_none());
+}
+
+#[test]
+fn a_background_account_change_retires_its_redemption() {
+    use codex_app_server_protocol::AccountUpdatedNotification;
+    use codex_tui_core::protocol;
+    use codex_tui_core::rpc::ServerError;
+    use codex_tui_core::screens::usage;
+
+    let invoke = |app: &mut CodexApp, intent| {
+        run(
+            app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Usage(intent))),
+        )
+    };
+    for failed in [false, true] {
+        let mut app = two_backends();
+        let epoch = app.epoch();
+        app.attach_backend(CLOUD);
+        invoke(&mut app, usage::Intent::Resets);
+        let issued = invoke(&mut app, usage::Intent::Redeem { credit_id: None });
+        let command = issued
+            .commands()
+            .iter()
+            .find(|command| {
+                matches!(
+                    command,
+                    Command::Screen {
+                        command: ScreenCommand::Usage(_),
+                        ..
+                    }
+                )
+            })
+            .expect("account redemption");
+        if failed {
+            let (ticket, reply) =
+                protocol::reply_from_server(command, Err(ServerError::from("unavailable")))
+                    .expect("the failed redemption");
+            assert!(
+                app.ingest(Ingress::new(epoch, AppEv::Reply(ticket, reply)))
+                    .is_some()
+            );
+        }
+
+        let switch = cycle(&mut app);
+        arrive_on_cloud(&mut app, &switch);
+        assert_eq!(app.screens().agents.displayed, CLOUD);
+        if !failed {
+            let picker = invoke(&mut app, usage::Intent::Resets);
+            assert!(
+                picker.commands().iter().any(|command| matches!(
+                    command,
+                    Command::ReadRateLimits { backend: CLOUD, .. }
+                ))
+            );
+        }
+        let before = &app.screens().usage.reset;
+        let listing = before.listing;
+        let reset_epoch = before.epoch();
+
+        let changed = AppEv::Backend(BackendEv::Notification(Box::new(
+            ServerNotification::AccountUpdated(AccountUpdatedNotification {
+                auth_mode: None,
+                plan_type: None,
+            }),
+        )));
+        assert!(app.ingest(Ingress::new(epoch, changed)).is_some());
+        let reset = &app.screens().usage.reset;
+        assert!(reset.redemption.is_none());
+        if failed {
+            assert_ne!(reset.epoch(), reset_epoch, "the old picker closes");
+        } else {
+            assert_eq!(
+                reset.epoch(),
+                reset_epoch,
+                "the new owner's picker remains open"
+            );
+            assert_eq!(reset.listing, listing);
+        }
+        assert!(invoke(&mut app, usage::Intent::Retry).commands().is_empty());
+        assert!(app.dispatch_route(command, None).is_none());
+        let (ticket, reply) =
+            protocol::reply_from_server(command, Ok(serde_json::json!({"outcome": "reset"})))
+                .expect("decoded old account reply");
+        assert!(
+            app.ingest(Ingress::new(epoch, AppEv::Reply(ticket, reply)))
+                .is_none()
+        );
+    }
 }

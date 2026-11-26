@@ -482,7 +482,10 @@ fn asked(fx: &AppFx) -> Vec<Request> {
     fx.commands()
         .iter()
         .map(|command| match command {
-            Command::Import { ask, .. } => ask.clone(),
+            Command::Effect {
+                ask: codex_tui_core::app::effects::Ask::Import { ask, .. },
+                ..
+            } => ask.clone(),
             other => panic!("not an import ask: {other:?}"),
         })
         .collect()

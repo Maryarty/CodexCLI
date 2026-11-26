@@ -86,7 +86,10 @@ fn verify_commands(fx: &AppFx) -> Vec<(RequestKey, Attempt)> {
     fx.commands()
         .iter()
         .filter_map(|command| match command {
-            Command::VerifyUser { key, attempt, .. } => Some((key.clone(), *attempt)),
+            Command::Effect {
+                ask: codex_tui_core::app::effects::Ask::VerifyUser { key, attempt, .. },
+                ..
+            } => Some((key.clone(), *attempt)),
             _ => None,
         })
         .collect()
@@ -147,7 +150,11 @@ mod verification {
         let started = verify_commands(&fx);
         assert_eq!(started.len(), 1);
         assert_eq!(started[0].0, keys[0]);
-        let Command::VerifyUser { params, .. } = &fx.commands()[0] else {
+        let Command::Effect {
+            ask: codex_tui_core::app::effects::Ask::VerifyUser { params, .. },
+            ..
+        } = &fx.commands()[0]
+        else {
             panic!("a VerifyUser first: {:?}", fx.commands());
         };
         assert_eq!(params.title, "Approve deployment?");
@@ -473,7 +480,10 @@ mod composer_asks {
             .commands()
             .iter()
             .filter_map(|command| match command {
-                Command::Popovers { ask, .. } => Some(ask.clone()),
+                Command::Effect {
+                    ask: codex_tui_core::app::effects::Ask::Popovers { ask, .. },
+                    ..
+                } => Some(ask.clone()),
                 _ => None,
             })
             .collect();

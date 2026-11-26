@@ -8,6 +8,7 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 
 use crate::app::AppFx;
+#[cfg(test)]
 use crate::app::Command as AppCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
@@ -548,7 +549,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
             // The acknowledgment is saved (`notice.hide_gov_cloud_guidance`).
             if answer == Answer::GovCloud {
-                fx.host_command(AppCommand::Startup {
+                fx.host(crate::app::effects::Ask::Startup {
                     ask: onboarding::Ask::AcknowledgeGovCloud,
                 });
             }
@@ -559,7 +560,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 _ => None,
             };
             if let Some(choice) = daemon {
-                fx.host_command(AppCommand::Startup {
+                fx.host(crate::app::effects::Ask::Startup {
                     ask: onboarding::Ask::DaemonChoice { choice },
                 });
             }
@@ -571,7 +572,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 _ => None,
             };
             if let Some(provider) = oss {
-                fx.host_command(AppCommand::Startup {
+                fx.host(crate::app::effects::Ask::Startup {
                     ask: onboarding::Ask::OssChoice { provider },
                 });
             }
@@ -584,7 +585,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 if accepted {
                     model.accepted_model = Some(m.target_model.clone());
                 }
-                fx.host_command(AppCommand::Startup {
+                fx.host(crate::app::effects::Ask::Startup {
                     ask: onboarding::Ask::SaveMigration {
                         from: m.current_model.clone(),
                         to: m.target_model.clone(),
@@ -601,7 +602,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             {
                 let request = fx.host_request_number();
                 model.saving_cwd = Some(request);
-                fx.host_command(AppCommand::Startup {
+                fx.host(crate::app::effects::Ask::Startup {
                     ask: onboarding::Ask::SaveResumeCwd { request, mode },
                 });
             }
@@ -617,7 +618,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
             let request = fx.host_request_number();
             hooks.trust = Trust::Trusting(request);
-            fx.host_command(AppCommand::Startup {
+            fx.host(crate::app::effects::Ask::Startup {
                 ask: onboarding::Ask::TrustHooks {
                     request,
                     updates: hooks.updates.clone(),
@@ -786,7 +787,10 @@ mod tests {
         fx.into_commands()
             .into_iter()
             .filter_map(|c| match c {
-                AppCommand::Startup { ask } => Some(ask),
+                AppCommand::Effect {
+                    ask: crate::app::effects::Ask::Startup { ask },
+                    ..
+                } => Some(ask),
                 _ => None,
             })
             .collect()

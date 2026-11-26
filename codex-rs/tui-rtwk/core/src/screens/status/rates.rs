@@ -28,8 +28,8 @@ pub enum RateLimitOrigin {
     /// The startup prefetch that looks for resets to tell the user of (oracle
     /// `StartupPrefetch`): the request number of the check.
     Hint(u64),
-    /// The read after a reset was redeemed, for the count that is left (oracle `ResetConsume`).
-    ResetConsume,
+    /// The read after a reset was redeemed, for that redemption's generation (oracle `ResetConsume`).
+    ResetConsume(u64),
     /// Nothing waits for it: the prefetch at connect and the refreshes the
     /// app starts itself, after a reconnect or a limit that was reached
     /// (oracle `StartupPrefetch`, `Recovery`).
@@ -135,12 +135,20 @@ impl RateRead {
             buckets.extend(others.into_iter().map(|(_, snapshot)| bucket(snapshot)));
         }
         let codex = std::iter::once(&response.rate_limits)
-            .chain(response.rate_limits_by_limit_id.iter().flat_map(|by_id| by_id.values()))
+            .chain(
+                response
+                    .rate_limits_by_limit_id
+                    .iter()
+                    .flat_map(|by_id| by_id.values()),
+            )
             .map(Sample::of)
             .find(|sample| sample.codex);
         Self {
             buckets,
-            reset_credits: response.rate_limit_reset_credits.as_ref().map(reset_credits),
+            reset_credits: response
+                .rate_limit_reset_credits
+                .as_ref()
+                .map(reset_credits),
             codex,
             overtaken: false,
             active: false,

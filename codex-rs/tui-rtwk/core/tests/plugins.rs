@@ -626,7 +626,7 @@ fn a_setup_page_opens_in_the_browser_and_the_end_says_how_it_went() {
         .find_map(|command| match command {
             Command::Effect {
                 request,
-                ask: Ask::OpenUrl { url },
+                ask: Ask::OpenUrl { url, .. },
                 ..
             } if url == "https://x/1" => Some(*request),
             _ => None,

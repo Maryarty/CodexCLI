@@ -104,7 +104,10 @@ fn opened_urls(h: &Harness) -> Vec<String> {
         .commands()
         .into_iter()
         .filter_map(|command| match command {
-            Command::OpenUrl { url, .. } => Some(url),
+            Command::Effect {
+                ask: codex_tui_core::app::effects::Ask::OpenUrl { url, .. },
+                ..
+            } => Some(url),
             _ => None,
         })
         .collect()

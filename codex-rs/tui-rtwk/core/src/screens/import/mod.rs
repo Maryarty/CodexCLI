@@ -508,7 +508,7 @@ fn ask(model: &mut Model, fx: &mut AppFx) {
     }
     model.request = Some(fx.host_request_number());
     if let Some(ask) = model.request() {
-        fx.host_command(crate::app::Command::Import { ask });
+        fx.host(crate::app::effects::Ask::Import { ask });
     }
 }
 

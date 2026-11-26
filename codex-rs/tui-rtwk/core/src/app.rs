@@ -209,7 +209,7 @@ pub enum BackendEv {
     /// The event stream of `thread` was lost while the connection stands (a Cloud backend's
     /// `ThreadStreamDisconnected`, `error` its words): what the user sends there waits in the
     /// queue (oracle `thread_stream_disconnected`), an idle displayed thread asks the host to
-    /// attach again (`Command::ReconnectIdleThread`), and the error shows as a line otherwise.
+    /// attach again (`effects::Ask::ReconnectIdleThread`), and the error shows as a line otherwise.
     StreamLost {
         thread: ThreadId,
         error: Box<ErrorNotification>,
@@ -321,7 +321,7 @@ pub enum AppEv {
         done: effects::Done,
     },
     /// The device's result of a user verification attempt
-    /// (`Command::VerifyUser`).
+    /// (`effects::Ask::VerifyUser`).
     Verified {
         key: RequestKey,
         attempt: effects::Attempt,
@@ -351,7 +351,7 @@ pub enum AppEv {
     /// host builds it with the feature's own `Fact` type and `From`.
     Feature(crate::features::FeatureFact),
     /// An error the host words for the shown conversation: the browser did not open a page
-    /// (`Command::OpenUrl`, oracle `Failed to open browser for {url}: {err}`), the clipboard has
+    /// (`effects::Ask::OpenUrl`, oracle `Failed to open browser for {url}: {err}`), the clipboard has
     /// no image to paste (`Failed to paste image: {err}`). The conversation keeps it as an error
     /// row; the words are the host's, core holds no prose.
     ErrorLine {
@@ -498,79 +498,10 @@ pub enum Command {
         thread: ThreadId,
         turn: TurnId,
     },
-    /// The stream of the idle, displayed `thread` was lost: the backend attaches it again
-    /// quietly (oracle `reconnect_idle_thread`; its `ThreadStreamReconnected` answers). When it
-    /// does not accept, the host sends `error` back as the notification the line is made of.
-    #[non_exhaustive]
-    ReconnectIdleThread {
-        address: Address,
-        thread: ThreadId,
-        error: Box<ErrorNotification>,
-    },
-    /// Creates a checkout in the source repository.
-    #[non_exhaustive]
-    CreateWorktree { ticket: Ticket, cwd: Option<String> },
-    /// Binds a started thread to its checkout.
-    #[non_exhaustive]
-    BindWorktree {
-        ticket: Ticket,
-        checkout: worktree::Checkout,
-        thread: ThreadId,
-        cwd: String,
-    },
-    /// The directory keys of these `cwd`s (canonical path, repository):
-    /// file-system reads the shell does; it answers with the agents
-    /// screen's `Ev::Directories`.
-    #[non_exhaustive]
-    Directories { cwds: Vec<String> },
-    /// Writes `tui.agents_overview_grouping` (`project`, `status`, `model`):
-    /// a config edit the shell does; a failure comes back as the agents
-    /// screen's `Ev::Notice`.
-    #[non_exhaustive]
-    SaveGrouping { grouping: String },
-    /// An ask of the startup page the host runs (its facts, the trust
-    /// write, the update's dismissal and run), answered with the page's
-    /// events under the ask's number (`onboarding::Ask`).
-    #[non_exhaustive]
-    Startup {
-        ask: crate::screens::onboarding::Ask,
-    },
-    /// An ask of the import flow the shell runs (the sources' detection, the
-    /// import), answered with the screen's events under the request's number
-    /// (`import::Request`).
-    #[non_exhaustive]
-    Import {
-        ask: crate::screens::import::Request,
-    },
-    /// Opens a page in the user's browser (oracle `AppEvent::OpenUrlInBrowser`):
-    /// no answer.
-    #[non_exhaustive]
-    OpenUrl { url: String },
-    /// An ask of the composer's popovers the host runs: the history file, the
-    /// file search, the mention usage file (`popovers::Ask`), answered with
-    /// the popovers' events (`AppEv::Screen(ScreenEv::Popovers(..))`).
-    #[non_exhaustive]
-    Popovers {
-        ask: crate::screens::popovers::Ask,
-        /// The shown conversation when the ask was made: a history entry belongs to it.
-        thread: Option<ThreadId>,
-    },
-    /// An ask of the usage page the host runs (the analytics loads),
-    /// answered with `usage::Ev` under the ask's session and stamp.
-    #[non_exhaustive]
-    Usage { ask: crate::screens::usage::Ask },
-    /// An ask of `Intent::Effect`, answered with `AppEv::Effect` under `request`.
+    /// A capability run by the host. Some capabilities answer their own typed
+    /// continuation; an ordinary effect reports `AppEv::Effect` under `request`.
     #[non_exhaustive]
     Effect { request: u64, ask: effects::Ask },
-    /// `userVerification/verify`: the device signs the request's challenge
-    /// (`attempt` is the controller's generation); answered with
-    /// `AppEv::Verified`.
-    #[non_exhaustive]
-    VerifyUser {
-        key: RequestKey,
-        attempt: effects::Attempt,
-        params: codex_app_server_protocol::UserVerificationVerifyParams,
-    },
     /// An RPC of a screen slot (`ThreadFx::request`).
     #[non_exhaustive]
     Screen {
@@ -589,6 +520,18 @@ pub enum Command {
 }
 
 impl Command {
+    /// A host capability with its own continuation, or with no answer.
+    pub fn host(ask: effects::Ask) -> Self {
+        Self::Effect { request: 0, ask }
+    }
+
+    pub fn host_ask(&self) -> Option<&effects::Ask> {
+        match self {
+            Self::Effect { ask, .. } => Some(ask),
+            _ => None,
+        }
+    }
+
     /// The identity a native host attaches to a fatal outcome of one startup ask.
     pub fn host_ticket(&self) -> Option<Ticket> {
         host_asks::ReplyKind::of_command(self).map(|(ticket, _)| ticket)
@@ -601,8 +544,12 @@ impl Command {
             | Self::SendAddCreditsNudge { ticket, .. }
             | Self::StartTurn { ticket, .. }
             | Self::InterruptTurn { ticket, .. }
-            | Self::CreateWorktree { ticket, .. }
-            | Self::BindWorktree { ticket, .. }
+            | Self::Effect {
+                ask:
+                    effects::Ask::CreateWorktree { ticket, .. }
+                    | effects::Ask::BindWorktree { ticket, .. },
+                ..
+            }
             | Self::Screen { ticket, .. }
             | Self::Feature { ticket, .. } => Some(*ticket),
             _ => None,
@@ -632,8 +579,8 @@ impl AppFx {
         self.host_mint.next().seq()
     }
 
-    pub(crate) fn host_command(&mut self, command: Command) {
-        self.commands.push(command);
+    pub(crate) fn host(&mut self, ask: effects::Ask) {
+        self.commands.push(Command::host(ask));
     }
 
     fn ask(
@@ -650,6 +597,7 @@ impl AppFx {
             | AppCtx::OpenThread { backend, .. }
             | AppCtx::Structured { backend, .. }
             | AppCtx::NewConversation { backend, .. }
+            | AppCtx::Redemption { backend, .. }
             | AppCtx::Select(
                 screens::select::Ctx::Fallback { backend }
                 | screens::select::Ctx::Switch { backend, .. },
@@ -738,6 +686,8 @@ enum AppCtx {
         backend: BackendId,
         origin: status::RateLimitOrigin,
     },
+    /// A reset redemption, correlated by its account's idempotency key.
+    Redemption { key: String, backend: BackendId },
     /// The e-mail to the workspace owner a banner action asked for; the notice goes to the
     /// thread that was open (`add_credits_nudge_email_in_flight`).
     Nudge {
@@ -1223,7 +1173,10 @@ impl CodexApp {
             return Some((address.backend, Some(address)));
         }
         let address = match command {
-            Command::ReconnectIdleThread { address, .. } => *address,
+            Command::Effect {
+                ask: effects::Ask::ReconnectIdleThread { address, .. },
+                ..
+            } => *address,
             _ => match command.ticket() {
                 Some(ticket) => self.request_address(ticket).or(tell)?,
                 None => return Some((self.choose_backend(command), None)),
@@ -1267,10 +1220,16 @@ impl CodexApp {
             Command::StartTurn { thread, .. } | Command::InterruptTurn { thread, .. } => {
                 agents.owner_of(thread.as_str())
             }
-            Command::ReconnectIdleThread { address, .. } => address.backend,
+            Command::Effect {
+                ask: effects::Ask::ReconnectIdleThread { address, .. },
+                ..
+            } => address.backend,
             Command::RejectRequest { key }
             | Command::ResolveRequest { key, .. }
-            | Command::VerifyUser { key, .. } => key.backend,
+            | Command::Effect {
+                ask: effects::Ask::VerifyUser { key, .. },
+                ..
+            } => key.backend,
             // An ask about a thread runs on the connection of its owner (`Ask::thread`).
             Command::Effect { ask, .. } if ask.thread().is_some() => {
                 agents.owner_of(ask.thread().map_or("", |thread| thread.as_str()))
@@ -1279,7 +1238,10 @@ impl CodexApp {
             | Command::ReadRateLimits { backend, .. }
             | Command::SendAddCreditsNudge { backend, .. } => *backend,
             // The startup page reads and writes this machine's first backend.
-            Command::Startup { .. } | Command::Import { .. } => BackendId::default(),
+            Command::Effect {
+                ask: effects::Ask::Startup { .. } | effects::Ask::Import { .. },
+                ..
+            } => BackendId::default(),
             // Provider definitions configure the primary app server.
             Command::Feature {
                 command: crate::features::FeatureCommand::Providers(_),
@@ -1542,7 +1504,7 @@ fn finish_apply(app: &mut CodexApp, lists: bool, fx: &mut AppFx) {
     if lists && agents::wants_dirs(&app.screens.agents) {
         let cwds = agents::wanted_dirs(&mut Rc::make_mut(&mut app.screens).agents);
         if !cwds.is_empty() {
-            fx.commands.push(Command::Directories { cwds });
+            fx.host(effects::Ask::Directories { cwds });
         }
     }
     fx.wake = features::wake(app);
@@ -1576,7 +1538,7 @@ fn drain_popover_asks(app: &mut CodexApp, fx: &mut AppFx) {
     }
     let thread = app.session.active.clone();
     for ask in Rc::make_mut(&mut app.screens).popovers.take_asks() {
-        fx.commands.push(Command::Popovers {
+        fx.host(effects::Ask::Popovers {
             ask,
             thread: thread.clone(),
         });
@@ -1730,12 +1692,14 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         .or_default();
                     store.clear();
                     store.limits_mut().set_plan(note.plan_type);
-                    if active_backend(app) == origin {
-                        reset::clear(app);
-                    }
+                    reset::account_changed(app, origin);
                     app.outgoing.retain(|ctx| {
-                        !matches!(ctx, AppCtx::Nudge { backend, .. } if *backend == origin)
-                            && !matches!(ctx, AppCtx::RateLimits { backend, .. } if *backend == origin)
+                        !matches!(
+                            ctx,
+                            AppCtx::Nudge { backend, .. }
+                                | AppCtx::RateLimits { backend, .. }
+                                | AppCtx::Redemption { backend, .. } if *backend == origin
+                        )
                     });
                     if active_backend(app) == origin {
                         status::apply(
@@ -2078,11 +2042,6 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 ScreenEv::Chat(chat::Ev::Status(facts)) if facts.account_usage => {
                     reset::startup(app, fx);
                 }
-                // The answer to a redemption: a reset reads the credits again.
-                ScreenEv::Usage(screens::usage::Ev::Redeemed { key, result }) => {
-                    reset::redeemed(app, key, result.clone(), fx);
-                    return;
-                }
                 // The details under a thread's status row are the thread's.
                 ScreenEv::Chat(chat::Ev::Details { thread, details }) => {
                     let ev = ThreadEv::Screen(ScreenThreadEv::Chat(chat::ThreadEv::Details(
@@ -2386,7 +2345,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                     Answer::RateLimits { read, .. } => Ok(read.reset_credits.clone()),
                     _ => Err(()),
                 };
-                reset::read_done(app, origin, credits, fx);
+                reset::read_done(app, backend, origin, credits, fx);
                 if let Answer::RateLimits {
                     limits,
                     banner,
@@ -2434,6 +2393,9 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 if let status::RateLimitOrigin::Status(request) = origin {
                     finish_status_cells(app, backend, Some(request), fx);
                 }
+            }
+            AppCtx::Redemption { key, .. } => {
+                reset::answered(app, address.backend, &key, answer, fx)
             }
             AppCtx::Nudge { nudge, thread, .. } => {
                 let outcome = match answer {
@@ -2684,7 +2646,7 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             // closes on every pick (`picker_dismissed`).
             match action {
                 Some(chat::BannerAction::OpenUrl(url)) => {
-                    fx.commands.push(Command::OpenUrl { url })
+                    fx.host(effects::Ask::open_url_or_report(url))
                 }
                 Some(chat::BannerAction::NotifyOwner(nudge)) => {
                     notify_owner(app, backend, nudge, fx);
@@ -2781,7 +2743,7 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
         }
         Intent::Screen(ScreenIntent::Approvals(approvals::Intent::OpenLink { key })) => {
             if let Some(link) = app_link(app, &key) {
-                fx.commands.push(Command::OpenUrl { url: link.url });
+                fx.host(effects::Ask::open_url_or_report(link.url));
             }
         }
         Intent::Screen(ScreenIntent::Approvals(approvals::Intent::LinkDone { key })) => {
@@ -3115,7 +3077,7 @@ fn start_verification(app: &mut CodexApp, key: RequestKey, fx: &mut AppFx) {
     {
         verification.waiting = true;
     }
-    fx.commands.push(Command::VerifyUser {
+    fx.host(effects::Ask::VerifyUser {
         key,
         attempt: attempt.id,
         params: attempt.params,
@@ -3437,7 +3399,7 @@ fn send_agents(app: &mut CodexApp, outs: Vec<agents::Out>, fx: &mut AppFx) {
                 continue;
             }
             agents::Command::SaveGrouping { grouping } => {
-                fx.commands.push(Command::SaveGrouping { grouping });
+                fx.host(effects::Ask::SaveGrouping { grouping });
                 continue;
             }
             _ => {}
@@ -3840,10 +3802,10 @@ fn stream_lost(
             });
         }
         if idle {
-            fx.commands.push(Command::ReconnectIdleThread {
+            fx.host(effects::Ask::ReconnectIdleThread {
                 address: app.address(origin),
                 thread,
-                error,
+                error: effects::IdleStreamError(error),
             });
             return;
         }

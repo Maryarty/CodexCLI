@@ -1,5 +1,5 @@
 //! Opening things outside the terminal (oracle `app/history_ui.rs`):
-//! `Command::OpenUrl` opens a page in the user's browser; `/app` opens the
+//! `effects::Ask::OpenUrl` opens a page in the user's browser; `/app` opens the
 //! thread in the Desktop app through its `codex://threads/{id}` link.
 //!
 //! The words of the failure are the UI's string tables'; these functions

@@ -22,7 +22,7 @@ use codex_model_provider_info::DEFAULT_OLLAMA_PORT;
 use codex_model_provider_info::LMSTUDIO_OSS_PROVIDER_ID;
 use codex_model_provider_info::OLLAMA_OSS_PROVIDER_ID;
 use codex_tui_core::app::AppEv;
-use codex_tui_core::app::Command;
+use codex_tui_core::app::effects::Ask as HostAsk;
 use codex_tui_core::app::effects::ConfigEdit;
 use codex_tui_core::ids::BackendId;
 use codex_tui_core::ids::ConnEpoch;
@@ -150,8 +150,9 @@ pub async fn pick<E: FnMut(AppEv)>(
     })));
     // Another command cannot come before `Connected`: it is dropped.
     while let Some(dispatch) = commands.recv().await {
-        if let Some((Command::Startup { ask, .. }, _)) = dispatch.on(BackendId::default(), epoch)
-            && let Some(answer) = answer(&ask)
+        if let Some((command, _)) = dispatch.on(BackendId::default(), epoch)
+            && let Some(HostAsk::Startup { ask }) = command.host_ask()
+            && let Some(answer) = answer(ask)
         {
             return answer;
         }

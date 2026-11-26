@@ -82,10 +82,6 @@ where
     F: Fn(ClientRequest) -> Fut + Sync,
     Fut: Future<Output = Result<serde_json::Value, ServerError>>,
 {
-    // A redemption is the account's, not a page session's: it needs no `Live`.
-    if let AskKind::Redeem { key, credit_id } = &ask.what {
-        return Some(crate::usage::redeem(&send, &ids, key.clone(), credit_id.clone()).await);
-    }
     let config = startup.current.read().await.clone();
     let live = startup.analytics.live(ask.session, &config)?;
     let Ask {
@@ -139,7 +135,6 @@ where
             result: within(120, chats::consumer(&live, &send, &ids)).await,
         },
         // Answered above, before a session is opened for it.
-        AskKind::Redeem { .. } => return None,
     };
     let ev = if live.invalidated() {
         Ev::Invalidated { session }
