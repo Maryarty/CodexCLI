@@ -78,8 +78,18 @@ fn a_keyboard_range_replacing_a_drag_is_not_published_to_primary() {
     s.assert_text_style("bet", "reversed");
     s.mouse_up(11, y);
     s.assert_copies_asked(&[]);
+}
 
-    s.wait(350);
+#[test]
+fn a_keyboard_range_invalidates_the_owner_of_a_completed_primary_selection() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(24, 5)
+        .script(ALPHA)
+        .view_only()
+        .open();
+    s.selection_copy_policy(false, false);
+    s.primary_selection();
+    let y = u16::try_from(s.row_of("alpha beta gamma")).expect("screen row");
     s.drag(8, y, 11, y);
     s.assert_primary_copies_asked(&[("beta", false)]);
     let owner = s
