@@ -3350,16 +3350,18 @@ mod text_contract {
                 .child(run_cell(items, detailed)),
         );
         if expanded && !detailed {
-            let row = t
-                .lines()
+            let lines = t.lines();
+            let row = lines
                 .iter()
                 .position(|line| line.contains("Show details"))
-                .expect("expand control");
+                .unwrap_or_else(|| panic!("no expand control in {lines:#?}"));
             t.click(6, u16::try_from(row).unwrap_or_default());
             t.pump();
         }
-        let tree = t.tree().expect("mounted").render_tree();
-        rendered_nodes(tree, tree.root().expect("render root"))
+        let tree = t.tree().unwrap_or_else(|| panic!("cell did not mount"));
+        let tree = tree.render_tree();
+        let root = tree.root().unwrap_or_else(|| panic!("no cell render root"));
+        rendered_nodes(tree, root)
     }
 
     fn rendered_nodes(tree: &rtwk_render::RenderTree, root: rtwk_render::RenderId) -> Vec<String> {
@@ -3387,7 +3389,7 @@ mod text_contract {
         let mut reading = Reading::new(&env, "• ");
         reading.room.width = i32::from(width);
         mounted_parts(item, &reading)
-            .expect("model nodes")
+            .unwrap_or_else(|| panic!("no model nodes for {item:?}"))
             .into_iter()
             .map(|part| part.text)
             .collect()
