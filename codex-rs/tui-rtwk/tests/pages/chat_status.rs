@@ -500,6 +500,58 @@ const WAITING: &str = include_str!(
     "../oracle/fixtures/chat_approvals_1/unified_exec_wait_status_renders_command_in_single_details_row_snapshot.jsonl"
 );
 
+/// The fake terminal's clock advances without backend messages or user input.
+fn idle_activity_frames(with_colours: bool) -> (u64, u64, usize) {
+    use codex_tui_core::app::{AppEv, BackendEv};
+    use codex_tui_core::fixtures::script::{self, Step};
+    use rtwk_test::Options;
+
+    let mut options = Options::new().size(80, 12).fail_on_overflow(false);
+    if with_colours {
+        options = options
+            .background_rgb(0x1e1e1e)
+            .terminal(|terminal| terminal.foreground_rgb = Some(0xeeeeee));
+    }
+    let mut h = crate::common::start_driven_with(false, options);
+    h.connect();
+    h.quiesce();
+    let script = script::parse(WAITING)
+        .unwrap_or_else(|error| panic!("wait fixture line {}: {}", error.line, error.message));
+    h.inject(script.steps.into_iter().filter_map(|(_, step)| match step {
+        Step::Notify { message } => Some(AppEv::Backend(BackendEv::Notification(message))),
+        _ => None,
+    }));
+    h.advance(1_300);
+    assert!(
+        h.t.screen().contains("Waiting for background terminal"),
+        "{}",
+        h.t.screen()
+    );
+    let before = h.t.frame_loop();
+    let (runs, frames) = (before.frames_run(), before.stats().frames);
+    let writes = h.t.terminal().frames().len();
+    h.t.pump_for(crate::common::ms(3_200));
+    let after = h.t.frame_loop();
+    let written = h.t.written_since(writes);
+    let title_updates = written.matches("\x1b]0;").count() + written.matches("\x1b]2;").count();
+    (
+        after.frames_run() - runs,
+        after.stats().frames - frames,
+        title_updates,
+    )
+}
+
+#[test]
+fn a_static_terminal_wait_redraws_only_for_elapsed_seconds() {
+    let waiting = [false, true].map(idle_activity_frames);
+    eprintln!("3.2 s waiting (loop frames, presenting frames, title writes): {waiting:?}");
+    for (run, presented, title_updates) in waiting {
+        assert!((3..=4).contains(&run), "waiting ran {run} loop frames");
+        assert_eq!(presented, run, "the elapsed label changed on each frame");
+        assert_eq!(title_updates, 0, "waiting uses a still terminal title");
+    }
+}
+
 /// The model polls a background terminal with empty stdin: the status row says what the turn
 /// waits for and the command runs under it (oracle `on_terminal_interaction`).
 #[test]
@@ -513,6 +565,10 @@ fn the_status_row_waits_for_the_background_terminal_and_names_its_command() {
         "└ cargo test -p codex-core -- --exact some::very::long::test::name",
     ]);
     s.assert_absent("• Working");
+    assert!(
+        s.title().is_some_and(|title| title.starts_with('⠋')),
+        "the configured title indicator stays visible"
+    );
 }
 
 /// The next thing the turn does ends the wait: an agent delta writes the streak and the row
@@ -529,4 +585,47 @@ fn an_agent_delta_ends_the_wait_and_the_row_reads_working_again() {
     s.assert_contains("• Working");
     s.assert_absent("Waiting for background terminal");
     s.assert_absent("cargo test -p codex-core");
+    let working_title = s.title();
+    s.wait(240);
+    assert_ne!(
+        s.title(),
+        working_title,
+        "the active title resumed spinning"
+    );
+    s.wait(360);
+    s.assert_contains("◦ Working");
+}
+
+#[test]
+fn a_plan_delta_ends_the_wait_and_resumes_the_active_title() {
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 12)
+        .script(WAITING)
+        .open();
+    s.feed(
+        r#"{"step":"notify","message":{"method":"item/plan/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"plan-1","delta":"- First plan step\n"}}}"#,
+    );
+    s.assert_contains("First plan step");
+    s.assert_absent("Waiting for background terminal");
+    let active_title = s.title();
+    s.wait(240);
+    assert_ne!(s.title(), active_title, "the active title resumed spinning");
+}
+
+#[test]
+fn live_command_output_paints_while_the_status_waits() {
+    let mut s = Screen::build(Owner::UiPane)
+        .size(100, 20)
+        .script(WAITING)
+        .open();
+    s.feed(
+        r#"{"step":"notify","message":{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","startedAtMs":0,"item":{"type":"commandExecution","id":"child","command":"printf terminal","cwd":"/tmp/project","processId":null,"source":"agent","status":"inProgress","commandActions":[],"aggregatedOutput":null,"exitCode":null,"durationMs":null,"startedAtMs":0,"completedAtMs":null}}}}"#,
+    );
+    s.assert_contains("printf terminal");
+    s.assert_contains("• Waiting for background terminal");
+    s.feed(
+        r#"{"step":"notify","message":{"method":"item/commandExecution/outputDelta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"child","delta":"live terminal output\n"}}}"#,
+    );
+    s.assert_contains("live terminal output");
+    s.assert_contains("• Waiting for background terminal");
 }

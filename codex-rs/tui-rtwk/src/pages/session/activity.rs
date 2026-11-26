@@ -115,6 +115,16 @@ impl Run {
         matches!(self.turn, TurnState::Running(_))
     }
 
+    /// A terminal poll owns the row and no other visible turn activity needs motion.
+    pub(super) fn wait_only(&self) -> bool {
+        self.running()
+            && self.wait.is_some()
+            && self.reviews.is_empty()
+            && self.chat.header().is_none()
+            && !self.compacting()
+            && self.hook.is_none()
+    }
+
     /// The hook line, the background terminals' line or the pending preview
     /// shows above the composer.
     pub(super) fn has_activity_rows(&self) -> bool {
@@ -209,7 +219,7 @@ impl StatelessWidget for StatusSlot {
             .flatten();
         let reconnecting =
             session.connections.get(&backend) == Some(&ConnectionState::Reconnecting);
-        let facts = &facts;
+        let (spinner, shimmer) = effects(&facts);
         let running = match &run.turn {
             TurnState::Running(running) => Some(running),
             TurnState::Idle => None,
@@ -248,8 +258,8 @@ impl StatelessWidget for StatusSlot {
             Some(
                 AnyWidget::from(Activity {
                     interrupt: None,
-                    spinner: effects(facts).0,
-                    shimmer: effects(facts).1,
+                    spinner,
+                    shimmer,
                     header: composer_strings.setup_header.to_string(),
                     details: Some(chat::StatusDetails::new(
                         composer_strings.setup_details.to_string(),
@@ -263,6 +273,11 @@ impl StatelessWidget for StatusSlot {
             )
         } else if running.is_some() || compacting || review.is_some() {
             working = true;
+            let (spinner, shimmer) = if run.wait_only() {
+                (spinner.still(), shimmer.still())
+            } else {
+                (spinner, shimmer)
+            };
             // the compaction has its own clock; the turn's comes back when it is over
             let offset_seconds = run
                 .compaction
@@ -275,8 +290,8 @@ impl StatelessWidget for StatusSlot {
             Some(
                 AnyWidget::from(Activity {
                     interrupt,
-                    spinner: effects(facts).0,
-                    shimmer: effects(facts).1,
+                    spinner,
+                    shimmer,
                     header: review
                         .as_ref()
                         .map(|review| review.header.clone())
@@ -409,12 +424,33 @@ impl StatelessWidget for HookLine {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum ActivityEffect {
+    Off,
+    Still,
+    Animated,
+}
+
+impl ActivityEffect {
+    fn enabled(enabled: bool) -> Self {
+        if enabled { Self::Animated } else { Self::Off }
+    }
+
+    fn still(self) -> Self {
+        if self == Self::Animated {
+            Self::Still
+        } else {
+            self
+        }
+    }
+}
+
 /// The progress bullet and the shimmer of the header: each on its own switch,
 /// both under the master switch of the animations (`StatusIndicatorWidget`).
-pub(super) fn effects(facts: &chat::StatusFacts) -> (bool, bool) {
+pub(super) fn effects(facts: &chat::StatusFacts) -> (ActivityEffect, ActivityEffect) {
     (
-        facts.animations && facts.progress_effect,
-        facts.animations && facts.shimmer_effect,
+        ActivityEffect::enabled(facts.animations && facts.progress_effect),
+        ActivityEffect::enabled(facts.animations && facts.shimmer_effect),
     )
 }
 
@@ -422,8 +458,8 @@ pub(super) fn effects(facts: &chat::StatusFacts) -> (bool, bool) {
 pub(super) struct Activity {
     /// The key shown after the elapsed label (`esc to interrupt`), none while the turn cannot be interrupted.
     pub interrupt: Option<String>,
-    pub spinner: bool,
-    pub shimmer: bool,
+    pub spinner: ActivityEffect,
+    pub shimmer: ActivityEffect,
     pub header: String,
     pub details: Option<chat::StatusDetails>,
     /// The summary after the elapsed label (`N background terminals running ...`).
@@ -459,17 +495,18 @@ impl ActivityState {
     /// where the terminal's colours are known, else the bullet's blink.
     fn configure_clocks(&mut self, w: &Activity, cx: &mut Cx<'_, Self>) {
         let colours = theme::terminal_colors(cx).is_some();
-        if !(w.shimmer && colours) {
+        let spinner = w.spinner == ActivityEffect::Animated;
+        if !(w.shimmer == ActivityEffect::Animated && colours) {
             self.shimmer.take().inspect(AnimationController::dispose);
         } else if self.shimmer.is_none() {
             self.shimmer = Some(Self::spin(Duration::from_secs(4), cx));
         }
-        if !(w.spinner && colours) {
+        if !(spinner && colours) {
             self.pulse.take().inspect(AnimationController::dispose);
         } else if self.pulse.is_none() {
             self.pulse = Some(Self::spin(Duration::from_secs(2), cx));
         }
-        if !(w.spinner && !colours) {
+        if !(spinner && !colours) {
             self.blink.take().inspect(AnimationController::dispose);
         } else if self.blink.is_none() {
             self.blink = Some(Self::spin(Duration::from_millis(1200), cx));
@@ -480,10 +517,15 @@ impl ActivityState {
     /// on (each letter a blend of the terminal's colours, the band brightest),
     /// dim and still where the colours are unknown.
     fn header(&self, w: &Activity, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        if !w.shimmer {
+        if w.shimmer == ActivityEffect::Off {
             return Text::line(w.header.clone()).into();
         }
-        let (Some(animation), Some((fg, bg))) = (&self.shimmer, theme::terminal_colors(cx)) else {
+        let colours = theme::terminal_colors(cx);
+        if w.shimmer == ActivityEffect::Still {
+            let base = colours.map_or_else(status::dim, |(fg, bg)| theme::blended(fg, bg, 0.5));
+            return Text::line(w.header.clone()).style(base).into();
+        }
+        let (Some(animation), Some((fg, bg))) = (&self.shimmer, colours) else {
             return Text::line(w.header.clone()).style(status::dim()).into();
         };
         let seg = segmenter_of(cx);
@@ -525,11 +567,13 @@ impl ActivityState {
         .into()
     }
 
-    /// The activity bullet before the header: the pulse (bold, toward the
-    /// background), or the blink; none while the progress effect is off.
+    /// The activity bullet before the header: steady while waiting, otherwise the
+    /// pulse (bold, toward the background) or the blink.
     fn bullet(&self, w: &Activity, cx: &mut Cx<'_, Self>) -> Option<AnyWidget> {
-        if !w.spinner {
-            return None;
+        match w.spinner {
+            ActivityEffect::Off => return None,
+            ActivityEffect::Still => return Some(Text::line("\u{2022}").into()),
+            ActivityEffect::Animated => {}
         }
         if let Some(pulse) = &self.pulse {
             let colours = theme::terminal_colors(cx)?;

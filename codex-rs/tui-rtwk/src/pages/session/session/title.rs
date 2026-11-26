@@ -1,6 +1,7 @@
 //! The terminal title the page keeps telling (`window_title`): the status items, a spinner while
 //! a turn runs or compacts, and the action-required prefix.
 
+use rtwk::animation::SpinnerFrames;
 use rtwk::binding::TerminalTitle;
 use rtwk::layout::SizedBox;
 use rtwk::provider::select;
@@ -27,15 +28,20 @@ pub(super) fn titles(cx: &mut Cx<'_, ChatState>, frame: &Frame) -> Vec<AnyWidget
             action_required: action_required.then_some(frame.strings.chat.action_required),
         },
     );
-    if title.has_spinner() {
+    let waiting = frame.run.wait_only();
+    if title.has_spinner() && !waiting {
         titles.push(window_title::WindowTitle { title }.into());
-    } else if !title.text(None).is_empty()
-        || facts
-            .terminal_title
-            .as_ref()
-            .is_some_and(|items| !items.is_empty())
-    {
-        titles.push(TerminalTitle::new(title.text(None), window_title::empty()).into());
+    } else {
+        let steady_frame = SpinnerFrames::DOTS.frames.first().filter(|_| waiting);
+        let text = title.text(steady_frame.map(AsRef::as_ref));
+        if !text.is_empty()
+            || facts
+                .terminal_title
+                .as_ref()
+                .is_some_and(|items| !items.is_empty())
+        {
+            titles.push(TerminalTitle::new(text, window_title::empty()).into());
+        }
     }
     // a title that names the credits or the cost wants them, whether or not it shows them yet
     let wanted = status_surfaces::title_interests(facts);
