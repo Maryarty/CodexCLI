@@ -205,7 +205,10 @@ fn the_read_fills_preview_prompt_and_last_message() {
     assert!(outs.is_empty());
     let details = details_of(&m, &threads);
     assert_eq!(details.latest_prompt.as_deref(), Some("Fix the bug"));
-    assert_eq!(details.last_message.as_deref(), Some("Done."));
+    assert_eq!(
+        details.last_message,
+        Some(("Done.".into(), "/tmp/project".into()))
+    );
 }
 
 /// Item 1: a failed read ends the chain (the oracle logs and goes on).

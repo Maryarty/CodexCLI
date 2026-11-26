@@ -846,10 +846,9 @@ fn pending_markers() -> Vec<String> {
     found
 }
 
-/// The names the nextest config lists as pending (`test(=agents::<name>)`).
-fn pending_listed() -> Vec<String> {
-    let text = std::fs::read_to_string(crate_dir().join(".config/nextest.toml")).expect("read");
-    let mut found: Vec<String> = text
+/// The names a nextest profile lists as pending (`test(=agents::<name>)`).
+fn pending_listed(profile: &str) -> Vec<String> {
+    let mut found: Vec<String> = profile
         .split("test(=agents::")
         .skip(1)
         .map(|rest| rest.split(')').next().expect("a name").to_owned())
@@ -860,30 +859,47 @@ fn pending_listed() -> Vec<String> {
     found
 }
 
+fn profile<'a>(config: &'a str, name: &str) -> &'a str {
+    let start = config
+        .find(&format!("[profile.{name}]"))
+        .expect("a profile");
+    let rest = &config[start + 1..];
+    let end = rest.find("\n[").unwrap_or(rest.len());
+    &rest[..end]
+}
+
 #[test]
 fn the_pending_profile_lists_exactly_the_pending_markers() {
+    let config = std::fs::read_to_string(crate_dir().join(".config/nextest.toml")).expect("read");
     let markers = pending_markers();
-    assert!(!markers.is_empty(), "the marker scan found nothing");
-    assert_eq!(pending_listed(), markers);
+    assert_eq!(pending_listed(profile(&config, "default")), markers);
+    assert_eq!(pending_listed(profile(&config, "pending")), markers);
 }
 
 #[test]
 fn the_default_profile_leaves_out_the_pending_group_and_the_pending_profile_runs_it() {
-    let text = std::fs::read_to_string(crate_dir().join(".config/nextest.toml")).expect("read");
-    let section = |name: &str| -> String {
-        let start = text.find(&format!("[profile.{name}]")).expect("a profile");
-        let rest = &text[start + 1..];
-        let end = rest.find("\n[").unwrap_or(rest.len());
-        rest[..end].to_owned()
-    };
-    let default = section("default");
-    let pending = section("pending");
+    let config = std::fs::read_to_string(crate_dir().join(".config/nextest.toml")).expect("read");
+    let default = profile(&config, "default");
+    let pending = profile(&config, "pending");
     assert!(default.contains("binary(oracle)"), "{default}");
-    assert!(
-        default.contains("not (") && default.contains("agents::"),
-        "{default}"
-    );
-    assert!(pending.contains("default-filter"), "{pending}");
-    assert!(pending.contains("agents::"), "{pending}");
+    if pending_markers().is_empty() {
+        assert!(
+            default.contains(r#"default-filter = "not binary(oracle)""#),
+            "{default}"
+        );
+        assert!(
+            pending.contains(r#"default-filter = "none()""#),
+            "{pending}"
+        );
+    } else {
+        assert!(
+            default.contains("not (") && default.contains("agents::"),
+            "{default}"
+        );
+        assert!(
+            pending.contains("default-filter") && pending.contains("agents::"),
+            "{pending}"
+        );
+    }
     assert!(pending.contains("fail-fast = false"), "{pending}");
 }

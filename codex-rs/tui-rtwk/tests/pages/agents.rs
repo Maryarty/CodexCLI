@@ -9,11 +9,14 @@
 mod oracle_snap;
 
 use crate::common::{Harness, start_driven, start_driven_clipping, start_sized};
-use codex_app_server_protocol::Thread;
-use codex_tui_core::app::{AppEv, Command};
+use codex_app_server_protocol::{ServerNotification, Thread, ThreadStartedNotification};
+use codex_tui_core::app::{AppEv, BackendEv, Command};
+use codex_tui_core::fixtures::builders::agent_completed;
 use codex_tui_core::rpc::Reply as AppReply;
 use codex_tui_core::screens::agents::{Command as AgentsCommand, Page, Reply as AgentsReply};
-use codex_tui_core::screens::{ScreenCommand, ScreenReply};
+use codex_tui_core::screens::cells::{Ev as CellsEv, LinkDisplay};
+use codex_tui_core::screens::{ScreenCommand, ScreenEv, ScreenReply};
+use serde_json::json;
 
 /// The kit's key-label normalization of our rows (platform labels: `delete`
 /// shipped for the `backspace` of the oracle's `cfg(test)` snapshots, the
@@ -30,35 +33,6 @@ fn assert_rows(name: &str, actual: &[String], expected: &[String]) {
     oracle_snap::assert_same(name, &actual, expected);
 }
 use rtwk_core::style::{Attrs, Color};
-
-/// Who makes a pending test pass (tm aliases of the slices).
-#[derive(Clone, Copy)]
-enum Owner {
-    ReuseCarry,
-    /// An open rtwk gap (the reason starts with its `Gxx`).
-    Rtwk,
-}
-
-impl Owner {
-    fn slice(self) -> &'static str {
-        match self {
-            Owner::ReuseCarry => "reuse-carry",
-            Owner::Rtwk => "rtwk",
-        }
-    }
-}
-
-/// The screen, the state or the seed the test needs does not exist yet: the
-/// marker fails the test with the reason and the owner; under
-/// `KIT_PROBE_PENDING=1` the body below it runs (a stale marker shows).
-fn pending(owner: Owner, reason: &str) {
-    let reason = reason.split_whitespace().collect::<Vec<_>>().join(" ");
-    if std::env::var_os("KIT_PROBE_PENDING").is_some_and(|v| v != "0") {
-        println!("PROBE[{}]: {reason}", owner.slice());
-        return;
-    }
-    panic!("PENDING[{}]: {reason}", owner.slice());
-}
 
 fn snap(name: &str) -> String {
     format!("snapshots/codex_tui__app__agents_overview__tests__{name}.snap")
@@ -324,18 +298,150 @@ fn older_server_notice_truncates_in_narrow_overview() {
     assert_app(&h, "older_server_narrow_overview");
 }
 
+const PREVIEW_THREAD: &str = "00000000-0000-0000-0000-000000000021";
+
+fn preview_thread(id: &str, title: &str, prompt: &str) -> serde_json::Value {
+    json!({
+        "id": id, "sessionId": id, "name": title,
+        "preview": prompt, "ephemeral": false, "historyMode": "legacy",
+        "modelProvider": "openai", "createdAt": 1700000000, "updatedAt": 1700000000,
+        "status": {"type": "idle"}, "cwd": "/tmp/project", "cliVersion": "0.0.0",
+        "source": "cli", "canAcceptDirectInput": true, "turns": []
+    })
+}
+
+/// Open the live center with a saved task and the last turn from the server.
+fn live_preview(title: &str, prompt: &str, answer: &str) -> Harness {
+    let mut h = start_driven(false, 96, 40);
+    h.wait_idle();
+    let thread = preview_thread(PREVIEW_THREAD, title, prompt);
+    let turn = json!({
+        "id": "preview-turn", "status": "completed", "itemsView": "full",
+        "items": [
+            {"type": "userMessage", "id": "question",
+             "content": [{"type": "text", "text": prompt, "text_elements": []}]},
+            {"type": "agentMessage", "id": "answer", "text": answer}
+        ]
+    });
+    h.fake
+        .respond(move |request| match request["method"].as_str()? {
+            "thread/list"
+                if request["params"]["sectionId"].is_null()
+                    && request["params"]["sourceKinds"] == json!([]) =>
+            {
+                Some(Ok(json!({"data": [thread], "nextCursor": null})))
+            }
+            "thread/list" => Some(Ok(json!({"data": [], "nextCursor": null}))),
+            "thread/read" if request["params"]["threadId"] == PREVIEW_THREAD => {
+                Some(Ok(json!({"thread": thread})))
+            }
+            "thread/turns/list" if request["params"]["threadId"] == PREVIEW_THREAD => {
+                Some(Ok(json!({"data": [turn], "nextCursor": null})))
+            }
+            _ => None,
+        });
+    h.t.type_text("/agents");
+    h.press("enter");
+    h.wait_for("the loaded task details", |s| {
+        s.contains(title) && s.contains("Last message")
+    });
+    h
+}
+
 /// `agents_overview_details_render_markdown` (agents_overview_tests.rs:1138):
 /// the last message and the prompt of the details are markdown, drawn as the
 /// oracle's `markdown_render` draws it (`## Findings` kept, `•` items, code
 /// lines, a table) in the rows left under the budget of the panel.
 #[test]
 fn agents_overview_details_render_markdown() {
-    pending(
-        Owner::ReuseCarry,
-        "the oracle's markdown renderer (`markdown_render`, wrapping, code and table layout) is not carried into tui-rtwk's core or rtwk-rich-backed view yet, and the scripts cannot seed a task's last message (wire.rs `seed_ev` has no key for it); the details print the text plain (view.rs `details`)",
+    let title = "Review parser";
+    let prompt = "Review **parser** and `token` handling.";
+    let message = "## Findings\n\n- Fixed **parsing** and `tokens` with a long explanation that wraps.\n- Kept *compatibility*.\n\n```rust\nlet token = 1;\n```";
+    let h = live_preview(title, prompt, message);
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("Review parser and token handling."),
+        "{screen}"
     );
-    let h = open("overview", 96, 40);
-    assert_app(&h, "agents_overview_markdown");
+    assert!(screen.contains("• Fixed parsing and tokens"), "{screen}");
+    assert!(screen.contains("• Kept compatibility."), "{screen}");
+    assert!(screen.contains("## Findings"), "{screen}");
+    assert!(screen.contains("let token = 1;"), "{screen}");
+    assert!(!screen.contains("```"), "{screen}");
+    for (text, attrs) in [("parsing", Attrs::BOLD), ("compatibility", Attrs::ITALIC)] {
+        let (x, y) = find_all(&h, text)[0];
+        assert!(h.t.cell(x, y).attrs.intersects(attrs), "{text}");
+    }
+
+    let mut live = live_preview(title, prompt, "Previously saved answer.");
+    live.inject([AppEv::Backend(agent_completed(
+        PREVIEW_THREAD,
+        "live-turn",
+        "new-answer",
+        message,
+    ))]);
+    live.wait_for("the delivered Markdown", |s| s.contains("## Findings"));
+    assert_eq!(live.t.screen(), screen);
+    let child_id = "00000000-0000-0000-0000-000000000022";
+    let mut child = preview_thread(child_id, "Parser child", "");
+    child["parentThreadId"] = json!(PREVIEW_THREAD);
+    child["sessionId"] = json!(PREVIEW_THREAD);
+    child["cwd"] = json!("/tmp/project/child");
+    child["status"] = json!({"type": "active", "activeFlags": []});
+    live.inject([
+        AppEv::Backend(BackendEv::Notification(Box::new(
+            ServerNotification::ThreadStarted(ThreadStartedNotification {
+                thread: serde_json::from_value(child).unwrap(),
+            }),
+        ))),
+        AppEv::Backend(agent_completed(
+            child_id,
+            "child-turn",
+            "child-answer",
+            "Opened [the file](/tmp/project/child/src/lib.rs).",
+        )),
+    ]);
+    live.wait_for("the child answer", |s| {
+        s.contains("Opened the file (src/lib.rs).")
+    });
+
+    let long_prompt = format!("```\n{}\n```", "long prompt ".repeat(25));
+    let long_code =
+        "let explanation = \"A long code line should wrap inside the task details panel.\";";
+    let code = live_preview(title, &long_prompt, &format!("```\n{long_code}\n```"));
+    let drawn = code.t.screen();
+    assert!(drawn.contains("let explanation"), "{drawn}");
+    assert!(drawn.contains("panel.\";"), "{drawn}");
+    assert!(
+        drawn.contains("long prompt long prompt long prompt"),
+        "{drawn}"
+    );
+    assert!(
+        drawn.lines().any(|row| row.trim_end().ends_with("│ …")),
+        "{drawn}"
+    );
+    assert!(!drawn.contains("```"), "{drawn}");
+
+    let table = live_preview(
+        title,
+        &long_prompt,
+        "```md\n| Check | Result |\n| --- | --- |\n| Parser | Fixed |\n```",
+    );
+    let drawn = table.t.screen();
+    assert!(
+        drawn
+            .lines()
+            .any(|row| row.contains("Check") && row.contains("Result")),
+        "{drawn}"
+    );
+    assert!(
+        drawn
+            .lines()
+            .any(|row| row.contains("Parser") && row.contains("Fixed")),
+        "{drawn}"
+    );
+    assert!(!drawn.contains("| --- | --- |"), "{drawn}");
+    assert!(!drawn.contains("```"), "{drawn}");
 }
 
 /// `agents_overview_preview_links_survive_wrapping_and_clipping` (agents_overview_tests.rs:1221):
@@ -343,16 +449,84 @@ fn agents_overview_details_render_markdown() {
 /// (OSC 8) when wrapped and when clipped (an ellipsis outside the link).
 #[test]
 fn agents_overview_preview_links_survive_wrapping_and_clipping() {
-    pending(
-        Owner::ReuseCarry,
-        "needs the markdown renderer with links (OSC 8 cells) and a seed for the last message, see agents_overview_details_render_markdown",
+    let destination = "https://example.com/a/long/path/to/the/pull/request";
+    let prompt = "https://example.com/prompt";
+    let empty = "https://empty.example/link";
+    let email = "mailto:person@example.com";
+    let invalid = "https://";
+    let mut h = live_preview(
+        "Review links",
+        &format!("[Prompt]({prompt})"),
+        &format!(
+            "Opened [a pull request with a label that wraps across rows]({destination}).\n\nMore context that should be clipped in a short preview.\n\nAdditional details.\n\n[Email]({email})\n[Invalid]({invalid})\n[]({empty})"
+        ),
     );
-    let h = open("overview", 96, 40);
-    let screen = h.t.screen();
-    assert!(
-        screen.contains("a pull request with a label that wraps"),
-        "{screen}"
-    );
+    for (index, (height, display)) in [
+        (40, LinkDisplay::WithDestination),
+        (22, LinkDisplay::WithDestination),
+        (40, LinkDisplay::LabelOnly),
+        (22, LinkDisplay::LabelOnly),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        if index > 0 {
+            h.t.resize(96, height);
+        }
+        h.inject([AppEv::Screen(ScreenEv::Cells(CellsEv::LinkDisplay(
+            display,
+        )))]);
+        h.settle();
+        h.t.with_screen(|vt| {
+            let mut linked_rows = Vec::new();
+            let mut has_prompt_link = false;
+            let mut has_elision = false;
+            let mut empty_link = String::new();
+            let mut url_suffix = String::new();
+            for y in 0..vt.height() {
+                let mut linked = String::new();
+                for x in 0..vt.width() {
+                    let cell = vt.cell(x, y);
+                    has_prompt_link |= cell.link.as_deref() == Some(prompt);
+                    if cell.link.as_deref() == Some(destination) {
+                        linked.push_str(&cell.text);
+                    }
+                    if cell.link.as_deref() == Some(empty) {
+                        empty_link.push_str(&cell.text);
+                    }
+                    assert!(!matches!(cell.link.as_deref(), Some(link) if link == email || link == invalid));
+                    if cell.text == "…" {
+                        has_elision = true;
+                        assert!(cell.link.is_none(), "the ellipsis must not be linked");
+                    }
+                }
+                if !linked.is_empty() {
+                    if linked.starts_with("https://") || !url_suffix.is_empty() {
+                        url_suffix.push_str(&linked);
+                    }
+                    linked_rows.push(linked);
+                }
+            }
+            assert!(
+                linked_rows.len() >= 2,
+                "link must span multiple rows at height {height}: {linked_rows:?}"
+            );
+            let oracle = app_oracle("agents_overview_link_rows");
+            assert_eq!(&linked_rows[..2], &oracle[..2]);
+            if height == 40 {
+                assert!(has_prompt_link, "the prompt must retain its destination");
+                assert_eq!(url_suffix, destination);
+                assert_eq!(empty_link, empty);
+            } else {
+                assert!(has_elision, "the short preview must show its clipping");
+            }
+        });
+        if height == 40 {
+            let screen = h.t.screen();
+            assert!(screen.contains(email), "{screen}");
+            assert!(screen.contains("Invalid (https://)"), "{screen}");
+        }
+    }
 }
 
 /// `agents_overview_markdown_preview_preserves_layout_and_bounds` (agents_overview_tests.rs:1271).
@@ -868,26 +1042,39 @@ fn live_center_navigation_and_complete_hints() {
 }
 
 /// `live_center_fixed_shortcuts_yield_to_configured_actions` (agent_center_tests.rs:649).
-/// Its first half: the configured cancel key `q`, a plain character, leaves
-/// the search line and the rename line. The oracle asks the keymap before it
-/// types the character; rtwk's `TextField` takes a typed character before the
-/// `KeyBindings` above it (`is_text`, shortcuts.rs), so the `q` is typed. The
-/// second half is `the_page_keys_yield_to_the_action_bound_to_them`.
+/// The configured cancel key can leave either editor. Other keys and paste
+/// still edit the field, and the default Escape can still leave it.
 #[test]
 fn live_center_fixed_shortcuts_yield_to_configured_actions() {
-    pending(
-        Owner::Rtwk,
-        "G77: a configured plain-character cancel key cannot leave the search or rename line; Flutter's Shortcuts above a TextField take the character before the field types it, rtwk's KeyBindings above a TextField get only what the field does not take",
-    );
     // `list.cancel = 'q'`: the cancel key leaves the search line and the
     // rename line, a plain character too, and the center stays.
-    for (editor_key, label) in [("/", "Search \u{203a}"), ("r", "Rename \u{203a}")] {
-        let mut h = keyed("search", 100, 24, &[("list.cancel", "q")]);
-        h.press(editor_key);
-        assert!(h.t.screen().contains(label), "{}", h.t.screen());
-        h.press("q");
-        assert!(!h.t.screen().contains(label), "{}", h.t.screen());
-        assert!(h.t.screen().contains("Agent command center"));
+    for (keys, leave) in [
+        (&[("list.cancel", "q")][..], "q"),
+        (&[("list.cancel", "ctrl+a")][..], "ctrl+a"),
+        (&[][..], "esc"),
+    ] {
+        for (editor_key, label) in [("/", "Search \u{203a}"), ("r", "Rename \u{203a}")] {
+            let mut h = keyed("search", 100, 24, keys);
+            h.press(editor_key);
+            assert!(h.t.screen().contains(label), "{}", h.t.screen());
+            h.press("z");
+            h.press("z");
+            h.t.paste("qq");
+            h.settle();
+            assert!(h.t.screen().contains("zzqq"), "{}", h.t.screen());
+            if leave != "ctrl+a" {
+                h.press("ctrl+a");
+                h.press("x");
+                assert!(
+                    h.t.screen().contains(&format!("{label} x")),
+                    "{}",
+                    h.t.screen()
+                );
+            }
+            h.press(leave);
+            assert!(!h.t.screen().contains(label), "{}", h.t.screen());
+            assert!(h.t.screen().contains("Agent command center"));
+        }
     }
     the_page_keys_yield_to_the_action_bound_to_them();
 }

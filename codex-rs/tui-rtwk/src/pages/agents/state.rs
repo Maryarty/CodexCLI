@@ -2,6 +2,8 @@
 
 use super::keys::*;
 use super::*;
+use codex_tui_core::keymap::actions::LIST_CANCEL;
+use rtwk::focus::KeyEventResult;
 
 impl ScreenState {
     /// The list's cursor as the highlight core knows.
@@ -210,6 +212,7 @@ impl State for ScreenState {
     }
 
     fn dispose(&mut self) {
+        self.edit_focus.set_on_key_event(None);
         if let Some(listening) = &self.listening {
             listening.cancel();
         }
@@ -218,6 +221,21 @@ impl State for ScreenState {
     }
 
     fn did_change_dependencies(&mut self, _: &Screen, cx: &mut Cx<'_, Self>) {
+        let keymap = crate::keymap::keymap(cx);
+        let send = cx.local_sender();
+        // Cancel can be a text key or a TextField editing command. The edit
+        // node sees it first. Paste and other edits still go to the field.
+        self.edit_focus
+            .set_on_key_event(Some(Rc::new(move |_, key| {
+                if key.text().is_none_or(|text| text.chars().nth(1).is_none())
+                    && crate::keymap::pressed(&keymap, LIST_CANCEL, &key)
+                {
+                    send(Msg::Act(Act::Escape));
+                    KeyEventResult::Handled
+                } else {
+                    KeyEventResult::Ignored
+                }
+            })));
         let agents = watched(cx);
         watch::<CenterThreads, _>(cx);
         let model = &*agents;
