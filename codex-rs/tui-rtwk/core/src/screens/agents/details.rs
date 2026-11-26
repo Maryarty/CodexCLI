@@ -9,10 +9,10 @@ use codex_app_server_protocol::ThreadActiveFlag;
 use codex_app_server_protocol::ThreadStatus;
 
 use super::CenterThreads;
-use crate::threads::ThreadPreview;
 use super::Model;
 use super::carried::AgentsOverviewGroup;
 use super::carried::preview_text;
+use crate::threads::ThreadPreview;
 
 /// One line of the activity block, in the oracle's order.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -41,8 +41,8 @@ pub struct Details {
     /// Tokens and the cached estimate of the root task; the UI turns them
     /// into the `Tokens:` and `Est. usage:` lines (`Usage::token_counts`).
     pub usage: super::Usage,
-    /// The source's last message (markdown) when it has one.
-    pub last_message: Option<String>,
+    /// The source's last message (Markdown) and its directory for local links.
+    pub last_message: Option<(String, String)>,
 }
 
 impl Model {
@@ -58,7 +58,8 @@ impl Model {
             let group = AgentsOverviewGroup::for_thread(thread);
             let has_detail = match group {
                 AgentsOverviewGroup::NeedsYou => state.request(&thread.id).is_some(),
-                AgentsOverviewGroup::Working => state.preview(&thread.id)
+                AgentsOverviewGroup::Working => state
+                    .preview(&thread.id)
                     .is_some_and(|activity| activity.reasoning_header().is_some()),
                 AgentsOverviewGroup::Ready | AgentsOverviewGroup::Finished => false,
             };
@@ -117,9 +118,10 @@ impl Model {
             .and_then(|activity| activity.last_message.as_ref())
             .or_else(|| activity.and_then(|activity| activity.history_message.as_ref()))
             .filter(|message| !message.trim().is_empty())
-            .cloned();
+            .map(|message| (message.clone(), source.cwd.display().to_string()));
         Details {
-            latest_prompt: state.preview(&root.id)
+            latest_prompt: state
+                .preview(&root.id)
                 .and_then(|activity| activity.latest_prompt.clone()),
             lines,
             tokens: self.usage.get(&root.id).and_then(|usage| usage.tokens),

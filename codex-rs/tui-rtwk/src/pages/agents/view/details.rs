@@ -1,5 +1,19 @@
 //! The details pane.
 
+use std::borrow::Cow;
+use std::sync::Arc;
+
+use codex_tui_core::app::facts::{Rendering, TuiSettings};
+use codex_tui_core::data::links::web_destination;
+use rtwk::provider::Provider;
+use rtwk_rich::markdown::{
+    Glyphs, LinkDestinations, MarkdownStream, markdown_blocks_lines_with_destinations,
+};
+
+use crate::app::theme::Tokens;
+use crate::pages::session::cells::markdown::{keep_tables, plain_lists, preferred};
+use crate::widgets::markdown;
+
 use super::list::status;
 use super::*;
 
@@ -9,6 +23,40 @@ fn flow(seg: Measure, text: &str, style: &Style) -> Vec<Line> {
         .into_iter()
         .map(|row| vec![span(row, style)])
         .collect()
+}
+
+/// Native Markdown rows let the pane replace a whole row at its clipping
+/// boundary and keep the destinations of the surviving spans.
+fn markdown_lines(cx: &mut BuildCx<'_>, source: &str, cwd: &str, lists: bool) -> Vec<Line> {
+    let mut stream = MarkdownStream::new(source);
+    let blocks = stream.blocks().to_vec();
+    let definitions = stream.definitions();
+    let blocks = if lists { blocks } else { plain_lists(&blocks) };
+    markdown_blocks_lines_with_destinations(
+        &segmenter_of(cx),
+        &markdown::prepared(&blocks, definitions, Some(cwd)),
+        definitions,
+        DETAILS_WIDTH,
+        &Tokens::of(cx).transcript_markdown(cx),
+        &Glyphs::UNICODE,
+        true,
+        // The Agent Center uses the oracle's width-and-cwd renderer, which
+        // always writes destinations even when the terminal supports OSC 8.
+        LinkDestinations::Suffix,
+    )
+    .into_iter()
+    .map(|line| {
+        line.into_iter()
+            .map(|rich| {
+                let mut style = rich.style;
+                if let Some(link) = style.link.as_deref() {
+                    style.link = web_destination(link).map(Arc::from);
+                }
+                Span::styled(rich.text, style)
+            })
+            .collect()
+    })
+    .collect()
 }
 
 /// Whether the account's plan is billed directly in dollars (oracle:
@@ -33,22 +81,14 @@ pub fn details(
             return AnyWidget::default();
         };
         let height = usize::try_from(constraints.max_height).unwrap_or(0);
-        let lines = detail_lines(
-            segmenter_of(cx),
-            &look,
-            &strings,
-            &num,
-            row,
-            &agents,
-            height,
-        );
+        let lines = detail_lines(cx, &look, &strings, &num, row, &agents, height);
         top(stacked(lines.into_iter().map(one).collect()))
     })
     .into()
 }
 
 fn detail_lines(
-    seg: Measure,
+    cx: &mut BuildCx<'_>,
     look: &Look,
     strings: &Strings,
     num: &NumSyms,
@@ -56,7 +96,10 @@ fn detail_lines(
     agents: &Shared<Model>,
     height: usize,
 ) -> Vec<Line> {
+    let seg = segmenter_of(cx);
     let model = &**agents;
+    let rendering = Provider::<TuiSettings>::maybe_of(cx, true)
+        .map_or_else(Rendering::default, |settings| settings.rendering);
     let (status_text, dot) = status(row, strings, look);
     let pair =
         |label: &'static str, value: &str| vec![span(label, &look.dim), span(value, &look.plain)];
@@ -95,7 +138,12 @@ fn detail_lines(
     } else {
         prompt_text
     };
-    let mut prompt = flow(seg, &prompt_text, &look.plain);
+    let prompt_text = if rendering.tables {
+        Cow::Borrowed(prompt_text.as_str())
+    } else {
+        keep_tables(&prompt_text)
+    };
+    let mut prompt = markdown_lines(cx, &prompt_text, &row.cwd, rendering.lists);
     if prompt.len() > 2 {
         prompt.truncate(2);
         prompt[1] = vec![span(strings.elision, &look.dim)];
@@ -125,10 +173,15 @@ fn detail_lines(
             }
         }
     }
-    if let Some(message) = &row.details.last_message {
+    if let Some((message, cwd)) = &row.details.last_message {
         activity.push(Vec::new());
         activity.push(vec![span(strings.last_message, &look.dim)]);
-        activity.extend(flow(seg, message, &look.plain));
+        activity.extend(markdown_lines(
+            cx,
+            &preferred(message, rendering),
+            cwd,
+            rendering.lists,
+        ));
     }
     let offline = matches!(
         model.notice,

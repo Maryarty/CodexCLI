@@ -6,13 +6,9 @@
 #   acargo nextest run --profile oracle --no-fail-fast
 #   python3 -I tests/oracle/tools/summary.py            (pass / pending / todo / red per shard)
 #
-# The screen tests whose oracle behaviour needs a slice that does not exist yet
-# are marked `pending(owner, reason)` in tests/pages/agents.rs: they fail by design,
-# printing PENDING[owner]: reason. They stay in the tree unweakened and run in
-# the profile `pending`, out of the default one, so that the default run is
-# green and tests/rules/rules.rs keeps this list and the markers equal:
-#
-#   acargo nextest run --profile pending --no-fail-fast     (every one must fail, with its owner)
+# The `pending` profile runs only the deliberately failing Agent Center
+# screen tests. There are currently none. The rules keep both filters in
+# sync with any `pending(owner, reason)` markers in tests/pages/agents.rs.
 
 # A test that hangs (a wait on a thread that never answers, a PTY scenario whose
 # child never exits) must not eat a run: nextest prints SLOW for a test still
@@ -21,10 +17,10 @@
 # The other profiles inherit it; land-check lists a TIMEOUT like a FAIL.
 [profile.default]
 slow-timeout = { period = "30s", terminate-after = 4 }
-default-filter = "not binary(oracle) and not (binary(screens) and (test(=agents::agents_overview_details_render_markdown) or test(=agents::agents_overview_preview_links_survive_wrapping_and_clipping) or test(=agents::live_center_fixed_shortcuts_yield_to_configured_actions)))"
+default-filter = "not binary(oracle)"
 
 [profile.pending]
-default-filter = "binary(screens) and (test(=agents::agents_overview_details_render_markdown) or test(=agents::agents_overview_preview_links_survive_wrapping_and_clipping) or test(=agents::live_center_fixed_shortcuts_yield_to_configured_actions))"
+default-filter = "none()"
 fail-fast = false
 status-level = "fail"
 final-status-level = "fail"
