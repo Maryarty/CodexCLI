@@ -14,6 +14,7 @@
 //! HTML, the source text is put back: those stay literal.
 
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::sync::Arc;
 
 use rtwk::gestures::ExcludeSelection;
@@ -125,13 +126,16 @@ impl PartialEq for Cited {
     }
 }
 
-struct CitedState;
+#[derive(Default)]
+struct CitedState {
+    live: RefCell<Option<LiveMarkdown>>,
+}
 
 impl StatefulWidget for Cited {
     type State = CitedState;
 
     fn create_state(&self) -> CitedState {
-        CitedState
+        CitedState::default()
     }
 }
 
@@ -145,13 +149,21 @@ impl State for CitedState {
         // a tree with no app above it (a widget on its own) has the config's defaults
         let rendering = Provider::<TuiSettings>::maybe_of(cx, true)
             .map_or_else(Rendering::default, |settings| settings.rendering);
-        let view = view_with(
-            &widget.source,
-            widget.live,
-            widget.cwd.as_deref(),
-            widget.strings,
-            rendering,
-        );
+        let cwd = widget.cwd.as_deref();
+        let mut live = self.live.borrow_mut();
+        let view = if widget.live {
+            let stream = live.get_or_insert_with(LiveMarkdown::default);
+            render(
+                stream_preview::visible(&widget.source),
+                cwd,
+                widget.strings,
+                rendering,
+                Some(stream),
+            )
+        } else {
+            *live = None;
+            view_with(&widget.source, false, cwd, widget.strings, rendering)
+        };
         if let Some(filled) = &widget.filled
             && let Some(blocks) = view.blocks.clone()
             && filled.block < blocks.len()
@@ -223,6 +235,77 @@ impl CitedState {
     }
 }
 
+/// The parser input is the visible text after source rewrites and directive masking.
+#[derive(Default)]
+struct LiveMarkdown {
+    source: String,
+    stream: MarkdownStream,
+    prepared: Option<PreparedBlocks>,
+}
+
+struct PreparedBlocks {
+    cwd: Option<String>,
+    lists: bool,
+    definitions: Definitions,
+    settled: Vec<Block>,
+}
+
+impl LiveMarkdown {
+    fn update(&mut self, source: &str) {
+        if let Some(delta) = source.strip_prefix(self.source.as_str()) {
+            self.stream.add(delta);
+            self.source.push_str(delta);
+        } else {
+            // A completed fence, a directive or a corrected message can replace old input.
+            self.source.clear();
+            self.source.push_str(source);
+            self.stream = MarkdownStream::new(source);
+            self.prepared = None;
+        }
+    }
+
+    fn plain_view(&mut self, source: &str, cwd: Option<&str>, lists: bool) -> MarkdownView {
+        self.update(source);
+        let settled = self.stream.settled();
+        let definitions = self.stream.definitions().clone();
+        let blocks = self.stream.blocks();
+        let cache = self.prepared.get_or_insert_with(|| PreparedBlocks {
+            cwd: cwd.map(str::to_owned),
+            lists,
+            definitions: definitions.clone(),
+            settled: Vec::new(),
+        });
+        if cache.definitions != definitions || cache.cwd.as_deref() != cwd || cache.lists != lists {
+            // A new reference definition can change an earlier, already parsed block.
+            cache.definitions = definitions.clone();
+            cache.cwd = cwd.map(str::to_owned);
+            cache.lists = lists;
+            cache.settled.clear();
+        }
+        let before = cache.settled.len();
+        cache
+            .settled
+            .extend(prepare(&blocks[before..settled], &definitions, cwd, lists));
+        let mut drawn = Vec::with_capacity(blocks.len());
+        drawn.extend(cache.settled.iter().cloned());
+        drawn.extend(prepare(&blocks[settled..], &definitions, cwd, lists));
+        MarkdownView::blocks(drawn, definitions)
+    }
+}
+
+fn prepare(
+    blocks: &[Block],
+    definitions: &Definitions,
+    cwd: Option<&str>,
+    lists: bool,
+) -> Vec<Block> {
+    if lists {
+        prepared(blocks, definitions, cwd)
+    } else {
+        prepared(&plain_lists(blocks), definitions, cwd)
+    }
+}
+
 /// `view` under the user's `tui.rendering` preferences: a disabled table or list renderer keeps
 /// its source text (mermaid and math have no renderer here, so their sources show either way).
 pub fn view_with(
@@ -237,18 +320,30 @@ pub fn view_with(
     } else {
         source
     };
+    render(source, cwd, strings, rendering, None)
+}
+
+fn render(
+    source: &str,
+    cwd: Option<&str>,
+    strings: &Strings,
+    rendering: Rendering,
+    live: Option<&mut LiveMarkdown>,
+) -> MarkdownView {
     let source = inline_vis::rewrite(source, strings.visualization_unavailable);
     let lifted = preferred(&source, rendering);
     let found = directives(&lifted);
     // The marker characters are the app's: text that holds them is shown as it is.
     if found.is_empty() || lifted.contains([OPEN, CLOSE]) {
-        if rendering.lists {
-            return crate::widgets::markdown::view_in(lifted.as_ref(), cwd);
+        if let Some(live) = live {
+            return live.plain_view(&lifted, cwd, rendering.lists);
         }
         let mut stream = MarkdownStream::new(&lifted);
-        let blocks = plain_lists(stream.blocks());
         let definitions = stream.definitions().clone();
-        return MarkdownView::blocks(prepared(&blocks, &definitions, cwd), definitions);
+        return MarkdownView::blocks(
+            prepare(stream.blocks(), &definitions, cwd, rendering.lists),
+            definitions,
+        );
     }
     let found: Vec<Directive> = found
         .into_iter()
@@ -267,17 +362,22 @@ pub fn view_with(
         found: &found,
         cwd,
     };
-    let mut stream = MarkdownStream::new(&masked);
+    let mut cold;
+    let stream = if let Some(live) = live {
+        live.update(&masked);
+        // Directive substitutions depend on their current source, even if masking preserved the
+        // parser input. Keep parser state, but project all the nodes again.
+        live.prepared = None;
+        &mut live.stream
+    } else {
+        cold = MarkdownStream::new(&masked);
+        &mut cold
+    };
     let blocks: Vec<_> = stream
         .blocks()
         .iter()
         .map(|block| Arc::new(directives.block(block)))
         .collect();
-    let blocks = if rendering.lists {
-        blocks
-    } else {
-        plain_lists(&blocks)
-    };
     let definitions: Definitions = stream
         .definitions()
         .iter()
@@ -290,7 +390,10 @@ pub fn view_with(
             (key.clone(), definition)
         })
         .collect();
-    MarkdownView::blocks(prepared(&blocks, &definitions, cwd), definitions)
+    MarkdownView::blocks(
+        prepare(&blocks, &definitions, cwd, rendering.lists),
+        definitions,
+    )
 }
 
 /// The blocks the cell draws for `source` (what `view_with` hands the view: the directives read,
@@ -535,5 +638,87 @@ impl Directives<'_> {
             MdInline::SoftBreak => MdInline::SoftBreak,
             MdInline::HardBreak => MdInline::HardBreak,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::strings::EN;
+    use super::{LiveMarkdown, MarkdownView, Rendering, render, stream_preview, view_with};
+    use std::sync::Arc;
+
+    fn cached(
+        stream: &mut LiveMarkdown,
+        source: &str,
+        cwd: Option<&str>,
+        rendering: Rendering,
+    ) -> MarkdownView {
+        render(
+            stream_preview::visible(source),
+            cwd,
+            &EN,
+            rendering,
+            Some(stream),
+        )
+    }
+
+    #[test]
+    fn live_markdown_matches_cold_parse_when_sources_change() {
+        let chunks = [
+            "# Report\n\n",
+            "See [source][key].\n\n",
+            "~~~md\n| Name | Value |\n",
+            "| ---- | ----- |\n",
+            "| alpha | beta |\n",
+            "~~~\n\n",
+            "> A late quote\n\n",
+            "~~~mermaid\ngraph TD\n",
+            "    A --> B\n",
+            "~~~\n\n",
+            "- :codex-file-citation{",
+            "path=\"Résumé ✨.xlsx\"}\n\n",
+            "[key]: /tmp/project/src/lib.rs:2\n\n",
+            ":codex-followup[Show **more**]{prompt=",
+            "\"secret\"}\n",
+        ];
+        let mut source = String::new();
+        let mut stream = LiveMarkdown::default();
+        let mut rendering = Rendering::default();
+        let mut compare = |source: &str, cwd, rendering| {
+            let live = cached(&mut stream, source, cwd, rendering);
+            let cold = view_with(source, true, cwd, &EN, rendering);
+            assert_eq!(live.blocks, cold.blocks);
+            assert_eq!(live.definitions, cold.definitions);
+        };
+        for chunk in chunks {
+            source.push_str(chunk);
+            compare(&source, Some("/tmp/project"), rendering);
+        }
+        rendering.tables = false;
+        rendering.lists = false;
+        compare(&source, Some("/tmp"), rendering);
+        compare("Replaced answer\n\n- [x] Check", None, rendering);
+    }
+
+    #[test]
+    fn live_markdown_reuses_settled_preparation_until_a_reference_changes() {
+        let mut stream = LiveMarkdown::default();
+        let rendering = Rendering::default();
+        let prefix = "See [source][key].\n\n";
+        let first = cached(&mut stream, prefix, None, rendering).blocks.unwrap();
+        let appended = format!("{prefix}next paragraph\n\n");
+        let second = cached(&mut stream, &appended, None, rendering)
+            .blocks
+            .unwrap();
+        assert!(Arc::ptr_eq(&first[0], &second[0]));
+        let defined = format!("{appended}[key]: https://example.com\n");
+        let third = cached(&mut stream, &defined, None, rendering)
+            .blocks
+            .unwrap();
+        assert!(!Arc::ptr_eq(&second[0], &third[0]));
+        assert_eq!(
+            Some(third),
+            view_with(&defined, true, None, &EN, rendering).blocks
+        );
     }
 }
