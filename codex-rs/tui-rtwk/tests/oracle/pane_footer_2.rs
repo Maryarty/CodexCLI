@@ -18,6 +18,29 @@ fn assert_rows_of(s: &Screen, snap: &str) {
     s.assert_snap_head(snap);
 }
 
+fn usage_banner(presentation: &str, description: &str, actions: serde_json::Value) -> Screen {
+    let mut s = Screen::build(Owner::UiPane).size(70, 16).live().open();
+    s.server_answers(
+        "account/rateLimits/read",
+        serde_json::json!({
+            "rateLimits": {},
+            "rateLimitUpsell": {
+                "banner_type": "credits",
+                "title": "Usage limit reached",
+                "description": description,
+                "ctas": actions,
+                "presentation": presentation,
+            },
+        }),
+    );
+    s.feed(
+        r#"{"step":"screen","dir":"status","ev":{"kind":"account","account":{"chat_gpt":{"email":"user@example.com","plan":"plus"}}}}
+{"step":"screen","dir":"chat","ev":{"status":{"account_usage":true}}}"#,
+    );
+    s.assert_contains("Usage limit reached");
+    s
+}
+
 // ---- oracle: bottom_pane/effort_ignition_tests.rs (6 screen-level tests here; 8 state tests left to ui-pane)
 // ORACLE bottom_pane/effort_ignition_tests.rs:165 max_and_ultra_prompts_render_their_accent_and_glyph kind=ui owner=ui-pane
 #[test]
@@ -290,17 +313,13 @@ fn footer_snapshots() {
 // ORACLE bottom_pane/footer.rs:1672 footer_status_line_truncates_to_keep_mode_indicator kind=ui owner=ui-pane
 #[test]
 fn footer_status_line_truncates_to_keep_mode_indicator() {
-    kit::pending(
-        Owner::UiPane,
-        "no footer status line: no entry chat/footer_status_line_plan_mode (80 columns, Plan collaboration mode, a long status line, 50% context left)",
-    );
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_status_line_plan_mode")
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 8)
+        .script(include_str!("fixtures/pane_footer_1/plan_status.jsonl"))
         .open();
+    s.assert_in_order(&["MODEL", "Context 20% used", "Plan mode"]);
+    s.resize(24, 8);
     s.assert_contains("Plan mode");
-    s.assert_absent("⇧tab to cycle");
-    s.assert_contains("…");
 }
 
 // ---- oracle: bottom_pane/footer/footer_content_tests.rs (3 screen-level tests here; 0 state tests left to ui-pane)
@@ -385,42 +404,55 @@ fn inline_banner_snapshot() {
 // ORACLE bottom_pane/mod.rs:2880 escape_closes_shortcut_help_before_inline_banner kind=ui owner=ui-pane
 #[test]
 fn escape_closes_shortcut_help_before_inline_banner() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry chat/inline_banner_short (an inline banner `Continue working`, 80 columns; chat-live registers entries): the keys are page-tested on the backend banner, tests/pages/chat_status.rs `escape_closes_the_help_before_it_dismisses_the_banner`",
+    let mut s = usage_banner(
+        "dismissible",
+        "Add credits to keep working.",
+        serde_json::json!([{"action":"view_usage","label":"View usage"}]),
     );
-    let mut s = Screen::build(Owner::UiPane)
-        .size(80, 4)
-        .entry("chat", "inline_banner_short")
-        .open();
-    let banner = s.shot();
     s.keys("?");
-    s.assert_rows_differ(&banner);
+    s.assert_contains("Keyboard shortcuts");
     s.keys("esc");
-    s.assert_same_rows(&banner);
+    s.assert_absent("Keyboard shortcuts");
+    s.assert_contains("Usage limit reached");
     s.keys("esc");
-    s.assert_rows_differ(&banner);
+    s.assert_absent("Usage limit reached");
 }
 
 // ORACLE bottom_pane/mod.rs:2909 backend_banner_snapshots_and_numbered_actions kind=snap owner=ui-pane
 #[test]
 fn backend_banner_snapshots_and_numbered_actions() {
-    kit::pending(
-        Owner::UiPane,
-        "no backend banner: no entries chat/backend_banner_personal_limit and chat/backend_banner_workspace_member_credits (44x15, numbered actions; key 2 dispatches the action, which no screen draws)",
-    );
-    let mut s = Screen::build(Owner::UiPane)
-        .size(44, 15)
-        .entry("chat", "backend_banner_personal_limit")
-        .open();
-    s.assert_snap("backend_banner_personal_limit");
-    s.keys("2");
-    let mut s = Screen::build(Owner::UiPane)
-        .size(44, 15)
-        .entry("chat", "backend_banner_workspace_member_credits")
-        .open();
-    s.assert_snap("backend_banner_workspace_member_credits");
-    s.keys("2");
+    for (action, label) in [
+        ("view_usage", "View usage"),
+        ("notify_owner", "Notify owner"),
+    ] {
+        let mut s = usage_banner(
+            "dismissible",
+            "Your included usage is depleted.\nChoose an action to continue.",
+            serde_json::json!([
+                {"action":"unsupported","label":"Hidden action"},
+                {"action":"view_usage","label":"Open usage settings"},
+                {"action":action,"label":label},
+                {"action":"view_usage","label":"Extra action"},
+            ]),
+        );
+        s.resize(44, 15);
+        s.assert_in_order(&[
+            "1. Open usage settings",
+            &format!("2. {label}"),
+            "3. Extra action",
+        ]);
+        s.assert_absent("Hidden action");
+        s.keys("2");
+        s.assert_composer("");
+        if action == "view_usage" {
+            s.assert_opened_urls(&["https://chatgpt.com/settings/usage"]);
+            s.assert_nudges(0);
+        } else {
+            s.assert_opened_urls(&[]);
+            s.assert_nudges(1);
+        }
+        s.assert_contains("Usage limit reached");
+    }
 }
 
 // ORACLE bottom_pane/mod.rs:3016 transition_events_reach_a_view_covered_by_a_modal kind=ui owner=ui-pane
@@ -657,16 +689,14 @@ fn status_and_queued_messages_snapshot() {
 // ORACLE bottom_pane/mod.rs:3838 remote_images_render_above_composer_text kind=ui owner=ui-pane
 #[test]
 fn remote_images_render_above_composer_text() {
-    kit::pending(
-        Owner::UiPane,
-        "no remote images in the composer: no entry chat/remote_images_two (48 columns, two image URLs, empty composer text; the height is the desired height)",
-    );
-    let s = Screen::build(Owner::UiPane)
+    let mut s = Screen::build(Owner::UiPane)
         .size(48, 8)
-        .entry("chat", "remote_images_two")
+        .live()
+        .remote_images(&["https://example.com/one.png", "https://example.com/two.png"])
         .open();
-    s.assert_contains("[Image #1]");
-    s.assert_contains("[Image #2]");
+    s.type_text("draft below images");
+    s.assert_in_order(&["Image #1", "Image #2", "draft below images"]);
+    s.assert_composer("draft below images");
 }
 
 // ORACLE bottom_pane/mod.rs:3892 esc_with_skill_popup_does_not_interrupt_task kind=ui owner=ui-pane
@@ -681,17 +711,17 @@ fn esc_with_skill_popup_does_not_interrupt_task() {
 // ORACLE bottom_pane/mod.rs:3941 esc_dismisses_slash_command_popup_without_interrupting_task kind=snap owner=ui-pane snap=slash_command_popup_dismissed
 #[test]
 fn esc_dismisses_slash_command_popup_without_interrupting_task() {
-    kit::pending(
-        Owner::UiPane,
-        "no running task with the slash command popup: no entry chat/running_slash_popup (`/rev` typed, 60 columns, 6 rows)",
-    );
     let mut s = Screen::build(Owner::UiPane)
-        .size(60, 6)
-        .entry("chat", "running_slash_popup")
+        .size(60, 16)
+        .script(include_str!("fixtures/chat_status_1/running_turn.jsonl"))
         .open();
+    s.type_text("/rev");
+    s.wait_for("/review");
     s.keys("esc");
-    s.assert_contains("/rev");
-    s.assert_snap("slash_command_popup_dismissed");
+    s.assert_absent("/review");
+    s.assert_composer("/rev");
+    s.assert_contains("Working");
+    s.assert_no_request("turn/interrupt");
 }
 
 // ORACLE bottom_pane/mod.rs:4010 esc_with_agent_command_without_popup_does_not_interrupt_task kind=ui owner=ui-pane
@@ -706,16 +736,17 @@ fn esc_with_agent_command_without_popup_does_not_interrupt_task() {
 // ORACLE bottom_pane/mod.rs:4047 esc_release_after_dismissing_agent_picker_does_not_interrupt_task kind=ui owner=ui-pane
 #[test]
 fn esc_release_after_dismissing_agent_picker_does_not_interrupt_task() {
-    kit::pending(
-        Owner::UiPane,
-        "no running task with the agent picker open: no entry chat/running_agent_picker (picker titled `Agents`, a `Main` row); the kit cannot send a key release (gap)",
-    );
     let mut s = Screen::build(Owner::UiPane)
-        .entry("chat", "running_agent_picker")
+        .size(80, 24)
+        .script(include_str!("fixtures/chat_status_1/running_turn.jsonl"))
         .open();
+    s.keys("left");
+    s.assert_contains("Agent command center");
     s.keys("esc");
-    s.assert_absent("Agents");
+    s.key_release("esc");
+    s.assert_absent("Agent command center");
     s.assert_contains("Working");
+    s.assert_interrupts(0);
 }
 
 // ORACLE bottom_pane/mod.rs:4096 esc_interrupts_running_task_when_no_popup kind=ui owner=ui-pane
@@ -730,33 +761,35 @@ fn esc_interrupts_running_task_when_no_popup() {
 // ORACLE bottom_pane/mod.rs:4129 remapped_interrupt_turn_uses_configured_key_including_agent_drafts kind=ui owner=ui-pane
 #[test]
 fn remapped_interrupt_turn_uses_configured_key_including_agent_drafts() {
-    kit::pending(
-        Owner::UiPane,
-        "no running task with `/subagents ` typed (entry chat/running_subagents_command), and the chat reads no `chat.interrupt_turn` binding (the seed sets f12)",
-    );
-    let s = Screen::build(Owner::UiPane)
+    let mut s = Screen::build(Owner::UiPane)
         .keymap(&[("chat.interrupt_turn", "f12")])
-        .entry("chat", "running_subagents_command")
+        .script(include_str!("fixtures/chat_status_1/running_turn.jsonl"))
         .open();
-    s.assert_contains("/subagents");
+    s.type_text("/subagents ");
+    s.keys("esc");
+    s.assert_composer("/subagents");
+    s.assert_interrupts(0);
+    s.keys("f12");
+    s.assert_composer("/subagents");
+    s.assert_interrupts(1);
+    s.type_text("next");
+    s.assert_composer("/subagents next");
 }
 
 // ORACLE bottom_pane/mod.rs:4160 selection_view_esc_respects_remapped_list_cancel kind=ui owner=ui-pane
 #[test]
 fn selection_view_esc_respects_remapped_list_cancel() {
-    kit::pending(
-        Owner::UiPane,
-        "no selection view with a remapped list cancel: no entry chat/selection_view_list (a running list picker); the seed sets list.cancel = q",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .keymap(&[("list.cancel", "q")])
-        .entry("chat", "selection_view_list")
+        .live()
         .open();
-    let shown = s.shot();
+    s.keys("left");
+    s.assert_contains("Agent command center");
     s.keys("esc");
-    s.assert_same_rows(&shown);
+    s.assert_contains("Agent command center");
     s.keys("q");
-    s.assert_rows_differ(&shown);
+    s.assert_absent("Agent command center");
+    s.assert_contains("Ask Codex to do anything");
 }
 
 // ORACLE bottom_pane/mod.rs:4191 esc_routes_to_handle_key_event_when_requested kind=ui owner=ui-pane
@@ -1004,100 +1037,98 @@ fn promoted_banner_uses_picker_hints_and_preserves_the_draft() {
 // ORACLE bottom_pane/tests/actionable_banner_tests.rs:66 hidden_banner_preserves_input_before_render_and_after_resize kind=snap owner=ui-pane
 #[test]
 fn hidden_banner_preserves_input_before_render_and_after_resize() {
-    kit::pending(
-        Owner::UiPane,
-        "no inline banner over the composer: no entry chat/inline_banner_usage_limit (70 columns, `Usage limit reached`, action `View usage`); the composer-gap variant (actionable_banner_with_composer_gap) is not written yet (gap)",
+    let mut s = usage_banner(
+        "dismissible",
+        "",
+        serde_json::json!([{"action":"view_usage","label":"View usage"}]),
     );
-    let mut s = Screen::build(Owner::UiPane)
-        .size(70, 4)
-        .entry("chat", "inline_banner_usage_limit")
-        .open();
+    s.keys("1");
+    s.assert_opened_urls(&["https://chatgpt.com/settings/usage"]);
+    s.resize(70, 1);
     s.assert_absent("View usage");
     s.keys("1");
-    s.assert_contains("1");
-    s.keys("esc");
+    s.assert_opened_urls(&["https://chatgpt.com/settings/usage"]);
+    s.resize(70, 16);
+    s.assert_composer("1");
+    s.keys("backspace");
     s.assert_contains("View usage");
+    s.keys("1");
+    s.assert_opened_urls(&[
+        "https://chatgpt.com/settings/usage",
+        "https://chatgpt.com/settings/usage",
+    ]);
 }
 
 // ORACLE bottom_pane/tests/actionable_banner_tests.rs:153 partially_clipped_banner_preserves_hidden_action_shortcuts kind=ui owner=ui-pane
 #[test]
 fn partially_clipped_banner_preserves_hidden_action_shortcuts() {
-    kit::pending(
-        Owner::UiPane,
-        "no inline banner clipped to the composer row: no entry chat/inline_banner_two_actions (70 columns, `Keep working` and `View usage`, 2 rows: the composer plus one footer row)",
+    let mut s = usage_banner(
+        "dismissible",
+        "",
+        serde_json::json!([
+            {"action":"view_usage","label":"Keep working"},
+            {"action":"open_plus_pricing_web","label":"View plans"},
+        ]),
     );
-    let mut s = Screen::build(Owner::UiPane)
-        .size(70, 2)
-        .entry("chat", "inline_banner_two_actions")
-        .open();
+    // The whole app blanks below four lines. Only one action fits at this height.
+    s.resize(70, 6);
     s.assert_contains("Keep working");
-    s.assert_absent("View usage");
+    s.assert_absent("View plans");
+    s.keys("1");
+    s.assert_opened_urls(&["https://chatgpt.com/settings/usage"]);
     s.keys("2");
-    s.assert_contains("2");
+    s.assert_composer("2");
+    s.assert_opened_urls(&["https://chatgpt.com/settings/usage"]);
 }
 
 // ORACLE bottom_pane/tests/actionable_banner_tests.rs:195 banner_hidden_during_task_waits_for_redraw_before_accepting_dismissal kind=ui owner=ui-pane
 #[test]
 fn banner_hidden_during_task_waits_for_redraw_before_accepting_dismissal() {
-    kit::pending(
-        Owner::UiPane,
-        "no inline banner that hides while a task runs: no entry chat/inline_banner_title_only (70 columns, `Usage limit reached`); the running-task step is not in the kit's seed (gap)",
-    );
-    let mut s = Screen::build(Owner::UiPane)
-        .size(70, 3)
-        .entry("chat", "inline_banner_title_only")
-        .open();
+    let mut s = usage_banner("dismissible", "", serde_json::json!([]));
+    s.feed(r#"{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","items":[],"itemsView":"full","status":"inProgress","error":null}}}}"#);
+    s.assert_contains("Working");
+    s.assert_absent("Usage limit reached");
+    s.keys("esc");
+    s.assert_interrupts(1);
+    s.feed(r#"{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","items":[],"itemsView":"full","status":"interrupted","error":null}}}}"#);
     s.assert_contains("Usage limit reached");
     s.keys("esc");
-    s.assert_contains("Usage limit reached");
+    s.assert_absent("Usage limit reached");
+    s.assert_interrupts(1);
 }
 
 // ORACLE bottom_pane/tests/actionable_banner_tests.rs:221 information_banner_preserves_input_and_honors_dismissal kind=snap owner=ui-pane
 #[test]
 fn information_banner_preserves_input_and_honors_dismissal() {
-    kit::pending(
-        Owner::UiPane,
-        "no information banner: no entries chat/information_banner_persistent and chat/information_banner_dismissible (70 columns, `Usage limit reached`, `You can change models or request more usage.`)",
-    );
-    let mut s = Screen::build(Owner::UiPane)
-        .size(70, 6)
-        .entry("chat", "information_banner_persistent")
-        .open();
-    s.assert_absent("no matches");
-    s.assert_absent("Press a number");
-    s.assert_absent("esc to dismiss");
-    s.assert_snap("information_banner_persistent");
-    s.keys("esc");
-    s.assert_contains("Usage limit reached");
-    s.keys("1");
-    s.assert_contains("1");
-    let mut s = Screen::build(Owner::UiPane)
-        .size(70, 6)
-        .entry("chat", "information_banner_dismissible")
-        .open();
-    s.assert_absent("no matches");
-    s.assert_absent("Press a number");
-    s.assert_contains("esc to dismiss");
-    s.assert_snap("information_banner_dismissible");
-    s.keys("esc");
-    s.assert_absent("Usage limit reached");
-    s.keys("1");
-    s.assert_contains("1");
+    for (presentation, dismissible) in [("inline", false), ("dismissible", true)] {
+        let description = "You can change models or request more usage.";
+        let mut s = usage_banner(presentation, description, serde_json::json!([]));
+        s.assert_contains(description);
+        s.assert_absent("no matches");
+        s.assert_absent("Press a number");
+        s.assert_present("esc to dismiss", dismissible);
+        s.keys("esc");
+        s.assert_present("Usage limit reached", !dismissible);
+        s.keys("1");
+        s.assert_composer("1");
+        s.assert_opened_urls(&[]);
+    }
 }
 
 // ORACLE bottom_pane/tests/actionable_banner_tests.rs:263 banner_copy_preserves_wrapped_url_destinations kind=snap owner=ui-pane
 #[test]
 fn banner_copy_preserves_wrapped_url_destinations() {
-    kit::pending(
-        Owner::UiPane,
-        "no inline banner with a wrapped URL: no entry chat/banner_wrapped_url (40 columns, `Review the release`, the description `Open https://github.com/openai/codex/pull/12345?diff=split before continuing.`)",
+    let url = "https://github.com/openai/codex/pull/12345?diff=split";
+    let mut s = usage_banner(
+        "inline",
+        &format!("Open ({url}), before reading ftp://example.com."),
+        serde_json::json!([]),
     );
-    let s = Screen::build(Owner::UiPane)
-        .size(40, 4)
-        .entry("chat", "banner_wrapped_url")
-        .open();
-    s.assert_contains("Review the release");
-    // The oracle checks the wrapped destination's cells link to the whole URL; the kit's link assert takes one text on one row, and the URL wraps (gap, reported).
+    s.resize(40, 16);
+    s.wrapped_link_cells(url);
+    s.assert_links_spell(url);
+    s.assert_no_link("Open");
+    s.assert_no_link("ftp://example.com");
 }
 
 // ---- oracle: bottom_pane/unified_exec_footer.rs (3 screen-level tests here; 0 state tests left to ui-pane)

@@ -8,6 +8,7 @@ use rtwk::navigation::Navigator;
 use rtwk::provider::read;
 
 use codex_tui_core::commands::Target;
+use codex_tui_core::keymap::{actions::CHAT_INTERRUPT_TURN, fixed};
 use codex_tui_core::screens::backtrack::{EscStep, Targets};
 use codex_tui_core::screens::{ScreenThreadIntent, chat};
 use codex_tui_core::threads::ThreadModel;
@@ -76,18 +77,11 @@ impl ChatState {
             }
         }
         if thread.can_interrupt() {
-            // Esc with steers waiting interrupts and sends them as one
-            // message (`submit_pending_steers_after_interrupt`).
-            // In review mode a waiting rejected steer takes the same
-            // path: the core answers with the review warning.
-            let waiting = !thread.pending_steers().is_empty()
-                || (thread.screen_slots().chat.review_mode()
-                    && !thread.rejected_steers().is_empty());
-            if !waiting {
-                cx.emit(&hs.interrupt, thread.id().clone());
-            } else {
-                let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::InterruptForSteers);
-                cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
+            let keymap = crate::keymap::keymap(cx);
+            if crate::keymap::press_for(fixed::ESCAPE)
+                .is_some_and(|esc| crate::keymap::pressed(&keymap, CHAT_INTERRUPT_TURN, &esc))
+            {
+                interrupt(&thread, cx, hs);
             }
             return Some(Rebuild::No);
         }
@@ -107,5 +101,21 @@ impl ChatState {
             }
         }
         None
+    }
+}
+
+/// Interrupting with steers waiting sends them together. The core also handles a waiting
+/// rejected steer in a review turn.
+pub(super) fn interrupt(thread: &ThreadModel, cx: &mut Cx<'_, ChatState>, hs: &Hs) {
+    if !thread.can_interrupt() {
+        return;
+    }
+    let waiting = !thread.pending_steers().is_empty()
+        || (thread.screen_slots().chat.review_mode() && !thread.rejected_steers().is_empty());
+    if waiting {
+        let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::InterruptForSteers);
+        cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
+    } else {
+        cx.emit(&hs.interrupt, thread.id().clone());
     }
 }

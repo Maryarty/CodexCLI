@@ -21,7 +21,9 @@ use codex_tui_core::keymap::actions::CHAT_INTERRUPT_TURN;
 use codex_tui_core::screens::approvals::guardian::Reviewing;
 use codex_tui_core::screens::{ScreenStates, chat};
 use codex_tui_core::threads::compaction::Running as ActiveCompaction;
-use codex_tui_core::threads::{Failure, Notice, ThreadModel, TurnState, WaitStreak};
+use codex_tui_core::threads::{
+    Failure, Item, MessagePhase, Notice, ThreadModel, TurnState, WaitStreak,
+};
 
 use crate::app::theme;
 use crate::l10n::strings as l10n;
@@ -43,6 +45,8 @@ pub(super) struct Run {
     pub can_interrupt: bool,
     pub read_only: bool,
     transcript_empty: bool,
+    /// A completed final answer can replace the Working row while input still queues for the turn.
+    final_answer: bool,
     /// The thread's last failure, or the one the chat screen keeps.
     failure: Option<Failure>,
     chat: chat::ThreadPart,
@@ -70,6 +74,34 @@ pub(super) struct Run {
 impl Run {
     pub(super) fn of(thread: &ThreadModel) -> Run {
         let screen_error = thread.screen_slots().chat.error.clone().map(Failure::from);
+        let transcript = thread.transcript();
+        let final_answer = if let TurnState::Running(running) = thread.turn() {
+            (0..transcript.len())
+                .rev()
+                .filter_map(|at| transcript.get(at))
+                .take_while(|(key, _)| key.turn == running.turn)
+                .find(|(_, item)| {
+                    !matches!(
+                        item,
+                        Item::Warning { .. }
+                            | Item::LocalWarning(_)
+                            | Item::Deprecation { .. }
+                            | Item::Note(_)
+                            | Item::Status { .. }
+                    )
+                })
+                .is_some_and(|(_, item)| {
+                    matches!(
+                        item,
+                        Item::Agent {
+                            phase: Some(MessagePhase::FinalAnswer),
+                            ..
+                        }
+                    )
+                })
+        } else {
+            false
+        };
         let reasoning = match thread.turn() {
             TurnState::Running(running) => [false, true].map(|raw| {
                 thread
@@ -84,7 +116,8 @@ impl Run {
             turn: thread.turn().clone(),
             can_interrupt: thread.can_interrupt(),
             read_only: thread.read_only(),
-            transcript_empty: thread.transcript().is_empty(),
+            transcript_empty: transcript.is_empty(),
+            final_answer,
             failure: thread.last_error().cloned().or(screen_error),
             chat: thread.screen_slots().chat.clone(),
             reasoning,
@@ -271,7 +304,11 @@ impl StatelessWidget for StatusSlot {
                 })
                 .with_key(Key::value("windows-sandbox-setup")),
             )
-        } else if running.is_some() || compacting || review.is_some() {
+        } else if compacting
+            || review.is_some()
+            || (running.is_some()
+                && (!run.final_answer || waiting.is_some() || run.chat.header().is_some()))
+        {
             working = true;
             let (spinner, shimmer) = if run.wait_only() {
                 (spinner.still(), shimmer.still())

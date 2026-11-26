@@ -564,31 +564,25 @@ fn finalized_voice_transcript_renders_beside_the_streamed_cell() {
 // ORACLE chatwidget/tests/status_and_layout.rs:78 resumed_session_hides_unknown_token_usage_until_an_update_arrives kind=snap owner=ui-pane
 #[test]
 fn resumed_session_hides_unknown_token_usage_until_an_update_arrives() {
-    kit::pending(
-        Owner::UiPane,
-        "no context-window footer or status-line token items on the chat screen",
-    );
-    // oracle: a resumed session without token info shows no "context left" text (the inline snapshot is "(hidden)");
-    // after a token update with 12700 of 13000 the status line reads the four items.
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    s.assert_absent("context left");
-    // needs feed: status line items context-remaining, context-used, total-input-tokens, total-output-tokens; token count 12700/13000
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .replay(vec![kit::agent_turn("turn-1", &["Loaded previously."])])
+        .open();
+    s.assert_contains("Loaded previously.");
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"items":["context-remaining","context-used","total-input-tokens","total-output-tokens"]}}}"#);
+    s.assert_absent("Context");
+    s.assert_absent("0 in · 0 out");
+    s.feed(r#"{"step":"notify","message":{"method":"thread/tokenUsage/updated","params":{"threadId":"replayed-1","turnId":"turn-1","tokenUsage":{"total":{"totalTokens":12700,"inputTokens":0,"cachedInputTokens":0,"outputTokens":0,"reasoningOutputTokens":0},"last":{"totalTokens":12700,"inputTokens":0,"cachedInputTokens":0,"outputTokens":0,"reasoningOutputTokens":0},"modelContextWindow":13000}}}}"#);
     s.assert_contains("Context 30% left · Context 70% used · 0 in · 0 out");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:124 app_server_cyber_policy_error_renders_dedicated_notice kind=ui owner=ui-pane
 #[test]
 fn app_server_cyber_policy_error_renders_dedicated_notice() {
-    kit::pending(
-        Owner::UiPane,
-        "no cyber-policy notice cell on the chat screen (errors draw a plain failure line)",
-    );
-    // oracle: an error with CyberPolicy info on gpt-5.6-sol makes one history cell, the dedicated notice, not the
-    // server's fallback message.
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: error "server fallback message" with CyberPolicy info
+    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    s.feed(r#"{"step":"notify","message":{"method":"error","params":{"threadId":"thread-1","turnId":"turn-1","willRetry":false,"error":{"message":"server fallback message","codexErrorInfo":"cyberPolicy","additionalDetails":null,"misalignment":null}}}}"#);
     s.assert_contains("This content can’t be shown");
-    s.assert_contains("We take extra care with some cybersecurity requests");
+    s.assert_reads("We take extra care with some cybersecurity requests");
     s.assert_contains("Apply for Daybreak");
     s.assert_absent("server fallback message");
 }
@@ -623,17 +617,17 @@ fn daybreak_refusal_offers_enable_for_the_next_turn() {
 // ORACLE chatwidget/tests/status_and_layout.rs:370 app_server_model_verification_renders_warning kind=ui owner=ui-pane
 #[test]
 fn app_server_model_verification_renders_warning() {
-    kit::pending(
-        Owner::UiPane,
-        "no model-verification warning cell on the chat screen",
-    );
-    // oracle: a TrustedAccessForCyber verification makes one transcript cell with the four strings.
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: model verification TrustedAccessForCyber
-    s.assert_contains("multiple flags for possible cybersecurity risk");
-    s.assert_contains("extra safety checks are on");
-    s.assert_contains("Trusted Access for Cyber");
-    s.assert_contains("https://chatgpt.com/cyber");
+    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    s.feed(r#"{"step":"notify","message":{"method":"model/verification","params":{"threadId":"thread-1","turnId":"turn-1","verifications":["trustedAccessForCyber"]}}}"#);
+    s.keys("f2");
+    for text in [
+        "multiple flags for possible cybersecurity risk",
+        "extra safety checks are on",
+        "Trusted Access for Cyber",
+        "https://chatgpt.com/cyber",
+    ] {
+        s.assert_reads(text);
+    }
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:464 status_line_git_summary_items_render_values kind=ui owner=ui-pane
@@ -1144,17 +1138,39 @@ fn streaming_final_answer_keeps_task_running_state() {
 // ORACLE chatwidget/tests/status_and_layout.rs:2442 answer_phase_controls_working_status_snapshot kind=snap owner=ui-pane snap=single_line_final_answer_hides_working_status snap=single_line_partial_answer_keeps_working_status
 #[test]
 fn answer_phase_controls_working_status_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "no Working status row that hides on a final answer and stays on a partial one",
-    );
-    // oracle: width 40, a 10-row VT screen: the final-answer phase hides the Working row; the partial phase keeps it.
-    let final_answer = Screen::build(Owner::UiPane).size(40, 10).live().open();
-    // needs feed: user message "count to 1", turn started, assistant message "1" with the FinalAnswer phase
-    final_answer.assert_snap("single_line_final_answer_hides_working_status");
-    let partial = Screen::build(Owner::UiPane).size(40, 10).live().open();
-    // needs feed: the same with the PartialAnswer phase
-    partial.assert_snap("single_line_partial_answer_keeps_working_status");
+    for (phase, working) in [
+        (Some("final_answer"), false),
+        (Some("partial_answer"), true),
+        (Some("commentary"), true),
+        (None, true),
+    ] {
+        let mut s = Screen::build(Owner::UiPane)
+            .size(40, 10)
+            .script(include_str!("fixtures/chat_status_1/running_turn.jsonl"))
+            .open();
+        s.assert_contains("Working");
+        s.feed(&serde_json::json!({"step": "notify", "message": {
+            "method": "item/completed", "params": {
+                "threadId": "thread-1", "turnId": "turn-1",
+                "item": {"type": "agentMessage", "id": "msg-1", "text": "The answer is one.", "phase": phase},
+                "completedAtMs": 0
+            }
+        }}).to_string());
+        s.assert_contains("The answer is one.");
+        s.assert_present("Working", working);
+        s.feed(r#"{"step":"notify","message":{"method":"warning","params":{"threadId":"thread-1","message":"Unrelated warning after answer."}}}"#);
+        s.assert_present("Working", working);
+        s.type_text("queued submission");
+        s.keys("tab");
+        s.assert_composer("");
+        s.assert_contains("queued submission");
+        s.assert_no_request("turn/start");
+        s.assert_present("Working", working);
+        if !working {
+            s.feed(r#"{"step":"notify","message":{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"commandExecution","id":"after-final","command":"echo done","cwd":"/tmp","processId":null,"source":"agent","status":"inProgress","commandActions":[{"type":"unknown","command":"echo done"}],"aggregatedOutput":null,"exitCode":null,"durationMs":null},"startedAtMs":0}}}"#);
+            s.assert_contains("Working");
+        }
+    }
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:2490 ctrl_c_interrupt_pauses_active_goal_turn kind=ui owner=ui-pane
@@ -1360,9 +1376,9 @@ fn status_widget_active_snapshot() {
 // ORACLE chatwidget/tests/status_and_layout.rs:3157 warning_event_adds_warning_history_cell kind=ui owner=ui-pane
 #[test]
 fn warning_event_adds_warning_history_cell() {
-    kit::pending(Owner::UiPane, "no warning history cell on the chat screen");
-    // oracle: a warning event adds one history cell with the message.
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: warning "test warning message"
-    s.assert_contains("test warning message");
+    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    s.feed(r#"{"step":"notify","message":{"method":"warning","params":{"threadId":"thread-1","message":"test warning message"}}}"#);
+    s.assert_absent("test warning message");
+    s.keys("f2");
+    s.assert_text_count("test warning message", 1);
 }

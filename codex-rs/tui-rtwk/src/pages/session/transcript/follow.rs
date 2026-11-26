@@ -16,7 +16,7 @@ use rtwk::editing::TextEditingController;
 use rtwk::focus::KeyPress;
 use rtwk::foundation::{Listenable, ListenableBuilder};
 use rtwk::gestures::{GestureDetector, MouseRegion, PointerEvent};
-use rtwk::layout::{Center, Column, Expanded, Flexible, MainAxisSize, Row, SizedBox};
+use rtwk::layout::{Center, Column, Expanded, MainAxisSize, Row, SizedBox};
 use rtwk::provider::{select, watch};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, segmenter_of};
@@ -36,8 +36,8 @@ use super::history;
 use super::strings::{self, Strings};
 
 /// The row above the composer, there while the window has the room (the oracle
-/// reserves it, so the composer does not move when the control appears; it is
-/// a flexible child of the bottom pane, the first thing a short window clips):
+/// reserves it, so the composer does not move when the control appears; the
+/// bottom pane limits its height along with the inline banner):
 /// the control while the reader is away, or the result of the last copy (the oracle's
 /// `composer_gap.rs`: it wins over the control). With `status_above` (the working line
 /// or the previews are above), a blank row precedes the control to set it
@@ -58,7 +58,7 @@ pub fn gap<S>(
     };
     let copied = watch::<Shown, _>(cx);
     let listenable = Rc::new(follow.listenable());
-    let builder = ListenableBuilder::new(listenable, move |_, _| {
+    ListenableBuilder::new(listenable, move |_, _| {
         let blank: AnyWidget = SizedBox::new(None, Some(1), None).into();
         let plain = if follow.away() {
             let control = FollowControl {
@@ -102,8 +102,8 @@ pub fn gap<S>(
             .into(),
             None => plain,
         }
-    });
-    Flexible::new(1, builder).into()
+    })
+    .into()
 }
 
 /// The control: a label in the surface of the user's messages, the widest
