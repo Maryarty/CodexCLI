@@ -37,7 +37,7 @@ use codex_tui_core::threads::{inline_vis, stream_preview};
 
 use crate::widgets::markdown::prepared;
 
-use super::markdown::{plain_lists, preferred};
+use super::markdown::{LiveTableSource, plain_lists, preferred};
 use super::strings::Strings;
 
 /// Private-use characters around a directive's number: letters to the
@@ -235,9 +235,15 @@ impl CitedState {
     }
 }
 
-/// The parser input is the visible text after source rewrites and directive masking.
 #[derive(Default)]
 struct LiveMarkdown {
+    tables: LiveTableSource,
+    parser: LiveParser,
+}
+
+/// The parser input is the visible text after source rewrites and directive masking.
+#[derive(Default)]
+struct LiveParser {
     source: String,
     stream: MarkdownStream,
     prepared: Option<PreparedBlocks>,
@@ -250,7 +256,7 @@ struct PreparedBlocks {
     settled: Vec<Block>,
 }
 
-impl LiveMarkdown {
+impl LiveParser {
     fn update(&mut self, source: &str) {
         if let Some(delta) = source.strip_prefix(self.source.as_str()) {
             self.stream.add(delta);
@@ -331,14 +337,27 @@ fn render(
     live: Option<&mut LiveMarkdown>,
 ) -> MarkdownView {
     let source = inline_vis::rewrite(source, strings.visualization_unavailable);
-    let lifted = preferred(&source, rendering);
-    let found = directives(&lifted);
+    if let Some(live) = live {
+        let lifted = live.tables.prepare(&source, rendering.tables);
+        render_prepared(lifted, cwd, rendering, Some(&mut live.parser))
+    } else {
+        render_prepared(&preferred(&source, rendering), cwd, rendering, None)
+    }
+}
+
+fn render_prepared(
+    lifted: &str,
+    cwd: Option<&str>,
+    rendering: Rendering,
+    live: Option<&mut LiveParser>,
+) -> MarkdownView {
+    let found = directives(lifted);
     // The marker characters are the app's: text that holds them is shown as it is.
     if found.is_empty() || lifted.contains([OPEN, CLOSE]) {
         if let Some(live) = live {
-            return live.plain_view(&lifted, cwd, rendering.lists);
+            return live.plain_view(lifted, cwd, rendering.lists);
         }
-        let mut stream = MarkdownStream::new(&lifted);
+        let mut stream = MarkdownStream::new(lifted);
         let definitions = stream.definitions().clone();
         return MarkdownView::blocks(
             prepare(stream.blocks(), &definitions, cwd, rendering.lists),
@@ -358,7 +377,7 @@ fn render(
     }
     masked.push_str(&lifted[end..]);
     let directives = Directives {
-        source: &lifted,
+        source: lifted,
         found: &found,
         cwd,
     };
@@ -678,6 +697,11 @@ mod tests {
             "- :codex-file-citation{",
             "path=\"Résumé ✨.xlsx\"}\n\n",
             "[key]: /tmp/project/src/lib.rs:2\n\n",
+            "<!-- :codex-file-citation{path=\"hidden.md\"} -->\n\n",
+            "::codex-inline-vis{",
+            "data=example}\n\n",
+            ":codex-file-citation{path=\"Named\n",
+            "report.md\"}\n\n",
             ":codex-followup[Show **more**]{prompt=",
             "\"secret\"}\n",
         ];

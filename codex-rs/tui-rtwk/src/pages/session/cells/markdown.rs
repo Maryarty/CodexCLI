@@ -29,15 +29,85 @@ struct Fence {
     quoted: bool,
 }
 
+/// A source boundary that future input cannot change, and where it ends after rewriting.
+#[derive(Default)]
+struct Checkpoint {
+    source: usize,
+    output: usize,
+}
+
+impl Checkpoint {
+    fn unchanged(source: &str) -> Self {
+        let complete = source.rfind('\n').map_or(0, |at| at + 1);
+        Self {
+            source: complete,
+            output: complete,
+        }
+    }
+}
+
+/// The normalized prefix of a live message. Only hold complete lines that
+/// future chunks cannot change under the same table setting.
+#[derive(Default)]
+pub(super) struct LiveTableSource {
+    stable_source: String,
+    output: String,
+    stable_output: usize,
+    tables: bool,
+}
+
+impl LiveTableSource {
+    pub(super) fn prepare(&mut self, source: &str, tables: bool) -> &str {
+        let remaining = if self.tables == tables
+            && let Some(remaining) = source.strip_prefix(self.stable_source.as_str())
+        {
+            remaining
+        } else {
+            self.tables = tables;
+            self.stable_source.clear();
+            self.stable_output = 0;
+            source
+        };
+        self.output.truncate(self.stable_output);
+        let (tail, stable) = if tables {
+            lift_fences::<true>(remaining)
+        } else {
+            literal_tables::<true>(remaining)
+        };
+        self.output.push_str(&tail);
+        self.stable_source.push_str(&remaining[..stable.source]);
+        self.stable_output += stable.output;
+        &self.output
+    }
+}
+
+fn has_fence(source: &str) -> bool {
+    source.contains("```") || source.contains("~~~")
+}
+
 /// `source` with its table-holding Markdown fences unwrapped.
 pub fn lift_markdown_fences(source: &str) -> Cow<'_, str> {
-    if !source.contains("```") && !source.contains("~~~") {
-        return Cow::Borrowed(source);
+    lift_fences::<false>(source).0
+}
+
+fn lift_fences<const LIVE: bool>(source: &str) -> (Cow<'_, str>, Checkpoint) {
+    if !has_fence(source) {
+        let checkpoint = if LIVE {
+            Checkpoint::unchanged(source)
+        } else {
+            Checkpoint::default()
+        };
+        return (Cow::Borrowed(source), checkpoint);
     }
     let mut out = String::with_capacity(source.len());
+    let mut read = 0;
+    let mut stable = Checkpoint::default();
     // The open fence, whether it may unwrap, and its lines so far.
     let mut open: Option<(Fence, bool, Vec<&str>)> = None;
     for line in source.split_inclusive('\n') {
+        if LIVE {
+            read += line.len();
+        }
         if let Some((fence, markdown, mut body)) = open.take() {
             if is_close(line, fence) {
                 if markdown && holds_table(&body, fence.quoted) {
@@ -51,18 +121,22 @@ pub fn lift_markdown_fences(source: &str) -> Cow<'_, str> {
                 body.push(line);
                 open = Some((fence, markdown, body));
             }
-            continue;
-        }
-        if let Some((fence, markdown)) = open_fence(line) {
+        } else if let Some((fence, markdown)) = open_fence(line) {
             open = Some((fence, markdown, vec![line]));
         } else {
             out.push_str(line);
+        }
+        if LIVE && open.is_none() && line.ends_with('\n') {
+            stable = Checkpoint {
+                source: read,
+                output: out.len(),
+            };
         }
     }
     if let Some((_, _, body)) = open {
         out.extend(body);
     }
-    Cow::Owned(out)
+    (Cow::Owned(out), stable)
 }
 
 /// `source` as the `tui.rendering` preferences read it: the table-holding Markdown
@@ -81,11 +155,21 @@ pub fn keep_tables(source: &str) -> Cow<'_, str> {
     if !source.contains('|') {
         return Cow::Borrowed(source);
     }
+    literal_tables::<false>(source).0
+}
+
+fn literal_tables<const LIVE: bool>(source: &str) -> (Cow<'_, str>, Checkpoint) {
+    if LIVE && !source.contains('|') && !has_fence(source) {
+        return (Cow::Borrowed(source), Checkpoint::unchanged(source));
+    }
     let lines: Vec<&str> = source.split_inclusive('\n').collect();
     let mut out = String::with_capacity(source.len() + 16);
-    let mut at = 0;
+    let (mut at, mut read) = (0, 0);
+    let mut stable = Checkpoint::default();
     while at < lines.len() {
-        if let Some((marker, len, markdown, quoted)) = fence_start(lines[at]) {
+        let line = lines[at];
+        let complete = |index: usize| lines.get(index).is_some_and(|line| line.ends_with('\n'));
+        let (end, settled) = if let Some((marker, len, markdown, quoted)) = fence_start(line) {
             // the block ends at its closing line; one still open takes the rest
             let close = (at + 1..lines.len()).find(|&index| fence_end(lines[index], marker, len));
             let end = close.map_or(lines.len(), |close| close + 1);
@@ -94,16 +178,29 @@ pub fn keep_tables(source: &str) -> Cow<'_, str> {
             } else {
                 out.extend(lines[at..end].iter().copied());
             }
-            at = end;
+            (end, LIVE && close.is_some_and(complete))
         } else if let Some(end) = table_end(&lines, at) {
             literal(&mut out, &lines[at..end]);
-            at = end;
+            // Commit only after consuming its terminator. If that line is replaced,
+            // the generated fence length may change.
+            (end, false)
         } else {
-            out.push_str(lines[at]);
-            at += 1;
+            out.push_str(line);
+            // A possible header can only be settled together with its next line.
+            (at + 1, LIVE && complete(at) && !line.contains('|'))
+        };
+        if LIVE {
+            read += lines[at..end].iter().map(|line| line.len()).sum::<usize>();
+            if settled {
+                stable = Checkpoint {
+                    source: read,
+                    output: out.len(),
+                };
+            }
         }
+        at = end;
     }
-    Cow::Owned(out)
+    (Cow::Owned(out), stable)
 }
 
 /// A fence opened on `line`, in a quote or a list item too: its marker and length, whether
@@ -152,7 +249,11 @@ fn row(line: &str) -> &str {
 /// the rows with a pipe up to a blank line or the end of the quote.
 fn table_end(lines: &[&str], at: usize) -> Option<usize> {
     let header = row(lines[at]);
-    if !is_header(header) || is_delimiter(header) || !is_delimiter(row(lines.get(at + 1)?)) {
+    if !header.contains('|')
+        || !is_header(header)
+        || is_delimiter(header)
+        || !is_delimiter(row(lines.get(at + 1)?))
+    {
         return None;
     }
     Some(
@@ -351,4 +452,96 @@ fn is_delimiter(line: &str) -> bool {
             body.len() >= 3 && body.bytes().all(|byte| byte == b'-')
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LiveTableSource, Rendering, preferred};
+
+    #[test]
+    fn live_table_source_matches_whole_at_each_character_boundary() {
+        let source = concat!(
+            "Summary.\r\n\r\n",
+            "~~~rust\nlet α = 3;\n~~~\n\n",
+            "> ~~~markdown\n> | Héader | Value |\n> | ---- | ----- |\n> | one | two |\n> ~~~\n\n",
+            "Name | Value\n---- | -----\nthis \\| thing | that\n\n",
+            "- ~~~md\n  | Name | Value |\n  | ---- | ----- |\n  | \x60name\x60 | \x60value\x60 |\n  ~~~\n\n",
+            "~~~mermaid\ngraph TD\nA --> B\n~~~\n\n",
+            "Final paragraph.",
+        );
+        for tables in [true, false] {
+            let rendering = Rendering {
+                tables,
+                ..Rendering::default()
+            };
+            let mut prepared = LiveTableSource::default();
+            for end in source
+                .char_indices()
+                .map(|(end, _)| end)
+                .chain([source.len()])
+            {
+                let prefix = &source[..end];
+                assert_eq!(
+                    prepared.prepare(prefix, tables),
+                    preferred(prefix, rendering)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn live_table_source_keeps_lookahead_in_the_rewritable_suffix() {
+        let mut prepared = LiveTableSource::default();
+        let introduction = "Start.\n\n";
+        let incomplete_fence = concat!(
+            "Start.\n\n",
+            "~~~md\n| Name | Value |\n| ---- | ----- |\n| A | B |\n~~~",
+        );
+        assert_eq!(
+            prepared.prepare(incomplete_fence, true),
+            preferred(incomplete_fence, Rendering::default())
+        );
+        assert_eq!(prepared.stable_source, introduction);
+        let changed_close = [incomplete_fence, " and more\n"].concat();
+        assert_eq!(
+            prepared.prepare(&changed_close, true),
+            preferred(&changed_close, Rendering::default())
+        );
+        assert_eq!(prepared.stable_source, introduction);
+
+        let table = "Start.\n\nA | B\n--- | ---\none | two\n";
+        let prefs = Rendering {
+            tables: false,
+            ..Rendering::default()
+        };
+        assert_eq!(prepared.prepare(table, false), preferred(table, prefs));
+        assert_eq!(prepared.stable_source, introduction);
+        let finished = [table, "Done.\n"].concat();
+        assert_eq!(
+            prepared.prepare(&finished, false),
+            preferred(&finished, prefs)
+        );
+        assert_eq!(prepared.stable_source, finished);
+        let longer_table = [table, "new | \x60\x60\x60\x60\n"].concat();
+        assert_eq!(
+            prepared.prepare(&longer_table, false),
+            preferred(&longer_table, prefs)
+        );
+        assert_eq!(prepared.stable_source, introduction);
+        assert_eq!(
+            prepared.prepare(table, true),
+            preferred(table, Rendering::default())
+        );
+        // With tables disabled, a prefix without any pipe can already contain an
+        // open code fence. A later pipe row still belongs to it.
+        let code = [introduction, "~~~rust\nplain code\n"].concat();
+        assert_eq!(prepared.prepare(&code, false), preferred(&code, prefs));
+        assert_eq!(prepared.stable_source, introduction);
+        let code_with_pipes = [code.as_str(), "A | B\n--- | ---\n~~~\n"].concat();
+        assert_eq!(
+            prepared.prepare(&code_with_pipes, false),
+            preferred(&code_with_pipes, prefs)
+        );
+        assert_eq!(prepared.prepare("", false), "");
+    }
 }
