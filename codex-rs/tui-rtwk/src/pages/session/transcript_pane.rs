@@ -18,7 +18,7 @@ use rtwk::scroll::{
 use rtwk::style::{Attrs, Style};
 use rtwk::text::segmenter_of;
 use rtwk::{
-    AnyWidget, BuildCx, Cx, Key, LayoutBuilder, NotificationListener, Rebuild, State,
+    AnyWidget, BuildCx, Cx, GlobalKey, Key, LayoutBuilder, NotificationListener, Rebuild, State,
     StatefulWidget, StatelessWidget, impl_widget,
 };
 
@@ -93,6 +93,7 @@ pub(super) struct ViewportState {
     first: RefCell<Option<(ThreadId, ItemKey)>>,
     /// Actual constraints of the pane, supplied by its layout builder.
     width: i32,
+    list_key: RefCell<Option<(ThreadId, bool, GlobalKey)>>,
     revealed_rows: RefCell<Option<RevealedRows>>,
     scan_first: RefCell<Option<(ThreadId, ItemKey, usize)>>,
     scan_match: RefCell<Option<(ItemKey, String)>>,
@@ -234,6 +235,21 @@ pub(super) enum Msg {
 }
 
 impl ViewportState {
+    /// Keep the native list when its optional wheel policy changes. Thread changes and
+    /// changes of list direction still give it its own element.
+    fn list_key(&self, thread: &ThreadId, reverse: bool) -> Key {
+        let mut mounted = self.list_key.borrow_mut();
+        if let Some((owner, direction, key)) = mounted.as_ref()
+            && owner == thread
+            && *direction == reverse
+        {
+            return key.into();
+        }
+        let key = GlobalKey::new();
+        *mounted = Some((thread.clone(), reverse, key.clone()));
+        key.into()
+    }
+
     /// The visible rows: runs of explorations share one, and the reasoning
     /// summary and the warnings show only in the detailed transcript (oracle
     /// `ReasoningSummaryCell::transcript_only`, `WarningHistoryCell`). With the
@@ -718,6 +734,7 @@ impl StatefulWidget for Pane {
             shown: RefCell::default(),
             first: RefCell::default(),
             width: Room::default().width,
+            list_key: RefCell::default(),
             revealed_rows: RefCell::default(),
             scan_first: RefCell::default(),
             scan_match: RefCell::default(),
@@ -1511,19 +1528,23 @@ impl State for ViewportState {
                 .into(),
             None => list.into(),
         };
-        let list = match wheel_step {
-            Some(step) => {
-                let step = step.min(f64::from(f32::MAX)) as f32;
-                ScrollConfiguration::new(ScrollBehavior::fixed(step), list).into()
-            }
-            None => list,
-        };
         // A short reverse list reports its measured height to Align. Its live rows can
         // grow during layout without rebuilding the list widget.
-        let list = if reverse {
+        let list: AnyWidget = if reverse {
             Align::new(Alignment::BOTTOM_LEFT, list).into()
         } else {
             list
+        };
+        let list = list.with_key(self.list_key(&thread_id, reverse));
+        let list = match wheel_step {
+            Some(step) => {
+                // Keep positive speeds representable and each native delta within i32, even
+                // across the longest stream that rtwk accumulates in i64.
+                let max_step = (i32::MAX as f32).next_down();
+                let step = (step as f32).clamp(f32::from_bits(1), max_step);
+                ScrollConfiguration::new(ScrollBehavior::fixed(step), list).into()
+            }
+            None => list,
         };
         let send = cx.local_sender();
         let follow = widget.follow.clone();

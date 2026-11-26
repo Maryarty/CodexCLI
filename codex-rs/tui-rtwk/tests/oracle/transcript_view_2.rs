@@ -891,7 +891,7 @@ fn transcript_footer_keys_remain_distinct_from_prose_and_query_text() {
 fn wheel_reader(overlay: bool, speed: Option<f64>) -> Screen {
     let open = Screen::build(Owner::ChatLive).size(60, 16).live();
     let mut s = if overlay { open.view_overlay() } else { open }.open();
-    if let Some(speed) = speed {
+    if speed.is_some() {
         s.mouse_scroll_speed(speed);
     }
     let rows = (1..=120)
@@ -914,7 +914,7 @@ fn first_wheel_row(s: &Screen) -> i32 {
                 .parse()
                 .ok()
         })
-        .expect("a numbered transcript row")
+        .unwrap_or_else(|| panic!("no numbered transcript row:\n{}", s.text()))
 }
 
 // ORACLE transcript_view/input_tests.rs:8 mouse_scroll_speed_scales_rows_and_accumulates_fractional_movement kind=snap owner=chat-live snap=mouse_scroll_speed_scales_rows_and_accumulates_fractional_movement

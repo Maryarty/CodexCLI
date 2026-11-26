@@ -243,10 +243,67 @@ fn the_wheel_reaching_the_end_hides_the_control() {
 }
 
 #[test]
+fn changing_wheel_speed_keeps_the_paused_viewport() {
+    let mut s = chat(80, 12);
+    s.type_text("draft stays");
+    s.keys("pageup pageup");
+    s.assert_contains("Back to bottom");
+    s.assert_absent("row 39");
+    let paused = s.shot();
+    for speed in [Some(0.5), Some(1.5), None] {
+        s.mouse_scroll_speed(speed);
+        s.assert_same_rows(&paused);
+        s.assert_composer("draft stays");
+    }
+    s.keys("esc");
+    s.assert_contains("row 39");
+    s.assert_absent("Back to bottom");
+    s.assert_composer("draft stays");
+}
+
+#[test]
+fn wheel_step_clamps_finite_config_values_to_native_range() {
+    use crate::common::{ms, start_driven_with};
+    use codex_tui_core::app::{AppEv, facts::TuiSettings};
+    use rtwk::scroll::{ScrollBehavior, ScrollConfiguration};
+    use rtwk_core::input::{MouseEvent, MouseKind};
+    use rtwk_core::scroll::ScrollInput;
+    use rtwk_test::{Options, find};
+
+    let mut h = start_driven_with(false, Options::new().size(80, 12));
+    h.connect();
+    h.advance(100);
+    let configuration = find::by_type::<ScrollConfiguration>();
+    for (requested, step) in [
+        (1e-100, f32::from_bits(1)),
+        (1.5, 1.5),
+        (1e100, 2_147_483_520.0),
+    ] {
+        h.inject([AppEv::Tui(TuiSettings {
+            wheel_rows_per_event: Some(requested),
+            ..TuiSettings::default()
+        })]);
+        h.advance(100);
+        h.t.widget(&configuration, |scope: &ScrollConfiguration| {
+            assert_eq!(scope.behavior, ScrollBehavior::fixed(step));
+        });
+    }
+
+    let behavior =
+        h.t.widget(&configuration, |scope: &ScrollConfiguration| scope.behavior);
+    let mut wheel = ScrollInput::new(behavior);
+    let event = MouseEvent::new(MouseKind::WheelDown, 12, 3);
+    for time in [0, 10, 20] {
+        assert!(wheel.event(ms(time), &event));
+        assert_eq!(wheel.take().map(|delta| delta.rows), Some(2_147_483_520));
+    }
+}
+
+#[test]
 fn fractional_wheel_pauses_follow_only_when_it_moves_a_row() {
     let mut s = chat(80, 12);
     s.type_text("draft stays");
-    s.mouse_scroll_speed(0.5);
+    s.mouse_scroll_speed(Some(0.5));
     s.wheel_up(12, 3, 1);
     s.assert_contains("row 39");
     s.assert_absent("Back to bottom");
@@ -272,7 +329,7 @@ fn wheel_speed_is_kept_when_switching_between_main_and_side_conversations() {
         .script(script())
         .side()
         .open();
-    s.mouse_scroll_speed(1.5);
+    s.mouse_scroll_speed(Some(1.5));
     let rows = (0..40)
         .map(|i| format!("side row {i:02}"))
         .collect::<Vec<_>>()

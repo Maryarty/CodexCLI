@@ -29,10 +29,10 @@ impl Default for Renderers {
 
 impl Screen {
     /// The host's explicit rows per native wheel event.
-    pub fn mouse_scroll_speed(&mut self, speed: f64) -> &mut Screen {
+    pub fn mouse_scroll_speed(&mut self, speed: Option<f64>) -> &mut Screen {
         let settings = self.h.t.read_app(|app: &UiApp| app.core.tui());
         self.h.inject([AppEv::Tui(TuiSettings {
-            wheel_rows_per_event: Some(speed),
+            wheel_rows_per_event: speed,
             ..settings
         })]);
         self
