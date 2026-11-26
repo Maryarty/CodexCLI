@@ -34,6 +34,9 @@ use codex_app_server_protocol::{ClientRequest, RequestId};
 
 use super::{AppCx, PublicVerb, Refusal};
 use crate::app::effects::{Ask, Done};
+use crate::commands::{
+    CommandRule, DispatchCx, Need, Notice, Outcome, SlashCommand, Target, UsageKey, open,
+};
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::screens::SeedError;
@@ -690,18 +693,16 @@ impl State {
     /// A slash command with arguments.
     fn slash(
         &mut self,
-        command: crate::commands::SlashCommand,
+        command: SlashCommand,
         args: &str,
         thread: Option<ThreadId>,
         cx: &mut AppCx<'_>,
     ) {
-        use crate::commands::SlashCommand;
         let verb = match command {
             SlashCommand::Hooks => return self.open(Which::Hooks, false, cx),
             SlashCommand::Resume => return Self::resume(args.trim(), cx),
-            SlashCommand::Title => {
-                args::title_with(args, cx.view().facts().rate_limits()).map(PublicVerb::StatusOverride)
-            }
+            SlashCommand::Title => args::title_with(args, cx.view().facts().rate_limits())
+                .map(PublicVerb::StatusOverride),
             SlashCommand::Statusline => {
                 args::status_line_with(args, cx.view().facts().rate_limits())
                     .map(PublicVerb::StatusOverride)
@@ -834,7 +835,7 @@ impl State {
                         Ctx::KeymapWrite { saved: said(done) },
                     );
                 }
-                    }
+            }
             Err(capture::Failure::UnknownAction) => {
                 cx.note(None, Note::KeymapUnknown { context, action });
             }
@@ -1039,15 +1040,42 @@ impl State {
     }
 }
 
+fn keymap_arguments(command: SlashCommand, args: &str, _: &DispatchCx) -> Outcome {
+    if args.eq_ignore_ascii_case("debug") {
+        open(Target::Settings, command, "debug")
+    } else {
+        Outcome::Notice(Notice::Usage(UsageKey::Keymap))
+    }
+}
+
 impl super::Feature for Settings {
     const NAME: &'static str = "settings";
     const SEED: Option<fn(serde_json::Value) -> Result<Fact, SeedError>> = Some(seed::seed);
-    const RUNS: &'static [crate::commands::SlashCommand] = &[
-        crate::commands::SlashCommand::Hooks,
-        crate::commands::SlashCommand::Title,
-        crate::commands::SlashCommand::Statusline,
-        crate::commands::SlashCommand::Model,
-        crate::commands::SlashCommand::Resume,
+    const RUNS: &'static [SlashCommand] = &[
+        SlashCommand::Hooks,
+        SlashCommand::Title,
+        SlashCommand::Statusline,
+        SlashCommand::Model,
+        SlashCommand::Resume,
+    ];
+    const COMMAND_RULES: &'static [CommandRule] = &[
+        CommandRule::new(SlashCommand::Skills).opens(Target::Settings),
+        CommandRule::new(SlashCommand::Config).opens(Target::Settings),
+        CommandRule::new(SlashCommand::Theme).opens(Target::Settings),
+        CommandRule::new(SlashCommand::Title).opens(Target::Settings),
+        CommandRule::new(SlashCommand::Statusline).opens(Target::Settings),
+        CommandRule::new(SlashCommand::Experimental).opens(Target::Settings),
+        CommandRule::new(SlashCommand::Memories).opens(Target::Settings),
+        CommandRule::new(SlashCommand::Keymap)
+            .opens(Target::Settings)
+            .arguments(keymap_arguments),
+        CommandRule::new(SlashCommand::Tui).opens(Target::Settings),
+        CommandRule::new(SlashCommand::Model)
+            .requiring(Need::ThreadWhenBare(|_| Notice::ModelStartup))
+            .opens(Target::Select),
+        CommandRule::new(SlashCommand::Resume)
+            .requiring(Need::NoRunningTask)
+            .opens(Target::Resume),
     ];
 
     type State = State;
@@ -1228,7 +1256,10 @@ impl super::Feature for Settings {
             }
             Ctx::Resume { lookup } => State::resume_page(lookup, result, cx),
             Ctx::Opened { .. } => {}
-            Ctx::Write(_) | Ctx::Preference(_) | Ctx::FeaturesWrite { .. } | Ctx::KeymapWrite { .. } => {}
+            Ctx::Write(_)
+            | Ctx::Preference(_)
+            | Ctx::FeaturesWrite { .. }
+            | Ctx::KeymapWrite { .. } => {}
         }
     }
 

@@ -1129,36 +1129,27 @@ fn mention_inserts_an_at_sign() {
 
 #[test]
 fn every_screen_opening_command_names_its_target() {
-    // The trigger table of the parity pack, as data: command -> screen dir.
-    let table = [
-        ("/model", Target::Select),
+    // The screens still routed by the session. Feature-owned routes come from their registry.
+    for (line, target) in [
         ("/permissions", Target::Select),
         ("/review", Target::Select),
-        ("/skills", Target::Settings),
-        ("/config", Target::Settings),
-        ("/theme", Target::Settings),
-        ("/title", Target::Settings),
-        ("/statusline", Target::Settings),
-        ("/experimental", Target::Settings),
         ("/agents", Target::Agents),
         ("/subagents", Target::AgentPicker),
-        (
-            "/usage",
-            Target::Feature(codex_tui_core::features::target_of(SlashCommand::Usage).unwrap()),
-        ),
         ("/warnings", Target::Dialogs),
-        // the feature's own sheet (`features::feedback`), not the small dialogs
-        (
-            "/feedback",
-            Target::Feature(codex_tui_core::features::target_of(SlashCommand::Feedback).unwrap()),
-        ),
         ("/test-approval", Target::Approvals),
-    ];
-    for (line, target) in table {
+    ] {
         match dispatch(line, &cx()) {
             Outcome::Open(open) => assert_eq!(open.target, target, "{line}"),
             other => panic!("{line}: {other:?}"),
         }
+    }
+    for (command, target) in feature_openings() {
+        assert_eq!(
+            dispatch_command(command, "", &cx()),
+            open(target, command, ""),
+            "/{}",
+            command.command(),
+        );
     }
     // `Target::Pager` has no screen directory: the pager is the expanded mode of the
     // session transcript (chat-live), so the target opens nothing for now. `Target::Settings`
@@ -1183,6 +1174,116 @@ fn every_screen_opening_command_names_its_target() {
             "{target:?}"
         );
     }
+}
+
+#[test]
+fn queued_feature_commands_keep_their_checks_and_argument_routes() {
+    let signed_out = DispatchCx {
+        has_backend_auth: false,
+        ..cx()
+    };
+    let busy = DispatchCx {
+        task_running: true,
+        ..cx()
+    };
+    let review = DispatchCx {
+        review_mode: true,
+        ..cx()
+    };
+    let startup = DispatchCx {
+        thread_started: false,
+        ..cx()
+    };
+    for (line, cx, command, outcome) in [
+        (
+            "/usage invalid",
+            signed_out,
+            SlashCommand::Usage,
+            Outcome::Notice(Notice::UsageNeedsLogin),
+        ),
+        (
+            "/usage WEEK",
+            cx(),
+            SlashCommand::Usage,
+            open(Target::Usage, SlashCommand::Usage, "weekly"),
+        ),
+        (
+            "/resume my chat",
+            busy,
+            SlashCommand::Resume,
+            Outcome::Notice(Notice::DisabledDuringTask(SlashCommand::Resume)),
+        ),
+        (
+            "/resume my chat",
+            review,
+            SlashCommand::Resume,
+            session(
+                SlashCommand::Resume,
+                SessionIntent::Feature {
+                    args: "my chat".to_owned(),
+                },
+            ),
+        ),
+        (
+            "/mcp LOGIN github",
+            startup,
+            SlashCommand::Mcp,
+            Outcome::Notice(Notice::McpLoginNeedsSession),
+        ),
+        (
+            "/keymap DEBUG",
+            cx(),
+            SlashCommand::Keymap,
+            open(Target::Settings, SlashCommand::Keymap, "debug"),
+        ),
+    ] {
+        assert_eq!(
+            dispatch_queued(line, &cx, &[]),
+            QueuedDispatch {
+                outcome,
+                command: Some(command),
+            },
+            "{line}",
+        );
+    }
+    assert_eq!(
+        dispatch_queued("/recap extra text", &startup, &[]),
+        QueuedDispatch {
+            outcome: Outcome::NotACommand,
+            command: None,
+        },
+    );
+}
+
+#[test]
+fn shared_gates_still_precede_slice_checks_and_bare_checks_leave_inline_args_alone() {
+    let side_and_review = DispatchCx {
+        side_conversation: true,
+        review_mode: true,
+        ..cx()
+    };
+    assert_eq!(
+        dispatch_command(SlashCommand::Btw, "a side prompt", &side_and_review),
+        Outcome::Notice(Notice::UnavailableInSide(SlashCommand::Btw)),
+    );
+    let busy_startup = DispatchCx {
+        thread_started: false,
+        task_running: true,
+        ..cx()
+    };
+    assert_eq!(
+        dispatch("/recap", &busy_startup),
+        Outcome::Notice(Notice::DisabledDuringTask(SlashCommand::Recap)),
+    );
+    assert_eq!(
+        dispatch("/model gpt-5", &busy_startup),
+        session(
+            SlashCommand::Model,
+            SessionIntent::Feature {
+                args: "gpt-5".to_owned(),
+            },
+        ),
+    );
 }
 
 #[test]

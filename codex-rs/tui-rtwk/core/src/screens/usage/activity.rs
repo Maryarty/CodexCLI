@@ -41,6 +41,15 @@ impl TokenActivityView {
         }
     }
 
+    /// The canonical slash argument for this chart view.
+    pub fn arg(self) -> &'static str {
+        match self {
+            Self::Daily => "daily",
+            Self::Weekly => "weekly",
+            Self::Cumulative => "cumulative",
+        }
+    }
+
     pub fn index(self) -> usize {
         VIEWS.iter().position(|view| *view == self).unwrap_or(0)
     }
@@ -59,7 +68,10 @@ pub enum Caption {
     /// The five-step legend of the daily view.
     Legend,
     /// `Each column = 1 week · tallest <peak>`: the lead and the scaled peak.
-    Peak { lead: &'static str, peak: i64 },
+    Peak {
+        lead: &'static str,
+        peak: i64,
+    },
     NoActivity,
 }
 
@@ -80,7 +92,12 @@ pub fn shown_columns(width: usize) -> usize {
 }
 
 impl Chart {
-    pub fn build(view: TokenActivityView, buckets: &[Bucket], today: NaiveDate, width: usize) -> Chart {
+    pub fn build(
+        view: TokenActivityView,
+        buckets: &[Bucket],
+        today: NaiveDate,
+        width: usize,
+    ) -> Chart {
         let values = daily_values(buckets, today);
         let shown = shown_columns(width);
         if shown == 0 {
@@ -122,7 +139,9 @@ impl Chart {
                 } else {
                     (
                         "Running total \u{b7} top ",
-                        weeks.iter().fold(0_i64, |sum, value| sum.saturating_add(*value)),
+                        weeks
+                            .iter()
+                            .fold(0_i64, |sum, value| sum.saturating_add(*value)),
                     )
                 };
                 if peak <= 0 {
@@ -228,7 +247,10 @@ fn graded_levels(values: &[i64]) -> Vec<usize> {
 pub fn weekly_totals(values: &[i64]) -> Vec<i64> {
     values
         .chunks(DAY_COUNT)
-        .map(|week| week.iter().fold(0_i64, |sum, value| sum.saturating_add(*value)))
+        .map(|week| {
+            week.iter()
+                .fold(0_i64, |sum, value| sum.saturating_add(*value))
+        })
         .collect()
 }
 

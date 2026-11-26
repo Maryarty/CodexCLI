@@ -21,10 +21,8 @@ mod prompt;
 
 use serde_json::{Value, json};
 
-use super::{
-    AppCx, AppView, Slash, StructuredFailure, StructuredKind, StructuredTurn, ThreadView,
-};
-use crate::commands::SlashCommand;
+use super::{AppCx, AppView, Slash, StructuredFailure, StructuredKind, StructuredTurn, ThreadView};
+use crate::commands::{CommandRule, Need, Notice, SlashCommand};
 use crate::ids::ThreadId;
 use crate::threads::{Item, Tone};
 
@@ -167,7 +165,9 @@ impl InFlight {
     /// turn revision unchanged).
     fn fresh(&self, view: &AppView<'_>) -> bool {
         view.active() == Some(&self.thread)
-            && view.thread(&self.thread).is_some_and(|thread| !thread.busy())
+            && view
+                .thread(&self.thread)
+                .is_some_and(|thread| !thread.busy())
             && excerpt(view, &self.thread) == self.history
     }
 }
@@ -217,6 +217,10 @@ feature! {
     impl Feature for Recap {
         const NAME: &'static str = "recap";
         const RUNS: &'static [SlashCommand] = &[SlashCommand::Recap];
+        const COMMAND_RULES: &'static [CommandRule] = &[
+            CommandRule::new(SlashCommand::Recap)
+                .requiring(Need::ThreadWhenBare(Notice::SessionStarting)),
+        ];
         type State = State;
         type Intent = Intent;
         type Ctx = Ctx;
