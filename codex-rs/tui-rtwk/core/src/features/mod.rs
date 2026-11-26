@@ -32,7 +32,7 @@ use codex_app_server_protocol::ServerRequest;
 
 use crate::app::Now;
 use crate::app::effects::Done;
-use crate::commands::SlashCommand;
+use crate::commands::{CommandRule, SlashCommand};
 use crate::ids::{BackendId, ThreadId};
 use crate::rpc::{RpcError, ServerError};
 use crate::screens::SeedError;
@@ -107,7 +107,8 @@ macro_rules! feature_no_rpcs {
 /// }
 /// ```
 ///
-/// The constants are `NAME`, then `SEED`, `SEED_NOTE`, `OPENS`, `RUNS`, `REFUSAL`, `SETTING`; the types are `State`,
+/// The constants are `NAME`, then `SEED`, `SEED_NOTE`, `OPENS`, `RUNS`, `COMMAND_RULES`,
+/// `REFUSAL`, `SETTING`; the types are `State`,
 /// `ThreadPart`, `Target`, `Intent`, `ThreadIntent`, `Command`, `Reply`, `Ctx`, `Note`, `Fact`, `Wish`,
 /// `Interest`, `Event`; the methods are the items of the last braces. Each is written as in the
 /// trait (rules scan these lines); a doc comment goes on a method, not on a constant or a type.
@@ -120,6 +121,7 @@ macro_rules! feature {
             $(const SEED_NOTE: $seed_note_ty:ty = $seed_note:expr;)?
             $(const OPENS: $opens_ty:ty = $opens:expr;)?
             $(const RUNS: $runs_ty:ty = $runs:expr;)?
+            $(const COMMAND_RULES: $rules_ty:ty = $rules:expr;)?
             $(const REFUSAL: $refusal_ty:ty = $refusal:expr;)?
             $(const SETTING: $setting_ty:ty = $setting:expr;)?
             $(type State = $state:ty;)?
@@ -144,6 +146,7 @@ macro_rules! feature {
             $(const SEED_NOTE: $seed_note_ty = $seed_note;)?
             $(const OPENS: $opens_ty = $opens;)?
             $(const RUNS: $runs_ty = $runs;)?
+            $(const COMMAND_RULES: $rules_ty = $rules;)?
             $(const REFUSAL: $refusal_ty = $refusal;)?
             $(const SETTING: $setting_ty = $setting;)?
             type State = feature_or!((); $($state)?);
@@ -279,6 +282,9 @@ pub trait Feature: 'static {
     /// one owner (`one_owner_per_command`); one that opens a sheet bare and runs with arguments
     /// (`/export <path>`, `/mcp verbose`) is in `OPENS` and `RUNS` of the same feature.
     const RUNS: &'static [SlashCommand] = &[];
+
+    /// Dispatch checks and routes of this feature beyond the usual sheet or verb.
+    const COMMAND_RULES: &'static [CommandRule] = &[];
 
     /// What the server's refusal of one of the feature's RPCs means to the feature, when it is an
     /// answer and no failure (a list the server does not know, a write whose reply may have been
@@ -740,6 +746,19 @@ macro_rules! feature_dirs {
             false $(|| <$name::$variant as Feature>::RUNS.contains(&command))*
         }
 
+        /// Additional command policy declared by the owning feature.
+        #[allow(unused_variables, dead_code)]
+        pub(crate) fn command_rule(
+            command: $crate::commands::SlashCommand,
+        ) -> Option<&'static $crate::commands::CommandRule> {
+            $(if let Some(rule) = <$name::$variant as Feature>::COMMAND_RULES
+                .iter().find(|rule| rule.command == command)
+            {
+                return Some(rule);
+            })*
+            None
+        }
+
         /// Hands a slash command to the feature that runs it; false when none does (the app says
         /// the command is not available).
         #[allow(unused_variables, unreachable_code)]
@@ -1114,6 +1133,11 @@ macro_rules! feature_dirs {
 }
 
 feature_list!(feature_dirs);
+
+/// Whether a registered feature claims a sheet, verb or dispatch policy for the command.
+pub fn owns_command(command: SlashCommand) -> bool {
+    runs_of(command) || target_of(command).is_some() || command_rule(command).is_some()
+}
 
 /// The intent a permissions pick waits for before it is applied, when a feature needs a setup first
 /// (the Windows sandbox of an Auto pick: its enable prompt, which lets the pick go when the setup

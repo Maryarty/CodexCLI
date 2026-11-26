@@ -7,6 +7,7 @@ mod adr013;
 mod carried;
 mod connection;
 mod dead_state;
+mod dispatch;
 mod feature_sheet;
 mod fixtures;
 mod holes;

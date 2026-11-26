@@ -29,7 +29,7 @@ use codex_app_server_protocol::{
 };
 
 use super::{AppCx, AppView, ChatFacts, Refusal, Slash, ThreadSpawn};
-use crate::commands::SlashCommand;
+use crate::commands::{CommandRule, Need, SlashCommand};
 use crate::ids::ThreadId;
 use crate::keymap::actions::GLOBAL_TOGGLE_SIDE_CONVERSATION;
 use crate::protocol::targets;
@@ -320,12 +320,12 @@ fn start(state: &State, source: Option<ThreadId>, prompt: Option<String>, cx: &m
         (Start::Fork, Some(parent)) => {
             starting(cx);
             cx.spawn_thread(
-            ThreadSpawn::Fork {
-                parent: parent.clone(),
-                ephemeral: Some(developer_instructions()),
-            },
-            Ctx::Fork { parent, prompt },
-        );
+                ThreadSpawn::Fork {
+                    parent: parent.clone(),
+                    ephemeral: Some(developer_instructions()),
+                },
+                Ctx::Fork { parent, prompt },
+            );
         }
         _ => {}
     }
@@ -375,6 +375,10 @@ feature! {
     impl Feature for Side {
         const NAME: &'static str = "side";
         const RUNS: &'static [SlashCommand] = &[SlashCommand::Side, SlashCommand::Btw];
+        const COMMAND_RULES: &'static [CommandRule] = &[
+            CommandRule::new(SlashCommand::Side).requiring(Need::OutsideReview),
+            CommandRule::new(SlashCommand::Btw).requiring(Need::OutsideReview),
+        ];
         type State = State;
         type Intent = Intent;
         type Command = Command;

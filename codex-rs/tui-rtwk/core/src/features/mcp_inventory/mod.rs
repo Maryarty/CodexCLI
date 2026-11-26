@@ -20,7 +20,7 @@ use std::collections::BTreeMap;
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
 use super::{AppCx, Feature, Never, Slash};
-use crate::commands::SlashCommand;
+use crate::commands::{CommandRule, DispatchCx, Notice, Outcome, SlashCommand, UsageKey, run};
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::threads::Tone;
@@ -178,10 +178,30 @@ fn ask(
     );
 }
 
+fn arguments(command: SlashCommand, args: &str, cx: &DispatchCx) -> Outcome {
+    if args.eq_ignore_ascii_case("verbose") {
+        return run(command, args);
+    }
+    if let Some((word, name)) = args.split_once(' ')
+        && word.eq_ignore_ascii_case("login")
+        && !name.trim().is_empty()
+    {
+        let notice = if cx.thread_started {
+            Notice::NotAvailable(command)
+        } else {
+            Notice::McpLoginNeedsSession
+        };
+        return Outcome::Notice(notice);
+    }
+    Outcome::Notice(Notice::Usage(UsageKey::Mcp))
+}
+
 impl Feature for McpInventory {
     const NAME: &'static str = "mcp_inventory";
     const OPENS: Option<(SlashCommand, Sheet)> = Some((SlashCommand::Mcp, Sheet));
     const RUNS: &'static [SlashCommand] = &[SlashCommand::Mcp];
+    const COMMAND_RULES: &'static [CommandRule] =
+        &[CommandRule::new(SlashCommand::Mcp).arguments(arguments)];
 
     type State = State;
     type ThreadPart = ();
@@ -197,8 +217,7 @@ impl Feature for McpInventory {
     type Interest = Never<Self>;
     type Event = Never<Self>;
 
-    /// `/mcp verbose`: the inventory with the tools and resources. Any other word is the
-    /// dispatcher's (`/mcp login` is not this feature's).
+    /// `/mcp verbose`: the inventory with the tools and resources.
     fn slash(state: &mut State, slash: Slash, cx: &mut AppCx<'_>) {
         if slash.args.eq_ignore_ascii_case("verbose") {
             let show = Intent::Show {

@@ -6,9 +6,12 @@
 //! changed by `ScreenIntent::Usage` (`Menu`, `Resets`, `Redeem`, `Retry`); the sheet, its
 //! picker and its confirmation are the UI half's (`src/features/usage_menu/`). `/usage daily`,
 //! `weekly` and `cumulative` open the analytics page directly (`Target::Usage`), as the oracle
-//! sends `OpenAnalytics` for them; `/usage` without a ChatGPT login is the notice (dispatch).
+//! sends `OpenAnalytics` for them; `/usage` without a ChatGPT login is the notice.
 
-use crate::commands::SlashCommand;
+use crate::commands::{
+    CommandRule, DispatchCx, Need, Notice, Outcome, SlashCommand, Target, UsageKey, open,
+};
+use crate::screens::usage::TokenActivityView;
 
 /// The marker type of the feature.
 pub struct UsageMenu;
@@ -21,6 +24,18 @@ feature! {
     impl Feature for UsageMenu {
         const NAME: &'static str = "usage_menu";
         const OPENS: Option<(SlashCommand, Sheet)> = Some((SlashCommand::Usage, Sheet));
+        const COMMAND_RULES: &'static [CommandRule] = &[
+            CommandRule::new(SlashCommand::Usage)
+                .requiring(Need::BackendAuth(|_| Notice::UsageNeedsLogin))
+                .arguments(analytics),
+        ];
         type Target = Sheet;
+    }
+}
+
+fn analytics(command: SlashCommand, args: &str, _: &DispatchCx) -> Outcome {
+    match TokenActivityView::parse(args) {
+        Some(view) => open(Target::Usage, command, view.arg()),
+        None => Outcome::Notice(Notice::Usage(UsageKey::Usage)),
     }
 }

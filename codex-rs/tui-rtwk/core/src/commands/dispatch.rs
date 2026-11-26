@@ -10,7 +10,8 @@ use super::SlashCommand;
 use super::SlashCommandItem;
 use super::find_slash_command;
 use super::parse_slash_name;
-use crate::features::{FeatureTarget, runs_of, target_of};
+use crate::features::{FeatureTarget, command_rule, runs_of, target_of};
+pub use crate::screens::usage::TokenActivityView;
 
 /// A screen directory a command opens. The UI opens it through that
 /// directory's own opener.
@@ -148,36 +149,6 @@ impl Notice {
     }
 }
 
-/// The view `/usage <arg>` opens the dashboard on.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TokenActivityView {
-    Daily,
-    Weekly,
-    Cumulative,
-}
-
-impl TokenActivityView {
-    /// Parses the optional `/usage` argument into a supported chart view.
-    /// Carried from `analytics/activity_chart.rs` (`TokenActivityView::parse`).
-    pub fn parse(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "" | "day" | "daily" => Some(Self::Daily),
-            "week" | "weekly" => Some(Self::Weekly),
-            "cumulative" => Some(Self::Cumulative),
-            _ => None,
-        }
-    }
-
-    /// The argument the dashboard opens with.
-    pub fn arg(self) -> &'static str {
-        match self {
-            Self::Daily => "daily",
-            Self::Weekly => "weekly",
-            Self::Cumulative => "cumulative",
-        }
-    }
-}
-
 /// Which usage line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UsageKey {
@@ -302,6 +273,63 @@ pub struct DispatchCx {
     pub has_backend_auth: bool,
 }
 
+/// A slice's addition to the common dispatch checks.
+#[derive(Clone, Copy)]
+pub enum Need {
+    OutsideReview,
+    NoRunningTask,
+    ThreadWhenBare(fn(SlashCommand) -> Notice),
+    BackendAuth(fn(SlashCommand) -> Notice),
+}
+
+type ArgumentDispatch = fn(SlashCommand, &str, &DispatchCx) -> Outcome;
+
+/// A command's special dispatch policy. Ordinary sheets and verbs use `OPENS` and `RUNS`.
+pub struct CommandRule {
+    pub command: SlashCommand,
+    need: Option<Need>,
+    bare_target: Option<Target>,
+    arguments: Option<ArgumentDispatch>,
+}
+
+impl CommandRule {
+    pub const fn new(command: SlashCommand) -> Self {
+        Self {
+            command,
+            need: None,
+            bare_target: None,
+            arguments: None,
+        }
+    }
+
+    pub const fn requiring(mut self, need: Need) -> Self {
+        self.need = Some(need);
+        self
+    }
+
+    pub const fn opens(mut self, bare_target: Target) -> Self {
+        self.bare_target = Some(bare_target);
+        self
+    }
+
+    pub const fn arguments(mut self, arguments: ArgumentDispatch) -> Self {
+        self.arguments = Some(arguments);
+        self
+    }
+}
+
+/// The bare screen routes declared by the feature registry.
+pub fn feature_openings() -> impl Iterator<Item = (SlashCommand, Target)> {
+    SlashCommand::ALL.into_iter().filter_map(|command| {
+        feature_opening(command, command_rule(command)).map(|target| (command, target))
+    })
+}
+
+fn feature_opening(command: SlashCommand, rule: Option<&CommandRule>) -> Option<Target> {
+    rule.and_then(|rule| rule.bare_target)
+        .or_else(|| target_of(command).map(Target::Feature))
+}
+
 /// Dispatches a composer line that starts with `/`, for a model that offers no service tier.
 pub fn dispatch(line: &str, cx: &DispatchCx) -> Outcome {
     dispatch_with_tiers(line, cx, &[])
@@ -371,7 +399,7 @@ pub fn dispatch_queued(
     }
 }
 
-fn open(target: Target, command: SlashCommand, args: &str) -> Outcome {
+pub(crate) fn open(target: Target, command: SlashCommand, args: &str) -> Outcome {
     Outcome::Open(Open {
         target,
         command,
@@ -384,7 +412,7 @@ fn session(command: SlashCommand, intent: SessionIntent) -> Outcome {
 }
 
 /// A command a feature runs (`Feature::RUNS`), with the text after its name.
-fn run(command: SlashCommand, args: &str) -> Outcome {
+pub(crate) fn run(command: SlashCommand, args: &str) -> Outcome {
     session(
         command,
         SessionIntent::Feature {
@@ -402,66 +430,60 @@ pub fn dispatch_command(command: SlashCommand, args: &str, cx: &DispatchCx) -> O
     if cx.side_conversation && !command.available_in_side_conversation() {
         return Outcome::Notice(Notice::UnavailableInSide(command));
     }
-    if cx.review_mode && matches!(command, SlashCommand::Side | SlashCommand::Btw) {
+    let rule = command_rule(command);
+    let need = rule.and_then(|rule| rule.need);
+    if cx.review_mode && matches!(need, Some(Need::OutsideReview)) {
         return Outcome::Notice(Notice::UnavailableInReview(command));
     }
     // `slash_dispatch.rs:150-167`, the validation gate: a command that is not
     // available during a task is refused while a turn runs, a start is in
-    // flight (`task_running` is both) or a review runs. `/resume` and `/cd`
-    // are refused by the first two only; `/review` also with a queued follow-up.
+    // flight (`task_running` is both) or a review runs. A slice can require an
+    // idle task without blocking review. `/review` also checks for a queued follow-up.
     let blocked = cx.task_running || cx.review_mode;
     if (!command.available_during_task() && blocked)
-        || (cx.task_running && matches!(command, SlashCommand::Resume | SlashCommand::Cd))
+        || (cx.task_running && matches!(need, Some(Need::NoRunningTask)))
         || (command == SlashCommand::Review && cx.queued_follow_up)
     {
         return Outcome::Notice(Notice::DisabledDuringTask(command));
     }
+    if let Some(Need::BackendAuth(notice)) = need
+        && !cx.has_backend_auth
+    {
+        return Outcome::Notice(notice(command));
+    }
     if !command.supports_inline_args() || args.is_empty() {
-        dispatch_bare(command, cx)
+        dispatch_bare(command, cx, rule)
     } else {
-        dispatch_with_args(command, args, cx)
+        dispatch_with_args(command, args, cx, rule)
     }
 }
 
 /// `chatwidget/slash_dispatch.rs`, `dispatch_command` (bare commands).
-fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
+fn dispatch_bare(command: SlashCommand, cx: &DispatchCx, rule: Option<&CommandRule>) -> Outcome {
     use SlashCommand::*;
-    // a feature's own sheet: the feature says which command opens it (`Feature::OPENS`)
-    // (`/usage` without a ChatGPT login is the notice below, not the menu)
-    if let Some(feature) = target_of(command)
-        && (command != Usage || cx.has_backend_auth)
+    if let Some(Need::ThreadWhenBare(notice)) = rule.and_then(|rule| rule.need)
+        && !cx.thread_started
     {
-        return open(Target::Feature(feature), command, "");
+        return Outcome::Notice(notice(command));
+    }
+    if let Some(target) = feature_opening(command, rule) {
+        return open(target, command, "");
     }
     match command {
-        Model => {
-            if cx.thread_started {
-                open(Target::Select, command, "")
-            } else {
-                // `model_popups.rs:19-24`: an info line.
-                Outcome::Notice(Notice::ModelStartup)
-            }
-        }
         Presets | AutoReview | Archive | Delete | Review | Permissions | Apps => {
             open(Target::Select, command, "")
         }
-        Skills | Config | Theme | Title | Statusline | Experimental | Memories | Keymap | Tui => {
-            open(Target::Settings, command, "")
-        }
         Agents => open(Target::Agents, command, ""),
         MultiAgents => open(Target::AgentPicker, command, ""),
-        Resume => open(Target::Resume, command, ""),
         Import => open(Target::Import, command, ""),
         Status => session(command, SessionIntent::Status),
-        Warnings | Feedback => open(Target::Dialogs, command, ""),
+        Warnings => open(Target::Dialogs, command, ""),
         Pets => open(Target::Pets, command, ""),
         TestApproval => open(Target::Approvals, command, ""),
-        // the bare command with a login is the feature's menu (`features::usage_menu`)
-        Usage => Outcome::Notice(Notice::UsageNeedsLogin),
         Voice => session(command, SessionIntent::VoiceControl(VoiceControl::Toggle)),
         Mention => Outcome::Insert("@"),
         Quit | Exit => Outcome::Quit,
-        App | Recap if !cx.thread_started => Outcome::Notice(Notice::SessionStarting(command)),
+        App if !cx.thread_started => Outcome::Notice(Notice::SessionStarting(command)),
         App => session(command, SessionIntent::App),
         New => session(command, SessionIntent::New { name: None }),
         Clear => session(command, SessionIntent::Clear { name: None }),
@@ -490,9 +512,17 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
 }
 
 /// `chatwidget/slash_dispatch.rs`, commands with inline arguments.
-fn dispatch_with_args(command: SlashCommand, args: &str, cx: &DispatchCx) -> Outcome {
+fn dispatch_with_args(
+    command: SlashCommand,
+    args: &str,
+    cx: &DispatchCx,
+    rule: Option<&CommandRule>,
+) -> Outcome {
     use SlashCommand::*;
     let args = args.trim();
+    if let Some(dispatch) = rule.and_then(|rule| rule.arguments) {
+        return dispatch(command, args, cx);
+    }
     match command {
         Review => session(command, SessionIntent::Review { args: some(args) }),
         Permissions => session(command, SessionIntent::Permissions { args: some(args) }),
@@ -508,52 +538,20 @@ fn dispatch_with_args(command: SlashCommand, args: &str, cx: &DispatchCx) -> Out
         ),
         Pets => open(Target::Pets, command, args),
         Pwd => Outcome::Notice(Notice::Usage(UsageKey::Pwd)),
-        Usage => {
-            if !cx.has_backend_auth {
-                return Outcome::Notice(Notice::UsageNeedsLogin);
-            }
-            match TokenActivityView::parse(args) {
-                Some(view) => open(Target::Usage, command, view.arg()),
-                None => Outcome::Notice(Notice::Usage(UsageKey::Usage)),
-            }
-        }
         Voice => match args.to_ascii_lowercase().as_str() {
             "settings" => open(Target::Voice, command, "settings"),
             "mute" => session(command, SessionIntent::VoiceControl(VoiceControl::Mute)),
             "stop" => session(command, SessionIntent::VoiceControl(VoiceControl::Stop)),
             _ => Outcome::Notice(Notice::Usage(UsageKey::Voice)),
         },
-        Keymap => match args.to_ascii_lowercase().as_str() {
-            "debug" => open(Target::Settings, command, "debug"),
-            _ => Outcome::Notice(Notice::Usage(UsageKey::Keymap)),
-        },
         Raw => match args.to_ascii_lowercase().as_str() {
             "on" => session(command, SessionIntent::Raw { on: Some(true) }),
             "off" => session(command, SessionIntent::Raw { on: Some(false) }),
             _ => Outcome::Notice(Notice::Usage(UsageKey::Raw)),
         },
-        Mcp => dispatch_mcp(args, cx),
         // a feature's verb takes its arguments (`Feature::RUNS`)
         _ if runs_of(command) => run(command, args),
         // A command without inline arguments never gets here.
-        _ => dispatch_bare(command, cx),
+        _ => dispatch_bare(command, cx, rule),
     }
-}
-
-fn dispatch_mcp(args: &str, cx: &DispatchCx) -> Outcome {
-    let command = SlashCommand::Mcp;
-    if args.eq_ignore_ascii_case("verbose") {
-        return run(command, args);
-    }
-    if let Some((word, name)) = args.split_once(' ')
-        && word.eq_ignore_ascii_case("login")
-        && !name.trim().is_empty()
-    {
-        if !cx.thread_started {
-            return Outcome::Notice(Notice::McpLoginNeedsSession);
-        }
-        // the sign-in is not built (no feature runs it)
-        return Outcome::Notice(Notice::NotAvailable(command));
-    }
-    Outcome::Notice(Notice::Usage(UsageKey::Mcp))
 }
