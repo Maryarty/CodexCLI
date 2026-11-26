@@ -387,6 +387,7 @@ impl State for ChatState {
                 drop(Navigator::of(cx).push::<()>(PageRoute::<()>::new(|_| DebugMenu.into())));
             }
             ChatMsg::Action(action) => action.run(cx, &Keyed { hs: &hs, ui: &w.ui }),
+            ChatMsg::Interrupt => return escape::interrupt(&read::<ThreadModel, _>(cx), cx, &hs),
             ChatMsg::Escape => {
                 if let Some(rebuild) = self.escape(w, cx, &hs) {
                     return rebuild;

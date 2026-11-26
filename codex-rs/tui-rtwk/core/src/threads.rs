@@ -1622,6 +1622,11 @@ impl ThreadModel {
         &self.transcript
     }
 
+    /// Whether the live turn received the completion for this agent or reasoning item.
+    pub fn received_item_completion(&self, key: &ItemKey) -> bool {
+        self.completed_items.contains(key)
+    }
+
     pub fn turn(&self) -> &TurnState {
         &self.turn
     }

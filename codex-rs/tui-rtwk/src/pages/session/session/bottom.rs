@@ -7,7 +7,7 @@
 
 use rtwk::foundation::ListenableBuilder;
 use rtwk::layout::{
-    BoxWidget, Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Row, SizedBox,
+    BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Flexible, MainAxisSize, Row, SizedBox,
 };
 use rtwk::provider::select;
 use rtwk::style::Span;
@@ -142,7 +142,7 @@ pub(super) fn body(
         );
     }
     state.banner_blocked.set(BannerBlocked {
-        running,
+        running: thread.task_running(),
         overlay: state.shortcuts,
         edit: !editing
             && !menu
@@ -153,16 +153,16 @@ pub(super) fn body(
     });
     // the threads that wait for an approval, right above the composer (`bottom_pane`)
     let body = body.child(PendingThreadsBanner);
-    let body = body.child(BackendBanners {
+    let banners = BackendBanners {
         gate: state.banner.clone(),
         dismissed: state.banner.dismissed.get(),
-    });
+    };
     let mut body = if thread.read_only() || frame.provider.is_some() {
-        body.child(composer)
+        body.child(Flexible::new(1, banners)).child(composer)
     } else {
         // the row the reader's control takes (`composer_gap`); a popup
         // above the draft takes the rows before it does
-        let body = body.child({
+        let gap = {
             // the usage notice takes the row while the reader is at the end (`composer_hint`)
             let model = thread.screen_slots().chat.model.as_deref().or(frame
                 .drawn
@@ -189,7 +189,18 @@ pub(super) fn body(
                     gap.clone()
                 }
             })
-        });
+        };
+        // The composer keeps its rows. The banner uses whatever the reader's
+        // one- or two-row control has left, without splitting it in fixed shares.
+        let body = body.child(Flexible::new(
+            1,
+            Column::new()
+                .main_axis_size(MainAxisSize::Min)
+                .cross_axis_alignment(CrossAxisAlignment::Start)
+                .overflow_intended(true)
+                .child(Flexible::new(1, banners))
+                .child(gap),
+        ));
         // the editor of the model's questions stands in the composer's place
         if editing {
             body.child(composer)

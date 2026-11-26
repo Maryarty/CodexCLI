@@ -69,10 +69,7 @@ fn plain(width: u16, height: u16) -> Screen {
         .open()
 }
 
-const RETAINED_POPUP_REASON: &str = "the command popup is not retained across Find: F3 hides it (the page ports the rest: no popup rows and the cursor on the query's row at 60x16, 24x8 and 12x3) but closing Find with Esc or Ctrl+C leaves the draft `/m` without its popup, where the oracle's composer keeps `ActivePopup::Command` and paints it again once the footer is gone (`render(None) == original`): the draft's popover (pages/session/composer, w2-composer) closes with the focus and `Suggest` stays open without a rebuild";
-const FIND_COPY_REASON: &str = "Find is built (F3: `Find: needle`, the cursor on the query) but its copy flash is not: Ctrl+C in Find cancels it (the oracle's footer says `Ctrl+C copy · Esc clear selection` over a selection), and the chat page gives its footer no flash (session/slot.rs `flash: None`; the selection's copy feedback is the pager's, transcript/copy_feedback.rs): see FLASH_REASON";
 const FIND_OVERRIDE_REASON: &str = "a hint override (`ctrl+c quit`) under the interactive Find footer: nothing sets one in the live chat (only the presets menu and the shutdown do, session/slot.rs), and Ctrl+C in Find cancels it; the footer's own precedence (flash over override over passive, `lead.rs`) has no key to drive it";
-const REPLACE_REASON: &str = "the draft replaced from outside while the history search is open (`ChatComposer::set_text_content`): no seed, key or fact replaces the composer's text from the host's side (the queued-draft restore and the external editor's result do it, with no search open)";
 const FOCUS_REASON: &str = "the terminal losing and regaining focus (`set_sparkle_terminal_focus`, crossterm's FocusLost/FocusGained): rtwk reports no terminal focus-in/out events (rtwk-gaps.md), so the deadline's behaviour across a focus loss cannot be driven; a running turn on a fresh task (`set_task_running`) has no seed either: a turn that ran ends the fresh task";
 const CARET_REASON: &str = "the terminal cursor on the history search's own row (`reverse-i-search: query▮`): the search row is static text under the composer, and the composer's TextArea (focused, it takes the search's keys) keeps its caret on the prompt row (row 3 of 6, the oracle puts it on row 5); a caret at the query's end needs the query as an editing field that holds the focus (a restructure of composer/search.rs: footer field, Up/Down/Enter/Esc as its shortcuts) or a custom RenderObject calling `rtwk::editing::show_caret` (R15 forbids hand-made render objects in the app), and the TextArea has no way to hide its caret while it has the focus";
 const HELP_STATUS: &str = include_str!("fixtures/pane_footer_1/help_status.jsonl");
@@ -80,7 +77,6 @@ const EXTENSION_NA: &str = "no live producer: the oracle's app never builds a ui
 const ACTIVITY_REASON: &str = "the hint is the footer of the transcript view (`TranscriptFooter`: `ctrl+o t/f4 inspect activity`, interactive or not, with the shortcut key unbound) that the composer shows under the transcript pager: the pager has no such footer yet (the pager task's), the Working row and the activity rows of chunk-status do not draw it";
 const MODE_REASON: &str = "the footer at five widths with Plan mode, the IDE context indicator, the vim mode and 2 warnings: Plan mode, the vim mode and the warnings are in the page (ported in the plan and warnings tests), the IDE context indicator is not (no IDE-context fact in StatusFacts, no host probe: a Need on the IDE-context owner)";
 const POPUP_REASON: &str = "the status stays under the composer while the popup is open (page test), but the popup's own rows (`/model` descriptions, the selection marker) are the popups chunk's widget and differ from the oracle's Buffer snapshot";
-const FLASH_REASON: &str = "no footer flash source in the live chat: `Timed`/`Flash` (footer/flash.rs) draw a flash when the footer is given one, and the chat page gives none (session/slot.rs `flash: None`: the draft limit's message goes to the transcript as an error cell, nothing else flashes); the oracle sets `saved` on the footer directly";
 
 /// The chat screen's status facts (`ScreenEv::Chat(Ev::Status)`), as the host sends them.
 fn facts(json: &str) -> String {
@@ -134,7 +130,6 @@ fn agent(label: &str) -> String {
 // ORACLE bottom_pane/chat_composer/footer_state_tests.rs:62 retained_command_suggestions_yield_paint_and_cursor_to_find kind=snap owner=ui-pane snap=find_hides_retained_command_suggestions
 #[test]
 fn retained_command_suggestions_yield_paint_and_cursor_to_find() {
-    kit::pending(Owner::UiPane, RETAINED_POPUP_REASON);
     // the draft `/m` keeps its command popup under Find: the popup is not painted while Find is
     // open and the cursor is the query's, at 60x8, 24x8 and 12x3; Esc closes Find and the popup
     // is painted again, the draft untouched
@@ -167,13 +162,21 @@ fn retained_command_suggestions_yield_paint_and_cursor_to_find() {
 // ORACLE bottom_pane/chat_composer/footer_state_tests.rs:110 copying_from_find_preserves_the_query_above_selection_feedback kind=snap owner=ui-pane snap=transcript_find_copy_footer
 #[test]
 fn copying_from_find_preserves_the_query_above_selection_feedback() {
-    kit::pending(Owner::UiPane, FIND_COPY_REASON);
-    // the Find footer (`Find: needle`, `Ctrl+C copy · Esc clear selection`) and the 3 s flash
-    // `Copied selection to clipboard` are set by the test; the flash keeps the query above it
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    s.assert_contains("Find: needle");
-    s.assert_contains("Copied selection to clipboard");
-    s.assert_snap("transcript_find_copy_footer");
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .script(PLAN_NEEDLE)
+        .open();
+    s.keys("f3");
+    s.type_text("needle");
+    s.double_click_text("Needle two");
+    s.keys("ctrl+c");
+    s.assert_copy_asked("Needle");
+    s.answer_copy(Ok(()));
+    s.assert_find_query("needle");
+    s.assert_contains("Copied 6 chars to host clipboard");
+    s.assert_cursor_on_row_of("Find: needle");
+    s.type_text("x");
+    s.assert_find_query("needlex");
 }
 
 // ORACLE bottom_pane/chat_composer/footer_state_tests.rs:134 interactive_query_keeps_focus_over_underlying_hints_but_empty_override_wins kind=ui owner=ui-pane
@@ -602,13 +605,16 @@ fn cancelling_history_search_preserves_a_typed_command_despite_attachment_previe
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:791 fresh_draft_replacement_ends_search_and_dismisses_sparkles kind=ui owner=ui-pane
 #[test]
 fn fresh_draft_replacement_ends_search_and_dismisses_sparkles() {
-    kit::pending(Owner::UiPane, REPLACE_REASON);
+    kit::pending(
+        Owner::UiPane,
+        "a live external draft replacement updates the composer but leaves reverse-i-search open. The history search can then restore its pre-replacement draft on Esc.",
+    );
     // the history search is open when the draft is replaced from outside (`set_text_content`): the
     // search ends, the sparkle is dismissed, and Esc leaves the replacement in the composer
     let mut s = plain(80, 24);
     s.keys("ctrl+r");
     s.assert_contains("reverse-i-search");
-    // (the host replaces the draft with `external draft` here: nothing does)
+    s.draft("external draft");
     s.assert_absent("reverse-i-search");
     s.keys("esc");
     s.assert_composer("external draft");
@@ -1297,10 +1303,13 @@ fn warnings_yield_to_queue_controls_and_complete_navigation_hints() {
 // ORACLE bottom_pane/chat_composer_effort_tests.rs:123 effort_transition_never_replaces_a_footer_flash kind=ui owner=ui-pane
 #[test]
 fn effort_transition_never_replaces_a_footer_flash() {
-    kit::pending(Owner::UiPane, FLASH_REASON);
     // the flash `saved` (1 s) on the footer row at 60x6 is kept through the effort transitions
     // High then Ultra; the footer never shows `U L T R A` (the test sets them; no key does)
     let mut s = Screen::build(Owner::UiPane).size(60, 6).live().open();
+    s.feed(
+        r#"{"step":"screen","dir":"chat","ev":{"facts":{"flash":{"text":"saved","millis":5000}}}}"#,
+    );
+    s.assert_contains("saved");
     s.feed(&facts(
         r#"{"model":"gpt-5.4","effort":"high","branch":"main","items":["model-with-reasoning","git-branch"]}"#,
     ));

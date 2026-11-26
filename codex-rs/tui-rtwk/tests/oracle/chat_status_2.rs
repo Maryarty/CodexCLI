@@ -290,25 +290,34 @@ fn usage_row(s: &Screen) -> usize {
 // ORACLE chatwidget/tests/status_and_layout.rs:3171 unsupported_code_mode_warning_renders_as_warning_history_cell kind=snap owner=ui-pane
 #[test]
 fn unsupported_code_mode_warning_renders_as_warning_history_cell() {
-    kit::pending(
-        Owner::UiPane,
-        "the warning notification has no cell on the thread: `Warning` events are not applied to the transcript yet (chunk-live's ThreadModel apply; cells chunk draws it)",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: handle_warning(the Code Mode warning for gpt-5.4): one warning history cell
-    s.assert_snap("unsupported_code_mode_warning");
+    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    s.feed(&warning(
+        "Code Mode is enabled in configuration, but model `gpt-5.4` does not advertise Code Mode support. This may degrade model performance. Disable `features.code_mode` and `features.code_mode_only`, or select a model whose metadata enables Code Mode.",
+    ));
+    s.keys("f2");
+    s.assert_reads("model `gpt-5.4` does not advertise Code Mode support");
+    s.assert_text_count("Code Mode is enabled in configuration", 1);
+}
+
+fn warning(message: &str) -> String {
+    serde_json::json!({
+        "step": "notify", "message": {"method": "warning", "params": {
+            "threadId": "thread-1", "message": message
+        }}
+    })
+    .to_string()
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:3187 repeated_model_metadata_warning_is_hidden_for_same_slug kind=ui owner=ui-pane
 #[test]
 fn repeated_model_metadata_warning_is_hidden_for_same_slug() {
-    kit::pending(
-        Owner::UiPane,
-        "the warning notification has no cell on the thread: `Warning` events are not applied to the transcript yet (chunk-live's ThreadModel apply; cells chunk draws it)",
+    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    let same = warning(
+        "Model metadata for `unknown-model` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.",
     );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: the same model metadata warning for unknown-model twice: one cell
-    s.assert_contains("unknown-model");
+    s.feed(&format!("{same}\n{same}"));
+    s.keys("f2");
+    s.assert_text_count("Model metadata for `unknown-model`", 1);
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:3215 status_line_invalid_items_warn_once kind=ui owner=ui-pane
@@ -725,51 +734,90 @@ fn runtime_metrics_websocket_timing_logs_and_final_separator_sums_totals() {
 // ORACLE chatwidget/tests/status_and_layout.rs:4959 multiple_agent_messages_in_single_turn_emit_multiple_headers kind=ui owner=ui-pane
 #[test]
 fn multiple_agent_messages_in_single_turn_emit_multiple_headers() {
-    kit::pending(
-        Owner::UiPane,
-        "reasoning and answer streaming headers, prose previews and per-message headers are not built in the chat skeleton",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: one turn with two agent messages, 'First message' then 'Second message'
+    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    let first = assistant_message("msg-first", "First message");
+    let second = assistant_message("msg-second", "Second message");
+    s.feed(&format!(
+        "{TURN}\n{first}\n{second}\n{}",
+        turn_ended("completed")
+    ));
     s.assert_in_order(&["First message", "Second message"]);
+    s.assert_text_count("First message", 1);
+    s.assert_text_count("Second message", 1);
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4998 final_reasoning_then_message_without_deltas_are_rendered kind=snap owner=ui-pane snap=final_reasoning_then_message_without_deltas_are_rendered
 #[test]
 fn final_reasoning_then_message_without_deltas_are_rendered() {
-    kit::pending(
-        Owner::UiPane,
-        "reasoning and answer streaming headers, prose previews and per-message headers are not built in the chat skeleton",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: a final reasoning item, then the final message, without deltas
-    s.assert_snap("final_reasoning_then_message_without_deltas_are_rendered");
+    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    let reasoning = completed_reasoning("Checked the input.");
+    let answer = assistant_message("msg-result", "Here is the result.");
+    s.feed(&format!(
+        "{TURN}\n{reasoning}\n{answer}\n{}",
+        turn_ended("completed")
+    ));
+    s.keys("ctrl+t");
+    s.assert_in_order(&["Checked the input.", "Here is the result."]);
+}
+
+fn completed_reasoning(line: &str) -> String {
+    serde_json::json!({"step": "notify", "message": {"method": "item/completed", "params": {
+        "threadId": "thread-1", "turnId": "turn-1", "completedAtMs": 0,
+        "item": {"type": "reasoning", "id": "reasoning-1", "summary": [line], "content": []}
+    }}})
+    .to_string()
+}
+
+fn prose_delta(method: &str, id: &str, text: &str) -> String {
+    serde_json::json!({"step": "notify", "message": {"method": method, "params": {
+        "threadId": "thread-1", "turnId": "turn-1", "itemId": id, "delta": text
+    }}})
+    .to_string()
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5023 deltas_then_same_final_message_are_rendered_snapshot kind=snap owner=ui-pane snap=deltas_then_same_final_message_are_rendered_snapshot
 #[test]
 fn deltas_then_same_final_message_are_rendered_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "reasoning and answer streaming headers, prose previews and per-message headers are not built in the chat skeleton",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: reasoning deltas and a final; agent message deltas, then the same final message
-    s.assert_snap("deltas_then_same_final_message_are_rendered_snapshot");
+    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    s.feed(TURN);
+    for delta in ["I will ", "first analyze the ", "request."] {
+        s.feed(
+            &serde_json::json!({"step": "notify", "message": {
+                "method": "item/reasoning/summaryTextDelta", "params": {
+                    "threadId": "thread-1", "turnId": "turn-1", "itemId": "reasoning-1",
+                    "summaryIndex": 0, "delta": delta
+                }
+            }})
+            .to_string(),
+        );
+    }
+    let reasoning = "I will first analyze the request.";
+    s.feed(&completed_reasoning(reasoning));
+    for delta in ["Here is the ", "result."] {
+        s.feed(&prose_delta("item/agentMessage/delta", "msg-result", delta));
+    }
+    let answer = "Here is the result.";
+    s.assert_contains(answer);
+    s.feed(&assistant_message("msg-result", answer));
+    s.feed(&turn_ended("completed"));
+    s.keys("ctrl+t");
+    s.assert_in_order(&[reasoning, answer]);
+    s.assert_text_count(reasoning, 1);
+    s.assert_text_count(answer, 1);
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5057 unterminated_prose_is_visible_before_completion kind=snap owner=ui-pane snap=unterminated_agent_prose_preview snap=unterminated_plan_prose_preview
 #[test]
 fn unterminated_prose_is_visible_before_completion() {
-    kit::pending(
-        Owner::UiPane,
-        "reasoning and answer streaming headers, prose previews and per-message headers are not built in the chat skeleton",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: collaboration mode off, then streamed agent prose without a newline, before completion
-    s.assert_snap("unterminated_agent_prose_preview");
-    // then the same for the plan mode prose (plan mask on, a new chat state)
-    s.assert_snap("unterminated_plan_prose_preview");
+    for method in ["item/agentMessage/delta", "item/plan/delta"] {
+        let mut s = Screen::build(Owner::UiPane).size(26, 16).live().open();
+        s.feed(TURN);
+        for text in ["100 200 300 400 ", "500 600 700 800 ", "900 1000 1100 1200"] {
+            s.feed(&prose_delta(method, "draft-1", text));
+        }
+        s.assert_in_order(&["100", "400", "500", "800", "900", "1200"]);
+        s.assert_text_count("1200", 1);
+    }
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5233 reasoning_delta_does_not_double_schedule_visible_status_redraw kind=ui owner=ui-pane

@@ -8,11 +8,13 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+use linkify::{LinkFinder, LinkKind};
 use rtwk::layout::{
-    Column, CrossAxisAlignment, EdgeInsets, IntrinsicHeight, MainAxisSize, Padding, SizedBox,
+    Column, CrossAxisAlignment, EdgeInsets, Flexible, IntrinsicHeight, MainAxisSize, Padding,
+    SizedBox,
 };
 use rtwk::provider::{read, select, watch};
-use rtwk::style::{Attrs, Style};
+use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{TextOverflow, segmenter_of};
 use rtwk::widgets::Text;
 use rtwk::{
@@ -128,7 +130,7 @@ impl BannerId {
 }
 
 /// What the banner shows now, for the page's key handler (a `ValueNotifier`
-/// the widget writes while it builds): the numbers it takes and whether Esc
+/// the widget writes for its actual layout): the numbers it takes and whether Esc
 /// dismisses it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct BannerKeys {
@@ -217,13 +219,13 @@ impl State for BackendBannersState {
     fn build(&self, widget: &BackendBanners, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let tokens = theme::Tokens::of(cx);
         let strings = l10n::of(cx);
-        let words = chat_strings::of(cx);
         let session = watch::<SessionSlice, _>(cx);
         let reset_words = status_strings::of(cx);
-        let (id, model) = select::<ThreadModel, _, _>(cx, |thread| {
+        let (id, model, running) = select::<ThreadModel, _, _>(cx, |thread| {
             (
                 thread.id().clone(),
                 thread.screen_slots().chat.model.clone(),
+                thread.task_running(),
             )
         });
         let place = place_of(cx, &id);
@@ -240,14 +242,15 @@ impl State for BackendBannersState {
         let mut column = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Start);
-        let mut keys = BannerKeys::default();
-        if let Some(occurrence) = session
-            .backend_banners
-            .get(&backend)
-            // the Luna Reserve banner is the focused selector's (`ReserveSelector`)
-            .filter(|occurrence| {
-                occurrence.is_visible(active_model) && !occurrence.banner.is_reserve()
-            })
+        widget.gate.keys.set(BannerKeys::default());
+        if !running
+            && let Some(occurrence) = session
+                .backend_banners
+                .get(&backend)
+                // the Luna Reserve banner is the focused selector's (`ReserveSelector`)
+                .filter(|occurrence| {
+                    occurrence.is_visible(active_model) && !occurrence.banner.is_reserve()
+                })
         {
             let banner = &occurrence.banner;
             let (title, description) = if banner.reserve_pending(active_model) {
@@ -269,43 +272,37 @@ impl State for BackendBannersState {
                 .map(|(index, cta)| format!("{}. {}", index + 1, cta.label))
                 .collect();
             let id = BannerId::Backend(backend, occurrence.ticket);
-            keys = BannerKeys {
-                backend: Some(id),
-                actions: labels.len().min(9),
-                dismissible: occurrence.is_dismissible(),
-            };
-            let hint = words.banner_hint(BannerHint::of(!labels.is_empty(), keys.dismissible));
             let block = banner_block(
                 cx,
                 &widget.gate,
                 &tokens,
                 id,
-                header(title, description, &tokens),
+                (title, description),
+                BannerHint::of(!labels.is_empty(), occurrence.is_dismissible()),
                 labels,
-                hint,
             );
-            column = column.child(block.with_key(Key::value(occurrence.ticket)));
-        } else if let Some((notice, occurrence)) = security {
+            column = column.child(Flexible::new(
+                1,
+                block.with_key(Key::value(occurrence.ticket)),
+            ));
+        } else if !running && let Some((notice, occurrence)) = security {
             // the reminder shows while no banner of the backend applies and the user has not
             // dismissed this occurrence of it (`show_security_setup`)
             let id = BannerId::Security(occurrence);
-            keys = BannerKeys {
-                backend: Some(id),
-                actions: 1,
-                dismissible: true,
-            };
             let block = banner_block(
                 cx,
                 &widget.gate,
                 &tokens,
                 id,
-                header(notice.title, notice.description, &tokens),
+                (notice.title, notice.description),
+                BannerHint::ChooseOrDismiss,
                 vec![format!("1. {}", notice.action.label)],
-                words.banner_hint(BannerHint::ChooseOrDismiss),
             );
-            column = column.child(block.with_key(Key::value(("security", occurrence))));
+            column = column.child(Flexible::new(
+                1,
+                block.with_key(Key::value(("security", occurrence))),
+            ));
         }
-        widget.gate.keys.set(keys);
         if let Some(notice) = session.backend_notices.get(&backend) {
             column = column.child(Text::new(notice.clone()).style(tokens.dim()));
         }
@@ -320,33 +317,11 @@ fn banner_block(
     gate: &BannerGate,
     tokens: &theme::Tokens,
     id: BannerId,
-    header: AnyWidget,
+    copy: (String, String),
+    hint: BannerHint,
     labels: Vec<String>,
-    hint: Option<&str>,
 ) -> AnyWidget {
-    if labels.is_empty() {
-        // information only: a blank row above and below, the hint two rows under
-        let mut block = Column::new()
-            .main_axis_size(MainAxisSize::Min)
-            .cross_axis_alignment(CrossAxisAlignment::Start)
-            .child(SizedBox::new(None, Some(1), None))
-            .child(header);
-        if let Some(hint) = hint {
-            block = block
-                .child(SizedBox::new(None, Some(1), None))
-                .child(inset(Text::new(hint.to_owned()).style(tokens.dim()).into()));
-        }
-        return block.child(SizedBox::new(None, Some(1), None)).into();
-    }
-    let rows = Rc::new(
-        labels
-            .into_iter()
-            .map(|label| OptionRow {
-                label,
-                description: None,
-            })
-            .collect::<Vec<_>>(),
-    );
+    let words = chat_strings::of(cx);
     let options = gate
         .options
         .on_accept(cx.map(move |row: usize| BannerMsg::Pick(id, row)));
@@ -355,27 +330,119 @@ fn banner_block(
         label: Style::new(),
         description: Style::new(),
     };
-    let mut block = Column::new()
-        .main_axis_size(MainAxisSize::Min)
-        .cross_axis_alignment(CrossAxisAlignment::Start)
-        .child(SizedBox::new(None, Some(1), None))
-        .child(header)
-        .child(SizedBox::new(None, Some(1), None))
-        .child(
-            // the rows as tall as they are (`Options` would take all the room it is given)
-            IntrinsicHeight::new(
-                Column::new()
-                    .main_axis_size(MainAxisSize::Min)
-                    .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                    .child(options.view(rows, styles, 0)),
-            ),
+    let gate = gate.clone();
+    let tokens = tokens.clone();
+    LayoutBuilder::new(move |cx, constraints| {
+        let available = usize::try_from(constraints.max_height).unwrap_or_default();
+        if available == 0 {
+            gate.keys.set(BannerKeys::default());
+            return SizedBox::shrink().into();
+        }
+        let (header, header_rows) = header(cx, &copy, &tokens, constraints.max_width, available);
+        let columns = usize::try_from(constraints.max_width)
+            .unwrap_or_default()
+            .max(1);
+        let segmenter = segmenter_of(cx);
+        let option_heights: Vec<_> = labels
+            .iter()
+            .map(|label| {
+                measure::rows(segmenter, &format!("› {label}"), columns)
+                    .len()
+                    .max(1)
+            })
+            .collect();
+        let desired: usize = option_heights.iter().sum();
+        // A clipped banner prioritizes the visible actions over its decorations and heading.
+        let compact = available < header_rows + 2 + desired;
+        let mut action_rows = 0;
+        let actions = option_heights
+            .iter()
+            .take_while(|&&height| {
+                if action_rows >= available {
+                    return false;
+                }
+                action_rows += height;
+                true
+            })
+            .count();
+        gate.keys.set(BannerKeys {
+            backend: Some(id),
+            actions: actions.min(9),
+            dismissible: matches!(hint, BannerHint::Dismiss | BannerHint::ChooseOrDismiss),
+        });
+        let hint = (available >= header_rows + 4 + desired)
+            .then(|| words.banner_hint(hint))
+            .flatten();
+        if actions == 0 {
+            if compact {
+                return header;
+            }
+            // information only: a blank row above and below, the hint two rows under
+            let mut block = Column::new()
+                .main_axis_size(MainAxisSize::Min)
+                .cross_axis_alignment(CrossAxisAlignment::Start)
+                .child(SizedBox::new(None, Some(1), None))
+                .child(header);
+            if let Some(hint) = hint {
+                block = block
+                    .child(SizedBox::new(None, Some(1), None))
+                    .child(banner_hint(hint, &tokens));
+            }
+            return block.child(SizedBox::new(None, Some(1), None)).into();
+        }
+        let rows = Rc::new(
+            labels
+                .iter()
+                .take(actions)
+                .cloned()
+                .map(|label| OptionRow {
+                    label,
+                    description: None,
+                })
+                .collect::<Vec<_>>(),
         );
-    if let Some(hint) = hint {
-        block = block
+        let list = Column::new()
+            .main_axis_size(MainAxisSize::Min)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(options.view(rows, styles.clone(), 0));
+        let actions: AnyWidget = if compact {
+            // A tight viewport gives Options its real room on the first layout.
+            SizedBox::new(
+                None,
+                Some(i32::try_from(action_rows.min(available)).unwrap_or(i32::MAX)),
+                Some(list.into()),
+            )
+            .into()
+        } else {
+            IntrinsicHeight::new(list).into()
+        };
+        if compact {
+            return actions;
+        }
+        let mut block = Column::new()
+            .main_axis_size(MainAxisSize::Min)
+            .cross_axis_alignment(CrossAxisAlignment::Start)
             .child(SizedBox::new(None, Some(1), None))
-            .child(inset(Text::new(hint.to_owned()).style(tokens.dim()).into()));
-    }
-    block.into()
+            .child(header)
+            .child(SizedBox::new(None, Some(1), None))
+            .child(actions);
+        if let Some(hint) = hint {
+            block = block
+                .child(SizedBox::new(None, Some(1), None))
+                .child(banner_hint(hint, &tokens));
+        }
+        block.into()
+    })
+    .into()
+}
+
+fn banner_hint(hint: &str, tokens: &theme::Tokens) -> AnyWidget {
+    inset(
+        Text::new(hint.to_owned())
+            .style(tokens.dim())
+            .max_lines(Some(1))
+            .into(),
+    )
 }
 
 /// The viewer's clock and the host's zone and time, which the banner's `{time}` is read in.
@@ -585,50 +652,73 @@ fn inset(child: AnyWidget) -> AnyWidget {
 
 /// The bold title and the description, wrapped to the room less the inset;
 /// more than eight rows keep seven and a dimmed `…` (`BannerContent`).
-fn header(title: String, description: String, tokens: &theme::Tokens) -> AnyWidget {
+fn header(
+    cx: &mut Cx<'_>,
+    (title, description): &(String, String),
+    tokens: &theme::Tokens,
+    width: i32,
+    available: usize,
+) -> (AnyWidget, usize) {
     let (bold, plain, dim) = (tokens.bold(), Style::new(), tokens.dim());
-    LayoutBuilder::new(move |cx, constraints| {
-        let seg = segmenter_of(cx);
-        let room = usize::try_from(constraints.max_width - 4)
-            .unwrap_or(1)
-            .max(1);
-        let rows = |text: &str| -> usize {
-            if text.is_empty() {
-                0
+    let seg = segmenter_of(cx);
+    let room = usize::try_from(width - 4).unwrap_or(1).max(1);
+    let rows = |text: &str| -> usize {
+        if text.is_empty() {
+            0
+        } else {
+            measure::rows(seg, text, room).len()
+        }
+    };
+    let (title_rows, description_rows) = (rows(title), rows(description));
+    let limit = available.min(8);
+    let cut = title_rows + description_rows > limit && limit > 1;
+    let budget = limit - usize::from(cut);
+    let title_shown = title_rows.min(budget);
+    let description_shown = description_rows.min(budget - title_shown.min(budget));
+    let part = |text: &str, lines: usize, style| -> Option<AnyWidget> {
+        (lines > 0).then(|| {
+            Text::rich(banner_spans(text, style))
+                .max_lines(Some(lines))
+                .overflow(TextOverflow::Clip)
+                .into()
+        })
+    };
+    let mut column = Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Start);
+    for piece in [
+        part(title, title_shown, bold),
+        part(description, description_shown, plain),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        column = column.child(piece);
+    }
+    if cut {
+        column = column.child(Text::line("…".to_owned()).style(dim));
+    }
+    let height = title_shown + description_shown + usize::from(cut);
+    (inset(column.into()), height)
+}
+
+/// Keep the source copy literal, and give every painted fragment of a web URL its full target.
+fn banner_spans(text: &str, style: Style) -> Vec<Span> {
+    let mut finder = LinkFinder::new();
+    finder.kinds(&[LinkKind::Url]);
+    finder
+        .spans(text)
+        .map(|span| {
+            let text = span.as_str();
+            let style = if span.kind().is_some()
+                && url::Url::parse(text).is_ok_and(|url| {
+                    matches!(url.scheme(), "http" | "https") && url.host().is_some()
+                }) {
+                style.clone().link(text)
             } else {
-                measure::rows(seg, text, room).len()
-            }
-        };
-        let (title_rows, description_rows) = (rows(&title), rows(&description));
-        let cut = title_rows + description_rows > 8;
-        let budget = if cut { 7 } else { usize::MAX };
-        let title_shown = title_rows.min(budget);
-        let description_shown = description_rows.min(budget - title_shown.min(budget));
-        let part = |text: &str, lines: usize, style| -> Option<AnyWidget> {
-            (lines > 0).then(|| {
-                Text::new(text.to_owned())
-                    .max_lines(Some(lines))
-                    .overflow(TextOverflow::Clip)
-                    .style(style)
-                    .into()
-            })
-        };
-        let mut column = Column::new()
-            .main_axis_size(MainAxisSize::Min)
-            .cross_axis_alignment(CrossAxisAlignment::Start);
-        for piece in [
-            part(&title, title_shown, bold.clone()),
-            part(&description, description_shown, plain.clone()),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            column = column.child(piece);
-        }
-        if cut {
-            column = column.child(Text::line("…".to_owned()).style(dim.clone()));
-        }
-        inset(column.into())
-    })
-    .into()
+                style.clone()
+            };
+            Span::styled(text.to_owned(), style)
+        })
+        .collect()
 }

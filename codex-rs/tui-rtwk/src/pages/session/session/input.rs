@@ -10,7 +10,7 @@ use rtwk::layout::Stack;
 use rtwk::{AnyWidget, Cx, Key};
 
 use codex_tui_core::keymap::actions::{
-    CHAT_OPEN_PRESETS, GLOBAL_CHANGE_HOST, GLOBAL_SELECT_TRANSCRIPT,
+    CHAT_INTERRUPT_TURN, CHAT_OPEN_PRESETS, GLOBAL_CHANGE_HOST, GLOBAL_SELECT_TRANSCRIPT,
 };
 use codex_tui_core::keymap::fixed;
 
@@ -355,6 +355,14 @@ pub(super) fn focus(
         (fixed::TRANSCRIPT_LATEST_ALT, ChatMsg::Latest),
     ] {
         for key in crate::keymap::presses(keymap, id) {
+            // A configured turn binding wins over page-level shortcuts such as the debug key.
+            // Physical Escape still runs the overlay and editor precedence in ChatState::escape.
+            if id != fixed::ESCAPE
+                && thread.can_interrupt()
+                && crate::keymap::pressed(keymap, CHAT_INTERRUPT_TURN, &key)
+            {
+                continue;
+            }
             focus = focus.bind(key, cx.send(msg.clone()));
         }
     }
@@ -414,6 +422,14 @@ pub(super) fn hints(cx: &mut Cx<'_, ChatState>, frame: &Frame, focus: AnyWidget)
         codex_tui_core::keymap::actions::CHAT_INCREASE_REASONING_EFFORT,
         &cx.send(ChatMsg::Reasoning(Direction::Raise)),
     ));
+    if frame.thread.can_interrupt() {
+        let escape = crate::keymap::names(keymap, fixed::ESCAPE);
+        keys.extend(
+            crate::keymap::bindings(keymap, CHAT_INTERRUPT_TURN, &cx.send(ChatMsg::Interrupt))
+                .into_iter()
+                .filter(|(key, _)| !escape.contains(key)),
+        );
+    }
     KeyBindings::new(crate::keymap::first_of_each(keys), focus)
         .hints([
             ("left", pages.hint_agents),

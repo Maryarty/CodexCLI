@@ -54,6 +54,8 @@ pub enum ChatMsg {
     /// A suggestion was put in: a command is run, the others are text.
     Picked(Rc<str>),
     Escape,
+    /// A configured interrupt binding other than the page's physical Escape.
+    Interrupt,
     /// `?`: the shortcut overlay (the footer's hint).
     Shortcuts,
     /// `←` on an empty composer: the agents page (the footer's hint).
