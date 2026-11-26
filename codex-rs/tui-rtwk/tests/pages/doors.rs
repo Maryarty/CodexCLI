@@ -496,6 +496,17 @@ mod kit_states {
         s.assert_contains("Model:               loading");
     }
 
+    /// `Screen::parent_owned()`: the server's `thread/started` says the thread takes no direct
+    /// input, and a message sent from the composer is refused with the parent's words.
+    #[test]
+    fn the_parent_owned_seed_blocks_direct_input() {
+        let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
+        s.parent_owned();
+        s.type_text("hello").keys("enter");
+        s.assert_contains("This sub-agent is controlled by its parent. Direct input is disabled.");
+        s.assert_no_turn();
+    }
+
     /// `Open::composer_alone()` is the oracle's bare composer: the empty one of the
     /// `chat_composer` snapshots.
     #[test]

@@ -2238,7 +2238,14 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 // it) ends the launch with the oracle's message.
                 let read = match answer {
                     Answer::Screen(ScreenReply::Agents(agents::Reply::Read { thread, .. })) => {
-                        Ok(Some(thread.cwd.display().to_string()))
+                        Ok(crate::screens::onboarding::session::Found {
+                            cwd: Some(thread.cwd.display().to_string()),
+                            thread: Some(crate::screens::onboarding::session::Resumed {
+                                provider: thread.model_provider.clone(),
+                                loaded: thread.status
+                                    != codex_app_server_protocol::ThreadStatus::NotLoaded,
+                            }),
+                        })
                     }
                     _ => Err(()),
                 };
@@ -3417,14 +3424,18 @@ fn attach_thread_with_metadata(
     notices::flush(app, thread, fx);
 }
 
-/// The apps the mentions offer are the installed ones the directory lists
-/// (`connectors_for_mentions`): an app it does not list as accessible leaves them.
+/// The apps the mentions offer are the installed and enabled ones the directory lists
+/// (`connectors_for_mentions`): an app it does not list as accessible and enabled leaves them.
 fn drop_uncallable_apps(app: &mut CodexApp, listed: &[screens::select::apps::App]) {
     use crate::data::mention::MentionKind;
     let callable = |path: &Option<String>| {
         path.as_deref()
             .and_then(|path| path.strip_prefix("app://"))
-            .is_none_or(|id| listed.iter().any(|app| app.id == id && app.installed))
+            .is_none_or(|id| {
+                listed
+                    .iter()
+                    .any(|app| app.id == id && app.installed && app.enabled)
+            })
     };
     if app
         .screens

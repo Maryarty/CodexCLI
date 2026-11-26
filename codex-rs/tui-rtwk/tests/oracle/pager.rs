@@ -164,10 +164,34 @@ fn opening_find_retains_the_selected_mutable_revision() {
 // ORACLE pager_overlay/transcript_tests.rs:438 jump_top_holds_the_visible_page_until_all_history_arrives kind=snap owner=chat-live
 #[test]
 fn jump_top_holds_the_visible_page_until_all_history_arrives() {
-    kit::missing(
-        Owner::ChatLive,
-        "Home loads the history to its beginning while the sheet holds the page and says Loading: the thread model has no Loading or Failed history state yet (chunk-live) and no route feeds the sheet a history page",
-    );
+    // the oracle's one cell of eight lines is eight one-row turns here: the sheet's rows are the
+    // transcript's, so the rows of the first page say what the sheet holds
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(27, 8)
+        .replay(Vec::new())
+        .view_overlay()
+        .open();
+    s.wait_for("T R A N S C R I P T");
+    s.history_page(kit::turns_of("line", 0..8), Some("cursor-1"));
+    let initial = s.shot();
+    // Home asks for the older page and holds the rows in view
+    s.keys("home");
+    s.assert_contains("↑ Loading… · end latest");
+    s.assert_same_rows_in(&initial, 0..4);
+    // the earlier page arrives; Home asks for the next and the rows are still the first page's
+    s.history_page(kit::turns_of("earlier", 0..3), Some("cursor-2"));
+    s.keys("home");
+    s.assert_contains("↑ Loading… · end latest");
+    s.assert_same_rows_in(&initial, 0..4);
+    // the oldest page is the last: the beginning is the first entry of the thread (the session's
+    // heading, where the oracle's cells have none) and nothing is loading
+    s.history_page(kit::turns_of("oldest", 0..3), None);
+    s.assert_contains(">_ OpenAI Codex");
+    s.assert_absent("Loading");
+    s.assert_contains("end latest");
+    let complete = s.shot();
+    s.keys("end home");
+    s.assert_same_rows(&complete);
 }
 
 // ORACLE pager_overlay/transcript_tests.rs:505 highlighting_reveals_prompt_body_when_only_padding_is_visible kind=ui owner=chat-live
@@ -202,10 +226,27 @@ fn highlighting_reveals_prompt_body_when_only_padding_is_visible() {
 // ORACLE pager_overlay/transcript_tests.rs:540 transcript_overlay_snapshots_paginated_history_states kind=snap owner=chat-live snap=codex_tui__pager_overlay__transcript_tests__transcript_overlay_paginated_history_states
 #[test]
 fn transcript_overlay_snapshots_paginated_history_states() {
-    kit::missing(
-        Owner::ChatLive,
-        "the four history states (partial, loading, failed, complete) of the status row: the thread model keeps only whether older history can be loaded (`can_load_history`); Loading and Failed are chunk-live's, and the sheet's rows for Partial and Complete are built (status row in sheet.rs) without a route to feed a page",
-    );
+    // the oracle's one cell `recent transcript` is row 1; the thread's own rows (a separator and
+    // answers) stand in rows 1 to 5 and are not compared: the chrome around them is
+    let snap =
+        "codex_tui__pager_overlay__transcript_tests__transcript_overlay_paginated_history_states";
+    let rows = [1, 2, 3, 4, 5];
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(72, 10)
+        .replay(Vec::new())
+        .view_overlay()
+        .open();
+    s.wait_for("T R A N S C R I P T");
+    s.history_page(kit::turns_of("recent", 0..8), Some("cursor-1"));
+    s.assert_snap_frame_except(snap, "partial", &rows);
+    // Home asks for the page and the reader goes back to the end: the page is on its way
+    s.keys("home end");
+    s.assert_snap_frame_except(snap, "loading", &rows);
+    s.history_failed("the server is gone");
+    s.assert_snap_frame_except(snap, "failed", &rows);
+    s.keys("home end");
+    s.history_page(kit::turns_of("older", 0..1), None);
+    s.assert_snap_frame_except(snap, "complete", &rows);
 }
 
 // ORACLE pager_overlay/transcript_tests.rs:565 transcript_overlay_preserves_semantic_web_links kind=ui owner=chat-live
@@ -279,8 +320,29 @@ fn completing_agent_and_plan_streams_preserves_reading_in_later_fragments() {
 // ORACLE pager_overlay/transcript_tests.rs:928 navigation_supersedes_home_before_and_after_the_first_draw kind=ui owner=chat-live
 #[test]
 fn navigation_supersedes_home_before_and_after_the_first_draw() {
-    kit::missing(
-        Owner::ChatLive,
-        "Home asks for the older history and a later key supersedes it: the thread model has no LoadingOlder state yet (chunk-live) and no route feeds the sheet a history page",
-    );
+    // a reader who pressed Home and then a navigation key, once the page arrived, sees what a
+    // reader who pressed only the navigation key sees (the oracle's `expected` and `actual`)
+    for key in [
+        "up", "down", "pageup", "pagedown", "ctrl+u", "ctrl+d", "end",
+    ] {
+        let open = |home: bool| {
+            let mut s = Screen::build(Owner::ChatLive)
+                .size(40, 10)
+                .replay(Vec::new())
+                .view_overlay()
+                .open();
+            s.wait_for("T R A N S C R I P T");
+            s.history_page(kit::turns_of("line", 0..30), Some("cursor-1"));
+            if home {
+                s.keys("home");
+            }
+            s.keys(key);
+            s
+        };
+        let expected = open(false);
+        let mut actual = open(true);
+        // Home asked for the page; the later key won
+        actual.history_page(kit::turns_of("received older history", 0..1), None);
+        actual.assert_same_rows_in(&expected.shot(), 1..6);
+    }
 }

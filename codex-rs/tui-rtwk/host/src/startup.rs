@@ -46,6 +46,7 @@ use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::chat::Ev as ChatEv;
 use codex_tui_core::screens::onboarding::auth::{AuthResult, Offer, Providers};
 use codex_tui_core::screens::onboarding::gateway::Logins;
+use codex_tui_core::screens::onboarding::session::Resumed;
 use codex_tui_core::screens::onboarding::{Ask, Ev, Facts, TrustAsk, TrustCancel, Welcome};
 use codex_tui_core::screens::startup::{DaemonChoice, Prompt};
 use codex_tui_rtwk::services::backend::rpc::Ids;
@@ -94,6 +95,9 @@ pub struct Startup {
     /// `--cd` was given (a resumed or forked session then opens here:
     /// `effective_resume_cwd_mode`).
     pub cwd_override: bool,
+    /// The provider `--oss` chose (`model_provider_override`): the server's
+    /// own pin (`required_model_provider`) wins over it.
+    pub oss_provider: Option<String>,
     /// The command line carries a prompt (`cli.prompt` non-empty): no update is offered
     /// (lib.rs `skip_update_prompt`); the cache refresh and the banner still run.
     pub launch_prompt: bool,
@@ -484,7 +488,7 @@ where
             .await;
             Ev::GatewayOAuth { request, result }
         }
-        Ask::GatewayDevice { request } => {
+        Ask::GatewayDevice { request, thread } => {
             // `lib.rs`: `!uses_remote_workspace` gates the whole sign-in.
             if startup.target.remote_workspace() {
                 return Some(AppEv::Screen(ScreenEv::Onboarding(Ev::GatewayDevice {
@@ -492,7 +496,13 @@ where
                     code: None,
                 })));
             }
-            let provider = explicit_provider(&*startup.current.read().await);
+            let provider = device_provider(
+                explicit_model_provider(
+                    &*startup.current.read().await,
+                    startup.oss_provider.as_deref(),
+                ),
+                thread,
+            );
             match crate::gateway::start_device(
                 provider.as_deref(),
                 &ids,
@@ -781,9 +791,35 @@ fn login_policy(startup: &Startup) -> wire::LoginPolicy {
     }
 }
 
-/// `explicit_provider`: the provider the invocation (a session flag) or a
-/// named profile chose, none when the config's own default stands. The
-/// harness's `--oss` override is not carried over.
+/// The provider the device-code sign-in is for (`device_login::start_if_needed`):
+/// the launch's own, overwritten by the resumed thread's when the launch chose
+/// none or the server still holds the thread in memory (it is reattached with
+/// its current provider; a provider override can take effect only when the
+/// server loads the thread from disk).
+fn device_provider(selected: Option<String>, thread: Option<Resumed>) -> Option<String> {
+    match thread {
+        Some(thread) if selected.is_none() || thread.loaded => Some(thread.provider),
+        _ => selected,
+    }
+}
+
+/// `explicit_model_provider`: the provider the launch chose. `--oss` is the
+/// override, and a provider the managed requirements pin beats it; otherwise
+/// the invocation (a session flag) or a named profile, none when the
+/// config's own default stands.
+fn explicit_model_provider(config: &Config, launch: Option<&str>) -> Option<String> {
+    launch
+        .map(|provider| {
+            config
+                .config_layer_stack
+                .required_model_provider()
+                .unwrap_or(provider)
+                .to_owned()
+        })
+        .or_else(|| explicit_provider(config))
+}
+
+/// `explicit_provider`: the provider a session flag or a named profile chose.
 fn explicit_provider(config: &Config) -> Option<String> {
     config
         .config_layer_stack
@@ -1082,6 +1118,7 @@ mod tests {
             check_trust: true,
             remote_cwd: None,
             cwd_override: false,
+            oss_provider: None,
             launch_prompt: false,
             update: UpdateSlot::default(),
             failure: FailureSlot::default(),
@@ -1810,7 +1847,10 @@ mod tests {
         let (startup, _dir) = startup_with(Target::Remote, system_browser()).await;
         let ev = run(
             startup,
-            Ask::GatewayDevice { request: 2 },
+            Ask::GatewayDevice {
+                request: 2,
+                thread: None,
+            },
             Ids::default(),
             |request: ClientRequest| async move { panic!("asked {request:?}") },
         )
@@ -1851,7 +1891,10 @@ mod tests {
         };
         let ev = run(
             startup,
-            Ask::GatewayDevice { request: 2 },
+            Ask::GatewayDevice {
+                request: 2,
+                thread: None,
+            },
             Ids::default(),
             record,
         )
@@ -1873,7 +1916,10 @@ mod tests {
         let (startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
         let ev = run(
             startup.clone(),
-            Ask::GatewayDevice { request: 2 },
+            Ask::GatewayDevice {
+                request: 2,
+                thread: None,
+            },
             Ids::default(),
             |_: ClientRequest| async {
                 Err::<serde_json::Value, _>(ServerError {
@@ -1911,6 +1957,73 @@ mod tests {
     async fn a_plain_config_names_no_provider() {
         let (startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
         assert_eq!(explicit_provider(&startup.config), None);
+    }
+
+    // `--oss` is the launch's provider; with none chosen the flags and the
+    // profile speak.
+    #[tokio::test]
+    async fn the_oss_choice_is_the_explicit_provider() {
+        let (startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        assert_eq!(
+            explicit_model_provider(&startup.config, Some("ollama")).as_deref(),
+            Some("ollama")
+        );
+        assert_eq!(explicit_model_provider(&startup.config, None), None);
+    }
+
+    // The managed requirements pin the provider: the `--oss` choice does not
+    // beat it (`explicit_model_provider`: `required_model_provider`).
+    #[tokio::test]
+    async fn a_required_provider_beats_the_oss_choice() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let requirements = dir.path().join("requirements.toml");
+        std::fs::File::create(&requirements)
+            .and_then(|mut file| {
+                std::io::Write::write_all(&mut file, b"model_provider = \"ollama\"\n")
+            })
+            .expect("requirements");
+        let config = codex_core::config::ConfigBuilder::default()
+            .codex_home(dir.path().to_path_buf())
+            .fallback_cwd(Some(dir.path().to_path_buf()))
+            .loader_overrides(codex_config::LoaderOverrides {
+                system_requirements_path: Some(requirements),
+                ..codex_config::LoaderOverrides::without_managed_config_for_tests()
+            })
+            .build()
+            .await
+            .expect("a config");
+        assert_eq!(
+            explicit_model_provider(&config, Some("lmstudio")).as_deref(),
+            Some("ollama")
+        );
+    }
+
+    // The device sign-in is for the resumed thread's provider when the launch
+    // chose none, or the server holds the thread loaded; otherwise the
+    // launch's own choice stands.
+    #[test]
+    fn a_loaded_thread_overrides_the_selected_provider() {
+        let thread = |loaded| {
+            Some(Resumed {
+                provider: "thread".to_owned(),
+                loaded,
+            })
+        };
+        let selected = || Some("chosen".to_owned());
+        assert_eq!(
+            device_provider(None, thread(false)).as_deref(),
+            Some("thread")
+        );
+        assert_eq!(
+            device_provider(selected(), thread(true)).as_deref(),
+            Some("thread")
+        );
+        assert_eq!(
+            device_provider(selected(), thread(false)).as_deref(),
+            Some("chosen")
+        );
+        assert_eq!(device_provider(selected(), None).as_deref(), Some("chosen"));
+        assert_eq!(device_provider(None, None), None);
     }
 
     // `start_gateway_oauth`'s answer reaches the page as its result, and the

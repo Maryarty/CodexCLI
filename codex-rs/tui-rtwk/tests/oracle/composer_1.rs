@@ -93,12 +93,12 @@ fn parent_owned_thread_placeholder_snapshot() {
 fn light_terminal_palette_renders_light_composer_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "screen feature: the composer paints no light-terminal background (cell (0, 1) bg is Reset, the oracle's is Rgb(244,244,244)); the terminal colours come from the kit's `light()` seed",
+        "G-new-footer-palette: the composer draws the light surface (bg Rgb(244,244,244) at the prompt row and the rows and text equal the oracle's); the footer's key hints and hint text take no colour from the terminal's own foreground and background (the oracle: the key bold in blend(fg, bg, 0.85) on a light terminal, the hint text in a blended grey; ours: Reset and Indexed(245)), and a blank cell keeps the bold of the glyph before it (the presenter writes it without resetting)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(48, 6)
         .light()
-        .live()
+        .composer_alone()
         .open();
     s.assert_style(0, 1, "bg=Rgb(244,244,244)");
     s.assert_snap("light_terminal_palette_composer");

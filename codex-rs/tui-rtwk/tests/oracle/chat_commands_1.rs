@@ -30,16 +30,19 @@ fn hidden_shell_payload() -> String {
 // ORACLE chatwidget/tests/composer_submission.rs:17 reconnect_queues_enter_and_resumes_ordinary_next_turn_submission kind=snap owner=chat-nav-pane
 #[test]
 fn reconnect_queues_enter_and_resumes_ordinary_next_turn_submission() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no seed for a disconnected thread stream (the connection drops, then Enter queues a prompt); the kit cannot set the disconnect",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.stream_lost("Cloud stream ended. Reopen the conversation to reconnect.");
     s.type_text("queued prompt");
     s.keys("enter");
     s.type_text("still editing");
     // The oracle's inline snapshot: its visible lines, trimmed, queued first.
     s.assert_in_order(&["↳ queued prompt", "› still editing"]);
+    // nothing was sent while the stream was down
+    s.assert_no_turn();
+    // the stream is back: the queued prompt goes out as the next turn, the draft stays
+    s.stream_restored();
+    s.assert_turn_texts(&["queued prompt"]);
+    s.assert_composer("still editing");
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:76 composer_submission_sends_once_and_requests_latest kind=ui owner=chat-nav-pane
@@ -724,7 +727,7 @@ fn committed_user_message_with_hidden_prompt_context_renders_local_images() {
 fn reconnect_resumes_unsent_input_and_reconciles_confirmed_submissions() {
     kit::pending(
         Owner::ChatNavPane,
-        "no seed for a reconnect with a first message in flight (pause for disconnect, capture and restore of the input); the kit cannot drive the reconnect",
+        "G-new-reconnect-reconcile: the port keeps one thread model across a lost stream (queue on Enter, drain on restore: built), but it does not capture the first message in flight (a pending steer or a pending start) with its client id, nor reconcile it against the recovered history's receipts, so the notice `Couldn't confirm whether “first message” was sent. It hasn't been resent.` is never raised and an unconfirmed first message is not put back at the head of the queue",
     );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("first message");

@@ -12,7 +12,9 @@ use rtwk::foundation::{Listenable, VoidCallback};
 use rtwk::gestures::SelectionTarget;
 use rtwk::layout::{Column, CrossAxisAlignment, MainAxisSize};
 use rtwk::provider::{read, select, watch};
-use rtwk::scroll::{ItemTexts, ListView, ScrollController, ScrollNotification};
+use rtwk::scroll::{
+    ItemTexts, ListView, OverscrollNotification, ScrollController, ScrollNotification,
+};
 use rtwk::style::{Attrs, Style};
 use rtwk::{AnyWidget, Cx, Key, NotificationListener, Rebuild, State, StatefulWidget, impl_widget};
 
@@ -189,6 +191,10 @@ struct Shown {
 /// What the list's state is told: older history is wanted, or a fold was tapped.
 pub(super) enum Msg {
     Load(ThreadId),
+    /// The reader waits for the first row (`Follow::beginning`) and the history is now in this
+    /// state: the next page is asked for, the last one takes the reader to the first row, a
+    /// refused one ends the wait.
+    Beginning(ThreadId, HistoryState),
     Toggle(Vec<ItemKey>),
     /// Find moved: its footer and its match are drawn from the list's build.
     Find,
@@ -540,6 +546,9 @@ impl ViewportState {
         if before.0 != now.0 || before.1 == now.1 {
             return false;
         }
+        if !reverse {
+            widget.follow.shifted();
+        }
         let moved = rows.iter().position(|row| {
             transcript
                 .get(row.range.start)
@@ -779,6 +788,31 @@ impl State for ViewportState {
                 cx.emit(&handlers.load_history, thread);
                 Rebuild::No
             }
+            Msg::Beginning(thread, state) => {
+                // the reader's wait for the first row, and the caret's of select mode (`g`)
+                let caret = select::of(&widget.find);
+                let (reading, selecting) = (widget.follow.beginning(), caret.beginning());
+                if reading || selecting {
+                    match state {
+                        HistoryState::Partial => {
+                            let handlers = read::<Hs, _>(cx);
+                            cx.emit(&handlers.load_history, thread);
+                        }
+                        HistoryState::Complete => {
+                            if reading {
+                                widget.follow.finish_beginning();
+                            }
+                            caret.finish_beginning();
+                        }
+                        HistoryState::Failed => {
+                            widget.follow.cancel_beginning();
+                            caret.cancel_beginning();
+                        }
+                        HistoryState::Loading => {}
+                    }
+                }
+                Rebuild::No
+            }
             Msg::Toggle(ids) => {
                 activity_focus::of(&widget.find).toggle(&ids);
                 Rebuild::Yes
@@ -1007,6 +1041,9 @@ impl State for ViewportState {
             HistoryState::Complete => More::None,
         };
         let load = cx.local_sender();
+        if widget.follow.beginning() || caret.beginning() {
+            load(Msg::Beginning(thread.id().clone(), thread.history_state()));
+        }
         let (texts, targets) = if reads {
             let texts = self.row_texts(&thread, &rows, header.is_some(), reverse, &reading);
             let targets = copier.cutter().filter(|_| copier.active()).map(|cutter| {
@@ -1313,10 +1350,20 @@ impl State for ViewportState {
                 if can_load && scroll.depth() == 0 && distance <= 3 {
                     send(Msg::Load(loading.clone()));
                 }
+                // the wheel: a move nobody asked for supersedes the wait for the first row
+                follow.moved_to(metrics.pixels);
                 // back at the last row: the news is seen
                 if follow.at_tail() {
                     follow.clear_unseen();
                 }
+                false
+            })
+            .into();
+        // the wheel at an end moves nothing, and still is the reader's
+        let wheel = widget.follow.clone();
+        let list: AnyWidget = NotificationListener::<OverscrollNotification>::new(list)
+            .on_notification(move |_| {
+                wheel.cancel_beginning();
                 false
             })
             .into();

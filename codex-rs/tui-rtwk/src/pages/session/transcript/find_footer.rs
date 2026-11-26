@@ -17,6 +17,7 @@ use rtwk::editing::{EditingKeys, TextField};
 use rtwk::focus::{Focus, FocusNode, KeyPress};
 use rtwk::foundation::ListenableBuilder;
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
+use rtwk::provider::select as select_state;
 use rtwk::style::{Span, Style};
 use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
@@ -24,12 +25,14 @@ use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_wi
 use super::activity_focus::{self, Activity};
 use super::copy;
 use super::find::{self, Finder, Mode};
+use super::history;
 use super::select;
 use super::selection;
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
 use crate::pages::session::composer::editing::edit_query;
 pub use crate::widgets::finder::{Progress, Status};
+use codex_tui_core::threads::{HistoryState, ThreadModel};
 
 /// The spellings of the status row, the widest first (`status_line`).
 pub fn candidates(table: &Strings, status: &Status) -> Vec<String> {
@@ -159,6 +162,45 @@ pub fn status_row(table: &'static Strings, status: Status, key: Style, dim: Styl
     .into()
 }
 
+/// The status row of a reader who has accepted a match while the history loads or failed: the
+/// history's row with the way back to the latest after it (`status_line_with_navigation`).
+fn pending_row(
+    table: &'static Strings,
+    state: HistoryState,
+    key: Style,
+    accent: Style,
+    dim: Style,
+) -> AnyWidget {
+    let look = history::Look {
+        accent,
+        dim: dim.clone(),
+        key: key.clone(),
+    };
+    LayoutBuilder::new(move |cx, constraints| {
+        let segmenter = segmenter_of(cx);
+        let navigation = vec![
+            Span::styled(table.key_esc, key.clone()),
+            Span::styled(table.latest_action, dim.clone()),
+        ];
+        let fits = |spans: &[Span]| {
+            let cells: usize = spans.iter().map(|span| segmenter.width(&span.text)).sum();
+            i32::try_from(cells).unwrap_or(i32::MAX) <= constraints.max_width
+        };
+        let say = history::Say {
+            history: state,
+            news: false,
+            navigation: &navigation,
+            selected: false,
+        };
+        let chosen = history::candidates(table, &look, &say, &fits)
+            .into_iter()
+            .find(|spans| fits(spans))
+            .unwrap_or_default();
+        Text::rich_line(chosen).overflow(TextOverflow::Clip).into()
+    })
+    .into()
+}
+
 /// The query row: the dim label and the editor after it, which takes the rest.
 pub fn query_row(table: &'static Strings, label: Style, editor: AnyWidget) -> AnyWidget {
     Row::new()
@@ -215,6 +257,10 @@ pub fn slot_in<S: 'static>(
         margin,
     );
     let (shown_key, shown_dim) = (bold.clone(), dim.clone());
+    // a page on its way or a refused one speaks before the reader's Find status does
+    // (`footer`: `pending` keeps a read result from the `Find · …` row)
+    let state = select_state::<ThreadModel, _, _>(cx, ThreadModel::history_state);
+    let accent = tokens.accent();
     let activity = activity_focus::of(&finder);
     let shown: AnyWidget = ListenableBuilder::new(finder.listenable(), move |_, _| {
         let (dim, bold) = (shown_dim.clone(), shown_key.clone());
@@ -231,7 +277,16 @@ pub fn slot_in<S: 'static>(
                 QueryField::new(&finder, table, dim.clone()).into(),
             ));
         }
-        rows.child(row(margin, status_row(table, finder.status(), bold, dim)))
+        let status = finder.status();
+        if mode == Mode::Reading && status.reading && history::pending(state) {
+            return rows
+                .child(row(
+                    margin,
+                    pending_row(table, state, bold, accent.clone(), dim),
+                ))
+                .into();
+        }
+        rows.child(row(margin, status_row(table, status, bold, dim)))
             .into()
     })
     .into();

@@ -297,67 +297,50 @@ fn page_join_holds_the_reading_revision_until_navigation_reaches_a_surviving_cel
 // ORACLE transcript_view/mutations_tests.rs:78 page_join_keeps_selection_and_clearing_it_retains_the_reading_position kind=ui owner=chat-live
 #[test]
 fn page_join_keeps_selection_and_clearing_it_retains_the_reading_position() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no page-join revision and no selection that survives a join; the kit has no step that sends a history load",
-    );
+    // the oracle's rows `one`..`four` are four one-row turns here; its two pages of groups join
+    // above them as one page (a page after the first is asked for where the reader is at the top,
+    // and the selected row is not there), and nothing regroups: the page's rows are its own
     let mut s = Screen::build(Owner::ChatLive)
-        .size(20, 2)
-        .script(include_str!("fixtures/transcript_view_3/page_join.jsonl"))
+        .size(60, 8)
+        .replay(Vec::new())
+        .view_only()
         .open();
-    s.wheel_up(0, 0, 10);
-    // three clicks on the second row select `two`
-    s.click(0, 1);
-    s.click(0, 1);
-    s.click(0, 1);
+    s.partial_history_of(&["one", "two", "three", "four"]);
+    s.wheel_up(0, 0, 100);
+    // three clicks on the row select `two`
+    s.click_text("two");
+    s.click_text("two");
+    s.click_text("two");
     s.assert_text_style("two", "reversed");
     let before = s.shot();
-    // the join keeps the selection and the rows: the join is not a kit step yet
+    // the joins keep the selection and the rows
+    s.join_older_page(&["earliest page", "ancient", "older group"], false);
     s.assert_same_rows(&before);
+    s.resize(40, 8);
+    s.assert_text_style("two", "reversed");
+    // clearing the selection keeps the reading position
     s.keys("esc");
-    s.assert_rows_differ(&before);
+    s.assert_text_style("two", "!reversed");
+    s.assert_contains("two");
+    s.assert_absent("earliest page");
 }
 
 // ORACLE transcript_view/mutations_tests.rs:110 page_join_merges_unseen_groups_while_an_unrelated_selection_is_held kind=snap owner=chat-live
 #[test]
 fn page_join_merges_unseen_groups_while_an_unrelated_selection_is_held() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "the chat's transcript has no page-join merge of groups and no history step: the merged summary cannot be produced",
+        "the page joins the oracle's `older group` and the `newer group` it merges into one `merged summary` cell (`replace_group`), shown at the top of the reader's snapshot; a page of the server holds whole turns and a group of tool calls is of one turn, so no entry of the first page merges with one of the older: the page joins above with its own rows and the selection held elsewhere stays (`pages::history_pages::a_page_joining_above_keeps_a_selection_held_elsewhere`)",
     );
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(20, 2)
-        .script(include_str!("fixtures/transcript_view_3/page_join.jsonl"))
-        .open();
-    s.click(0, 1);
-    s.click(0, 1);
-    s.click(0, 1);
-    s.assert_text_style("last", "reversed");
-    // the older group joins and the two groups are replaced by the merged summary (no kit step yet)
-    s.wheel_up(0, 0, 100);
-    s.assert_row(0, "merged summary");
-    s.assert_row(1, "changed preview");
 }
 
 // ORACLE transcript_view/mutations_tests.rs:151 page_join_keeps_groups_scrolled_into_view_after_selecting_elsewhere kind=ui owner=chat-live
 #[test]
 fn page_join_keeps_groups_scrolled_into_view_after_selecting_elsewhere() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "the chat's transcript has no page-join replacement of a group and no history step: the groups cannot be replaced under a held selection",
+        "the oracle replaces the two middle groups by `merged summary` while the reader scrolled to the top keeps the rows it drew and a selection of `last` elsewhere; nothing of the first page merges with another (a group of tool calls is of one turn, a page holds whole turns), so there is no replacement under the reader to hold: the rows and the selection stay when a page joins (`pages::history_pages::a_page_joining_above_keeps_a_selection_held_elsewhere`)",
     );
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(20, 8)
-        .script(include_str!("fixtures/transcript_view_3/page_join.jsonl"))
-        .open();
-    s.wheel_down(0, 0, 100);
-    s.click(0, 6);
-    s.click(0, 6);
-    s.click(0, 6);
-    let before = s.shot();
-    // the replacement of the two middle groups is not a kit step yet
-    s.assert_same_rows(&before);
-    s.assert_text_style("last", "reversed");
 }
 
 // ORACLE transcript_view/mutations_tests.rs:183 scrolling_forward_out_of_a_replaced_group_resolves_the_surviving_cell_index kind=ui owner=chat-live
@@ -404,20 +387,22 @@ fn absorbing_older_history_keeps_live_readers_and_selections_on_their_displayed_
 // ORACLE transcript_view/mutations_tests.rs:309 absorbing_a_read_canonical_tail_holds_it_until_navigation_leaves kind=ui owner=chat-live
 #[test]
 fn absorbing_a_read_canonical_tail_holds_it_until_navigation_leaves() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat keeps no held canonical tail: no kit step absorbs a read tail into the live tail",
-    );
+    // the oracle's hydrated tail replaces the live one; here the live answer is replaced while
+    // the reader is reading the older page, and the rows stay until the reader goes back
     let mut s = Screen::build(Owner::ChatLive)
-        .size(20, 2)
-        .script(include_str!("fixtures/transcript_view_3/page_join.jsonl"))
+        .size(60, 10)
+        .replay(Vec::new())
+        .view_only()
         .open();
-    s.wheel_up(0, 0, 2);
+    s.partial_history_of(&["header"]);
+    s.live_tail("current live tail");
+    s.join_older_page(&["older one", "older two", "older three"], false);
+    s.wheel_up(0, 0, 100);
     let before = s.shot();
-    // the absorb of the read tail is not a kit step yet
+    s.replace_live_tail("hydrated group\n\ncurrent preview");
     s.assert_same_rows(&before);
-    s.wheel_down(0, 0, 100);
-    s.assert_rows_differ(&before);
+    s.keys("ctrl+end");
+    s.assert_contains("current preview");
 }
 
 // ORACLE transcript_view/mutations_tests.rs:335 absorbing_older_history_excludes_only_the_hydration_revision_from_new_activity kind=ui owner=chat-live
