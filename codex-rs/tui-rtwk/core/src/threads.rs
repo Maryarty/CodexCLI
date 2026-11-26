@@ -1193,6 +1193,9 @@ pub struct ThreadCore {
     finished_turns: Rc<HashSet<TurnId>>,
     authoritative_turns: Rc<HashSet<TurnId>>,
     completed_items: HashSet<ItemKey>,
+    /// Live legacy completion keys until the server confirms their turn ended. These survive
+    /// transcript replacement while reattaching to the same running turn.
+    legacy_user_completions: HashMap<TurnId, HashSet<ItemId>>,
     /// The cursor of the next older page of history; none once the oldest
     /// page was read.
     history_next: Option<String>,
@@ -1387,6 +1390,7 @@ impl ThreadModel {
                 finished_turns: Rc::default(),
                 authoritative_turns: Rc::default(),
                 completed_items: HashSet::new(),
+                legacy_user_completions: HashMap::new(),
                 history_next: None,
                 history_ask: HistoryAsk::Idle,
                 submissions: replay::Submissions::default(),
@@ -2876,6 +2880,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             let released = reconcile_ids(model, &receipts);
             for snapshot in &turns {
                 if snapshot.end.is_some() {
+                    model.legacy_user_completions.remove(&snapshot.turn);
                     if matches!(&model.turn, TurnState::Running(running) if running.turn == snapshot.turn)
                     {
                         let end = snapshot.end.unwrap_or(TurnEnd::Completed);
@@ -3425,6 +3430,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             processes::interaction(model, &process, stdin);
         }
         ThreadEv::TurnEnded { turn, end } => {
+            model.legacy_user_completions.remove(&turn);
             processes::turn_ended(model, &turn, end);
             end_turn(model, turn, end, fx);
         }
@@ -3436,6 +3442,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             timing,
             error,
         } => {
+            model.legacy_user_completions.remove(&turn);
             processes::turn_ended(model, &turn, end);
             let released = reconcile_ids(model, &receipts);
             match snapshot {
@@ -3809,11 +3816,18 @@ fn legacy_steer_key(input: &[codex_app_server_protocol::UserInput]) -> (String, 
 
 /// Legacy completions can retire the first live steer. Recovering submissions require IDs.
 fn reconcile_legacy_steer(model: &mut ThreadModel, item: &ItemKey, key: (String, usize)) -> bool {
-    if !model.has_writer()
+    if model.finished_turns.contains(&item.turn) {
+        return false;
+    }
+    let first_completion = model
+        .legacy_user_completions
+        .entry(item.turn.clone())
+        .or_default()
+        .insert(item.item.clone());
+    if !first_completion
+        || !model.has_writer()
         || model.stream_lost
         || model.reconciling_submissions
-        || model.finished_turns.contains(&item.turn)
-        || !model.completed_items.insert(item.clone())
     {
         return false;
     }

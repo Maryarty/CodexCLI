@@ -8,7 +8,7 @@
 
 use codex_app_server_protocol::{
     ClientRequest, ErrorNotification, ItemCompletedNotification, RequestId, ServerNotification,
-    ThreadItem, ThreadItemPayload, TurnError, UserInput,
+    ThreadItem, ThreadItemPayload, TurnError, TurnStatus, UserInput,
 };
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app, apply_app_from};
 use codex_tui_core::commands::{
@@ -797,7 +797,17 @@ fn history_ticket(fx: &AppFx) -> Ticket {
 }
 
 fn reply_history(app: &mut CodexApp, ticket: Ticket, receipt: Option<String>) -> AppFx {
+    reply_history_with_status(app, ticket, receipt, TurnStatus::Completed)
+}
+
+fn reply_history_with_status(
+    app: &mut CodexApp,
+    ticket: Ticket,
+    receipt: Option<String>,
+    status: TurnStatus,
+) -> AppFx {
     let mut turn = history_turn("turn-1", "first message", "ok");
+    turn.status = status;
     if let ThreadItemPayload::UserMessage { client_id, .. } = &mut turn.items[0].payload {
         *client_id = receipt;
     } else {
@@ -934,6 +944,43 @@ fn a_legacy_live_completion_matches_only_the_oldest_steers_wire_content() {
         completed_user_item("second-new", None, &["second message"], None),
     );
     assert!(pending(&app).is_empty());
+}
+
+#[test]
+fn a_legacy_completion_seen_during_recovery_cannot_retire_a_later_steer() {
+    for before_reattach in [false, true] {
+        let mut app = running();
+        let (ticket, client_id) = submission_id(&submit(&mut app, "first message"));
+        let legacy = || completed_user_item("earlier-completion", None, &["first message"], None);
+        unconfirmed_reply(&mut app, ticket);
+        if before_reattach {
+            notify(&mut app, legacy());
+        }
+        run(
+            &mut app,
+            AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnecting)),
+        );
+        let recovery = reattach(&mut app);
+        if !before_reattach {
+            notify(&mut app, legacy());
+        }
+        assert_eq!(queued(&app), ["first message"]);
+        reply_history_with_status(&mut app, recovery, Some(client_id), TurnStatus::InProgress);
+        assert!(queued(&app).is_empty());
+        assert!(thread(&app).is_running());
+        assert!(steered(&submit(&mut app, "first message")));
+        notify(&mut app, legacy());
+        assert_eq!(
+            thread(&app).pending_steers().len(),
+            1,
+            "an already seen completion is stale"
+        );
+        notify(
+            &mut app,
+            completed_user_item("new-completion", None, &["first message"], None),
+        );
+        assert!(thread(&app).pending_steers().is_empty());
+    }
 }
 
 #[test]
