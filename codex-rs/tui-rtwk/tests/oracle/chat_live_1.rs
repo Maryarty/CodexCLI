@@ -813,7 +813,12 @@ fn live_app_server_turn_completed_clears_working_status_after_answer_item() {
     s.assert_contains("Working");
     s.feed(&item_completed(&agent_item("Yes. What do you need?")));
     s.assert_contains("Yes. What do you need?");
-    s.assert_contains("Working");
+    s.assert_absent("Working");
+    // The final answer hides the indicator, but the active turn still owns the input queue.
+    s.type_text("Follow-up after the completed turn")
+        .keys("tab");
+    s.assert_contains("↳ Follow-up after the completed turn");
+    s.assert_no_turn();
     s.feed(&turn_completed(
         "turn-1",
         "completed",
@@ -822,6 +827,7 @@ fn live_app_server_turn_completed_clears_working_status_after_answer_item() {
     // oracle: the completed turn clears the working status and adds the Worked for line.
     s.assert_absent("Working");
     s.assert_contains("Worked for");
+    s.assert_turn_texts(&["Follow-up after the completed turn"]);
 }
 
 // ORACLE chatwidget/tests/app_server.rs:1027 live_app_server_turn_started_sets_feedback_turn_id kind=ui owner=chat-live

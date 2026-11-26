@@ -370,9 +370,8 @@ fn banner_block(
             actions: actions.min(9),
             dismissible: matches!(hint, BannerHint::Dismiss | BannerHint::ChooseOrDismiss),
         });
-        let hint = (available >= header_rows + 4 + desired)
-            .then(|| words.banner_hint(hint))
-            .flatten();
+        let hint_rows = available.saturating_sub(header_rows + 3 + desired);
+        let hint = (hint_rows > 0).then(|| words.banner_hint(hint)).flatten();
         if actions == 0 {
             if compact {
                 return header;
@@ -386,7 +385,7 @@ fn banner_block(
             if let Some(hint) = hint {
                 block = block
                     .child(SizedBox::new(None, Some(1), None))
-                    .child(banner_hint(hint, &tokens));
+                    .child(banner_hint(hint, &tokens, hint_rows));
             }
             return block.child(SizedBox::new(None, Some(1), None)).into();
         }
@@ -429,18 +428,18 @@ fn banner_block(
         if let Some(hint) = hint {
             block = block
                 .child(SizedBox::new(None, Some(1), None))
-                .child(banner_hint(hint, &tokens));
+                .child(banner_hint(hint, &tokens, hint_rows));
         }
         block.into()
     })
     .into()
 }
 
-fn banner_hint(hint: &str, tokens: &theme::Tokens) -> AnyWidget {
+fn banner_hint(hint: &str, tokens: &theme::Tokens, rows: usize) -> AnyWidget {
     inset(
         Text::new(hint.to_owned())
             .style(tokens.dim())
-            .max_lines(Some(1))
+            .max_lines(Some(rows))
             .into(),
     )
 }
