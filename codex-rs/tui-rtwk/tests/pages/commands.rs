@@ -571,6 +571,70 @@ mod consent {
     }
 
     #[test]
+    fn cancelling_a_new_tasks_trust_prompt_returns_to_the_center() {
+        let mut h = start_app(|app| app.with_start_agents(true).with_folder_consent(true));
+        h.wait_for("the command center", |s| s.contains("Agent command center"));
+        h.press("n");
+        let request = read_request(&mut h);
+        inject(
+            &h,
+            Ev::Consent {
+                request,
+                ask: Some(TrustAsk {
+                    cancel: TrustCancel::AgentsOverview,
+                    ..question()
+                }),
+            },
+        );
+        h.wait_for("the trust prompt", |s| {
+            s.contains("Back to Agent Command Center")
+        });
+        h.press("esc");
+        h.wait_for("the command center again", |s| {
+            s.contains("Agent command center") && !s.contains("Folder access")
+        });
+        h.settle();
+        assert!(
+            h.fake
+                .requests()
+                .iter()
+                .all(|r| r["method"] != "thread/start")
+        );
+    }
+
+    #[test]
+    fn cancelling_the_fresh_session_prompt_opens_the_center() {
+        let mut h = start_app(|app| app.with_start_resume(true).with_folder_consent(true));
+        h.wait_for("the resume picker", |s| {
+            s.contains("Resume a previous session")
+        });
+        h.press("esc");
+        let request = read_request(&mut h);
+        inject(
+            &h,
+            Ev::Consent {
+                request,
+                ask: Some(TrustAsk {
+                    cancel: TrustCancel::AgentsOverview,
+                    ..question()
+                }),
+            },
+        );
+        h.wait_for("the trust prompt", |s| s.contains("Folder access"));
+        h.press("esc");
+        h.wait_for("the command center", |s| {
+            s.contains("Agent command center") && !s.contains("Folder access")
+        });
+        h.settle();
+        assert!(
+            h.fake
+                .requests()
+                .iter()
+                .all(|r| r["method"] != "thread/start")
+        );
+    }
+
+    #[test]
     fn keep_current_directory_returns_to_the_chat_and_starts_nothing() {
         for keys in [&["down", "enter"][..], &["esc"][..]] {
             let mut h = asked();

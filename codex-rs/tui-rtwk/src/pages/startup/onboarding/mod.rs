@@ -360,10 +360,15 @@ impl State for StartupPageState {
                 let screens = read::<ScreenStates, _>(cx);
                 let model = &screens.onboarding;
                 let answers = screens.startup.answers.get(self.answers_from..);
-                // The question of a `/cd` only leaves: the launch's own outcome (a quit, the
-                // command center) is not its.
                 if w.step == Step::Consent {
-                    Navigator::maybe_pop(cx);
+                    if core::consent::return_to_center(model) {
+                        drop(Navigator::push_replacement::<(), _>(
+                            cx,
+                            crate::pages::agents::start_route(),
+                        ));
+                    } else {
+                        Navigator::maybe_pop(cx);
+                    }
                     return Rebuild::No;
                 }
                 let quit = quits(model) || answers.is_some_and(|a| a.iter().any(|a| exits(*a)));

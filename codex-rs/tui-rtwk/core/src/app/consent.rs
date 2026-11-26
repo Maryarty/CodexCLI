@@ -1,18 +1,33 @@
-//! The folder trust asked over the chat (`/cd`): when the question ended, what
-//! waited for it goes on (the session starts in the folder) or says why not.
-//! The state is the onboarding model's (`screens::onboarding::consent`); this
-//! is the app's half, called after every event and intent that can end it.
+//! Holds session actions until the destination folder's trust is resolved.
 
 use std::rc::Rc;
 
-use super::{AppFx, CodexApp, session};
-use crate::screens::onboarding::consent::{self, Outcome, Then};
-use crate::threads::{CdRefusal, Note, NoteKey};
+use super::{AppFx, CodexApp, lifecycle, session};
+use crate::features::Refusal;
+use crate::screens::agents;
+use crate::screens::onboarding::TrustCancel;
+use crate::screens::onboarding::consent::{self, Outcome, Target, Then};
+use crate::threads::{CdRefusal, Note, NoteKey, ThreadAsk};
 
-/// The question ended: `/cd` starts the session in the folder (the user
-/// trusted it, or it needed no question), or says the folder's trust could
-/// not be read (oracle `resume_config.rs`: `Unable to check folder trust`).
-/// A question the user declined left nothing to do.
+pub(super) fn begin(
+    app: &mut CodexApp,
+    then: Then,
+    target: Target,
+    cancel: TrustCancel,
+    fx: &mut AppFx,
+) {
+    if let Some(then) = consent::begin(
+        &mut Rc::make_mut(&mut app.screens).onboarding,
+        then,
+        target,
+        cancel,
+        fx,
+    ) {
+        go(app, then, fx);
+    }
+}
+
+/// Advance the held action once, after the event or intent that settled it.
 pub(super) fn follow(app: &mut CodexApp, fx: &mut AppFx) {
     if !consent::settled(&app.screens.onboarding) {
         return;
@@ -21,15 +36,48 @@ pub(super) fn follow(app: &mut CodexApp, fx: &mut AppFx) {
         return;
     };
     match outcome {
-        Outcome::Go(Then::Cd { source, ask }) => session::start_in(app, source, ask, fx),
-        Outcome::Failed {
-            message,
-            then: Then::Cd { source, .. },
-        } => session::session_note(
+        Outcome::Go(then) => go(app, then, fx),
+        Outcome::Cancelled(then) => refuse_feature(app, then, fx),
+        Outcome::Failed { message, then } => {
+            let source = if let Then::Cd { source, .. } = &then {
+                source.clone()
+            } else {
+                Rc::make_mut(&mut app.screens).agents.notice =
+                    Some(agents::Notice::TrustCheckFailed(message.clone()));
+                app.session.active.clone()
+            };
+            session::session_note(
+                app,
+                source,
+                Note::from(NoteKey::CdRefused(CdRefusal::TrustCheck(message))),
+                fx,
+            );
+            refuse_feature(app, then, fx);
+        }
+    }
+}
+
+fn go(app: &mut CodexApp, then: Then, fx: &mut AppFx) {
+    match then {
+        Then::Cd { source, ask } => session::start_in(app, source, ask, fx),
+        Then::Open(id) => {
+            super::open_verified(app, &id, fx);
+        }
+        Then::New { cwd } => super::send_agent_command(
             app,
-            source,
-            Note::from(NoteKey::CdRefused(CdRefusal::TrustCheck(message))),
+            agents::Out {
+                command: agents::Command::Thread(ThreadAsk::Start { cwd }),
+                ctx: agents::Ctx::Start,
+            },
             fx,
         ),
+        Then::Fresh { feature: None } => super::start_first_thread(app, fx),
+        Then::Fresh { feature: Some(ctx) } => lifecycle::start_after_consent(app, ctx, fx),
+    }
+}
+
+fn refuse_feature(app: &mut CodexApp, then: Then, fx: &mut AppFx) {
+    if let Then::Fresh { feature: Some(ctx) } = then {
+        super::features::thread_opened(app, ctx, Err(Refusal::Busy), fx);
     }
 }

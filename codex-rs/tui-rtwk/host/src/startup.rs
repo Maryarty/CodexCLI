@@ -19,6 +19,7 @@ use std::sync::Mutex;
 use crate::daemon::Mismatch;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::EnvironmentInfoParams;
+use codex_app_server_protocol::ThreadReadResponse;
 use codex_config::ConfigLayerSource;
 use codex_config::default_project_root_markers;
 use codex_config::loader::discover_project_root;
@@ -39,16 +40,19 @@ use codex_login::default_client::default_headers;
 use codex_login::read_openai_api_key_from_env;
 use codex_protocol::config_types::ForcedLoginMethod;
 use codex_tui_core::app::AppEv;
+use codex_tui_core::ids::ThreadId;
 use codex_tui_core::protocol::onboarding as wire;
 use codex_tui_core::rpc::RpcError;
 use codex_tui_core::rpc::ServerError;
-use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::chat::Ev as ChatEv;
 use codex_tui_core::screens::onboarding::auth::{AuthResult, Offer, Providers};
+use codex_tui_core::screens::onboarding::consent::Target as ConsentTarget;
 use codex_tui_core::screens::onboarding::gateway::Logins;
 use codex_tui_core::screens::onboarding::session::Resumed;
 use codex_tui_core::screens::onboarding::{Ask, Ev, Facts, TrustAsk, TrustCancel, Welcome};
 use codex_tui_core::screens::startup::{DaemonChoice, Prompt};
+use codex_tui_core::screens::{self, ScreenCommand, ScreenEv, agents};
+use codex_tui_core::threads::ThreadAsk;
 use codex_tui_rtwk::services::backend::rpc::Ids;
 pub use codex_tui_rtwk::services::startup::Browser;
 use codex_tui_rtwk::services::startup::UpdateAction;
@@ -269,9 +273,12 @@ where
         }
         Ask::CheckConsent {
             request,
-            cwd,
+            target,
             cancel,
-        } => consent(&startup, request, &cwd, cancel, &ids, &send).await,
+        } => match consent(&startup, target, cancel, &ids, &send).await {
+            Ok(ask) => Ev::Consent { request, ask },
+            Err(message) => Ev::ConsentFailed { request, message },
+        },
         Ask::DismissUpdate { version } => {
             // The oracle only logs a failed dismissal.
             let _ = dismiss_version(&version_file(&startup.config), &version);
@@ -891,48 +898,58 @@ where
     }))
 }
 
-/// The trust question of a `/cd` into `cwd` (`check_directory_trust` with the current task's
-/// cancel): none for a folder that needs none, and none for one saved as untrusted (it opens with
-/// its restricted settings, no prompt) or on a remote workspace (`/cd` has no `--cd` there).
+/// Resolve the destination and ask about an undecided or restricted local folder.
 async fn consent<F, Fut>(
     startup: &Startup,
-    request: u64,
-    cwd: &str,
+    target: ConsentTarget,
     cancel: TrustCancel,
     ids: &Ids,
     send: &F,
-) -> Ev
+) -> Result<Option<TrustAsk>, String>
 where
     F: Fn(ClientRequest) -> Fut,
     Fut: Future<Output = Result<serde_json::Value, ServerError>>,
 {
-    if startup.target.remote_workspace() {
-        return Ev::Consent { request, ask: None };
-    }
-    let Ok(folder) = AbsolutePathBuf::from_absolute_path(cwd) else {
-        return Ev::ConsentFailed {
-            request,
-            message: format!("Cannot check folder trust: {cwd} is not an absolute path"),
+    let existing_task =
+        startup.target != Target::Embedded && matches!(target, ConsentTarget::Task(_));
+    let lookup = if startup.target.remote_workspace() {
+        let Some(cwd) = startup
+            .remote_cwd
+            .as_deref()
+            .filter(|_| cancel != TrustCancel::CurrentTask)
+        else {
+            return Ok(None);
         };
+        remote_lookup(cwd, ids, send).await?
+    } else {
+        let folder = match target {
+            ConsentTarget::Folder(None) => startup.config.cwd.clone(),
+            ConsentTarget::Folder(Some(cwd)) => AbsolutePathBuf::from_absolute_path(&cwd)
+                .map_err(|_| format!("Cannot check folder trust: {cwd} is not an absolute path"))?,
+            ConsentTarget::Task(thread) => {
+                let command = ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Read {
+                    thread: thread.to_string(),
+                }));
+                let response = send(screens::wire(&command, &ThreadId::default(), ids.next()))
+                    .await
+                    .map_err(|error| format!("thread/read failed: {error}"))?;
+                let response: ThreadReadResponse =
+                    serde_json::from_value(response).map_err(|error| error.to_string())?;
+                response.thread.cwd
+            }
+        };
+        local_lookup(&folder, ids, send).await?
     };
-    match local_lookup(&folder, ids, send).await {
-        Ok(lookup) => Ev::Consent {
-            request,
-            ask: lookup
-                .filter(|lookup| !lookup.restricted)
-                .map(|lookup| TrustAsk {
-                    cwd: lookup.cwd,
-                    target: lookup.target,
-                    restricted: false,
-                    existing_task: false,
-                    cancel,
-                    sandbox_hint: false,
-                    error: None,
-                    decision: None,
-                }),
-        },
-        Err(message) => Ev::ConsentFailed { request, message },
-    }
+    Ok(lookup
+        .filter(|lookup| !lookup.restricted || cancel != TrustCancel::CurrentTask)
+        .map(|lookup| TrustAsk {
+            cwd: lookup.cwd,
+            target: lookup.target,
+            restricted: lookup.restricted,
+            existing_task,
+            cancel,
+            ..TrustAsk::default()
+        }))
 }
 
 fn trust_read_error(error: ServerError) -> String {
@@ -2106,13 +2123,73 @@ mod tests {
             startup,
             Ask::CheckConsent {
                 request: 7,
-                cwd: cwd.to_str().expect("utf-8").to_owned(),
+                target: ConsentTarget::Folder(Some(cwd.to_str().expect("utf-8").to_owned())),
                 cancel: TrustCancel::CurrentTask,
             },
             Ids::default(),
             send,
         )
         .await
+    }
+
+    #[tokio::test]
+    async fn consent_lookup_of_a_task_checks_its_working_directory() {
+        let (startup, _dir) = startup_with(Target::LocalDaemon, system_browser()).await;
+        let task_dir = tempfile::tempdir().expect("a task folder");
+        let cwd = task_dir.path().to_str().expect("utf-8");
+        let key = normalized_project_trust_keys(task_dir.path()).remove(0);
+        let send = |request: ClientRequest| {
+            let body = serde_json::to_value(request).expect("the request");
+            let response = match body["method"].as_str() {
+                Some("thread/read") => {
+                    assert_eq!(body["params"]["threadId"], "saved");
+                    assert!(!body["params"]["includeTurns"].as_bool().unwrap_or(false));
+                    serde_json::json!({"thread": {
+                        "id": "saved", "sessionId": "saved", "preview": "", "ephemeral": false,
+                        "modelProvider": "openai", "createdAt": 0, "updatedAt": 0,
+                        "status": {"type": "notLoaded"}, "cwd": cwd, "cliVersion": "0.0.0",
+                        "source": "cli", "turns": [], "canAcceptDirectInput": true
+                    }})
+                }
+                Some("config/read") => {
+                    assert_eq!(body["params"]["cwd"], cwd);
+                    undecided_read(cwd, Some((&key, "untrusted")))
+                }
+                other => panic!("unexpected request {other:?}"),
+            };
+            std::future::ready(Ok(response))
+        };
+
+        let ask = consent(
+            &startup,
+            ConsentTarget::Task(ThreadId::new("saved")),
+            TrustCancel::AgentsOverview,
+            &Ids::default(),
+            &send,
+        )
+        .await
+        .expect("the check")
+        .expect("a restricted task still needs consent");
+
+        assert_eq!(ask.cwd, cwd);
+        assert_eq!(ask.cancel, TrustCancel::AgentsOverview);
+        assert!(ask.restricted);
+        assert!(ask.existing_task);
+    }
+
+    #[tokio::test]
+    async fn consent_lookup_of_a_remote_task_without_an_explicit_folder_asks_nothing() {
+        let (startup, _dir) = startup_with(Target::Remote, system_browser()).await;
+        let ask = consent(
+            &startup,
+            ConsentTarget::Task(ThreadId::new("remote")),
+            TrustCancel::AgentsOverview,
+            &Ids::default(),
+            &|_| async { panic!("the remote task's folder is not looked up") },
+        )
+        .await
+        .expect("the check");
+        assert_eq!(ask, None);
     }
 
     // `/cd` into a folder with no saved decision: the oracle's question, with the current task's

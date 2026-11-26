@@ -1,21 +1,21 @@
-//! The folder trust asked over the chat: `/cd` into a folder whose trust is
-//! undecided asks the oracle's question (the cancel choice "Keep current
-//! directory") before the new thread starts. Oracle: `app/working_directory.rs`
-//! (the gate, `confirm_directory_trust` with `TrustCancelAction::CurrentTask`)
-//! and `onboarding/directory_trust.rs` (`check_directory_trust`: the lookup,
-//! the screen, the write).
-//!
-//! This is a sub-state of the onboarding model and not `Model::trust`: the
-//! launch steps (`due`, `steps`, `settled`) read that one, and a question
-//! asked in the middle of the session must not bring the startup gate back.
-//! It holds what waits for the answer (`Then`); the app releases it once the
-//! question is decided (`take`) and the page over the chat shows the question
-//! while `open` says there is one.
+//! Folder trust for navigation after launch. The onboarding model holds the
+//! action until the host's lookup and any trust write have finished. A
+//! separate route shows the question without restarting onboarding.
 
 use super::{Ask, Model, Request, TrustAsk, TrustCancel, TrustDecision, ask, mint};
 use crate::app::AppFx;
+use crate::features::FeatureCtx;
 use crate::ids::ThreadId;
 use crate::threads::ThreadAsk;
+
+/// How the host finds the folder whose trust is needed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Target {
+    /// The specified folder, or the launch folder when absent.
+    Folder(Option<String>),
+    /// The working directory of a saved task.
+    Task(ThreadId),
+}
 
 /// What goes on once the folder is decided.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -26,16 +26,26 @@ pub enum Then {
         source: Option<ThreadId>,
         ask: ThreadAsk,
     },
+    Open(ThreadId),
+    New {
+        cwd: Option<String>,
+    },
+    Fresh {
+        feature: Option<FeatureCtx>,
+    },
 }
 
-/// How the question ended, when it did not end in the user's keeping things
-/// as they are.
+/// How the question ended.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome {
     /// The folder needs no more question (trusted, or answered): go on.
     Go(Then),
+    Cancelled(Then),
     /// The folder's trust could not be read: the message, and what waited.
-    Failed { message: String, then: Then },
+    Failed {
+        message: String,
+        then: Then,
+    },
 }
 
 /// Where the question stands.
@@ -62,37 +72,47 @@ pub(super) enum Phase {
 pub struct Consent {
     armed: bool,
     generation: u64,
+    return_to_center: bool,
     phase: Phase,
 }
 
-/// The host answers the question (`Ask::CheckConsent`): `/cd` waits for it.
-/// Off, `/cd` starts the session at once (a host that reads no trust).
+/// Whether the host answers folder trust lookups.
 pub fn arm(model: &mut Model, on: bool) {
     model.consent.armed = on;
 }
 
-/// `/cd` asks for the folder `cwd` to be decided before `then` goes on.
-/// False when nothing is asked and `then` goes on at once (not armed); true
-/// when `then` waits, or is dropped because a question is already open (a
-/// second `/cd` while one waits starts nothing).
-pub fn begin(model: &mut Model, then: Then, cwd: String, fx: &mut AppFx) -> bool {
+/// True while a check or question is holding an action.
+pub fn pending(model: &Model) -> bool {
+    model.consent.phase != Phase::Idle
+}
+
+/// Hold the action while the folder is checked. Returns the action only if
+/// the host has no consent lookup. Repeated requests while one is held are dropped.
+pub fn begin(
+    model: &mut Model,
+    then: Then,
+    target: Target,
+    cancel: TrustCancel,
+    fx: &mut AppFx,
+) -> Option<Then> {
     if !model.consent.armed {
-        return false;
+        return Some(then);
     }
-    if model.consent.phase != Phase::Idle {
-        return true;
+    if pending(model) {
+        return None;
     }
+    model.consent.return_to_center = false;
     let request = mint(model);
     model.consent.phase = Phase::Checking { request, then };
     ask(
         fx,
         Ask::CheckConsent {
             request,
-            cwd,
-            cancel: TrustCancel::CurrentTask,
+            target,
+            cancel,
         },
     );
-    true
+    None
 }
 
 /// The question on screen, if one is.
@@ -107,6 +127,11 @@ pub fn open(model: &Model) -> Option<&TrustAsk> {
 /// shows it is pushed once per number.
 pub fn open_number(model: &Model) -> Option<u64> {
     open(model).map(|_| model.consent.generation)
+}
+
+/// The fresh-session question was declined without a session to return to.
+pub fn return_to_center(model: &Model) -> bool {
+    model.consent.return_to_center
 }
 
 /// How the question ended, once: the app goes on with it.
@@ -195,19 +220,18 @@ fn mint_if_asking(model: &mut Model) -> Option<Request> {
     matches!(model.consent.phase, Phase::Asking { .. }).then(|| mint(model))
 }
 
-/// The cancel choice of an open question ("Keep current directory"): what
-/// waited is dropped, silently, and the next `/cd` asks again. Not while the
-/// write is out. False when no question is open.
+/// Cancel the question unless a write is in flight. True if it consumed the choice.
 pub(super) fn cancel(model: &mut Model) -> bool {
-    match &model.consent.phase {
-        Phase::Asking { ask, .. } => {
-            if ask.decision != Some(TrustDecision::Saving) {
-                model.consent.phase = Phase::Idle;
-            }
-            true
-        }
-        _ => false,
+    let Phase::Asking { ask, .. } = &model.consent.phase else {
+        return false;
+    };
+    if ask.decision != Some(TrustDecision::Saving)
+        && let Phase::Asking { then, .. } = std::mem::take(&mut model.consent.phase)
+    {
+        model.consent.return_to_center = matches!(then, Then::Fresh { .. });
+        model.consent.phase = Phase::Settled(Outcome::Cancelled(then));
     }
+    true
 }
 
 /// The write `request` is confirmed: the folder is trusted and what waited

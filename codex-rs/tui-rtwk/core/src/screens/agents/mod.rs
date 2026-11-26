@@ -50,6 +50,8 @@ use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
+pub use crate::protocol::agents::account_ev;
+pub use crate::protocol::agents::account_request;
 pub use carried::AgentsOverviewGroup as Group;
 pub use carried::preview_markdown;
 pub(crate) use carried::{PREVIEW_CHARS, preview_text, request_preview};
@@ -66,19 +68,17 @@ pub use discovery::refill;
 pub use notifications::observe;
 pub use notifications::observes;
 pub use refresh::Out;
-pub use crate::protocol::agents::account_ev;
-pub use crate::protocol::agents::account_request;
 pub use refresh::apply_answer;
 pub use refresh::attach_loaded;
 pub(crate) use refresh::finish_start;
 pub use refresh::is_active_writer;
-pub use update::wake_at;
-pub use update::wants_dirs;
 pub use sources::Fanout;
 pub use sources::PinReader;
 pub use sources::fanout;
 pub use update::update;
+pub use update::wake_at;
 pub use update::wanted_dirs;
+pub use update::wants_dirs;
 pub use usage::UsageOutcome;
 pub use usage::refresh_usage;
 pub use usage::reset_for_backend_switch;
@@ -160,8 +160,13 @@ pub enum Notice {
     Removing(Action),
     /// A worktree is being created for `w`.
     CreatingWorktree,
-    WorktreeRetained { root: String, reason: crate::app::worktree::RetainedReason },
+    WorktreeRetained {
+        root: String,
+        reason: crate::app::worktree::RetainedReason,
+    },
     LoadFailed,
+    /// The host could not look up the destination folder’s trust.
+    TrustCheckFailed(String),
     /// A failed action, as a message of the server (oracle:
     /// `add_agents_overview_error`).
     Error(String),
@@ -516,10 +521,13 @@ impl Model {
     /// connected (oracle: `next_listening_backend`).
     pub fn next_backend(&self) -> Option<BackendId> {
         let all = self.connected();
-        all.range((std::ops::Bound::Excluded(self.displayed), std::ops::Bound::Unbounded))
-            .chain(all.iter())
-            .copied()
-            .find(|backend| *backend != self.displayed)
+        all.range((
+            std::ops::Bound::Excluded(self.displayed),
+            std::ops::Bound::Unbounded,
+        ))
+        .chain(all.iter())
+        .copied()
+        .find(|backend| *backend != self.displayed)
     }
 
     /// What the backend control offers (a second backend is connected): the displayed backend's
@@ -560,14 +568,20 @@ impl Model {
 
     /// Pinned threads across the backends in rank order.
     pub fn pinned_ids(&self) -> impl Iterator<Item = &str> {
-        self.pins_by_backend.values().flatten().flatten().map(ThreadId::as_str)
+        self.pins_by_backend
+            .values()
+            .flatten()
+            .flatten()
+            .map(ThreadId::as_str)
     }
 
     /// Sets one backend's pins in rank order.
     pub fn set_pins(&mut self, owner: BackendId, pins: Option<Vec<String>>) {
-        self.pins_by_backend.insert(owner, pins.map(|pins| pins.into_iter().map(ThreadId::new).collect()));
+        self.pins_by_backend.insert(
+            owner,
+            pins.map(|pins| pins.into_iter().map(ThreadId::new).collect()),
+        );
     }
-
 }
 
 /// The backend an RPC of this screen goes to: a task's owner for what is
@@ -746,9 +760,14 @@ pub enum Reply {
     McpServers(serde_json::Map<String, serde_json::Value>),
     /// The ephemeral thread of a structured turn started; `as_asked` is whether it has the
     /// permissions that were asked for (`Temporary::started_as_asked`).
-    Temporary { thread: String, as_asked: bool },
+    Temporary {
+        thread: String,
+        as_asked: bool,
+    },
     /// The id of the turn a structured turn started.
-    StructuredTurn { turn: String },
+    StructuredTurn {
+        turn: String,
+    },
 }
 
 impl Eq for Reply {}

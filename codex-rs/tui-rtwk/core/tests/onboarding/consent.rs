@@ -4,10 +4,13 @@
 //! `app/working_directory.rs:262-292`, `onboarding/directory_trust.rs`.
 
 use codex_app_server_protocol::ServerNotification;
-use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app};
+use codex_tui_core::app::{
+    AppEv, AppFx, BackendEv, CodexApp, Command, FirstThread, Intent, apply_app,
+};
 use codex_tui_core::commands::{SessionIntent, SlashCommand};
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
+use codex_tui_core::screens::onboarding::consent::Target;
 use codex_tui_core::screens::onboarding::{
     Ask, Ev, Intent as StartupIntent, TrustAsk, TrustCancel, TrustDecision, consent,
 };
@@ -44,10 +47,17 @@ fn ready() -> CodexApp {
 
 /// `thread/started` of the thread, with a rollout path (history can be forked).
 fn started(cwd: &str, path: Option<&str>) -> AppEv {
-    let notification: ServerNotification = serde_json::from_value(serde_json::json!({
-        "method": "thread/started",
-        "params": {"thread": {
-            "id": T, "environments": null, "extra": null, "sessionId": T,
+    let thread = saved_thread(T, cwd, path);
+    let notification =
+        ServerNotification::ThreadStarted(codex_app_server_protocol::ThreadStartedNotification {
+            thread,
+        });
+    AppEv::Backend(BackendEv::Notification(Box::new(notification)))
+}
+
+fn saved_thread(id: &str, cwd: &str, path: Option<&str>) -> codex_app_server_protocol::Thread {
+    serde_json::from_value(serde_json::json!({
+            "id": id, "environments": null, "extra": null, "sessionId": id,
             "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
             "preview": "", "ephemeral": false, "section": null, "sectionEnteredAt": null,
             "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
@@ -57,10 +67,8 @@ fn started(cwd: &str, path: Option<&str>) -> AppEv {
             "canAcceptDirectInput": true, "threadSource": null,
             "agentNickname": null, "agentRole": null, "gitInfo": null, "name": null,
             "daybreakEnabled": null, "turns": []
-        }}
     }))
-    .expect("thread/started");
-    AppEv::Backend(BackendEv::Notification(Box::new(notification)))
+    .expect("a thread")
 }
 
 fn notified(app: &mut CodexApp, notification: serde_json::Value) {
@@ -132,7 +140,7 @@ fn asks(fx: &AppFx) -> Vec<ThreadAsk> {
 }
 
 /// The trust reads asked: the request number, the folder and the cancel choice.
-fn checks(fx: &AppFx) -> Vec<(u64, String, TrustCancel)> {
+fn checks(fx: &AppFx) -> Vec<(u64, Target, TrustCancel)> {
     fx.commands()
         .iter()
         .filter_map(|c| match c {
@@ -140,11 +148,11 @@ fn checks(fx: &AppFx) -> Vec<(u64, String, TrustCancel)> {
                 ask:
                     Ask::CheckConsent {
                         request,
-                        cwd,
+                        target,
                         cancel,
                     },
                 ..
-            } => Some((*request, cwd.clone(), *cancel)),
+            } => Some((*request, target.clone(), *cancel)),
             _ => None,
         })
         .collect()
@@ -226,7 +234,10 @@ fn cd_asks_the_folder_trust_before_it_starts_the_thread() {
             .into_iter()
             .map(|(_, cwd, cancel)| (cwd, cancel))
             .collect::<Vec<_>>(),
-        [("/tmp".to_string(), TrustCancel::CurrentTask)]
+        [(
+            Target::Folder(Some("/tmp".to_string())),
+            TrustCancel::CurrentTask
+        )]
     );
     assert_eq!(asks(&fx), [], "nothing starts before the answer");
     assert_eq!(open(&app), None, "the question is read first");
@@ -430,4 +441,197 @@ fn a_host_that_does_not_ask_starts_the_session_at_once() {
     let fx = cd(&mut app, "/tmp");
     assert_eq!(checks(&fx), []);
     assert_eq!(asks(&fx).len(), 1);
+}
+
+fn center(app: &mut CodexApp, intent: agents::Intent) -> AppFx {
+    run(
+        app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Agents(intent))),
+    )
+}
+
+fn list_saved_task(app: &mut CodexApp) -> ThreadId {
+    let id = "saved-task";
+    run(
+        app,
+        AppEv::Screen(ScreenEv::Agents(agents::Ev::Listed(agents::Page {
+            threads: vec![saved_thread(id, "/tmp/saved-task", None)],
+            unread: Vec::new(),
+            next_cursor: None,
+            append: false,
+            pins: None,
+        }))),
+    );
+    ThreadId::new(id)
+}
+
+fn start_page() -> CodexApp {
+    let mut app = CodexApp::new()
+        .with_first_thread(FirstThread::Never)
+        .with_folder_consent(true);
+    run(&mut app, AppEv::Connected);
+    app
+}
+
+#[test]
+fn opening_a_saved_task_waits_for_the_folder_check() {
+    let mut app = start_page();
+    let id = list_saved_task(&mut app);
+    let pick = AppEv::Intent(Intent::OpenThread(id.clone()));
+    let fx = run(&mut app, pick);
+    assert_eq!(asks(&fx), []);
+    let request = check_of(&fx);
+    assert_eq!(
+        checks(&fx),
+        [(
+            request,
+            Target::Task(id.clone()),
+            TrustCancel::AgentsOverview
+        )]
+    );
+    assert!(app.screens().agents.opening.is_none());
+
+    let duplicate = run(&mut app, AppEv::Intent(Intent::OpenThread(id.clone())));
+    assert_eq!(checks(&duplicate), []);
+    let left = choose(&mut app, StartupIntent::StartPageLeft);
+    assert!(
+        left.commands().is_empty(),
+        "leaving the picker must not start a second session"
+    );
+    let fx = answer(&mut app, Ev::Consent { request, ask: None });
+    assert_eq!(
+        asks(&fx),
+        [ThreadAsk::Resume {
+            thread: id.to_string()
+        }]
+    );
+}
+
+#[test]
+fn a_cancelled_task_open_ignores_a_late_answer_and_can_be_retried() {
+    let mut app = start_page();
+    let id = list_saved_task(&mut app);
+    let fx = run(&mut app, AppEv::Intent(Intent::OpenThread(id.clone())));
+    let request = check_of(&fx);
+    answer(
+        &mut app,
+        Ev::Consent {
+            request,
+            ask: Some(TrustAsk {
+                existing_task: true,
+                cancel: TrustCancel::AgentsOverview,
+                ..question("/tmp/saved-task")
+            }),
+        },
+    );
+    assert_eq!(asks(&choose(&mut app, StartupIntent::CancelTrust)), []);
+    assert_eq!(open(&app), None);
+    let late = answer(&mut app, Ev::Consent { request, ask: None });
+    assert_eq!(asks(&late), []);
+    let retry = run(&mut app, AppEv::Intent(Intent::OpenThread(id)));
+    assert_ne!(check_of(&retry), request);
+}
+
+#[test]
+fn a_new_center_task_waits_for_the_trust_write() {
+    let mut app = ready();
+    let id = list_saved_task(&mut app);
+    let fx = center(&mut app, agents::Intent::New(Some(id.to_string())));
+    let request = check_of(&fx);
+    let cwd = "/tmp/saved-task";
+    assert_eq!(
+        checks(&fx),
+        [(
+            request,
+            Target::Folder(Some(cwd.into())),
+            TrustCancel::AgentsOverview
+        )]
+    );
+    assert_eq!(asks(&fx), []);
+    answer(
+        &mut app,
+        Ev::Consent {
+            request,
+            ask: Some(TrustAsk {
+                cancel: TrustCancel::AgentsOverview,
+                ..question(cwd)
+            }),
+        },
+    );
+    let fx = choose(&mut app, StartupIntent::Trust);
+    let (write, target) = write_of(&fx);
+    assert_eq!(target, cwd);
+    assert_eq!(asks(&fx), []);
+    let fx = answer(&mut app, Ev::TrustSaved { request: write });
+    assert_eq!(
+        asks(&fx),
+        [ThreadAsk::Start {
+            cwd: Some(cwd.into())
+        }]
+    );
+}
+
+#[test]
+fn fresh_session_waits_for_the_launch_folder_and_cancel_returns_to_the_center() {
+    let mut app = start_page();
+    let fx = choose(&mut app, StartupIntent::StartPageLeft);
+    let request = check_of(&fx);
+    assert_eq!(
+        checks(&fx),
+        [(request, Target::Folder(None), TrustCancel::AgentsOverview)]
+    );
+    assert!(
+        !fx.commands()
+            .iter()
+            .any(|c| matches!(c, Command::StartThread { .. }))
+    );
+    answer(
+        &mut app,
+        Ev::Consent {
+            request,
+            ask: Some(TrustAsk {
+                cancel: TrustCancel::AgentsOverview,
+                ..question("/tmp/launch")
+            }),
+        },
+    );
+    let fx = choose(&mut app, StartupIntent::CancelTrust);
+    assert!(fx.commands().is_empty());
+    assert!(consent::return_to_center(&app.screens().onboarding));
+
+    let retry = check_of(&choose(&mut app, StartupIntent::StartPageLeft));
+    assert!(!consent::return_to_center(&app.screens().onboarding));
+    let fx = answer(
+        &mut app,
+        Ev::Consent {
+            request: retry,
+            ask: None,
+        },
+    );
+    assert!(
+        fx.commands()
+            .iter()
+            .any(|c| matches!(c, Command::StartThread { .. }))
+    );
+}
+
+#[test]
+fn a_failed_check_for_a_center_task_reports_the_error_without_starting_it() {
+    let mut app = start_page();
+    let fx = center(&mut app, agents::Intent::New(None));
+    let request = check_of(&fx);
+    let fx = answer(
+        &mut app,
+        Ev::ConsentFailed {
+            request,
+            message: "config/read failed".into(),
+        },
+    );
+    assert_eq!(asks(&fx), []);
+    assert_eq!(
+        app.screens().agents.notice,
+        Some(agents::Notice::TrustCheckFailed(
+            "config/read failed".into()
+        ))
+    );
 }

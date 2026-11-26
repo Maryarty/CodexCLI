@@ -9,8 +9,10 @@ use super::{
     AppCtx, AppFx, CodexApp, Command, apply_thread, features, is_listed, open_verified, submit,
 };
 use crate::features::{FeatureCtx, Lifecycle, Refusal, ThreadSpawn};
-use crate::ids::ThreadId;
+use crate::ids::{BackendId, ThreadId};
 use crate::rpc::Answer;
+use crate::screens::onboarding::TrustCancel;
+use crate::screens::onboarding::consent::{self, Target, Then};
 use crate::screens::{ScreenCommand, ScreenReply, ScreenThreadIntent, agents, chat};
 use crate::threads::{ThreadAsk, ThreadEv};
 
@@ -95,6 +97,29 @@ fn opened(accepted: bool, thread: ThreadId) -> Result<ThreadId, Refusal> {
 /// `AppCx::spawn`: one conversation is made at a time (`/new`, `/fork`, `/side` share the
 /// answer), so a second ask is refused to the feature that made it.
 fn spawn_thread(app: &mut CodexApp, spawn: ThreadSpawn, ctx: FeatureCtx, fx: &mut AppFx) {
+    if spawn == ThreadSpawn::Start
+        && app.session.active.is_none()
+        && app.screens.agents.displayed == BackendId::default()
+    {
+        if consent::pending(&app.screens.onboarding) {
+            return features::thread_opened(app, ctx, Err(Refusal::Busy), fx);
+        }
+        return super::consent::begin(
+            app,
+            Then::Fresh { feature: Some(ctx) },
+            Target::Folder(None),
+            TrustCancel::AgentsOverview,
+            fx,
+        );
+    }
+    start_spawn(app, spawn, ctx, fx);
+}
+
+pub(super) fn start_after_consent(app: &mut CodexApp, ctx: FeatureCtx, fx: &mut AppFx) {
+    start_spawn(app, ThreadSpawn::Start, ctx, fx);
+}
+
+fn start_spawn(app: &mut CodexApp, spawn: ThreadSpawn, ctx: FeatureCtx, fx: &mut AppFx) {
     if app
         .outgoing
         .any(|ctx| matches!(ctx, AppCtx::NewConversation { .. }))

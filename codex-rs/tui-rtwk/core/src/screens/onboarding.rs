@@ -117,12 +117,11 @@ pub enum Ask {
     /// Save `target` as a trusted project (`config/batchWrite`), answered
     /// with `Ev::TrustSaved` or `Ev::TrustFailed`.
     WriteTrust { request: Request, target: String },
-    /// Read the trust of the folder `cwd` a `/cd` goes to, answered with
-    /// `Ev::Consent` (the question to ask, if any) or `Ev::ConsentFailed`
-    /// under `request`.
+    /// Read folder trust before a session action, answered with
+    /// `Ev::Consent` or `Ev::ConsentFailed` under `request`.
     CheckConsent {
         request: Request,
-        cwd: String,
+        target: consent::Target,
         cancel: TrustCancel,
     },
     /// Do not offer `version` again (`updates::dismiss_version`); not answered.

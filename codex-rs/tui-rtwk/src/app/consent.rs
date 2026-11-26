@@ -1,11 +1,5 @@
-//! The folder trust question asked over the chat (`/cd` into a folder whose
-//! trust is undecided): the startup page's trust step is pushed over the
-//! session as a route while the model has a question open, and it pops once
-//! the question is decided (oracle: `run_onboarding_screen` with one
-//! `Step::TrustDirectory`, then the terminal cleared and the chat redrawn).
-//!
-//! In Flutter: a widget that listens to a model and calls `Navigator.push`
-//! when a dialog is due, once per question.
+//! Push the startup trust step over the current page when session navigation
+//! reaches a folder that needs consent. Each question gets one route.
 
 use rtwk::navigation::Navigator;
 use rtwk::provider::select;

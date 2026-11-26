@@ -28,6 +28,10 @@ pub fn footer<'a>(
             Some(strings.retained_worktree(root, reason))
         }
         Some(Notice::LoadFailed) => Some(strings.load_failed.to_owned()),
+        Some(Notice::TrustCheckFailed(error)) => Some(
+            crate::oracle_strings::live::RESUME_CONFIG_UNABLE_TO_CHECK_FOLDER_TRUST
+                .replace("{error}", error),
+        ),
         Some(Notice::Error(text)) => Some(text.clone()),
         None => {
             let failed =

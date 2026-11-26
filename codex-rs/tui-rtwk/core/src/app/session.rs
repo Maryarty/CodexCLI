@@ -6,7 +6,8 @@ use std::sync::Arc;
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread};
 use crate::ids::{BackendId, ThreadId};
 use crate::rpc::Answer;
-use crate::screens::onboarding::consent::{self, Then};
+use crate::screens::onboarding::TrustCancel;
+use crate::screens::onboarding::consent::{Target, Then};
 use crate::screens::select::{Confirm, Picked};
 use crate::screens::{
     ScreenCommand, ScreenReply, ScreenThreadIntent, agents, chat, select, status,
@@ -589,17 +590,13 @@ fn change_directory(app: &mut CodexApp, source: Option<ThreadId>, path: &str, fx
         ThreadAsk::Start { cwd }
     };
     // A folder whose trust is undecided is asked about first (`confirm_directory_trust`).
-    let then = Then::Cd { source, ask };
-    if consent::begin(
-        &mut Rc::make_mut(&mut app.screens).onboarding,
-        then.clone(),
-        folder,
+    super::consent::begin(
+        app,
+        Then::Cd { source, ask },
+        Target::Folder(Some(folder)),
+        TrustCancel::CurrentTask,
         fx,
-    ) {
-        return;
-    }
-    let Then::Cd { source, ask } = then;
-    start_in(app, source, ask, fx);
+    );
 }
 
 /// The session goes on in the directory `/cd` chose: `ask` is the fork or the fresh thread, which

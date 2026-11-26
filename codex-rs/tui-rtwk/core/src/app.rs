@@ -69,6 +69,8 @@ use crate::screens::ScreenThreadIntent;
 use crate::screens::agents;
 use crate::screens::approvals;
 use crate::screens::chat;
+use crate::screens::onboarding::TrustCancel;
+use crate::screens::onboarding::consent::{self as folder_consent, Target as ConsentTarget, Then};
 use crate::screens::resume;
 use crate::screens::status;
 use crate::threads;
@@ -869,13 +871,9 @@ impl CodexApp {
         self
     }
 
-    /// The host answers the folder trust of `/cd` (`Ask::CheckConsent`): `/cd` into a folder whose
-    /// trust is undecided asks the question before the session starts there.
+    /// The host checks folder trust before session actions and confirms trust writes.
     pub fn with_folder_consent(mut self, on: bool) -> Self {
-        crate::screens::onboarding::consent::arm(
-            &mut Rc::make_mut(&mut self.screens).onboarding,
-            on,
-        );
+        folder_consent::arm(&mut Rc::make_mut(&mut self.screens).onboarding, on);
         self
     }
 
@@ -1873,8 +1871,9 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 }
                 if let Some(id) = app.session.active.clone()
                     && app.screens.agents.owner_of(id.as_str()) == origin
+                    && is_listed(app, &id)
                 {
-                    open_thread(app, &id, fx);
+                    open_verified(app, &id, fx);
                 }
                 // A new connection: the list is read again (oracle:
                 // `finish_reconnect` leaves the overview to refresh).
@@ -1994,6 +1993,7 @@ fn start_fresh_thread(app: &mut CodexApp, fx: &mut AppFx) {
         matches!(
             ctx,
             AppCtx::StartThread { .. }
+                | AppCtx::NewConversation { .. }
                 | AppCtx::OpenThread {
                     cancelled: false,
                     ..
@@ -2005,7 +2005,13 @@ fn start_fresh_thread(app: &mut CodexApp, fx: &mut AppFx) {
         && app.screens.agents.opening.is_none()
         && !coming
     {
-        start_first_thread(app, fx);
+        consent::begin(
+            app,
+            Then::Fresh { feature: None },
+            ConsentTarget::Folder(None),
+            TrustCancel::AgentsOverview,
+            fx,
+        );
     }
 }
 
@@ -2905,11 +2911,30 @@ fn resume_answer(app: &mut CodexApp, ctx: resume::Ctx, answer: Answer, fx: &mut 
 }
 
 /// The sole decision to use a held writer, await an existing resume or
-/// ask for an attachment. The loading state is the center's projection. A thread no list holds is
-/// not opened (a feature that has verified one asks `open_verified`, `app/lifecycle.rs`); false
-/// when nothing was done (another open is held, an error stands).
-fn open_thread(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) -> bool {
-    is_listed(app, id) && open_verified(app, id, fx)
+/// ask for an attachment. An unattached local task needs its folder checked first.
+fn open_thread(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) {
+    let model = &app.screens.agents;
+    if !is_listed(app, id)
+        || model.held()
+        || model.failure.is_some()
+        || folder_consent::pending(&app.screens.onboarding)
+    {
+        return;
+    }
+    if thread_held(app, id)
+        || model.owner_of(id.as_str()) != BackendId::default()
+        || model.opening.as_ref() == Some(id)
+    {
+        open_verified(app, id, fx);
+        return;
+    }
+    consent::begin(
+        app,
+        Then::Open(id.clone()),
+        ConsentTarget::Task(id.clone()),
+        TrustCancel::AgentsOverview,
+        fx,
+    );
 }
 
 /// This process holds the thread or a list (the resume picker, the command center) has its row.
@@ -2930,11 +2955,7 @@ fn open_verified(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) -> bool {
     if model.held() || model.failure.is_some() {
         return false;
     }
-    // A thread whose stream was lost, or came back with its gap unread, is read from the server
-    // again (oracle `ignore_same_thread_resume`: "Already viewing" only when nothing is stale).
-    let held = app.threads.get(id).is_some_and(|thread| {
-        thread.has_writer() && !thread.stream_lost() && !thread.history_may_be_incomplete()
-    });
+    let held = thread_held(app, id);
     if let Some(previous) = model.opening.clone().filter(|previous| previous != id) {
         set_open_cancelled(app, &previous, true);
     }
@@ -2965,6 +2986,13 @@ fn open_verified(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) -> bool {
         });
     }
     true
+}
+
+/// A writer can be reused while its stream and history are current.
+fn thread_held(app: &CodexApp, id: &ThreadId) -> bool {
+    app.threads.get(id).is_some_and(|thread| {
+        thread.has_writer() && !thread.stream_lost() && !thread.history_may_be_incomplete()
+    })
 }
 
 fn set_open_cancelled(app: &mut CodexApp, id: &ThreadId, value: bool) -> bool {
@@ -3009,6 +3037,20 @@ fn request_history(app: &mut CodexApp, id: &ThreadId, cursor: Option<String>, fx
 fn send_agents(app: &mut CodexApp, outs: Vec<agents::Out>, fx: &mut AppFx) {
     for out in outs {
         match out.command {
+            agents::Command::Thread(ThreadAsk::Start { cwd })
+                if out.ctx == agents::Ctx::Start
+                    && app.screens.agents.displayed == BackendId::default() =>
+            {
+                let cwd = cwd.or_else(|| app.screens.chat.status.cwd.clone());
+                consent::begin(
+                    app,
+                    Then::New { cwd: cwd.clone() },
+                    ConsentTarget::Folder(cwd),
+                    TrustCancel::AgentsOverview,
+                    fx,
+                );
+                continue;
+            }
             agents::Command::NewWorktree { cwd } => {
                 worktree::Step::create(app, cwd, fx);
                 continue;
@@ -3025,14 +3067,18 @@ fn send_agents(app: &mut CodexApp, outs: Vec<agents::Out>, fx: &mut AppFx) {
             app.outgoing
                 .retain(|ctx| !matches!(ctx, AppCtx::Agents(agents::Ctx::Search { .. })));
         }
-        let ticket = app.mint.next();
-        app.outgoing.insert(ticket, AppCtx::Agents(out.ctx));
-        fx.commands.push(Command::Screen {
-            ticket,
-            thread: ThreadId::default(),
-            command: ScreenCommand::Agents(out.command),
-        });
+        send_agent_command(app, out, fx);
     }
+}
+
+fn send_agent_command(app: &mut CodexApp, out: agents::Out, fx: &mut AppFx) {
+    let ticket = app.mint.next();
+    app.outgoing.insert(ticket, AppCtx::Agents(out.ctx));
+    fx.commands.push(Command::Screen {
+        ticket,
+        thread: ThreadId::default(),
+        command: ScreenCommand::Agents(out.command),
+    });
 }
 
 /// A resume the server refused for the thread's model provider: the thread says why.
