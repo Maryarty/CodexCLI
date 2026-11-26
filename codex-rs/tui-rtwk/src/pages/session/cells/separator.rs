@@ -3,7 +3,7 @@
 //! Flutter: a `Padding` over a wrapping `Text`, the indent chosen from the measured width
 //! (`LayoutBuilder`). Nothing is drawn for a turn with no duration, no time and no metrics.
 
-use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDateTime, TimeZone};
+use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDate, NaiveDateTime, TimeZone};
 use rtwk::layout::{EdgeInsets, Padding};
 use rtwk::style::{Attrs, Style};
 use rtwk::widgets::Text;
@@ -21,8 +21,8 @@ const INDENT_FROM: i32 = 3;
 /// What the label reads besides the turn's own timing.
 #[derive(Clone, Copy)]
 pub struct Facts<'a> {
-    /// The viewer's now, in epoch seconds (0 when the host has not said yet).
-    pub now: i64,
+    /// The viewer's date when the host has provided a clock.
+    pub today: Option<NaiveDate>,
     pub clock: ViewerClock,
     pub metrics: Option<&'a RuntimeMetrics>,
 }
@@ -105,14 +105,19 @@ fn civil(epoch: i64, utc_offset: Option<i32>) -> Option<NaiveDateTime> {
     }
 }
 
+/// The date is the part of the viewer's clock that can change an existing label.
+pub fn viewer_date(now: i64, clock: ViewerClock) -> Option<NaiveDate> {
+    (now > 0)
+        .then(|| civil(now, clock.utc_offset))
+        .flatten()
+        .map(|now| now.date())
+}
+
 /// The time the turn ended, with its date when the viewer's today is another day (and its year
 /// when that is another year). The viewer's today is unknown until the host's first clock: then
 /// the turn ended today.
 fn stamp(at: NaiveDateTime, facts: Facts<'_>, strings: &Strings) -> String {
-    let today = (facts.now > 0)
-        .then(|| civil(facts.now, facts.clock.utc_offset))
-        .flatten()
-        .map_or_else(|| at.date(), |now| now.date());
+    let today = facts.today.unwrap_or_else(|| at.date());
     let date = if at.date() == today {
         ""
     } else if at.year() == today.year() {

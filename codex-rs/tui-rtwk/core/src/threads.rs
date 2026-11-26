@@ -409,6 +409,11 @@ impl Transcript {
         self.order.is_empty()
     }
 
+    /// An immutable view of the ordered keys, independent of item contents.
+    pub fn item_keys(&self) -> Rc<Vec<ItemKey>> {
+        self.order.clone()
+    }
+
     pub fn get(&self, index: usize) -> Option<(&ItemKey, &Item)> {
         let key = self.order.get(index)?;
         self.item(key).map(|item| (key, item))
