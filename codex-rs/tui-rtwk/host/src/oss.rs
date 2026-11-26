@@ -2,13 +2,16 @@
 //! launch (oracle `startup_orchestration.rs`, `oss_selection.rs`).
 //!
 //! The choice is `--local-provider`, else the config's `oss_provider`, else
-//! the one local server that answers (`detect_oss_provider`). The launch then
+//! the one local server that answers (`detect_oss_provider`); both or none
+//! answering asks the user in the provider panel (`pick`), and a pick made
+//! there is kept as `oss_provider` (`persist`). The launch then
 //! carries it as the `model_provider` session flag, the provider's default
 //! model and raw reasoning, and makes the provider ready.
 
 use std::path::Path;
 use std::time::Duration;
 
+use codex_app_server_protocol::ClientRequest;
 use codex_config::TomlValue;
 use codex_config::config_toml::ConfigToml;
 use codex_core::config::Config;
@@ -18,12 +21,23 @@ use codex_model_provider_info::DEFAULT_LMSTUDIO_PORT;
 use codex_model_provider_info::DEFAULT_OLLAMA_PORT;
 use codex_model_provider_info::LMSTUDIO_OSS_PROVIDER_ID;
 use codex_model_provider_info::OLLAMA_OSS_PROVIDER_ID;
+use codex_tui_core::app::AppEv;
+use codex_tui_core::app::Command;
+use codex_tui_core::app::effects::ConfigEdit;
+use codex_tui_core::protocol::config::config_write;
+use codex_tui_core::protocol::config::config_written;
+use codex_tui_core::rpc::ServerError;
+use codex_tui_core::screens::ScreenEv;
+use codex_tui_core::screens::onboarding::Ask;
+use codex_tui_core::screens::onboarding::Ev;
+use codex_tui_core::screens::startup::Provider;
+use codex_tui_core::screens::startup::Status;
+use codex_tui_rtwk::services::backend::rpc::Ids;
 use codex_utils_absolute_path::AbsolutePathBuf;
+use tokio::sync::mpsc::UnboundedReceiver;
 
-/// Both servers answer, or neither does: the oracle asks the user in a panel
-/// (`select_oss_provider`); this launch has no panel before its config, so it
-/// ends and names the flag.
-pub const NEEDS_SELECTION: &str = "No single local provider is running: pass --local-provider lmstudio or --local-provider ollama.";
+/// What the oracle's `select_oss_provider` shows when the user is asked.
+pub const CANCELLED: &str = "OSS provider selection was cancelled by user";
 
 /// The provider the flag or the config names (`resolve_oss_provider`).
 pub fn resolve(explicit: Option<&str>, config: &ConfigToml) -> Option<String> {
@@ -59,20 +73,28 @@ pub async fn running(port: u16) -> bool {
     }
 }
 
-/// `detect_oss_provider` over two ports.
-pub async fn detect_at(lmstudio_port: u16, ollama_port: u16) -> Option<&'static str> {
-    let (lmstudio, ollama) = tokio::join!(running(lmstudio_port), running(ollama_port));
-    single_running(lmstudio, ollama)
+/// Which of the two servers answer: (LM Studio, Ollama).
+pub async fn probe(lmstudio_port: u16, ollama_port: u16) -> (bool, bool) {
+    tokio::join!(running(lmstudio_port), running(ollama_port))
+}
+
+/// Where the launch's provider stands.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Choice {
+    /// Decided: the flag, the config's, or the one running server.
+    Provider(String),
+    /// Both servers answer, or neither does: the user is asked (`select_oss_provider`).
+    Pick { lmstudio: bool, ollama: bool },
 }
 
 /// The provider `--oss` runs with: the flag, the config's, or the one running
-/// server; an error text when none is decided.
+/// server; the two servers' states when none is decided.
 pub async fn choose(
     explicit: Option<&str>,
     codex_home: &Path,
     cwd: Option<&AbsolutePathBuf>,
     cli_overrides: Vec<(String, TomlValue)>,
-) -> Result<String, String> {
+) -> Result<Choice, String> {
     let provider = match explicit {
         Some(provider) => Some(provider.to_owned()),
         None => {
@@ -87,12 +109,82 @@ pub async fn choose(
             resolve(None, &loaded.config_toml)
         }
     };
-    match provider {
-        Some(provider) => Ok(provider),
-        None => detect_at(DEFAULT_LMSTUDIO_PORT, DEFAULT_OLLAMA_PORT)
-            .await
-            .map(str::to_owned)
-            .ok_or_else(|| NEEDS_SELECTION.to_owned()),
+    if let Some(provider) = provider {
+        return Ok(Choice::Provider(provider));
+    }
+    let (lmstudio, ollama) = probe(DEFAULT_LMSTUDIO_PORT, DEFAULT_OLLAMA_PORT).await;
+    Ok(match single_running(lmstudio, ollama) {
+        Some(provider) => Choice::Provider(provider.to_owned()),
+        None => Choice::Pick { lmstudio, ollama },
+    })
+}
+
+/// The status the panel draws for a server (`check_port_status`: every send error is
+/// `NotRunning`, never `Unknown`).
+fn status(running: bool) -> Status {
+    if running {
+        Status::Running
+    } else {
+        Status::NotRunning
+    }
+}
+
+/// `select_oss_provider`: the panel opens first among the startup prompts and the user's pick
+/// is awaited (`Ask::OssChoice`). The launch task owns the app's commands and reads none of
+/// them before it connects, so the pick is the first one that can come: the app asks the host
+/// for nothing else before `Connected`. Ctrl-C is the oracle's error, and so is an app that
+/// ended without answering.
+pub async fn pick<E: FnMut(AppEv)>(
+    lmstudio: bool,
+    ollama: bool,
+    mut emit: E,
+    commands: &mut UnboundedReceiver<Command>,
+) -> Result<String, String> {
+    emit(AppEv::Screen(ScreenEv::Onboarding(Ev::OssPick {
+        lmstudio: status(lmstudio),
+        ollama: status(ollama),
+    })));
+    // Another command cannot come before `Connected`: it is dropped.
+    while let Some(command) = commands.recv().await {
+        if let Command::Startup { ask, .. } = &command
+            && let Some(answer) = answer(ask)
+        {
+            return answer;
+        }
+    }
+    Err(CANCELLED.to_owned())
+}
+
+/// What an ask of the page means for the pick: the provider's id, the cancel's error, or none
+/// for an ask that is not the panel's.
+fn answer(ask: &Ask) -> Option<Result<String, String>> {
+    let Ask::OssChoice { provider } = ask else {
+        return None;
+    };
+    Some(match provider {
+        Some(Provider::LmStudio) => Ok(LMSTUDIO_OSS_PROVIDER_ID.to_owned()),
+        Some(Provider::Ollama) => Ok(OLLAMA_OSS_PROVIDER_ID.to_owned()),
+        None => Err(CANCELLED.to_owned()),
+    })
+}
+
+/// A provider picked in the panel is kept as `oss_provider` (`lib.rs`: `write_config_batch`
+/// once the app server session is up). A failure is only logged.
+pub async fn persist<F, Fut>(provider: &str, ids: &Ids, send: F)
+where
+    F: Fn(ClientRequest) -> Fut,
+    Fut: std::future::Future<Output = Result<serde_json::Value, ServerError>>,
+{
+    let edit = ConfigEdit {
+        key_path: "oss_provider".to_owned(),
+        value: serde_json::json!(provider),
+    };
+    let written = match send(config_write(&[edit], ids.next())).await {
+        Ok(result) => config_written(result),
+        Err(error) => Err(error.message),
+    };
+    if let Err(error) = written {
+        tracing::warn!(%error, provider, "Failed to persist selected OSS provider preference");
     }
 }
 
@@ -145,6 +237,12 @@ mod tests {
     use tokio::net::TcpListener;
 
     use super::*;
+
+    /// `detect_oss_provider` over two ports.
+    async fn detect_at(lmstudio_port: u16, ollama_port: u16) -> Option<&'static str> {
+        let (lmstudio, ollama) = probe(lmstudio_port, ollama_port).await;
+        single_running(lmstudio, ollama)
+    }
 
     #[test]
     fn oss_provider_is_the_flag_then_the_config() {
@@ -235,6 +333,15 @@ mod tests {
         };
         assert_eq!(both, None);
         assert_eq!(detect_at(closed().await, closed().await).await, None);
+        // Both, or none, running: the panel asks, with the states it draws.
+        let ((a, port_a), (b, port_b)) = (listener().await, listener().await);
+        let states = tokio::select! {
+            got = probe(port_a, port_b) => got,
+            () = serve(a, "200 OK") => unreachable!("the server runs on"),
+            () = serve(b, "200 OK") => unreachable!("the server runs on"),
+        };
+        assert_eq!(states, (true, true));
+        assert_eq!(probe(closed().await, closed().await).await, (false, false));
         // A server that answers with a failure is not running.
         let (down, port) = listener().await;
         let failing = tokio::select! {
@@ -248,7 +355,7 @@ mod tests {
     async fn an_explicit_provider_needs_no_config_or_probe() {
         let dir = tempfile::tempdir().expect("a temp dir");
         let chosen = choose(Some("ollama"), dir.path(), None, Vec::new()).await;
-        assert_eq!(chosen.as_deref(), Ok("ollama"));
+        assert_eq!(chosen, Ok(Choice::Provider("ollama".to_owned())));
     }
 
     #[tokio::test]
@@ -258,6 +365,71 @@ mod tests {
             .and_then(|mut file| file.write_all(b"oss_provider = \"lmstudio\"\n"))
             .expect("a config");
         let chosen = choose(None, dir.path(), None, Vec::new()).await;
-        assert_eq!(chosen.as_deref(), Ok("lmstudio"));
+        assert_eq!(chosen, Ok(Choice::Provider("lmstudio".to_owned())));
+    }
+
+    #[tokio::test]
+    async fn pick_emits_the_panel_and_a_closed_channel_ends_it() {
+        let (tx, mut commands) = tokio::sync::mpsc::unbounded_channel();
+        drop(tx);
+        let mut emitted = Vec::new();
+        let picked = pick(true, false, |ev| emitted.push(ev), &mut commands).await;
+        assert_eq!(picked, Err(CANCELLED.to_owned()));
+        let [AppEv::Screen(ScreenEv::Onboarding(panel))] = emitted.as_slice() else {
+            panic!("one event: {}", emitted.len());
+        };
+        assert_eq!(
+            panel,
+            &Ev::OssPick {
+                lmstudio: Status::Running,
+                ollama: Status::NotRunning,
+            }
+        );
+    }
+
+    #[test]
+    fn the_panels_answer_is_the_provider_or_the_oracles_error() {
+        let ask = |provider| Ask::OssChoice { provider };
+        assert_eq!(
+            answer(&ask(Some(Provider::LmStudio))),
+            Some(Ok(LMSTUDIO_OSS_PROVIDER_ID.to_owned()))
+        );
+        assert_eq!(
+            answer(&ask(Some(Provider::Ollama))),
+            Some(Ok(OLLAMA_OSS_PROVIDER_ID.to_owned()))
+        );
+        assert_eq!(
+            answer(&ask(None)),
+            Some(Err(
+                "OSS provider selection was cancelled by user".to_owned()
+            ))
+        );
+        assert_eq!(answer(&Ask::AcknowledgeGovCloud), None);
+    }
+
+    #[tokio::test]
+    async fn a_picked_provider_is_written_as_oss_provider_and_a_failure_is_only_logged() {
+        let sent = std::sync::Mutex::new(Vec::new());
+        let send = |request: ClientRequest| {
+            sent.lock().expect("lock").push(request);
+            async { Ok(serde_json::json!({})) }
+        };
+        persist("ollama", &Ids::default(), send).await;
+        let sent = sent.into_inner().expect("lock");
+        let [ClientRequest::ConfigBatchWrite { params, .. }] = sent.as_slice() else {
+            panic!("one config write: {sent:?}");
+        };
+        assert_eq!(params.edits.len(), 1);
+        assert_eq!(params.edits[0].key_path, "oss_provider");
+        assert_eq!(params.edits[0].value, serde_json::json!("ollama"));
+        // A refused write only warns.
+        persist("ollama", &Ids::default(), |_| async {
+            Err(ServerError {
+                code: None,
+                message: "no".to_owned(),
+                data: None,
+            })
+        })
+        .await;
     }
 }

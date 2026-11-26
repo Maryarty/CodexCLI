@@ -278,6 +278,8 @@ async fn run(
     // default model and raw reasoning, as session flags every reload keeps.
     let mut model = model;
     let mut launch_provider = None;
+    // The provider the user picked in the panel: kept in the config once connected.
+    let mut picked = None;
     if oss {
         let codex_home = match codex_core::config::find_codex_home() {
             Ok(home) => home,
@@ -294,7 +296,27 @@ async fn run(
         )
         .await
         {
-            Ok(provider) => {
+            Ok(choice) => {
+                let provider = match choice {
+                    crate::oss::Choice::Provider(provider) => provider,
+                    // Both or none running: the panel asks before the config exists.
+                    crate::oss::Choice::Pick { lmstudio, ollama } => {
+                        match crate::oss::pick(
+                            lmstudio,
+                            ollama,
+                            |ev| emit(&ingress, epoch, ev),
+                            &mut commands,
+                        )
+                        .await
+                        {
+                            Ok(provider) => {
+                                picked = Some(provider.clone());
+                                provider
+                            }
+                            Err(error) => return fail(error),
+                        }
+                    }
+                };
                 model = crate::oss::apply(&provider, model, &mut cli_overrides, &mut overrides);
                 launch_provider = Some(provider);
             }
@@ -532,6 +554,14 @@ async fn run(
     };
     let ids = Ids::default();
     let mut inflight: FuturesUnordered<Boxed<Option<AppEv>>> = FuturesUnordered::new();
+    if let Some(provider) = picked {
+        let send = sender(handle.clone());
+        let ids = ids.clone();
+        inflight.push(Box::pin(async move {
+            crate::oss::persist(&provider, &ids, send).await;
+            None
+        }));
+    }
     // As the oracle's bootstrap: the account is read, so the center knows
     // the plan and whether usage can be fetched.
     inflight.push(Box::pin(account(ids.clone(), sender(handle.clone()))));

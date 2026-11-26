@@ -79,6 +79,10 @@ pub struct Model {
     launching: Option<Request>,
     /// The launch's startup prompts are known (`Ev::Launched`).
     launched: bool,
+    /// The provider panel was asked by the host before the config exists
+    /// (`Ev::OssPick`): the page stays until the launch facts come, as the
+    /// steps they bring are asked after the panel.
+    holding: bool,
     /// The startup prompts due at launch not asked yet, in order (S05:
     /// the hooks review, the model migration).
     pub prompts: Vec<startup::Prompt>,
@@ -176,6 +180,13 @@ pub enum Ask {
     /// (`notice.hide_gov_cloud_guidance`); not answered, a failed write is
     /// only logged.
     AcknowledgeGovCloud,
+    /// The provider panel (`--oss`, `oss_selection.rs`) was answered, before the config exists:
+    /// the launch goes on with the provider, which the config then keeps when it was picked
+    /// here; None (Ctrl-C) ends the launch with `OSS provider selection was cancelled by user`.
+    /// The launch task answers it itself (nothing is asked of the host's startup worker).
+    OssChoice {
+        provider: Option<super::startup::Provider>,
+    },
     /// The background-server recovery menu was answered (`daemon_recovery.rs`): Cancel (also
     /// Ctrl-C) ends the launch with the compatibility error, Run without starts the embedded
     /// server with a warning, Restart restarts the managed server with the settings asked, checks
@@ -370,7 +381,8 @@ impl Model {
     /// Whether the app opens on the startup page: a step is not finished,
     /// or a startup prompt is due.
     pub fn due(&self) -> bool {
-        self.steps().into_iter().any(|step| !self.done(step))
+        self.holding
+            || self.steps().into_iter().any(|step| !self.done(step))
             || !self.prompts.is_empty()
             || self.device_code().is_some()
     }
@@ -411,6 +423,13 @@ impl Model {
             && !self.launched
             && !self.ends()
             && self.steps().into_iter().all(|s| self.done(s))
+    }
+
+    /// Whether the host asked the provider panel before the launch facts
+    /// (`--oss`, both or no local server running) and they have not come:
+    /// the page holds open, past the answer.
+    pub fn holding(&self) -> bool {
+        self.holding
     }
 
     /// Whether the launch is decided: the facts were read, or a step is due
@@ -455,6 +474,13 @@ pub enum Ev {
     /// `account/updated`: the account is a ChatGPT one.
     AccountUpdated {
         chatgpt_account: bool,
+    },
+    /// The host found both or none of the local servers running (`--oss`) and asks the provider
+    /// before the config is built: the panel opens first among the startup prompts and the
+    /// page stays until the facts.
+    OssPick {
+        lmstudio: super::startup::Status,
+        ollama: super::startup::Status,
     },
     /// The answer to `Ask::Facts { request }`.
     Facts {
@@ -622,6 +648,7 @@ pub fn connected(model: &mut Model, fx: &mut AppFx) {
 /// update to run: its ack (`UpdateQueued`) is lost with the connection, so
 /// the prompt is open again instead of waiting for it for good.
 pub fn disconnected(model: &mut Model) {
+    model.holding = false;
     model.launching = None;
     model.reloaded = false;
     session::lost(model);
@@ -676,6 +703,13 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             // already first.
             model.prompts.extend(prompts);
         }
+        Ev::OssPick { lmstudio, ollama } => {
+            model.holding = true;
+            model.prompts.insert(
+                0,
+                startup::Prompt::Oss(startup::OssPrompt { lmstudio, ollama }),
+            );
+        }
         Ev::GatewayStarted { request } => gateway::started(model, request, fx),
         Ev::GatewayLogins { request, logins } => gateway::logins(model, request, logins, fx),
         Ev::GatewayOAuth { request, result } => gateway::oauth(model, request, result),
@@ -694,6 +728,7 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             }
             model.asked = None;
             model.read = true;
+            model.holding = false;
             model.update = facts.update;
             model.welcome = facts.welcome;
             model.sign_in = facts.sign_in.map(auth::SignIn::new);
@@ -1190,6 +1225,7 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
 
 #[cfg(test)]
 mod tests {
+    use super::startup::{OssPrompt, Prompt, Status};
     use super::*;
 
     fn trust(restricted: bool) -> Ev {
@@ -1639,6 +1675,69 @@ mod tests {
         assert!(m.due());
         assert_eq!(intent(&mut m, Intent::PromptAsked), []);
         assert!(m.prompts.is_empty() && !m.due() && m.settled());
+    }
+
+    fn oss_pick() -> Ev {
+        Ev::OssPick {
+            lmstudio: Status::NotRunning,
+            ollama: Status::NotRunning,
+        }
+    }
+
+    // `--oss` with both or no local server: the host asks before the config exists. The panel is
+    // the first prompt and the page is due without any fact.
+    #[test]
+    fn oss_pick_opens_the_page_with_the_panel_first() {
+        let mut m = Model::default();
+        assert!(!m.due() && !m.holding());
+        ev(&mut m, oss_pick());
+        assert!(m.due() && m.settled() && m.holding());
+        assert_eq!(
+            m.prompts,
+            [Prompt::Oss(OssPrompt {
+                lmstudio: Status::NotRunning,
+                ollama: Status::NotRunning,
+            })]
+        );
+        // The prompts of the launch come after it.
+        ev(
+            &mut m,
+            Ev::Launched {
+                request: 1,
+                prompts: Vec::new(),
+            },
+        );
+        assert!(matches!(m.prompts.first(), Some(Prompt::Oss(_))));
+    }
+
+    // The panel answered and the queue empty, the page stays: the steps the facts bring come
+    // next.
+    #[test]
+    fn the_page_is_held_from_the_pick_until_the_facts() {
+        let mut m = Model::default();
+        ev(&mut m, oss_pick());
+        assert_eq!(intent(&mut m, Intent::PromptAsked), []);
+        assert!(m.prompts.is_empty() && m.due() && m.holding());
+        let mut fx = AppFx::default();
+        connected(&mut m, &mut fx);
+        assert_eq!(asks(fx), [Ask::Facts { request: 1 }]);
+        assert!(m.holding());
+        ev(
+            &mut m,
+            Ev::Facts {
+                request: 1,
+                facts: Facts::default(),
+            },
+        );
+        assert!(!m.holding() && !m.due());
+    }
+
+    #[test]
+    fn a_lost_connection_releases_the_hold() {
+        let mut m = Model::default();
+        ev(&mut m, oss_pick());
+        disconnected(&mut m);
+        assert!(!m.holding());
     }
 
     // A launch ask lost with the connection is asked again; the answer to
