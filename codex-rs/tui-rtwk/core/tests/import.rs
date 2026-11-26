@@ -322,6 +322,51 @@ fn a_detection_cancelled_before_it_answers_drops_the_late_answer() {
 }
 
 #[test]
+fn host_asks_import_latest_detection_wins_before_the_screen_handles_it() {
+    use codex_tui_core::app::{AppEv, CodexApp, Ingress, Intent as AppIntent};
+    use codex_tui_core::screens::{ScreenEv, ScreenIntent};
+
+    let mut app = CodexApp::new();
+    let epoch = app.attach();
+    let open = |app: &mut CodexApp, cwd: &str| {
+        let ev = AppEv::Intent(AppIntent::Screen(ScreenIntent::Import(Intent::Open {
+            cwd: Some(cwd.to_owned()),
+        })));
+        let fx = app.ingest(Ingress::new(epoch, ev)).expect("import intent");
+        let asks = asked(&fx);
+        let [Request::Detect { request, .. }] = asks.as_slice() else {
+            panic!("one detection: {asks:?}");
+        };
+        *request
+    };
+    let old = open(&mut app, "/old");
+    let latest = open(&mut app, "/latest");
+    assert_ne!(old, latest);
+    let reply = |request, label| {
+        AppEv::Screen(ScreenEv::Import(Ev::Detected {
+            request,
+            places: Places::default(),
+            found: vec![Found {
+                source: Source::Claude,
+                result: Ok(vec![config(label)]),
+            }],
+            selected: None,
+        }))
+    };
+    assert!(app.ingest(Ingress::new(epoch, reply(old, "old"))).is_none());
+    assert_eq!(app.screens().import.phase, Phase::Detecting);
+    assert!(
+        app.ingest(Ingress::new(epoch, reply(latest, "latest")))
+            .is_some()
+    );
+    assert_eq!(app.screens().import.items[0].item, config("latest"));
+    assert!(
+        app.ingest(Ingress::new(epoch, reply(latest, "duplicate")))
+            .is_none()
+    );
+}
+
+#[test]
 fn a_failed_import_returns_to_the_review_with_the_selection_and_the_error() {
     let mut model = reviewing(sample_items(), None);
     send(&mut model, &[Intent::Proceed(vec![1, 2, 3])]);

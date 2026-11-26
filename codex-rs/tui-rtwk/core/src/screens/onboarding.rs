@@ -73,8 +73,6 @@ pub struct Model {
     running: Option<Request>,
     /// The host stored the update to run.
     update_queued: bool,
-    /// The last request number minted.
-    minted: Request,
     /// The launch's startup prompts asked for (`Ask::Launch`), awaited.
     launching: Option<Request>,
     /// The launch's startup prompts are known (`Ev::Launched`).
@@ -326,6 +324,21 @@ pub enum TrustDecision {
 }
 
 impl Model {
+    /// The host reply can still advance this step. Login replies are checked by the app
+    /// separately because a cancelled browser/device login may still need cleanup.
+    pub(crate) fn waits_for(&self, request: Request) -> bool {
+        [self.asked, self.writing, self.running, self.launching].contains(&Some(request))
+            || consent::waits_for(self, request)
+            || matches!(
+                self.gateway,
+                gateway::Phase::Starting { request: awaiting, .. }
+                    | gateway::Phase::Reading { request: awaiting, .. }
+                    | gateway::Phase::OAuth { request: awaiting, .. }
+                    if awaiting == request
+            )
+            || matches!(self.device, device::Phase::Asking { request: awaiting, .. } if awaiting == request)
+    }
+
     /// The steps due, in order: what the startup page runs.
     pub fn steps(&self) -> Vec<Stage> {
         let mut steps = Vec::new();
@@ -642,7 +655,7 @@ pub fn connected(model: &mut Model, fx: &mut AppFx) {
         follow(model, fx);
         return;
     }
-    let request = mint(model);
+    let request = fx.host_request_number();
     model.asked = Some(request);
     ask(fx, Ask::Facts { request });
 }
@@ -653,6 +666,7 @@ pub fn connected(model: &mut Model, fx: &mut AppFx) {
 /// update to run: its ack (`UpdateQueued`) is lost with the connection, so
 /// the prompt is open again instead of waiting for it for good.
 pub fn disconnected(model: &mut Model) {
+    model.asked = None;
     model.holding = false;
     model.launching = None;
     model.reloaded = false;
@@ -660,6 +674,18 @@ pub fn disconnected(model: &mut Model) {
     gateway::lost(model);
     device::lost(model);
     consent::abandon(model);
+    if let Some(sign_in) = &mut model.sign_in {
+        auth::transport_lost(sign_in);
+    }
+    release_trust_write(model);
+    if model.running.take().is_some()
+        && let Some(u) = model.update.as_mut()
+    {
+        u.choice = None;
+    }
+}
+
+fn release_trust_write(model: &mut Model) {
     if model.writing.take().is_some()
         && let Some(t) = model
             .trust
@@ -668,20 +694,29 @@ pub fn disconnected(model: &mut Model) {
     {
         t.decision = None;
     }
-    if model.running.take().is_some()
-        && let Some(u) = model.update.as_mut()
-    {
-        u.choice = None;
+}
+
+/// Clear state that was using the old request handle. The provider install and local update
+/// still owe their answers. Re-read startup facts or prompts when a safe read was interrupted.
+pub(crate) fn transport_replaced(model: &mut Model, fx: &mut AppFx) {
+    let reading_facts = model.asked.take().is_some();
+    model.launching = None;
+    release_trust_write(model);
+    consent::abandon(model);
+    if let Some(sign_in) = &mut model.sign_in {
+        auth::transport_lost(sign_in);
+    }
+    device::lost(model);
+    gateway::transport_replaced(model, fx);
+    if reading_facts {
+        connected(model, fx);
+    } else {
+        follow(model, fx);
     }
 }
 
-fn mint(model: &mut Model) -> Request {
-    model.minted += 1;
-    model.minted
-}
-
 fn ask(fx: &mut AppFx, ask: Ask) {
-    fx.commands.push(AppCommand::Startup { ask });
+    fx.host_command(AppCommand::Startup { ask });
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -773,13 +808,7 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
                     auth::Outcome::Browser { login_id, .. } => Some(login_id.clone()),
                     _ => None,
                 };
-                let mut minted = model.minted;
-                let mut mint = || {
-                    minted += 1;
-                    minted
-                };
-                auth::apply_result(sign_in, result, &mut mint, &mut asks);
-                model.minted = minted;
+                auth::apply_result(sign_in, result, &mut || fx.host_request_number(), &mut asks);
                 if let (Some(id), auth::State::Browser { login_id, url }) =
                     (browser, &sign_in.state)
                     && *login_id == id
@@ -880,7 +909,7 @@ fn apply_intent_inner(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 u.choice = Some(choice);
                 match choice {
                     UpdateChoice::UpdateNow => {
-                        let request = mint(model);
+                        let request = fx.host_request_number();
                         model.running = Some(request);
                         ask(fx, Ask::RunUpdate { request });
                     }
@@ -910,7 +939,7 @@ fn apply_intent_inner(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
             t.decision = Some(TrustDecision::Saving);
             let target = t.target.clone();
-            let request = mint(model);
+            let request = fx.host_request_number();
             model.writing = Some(request);
             ask(fx, Ask::WriteTrust { request, target });
         }
@@ -930,14 +959,8 @@ fn apply_intent_inner(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             let Some(sign_in) = model.sign_in.as_mut() else {
                 return;
             };
-            let mut minted = model.minted;
-            let mut mint = || {
-                minted += 1;
-                minted
-            };
             let mut asks = Vec::new();
-            auth::apply_intent(sign_in, intent, &mut mint, &mut asks);
-            model.minted = minted;
+            auth::apply_intent(sign_in, intent, &mut || fx.host_request_number(), &mut asks);
             asks.into_iter().for_each(|a| ask(fx, a));
             follow_provider(model);
         }
@@ -955,7 +978,12 @@ fn apply_intent_inner(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             // way out.
             if let Some(sign_in) = model.sign_in.as_mut().filter(|s| !s.done()) {
                 let mut asks = Vec::new();
-                auth::apply_intent(sign_in, auth::Intent::Cancel, &mut || 0, &mut asks);
+                auth::apply_intent(
+                    sign_in,
+                    auth::Intent::Cancel,
+                    &mut || fx.host_request_number(),
+                    &mut asks,
+                );
                 asks.into_iter().for_each(|a| ask(fx, a));
             }
             model.exit = true;
@@ -997,7 +1025,7 @@ fn follow_launch(model: &mut Model, fx: &mut AppFx) {
     if matches!(session::follow(model, fx), session::Step::Wait) {
         return;
     }
-    let request = mint(model);
+    let request = fx.host_request_number();
     model.launching = Some(request);
     ask(fx, Ask::Launch { request });
 }
@@ -1255,22 +1283,42 @@ mod tests {
         }
     }
 
-    fn model(evs: Vec<Ev>) -> Model {
-        let mut model = Model::default();
+    #[derive(Default)]
+    struct TestModel {
+        model: Model,
+        fx: AppFx,
+    }
+
+    impl std::ops::Deref for TestModel {
+        type Target = Model;
+
+        fn deref(&self) -> &Model {
+            &self.model
+        }
+    }
+
+    impl TestModel {
+        fn connected(&mut self) -> Vec<Ask> {
+            connected(&mut self.model, &mut self.fx);
+            asks(&mut self.fx)
+        }
+    }
+
+    fn model(evs: Vec<Ev>) -> TestModel {
+        let mut model = TestModel::default();
         for ev in evs {
-            apply(&mut model, ev, &mut AppFx::default());
+            answered(&mut model, ev);
         }
         model
     }
 
-    fn intent(model: &mut Model, intent: Intent) -> Vec<Ask> {
-        let mut fx = AppFx::default();
-        apply_intent(model, intent, &mut fx);
-        asks(fx)
+    fn intent(model: &mut TestModel, intent: Intent) -> Vec<Ask> {
+        apply_intent(&mut model.model, intent, &mut model.fx);
+        asks(&mut model.fx)
     }
 
-    fn asks(fx: AppFx) -> Vec<Ask> {
-        fx.into_commands()
+    fn asks(fx: &mut AppFx) -> Vec<Ask> {
+        std::mem::take(&mut fx.commands)
             .into_iter()
             .filter_map(|command| match command {
                 AppCommand::Startup { ask } => Some(ask),
@@ -1279,8 +1327,8 @@ mod tests {
             .collect()
     }
 
-    fn ev(model: &mut Model, ev: Ev) {
-        apply(model, ev, &mut AppFx::default());
+    fn ev(model: &mut TestModel, ev: Ev) {
+        answered(model, ev);
     }
 
     // The order of `run_update_prompt_if_needed` then `OnboardingScreen::new`:
@@ -1438,14 +1486,9 @@ mod tests {
     // the ask awaited is applied, and a read model asks no more.
     #[test]
     fn launch_facts_are_asked_once_and_stale_answers_dropped() {
-        let mut m = Model::default();
-        let mut fx = AppFx::default();
-        connected(&mut m, &mut fx);
-        connected(&mut m, &mut fx);
-        assert_eq!(
-            asks(fx),
-            [Ask::Facts { request: 1 }, Ask::Facts { request: 2 }]
-        );
+        let mut m = TestModel::default();
+        assert_eq!(m.connected(), [Ask::Facts { request: 1 }]);
+        assert_eq!(m.connected(), [Ask::Facts { request: 2 }]);
         let facts = Facts {
             sign_in: Some(auth::Offer::default()),
             welcome: Some(Welcome { animations: true }),
@@ -1462,9 +1505,7 @@ mod tests {
         ev(&mut m, Ev::Facts { request: 2, facts });
         assert_eq!(m.steps(), [Stage::SignIn]);
         assert!(m.due());
-        let mut fx = AppFx::default();
-        connected(&mut m, &mut fx);
-        assert_eq!(asks(fx), []);
+        assert_eq!(m.connected(), []);
     }
 
     // update_prompt.rs:96: "not now" persists nothing, "don't remind me"
@@ -1516,10 +1557,9 @@ mod tests {
         }
     }
 
-    fn answered(model: &mut Model, ev: Ev) -> Vec<Ask> {
-        let mut fx = AppFx::default();
-        apply(model, ev, &mut fx);
-        asks(fx)
+    fn answered(model: &mut TestModel, ev: Ev) -> Vec<Ask> {
+        apply(&mut model.model, ev, &mut model.fx);
+        asks(&mut model.fx)
     }
 
     // `show_chatgpt_login_in_browser`: the browser shows the login URL of the
@@ -1617,9 +1657,9 @@ mod tests {
 
     /// A model that read `facts` (the ask of the first connection), and
     /// what the answer asked.
-    fn read(facts: Facts) -> (Model, Vec<Ask>) {
-        let mut m = Model::default();
-        connected(&mut m, &mut AppFx::default());
+    fn read(facts: Facts) -> (TestModel, Vec<Ask>) {
+        let mut m = TestModel::default();
+        m.connected();
         let asked = answered(&mut m, Ev::Facts { request: 1, facts });
         (m, asked)
     }
@@ -1634,7 +1674,7 @@ mod tests {
 
     /// The host found no gateway sign-in to show (`Ask::GatewayDevice`,
     /// request `request`): the launch's prompts are asked next.
-    fn no_device_code(m: &mut Model, request: Request) -> Vec<Ask> {
+    fn no_device_code(m: &mut TestModel, request: Request) -> Vec<Ask> {
         answered(
             m,
             Ev::GatewayDevice {
@@ -1698,7 +1738,7 @@ mod tests {
     // the first prompt and the page is due without any fact.
     #[test]
     fn oss_pick_opens_the_page_with_the_panel_first() {
-        let mut m = Model::default();
+        let mut m = TestModel::default();
         assert!(!m.due() && !m.holding());
         ev(&mut m, oss_pick());
         assert!(m.due() && m.settled() && m.holding());
@@ -1724,13 +1764,11 @@ mod tests {
     // next.
     #[test]
     fn the_page_is_held_from_the_pick_until_the_facts() {
-        let mut m = Model::default();
+        let mut m = TestModel::default();
         ev(&mut m, oss_pick());
         assert_eq!(intent(&mut m, Intent::PromptAsked), []);
         assert!(m.prompts.is_empty() && m.due() && m.holding());
-        let mut fx = AppFx::default();
-        connected(&mut m, &mut fx);
-        assert_eq!(asks(fx), [Ask::Facts { request: 1 }]);
+        assert_eq!(m.connected(), [Ask::Facts { request: 1 }]);
         assert!(m.holding());
         ev(
             &mut m,
@@ -1744,9 +1782,9 @@ mod tests {
 
     #[test]
     fn a_lost_connection_releases_the_hold() {
-        let mut m = Model::default();
+        let mut m = TestModel::default();
         ev(&mut m, oss_pick());
-        disconnected(&mut m);
+        disconnected(&mut m.model);
         assert!(!m.holding());
     }
 
@@ -1756,10 +1794,8 @@ mod tests {
     fn a_launch_ask_lost_with_the_connection_is_asked_again() {
         let (mut m, _) = read(Facts::default());
         no_device_code(&mut m, 2);
-        disconnected(&mut m);
-        let mut fx = AppFx::default();
-        connected(&mut m, &mut fx);
-        assert_eq!(asks(fx), [Ask::Launch { request: 4 }]);
+        disconnected(&mut m.model);
+        assert_eq!(m.connected(), [Ask::Launch { request: 4 }]);
         ev(
             &mut m,
             Ev::Launched {
@@ -1820,9 +1856,8 @@ mod tests {
     // refreshed in the background, once, when the facts arrive.
     #[test]
     fn facts_that_found_the_update_cache_stale_ask_for_a_refresh() {
-        let mut m = Model::default();
-        let mut fx = AppFx::default();
-        connected(&mut m, &mut fx);
+        let mut m = TestModel::default();
+        m.connected();
         let facts = |refresh_update| Ev::Facts {
             request: 1,
             facts: Facts {
@@ -1843,8 +1878,8 @@ mod tests {
         );
         // The answer was taken: a repeat asks nothing more.
         assert_eq!(answered(&mut m, facts(true)), []);
-        let mut m = Model::default();
-        connected(&mut m, &mut AppFx::default());
+        let mut m = TestModel::default();
+        m.connected();
         assert_eq!(
             answered(&mut m, facts(false)),
             [Ask::GatewayDevice {
@@ -1933,7 +1968,7 @@ mod tests {
         }})) else {
             panic!("the seed was refused");
         };
-        let mut m = Model::default();
+        let mut m = TestModel::default();
         ev(&mut m, seeded);
         let code = m.device_code().expect("a code");
         assert_eq!(code.code, "ABCD-EFGH");

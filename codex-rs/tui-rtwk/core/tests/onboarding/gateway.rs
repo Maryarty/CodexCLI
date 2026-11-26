@@ -146,6 +146,95 @@ fn the_gateway_signs_in_after_the_other_steps() {
 }
 
 #[test]
+fn host_asks_setup_ack_survives_a_new_transport_and_checks_the_full_continuation() {
+    use codex_tui_core::app::Ingress;
+    use codex_tui_core::ids::BackendId;
+
+    let (mut app, asks) = selected(false);
+    let request = select_request(&asks);
+    let primary = BackendId::default();
+    let cloud = BackendId(1);
+    let epoch = app.epoch_of(primary);
+    let cloud_epoch = app.attach_backend(cloud);
+    let answer = || ev(Ev::GatewayStarted { request });
+    let wrong = ev(Ev::Launched {
+        request,
+        prompts: Vec::new(),
+    });
+    assert!(
+        app.ingest(Ingress::of(cloud, cloud_epoch, answer()))
+            .is_none()
+    );
+    assert!(app.ingest(Ingress::new(epoch, wrong)).is_none());
+    assert_eq!(
+        onboarding(&app).gateway(),
+        &Phase::Starting {
+            request,
+            id: "office".into()
+        }
+    );
+
+    app.ingest(Ingress::transport_replaced(primary, epoch, epoch.next()))
+        .expect("a new setup transport");
+    let effects = app
+        .ingest(Ingress::new(epoch, answer()))
+        .expect("the setup acknowledgement");
+    assert!(effects.commands().iter().any(|command| matches!(
+        command,
+        Command::Startup { ask: Ask::GatewayLogins { request: next, .. }, .. } if *next != request
+    )));
+    assert!(app.ingest(Ingress::new(epoch, answer())).is_none());
+}
+
+#[test]
+fn host_asks_setup_ack_dies_with_its_connector() {
+    use codex_tui_core::app::Ingress;
+
+    let (mut app, asks) = selected(false);
+    let request = select_request(&asks);
+    let epoch = app.epoch();
+    app.ingest(Ingress::new(epoch, AppEv::Disconnected))
+        .expect("connector loss");
+    let ack = ev(Ev::GatewayStarted { request });
+    assert!(app.ingest(Ingress::new(epoch, ack.clone())).is_none());
+    let new_epoch = app.attach();
+    assert!(app.ingest(Ingress::new(new_epoch, ack)).is_none());
+}
+
+#[test]
+fn host_asks_a_direct_connector_attach_reissues_the_old_setup_owner() {
+    use codex_tui_core::app::Ingress;
+
+    let (mut app, asks) = selected(false);
+    let old = select_request(&asks);
+    let epoch = app.attach();
+    let fx = app
+        .ingest(Ingress::new(epoch, AppEv::Connected))
+        .expect("replacement connector");
+    let asks = fx
+        .into_commands()
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::Startup {
+                ask: ask @ Ask::SelectGateway { .. },
+                ..
+            } => Some(ask),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let new = select_request(&asks);
+    assert_ne!(old, new);
+    assert!(
+        app.ingest(Ingress::new(epoch, ev(Ev::GatewayStarted { request: old })))
+            .is_none()
+    );
+    assert!(
+        app.ingest(Ingress::new(epoch, ev(Ev::GatewayStarted { request: new })))
+            .is_some()
+    );
+}
+
+#[test]
 fn a_gateway_that_needs_no_login_goes_on_to_the_launch() {
     let (mut app, asks) = selected(false);
     let request = started(&mut app, select_request(&asks));

@@ -8,14 +8,15 @@ use super::*;
 use codex_app_server_protocol::{
     GatewayOAuthChangedNotification, GatewayOAuthStatus, ServerNotification,
 };
-use codex_tui_core::app::{BackendEv, Command};
+use codex_tui_core::app::{BackendEv, Command, Ingress};
 use codex_tui_core::screens::onboarding::auth::DeviceCode;
 use codex_tui_core::screens::onboarding::{Ask, Model};
 
 /// Applies `ev`; the asks of the startup page it made.
 fn asks_of(app: &mut CodexApp, ev: AppEv) -> Vec<Ask> {
-    let mut fx = AppFx::default();
-    apply_app(app, ev, &mut fx);
+    let fx = app
+        .ingest(Ingress::new(app.epoch(), ev))
+        .unwrap_or_default();
     app.assert_consistent();
     fx.into_commands()
         .into_iter()
@@ -54,9 +55,8 @@ fn code() -> DeviceCode {
     }
 }
 
-/// A launch whose facts are read, with no step due: the device code is asked
-/// (request 2).
-fn launched() -> CodexApp {
+/// A launch whose facts are read, with no step due: the device code is asked.
+fn launched() -> (CodexApp, u64) {
     let mut app = CodexApp::new();
     send(&mut app, AppEv::Connected);
     let asks = asks_of(
@@ -66,23 +66,25 @@ fn launched() -> CodexApp {
             facts: Facts::default(),
         }),
     );
-    assert_eq!(
-        asks,
-        [Ask::GatewayDevice {
-            request: 2,
-            thread: None
-        }]
-    );
-    app
+    let [
+        Ask::GatewayDevice {
+            request,
+            thread: None,
+        },
+    ] = asks.as_slice()
+    else {
+        panic!("one launch device request: {asks:?}");
+    };
+    (app, *request)
 }
 
 /// The same, with the code on screen.
 fn waiting() -> CodexApp {
-    let mut app = launched();
+    let (mut app, request) = launched();
     let asks = asks_of(
         &mut app,
         ev(Ev::GatewayDevice {
-            request: 2,
+            request,
             code: Some(code()),
         }),
     );
@@ -94,16 +96,16 @@ fn waiting() -> CodexApp {
 // server with nothing to sign in to goes straight on.
 #[test]
 fn no_code_goes_on_to_the_launch() {
-    let mut app = launched();
+    let (mut app, request) = launched();
     assert!(!onboarding(&app).due());
     let asks = asks_of(
         &mut app,
         ev(Ev::GatewayDevice {
-            request: 2,
+            request,
             code: None,
         }),
     );
-    assert_eq!(asks, [Ask::Launch { request: 3 }]);
+    assert!(matches!(asks.as_slice(), [Ask::Launch { request: launch }] if *launch != request));
     assert_eq!(onboarding(&app).device_code(), None);
 }
 
@@ -124,7 +126,7 @@ fn the_attempt_succeeding_goes_on_to_the_launch() {
         &mut app,
         changed(Some("device"), GatewayOAuthStatus::Succeeded, None),
     );
-    assert_eq!(asks, [Ask::Launch { request: 3 }]);
+    assert!(matches!(asks.as_slice(), [Ask::Launch { .. }]));
     assert_eq!(onboarding(&app).device_code(), None);
 }
 
@@ -169,7 +171,7 @@ fn a_failed_attempt_ends_the_launch_with_the_servers_message() {
 // come before the answer to the login.
 #[test]
 fn an_end_that_came_before_the_answer_is_not_lost() {
-    let mut app = launched();
+    let (mut app, request) = launched();
     assert_eq!(
         asks_of(
             &mut app,
@@ -187,11 +189,11 @@ fn an_end_that_came_before_the_answer_is_not_lost() {
     let asks = asks_of(
         &mut app,
         ev(Ev::GatewayDevice {
-            request: 2,
+            request,
             code: Some(code()),
         }),
     );
-    assert_eq!(asks, [Ask::Launch { request: 3 }]);
+    assert!(matches!(asks.as_slice(), [Ask::Launch { request: launch }] if *launch != request));
 }
 
 // Quitting with the code shown cancels the attempt (`device_login::cancel`)
@@ -222,12 +224,12 @@ fn quitting_cancels_the_attempt() {
 // again with the next one.
 #[test]
 fn a_stale_answer_is_dropped_and_a_lost_connection_asks_again() {
-    let mut app = launched();
+    let (mut app, request) = launched();
     assert_eq!(
         asks_of(
             &mut app,
             ev(Ev::GatewayDevice {
-                request: 9,
+                request: request + 9,
                 code: Some(code()),
             })
         ),
@@ -236,19 +238,15 @@ fn a_stale_answer_is_dropped_and_a_lost_connection_asks_again() {
     assert_eq!(onboarding(&app).device_code(), None);
     send(&mut app, AppEv::Disconnected);
     let asks = asks_of(&mut app, AppEv::Connected);
-    assert_eq!(
-        asks,
-        [Ask::GatewayDevice {
-            request: 3,
-            thread: None
-        }]
+    assert!(
+        matches!(asks.as_slice(), [Ask::GatewayDevice { request: next, thread: None }] if *next != request)
     );
     // The answer of the lost connection's ask is not taken.
     assert_eq!(
         asks_of(
             &mut app,
             ev(Ev::GatewayDevice {
-                request: 2,
+                request,
                 code: Some(code()),
             })
         ),

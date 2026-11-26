@@ -91,7 +91,7 @@ impl Ticket {
 }
 
 /// The one source of tickets, kept by the app.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TicketMint {
     sequence: u64,
     submission_namespace: String,

@@ -9,18 +9,12 @@
 
 use super::{AppFx, BackendId, CodexApp, features};
 use crate::features::Connection;
-use crate::screens::onboarding;
-use std::rc::Rc;
 
 /// The connection of `backend` is gone. Every ask in flight on it is answered with a failure
 /// (which leaves its operation `Loading` no more), what the startup asked of it is asked again
 /// on the next one, the threads it held let go of their writer, the runs that wait for a stream
 /// end, and the features are told.
 pub(super) fn lost(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx) {
-    // The startup asks went to the lost connection.
-    if backend == BackendId::default() {
-        onboarding::disconnected(&mut Rc::make_mut(&mut app.screens).onboarding);
-    }
     app.reset_requests(backend);
     app.forget_reads_of(backend);
     app.retire_outgoing(backend, fx);

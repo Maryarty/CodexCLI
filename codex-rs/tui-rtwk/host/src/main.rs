@@ -139,7 +139,6 @@ async fn launch(cli: &Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<Laun
         agents: cli.agents,
         launch_prompt: cli.prompt.as_ref().is_some_and(|prompt| !prompt.is_empty()),
         update: update.clone(),
-        startup_failure: startup_failure.clone(),
         state_db_failure: state_db_failure.clone(),
     }));
     // The Cloud connection next to the first, when the oracle's gate lets it
@@ -159,6 +158,7 @@ async fn launch(cli: &Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<Laun
         .with_provisional_draft(provisional_draft)
         .with_folder_consent(true)
         .with_unsent_slot(unsent.clone())
+        .with_startup_failure_slot(startup_failure.clone())
         .with_lang(cli.lang(&rtwk::l10n::requested()));
     if let Some(start) = cli.session.clone() {
         app = app.with_start_session(start);

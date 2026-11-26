@@ -193,10 +193,21 @@ fn a_startup_screen_holds_the_thread_until_the_launch_is_known() {
     assert_eq!(app.session().status, Session::Starting);
     let fx = facts(&mut app, trust_facts());
     assert_eq!(starts(&fx), 0);
-    intent(&mut app, StartupIntent::Trust);
+    let trust = intent(&mut app, StartupIntent::Trust);
+    let request = trust
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Startup {
+                ask: Ask::WriteTrust { request, .. },
+                ..
+            } => Some(*request),
+            _ => None,
+        })
+        .expect("the trust write");
     let fx = run(
         &mut app,
-        AppEv::Screen(ScreenEv::Onboarding(Ev::TrustSaved { request: 2 })),
+        AppEv::Screen(ScreenEv::Onboarding(Ev::TrustSaved { request })),
     );
     assert_eq!(starts(&fx), 0, "the prompts are still to be read");
     let request = launch_ask(&mut app, &fx);
@@ -631,6 +642,8 @@ fn answer_read(
 
 #[test]
 fn resume_reads_the_provider_before_the_device_ask() {
+    use codex_tui_core::app::Ingress;
+    use codex_tui_core::ids::BackendId;
     let mut app = named(Action::Resume);
     let (ticket, fx) = facts_before_the_read(&mut app);
     assert_eq!(
@@ -647,6 +660,35 @@ fn resume_reads_the_provider_before_the_device_ask() {
         })),
         "the thread's provider goes with the ask"
     );
+    let (request, command) = fx
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Startup {
+                ask: Ask::GatewayDevice { request, .. },
+                ..
+            } => Some((*request, command)),
+            _ => None,
+        })
+        .expect("the registered device ask");
+    let (backend, stamp) = app
+        .dispatch_route(command, None)
+        .expect("device ask is dispatchable");
+    assert_eq!(backend, BackendId::default());
+    let stamp = stamp.expect("socket-bound device ask");
+    let reply = AppEv::Screen(ScreenEv::Onboarding(Ev::GatewayDevice {
+        request,
+        code: None,
+    }));
+    let effects = app
+        .ingest(Ingress::transport_event(
+            backend,
+            app.epoch(),
+            stamp.epoch,
+            reply,
+        ))
+        .expect("stamped device reply");
+    assert!(launch_request(&effects).is_some());
 }
 
 #[test]

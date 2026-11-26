@@ -461,6 +461,15 @@ impl FakeHandle {
             let _ = ingress.send(Ingress::of(*backend, epoch, ev));
         }
     }
+
+    /// Delivers an envelope scripted with an explicit transport or failure ticket.
+    pub fn inject_ingress(&self, event: Ingress) {
+        if let Ok(shared) = self.shared.lock()
+            && let Some((ingress, _, _)) = &shared.ingress
+        {
+            let _ = ingress.send(event);
+        }
+    }
 }
 
 pub(crate) async fn run(

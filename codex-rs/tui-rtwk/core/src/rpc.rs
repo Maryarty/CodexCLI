@@ -263,6 +263,10 @@ impl<C> Pending<C> {
         self.entries.get(&ticket).map(|entry| entry.address)
     }
 
+    pub(crate) fn context(&self, ticket: Ticket) -> Option<&C> {
+        self.entries.get(&ticket).map(|entry| &entry.context)
+    }
+
     pub(crate) fn tickets_on(&self, backend: BackendId) -> impl Iterator<Item = Ticket> + '_ {
         self.entries.iter().filter_map(move |(&ticket, entry)| {
             (entry.address.backend == backend).then_some(ticket)
@@ -300,6 +304,11 @@ impl<C> Pending<C> {
     /// superseded and will never answer.
     pub fn retain(&mut self, keep: impl Fn(&C) -> bool) {
         self.entries.retain(|_, entry| keep(&entry.context));
+    }
+
+    pub(crate) fn retain_tickets(&mut self, keep: impl Fn(Ticket, &C) -> bool) {
+        self.entries
+            .retain(|ticket, entry| keep(*ticket, &entry.context));
     }
 
     pub(crate) fn find_mut(&mut self, predicate: impl Fn(&C) -> bool) -> Option<&mut C> {

@@ -74,6 +74,7 @@ pub struct UiState {
     pub(super) desktop_notice: Option<Rc<DesktopNotice>>,
     /// Where the unsent text goes when the launch fails (`UiApp::with_unsent_slot`).
     unsent: Option<UnsentSlot>,
+    startup_failure: Option<Arc<Mutex<Option<String>>>>,
 }
 
 /// The model of the rtwk app.
@@ -114,6 +115,7 @@ impl UiApp {
                 copies: CopyLog::default(),
                 desktop_notice: None,
                 unsent: None,
+                startup_failure: None,
             },
             link: shell::Link::new(backend),
         }
@@ -155,6 +157,12 @@ impl UiApp {
     /// the server did not start (`restore_terminal_before_fatal_exit`): `slot` gets it first.
     pub fn with_unsent_slot(mut self, slot: UnsentSlot) -> Self {
         self.ui.unsent = Some(slot);
+        self
+    }
+
+    /// Reports an accepted launch failure after the terminal has been restored.
+    pub fn with_startup_failure_slot(mut self, slot: Arc<Mutex<Option<String>>>) -> Self {
+        self.ui.startup_failure = Some(slot);
         self
     }
 
@@ -211,10 +219,19 @@ impl UiApp {
     /// rest is applied, the UI's controllers follow the model, and the effects
     /// go to the shell.
     pub fn ingest(&mut self, ingress: Ingress, cx: &mut AppCx<'_, '_, UiApp>) {
+        let failure = match ingress.event() {
+            Some(AppEv::StartFailed(message)) => Some(message.clone()),
+            _ => None,
+        };
         let Some(mut fx) = self.core.ingest(ingress) else {
             cx.unchanged();
             return;
         };
+        if let (Some(message), Some(slot)) = (failure, &self.ui.startup_failure)
+            && let Ok(mut slot) = slot.lock()
+        {
+            *slot = Some(message);
+        }
         if let Some(notice) = fx.take_desktop_notice() {
             self.ui.desktop_notice = Some(Rc::new(notice));
         }

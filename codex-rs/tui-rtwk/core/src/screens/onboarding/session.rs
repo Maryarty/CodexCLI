@@ -120,7 +120,7 @@ pub fn read(model: &mut Model, answer: Result<Found, ()>, fx: &mut AppFx) {
 }
 
 /// The read was lost with the connection: it is asked again.
-pub(super) fn lost(model: &mut Model) {
+pub(crate) fn lost(model: &mut Model) {
     if let Phase::Reading(start) = &model.session {
         model.session = Phase::Wanted(start.clone());
     }

@@ -124,8 +124,10 @@ pub enum Mark {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
     pub phase: Phase,
-    /// Counts the requests; an answer carries the one it answers.
+    /// Identifies the flow opened by the Startup Page, across detection and import.
     generation: u64,
+    /// The generated ask this phase is waiting on.
+    request: Option<u64>,
     /// The directory of the project (`None`: the session's).
     cwd: Option<String>,
     pub places: Places,
@@ -154,7 +156,11 @@ pub enum Request {
     /// project directory `cwd`).
     Detect { request: u64, cwd: Option<String> },
     /// Import `items` of `source` (`externalAgentConfig/import`).
-    Import { request: u64, source: &'static str, items: Vec<Item> },
+    Import {
+        request: u64,
+        source: &'static str,
+        items: Vec<Item>,
+    },
 }
 
 /// What one source's detection answered with.
@@ -177,7 +183,10 @@ pub enum Ev {
         selected: Option<Vec<usize>>,
     },
     /// The import request was answered.
-    Imported { request: u64, result: Result<String, String> },
+    Imported {
+        request: u64,
+        result: Result<String, String>,
+    },
     /// The server's notice that an import finished.
     Completed(Box<Completed>),
 }
@@ -197,16 +206,24 @@ pub enum Intent {
 }
 
 impl Model {
+    pub(crate) fn waits_for(&self, request: u64) -> bool {
+        self.request == Some(request)
+    }
+
     pub fn generation(&self) -> u64 {
         self.generation
     }
 
     /// The request the shell has to make for this phase.
     pub fn request(&self) -> Option<Request> {
+        let request = self.request?;
         match self.phase {
-            Phase::Detecting => Some(Request::Detect { request: self.generation, cwd: self.cwd.clone() }),
+            Phase::Detecting => Some(Request::Detect {
+                request,
+                cwd: self.cwd.clone(),
+            }),
             Phase::Importing => Some(Request::Import {
-                request: self.generation,
+                request,
                 source: self.source?.id(),
                 items: self.selected_items(),
             }),
@@ -215,7 +232,11 @@ impl Model {
     }
 
     pub fn selected_items(&self) -> Vec<Item> {
-        self.items.iter().filter(|sel| sel.enabled).map(|sel| sel.item.clone()).collect()
+        self.items
+            .iter()
+            .filter(|sel| sel.enabled)
+            .map(|sel| sel.item.clone())
+            .collect()
     }
 
     /// The items checked at the start of a review: what the detection preselected, or what
@@ -226,7 +247,11 @@ impl Model {
 
     /// The mark of a group of the summary over the page's `checked` items.
     pub fn mark(group: &Group, checked: &[bool]) -> Mark {
-        let on = group.items.iter().filter(|at| checked.get(**at).copied().unwrap_or(false)).count();
+        let on = group
+            .items
+            .iter()
+            .filter(|at| checked.get(**at).copied().unwrap_or(false))
+            .count();
         match on {
             0 => Mark::None,
             n if n == group.items.len() => Mark::All,
@@ -235,9 +260,17 @@ impl Model {
     }
 
     fn start(&mut self, cwd: Option<String>) {
-        let (generation, running, finished) = (self.generation + 1, self.running, self.finished.take());
+        let (generation, running, finished) =
+            (self.generation + 1, self.running, self.finished.take());
         let import_id = self.import_id.take();
-        *self = Model { generation, running, finished, import_id, cwd, ..Model::default() };
+        *self = Model {
+            generation,
+            running,
+            finished,
+            import_id,
+            cwd,
+            ..Model::default()
+        };
         if self.running {
             self.end(Outcome::Failed(Failure::InProgress));
         } else {
@@ -246,16 +279,27 @@ impl Model {
     }
 
     fn end(&mut self, outcome: Outcome) {
+        self.request = None;
         self.phase = Phase::Done;
         self.outcome = Some(outcome);
     }
 
     /// The review of `items` of `source`; `selected`: which are checked.
-    fn review(&mut self, source: Source, items: Vec<Item>, selected: &[Item], error: Option<String>) {
+    fn review(
+        &mut self,
+        source: Source,
+        items: Vec<Item>,
+        selected: &[Item],
+        error: Option<String>,
+    ) {
+        self.request = None;
         self.groups = item::groups(&items);
         self.items = items
             .into_iter()
-            .map(|item| Sel { enabled: selected.contains(&item), item })
+            .map(|item| Sel {
+                enabled: selected.contains(&item),
+                item,
+            })
             .collect();
         self.source = Some(source);
         self.phase = Phase::Review;
@@ -268,7 +312,6 @@ impl Model {
             sel.enabled = checked.contains(&at);
         }
         self.error = None;
-        self.generation += 1;
         self.phase = Phase::Importing;
     }
 
@@ -313,16 +356,22 @@ pub fn observe(model: &mut Model, notification: &ServerNotification, fx: &mut Ap
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
-        Ev::Detected { request, places, found, selected } => {
+        Ev::Detected {
+            request,
+            places,
+            found,
+            selected,
+        } => {
             // A seeded event has no request to answer: only the idle model takes it.
             let answers = match model.phase {
-                Phase::Detecting => request == model.generation,
-                Phase::Idle => true,
+                Phase::Detecting => model.request == Some(request),
+                Phase::Idle => request == 0,
                 _ => false,
             };
             if !answers {
                 return;
             }
+            model.request = None;
             let mut detection = detect::Detection::default();
             for Found { source, result } in found {
                 match result {
@@ -333,14 +382,18 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             model.places = places;
             match detection.finish() {
                 detect::Outcome::NoItems => model.end(Outcome::NoItems),
-                detect::Outcome::Failed(errors) => model.end(Outcome::Failed(Failure::Detect(errors))),
+                detect::Outcome::Failed(errors) => {
+                    model.end(Outcome::Failed(Failure::Detect(errors)))
+                }
                 detect::Outcome::Sources(sources) => {
                     model.detected = sources;
                     if let [only] = model.detected.as_slice() {
                         let (source, items) = (only.source, only.items.clone());
                         let checked: Vec<Item> = match &selected {
                             None => items.clone(),
-                            Some(at) => at.iter().filter_map(|at| items.get(*at).cloned()).collect(),
+                            Some(at) => {
+                                at.iter().filter_map(|at| items.get(*at).cloned()).collect()
+                            }
                         };
                         model.review(source, items, &checked, None);
                     } else {
@@ -350,15 +403,26 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             }
         }
         Ev::Imported { request, result } => {
-            if model.phase != Phase::Importing || request != model.generation {
+            if model.phase != Phase::Importing || model.request != Some(request) {
                 return;
             }
             match result {
                 Ok(import_id) => {
                     model.import_id = Some(import_id);
-                    let remaining = model.items.len().saturating_sub(model.selected_items().len());
+                    let remaining = model
+                        .items
+                        .len()
+                        .saturating_sub(model.selected_items().len());
                     model.running = true;
-                    model.end(Outcome::Started(Started { items: model.items.iter().filter(|sel| sel.enabled).cloned().collect(), remaining }));
+                    model.end(Outcome::Started(Started {
+                        items: model
+                            .items
+                            .iter()
+                            .filter(|sel| sel.enabled)
+                            .cloned()
+                            .collect(),
+                        remaining,
+                    }));
                 }
                 Err(error) => {
                     let (source, items) = (model.source, model.selected_items());
@@ -393,7 +457,10 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
         }
         Intent::Cancel => {
-            if matches!(model.phase, Phase::Detecting | Phase::Source | Phase::Review) {
+            if matches!(
+                model.phase,
+                Phase::Detecting | Phase::Source | Phase::Review
+            ) {
                 // a detection still on its way answers a generation that is gone: dropped
                 model.end(Outcome::Cancelled);
             }
@@ -408,10 +475,40 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     }
 }
 
+pub(crate) fn connection_lost(model: &mut Model, replaced: Option<&mut AppFx>) {
+    match model.phase {
+        Phase::Detecting => {
+            if let Some(fx) = replaced {
+                ask(model, fx);
+            } else {
+                model.end(Outcome::Cancelled);
+            }
+        }
+        Phase::Importing => {
+            let items = model.selected_items();
+            let all = model.items.iter().map(|sel| sel.item.clone()).collect();
+            if let Some(source) = model.source {
+                // The old write may have reached the server. It is only sent again by the user.
+                model.review(
+                    source,
+                    all,
+                    &items,
+                    Some(crate::app::CONNECTION_LOST.to_owned()),
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Asks the shell for what the phase waits on (`Model::request`).
-fn ask(model: &Model, fx: &mut AppFx) {
+fn ask(model: &mut Model, fx: &mut AppFx) {
+    if !matches!(model.phase, Phase::Detecting | Phase::Importing) {
+        return;
+    }
+    model.request = Some(fx.host_request_number());
     if let Some(ask) = model.request() {
-        fx.commands.push(crate::app::Command::Import { ask });
+        fx.host_command(crate::app::Command::Import { ask });
     }
 }
 
@@ -496,7 +593,11 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, SeedError> {
     let seed: SeedEv =
         serde_json::from_value(value).map_err(|err| SeedError::Bad(err.to_string()))?;
     Ok(match seed {
-        SeedEv::Detected { places, found, selected } => Ev::Detected {
+        SeedEv::Detected {
+            places,
+            found,
+            selected,
+        } => Ev::Detected {
             request: 0,
             places,
             found: found

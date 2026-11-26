@@ -3,8 +3,8 @@
 //! (`externalAgentConfig/import`). The client is a closure and the places of
 //! the paths are the host's to read, so the host's real client and the fake's
 //! run the same code. Core's `protocol::import` makes the requests and reads
-//! the results; the answer carries the request number it is for
-//! (`Model::generation`), so a stale one is dropped by `apply`.
+//! the results. The answer carries the ticket issued by the app for this ask. The import
+//! model's flow generation belongs to the dialog, independently of detection and import replies.
 //! Oracle: `external_agent_config_migration/flow.rs`,
 //! `app_server_session/external_agent_config.rs`.
 

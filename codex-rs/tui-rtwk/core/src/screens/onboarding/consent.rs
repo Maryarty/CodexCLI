@@ -1,7 +1,7 @@
 //! Folder trust after launch. The app keeps the navigation action while
 //! onboarding correlates the host's checks, the question and any trust write.
 
-use super::{Ask, Model, Request, TrustAsk, TrustCancel, TrustDecision, ask, mint};
+use super::{Ask, Model, Request, TrustAsk, TrustCancel, TrustDecision, ask};
 use crate::app::AppFx;
 use crate::ids::ThreadId;
 
@@ -94,7 +94,7 @@ pub fn begin(
     }
     model.consent.return_to_center = false;
     model.consent.return_on_cancel = return_on_cancel;
-    let request = mint(model);
+    let request = fx.host_request_number();
     let new_route = !matches!(target, Target::TaskRecheck { .. });
     model.consent.phase = Phase::Checking { request, new_route };
     ask(
@@ -178,6 +178,10 @@ fn checking(model: &Model, request: Request) -> bool {
     matches!(model.consent.phase, Phase::Checking { request: asked, .. } if asked == request)
 }
 
+pub(super) fn waits_for(model: &Model, request: Request) -> bool {
+    checking(model, request) || writes(model, request)
+}
+
 /// The host could not read the folder's trust.
 pub(super) fn failed(model: &mut Model, request: Request, message: String) {
     if checking(model, request) {
@@ -188,8 +192,12 @@ pub(super) fn failed(model: &mut Model, request: Request, message: String) {
 /// The first choice of an open question: a restricted folder opens as it is,
 /// trust is written and waited for. False when no question is open.
 pub(super) fn trust(model: &mut Model, fx: &mut AppFx) -> bool {
-    let request = mint_if_asking(model);
-    let Phase::Asking { ask: question, .. } = &mut model.consent.phase else {
+    let Phase::Asking {
+        ask: question,
+        writing,
+        ..
+    } = &mut model.consent.phase
+    else {
         return false;
     };
     if question.decision.is_some() {
@@ -202,18 +210,16 @@ pub(super) fn trust(model: &mut Model, fx: &mut AppFx) -> bool {
         return true;
     }
     question.decision = Some(TrustDecision::Saving);
-    let target = question.target.clone();
-    if let Phase::Asking { writing, .. } = &mut model.consent.phase {
-        *writing = request;
-    }
-    if let Some(request) = request {
-        ask(fx, Ask::WriteTrust { request, target });
-    }
+    let request = fx.host_request_number();
+    *writing = Some(request);
+    ask(
+        fx,
+        Ask::WriteTrust {
+            request,
+            target: question.target.clone(),
+        },
+    );
     true
-}
-
-fn mint_if_asking(model: &mut Model) -> Option<Request> {
-    matches!(model.consent.phase, Phase::Asking { .. }).then(|| mint(model))
 }
 
 /// Cancel the question unless a write is in flight. True if it consumed the choice.

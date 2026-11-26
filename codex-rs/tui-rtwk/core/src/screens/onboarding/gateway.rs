@@ -12,7 +12,7 @@
 //! GatewayOAuth, CancelGatewayOAuth}`; every answer carries its request and
 //! one no longer awaited is dropped.
 
-use super::{Ask, Model, Request, ask, auth, mint};
+use super::{Ask, Model, Request, ask, auth};
 use crate::app::AppFx;
 
 /// Where the gateway's sign-in stands.
@@ -78,7 +78,7 @@ pub(super) fn follow(model: &mut Model, fx: &mut AppFx) {
             if !model.read || model.steps().into_iter().any(|step| !model.done(step)) {
                 return;
             }
-            let request = mint(model);
+            let request = fx.host_request_number();
             model.gateway = Phase::Starting {
                 request,
                 id: id.clone(),
@@ -113,7 +113,11 @@ pub(super) fn started(model: &mut Model, request: Request, fx: &mut AppFx) {
     if awaited != request {
         return;
     }
-    let request = mint(model);
+    read_logins(model, id, fx);
+}
+
+fn read_logins(model: &mut Model, id: String, fx: &mut AppFx) {
+    let request = fx.host_request_number();
     model.gateway = Phase::Reading {
         request,
         id: id.clone(),
@@ -159,19 +163,13 @@ pub(super) fn logins(model: &mut Model, request: Request, logins: Logins, fx: &m
     sign_in.error = None;
     sign_in.chatgpt_account = false;
     sign_in.wizard = None;
-    let mut minted = model.minted;
-    let mut next_request = || {
-        minted += 1;
-        minted
-    };
     let mut asks = Vec::new();
     auth::apply_intent(
         sign_in,
         auth::Intent::UseMethod(method),
-        &mut next_request,
+        &mut || fx.host_request_number(),
         &mut asks,
     );
-    model.minted = minted;
     model.gateway = Phase::Primary {
         id,
         oauth: logins.oauth,
@@ -199,7 +197,7 @@ fn start_oauth(model: &mut Model, id: String, fx: &mut AppFx) {
         provider_id: id.clone(),
         url: None,
     };
-    let request = mint(model);
+    let request = fx.host_request_number();
     model.gateway = Phase::OAuth {
         request,
         id: id.clone(),
@@ -294,10 +292,21 @@ pub(super) fn exit(model: &Model, fx: &mut AppFx) {
 /// The connection was lost: what the host was asked for will not answer, the
 /// start is asked again with the next connection.
 pub(super) fn lost(model: &mut Model) {
-    if matches!(
-        model.gateway,
-        Phase::Starting { .. } | Phase::Reading { .. }
-    ) {
-        model.gateway = Phase::Idle;
+    match model.gateway {
+        Phase::Starting { .. } | Phase::Reading { .. } => model.gateway = Phase::Idle,
+        Phase::OAuth { request, .. } => {
+            oauth(model, request, Err(crate::app::CONNECTION_LOST.to_owned()));
+        }
+        _ => {}
+    }
+}
+
+pub(super) fn transport_replaced(model: &mut Model, fx: &mut AppFx) {
+    match &model.gateway {
+        Phase::Reading { id, .. } => read_logins(model, id.clone(), fx),
+        Phase::OAuth { request, .. } => {
+            oauth(model, *request, Err(crate::app::CONNECTION_LOST.to_owned()));
+        }
+        _ => {}
     }
 }

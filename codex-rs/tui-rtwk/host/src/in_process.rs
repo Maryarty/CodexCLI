@@ -38,6 +38,7 @@ use codex_tui_core::app::Ingress;
 use codex_tui_core::app::effects::ConfigEdit;
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::ids::RequestKey;
+use codex_tui_core::ids::Ticket;
 use codex_tui_core::protocol;
 use codex_tui_core::rpc::{Reply, ServerError};
 use codex_tui_core::screens::agents::Ev as AgentsEv;
@@ -210,8 +211,6 @@ pub struct InProcess {
     pub launch_prompt: bool,
     /// Where the startup page leaves the update to run after the app ends.
     pub update: crate::startup::UpdateSlot,
-    /// Where the startup page leaves the error of a launch it failed.
-    pub startup_failure: crate::startup::FailureSlot,
     /// Where the typed failure of the local database is left, next to the text `failed` gets.
     pub state_db_failure: crate::state_db::FailureSlot,
 }
@@ -250,7 +249,6 @@ async fn run(
         agents,
         launch_prompt,
         update,
-        startup_failure,
         state_db_failure,
     } = spec;
     // A start that fails ends the app: `main` reports `error` once the
@@ -473,7 +471,6 @@ async fn run(
         oss_provider: launch_provider,
         launch_prompt,
         update: update.clone(),
-        failure: startup_failure,
         browser: crate::startup::system_browser(),
         analytics: Default::default(),
         updates: crate::startup::Updates::system(&config),
@@ -620,6 +617,8 @@ async fn run(
     let mut endpoint = reconnect_endpoint(&mode);
     let mut request_epoch = epoch;
     let mut transport_epoch = epoch;
+    let mut transport_work: FuturesUnordered<Boxed<CommandDone>> = FuturesUnordered::new();
+    let mut connector_work: FuturesUnordered<Boxed<CommandDone>> = FuturesUnordered::new();
     // The history file and the mention usage are read once, when the first thread is asked.
     let mut thread_asked = false;
     while let Some(client) = held.get() {
@@ -716,17 +715,25 @@ async fn run(
                         ),
                     };
                     let job = latest.wrap(&command, job);
-                    let job = if let Some(reply_epoch) = reply_epoch {
-                        transport_reply(job, ingress.clone(), epoch, reply_epoch)
+                    let ticket = command.host_ticket();
+                    if reply_epoch.is_some() {
+                        transport_work.push(Box::pin(async move { (ticket, job.await) }));
+                    } else if matches!(command, Command::Startup { .. }) {
+                        connector_work.push(Box::pin(async move { (ticket, job.await) }));
                     } else {
-                        job
-                    };
-                    inflight.push(job);
+                        inflight.push(job);
+                    }
                 }
             },
             // The reloaded config changed the provider: the embedded server
             // starts again with it (lib.rs:2079-2110).
             Some(next) = restarts.recv() => restart = Some(next),
+            Some(done) = transport_work.next(), if !transport_work.is_empty() => {
+                emit_command_done(&ingress, epoch, Some(transport_epoch), done);
+            }
+            Some(done) = connector_work.next(), if !connector_work.is_empty() => {
+                emit_command_done(&ingress, epoch, None, done);
+            }
             Some(done) = inflight.next(), if !inflight.is_empty() => {
                 if let Some(ev) = done {
                     emit(&ingress, epoch, ev);
@@ -744,16 +751,17 @@ async fn run(
         {
             use crate::startup::Switch;
             // A launch that ends: the text is for `main`, once the terminal is restored.
-            let end = |startup: &crate::startup::Startup, text: String| {
-                if let Ok(mut slot) = startup.failure.lock() {
-                    *slot = Some(text.clone());
+            let end = |done: Option<oneshot::Sender<Result<(), String>>>, text: String| {
+                if let Some(done) = done {
+                    let _ = done.send(Err(text));
+                } else {
+                    emit(&ingress, epoch, AppEv::StartFailed(text));
                 }
-                emit(&ingress, epoch, AppEv::StartFailed(text));
             };
             if let Some(Switch::Daemon { features }) = &switch
                 && let Err(text) = crate::daemon::restart_with(features).await
             {
-                end(&startup, text);
+                end(done, text);
                 continue;
             }
             let embedded = matches!(switch, Some(Switch::Embedded { .. }));
@@ -765,6 +773,7 @@ async fn run(
             let mut next = next;
             match connect_first(&mut next, false, &config, arg0_paths.clone()).await {
                 Ok((restarted, _)) => {
+                    transport_work.clear();
                     handle = restarted.request_handle();
                     if let Some(old) = held.replace(restarted) {
                         let _ = old.shutdown().await;
@@ -772,11 +781,11 @@ async fn run(
                     announce_replacement(&ingress, epoch, &mut transport_epoch);
                     // The commands after this one talk to the new server.
                     if let Some(done) = done {
-                        let _ = done.send(());
+                        let _ = done.send(Ok(()));
                     }
                 }
                 Err(error) => {
-                    end(&startup, format!("{error:#}"));
+                    end(done, format!("{error:#}"));
                     continue;
                 }
             }
@@ -826,6 +835,7 @@ async fn run(
             };
             // What the lost connection was asked will never answer.
             inflight = FuturesUnordered::new();
+            transport_work.clear();
             let restored =
                 reconnect::restore(|| connect_remote(endpoint.clone()), &ingress, epoch).await;
             let Some(restored) = restored else {
@@ -903,27 +913,24 @@ fn announce_replacement(ingress: &IngressTx, epoch: ConnEpoch, transport_epoch: 
     ));
 }
 
-fn transport_reply(
-    job: Boxed<Option<AppEv>>,
-    ingress: IngressTx,
+type CommandDone = (Option<Ticket>, Option<AppEv>);
+
+fn emit_command_done(
+    ingress: &IngressTx,
     epoch: ConnEpoch,
-    transport_epoch: ConnEpoch,
-) -> Boxed<Option<AppEv>> {
-    Box::pin(async move {
-        match job.await {
-            Some(AppEv::Reply(ticket, reply)) => {
-                let _ = ingress.send(Ingress::transport_reply(
-                    codex_tui_core::ids::BackendId::default(),
-                    epoch,
-                    transport_epoch,
-                    ticket,
-                    reply,
-                ));
-                None
-            }
-            event => event,
+    transport_epoch: Option<ConnEpoch>,
+    (ticket, event): CommandDone,
+) {
+    let Some(event) = event else { return };
+    let backend = codex_tui_core::ids::BackendId::default();
+    let event = match (ticket, transport_epoch, event) {
+        (Some(ticket), stamp, AppEv::StartFailed(message)) => {
+            Ingress::host_failure(epoch, stamp, ticket, message)
         }
-    })
+        (_, Some(stamp), event) => Ingress::transport_event(backend, epoch, stamp, event),
+        (_, None, event) => Ingress::new(epoch, event),
+    };
+    let _ = ingress.send(event);
 }
 
 /// `Ask::ConfigWrite` of a dialog (`/theme`, `/title`, `/statusline`, `/memories`): the edits go
@@ -1352,6 +1359,160 @@ pub(crate) async fn resolve(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn host_asks_keep_gateway_acknowledgement_and_replace_import_detection() {
+        use codex_tui_core::app::{CodexApp, FirstThread, Intent};
+        use codex_tui_core::ids::BackendId;
+        use codex_tui_core::screens::onboarding::{Ask, Ev, Facts, auth};
+        use codex_tui_core::screens::{ScreenIntent, import};
+        use tokio::sync::mpsc::unbounded_channel;
+
+        let (queued, mut commands) = unbounded_channel();
+        let (ingress, mut events) = unbounded_channel();
+        let mut app = CodexApp::new().with_first_thread(FirstThread::AfterLaunch);
+        let backend = BackendId::default();
+        let epoch = app.attach();
+        let mut transport_epoch = epoch;
+        let event = |ev| Ingress::new(epoch, AppEv::Screen(ScreenEv::Onboarding(ev)));
+        let initial = app
+            .ingest(Ingress::new(epoch, AppEv::Connected))
+            .expect("connected");
+        let request = initial
+            .commands()
+            .iter()
+            .find_map(|command| match command {
+                Command::Startup {
+                    ask: Ask::Facts { request },
+                    ..
+                } => Some(*request),
+                _ => None,
+            })
+            .expect("launch facts");
+        app.ingest(event(Ev::Facts {
+            request,
+            facts: Facts {
+                sign_in: Some(auth::Offer::default()),
+                ..Facts::default()
+            },
+        }))
+        .expect("the current facts");
+        let setup = app
+            .ingest(event(Ev::SignInState(auth::State::GatewaySelected(
+                "test".into(),
+            ))))
+            .expect("setup intent");
+        let (gateway, gateway_request) = setup
+            .into_commands()
+            .into_iter()
+            .find_map(|command| match &command {
+                Command::Startup {
+                    ask: Ask::SelectGateway { request, .. },
+                    ..
+                } => Some((command.clone(), *request)),
+                _ => None,
+            })
+            .expect("the gateway install");
+        let detection = app
+            .ingest(Ingress::new(
+                epoch,
+                AppEv::Intent(Intent::Screen(ScreenIntent::Import(import::Intent::Open {
+                    cwd: None,
+                }))),
+            ))
+            .expect("the import intent");
+        let detect = |effects: codex_tui_core::app::AppFx| {
+            effects
+                .into_commands()
+                .into_iter()
+                .find_map(|command| match &command {
+                    Command::Import {
+                        ask: import::Request::Detect { request, .. },
+                        ..
+                    } => Some((command.clone(), *request)),
+                    _ => None,
+                })
+                .expect("the detection request")
+        };
+        let (old, original_request) = detect(detection);
+        assert_ne!(original_request, gateway_request);
+        for command in [old, gateway] {
+            let (_, address) = app.dispatch_route(&command, None).expect("live command");
+            assert!(queued.send(Dispatch::new(command, address)).is_ok());
+        }
+
+        announce_replacement(&ingress, epoch, &mut transport_epoch);
+        let replaced = events.recv().await.expect("replacement");
+        let (fresh, current_request) = detect(app.ingest(replaced).expect("new transport"));
+        assert_ne!(original_request, current_request);
+        let (_, address) = app
+            .dispatch_route(&fresh, None)
+            .expect("new live detection");
+        assert!(queued.send(Dispatch::new(fresh, address)).is_ok());
+
+        let (setup, stamp) = next_dispatch(&mut commands, backend, transport_epoch)
+            .await
+            .expect("connector-owned work");
+        assert!(stamp.is_none());
+        assert!(
+            matches!(setup, Command::Startup { ask: Ask::SelectGateway { request, .. }, .. } if request == gateway_request)
+        );
+        emit_command_done(
+            &ingress,
+            epoch,
+            stamp,
+            (
+                setup.host_ticket(),
+                Some(AppEv::Screen(ScreenEv::Onboarding(Ev::GatewayStarted {
+                    request: gateway_request,
+                }))),
+            ),
+        );
+        let continuation = app
+            .ingest(events.recv().await.expect("gateway ack"))
+            .expect("current setup ack");
+        assert!(continuation.commands().iter().any(|command| matches!(
+            command,
+            Command::Startup {
+                ask: Ask::GatewayLogins { .. },
+                ..
+            }
+        )));
+
+        let (current, stamp) = next_dispatch(&mut commands, backend, transport_epoch)
+            .await
+            .expect("socket-owned replacement detection");
+        assert_eq!(stamp, Some(transport_epoch));
+        let answer = |request| {
+            Some(AppEv::Screen(ScreenEv::Import(import::Ev::Detected {
+                request,
+                places: import::Places::default(),
+                found: Vec::new(),
+                selected: None,
+            })))
+        };
+        emit_command_done(
+            &ingress,
+            epoch,
+            Some(epoch),
+            (None, answer(original_request)),
+        );
+        assert!(
+            app.ingest(events.recv().await.expect("old result"))
+                .is_none()
+        );
+        emit_command_done(
+            &ingress,
+            epoch,
+            stamp,
+            (current.host_ticket(), answer(current_request)),
+        );
+        assert!(
+            app.ingest(events.recv().await.expect("fresh result"))
+                .is_some()
+        );
+        assert_eq!(app.screens().import.outcome, Some(import::Outcome::NoItems));
+    }
 
     #[tokio::test]
     async fn a_replaced_handle_skips_queued_requests_from_the_old_transport() {
