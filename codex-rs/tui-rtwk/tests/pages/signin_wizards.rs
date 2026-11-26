@@ -1,9 +1,8 @@
 //! Screen tests of the sign-in step's provider wizards (S03) over the app
 //! and the fake host: the Bedrock wizard asks the host to discover the
-//! credentials and to set one up; its oracle shard (`tests/oracle/signin.rs`)
-//! cannot answer a request, so the states after an answer are compared here
-//! with the oracle's inline snapshots (`onboarding/bedrock_tests.rs`, drawn
-//! at 72x24), the screen drawn from its top row.
+//! credentials and to set one up. The states after the fake host answers are
+//! compared here with the oracle's inline snapshots (`onboarding/bedrock_tests.rs`),
+//! drawn at 72x24 from the screen's top row.
 
 use std::time::Duration;
 
@@ -112,6 +111,122 @@ fn answer(h: &mut Harness, epoch: ConnEpoch, request: u64, outcome: Result<Answe
 fn discovered(h: &mut Harness, epoch: ConnEpoch, discovery: Discovery) {
     let request = open(h);
     answer(h, epoch, request, Ok(Answer::Discovered(discovery)));
+}
+
+#[test]
+fn pasted_bedrock_credentials_stay_masked_on_focus_return_and_reach_setup_intact() {
+    // Synthetic credentials with one extended grapheme at the end of each value.
+    let secret = "fixture-e\u{301}";
+    let token = "fixture-👩‍💻";
+    let (mut h, epoch) = launch();
+    discovered(&mut h, epoch, Discovery::default());
+    h.press("down");
+    h.wait_for("the access-key method", |screen| {
+        screen.contains("> 2. AWS access keys")
+    });
+    h.press("enter");
+    h.wait_for("the access-key form", |screen| {
+        screen.contains("> AWS access key ID:")
+    });
+
+    let assert_rows = |h: &Harness, rows: &[&str]| {
+        let screen = h.t.screen();
+        for row in rows {
+            assert!(
+                screen.lines().any(|line| line.trim() == *row),
+                "expected masked row: {row}"
+            );
+        }
+        assert!(
+            !screen.contains(secret) && !screen.contains(token),
+            "credential became visible"
+        );
+    };
+    h.t.paste("AKIAEXAMPLE");
+    h.wait_for("the pasted ID", |screen| {
+        screen.contains("AWS access key ID: AKIAEXAMPLE")
+    });
+    h.press("down");
+    h.wait_for("the focused secret", |screen| {
+        screen.contains("> AWS secret access key:")
+    });
+    h.t.paste(secret);
+    h.t.pump();
+    assert_rows(&h, &["> AWS secret access key: •••••••••"]);
+
+    h.press("down");
+    h.wait_for("the focused token", |screen| {
+        screen.contains("> AWS session token (optional):")
+    });
+    h.t.paste(token);
+    h.t.pump();
+    let token_selected = [
+        "AWS secret access key: •••••••••",
+        "> AWS session token (optional): •••••••••",
+    ];
+    assert_rows(&h, &token_selected);
+
+    for (key, rows) in [
+        (
+            "up",
+            [
+                "> AWS secret access key: •••••••••",
+                "AWS session token (optional): •••••••••",
+            ],
+        ),
+        ("down", token_selected),
+        (
+            "up up",
+            [
+                "AWS secret access key: •••••••••",
+                "AWS session token (optional): •••••••••",
+            ],
+        ),
+    ] {
+        for motion in key.split_whitespace() {
+            h.press(motion);
+        }
+        assert_rows(&h, &rows);
+    }
+
+    h.press("down");
+    h.press("down");
+    h.press("enter");
+    h.wait_for("the access-key region", |screen| {
+        screen.contains("AWS Region:")
+    });
+    h.t.paste("us-west-2");
+    h.wait_for("the pasted region", |screen| {
+        screen.contains("AWS Region: us-west-2")
+    });
+    h.press("enter");
+    h.wait_until("the Bedrock setup request", |h| {
+        logins(h)
+            .iter()
+            .any(|(_, login)| matches!(login, Login::Provider(Setup::Bedrock(_))))
+    });
+    let asks = logins(&h);
+    let Some((
+        _,
+        Login::Provider(Setup::Bedrock(Params {
+            credential:
+                Credential::AccessKeys {
+                    access_key_id,
+                    secret_access_key,
+                    session_token,
+                },
+            region,
+        })),
+    )) = asks.last()
+    else {
+        panic!("the wizard did not ask to configure the access keys");
+    };
+    assert_eq!(region, "us-west-2");
+    assert_eq!(access_key_id, "AKIAEXAMPLE");
+    assert!(
+        secret_access_key == secret && session_token.as_deref() == Some(token),
+        "focus navigation changed the submitted credentials"
+    );
 }
 
 fn profile(name: &str, region: Option<&str>) -> Profile {

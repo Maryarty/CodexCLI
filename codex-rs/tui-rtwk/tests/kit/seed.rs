@@ -680,6 +680,86 @@ pub(super) fn answer(h: &mut Harness, method: String, result: script::Answer) {
 }
 
 impl Screen {
+    /// Live startup offered Bedrock, answering the startup facts the fake actually recorded.
+    pub fn bedrock_sign_in(width: u16, height: u16) -> Screen {
+        use codex_tui_core::app::Command;
+        use codex_tui_core::screens::ScreenEv;
+        use codex_tui_core::screens::onboarding::auth::{Offer, Providers};
+        use codex_tui_core::screens::onboarding::{Ask, Ev, Facts};
+
+        let mut h = crate::common::start_driven(false, width, height);
+        let request = |h: &Harness| {
+            h.fake
+                .commands()
+                .into_iter()
+                .find_map(|command| match command {
+                    Command::Startup {
+                        ask: Ask::Facts { request },
+                        ..
+                    } => Some(request),
+                    _ => None,
+                })
+        };
+        h.wait_until("the startup facts request", |h| request(h).is_some());
+        let request = request(&h).expect("startup facts requested");
+        h.inject([AppEv::Screen(ScreenEv::Onboarding(Ev::Facts {
+            request,
+            facts: Facts {
+                sign_in: Some(Offer {
+                    chatgpt: true,
+                    api_key: true,
+                    providers: Providers {
+                        bedrock: true,
+                        ..Providers::default()
+                    },
+                    ..Offer::default()
+                }),
+                ..Facts::default()
+            },
+        }))]);
+        h.wait_for("the sign-in menu", |s| s.contains("Sign in with ChatGPT"));
+        Screen::from(h)
+    }
+
+    /// Completes the wizard's actual BedrockDiscover ask through its normal decoder and ingress.
+    pub fn answer_bedrock_discovery(&mut self, result: serde_json::Value) -> &mut Screen {
+        use codex_tui_core::app::Command;
+        use codex_tui_core::screens::ScreenEv;
+        use codex_tui_core::screens::onboarding::auth::provider::{Setup, wire};
+        use codex_tui_core::screens::onboarding::auth::{AuthResult, Login, Outcome};
+        use codex_tui_core::screens::onboarding::{Ask, Ev};
+
+        let request = |h: &Harness| {
+            h.fake
+                .commands()
+                .into_iter()
+                .rev()
+                .find_map(|command| match command {
+                    Command::Startup {
+                        ask:
+                            Ask::Login {
+                                request,
+                                login: Login::Provider(Setup::BedrockDiscover),
+                            },
+                        ..
+                    } => Some(request),
+                    _ => None,
+                })
+        };
+        self.h
+            .wait_until("Bedrock discovery requested", |h| request(h).is_some());
+        let request = request(&self.h).expect("Bedrock discovery requested");
+        let decoded = wire::outcome(&Setup::BedrockDiscover, Ok(result)).unwrap_or_else(|error| {
+            panic!("the fake Bedrock discovery response did not decode: {error}")
+        });
+        self.h
+            .inject([AppEv::Screen(ScreenEv::Onboarding(Ev::Auth(AuthResult {
+                request,
+                outcome: Outcome::Provider(Ok(decoded)),
+            })))]);
+        self
+    }
+
     /// From now on the server answers requests of `method` with `result` (the script's `respond`
     /// step, for a test that changes the answer between two keys).
     pub fn server_answers(&mut self, method: &str, result: serde_json::Value) -> &mut Screen {

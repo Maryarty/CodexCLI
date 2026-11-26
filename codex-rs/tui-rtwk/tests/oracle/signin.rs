@@ -232,10 +232,55 @@ fn discovery_prioritizes_profiles_and_groups_other_sign_in_methods() {
 fn credential_entries_share_region_and_keep_aws_secrets_hidden() {
     kit::pending(
         Owner::Onboarding,
-        "G55 (rest): `obscure_reveal_last` shows the grapheme typed last, on the frames' timeout or until a key/move/blur; the oracle's focused secret shows its last grapheme always, also on arrival at text already in the field (`> AWS secret access key: •••••••••••e` of a field never typed in), which rtwk shows as bullets only. The screen is also behind the discovery request a fixture cannot answer; the typed reveal is tested in tests/pages/signin_wizards.rs (same name)",
+        "G55: the pinned TextField's typed-last reveal ends on blur. The oracle reveals the last grapheme of already-filled text when its field regains focus.",
     );
-    let mut s = open("sign_in_bedrock", 72, 24);
-    s.keys("3 2");
+
+    let discover = |result| {
+        let mut s = Screen::bedrock_sign_in(72, 24);
+        s.keys("3").wait_for("Use Amazon Bedrock").keys("2");
+        s.wait_for("Checking for existing AWS credentials...");
+        s.answer_bedrock_discovery(result);
+        s
+    };
+    for discovery in [
+        serde_json::json!({
+            "profiles": [{"name": "engineering", "region": null}],
+            "environmentCredentials": []
+        }),
+        serde_json::json!({
+            "profiles": [],
+            "environmentCredentials": [{"type": "accessKeys", "region": null}]
+        }),
+    ] {
+        let mut s = discover(discovery);
+        s.wait_for("Press enter to continue")
+            .keys("enter")
+            .wait_for("AWS Region:");
+        s.type_text("us-west-1");
+        s.assert_contains("AWS Region: us-west-1");
+    }
+
+    let mut s = discover(serde_json::json!({"profiles": [], "environmentCredentials": []}));
+    // Move to access keys rather than repeat the digit that opened the wizard (its key guard).
+    s.wait_for("2. AWS access keys")
+        .keys("down")
+        .wait_for("> 2. AWS access keys")
+        .keys("enter")
+        .wait_for("> AWS access key ID:");
+    s.type_text("AKIAEXAMPLE");
+    s.keys("down")
+        .wait_for("> AWS secret access key:")
+        .type_text("secret-value");
+    s.assert_contains("> AWS secret access key: •••••••••••e");
+    s.keys("down")
+        .wait_for("> AWS session token (optional):")
+        .paste("session-value");
+    s.assert_contains("AWS secret access key: ••••••••••••");
+    s.keys("up").wait_for("> AWS secret access key:");
+    s.assert_contains("AWS access key ID: AKIAEXAMPLE");
+    s.assert_contains("AWS session token (optional): •••••••••••••");
+    s.assert_absent("secret-value");
+    s.assert_absent("session-value");
     s.assert_contains("> AWS secret access key: •••••••••••e");
 }
 
