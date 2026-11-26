@@ -238,7 +238,7 @@ fn scrolled_plaintext_selection_matches_painted_tab_and_word_boundaries() {
 fn visible_rows_preserve_styles_and_wrapped_hyperlinks() {
     const SOURCE: &str = r#"
 {"step":"seed","seed":"session","thread":"thread-1"}
-{"step":"entry","kind":"agent","text":"prefix at top **[document](https://example.com/docs)** after the link","end":false}
+{"step":"entry","kind":"agent","text":"prefix at top **[guide that wraps](https://example.com/docs)** after the link","end":false}
 "#;
     let mut s = Screen::build(Owner::ChatLive)
         .size(13, 2)
@@ -247,13 +247,16 @@ fn visible_rows_preserve_styles_and_wrapped_hyperlinks() {
         .open();
     s.keys("ctrl+home");
     s.assert_contains("prefix at");
-    s.assert_absent("document");
-    s.keys("down down");
-    s.assert_contains("document");
-    s.assert_text_style("document", "bold");
-    s.assert_link("document", "https://example.com/docs");
+    s.assert_absent("that wraps");
+    s.keys("down");
+    s.assert_row(0, "  top guide");
+    s.assert_row(1, "  that wraps");
+    for fragment in ["guide", "that wraps"] {
+        s.assert_text_style(fragment, "bold");
+        s.assert_link(fragment, "https://example.com/docs");
+    }
     s.assert_opened_urls(&[]);
-    s.click_text("document");
+    s.click_text("wraps");
     s.assert_opened_urls(&["https://example.com/docs"]);
 }
 

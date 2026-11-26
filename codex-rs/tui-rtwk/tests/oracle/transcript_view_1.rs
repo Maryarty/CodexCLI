@@ -333,18 +333,34 @@ fn empty_enter_returns_to_latest_with_contextual_hints() {
 // ORACLE app/owned_transcript_input_tests.rs:552 submitting_a_draft_from_history_queues_once_and_follows_immediately kind=ui owner=chat-live
 #[test]
 fn submitting_a_draft_from_history_queues_once_and_follows_immediately() {
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(80, 16)
-        .script(include_str!("fixtures/transcript_view_1/rows_30.jsonl"))
-        .open();
-    s.keys("pageup");
-    s.assert_contains("Back to bottom");
-    s.assert_absent("row 29");
-    s.type_text("send this once");
-    s.keys("enter");
-    s.assert_sole_turn(kit::Turn::text("send this once"));
-    s.assert_contains("row 29");
-    s.assert_absent("Back to bottom");
+    const STARTED: &str = r#"{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-compact","items":[],"itemsView":"full","status":"inProgress"}}}}"#;
+    const COMPLETED: &str = r#"{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-compact","items":[],"itemsView":"full","status":"completed"}}}}"#;
+    for compacting in [false, true] {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(80, 16)
+            .script(include_str!("fixtures/transcript_view_1/rows_30.jsonl"))
+            .open();
+        if compacting {
+            s.type_text("/compact").keys("enter");
+        }
+        s.keys("pageup");
+        s.assert_contains("Back to bottom");
+        s.assert_absent("row 29");
+        s.type_text("send this once").keys("enter");
+        s.assert_composer("");
+        s.assert_contains("row 29");
+        s.assert_absent("Back to bottom");
+        if compacting {
+            s.assert_has_row("  ↳ send this once");
+            s.assert_text_count("send this once", 1);
+            s.assert_no_turn();
+            s.feed(STARTED);
+            s.assert_no_turn();
+            s.feed(COMPLETED);
+        }
+        s.assert_sole_turn(kit::Turn::text("send this once"));
+        s.assert_absent("↳ send this once");
+    }
 }
 
 // ORACLE app/owned_transcript_input_tests.rs:594 enter_preserves_search_backtrack_and_modal_ownership_while_scrolled kind=ui owner=chat-live
