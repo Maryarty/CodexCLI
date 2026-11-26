@@ -93,7 +93,6 @@ pub(super) struct ViewportState {
     first: RefCell<Option<(ThreadId, ItemKey)>>,
     /// Actual constraints of the pane, supplied by its layout builder.
     width: i32,
-    list_key: RefCell<Option<(ThreadId, bool, GlobalKey)>>,
     revealed_rows: RefCell<Option<RevealedRows>>,
     scan_first: RefCell<Option<(ThreadId, ItemKey, usize)>>,
     scan_match: RefCell<Option<(ItemKey, String)>>,
@@ -235,21 +234,6 @@ pub(super) enum Msg {
 }
 
 impl ViewportState {
-    /// Keep the native list when its optional wheel policy changes. Thread changes and
-    /// changes of list direction still give it its own element.
-    fn list_key(&self, thread: &ThreadId, reverse: bool) -> Key {
-        let mut mounted = self.list_key.borrow_mut();
-        if let Some((owner, direction, key)) = mounted.as_ref()
-            && owner == thread
-            && *direction == reverse
-        {
-            return key.into();
-        }
-        let key = GlobalKey::new();
-        *mounted = Some((thread.clone(), reverse, key.clone()));
-        key.into()
-    }
-
     /// The visible rows: runs of explorations share one, and the reasoning
     /// summary and the warnings show only in the detailed transcript (oracle
     /// `ReasoningSummaryCell::transcript_only`, `WarningHistoryCell`). With the
@@ -734,7 +718,6 @@ impl StatefulWidget for Pane {
             shown: RefCell::default(),
             first: RefCell::default(),
             width: Room::default().width,
-            list_key: RefCell::default(),
             revealed_rows: RefCell::default(),
             scan_first: RefCell::default(),
             scan_match: RefCell::default(),
@@ -989,7 +972,6 @@ impl State for ViewportState {
             select::<ScreenStates, _, _>(cx, |states| states.cells.show_raw_reasoning);
         let collapse = select::<TuiSettings, _, _>(cx, |settings| settings.collapse_turn_details);
         let rendering = select::<TuiSettings, _, _>(cx, |settings| settings.rendering);
-        let wheel_step = select::<TuiSettings, _, _>(cx, |settings| settings.wheel_rows_per_event);
         let activity = activity_focus::of(&widget.find);
         let disclosed = activity.disclosed();
         let cells = cells_strings::of(cx);
@@ -1535,17 +1517,7 @@ impl State for ViewportState {
         } else {
             list
         };
-        let list = list.with_key(self.list_key(&thread_id, reverse));
-        let list = match wheel_step {
-            Some(step) => {
-                // Keep positive speeds representable and each native delta within i32, even
-                // across the longest stream that rtwk accumulates in i64.
-                let max_step = (i32::MAX as f32).next_down();
-                let step = (step as f32).clamp(f32::from_bits(1), max_step);
-                ScrollConfiguration::new(ScrollBehavior::fixed(step), list).into()
-            }
-            None => list,
-        };
+        let list = AnyWidget::from(TranscriptWheel { child: list }).with_key(Key::value(reverse));
         let send = cx.local_sender();
         let follow = widget.follow.clone();
         // every thread owns its reader (#57499; Flutter's `PageStorageKey` per list): the list of
@@ -1610,6 +1582,49 @@ impl State for ViewportState {
 }
 
 impl_widget!(stateful eq Pane);
+
+/// A list in one thread scope and direction keeps its position when an optional
+/// native wheel policy is inserted or removed.
+#[derive(Clone, PartialEq)]
+struct TranscriptWheel {
+    child: AnyWidget,
+}
+
+struct TranscriptWheelState {
+    list_key: GlobalKey,
+}
+
+impl StatefulWidget for TranscriptWheel {
+    type State = TranscriptWheelState;
+
+    fn create_state(&self) -> Self::State {
+        TranscriptWheelState {
+            list_key: GlobalKey::new(),
+        }
+    }
+}
+
+impl State for TranscriptWheelState {
+    type Widget = TranscriptWheel;
+    type Msg = ();
+
+    fn build(&self, widget: &TranscriptWheel, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        let step = select::<TuiSettings, _, _>(cx, |settings| settings.wheel_rows_per_event);
+        let list = widget.child.clone().with_key(&self.list_key);
+        match step {
+            Some(step) => {
+                // Keep positive speeds representable and each native delta within i32, even
+                // across the longest stream that rtwk accumulates in i64.
+                let max_step = (i32::MAX as f32).next_down();
+                let step = (step as f32).clamp(f32::from_bits(1), max_step);
+                ScrollConfiguration::new(ScrollBehavior::fixed(step), list).into()
+            }
+            None => list,
+        }
+    }
+}
+
+impl_widget!(stateful eq TranscriptWheel);
 
 type DrawRow = Rc<dyn Fn(&ThreadModel, usize) -> AnyWidget>;
 
