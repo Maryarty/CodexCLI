@@ -3,6 +3,7 @@
 
 use std::rc::Rc;
 
+use codex_tui_core::features::FeatureStates;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::keymap::actions::{
     GLOBAL_CLOSE_SIDEBAR_TAB, GLOBAL_EQUALIZE_PANE_WIDTHS, GLOBAL_FOCUS_MAIN_COMPOSER,
@@ -553,6 +554,19 @@ impl State for DockState {
             && w.parent.model.has_turn_history()
         {
             features::refresh_saved_side(cx, w.parent.model.id().clone());
+        }
+        // Only removal of the conversation displayed in the dock hides that dock. A
+        // completed archive for a previous child leaves any newly selected pane alone.
+        if !self.hidden
+            && self.chooser.is_none()
+            && !w.on_child()
+            && let Some(child) = &old.child
+            && w.open_child(child.model.id()).is_none()
+            && read::<FeatureStates, _>(cx)
+                .side
+                .is_archived(child.model.id())
+        {
+            self.hidden = true;
         }
         let missing = self
             .close_pending

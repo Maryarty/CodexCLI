@@ -2,10 +2,13 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use codex_tui_core::app::{AppEv, Command, Ingress, LocalSideStorage};
+use codex_tui_core::app::{AppEv, AttachedHistory, Command, Ingress, LocalSideStorage};
+use codex_tui_core::features::FeatureReply;
+use codex_tui_core::features::side::{Reply as SideReply, SavedReply};
 use codex_tui_core::fixtures::builders::{agent_completed, turn_completed, turn_started};
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::keymap::{Keymap, KeymapSpec, actions::GLOBAL_SIDEBAR_UP};
+use codex_tui_core::rpc::Reply;
 use codex_tui_core::screens::cells::SessionInfo;
 use codex_tui_core::threads::{Notice, TurnState};
 use codex_tui_rtwk::app::UiApp;
@@ -500,4 +503,62 @@ fn sidebar_commands_follow_the_visible_panel_and_ctrl_c_never_archives_a_chooser
     h.press("f12 s");
     assert_active(&h, SIDE);
     assert!(h.t.screen().contains("FIRST HISTORY"));
+}
+
+#[test]
+fn archiving_the_visible_child_hides_the_dock_and_preserves_a_newer_pane() {
+    for visit_sibling in [false, true] {
+        let mut h = open_workspace(true);
+        finish_opening_turn(&mut h, SIDE, "FIRST HISTORY");
+        h.press("f12 h");
+        send_line(&mut h, "/side second-side");
+        finish_opening_turn(&mut h, SECOND, "SECOND HISTORY");
+
+        h.press("ctrl+c");
+        assert!(h.t.screen().contains("Archive side chat?"));
+        h.press("right enter");
+        h.advance(150);
+        assert_active(&h, FAKE_THREAD);
+        assert!(
+            h.t.screen().contains("Second side"),
+            "the backend has not archived it yet"
+        );
+        let ticket = h
+            .fake
+            .commands()
+            .into_iter()
+            .find_map(|command| match command {
+                Command::Feature {
+                    ticket,
+                    attached_history: Some((_, AttachedHistory::Archive { child })),
+                    ..
+                } if child.as_str() == SECOND => Some(ticket),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no archive ask for {SECOND}"));
+
+        if visit_sibling {
+            click_label(&mut h, "first-side");
+            assert_active(&h, SIDE);
+        }
+        h.inject([AppEv::Reply(
+            ticket,
+            Reply::feature(FeatureReply::Side(SideReply::Saved(SavedReply::Archived(
+                true,
+            )))),
+        )]);
+        h.advance(150);
+        assert!(!h.t.screen().contains("Second side"), "{}", h.t.screen());
+        if visit_sibling {
+            assert_active(&h, SIDE);
+            assert!(h.t.screen().contains("FIRST HISTORY"));
+        } else {
+            assert_active(&h, FAKE_THREAD);
+            assert!(h.t.screen().contains("PARENT HISTORY"));
+            assert!(!h.t.screen().contains("FIRST HISTORY"));
+            h.press("f12 s");
+            assert_active(&h, SIDE);
+            assert!(h.t.screen().contains("FIRST HISTORY"));
+        }
+    }
 }

@@ -178,6 +178,11 @@ impl State {
         self.saved.get(parent)
     }
 
+    /// The backend has acknowledged archiving this side conversation.
+    pub fn is_archived(&self, child: &ThreadId) -> bool {
+        self.saved.is_archived(child)
+    }
+
     /// The children accepted for this parent, in creation order.
     pub fn children_of(&self, parent: &ThreadId) -> &[ThreadId] {
         self.children

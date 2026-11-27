@@ -73,6 +73,10 @@ impl State {
             .map(|inventory| &inventory.phase)
     }
 
+    pub(super) fn is_archived(&self, child: &ThreadId) -> bool {
+        self.archived.contains(child)
+    }
+
     pub(super) fn depart(&mut self, thread: &ThreadId) {
         for action in self.actions.values_mut() {
             if action.anchor.as_ref() != Some(thread) {
