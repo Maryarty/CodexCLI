@@ -458,22 +458,37 @@ fn footer_hint_uses_list_keymap_accept_and_cancel() {
 // ORACLE bottom_pane/status_line_setup.rs:701 picker_previews_the_pr_link_and_preserves_the_color_preference kind=ui owner=dialogs-pane
 #[test]
 fn picker_previews_the_pr_link_and_preserves_the_color_preference() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no entries settings/status_line_pr_plain and settings/status_line_pr_theme, and the setup model holds no link for the preview item (core Setup.values are text); the preview would need a hyperlink on the PR item",
-    );
-    let plain = Screen::build(Owner::DialogsPane)
-        .size(80, 12)
-        .entry("settings", "status_line_pr_plain")
-        .open();
-    // The preview item `PR #42` links to the pull request.
-    plain.assert_link("PR #42", "https://example.com/pr/42");
-    let theme = Screen::build(Owner::DialogsPane)
-        .size(80, 12)
-        .entry("settings", "status_line_pr_theme")
-        .open();
-    theme.assert_link("PR #42", "https://example.com/pr/42");
-    // Enter saves the colour preference: an AppEvent, not visible; not asserted here.
+    let url = "https://example.com/pr/42";
+    for colors in [false, true] {
+        let mut s = Screen::build(Owner::DialogsPane)
+            .size(100, 24)
+            .live()
+            .open();
+        s.feed(r#"{"step":"screen","dir":"chat","ev":{"facts":{"cwd":"/w"}}}"#);
+        s.feed(&serde_json::json!({
+            "step":"screen","dir":"chat","ev":{"status":{"items":["pull-request-number"],"colors":colors}}
+        }).to_string());
+        s.type_text("/statusline").keys("enter");
+        s.feed(
+            &serde_json::json!({
+                "step":"screen","dir":"chat","ev":{"facts":{"git_summary":{
+                    "request":1,"summary":{"pull_request":{"number":42,"url":url}}
+                }}}
+            })
+            .to_string(),
+        );
+        s.assert_in_order(&["Configure Status Line", "PR #42", "enter save"]);
+        s.assert_text_count("PR #42", 1);
+        s.assert_link("PR #42", url);
+        s.keys("enter");
+        s.assert_config_write(&[
+            (
+                "tui.status_line",
+                serde_json::json!(["pull-request-number"]),
+            ),
+            ("tui.status_line_use_colors", serde_json::json!(colors)),
+        ]);
+    }
 }
 
 // ORACLE bottom_pane/status_line_setup.rs:728 setup_view_snapshot_uses_runtime_preview_values kind=snap owner=dialogs-pane snap=setup_view_snapshot_uses_runtime_preview_values

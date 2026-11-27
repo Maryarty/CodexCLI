@@ -328,7 +328,7 @@ fn status_line_invalid_items_warn_once() {
     s.feed(invalid);
     s.assert_title("workspace");
     s.feed(invalid);
-    s.keys("f2");
+    s.keys("ctrl+t");
     s.assert_text_count(
         r#"Ignored invalid status line items: "model_name", "bogus_item" and "lines_changed"."#,
         1,
@@ -506,17 +506,16 @@ fn completed_turn_clears_visible_running_hook() {
 // ORACLE chatwidget/tests/status_and_layout.rs:4264 status_line_processing_tier_updates_with_selection kind=snap owner=ui-pane
 #[test]
 fn status_line_processing_tier_updates_with_selection() {
-    // The oracle's last step runs the `remote-only-provider` (not in `config.model_providers`),
-    // which offers no Flex tier: the provider table is no fact here, only the provider's id is.
-    kit::pending(
-        Owner::UiPane,
-        "the provider table is no fact: `remote-only-provider` (an id outside `config.model_providers`) shows `Standard` in the oracle, `Flex` here; StatusFacts carries the provider's id only (host feed, chunk-live's)",
-    );
     let status = |model: &str, tier: Option<&str>, fast_mode: bool, provider: &str| {
-        let tier = tier.map_or(String::new(), |tier| format!(r#""service_tier":"{tier}","#));
-        format!(
-            r#"{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"{model}",{tier}"fast_mode":{fast_mode},"provider":"{provider}","items":["fast-mode"],"terminal_title":["fast-mode"]}}}}}}"#
-        )
+        let flex_tier_fallback = provider == "openai";
+        serde_json::json!({
+            "step": "screen", "dir": "chat", "ev": {"status": {
+                "model": model, "service_tier": tier, "fast_mode": fast_mode, "provider": provider,
+                "flex_tier_fallback": flex_tier_fallback,
+                "items": ["fast-mode"], "terminal_title": ["fast-mode"],
+            }}
+        })
+        .to_string()
     };
     let line = |s: &Screen, text: &str| {
         s.assert_has_row_trimmed(text);
@@ -534,6 +533,7 @@ fn status_line_processing_tier_updates_with_selection() {
     s.assert_title("Standard");
     s.feed(&status("gpt-5.2", Some("flex"), true, "openai"));
     line(&s, "Flex");
+    s.assert_title("Flex");
     s.feed(&status("gpt-5.2", Some("flex"), true, "amazon-bedrock"));
     line(&s, "Standard");
     // then the provider the oracle does not know: `Standard`
@@ -544,6 +544,7 @@ fn status_line_processing_tier_updates_with_selection() {
         "remote-only-provider",
     ));
     line(&s, "Standard");
+    s.assert_title("Standard");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4319 status_line_fast_mode_footer_snapshot kind=snap owner=ui-pane snap=status_line_fast_mode_footer

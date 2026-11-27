@@ -127,6 +127,8 @@ pub struct StatusFacts {
     pub hostname: Option<String>,
     pub profile_name: Option<String>,
     pub provider: Option<String>,
+    /// The selected provider is configured and permits the conventional Flex label.
+    pub flex_tier_fallback: bool,
     /// Configured display names for the providers a thread refusal can name.
     pub provider_names: Vec<ModelProviderName>,
     pub version: Option<String>,
@@ -170,6 +172,7 @@ impl Default for StatusFacts {
             hostname: None,
             profile_name: None,
             provider: None,
+            flex_tier_fallback: false,
             provider_names: Default::default(),
             version: None,
             animations: true,

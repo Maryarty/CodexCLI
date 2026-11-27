@@ -518,7 +518,18 @@ impl State for SetupState {
         } else {
             None
         };
-        if let Some(preview) = super::preview::row(&setup, &tokens, thread, s.indent) {
+        let pull_request_link = if w.live && setup.kind == SetupKind::StatusLine {
+            super::preview::pull_request_link(cx)
+        } else {
+            None
+        };
+        if let Some(preview) = super::preview::row(
+            &setup,
+            &tokens,
+            thread,
+            pull_request_link.as_deref(),
+            s.indent,
+        ) {
             column = column.child(preview);
         }
         let hint = if setup.kind == SetupKind::Skills {

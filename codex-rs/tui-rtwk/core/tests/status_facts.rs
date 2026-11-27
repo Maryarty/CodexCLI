@@ -521,13 +521,13 @@ mod footer {
 
 mod names {
     use super::*;
-    use codex_tui_core::commands::ServiceTierCommand;
     use codex_tui_core::screens::select::models::{Catalog, Preset};
     use pretty_assertions::assert_eq;
 
     fn catalog() -> Catalog {
         let preset: Preset = serde_json::from_value(json!({
-            "model": "gpt-5.1-codex", "name": "GPT-5.1 Codex", "efforts": [], "default_effort": "medium"
+            "model": "gpt-5.1-codex", "name": "GPT-5.1 Codex", "efforts": [], "default_effort": "medium",
+            "service_tiers": [{"id": "priority", "name": "fast", "description": "Fast inference"}]
         }))
         .expect("preset");
         let mut catalog = Catalog::default();
@@ -555,26 +555,15 @@ mod names {
     }
 
     #[test]
-    fn the_tier_is_named_by_the_offered_tiers_or_is_flex() {
-        let tiers = vec![ServiceTierCommand {
-            id: "priority".into(),
-            name: "Fast".into(),
-            description: String::new(),
-        }];
-        assert_eq!(
-            facts::tier_display_name(&tiers, Some("priority"), None).as_deref(),
-            Some("Fast")
-        );
-        assert_eq!(
-            facts::tier_display_name(&tiers, Some("flex"), Some("openai")).as_deref(),
-            Some("Flex")
-        );
-        assert_eq!(
-            facts::tier_display_name(&tiers, Some("flex"), Some("amazon-bedrock")),
-            None
-        );
-        assert_eq!(facts::tier_display_name(&tiers, Some("other"), None), None);
-        assert_eq!(facts::tier_display_name(&tiers, None, None), None);
+    fn the_tier_uses_its_catalog_name_and_flex_fallback_needs_a_supported_provider() {
+        let catalog = catalog();
+        let name =
+            |id, fallback| facts::tier_display_name(&catalog, Some("gpt-5.1-codex"), id, fallback);
+        assert_eq!(name(Some("priority"), false), Some("fast"));
+        assert_eq!(name(Some("flex"), true), Some("Flex"));
+        assert_eq!(name(Some("flex"), false), None);
+        assert_eq!(name(Some("other"), true), None);
+        assert_eq!(name(None, true), None);
     }
 }
 
