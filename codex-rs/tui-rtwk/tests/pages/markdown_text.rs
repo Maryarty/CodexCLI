@@ -9,8 +9,9 @@
 
 use std::rc::Rc;
 
+use codex_tui_core::ids::{ItemId, TurnId};
 use codex_tui_core::question_reply::QuestionText;
-use codex_tui_core::threads::Item;
+use codex_tui_core::threads::{Item, ItemKey};
 use codex_tui_rtwk::app::theme::Tokens;
 use codex_tui_rtwk::pages::session::cells::agent;
 use codex_tui_rtwk::pages::session::cells::strings::EN as CELLS;
@@ -273,10 +274,14 @@ fn quote_copy_and_fill_follow_the_real_nodes_of_agent_and_question_cells() {
         );
         let mut targets = Targets::default();
         let parts = mounted_parts(&item, &reading).expect("mapped cell");
-        targets.add(0, &item, &parts, &reading, &TRANSCRIPT, &cutter);
-        let [quote] = targets.list.as_slice() else {
-            panic!("expected a copy target for the quote: {:?}", targets.list);
+        let key = ItemKey {
+            turn: TurnId::new("turn"),
+            item: ItemId::new("answer"),
         };
+        targets.add(0, (&key, &item), &parts, &reading, &TRANSCRIPT, &cutter);
+        let mut pieces = targets.pieces();
+        assert_eq!(pieces.len(), 1);
+        let quote = pieces.next().expect("copy target for the quote");
         assert_eq!(quote.fill, Some(Fill::Block(quote_block)));
         assert!(mounted[quote.range.clone()].contains("Quote to copy"));
         let mut tester = rtwk_test::Tester::with(rtwk_test::Options::new().size(WIDTH, HEIGHT));

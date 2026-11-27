@@ -450,6 +450,11 @@ impl Targets {
             }));
     }
 
+    /// The payloads and paint ranges in transcript order.
+    pub fn pieces(&self) -> impl ExactSizeIterator<Item = &Target> {
+        self.list.iter().map(|(_, target)| target)
+    }
+
     fn position_of(&self, piece: &PieceId) -> Option<usize> {
         self.list.iter().position(|(id, _)| id == piece)
     }
