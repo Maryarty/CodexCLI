@@ -693,3 +693,38 @@ fn a_rejected_start_returns_to_its_own_draft_and_preserves_a_later_edit() {
         ]
     );
 }
+
+#[test]
+fn a_rejected_start_keeps_the_remote_attachment_selected_in_the_later_draft() {
+    const A: &str = "https://example.com/a.png";
+    const B: &str = "https://example.com/b.png";
+    const EARLIER: &str = "https://example.com/earlier.png";
+    for recovered in [&[][..], &[B, EARLIER][..]] {
+        let mut s = Screen::build(Owner::ChatNavPane)
+            .size(100, 24)
+            .live()
+            .open();
+        s.hold_image_preparation();
+        s.remote_images(recovered);
+        let path = s.attach_image("rejected-image-with-selection.png");
+        let original = format!("[Image #{}] original", recovered.len() + 1);
+        s.type_text(" original").keys("enter");
+        s.assert_sole_turn(
+            kit::Turn::text(&original)
+                .images(&[(&path, 0..10)])
+                .remote_images(recovered),
+        );
+
+        s.remote_images(&[A, B]);
+        s.type_text("newer").keys("home up");
+        s.reject_turn_start("submission rejected");
+        s.keys("delete enter");
+
+        let remotes = [recovered, &[A]].concat();
+        let restored = format!("[Image #{}] original\nnewer", remotes.len() + 1);
+        s.assert_turn_texts(&[&original, &restored]);
+        let sent = s.turns().pop().expect("the user resubmitted");
+        assert_eq!(sent.remote_images, remotes);
+        assert_eq!(sent.images, [LocalImage { path, range: 0..10 }]);
+    }
+}

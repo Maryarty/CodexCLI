@@ -30,7 +30,7 @@ impl ChatState {
 
     fn restore_draft(
         restore: &Restore,
-        rejected_start: Option<u64>,
+        rejected_start: bool,
         w: &Chat,
         cx: &mut Cx<'_, ChatState>,
     ) {
@@ -44,15 +44,12 @@ impl ChatState {
                 |chars| table.pasted(chars),
                 |n| table.image(n),
             );
-            if let Some(seq) = rejected_start {
-                if w.ui.draft.prepend_rejected_message(
+            if rejected_start {
+                w.ui.draft.prepend_rejected_message(
                     &w.ui.composer,
-                    seq,
                     recalled_entry(&restore.merged()),
-                ) {
-                    w.ui.draft
-                        .relabel_images(&w.ui.composer, |n| table.image(n));
-                }
+                    |n| table.image(n),
+                );
                 return;
             }
             let draft = w.ui.draft.submission_with(
@@ -88,10 +85,12 @@ impl ChatState {
                 restore,
                 rejected_start,
             } => {
-                if read::<ThreadModel, _>(cx).id() != &thread {
+                if read::<ThreadModel, _>(cx).id() != &thread
+                    || rejected_start.is_some_and(|seq| !w.ui.draft.accept_rejected_restore(seq))
+                {
                     return Rebuild::No;
                 }
-                Self::restore_draft(&restore, rejected_start, w, cx);
+                Self::restore_draft(&restore, rejected_start.is_some(), w, cx);
                 self.sync_draft(w);
                 Rebuild::Yes
             }
@@ -101,7 +100,7 @@ impl ChatState {
                     return Rebuild::No;
                 }
                 if let Some(restore) = &end.restore {
-                    Self::restore_draft(restore, None, w, cx);
+                    Self::restore_draft(restore, false, w, cx);
                 }
                 let restored = end.restore.is_some();
                 let recovered = self.recover_questions(&thread, &end, &w.ui, cx);

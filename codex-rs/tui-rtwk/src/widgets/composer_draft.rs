@@ -1090,29 +1090,43 @@ impl ComposerDraft {
         self.restore_entry(c, entry, false);
     }
 
+    /// Claims a rejected start for this retained editor before changing the draft.
+    pub(crate) fn accept_rejected_restore(&self, seq: u64) -> bool {
+        let mut inner = self.0.borrow_mut();
+        if inner.rejected_restore >= seq {
+            return false;
+        }
+        inner.rejected_restore = seq;
+        true
+    }
+
     /// Puts a rejected submission before the current edit, preserving its text, elements and
-    /// selection. Image numbers are updated with the caller's locale after insertion.
+    /// selection, including a selected remote image. Numbers follow the merged attachment order.
     pub(crate) fn prepend_rejected_message(
         &self,
         c: &TextEditingController,
-        seq: u64,
         entry: HistoryEntry,
-    ) -> bool {
-        {
-            let mut inner = self.0.borrow_mut();
-            if inner.rejected_restore >= seq {
-                return false;
-            }
-            inner.rejected_restore = seq;
-        }
+        image: impl Fn(usize) -> String,
+    ) {
+        let selection = c.selection();
+        let selected_remote = {
+            let inner = self.0.borrow();
+            let remote = &inner.remote;
+            remote.selected.filter(|&row| {
+                row < remote.urls.len()
+                    && selection.is_collapsed()
+                    && remote.caret == selection.extent_offset
+            })
+        };
         let current = c.text();
         let shell = self.shell();
         if current.is_empty() && !shell && self.remote_count() == 0 {
             self.restore_message(c, entry, false);
-            return true;
+            self.relabel_images(c, image);
+            return;
         }
 
-        let selection = c.selection();
+        let recovered_remote_count = entry.remote_image_urls.len();
         let mut prefix = entry.text.clone();
         if !prefix.is_empty() && (!current.is_empty() || shell) {
             prefix.push('\n');
@@ -1153,7 +1167,12 @@ impl ComposerDraft {
             offset + selection.base_offset,
             offset + selection.extent_offset,
         ));
-        true
+        self.relabel_images(c, image);
+        if let Some(row) = selected_remote {
+            let mut inner = self.0.borrow_mut();
+            inner.remote.selected = Some(recovered_remote_count + row);
+            inner.remote.caret = c.selection().extent_offset;
+        }
     }
 
     fn entry_elements(entry: &HistoryEntry, text: &str, skip: usize) -> Vec<Element> {
@@ -1215,7 +1234,7 @@ impl ComposerDraft {
             elements.sort_by_key(|element| element.start);
             inner.elements = elements;
             inner.seen = Some(c.buffer());
-            inner.remote.urls = entry.remote_image_urls.clone();
+            inner.remote.urls = entry.remote_image_urls;
             inner.remote.selected = None;
             // a recalled entry is a new draft: Vim's undo steps were of the old one
             inner.vim.history.reset();
