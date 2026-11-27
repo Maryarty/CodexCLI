@@ -608,8 +608,9 @@ fn daybreak_refusal_screen() -> Screen {
         .open();
     let source = include_str!("fixtures/chat_status_3/mixed_status_popup.jsonl")
         .lines()
-        .find(|line| line.contains(r#""method":"thread/started""#))
-        .expect("the live thread metadata");
+        .filter(|line| line.contains(r#""method":"thread/started""#))
+        .collect::<Vec<_>>()
+        .join("\n");
     s.feed(
         &source
             .replace(r#""model":null"#, r#""model":"gpt-5.6-sol""#)

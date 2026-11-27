@@ -378,9 +378,10 @@ fn daybreak_status_surfaces_follow_the_thread_preference() {
 
     let enabled = include_str!("fixtures/chat_status_3/mixed_status_popup.jsonl")
         .lines()
-        .find(|line| line.contains(r#""method":"thread/started""#))
-        .expect("the server's Daybreak preference");
-    s.feed(enabled);
+        .filter(|line| line.contains(r#""method":"thread/started""#))
+        .collect::<Vec<_>>()
+        .join("\n");
+    s.feed(&enabled);
     s.assert_title("Daybreak on");
     s.assert_has_row_trimmed("Daybreak on");
 
