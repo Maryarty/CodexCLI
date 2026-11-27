@@ -1057,6 +1057,16 @@ fn footer_layout_in_fullscreen_and_scrollback() {
                 "tab to queue message",
             ]);
             s.assert_row_of("tab to queue", &["IDE"], &["Vim: Normal"]);
+            for height in [8, 12] {
+                s.resize(31, height);
+                s.assert_composer("draft");
+                s.assert_in_order(&[
+                    "Build ready",
+                    "Vim: Normal · Plan mode",
+                    "tab to queue message",
+                ]);
+                s.assert_row_of("tab to queue", &["IDE"], &["Vim: Normal"]);
+            }
         }
         s.resize(31, if inline { 7 } else { 5 });
         s.assert_composer("draft");

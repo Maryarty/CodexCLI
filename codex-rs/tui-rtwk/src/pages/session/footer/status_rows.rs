@@ -58,11 +58,10 @@ fn allocate(
     let room = (frame * 2 / 3).max(8).min(frame);
     let cap = if inline {
         2
-    } else if frame <= 8 {
-        // A short fullscreen pane still has room for a status and two compact hints.
-        3
     } else {
-        ((room + 2) / 4).clamp(2, 4)
+        // Keep room for a status and both hint rows when the width calls for them.
+        let minimum = 2 + usize::from(wanted_hints > 1);
+        ((room + 2) / 4).clamp(minimum, 4)
     };
     let available = room.saturating_sub(input + SURFACE_ROWS);
     let limit = cap.min(available);
@@ -149,6 +148,16 @@ mod tests {
         assert_eq!(allocate(5, 1, 2, true, false), (1, 1));
         assert_eq!(allocate(7, 1, 2, true, true), (1, 1));
         assert_eq!(allocate(4, 1, 2, true, true), (0, 1));
+    }
+
+    #[test]
+    fn extra_fullscreen_height_never_reduces_the_footer_budget() {
+        let mut previous = allocate(4, 1, 2, true, false);
+        for height in 5..=24 {
+            let next = allocate(height, 1, 2, true, false);
+            assert!(next.0 >= previous.0 && next.1 >= previous.1);
+            previous = next;
+        }
     }
 
     // oracle status_surface_tests.rs `status_rows_respect_host_budget_and_yield_to_the_draft`:
