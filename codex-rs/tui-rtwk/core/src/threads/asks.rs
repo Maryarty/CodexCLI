@@ -477,7 +477,9 @@ impl<M: Borrow<UserMessage>> ThreadRpc<M> {
     /// The thread this asks about, when it targets one.
     pub fn thread(&self) -> Option<&str> {
         match self {
-            Self::Resume { thread }
+            Self::RealtimeStart { thread, .. }
+            | Self::RealtimeStop { thread }
+            | Self::Resume { thread }
             | Self::ResumeAt { thread, .. }
             | Self::Fork { thread }
             | Self::ForkAt { thread, .. }

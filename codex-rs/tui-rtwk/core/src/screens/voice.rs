@@ -6,7 +6,7 @@ use codex_app_server_protocol as wire;
 use codex_protocol::protocol::{RealtimeConversationVersion, RealtimeOutputModality};
 
 use crate::app::{AppFx, Now};
-use crate::commands::dispatch::VoiceControl;
+use crate::commands::VoiceControl;
 use crate::ids::{ThreadId, Ticket};
 use crate::rpc::{Address, RpcError};
 use crate::screens::Kind;
@@ -91,9 +91,22 @@ pub struct AudioReport {
 pub enum AudioResult {
     Prepared(Result<Sdp, String>),
     Connected(Result<(), String>),
-    Muted { muted: bool, result: Result<(), String> },
-    Sampled(Result<[u16; 2], String>),
+    Muted {
+        muted: bool,
+        result: Result<(), String>,
+    },
+    Sampled(Result<Peaks, String>),
     Closed,
+}
+
+/// Peak levels are consumed as meter glyphs; do not emit them in effect logs.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Peaks(pub [u16; 2]);
+
+impl fmt::Debug for Peaks {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Peaks([redacted])")
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -145,7 +158,12 @@ enum Phase {
     Preparing,
     Negotiating(Negotiating),
     Active,
-    Stopping { accepted: bool, closed: bool },
+    Stopping {
+        start_pending: bool,
+        stop_pending: bool,
+        accepted: bool,
+        closed: bool,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -186,10 +204,18 @@ impl ThreadPart {
         }
     }
 
+    pub fn can_mute(&self) -> bool {
+        self.call
+            .as_ref()
+            .is_some_and(|call| call.phase == Phase::Active)
+    }
+
     pub fn control(&self, control: VoiceControl) -> Option<ThreadIntent> {
         match control {
             VoiceControl::Toggle if self.call.is_none() => Some(ThreadIntent::Start),
-            VoiceControl::Toggle | VoiceControl::Stop if self.call.is_some() => Some(ThreadIntent::Stop),
+            VoiceControl::Toggle | VoiceControl::Stop if self.call.is_some() => {
+                Some(ThreadIntent::Stop)
+            }
             VoiceControl::Mute => self.call.as_ref().and_then(|call| {
                 (call.phase == Phase::Active && call.pending_mute.is_none())
                     .then_some(ThreadIntent::SetMuted(!call.muted))
@@ -217,7 +243,11 @@ impl ThreadPart {
     }
 }
 
-pub(crate) fn apply_intent_on_thread(part: &mut ThreadPart, intent: ThreadIntent, fx: &mut ThreadFx<'_>) {
+pub(crate) fn apply_intent_on_thread(
+    part: &mut ThreadPart,
+    intent: ThreadIntent,
+    fx: &mut ThreadFx<'_>,
+) {
     match intent {
         ThreadIntent::Start if part.call.is_none() => {
             let call = Call {
@@ -248,17 +278,50 @@ pub(crate) fn apply_intent_on_thread(part: &mut ThreadPart, intent: ThreadIntent
 }
 
 fn audio(call: &Call, action: AudioAction, fx: &mut ThreadFx<'_>) {
-    fx.voice_audio(AudioCommand { owner: call.owner.clone(), action });
+    fx.voice_audio(AudioCommand {
+        owner: call.owner.clone(),
+        action,
+    });
 }
 
 fn stop(part: &mut ThreadPart, fx: &mut ThreadFx<'_>) {
-    let Some(call) = part.call.as_mut() else { return };
+    let Some(call) = part.call.as_mut() else {
+        return;
+    };
     match call.phase {
         Phase::Preparing => part.retire(fx),
         Phase::Negotiating(_) | Phase::Active => {
             audio(call, AudioAction::Close, fx);
-            call.phase = Phase::Stopping { accepted: false, closed: false };
+            let start_pending = matches!(
+                call.phase,
+                Phase::Negotiating(Negotiating {
+                    accepted: false,
+                    ..
+                })
+            );
+            call.phase = Phase::Stopping {
+                start_pending,
+                stop_pending: !start_pending,
+                accepted: false,
+                closed: false,
+            };
             call.next_sample = None;
+            if !start_pending {
+                fx.request(Ctx::Stop(call.owner.clone()), Command::Stop);
+            }
+        }
+        Phase::Stopping {
+            start_pending: false,
+            stop_pending: false,
+            accepted: false,
+            closed: false,
+        } => {
+            call.phase = Phase::Stopping {
+                start_pending: false,
+                stop_pending: true,
+                accepted: false,
+                closed: false,
+            };
             fx.request(Ctx::Stop(call.owner.clone()), Command::Stop);
         }
         Phase::Stopping { .. } => {}
@@ -266,7 +329,9 @@ fn stop(part: &mut ThreadPart, fx: &mut ThreadFx<'_>) {
 }
 
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
-    let Some(call) = part.call.as_mut() else { return };
+    let Some(call) = part.call.as_mut() else {
+        return;
+    };
     match ev {
         ThreadEv::Started { session } => {
             if let Phase::Negotiating(ref mut setup) = call.phase
@@ -277,6 +342,7 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
         }
         ThreadEv::Answer(answer) => {
             if let Phase::Negotiating(ref mut setup) = call.phase
+                && setup.started
                 && !setup.answering
             {
                 setup.answering = true;
@@ -285,8 +351,13 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
         }
         ThreadEv::Closed => match &mut call.phase {
             Phase::Negotiating(_) | Phase::Active => part.retire(fx),
-            Phase::Stopping { accepted, closed } => {
-                if *accepted {
+            Phase::Stopping {
+                start_pending,
+                stop_pending,
+                closed,
+                ..
+            } => {
+                if !*start_pending && !*stop_pending {
                     part.retire(fx);
                 } else {
                     *closed = true;
@@ -294,12 +365,14 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
             }
             Phase::Preparing => {}
         },
-        ThreadEv::Error(error) if call.phase != Phase::Preparing => {
+        ThreadEv::Error(error) if matches!(call.phase, Phase::Negotiating(_) | Phase::Active) => {
             fx.voice_failure(Failure::Message(error));
             stop(part, fx);
         }
         ThreadEv::Error(_) => {}
-        ThreadEv::Audio(report) if call.owner == report.owner => answer_audio(part, report.result, fx),
+        ThreadEv::Audio(report) if call.owner == report.owner => {
+            answer_audio(part, report.result, fx)
+        }
         ThreadEv::Audio(_) => {}
         ThreadEv::Sample if call.phase == Phase::Active => {
             let now = fx.facts().now();
@@ -315,24 +388,40 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
 }
 
 fn answer_audio(part: &mut ThreadPart, result: AudioResult, fx: &mut ThreadFx<'_>) {
-    let Some(call) = part.call.as_mut() else { return };
+    let Some(call) = part.call.as_mut() else {
+        return;
+    };
     match (call.phase, result) {
         (Phase::Preparing, AudioResult::Prepared(Ok(offer))) => {
             call.phase = Phase::Negotiating(Negotiating::default());
-            fx.request(Ctx::Start(call.owner.clone()), Command::Start { session: call.owner.session_id(), offer });
+            fx.request(
+                Ctx::Start(call.owner.clone()),
+                Command::Start {
+                    session: call.owner.session_id(),
+                    offer,
+                },
+            );
         }
         (Phase::Negotiating(mut setup), AudioResult::Connected(Ok(()))) if setup.answering => {
             setup.connected = true;
             call.phase = Phase::Negotiating(setup);
         }
-        (Phase::Active, AudioResult::Muted { muted, result: Ok(()) }) if call.pending_mute == Some(muted) => {
+        (
+            Phase::Active,
+            AudioResult::Muted {
+                muted,
+                result: Ok(()),
+            },
+        ) if call.pending_mute == Some(muted) => {
             call.pending_mute = None;
             call.muted = muted;
             if muted {
                 call.microphone = [0; 6];
             }
         }
-        (Phase::Active, AudioResult::Sampled(Ok([microphone, speaker]))) => {
+        (Phase::Active, AudioResult::Sampled(Ok(Peaks([microphone, speaker]))))
+            if call.next_sample.is_none() =>
+        {
             call.microphone.rotate_left(1);
             call.speaker.rotate_left(1);
             call.microphone[5] = if call.muted { 0 } else { intensity(microphone) };
@@ -344,7 +433,13 @@ fn answer_audio(part: &mut ThreadPart, result: AudioResult, fx: &mut ThreadFx<'_
             part.retire(fx);
         }
         (Phase::Negotiating(_), AudioResult::Connected(Err(error)))
-        | (Phase::Active, AudioResult::Muted { result: Err(error), .. } | AudioResult::Sampled(Err(error))) => {
+        | (
+            Phase::Active,
+            AudioResult::Muted {
+                result: Err(error), ..
+            }
+            | AudioResult::Sampled(Err(error)),
+        ) => {
             fx.voice_failure(Failure::Message(error));
             stop(part, fx);
         }
@@ -359,25 +454,87 @@ fn intensity(peak: u16) -> u8 {
 
 fn activate(part: &mut ThreadPart, now: Now) {
     if let Some(call) = part.call.as_mut()
-        && matches!(call.phase, Phase::Negotiating(Negotiating { accepted: true, started: true, connected: true, .. }))
+        && matches!(
+            call.phase,
+            Phase::Negotiating(Negotiating {
+                accepted: true,
+                started: true,
+                connected: true,
+                ..
+            })
+        )
     {
         call.phase = Phase::Active;
         call.next_sample = Some(now.plus_millis(1000));
     }
 }
 
-pub fn apply_reply(part: &mut ThreadPart, ctx: Ctx, result: Result<Reply, RpcError>, fx: &mut ThreadFx<'_>) {
-    let Some(call) = part.call.as_mut() else { return };
+pub fn apply_reply(
+    part: &mut ThreadPart,
+    ctx: Ctx,
+    result: Result<Reply, RpcError>,
+    fx: &mut ThreadFx<'_>,
+) {
+    let Some(call) = part.call.as_mut() else {
+        return;
+    };
     match (ctx, result, &mut call.phase) {
-        (Ctx::Start(owner), Ok(Reply::Started), Phase::Negotiating(setup)) if owner == call.owner => setup.accepted = true,
-        (Ctx::Stop(owner), Ok(Reply::Stopped), Phase::Stopping { accepted, closed }) if owner == call.owner => {
+        (Ctx::Start(owner), Ok(Reply::Started), Phase::Negotiating(setup))
+            if owner == call.owner =>
+        {
+            setup.accepted = true
+        }
+        (
+            Ctx::Start(owner),
+            Ok(Reply::Started),
+            Phase::Stopping {
+                start_pending,
+                stop_pending,
+                closed,
+                ..
+            },
+        ) if owner == call.owner && *start_pending => {
+            *start_pending = false;
+            if *closed {
+                part.retire(fx);
+            } else {
+                *stop_pending = true;
+                fx.request(Ctx::Stop(owner), Command::Stop);
+            }
+        }
+        (
+            Ctx::Stop(owner),
+            Ok(Reply::Stopped),
+            Phase::Stopping {
+                stop_pending,
+                accepted,
+                closed,
+                ..
+            },
+        ) if owner == call.owner && *stop_pending => {
+            *stop_pending = false;
             if *closed {
                 part.retire(fx);
             } else {
                 *accepted = true;
             }
         }
-        (Ctx::Start(owner) | Ctx::Stop(owner), Err(error), _) if owner == call.owner => {
+        (
+            Ctx::Stop(owner),
+            Err(error),
+            Phase::Stopping {
+                stop_pending,
+                closed,
+                ..
+            },
+        ) if owner == call.owner && *stop_pending => {
+            *stop_pending = false;
+            fx.voice_failure(Failure::from(error));
+            if *closed {
+                part.retire(fx);
+            }
+        }
+        (Ctx::Start(owner), Err(error), _) if owner == call.owner => {
             fx.voice_failure(Failure::from(error));
             part.retire(fx);
         }
@@ -390,14 +547,22 @@ pub fn wire(command: &Command, thread: &ThreadId, id: wire::RequestId) -> wire::
     use crate::threads::ThreadAsk;
     let request = match command {
         Command::Start { session, offer } => ThreadAsk::RealtimeStart {
-            thread: thread.to_string(), session: session.clone(), offer: offer.clone(),
+            thread: thread.to_string(),
+            session: session.clone(),
+            offer: offer.clone(),
         },
-        Command::Stop => ThreadAsk::RealtimeStop { thread: thread.to_string() },
+        Command::Stop => ThreadAsk::RealtimeStop {
+            thread: thread.to_string(),
+        },
     };
     request.wire(id)
 }
 
-pub(crate) fn start_params(thread: &str, session: &str, offer: &Sdp) -> wire::ThreadRealtimeStartParams {
+pub(crate) fn start_params(
+    thread: &str,
+    session: &str,
+    offer: &Sdp,
+) -> wire::ThreadRealtimeStartParams {
     wire::ThreadRealtimeStartParams {
         thread_id: thread.to_string(),
         client_managed_handoffs: None,
@@ -417,7 +582,9 @@ pub(crate) fn start_params(thread: &str, session: &str, offer: &Sdp) -> wire::Th
         prompt: None,
         realtime_session_id: Some(session.to_string()),
         voice_session_id: None,
-        transport: Some(wire::ThreadRealtimeStartTransport::Webrtc { sdp: offer.0.clone() }),
+        transport: Some(wire::ThreadRealtimeStartTransport::Webrtc {
+            sdp: offer.0.clone(),
+        }),
         version: Some(RealtimeConversationVersion::V3),
         voice: None,
     }
@@ -427,9 +594,13 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
     use crate::threads::{ThreadAsk, ThreadReply};
     let request = match command {
         Command::Start { session, offer } => ThreadAsk::RealtimeStart {
-            thread: String::new(), session: session.clone(), offer: offer.clone(),
+            thread: String::new(),
+            session: session.clone(),
+            offer: offer.clone(),
         },
-        Command::Stop => ThreadAsk::RealtimeStop { thread: String::new() },
+        Command::Stop => ThreadAsk::RealtimeStop {
+            thread: String::new(),
+        },
     };
     match (command, request.decode(result)?) {
         (Command::Start { .. }, ThreadReply::Done) => Ok(Reply::Started),
@@ -441,8 +612,16 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 pub(crate) fn project(notification: &wire::ServerNotification) -> Option<(ThreadId, ThreadEv)> {
     use wire::ServerNotification as Note;
     let (thread, ev) = match notification {
-        Note::ThreadRealtimeStarted(note) => (&note.thread_id, ThreadEv::Started { session: note.realtime_session_id.clone() }),
-        Note::ThreadRealtimeSdp(note) => (&note.thread_id, ThreadEv::Answer(Sdp::new(note.sdp.clone()))),
+        Note::ThreadRealtimeStarted(note) => (
+            &note.thread_id,
+            ThreadEv::Started {
+                session: note.realtime_session_id.clone(),
+            },
+        ),
+        Note::ThreadRealtimeSdp(note) => (
+            &note.thread_id,
+            ThreadEv::Answer(Sdp::new(note.sdp.clone())),
+        ),
         Note::ThreadRealtimeClosed(note) => (&note.thread_id, ThreadEv::Closed),
         Note::ThreadRealtimeError(note) => (&note.thread_id, ThreadEv::Error(note.message.clone())),
         _ => return None,

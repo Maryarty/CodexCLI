@@ -65,6 +65,26 @@ pub(super) fn ide(spec: &Spec, width: &dyn Fn(&str) -> usize) -> Option<Vec<Form
     })
 }
 
+/// The backend and the audio peer own the indicator; the key is resolved from the keymap.
+pub(super) fn voice(spec: &Spec, width: &dyn Fn(&str) -> usize) -> Option<Vec<Form>> {
+    let display = spec.voice?;
+    let own = spec.voice_strings;
+    let status = crate::sheets::voice::strip::status_spans(display, own, &spec.tokens);
+    if display.connecting {
+        return Some(vec![form(status, width)]);
+    }
+    let mut controls = status.clone();
+    controls.push(Span::styled("   ", spec.tokens.dim()));
+    if let Some(key) = spec.voice_key.as_ref() {
+        controls.push(Span::styled(key.clone(), spec.tokens.bold()));
+        let action = if display.muted { own.unmute } else { own.mute };
+        controls.push(Span::styled(format!(" {action}"), spec.tokens.dim()));
+    } else {
+        controls.push(Span::styled(own.mute_command, spec.tokens.dim()));
+    }
+    Some(vec![form(controls, width), form(status, width)])
+}
+
 /// `Vim: Normal` (accent), `Vim: Insert` (success), `Vim: Replace` (info).
 pub(super) fn vim(spec: &Spec, width: &dyn Fn(&str) -> usize) -> Option<Vec<Form>> {
     let mode = spec.vim?;

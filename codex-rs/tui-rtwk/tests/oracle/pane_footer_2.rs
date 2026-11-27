@@ -172,15 +172,18 @@ fn transition_frames_snapshot() {
 // ORACLE bottom_pane/footer.rs:961 voice_footer_rendering_preserves_text_and_styles kind=snap owner=ui-pane snap=voice_footer_rendered_styles
 #[test]
 fn voice_footer_rendering_preserves_text_and_styles() {
-    kit::pending(
-        Owner::UiPane,
-        "no footer voice item: no entry chat/footer_voice_listen (40x1: `voice ● listen` and `ctrl+m mute`, with the cell styles)",
-    );
-    let s = Screen::build(Owner::UiPane)
-        .size(40, 1)
-        .entry("chat", "footer_voice_listen")
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 16)
+        .keymap(&[("chat.toggle_voice_mute", "ctrl+m")])
+        .live()
         .open();
-    s.assert_snap("voice_footer_rendered_styles");
+    s.voice_available()
+        .type_text("/voice")
+        .keys("enter")
+        .voice_connected();
+    s.assert_contains("voice ● listen");
+    s.assert_contains("⌃m mute");
+    s.assert_style_in("voice ● listen", 6, "fg=Red");
 }
 
 // ORACLE bottom_pane/footer.rs:1260 footer_snapshots kind=snap owner=ui-pane snap=footer_active_agent_label snap=footer_composer_has_draft_queue_hint_enabled snap=footer_context_tokens_used snap=footer_ctrl_c_quit_idle snap=footer_esc_hint_idle snap=footer_esc_hint_primed snap=footer_mode_indicator_narrow_overlap_hides snap=footer_mode_indicator_running_hides_hint snap=footer_mode_indicator_wide snap=footer_shortcuts_collaboration_modes_enabled snap=footer_shortcuts_context_running snap=footer_shortcuts_default snap=footer_shortcuts_running snap=footer_shortcuts_shift_and_esc snap=footer_status_line_disabled_context_right snap=footer_status_line_enabled_mode_and_ide_context_right snap=footer_status_line_enabled_mode_right snap=footer_status_line_enabled_no_mode_right snap=footer_status_line_overrides_draft_idle snap=footer_status_line_overrides_shortcuts snap=footer_status_line_truncated_with_gap snap=footer_status_line_with_active_agent_label snap=footer_status_line_yields_to_queue_hint
@@ -1242,59 +1245,81 @@ fn centered_dialog_retains_backdrop_and_routes_cursor() {
 // ORACLE bottom_pane/voice_strip_tests.rs:49 active_dashboard_preserves_live_colors_controls_and_width kind=snap owner=ui-pane
 #[test]
 fn active_dashboard_preserves_live_colors_controls_and_width() {
-    kit::pending(
-        Owner::UiPane,
-        "no voice strip while listening: no entry chat/voice_strip_active (47 columns, 2 rows, mic history and codex waveform, `f9 mute` and `/voice stop`; re-laid at 37, 22 and 45 columns)",
-    );
-    let mut s = Screen::build(Owner::UiPane)
-        .size(47, 2)
-        .entry("chat", "voice_strip_active")
-        .open();
-    s.assert_row_starts_with(0, " voice ");
-    s.assert_row_starts_with(1, "   mic ");
-    s.assert_text_at(45, 0, "p");
-    s.assert_text_at(46, 0, " ");
-    s.assert_style(7, 0, "fg=Red");
-    s.assert_style(7, 1, "fg=Cyan");
-    s.assert_style(22, 1, "fg=Magenta");
+    let mut s = Screen::build(Owner::UiPane).size(47, 16).live().open();
+    s.type_text("keep this voice draft")
+        .keys("f8")
+        .voice_connected()
+        .voice_peaks(32_768, 32_768);
+    s.assert_contains("keep this voice draft");
+    s.assert_contains("voice ● listen");
     s.assert_contains("/voice stop");
-    s.resize(37, 2);
+    s.assert_style_in("mic ▁▁▁▁▁█", 9, "fg=Cyan");
+    s.assert_style_in("codex ▁▁▁▁▁█", 11, "fg=Magenta");
+    s.resize(37, 16);
     s.assert_contains("f9 mute");
     s.assert_contains("/voice stop");
-    s.resize(22, 2);
+    s.resize(22, 16);
     s.assert_contains("/voice stop");
     s.assert_contains("mic");
     s.assert_contains("codex");
-    s.resize(47, 2);
+    s.resize(47, 16);
     s.assert_contains("█");
 }
 
 // ORACLE bottom_pane/voice_strip_tests.rs:141 voice_controls_follow_configured_mute_binding_and_unbinding kind=snap owner=ui-pane snap=voice_controls_follow_configured_mute_binding_and_unbinding
 #[test]
 fn voice_controls_follow_configured_mute_binding_and_unbinding() {
-    kit::pending(
-        Owner::UiPane,
-        "no voice strip with a configurable mute key: entry chat/voice_strip_active with its mute key (f8, ctrl+x m, unbound: the seed sets chat.toggle_voice_mute); the oracle joins twelve states into one snapshot, the kit compares one screen (gap)",
-    );
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 2)
+    let mut direct = Screen::build(Owner::UiPane)
+        .size(80, 16)
         .keymap(&[("chat.toggle_voice_mute", "f8")])
-        .entry("chat", "voice_strip_active")
+        .live()
         .open();
-    s.assert_contains("f8 mute");
-    s.assert_contains("/voice stop");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 2)
+    direct.keys("f8").voice_connected();
+    direct.assert_contains("f8 mute");
+    direct.keys("f8").voice_muted(true);
+    direct.assert_contains("f8 unmute");
+    direct.assert_contains("/voice stop");
+    let mut chord = Screen::build(Owner::UiPane)
+        .size(80, 16)
         .keymap(&[("chat.toggle_voice_mute", "ctrl+x m")])
-        .entry("chat", "voice_strip_active")
+        .live()
         .open();
-    s.assert_contains("⌃x m mute");
-    s.assert_contains("/voice stop");
-    // Unbound (the config's `[]`): the kit's keymap seed has no form for it yet (gap).
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 2)
-        .entry("chat", "voice_strip_active")
+    chord
+        .voice_available()
+        .type_text("/voice")
+        .keys("enter")
+        .voice_connected();
+    chord.assert_contains("⌃x m mute");
+    chord.keys("ctrl+x m").voice_muted(true);
+    chord.assert_contains("⌃x m unmute");
+    let mut unbound = Screen::build(Owner::UiPane)
+        .size(80, 16)
+        .keymap(&[("chat.toggle_voice_mute", "")])
+        .live()
         .open();
-    s.assert_contains("/voice mute");
-    s.assert_contains("/voice stop");
+    unbound
+        .voice_available()
+        .type_text("/voice")
+        .keys("enter")
+        .voice_connected();
+    unbound.assert_contains("/voice mute");
+    unbound
+        .type_text("/voice mute")
+        .keys("enter")
+        .voice_muted(true);
+    unbound.assert_contains("muted");
+    unbound
+        .type_text("/voice stop")
+        .keys("enter")
+        .voice_closed();
+    unbound.assert_absent("/voice stop");
+}
+
+#[test]
+fn voice_helper_missing_preserves_the_draft_and_never_reports_listening() {
+    let mut s = Screen::build(Owner::UiPane).size(80, 16).live().open();
+    s.type_text("my draft").keys("f8").voice_helper_missing();
+    s.assert_contains("my draft");
+    s.assert_contains("compatible audio helper");
+    s.assert_absent("voice ● listen");
 }

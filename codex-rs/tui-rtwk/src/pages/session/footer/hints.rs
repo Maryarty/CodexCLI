@@ -23,6 +23,7 @@ pub enum Kind {
     Plan,
     Goal,
     Ide,
+    Voice,
     Context,
     Warning,
 }
@@ -168,6 +169,7 @@ pub fn fit(labels: &[Label], width: usize, two: bool) -> Layout {
         (Kind::Plan, Some(1)),
         (Kind::Warning, Some(1)),
         (Kind::Ide, Some(1)),
+        (Kind::Voice, Some(1)),
         (Kind::Action, Some(1)),
         (Kind::Warning, Some(2)),
         (Kind::Agents, None),
@@ -205,6 +207,7 @@ pub fn fit(labels: &[Label], width: usize, two: bool) -> Layout {
             Kind::Vim,
             Kind::Plan,
             Kind::Goal,
+            Kind::Voice,
             Kind::Ide,
             Kind::Warning,
             Kind::Context,

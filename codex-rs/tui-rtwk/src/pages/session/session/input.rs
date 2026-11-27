@@ -11,6 +11,7 @@ use rtwk::{AnyWidget, Cx, Key};
 
 use codex_tui_core::keymap::actions::{
     CHAT_INTERRUPT_TURN, CHAT_OPEN_PRESETS, GLOBAL_CHANGE_HOST, GLOBAL_SELECT_TRANSCRIPT,
+    VOICE_TOGGLE_VOICE_MUTE,
 };
 use codex_tui_core::keymap::fixed;
 
@@ -43,6 +44,7 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
     let selection = state.selection.clone();
     let finder = state.find.clone();
     let control = state.control.clone();
+    let voice_controls = state.voice_controls.clone();
     let clock = AppBinding::maybe_of(cx).map(|binding| binding.clock());
     let (banner, blocked) = (state.banner.clone(), state.banner_blocked.clone());
     let keymap = state.keymap.clone();
@@ -159,7 +161,7 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
         // (`visible_new_backend_control`), `open_presets` (`Ctrl+X p`) opens the menu of `/presets`
         // where the page is free (`no_modal_or_popup_active`), `select_transcript` (`Ctrl+X [`)
         // begins select mode; all work with a draft in the composer.
-        let (hosts, presets, selects) = {
+        let (hosts, presets, selects, voice) = {
             let keymap = keymap.borrow();
             let hosts = if control.get() {
                 chords_of(&keymap, GLOBAL_CHANGE_HOST)
@@ -170,6 +172,11 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
                 hosts,
                 chords_of(&keymap, CHAT_OPEN_PRESETS),
                 chords_of(&keymap, GLOBAL_SELECT_TRANSCRIPT),
+                if voice_controls.get() {
+                    chords_of(&keymap, VOICE_TOGGLE_VOICE_MUTE)
+                } else {
+                    Vec::new()
+                },
             )
         };
         // The prefix of a leader chord is held in the draft, as the editor chords' first key is
@@ -185,6 +192,14 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
             None
         };
         if let Some(first) = held {
+            if voice
+                .iter()
+                .any(|(prefix, done)| prefix.accepts_press(&first) && done.accepts_press(&key))
+            {
+                draft_now.set_chord(None);
+                send(ChatMsg::Action(keys::Action::VoiceMute));
+                return KeyEventResult::Handled;
+            }
             if hosts.iter().any(|(_, done)| done.accepts_press(&key)) {
                 draft_now.set_chord(None);
                 send(ChatMsg::Cycle);
@@ -204,6 +219,7 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
                 .iter()
                 .chain(&presets)
                 .chain(&selects)
+                .chain(&voice)
                 .any(|(prefix, _)| prefix.accepts_press(&first) && prefix.accepts_press(&key));
             if again || (unmodified(&key) && pressed_fixed(fixed::DISMISS, &key)) {
                 draft_now.set_chord(None);
@@ -223,6 +239,7 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
             .iter()
             .chain(&presets)
             .chain(&selects)
+            .chain(&voice)
             .any(|(prefix, _)| prefix.accepts_press(&key))
         {
             draft_now.set_leader_chord(Some((key, now)));
@@ -416,7 +433,15 @@ pub(super) fn focus(
             focus = focus.bind(key, cx.send(msg));
         }
     }
+    let voice_controls = state.voice_controls.get();
     for (action, key) in keys::presses(keymap) {
+        if action.id() == VOICE_TOGGLE_VOICE_MUTE {
+            if !voice_controls {
+                continue;
+            }
+        } else if voice_controls && crate::keymap::pressed(keymap, VOICE_TOGGLE_VOICE_MUTE, &key) {
+            continue;
+        }
         focus = focus.bind(key, cx.send(ChatMsg::Action(action)));
     }
     AnyWidget::from(focus).with_key(Key::value((thread.read_only(), frame.provider.is_some())))

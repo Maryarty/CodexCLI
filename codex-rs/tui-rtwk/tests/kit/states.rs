@@ -530,3 +530,188 @@ impl Open {
         self.entry("composer", "alone")
     }
 }
+
+impl Screen {
+    /// The controlled host has the same local helper capability a package publishes.
+    pub fn voice_available(&mut self) -> &mut Self {
+        self.h
+            .inject([AppEv::Screen(ScreenEv::Chat(chat::Ev::VoiceAvailable(
+                true,
+            )))]);
+        self.h.advance(100);
+        self
+    }
+
+    /// A normal development launch lacks the packaged media helper.
+    pub fn voice_helper_missing(&mut self) -> &mut Self {
+        use codex_tui_core::screens::voice::{AudioAction, AudioResult};
+        let prepared = self.voice_audio(|action| matches!(action, AudioAction::Prepare));
+        self.voice_receipt(
+            &prepared,
+            AudioResult::Prepared(Err(
+                "Voice requires a Codex package with a compatible audio helper.".into(),
+            )),
+        );
+        self
+    }
+
+    /// The app opens a real typed voice offer and awaits both sides of SDP negotiation.
+    pub fn voice_connected(&mut self) -> &mut Self {
+        use codex_app_server_protocol::{ClientRequest, RequestId};
+        use codex_tui_core::screens::voice::{AudioAction, AudioResult, Sdp};
+
+        let prepared = self.voice_audio(|action| matches!(action, AudioAction::Prepare));
+        self.voice_receipt(
+            &prepared,
+            AudioResult::Prepared(Ok(Sdp::new("offer".into()))),
+        );
+        let start = self.voice_rpc(true);
+        let Some(ClientRequest::ThreadRealtimeStart { params, .. }) =
+            codex_tui_core::protocol::client_request(&start, RequestId::Integer(1), None)
+        else {
+            panic!("recorded start is a pinned realtime request");
+        };
+        assert_eq!(params.thread_id, self.active_thread().as_str());
+        self.answer_request(&start, serde_json::json!({}));
+        self.voice_notify(
+            "thread/realtime/started",
+            serde_json::json!({
+                "threadId": params.thread_id,
+                "realtimeSessionId": params.realtime_session_id,
+                "version": "v3",
+            }),
+        );
+        self.voice_notify(
+            "thread/realtime/sdp",
+            serde_json::json!({
+                "threadId": params.thread_id,
+                "sdp": "answer",
+            }),
+        );
+        let sdp = self.voice_audio(|action| matches!(action, AudioAction::Connect(_)));
+        self.voice_receipt(&sdp, AudioResult::Connected(Ok(())));
+        self
+    }
+
+    /// Sample actual media reports at the app's declared wake.
+    pub fn voice_peaks(&mut self, microphone: u16, speaker: u16) -> &mut Self {
+        use codex_tui_core::screens::voice::{AudioAction, AudioResult, Peaks};
+        self.wait(1200);
+        let sample = self.voice_audio(|action| matches!(action, AudioAction::Sample));
+        self.voice_receipt(
+            &sample,
+            AudioResult::Sampled(Ok(Peaks([microphone, speaker]))),
+        );
+        self
+    }
+
+    /// The native control admitted the mute or unmute that reached it.
+    pub fn voice_muted(&mut self, muted: bool) -> &mut Self {
+        use codex_tui_core::screens::voice::{AudioAction, AudioResult};
+        let command = self.voice_audio(|action| action == &AudioAction::SetMuted(muted));
+        self.voice_receipt(
+            &command,
+            AudioResult::Muted {
+                muted,
+                result: Ok(()),
+            },
+        );
+        self
+    }
+
+    /// The backend acknowledges Stop and closes the call.
+    pub fn voice_closed(&mut self) -> &mut Self {
+        use codex_tui_core::screens::voice::AudioAction;
+        self.voice_audio(|action| matches!(action, AudioAction::Close));
+        let stop = self.voice_rpc(false);
+        self.answer_request(&stop, serde_json::json!({}));
+        self.voice_notify(
+            "thread/realtime/closed",
+            serde_json::json!({
+                "threadId": self.active_thread().as_str(),
+            }),
+        );
+        self
+    }
+
+    fn voice_audio(
+        &mut self,
+        accepts: impl Fn(&codex_tui_core::screens::voice::AudioAction) -> bool,
+    ) -> Command {
+        use codex_tui_core::app::effects::Ask;
+        let find = |command: &Command| {
+            command
+                .host_ask()
+                .is_some_and(|ask| matches!(ask, Ask::Audio(audio) if accepts(&audio.action)))
+        };
+        self.h.wait_until(
+            "the matching realtime command reaches the audio host",
+            |h| h.fake.commands().iter().any(&find),
+        );
+        self.h
+            .fake
+            .commands()
+            .into_iter()
+            .rev()
+            .find(find)
+            .expect("the audio command")
+    }
+
+    fn voice_receipt(
+        &mut self,
+        command: &Command,
+        result: codex_tui_core::screens::voice::AudioResult,
+    ) {
+        use codex_tui_core::app::effects::{Ask, Done};
+        use codex_tui_core::screens::voice::AudioReport;
+        let Some(Ask::Audio(audio)) = command.host_ask() else {
+            panic!("an audio effect")
+        };
+        self.answer_effect(
+            command,
+            Done::Audio(AudioReport {
+                owner: audio.owner.clone(),
+                result,
+            }),
+        );
+    }
+
+    fn voice_rpc(&mut self, start: bool) -> Command {
+        use codex_tui_core::screens::voice::Command as VoiceCommand;
+        let find = |command: &Command| {
+            matches!(
+                command,
+                Command::Screen {
+                    command: ScreenCommand::Voice(VoiceCommand::Start { .. } | VoiceCommand::Stop),
+                    ..
+                }
+            ) && matches!(
+                command,
+                Command::Screen {
+                    command: ScreenCommand::Voice(VoiceCommand::Start { .. }),
+                    ..
+                }
+            ) == start
+        };
+        self.h
+            .wait_until("the pinned realtime request reaches the writer", |h| {
+                h.fake.commands().iter().any(&find)
+            });
+        self.h
+            .fake
+            .commands()
+            .into_iter()
+            .rev()
+            .find(find)
+            .expect("realtime request")
+    }
+
+    fn voice_notify(&mut self, method: &str, params: serde_json::Value) {
+        let note =
+            serde_json::from_value(serde_json::json!({ "method": method, "params": params }))
+                .expect("pinned voice notification");
+        self.h
+            .inject([AppEv::Backend(BackendEv::Notification(Box::new(note)))]);
+        self.h.advance(100);
+    }
+}

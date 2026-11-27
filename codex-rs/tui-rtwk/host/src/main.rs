@@ -24,6 +24,7 @@ mod state_db;
 mod target;
 mod update;
 mod viewer;
+mod voice;
 mod windows_sandbox;
 mod workspace;
 

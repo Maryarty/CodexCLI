@@ -2043,7 +2043,11 @@ impl<'a> ThreadFx<'a> {
     }
 
     pub(crate) fn voice_owner(&mut self) -> screens::voice::Owner {
-        screens::voice::Owner { thread: self.thread.clone(), address: self.address, call: self.mint.next() }
+        screens::voice::Owner {
+            thread: self.thread.clone(),
+            address: self.address,
+            call: self.mint.next(),
+        }
     }
 
     pub(crate) fn voice_audio(&mut self, command: screens::voice::AudioCommand) {

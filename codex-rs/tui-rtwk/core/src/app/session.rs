@@ -356,10 +356,17 @@ pub(super) fn session_intent(
         S::VoiceControl(control) => {
             let thread = source.or_else(|| app.session.active.clone());
             if let Some(thread) = thread
-                && let Some(intent) = app.threads.get(&thread)
+                && let Some(intent) = app
+                    .threads
+                    .get(&thread)
                     .and_then(|model| model.screen_slots().voice.control(control))
             {
-                apply_thread(app, &thread, ThreadEv::ScreenIntent(ScreenThreadIntent::Voice(intent)), fx);
+                apply_thread(
+                    app,
+                    &thread,
+                    ThreadEv::ScreenIntent(ScreenThreadIntent::Voice(intent)),
+                    fx,
+                );
             }
         }
     }

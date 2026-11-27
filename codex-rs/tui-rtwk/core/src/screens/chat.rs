@@ -369,6 +369,8 @@ fn take_invalid_items(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ev {
     Flags(CommandFlags),
+    /// Whether this terminal process has the packaged local media helper.
+    VoiceAvailable(bool),
     ServiceTiers(Vec<ServiceTierCommand>),
     SignedIn(bool),
     /// The host read the config and the workspace.
@@ -492,6 +494,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
         Ev::Flags(flags) => model.flags = flags,
+        Ev::VoiceAvailable(available) => model.flags.voice_command_enabled = available,
         Ev::ServiceTiers(tiers) => model.service_tiers = tiers,
         Ev::SignedIn(on) => model.signed_in = on,
         Ev::Status(mut facts) => {

@@ -324,7 +324,7 @@ host_capability_list! {
         -> new Editor(Result<String, EditorFailure>);
     /// Microphone capture and speaker playback of voice (oracle `voice.rs`, `audio_device.rs`).
     /// Listed for the voice package; the host answers it with its audio executor.
-    audio => Audio(command: AudioCommand) -> new Audio(Result<(), String>);
+    audio => Audio(command: crate::screens::voice::AudioCommand) -> new Audio(crate::screens::voice::AudioReport);
     /// Read a terminal pet catalog or static frame, or persist the local selection.
     pet => Pet(ask: crate::screens::pets::AssetAsk) -> new Pet(crate::screens::pets::AssetDone);
     /// Suspends the process to the shell (Ctrl+Z, oracle `tui/job_control.rs`); the answer comes
@@ -381,17 +381,6 @@ pub struct IdleStreamError(pub Box<codex_app_server_protocol::ErrorNotification>
 
 // The pinned error and its payload are equatable; the wire type only derives PartialEq.
 impl Eq for IdleStreamError {}
-
-/// What `Ask::Audio` asks of the audio devices.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AudioCommand {
-    /// Starts capturing the microphone.
-    StartCapture,
-    /// Stops capturing.
-    StopCapture,
-    /// Stops what the speaker plays.
-    StopPlayback,
-}
 
 /// The terminal's default colors, as `[r, g, b]`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

@@ -251,6 +251,12 @@ impl Footer {
             show_cycle: !running,
             goal,
             ide,
+            voice: select::<ThreadModel, _, _>(cx, |model| model.screen_slots().voice.display()),
+            voice_key: crate::keymap::label(
+                &crate::keymap::keymap(cx),
+                codex_tui_core::keymap::actions::VOICE_TOGGLE_VOICE_MUTE,
+            ),
+            voice_strings: crate::sheets::voice::strings::of(cx),
             side: facts
                 .side_label
                 .or_else(|| facts.side.as_ref().map(strings::side_footer))
@@ -356,6 +362,9 @@ struct Spec {
     goal: Option<GoalIndicator>,
     /// `/ide` is on (`ide_context_active`): `IDE context` after the mode or goal.
     ide: bool,
+    voice: Option<codex_tui_core::screens::voice::Display>,
+    voice_key: Option<String>,
+    voice_strings: &'static crate::sheets::voice::strings::Strings,
     /// The side conversation's label and whether it is the one shown.
     side: Option<(String, bool)>,
     agent_label: Option<String>,
@@ -417,6 +426,9 @@ impl Spec {
         }
         if let Some(forms) = indicators::ide(self, width) {
             out.push((Kind::Ide, forms));
+        }
+        if let Some(forms) = indicators::voice(self, width) {
+            out.push((Kind::Voice, forms));
         }
         if self.running && !self.draft_empty && !self.shell {
             let key = self.own.queue_key;

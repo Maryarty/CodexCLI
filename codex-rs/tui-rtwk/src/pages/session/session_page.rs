@@ -144,6 +144,7 @@ pub struct ChatState {
     /// The backend control is visible, so its chord (`change_host`, `Ctrl+X
     /// b`) is live; read by the key handler.
     control: Rc<Cell<bool>>,
+    voice_controls: Rc<Cell<bool>>,
     /// The backend banner and the page: what it shows, and its rows' cursor.
     banner: BannerGate,
     /// A turn runs and the shortcut overlay is open: the banner's keys wait
@@ -199,6 +200,7 @@ impl StatefulWidget for Chat {
             draft_vim: self.ui.draft.vim_label(),
             node: FocusNode::new(),
             control: Rc::new(Cell::new(false)),
+            voice_controls: Rc::new(Cell::new(false)),
             banner: BannerGate::new(),
             banner_blocked: Rc::new(Cell::new(BannerBlocked::default())),
             keymap: Rc::new(RefCell::new(Rc::new(Keymap::defaults()))),
@@ -406,6 +408,11 @@ impl State for ChatState {
     fn build(&self, w: &Chat, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let frame = frame::Frame::read(self, w, cx);
         self.tell(w, &frame);
+        self.voice_controls
+            .set(rtwk::provider::select::<ThreadModel, bool, _>(
+                cx,
+                |thread| thread.screen_slots().voice.can_mute(),
+            ));
         // the sections, top to bottom: the transcript, the composer's place and the bottom pane
         // around it, the terminal title, and the blank sheet a window too small to draw lays over
         let inline_draft = super::transcript_header::startup_draft(&frame.session)

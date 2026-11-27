@@ -17,11 +17,32 @@ use crate::l10n::lang;
 pub struct Strings {
     /// The name of this screen in the debug menu and on its slot dialog.
     pub title: &'static str,
+    pub voice: &'static str,
+    pub connecting: &'static str,
+    pub listening: &'static str,
+    pub muted: &'static str,
+    pub mute: &'static str,
+    pub unmute: &'static str,
+    pub mute_command: &'static str,
+    pub stop_command: &'static str,
+    pub microphone: &'static str,
+    pub speaker: &'static str,
 }
 
 /// English: the oracle's text (the slice names the oracle file per group).
 pub const EN: Strings = Strings {
     title: "voice and realtime strip",
+    // bottom_pane/voice_strip.rs
+    voice: "voice",
+    connecting: "connecting",
+    listening: "listen",
+    muted: "muted",
+    mute: "mute",
+    unmute: "unmute",
+    mute_command: "/voice mute",
+    stop_command: "/voice stop",
+    microphone: "  mic ",
+    speaker: "  codex ",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);

@@ -63,6 +63,7 @@ pub(crate) struct Effects {
     /// Where `/daemon`'s "Update and exit" leaves the update for `main` to run once the
     /// terminal is restored (the startup page's slot).
     update: UpdateSlot,
+    audio: crate::voice::Audio,
 }
 
 /// Copy on release unless a direct terminal is known to forward its default copy shortcut
@@ -222,6 +223,7 @@ impl Effects {
             terminal: Arc::new(write_osc52),
             config: Some(Arc::new(config.clone())),
             update,
+            audio: crate::voice::Audio::default(),
         }
     }
 
@@ -233,14 +235,20 @@ impl Effects {
             terminal,
             config: None,
             update: UpdateSlot::default(),
+            audio: crate::voice::Audio::default(),
         }
     }
 
     /// The history file and the mention usage window, read when the first thread is there.
-    pub(crate) async fn opened(&self) -> [AppEv; 2] {
+    pub(crate) async fn opened(&self) -> [AppEv; 3] {
         [
             self.services.history_metadata().await,
             self.services.mention_usage().await,
+            AppEv::Screen(ScreenEv::Chat(
+                codex_tui_core::screens::chat::Ev::VoiceAvailable(
+                    codex_realtime_webrtc::RealtimeWebrtcSession::is_supported(),
+                ),
+            )),
         ]
     }
 
@@ -297,8 +305,8 @@ pub(crate) struct Link {
 }
 
 /// The executors that are this host's own: the git lists, the background server, the editor, the
-/// config file and the worktrees. The six capabilities listed before they were built (audio,
-/// suspend, notifications, the screen mode, the terminal probe, the session lock) have no
+/// config file and the worktrees. Five capabilities listed before they were built (suspend,
+/// notifications, the screen mode, the terminal probe, the session lock) have no
 /// executor yet: each is one method here, in the file of the package that builds it.
 struct Own<'a> {
     effects: &'a Effects,
@@ -321,6 +329,17 @@ impl Own<'_> {
 
 impl HostDoors for Own<'_> {
     type Out = Outcome;
+
+    async fn audio(
+        &self,
+        command: codex_tui_core::screens::voice::AudioCommand,
+    ) -> Option<Self::Out> {
+        let config = self.effects.config.as_deref();
+        Some(Outcome::Effect(
+            Done::Audio(self.effects.audio.run(command, config).await),
+            None,
+        ))
+    }
 
     async fn pet(&self, ask: codex_tui_core::screens::pets::AssetAsk) -> Option<Self::Out> {
         Some(Outcome::Effect(
@@ -838,7 +857,12 @@ mod tests {
         )
         .await;
         assert!(recorded.is_none());
-        let [metadata, usage] = rig.effects.opened().await;
+        let [metadata, usage, voice] = rig.effects.opened().await;
+        assert!(matches!(
+            voice,
+            AppEv::Screen(ScreenEv::Chat(codex_tui_core::screens::chat::Ev::VoiceAvailable(available)))
+                if available == codex_realtime_webrtc::RealtimeWebrtcSession::is_supported()
+        ));
         assert!(matches!(
             metadata,
             AppEv::Screen(ScreenEv::Popovers(popovers::Ev::HistoryMetadata {

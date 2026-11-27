@@ -14,6 +14,7 @@ use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
 
 pub mod strings;
+pub(crate) mod strip;
 
 /// What the debug menu lists for this directory: nothing yet. A slice adds
 /// one entry per state worth opening (a screen on made-up data).

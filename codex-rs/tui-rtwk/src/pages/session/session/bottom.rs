@@ -214,27 +214,29 @@ pub(super) fn body(
             // the `@`/`$` popup stands right above the draft and takes the
             // rows the draft leaves, 17 at most (`ActivePopup::MentionV2`
             // above the composer: the draft first, then what remains)
-            body.child(mention::slot(w.ui.clone())).child(
-                // keyed: the blank rows and the status come and go above it
-                // and the footer's type changes below, and an unkeyed child
-                // between two changed neighbours is a new element (its state,
-                // and the messages queued for it, lost)
-                AnyWidget::from(Sparkle {
-                    ui: w.ui.clone(),
-                    focus: state.node.clone(),
-                    eligible: thread.screen_slots().chat.sparkle_eligible(facts),
-                    // the footer's overlay and search row, and a turn that runs,
-                    // take the stage (`render_sparkle_at`)
-                    hidden: state.shortcuts || running || searching.is_some(),
-                    placeholder,
-                    child: BoxWidget::new()
-                        .style(tokens.prompt_surface(cx, false))
-                        .padding(EdgeInsets::only(0, 1, 1, 1))
-                        .child(composer)
-                        .into(),
-                })
-                .with_key(Key::value("composer")),
-            )
+            body.child(mention::slot(w.ui.clone()))
+                .child(crate::sheets::voice::strip::Strip)
+                .child(
+                    // keyed: the blank rows and the status come and go above it
+                    // and the footer's type changes below, and an unkeyed child
+                    // between two changed neighbours is a new element (its state,
+                    // and the messages queued for it, lost)
+                    AnyWidget::from(Sparkle {
+                        ui: w.ui.clone(),
+                        focus: state.node.clone(),
+                        eligible: thread.screen_slots().chat.sparkle_eligible(facts),
+                        // the footer's overlay and search row, and a turn that runs,
+                        // take the stage (`render_sparkle_at`)
+                        hidden: state.shortcuts || running || searching.is_some(),
+                        placeholder,
+                        child: BoxWidget::new()
+                            .style(tokens.prompt_surface(cx, false))
+                            .padding(EdgeInsets::only(0, 1, 1, 1))
+                            .child(composer)
+                            .into(),
+                    })
+                    .with_key(Key::value("composer")),
+                )
         }
     };
     // a status line that names the credits or the cost wants them, whether or not it shows them
