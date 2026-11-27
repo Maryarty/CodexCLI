@@ -10,7 +10,7 @@
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::ids::Ticket;
 use codex_tui_core::rpc::{Reply, RpcError};
-use codex_tui_core::screens::select::apps::{App, Cache, Status};
+use codex_tui_core::screens::select::apps::{App, Cache, ModalAction, Status};
 use codex_tui_core::screens::select::models::{
     Answer, Current as ModelCurrent, ModelMenu, Onward, Preset,
 };
@@ -791,10 +791,10 @@ fn an_app_switch_is_written_to_the_config_and_then_shown_in_the_directory() {
 
     let fx = open(
         &mut app,
-        SelectIntent::SetApp {
+        SelectIntent::app_action(ModalAction::Enable {
             id: "notion".into(),
             enabled: false,
-        },
+        }),
     );
     let (ticket, command) = asked(&fx);
     assert_eq!(
@@ -839,10 +839,10 @@ fn an_app_switch_is_written_to_the_config_and_then_shown_in_the_directory() {
     // on again: both keys are cleared
     let fx = open(
         &mut app,
-        SelectIntent::SetApp {
+        SelectIntent::app_action(ModalAction::Enable {
             id: "notion".into(),
             enabled: true,
-        },
+        }),
     );
     let (ticket, command) = asked(&fx);
     let ClientRequest::ConfigBatchWrite { params, .. } =
@@ -974,7 +974,10 @@ fn picking_an_app_with_no_page_says_so() {
     let directory = &app.screens().select.apps;
     assert!(directory.app("a").and_then(App::link).is_some());
     assert!(directory.app("b").and_then(App::link).is_none());
-    open(&mut app, SelectIntent::AppUnlinked("b".into()));
+    open(
+        &mut app,
+        SelectIntent::app_action(ModalAction::Unlinked("b".into())),
+    );
     assert_eq!(
         said(&app),
         vec![select::Note::AppLinkUnavailable(Status::Installable)]
@@ -1012,23 +1015,29 @@ fn an_app_link_dialog_asks_the_app_to_open_the_page_switch_and_read_again() {
     );
 
     // the page opens in the browser; an app with no page opens nothing
-    let fx = open(&mut app, SelectIntent::OpenAppPage("a".into()));
+    let fx = open(
+        &mut app,
+        SelectIntent::app_action(ModalAction::Visit("a".into())),
+    );
     assert!(
         matches!(fx.commands(), [Command::Effect { ask: codex_tui_core::app::effects::Ask::OpenUrl { url, .. }, .. }] if url == "https://x/a"),
         "{:?}",
         fx.commands()
     );
-    let fx = open(&mut app, SelectIntent::OpenAppPage("b".into()));
+    let fx = open(
+        &mut app,
+        SelectIntent::app_action(ModalAction::Visit("b".into())),
+    );
     assert!(fx.commands().is_empty(), "{:?}", fx.commands());
 
     // the switch is written; a refused write is said and leaves the directory as it was (the
     // dialog keeps the switch it shows: it is the sheet's copy)
     let fx = open(
         &mut app,
-        SelectIntent::SetApp {
+        SelectIntent::app_action(ModalAction::Enable {
             id: "a".into(),
             enabled: false,
-        },
+        }),
     );
     let (ticket, _) = asked(&fx);
     app_failed(&mut app, ticket);

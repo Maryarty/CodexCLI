@@ -89,13 +89,18 @@ fn permission_picker_holds_queued_follow_up_while_open() {
     }
 }
 
-fn effective_permissions(s: &mut Screen, policy: &str, reviewer: &str) {
+fn effective_permissions(s: &mut Screen, profile: &str, policy: &str, reviewer: &str) {
+    let sandbox = if profile == ":workspace" {
+        "workspaceWrite"
+    } else {
+        "readOnly"
+    };
     s.feed(&json!({
         "step": "notify", "message": {"method": "thread/settings/updated", "params": {
             "threadId": "thread-1", "threadSettings": {
                 "cwd": "/tmp", "model": "gpt-5.5", "modelProvider": "openai", "effort": "medium",
                 "approvalPolicy": policy, "approvalsReviewer": reviewer,
-                "sandboxPolicy": {"type": "readOnly"}, "activePermissionProfile": {"id": ":read-only"},
+                "sandboxPolicy": {"type": sandbox}, "activePermissionProfile": {"id": profile},
                 "collaborationMode": {"mode": "default", "settings": {
                     "model": "gpt-5.5", "reasoning_effort": "medium", "developer_instructions": null
                 }}
@@ -133,17 +138,43 @@ fn queued_permissions_requires_the_ack_and_the_effective_settings() {
         if ack_first {
             s.release(&settings);
         }
-        effective_permissions(&mut s, "never", "user");
+        effective_permissions(&mut s, ":read-only", "never", "user");
         s.assert_no_turn();
-        effective_permissions(&mut s, "on-request", "auto_review");
+        effective_permissions(&mut s, ":read-only", "on-request", "auto_review");
         s.assert_no_turn();
-        effective_permissions(&mut s, "on-request", "user");
+        effective_permissions(&mut s, ":read-only", "on-request", "user");
         if !ack_first {
             s.assert_no_turn();
             s.release(&settings);
         }
         s.assert_turn_texts(&["after permission changes"]);
-        effective_permissions(&mut s, "on-request", "user");
+        effective_permissions(&mut s, ":read-only", "on-request", "user");
+        s.assert_turn_texts(&["after permission changes"]);
+    }
+}
+
+#[test]
+fn a_menu_selection_is_compared_to_the_current_permissions_when_applied() {
+    for changed_while_open in [false, true] {
+        let mut s = queued_permissions_selection();
+        let settings = s.hold_request("thread/settings/update");
+        let latest = if changed_while_open {
+            ":read-only"
+        } else {
+            ":workspace"
+        };
+        effective_permissions(&mut s, latest, "on-request", "user");
+        s.assert_contains("Ask for approval (current)");
+        s.keys("1");
+        if changed_while_open {
+            s.assert_permission_updates(&[":workspace"]);
+            s.assert_no_turn();
+            s.release(&settings);
+            s.assert_no_turn();
+            effective_permissions(&mut s, ":workspace", "on-request", "user");
+        } else {
+            s.assert_permission_updates(&[]);
+        }
         s.assert_turn_texts(&["after permission changes"]);
     }
 }
@@ -162,7 +193,7 @@ fn refused_permission_write_retains_the_queued_input() {
     s.assert_contains("selected profile was refused");
     s.assert_no_turn();
     s.assert_reconnect_queue(&["after permission changes"]);
-    effective_permissions(&mut s, "on-request", "user");
+    effective_permissions(&mut s, ":read-only", "on-request", "user");
     s.assert_no_turn();
 }
 

@@ -27,10 +27,19 @@ impl FeatureView for WindowsSandbox {
     /// The prompt that fell due opens once for the wish, over the chat, at the bottom like the
     /// oracle's pane.
     fn shown(wish: &Wish, _scope: &Scope) -> Option<Shown> {
-        let Wish::Prompt(prompt) = *wish;
+        let (prompt, owner) = match wish {
+            Wish::Prompt(prompt) => (*prompt, None),
+            Wish::OwnedPrompt { prompt, token } => (*prompt, Some(token.clone())),
+        };
         Some(Shown {
             held_by: None,
-            open: Rc::new(move || -> AnyWidget { PromptSheet { prompt }.into() }),
+            open: Rc::new(move || -> AnyWidget {
+                PromptSheet {
+                    prompt,
+                    owner: owner.clone(),
+                }
+                .into()
+            }),
             options: crate::sheets::sheet_options(),
         })
     }

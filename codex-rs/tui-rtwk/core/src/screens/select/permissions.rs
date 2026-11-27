@@ -469,35 +469,51 @@ pub enum Label {
     Profile(String),
 }
 
+/// Effective permission fields reported by a thread's live connection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Effective {
+    pub(crate) address: Address,
+    pub(crate) profile: Option<String>,
+    pub(crate) approval: Option<Approval>,
+    pub(crate) reviewer: Reviewer,
+}
+
+impl Effective {
+    pub(crate) fn observed(address: Address, settings: &ThreadSettings) -> Self {
+        Self {
+            address,
+            profile: settings
+                .active_permission_profile
+                .as_ref()
+                .map(|profile| profile.id.clone()),
+            approval: Some(settings.approval_policy),
+            reviewer: settings.approvals_reviewer,
+        }
+    }
+
+    pub(crate) fn matches(&self, patch: &SettingsPatch) -> bool {
+        patch
+            .permissions
+            .as_ref()
+            .is_none_or(|profile| self.profile.as_ref() == Some(profile))
+            && patch
+                .approval_policy
+                .is_none_or(|approval| self.approval == Some(approval))
+            && patch
+                .approvals_reviewer
+                .is_none_or(|reviewer| reviewer == self.reviewer)
+    }
+}
+
 /// A selected profile remains pending until the request and its effective facts agree.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Applying {
     pub(crate) token: ModalToken<Selection>,
     pub(crate) address: Address,
     pub(crate) patch: SettingsPatch,
+    pub(crate) deferred: Option<Selection>,
     pub(crate) accepted: bool,
     pub(crate) effective: bool,
-}
-
-impl Applying {
-    pub(crate) fn observe(&mut self, address: Address, settings: &ThreadSettings) {
-        if self.address != address {
-            return;
-        }
-        self.effective = self.patch.permissions.as_ref().is_none_or(|id| {
-            settings
-                .active_permission_profile
-                .as_ref()
-                .is_some_and(|profile| &profile.id == id)
-        }) && self
-            .patch
-            .approval_policy
-            .is_none_or(|policy| policy == settings.approval_policy)
-            && self
-                .patch
-                .approvals_reviewer
-                .is_none_or(|reviewer| reviewer == settings.approvals_reviewer);
-    }
 }
 
 /// What a final pick applies as.

@@ -9,8 +9,8 @@
 //! What the directory holds (loading, failed with its Retry row, the apps) is the model's fact
 //! the page reads; the page the user is on, the cursor and the dialog's own switch are the
 //! sheet's. The model only learns what is a fact for the app: the directory is read again
-//! (`Intent::RefreshApps`), an app has no page (`Intent::AppUnlinked`), a page is opened
-//! (`Intent::OpenAppPage`), a switch is written (`Intent::SetApp`). The account or the scope
+//! (`Intent::RefreshApps`), an app has no page, a page is opened or a switch is written
+//! (`Intent::ActInApps`). The account or the scope
 //! changing ends the sheet (`Apps::scope`). In Flutter this is the nested-navigator recipe for a
 //! flow inside `showModalBottomSheet`, the directory a `ConsumerStatefulWidget` of a provider that
 //! holds the cache.
@@ -100,18 +100,9 @@ fn say<S: 'static>(cx: &mut Cx<'_, S>, intent: Intent) {
 }
 
 pub(super) fn act<S: 'static>(cx: &mut Cx<'_, S>, action: ModalAction) {
-    let intent = match Provider::<ModalToken<ModalChoice>>::maybe_of(cx, false) {
-        Some(token) => Intent::ActInApps {
-            token: (*token).clone(),
-            action,
-        },
-        None => match action {
-            ModalAction::Retry => Intent::RefreshApps,
-            ModalAction::Visit(id) => Intent::OpenAppPage(id),
-            ModalAction::Enable { id, enabled } => Intent::SetApp { id, enabled },
-        },
-    };
-    say(cx, intent);
+    let token =
+        Provider::<ModalToken<ModalChoice>>::maybe_of(cx, false).map(|token| (*token).clone());
+    say(cx, Intent::ActInApps { token, action });
 }
 
 pub(super) fn finish<S: 'static>(cx: &mut Cx<'_, S>, choice: Option<ModalChoice>) {
@@ -120,13 +111,11 @@ pub(super) fn finish<S: 'static>(cx: &mut Cx<'_, S>, choice: Option<ModalChoice>
         return;
     }
     if let Some(choice) = choice {
-        say(
-            cx,
-            match choice {
-                ModalChoice::Unlinked(id) => Intent::AppUnlinked(id),
-                ModalChoice::RefreshAfterVisit => Intent::RefreshApps,
-            },
-        );
+        let action = match choice {
+            ModalChoice::Unlinked(id) => ModalAction::Unlinked(id),
+            ModalChoice::RefreshAfterVisit => ModalAction::Retry,
+        };
+        act(cx, action);
     }
     close_dialog::<_, ()>(cx, None);
 }

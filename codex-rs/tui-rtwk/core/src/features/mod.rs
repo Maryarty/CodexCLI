@@ -54,7 +54,7 @@ pub use lifecycle::{Connection, Lifecycle, Refusal, ThreadSpawn};
 pub use remote::Remote;
 pub use settings::SettingId;
 pub use surface::{InterestStep, Interests, Scope, SurfaceWish, Wishes};
-pub use verb::PublicVerb;
+pub use verb::{PermissionSetup, PublicVerb};
 
 /// The type `$t` a slice wrote, or `$default` when it wrote none (`feature!`).
 macro_rules! feature_or {
@@ -1179,6 +1179,32 @@ pub(crate) fn setup_before_pick(
         .windows_sandbox
         .pick_needs_setup(selection)
         .then(|| FeatureIntent::from(windows_sandbox::Intent::Prompt(selection.clone())))
+}
+
+pub(crate) fn setup_before_owned_pick(
+    states: &FeatureStates,
+    token: &crate::threads::queue::ModalToken<crate::screens::select::permissions::Selection>,
+    selection: &crate::screens::select::permissions::Selection,
+) -> Option<FeatureIntent> {
+    states.windows_sandbox.pick_needs_setup(selection).then(|| {
+        windows_sandbox::Intent::PromptOwned(windows_sandbox::OwnedPrompt(token.clone())).into()
+    })
+}
+
+pub(crate) fn start_owned_permission_setup(
+    states: &mut FeatureStates,
+    token: &crate::threads::queue::ModalToken<crate::screens::select::permissions::Selection>,
+    mode: codex_app_server_protocol::WindowsSandboxSetupMode,
+    cx: &mut AppCx<'_>,
+) {
+    states.windows_sandbox.start_owned(token, mode, cx);
+}
+
+pub(crate) fn clear_owned_permission_setup(
+    states: &mut FeatureStates,
+    token: &crate::threads::queue::ModalToken<crate::screens::select::permissions::Selection>,
+) {
+    states.windows_sandbox.clear_owned(token);
 }
 
 /// The Daybreak choice of a thread (`/daybreak`'s saved choice, else its metadata's): the one

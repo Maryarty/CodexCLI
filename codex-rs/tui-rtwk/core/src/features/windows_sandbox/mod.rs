@@ -15,13 +15,14 @@ use codex_app_server_protocol::{
 };
 use codex_protocol::config_types::WindowsSandboxLevel;
 
-use super::{AppCx, PublicVerb, Scope};
-use crate::screens::SeedError;
-use crate::screens::select::permissions::{Label, Preset, Reviewer, Selection};
+use super::{AppCx, PermissionSetup, PublicVerb, Scope};
 use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
+use crate::screens::SeedError;
+use crate::screens::select::permissions::{Label, Preset, Reviewer, Selection};
 use crate::threads::Tone;
+use crate::threads::queue::ModalToken;
 
 mod seed;
 
@@ -250,9 +251,13 @@ impl Fact {
 }
 
 /// The prompt that is due, asked of the surface once (`Scope::Thread` of the thread in use).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Wish {
     Prompt(Prompt),
+    OwnedPrompt {
+        prompt: Prompt,
+        token: ModalToken<Selection>,
+    },
 }
 
 /// What a surface or a command says.
@@ -269,13 +274,26 @@ pub enum Intent {
     /// `open_windows_sandbox_enable_prompt(preset)`): when the setup ends well the pick is
     /// applied (`PublicVerb::PickPermissions`), when it fails or is refused nothing is. The
     /// fallback prompt after an elevated failure keeps the pick for its own choice.
-    BeginThen { mode: Mode, then: Selection },
+    BeginThen {
+        mode: Mode,
+        then: Selection,
+    },
     /// `/permissions` picked a preset the sandbox is the missing piece of
     /// (`State::pick_needs_setup`; oracle `OpenWindowsSandboxEnablePrompt { preset }`): the
     /// enable prompt is due and the pick waits on it. The prompt's own `Begin(mode)` then sets
     /// the sandbox up and the pick is applied when it ends well, as `BeginThen` does.
     Prompt(Selection),
+    PromptOwned(OwnedPrompt),
+    BeginOwned {
+        token: ModalToken<Selection>,
+        mode: Mode,
+    },
+    DismissOwned(ModalToken<Selection>),
 }
+
+/// The permission hold whose concrete selection stays with its app owner.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OwnedPrompt(pub(super) ModalToken<Selection>);
 
 /// What an ask was for.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -332,6 +350,7 @@ pub struct State {
     last: Option<(Mode, bool)>,
     /// The permissions pick the setup is for (`Intent::BeginThen`).
     then: Option<Selection>,
+    then_owner: Option<ModalToken<Selection>>,
 }
 
 impl State {
@@ -458,20 +477,27 @@ impl State {
         }
     }
 
-    fn environment(&mut self, config: Config, host: Host, local_server: bool, ready: bool) {
+    fn environment(
+        &mut self,
+        config: Config,
+        host: Host,
+        local_server: bool,
+        ready: bool,
+        cx: &mut AppCx<'_>,
+    ) {
         self.config = Some(config);
         self.host = host;
         self.local_server = local_server;
         self.elevated_ready = ready;
         if self.local_setup() && std::mem::take(&mut self.trusted_prompt) {
-            self.maybe_prompt();
+            self.maybe_prompt(cx);
         }
     }
 
-    fn maybe_prompt(&mut self) {
+    fn maybe_prompt(&mut self, cx: &mut AppCx<'_>) {
         if self.setup_required() {
-            // the startup prompt is for no pick: an old one that was closed is let go
-            self.then = None;
+            // A startup prompt starts its own setup.
+            self.cancel_then(cx);
             self.due = Some(Prompt::Enable);
         }
     }
@@ -481,9 +507,62 @@ impl State {
         if let Some(prompt) = self.due
             && self.wished != Some(prompt)
         {
-            let thread = cx.view().active().cloned().unwrap_or_default();
-            cx.wish(Scope::Thread(thread), Wish::Prompt(prompt));
+            if let Some(token) = &self.then_owner {
+                cx.wish(
+                    token.thread().clone(),
+                    Wish::OwnedPrompt {
+                        prompt,
+                        token: token.clone(),
+                    },
+                );
+            } else {
+                let thread = cx.view().active().cloned().unwrap_or_default();
+                cx.wish(Scope::Thread(thread), Wish::Prompt(prompt));
+            }
             self.wished = Some(prompt);
+        }
+    }
+
+    pub fn owns_prompt(&self, token: &ModalToken<Selection>) -> bool {
+        self.then_owner.as_ref() == Some(token)
+    }
+
+    fn finish_then(&mut self, success: bool, cx: &mut AppCx<'_>) {
+        let selection = self.then.take().filter(|_| success);
+        if let Some(token) = self.then_owner.take() {
+            cx.verb(PublicVerb::PermissionSetup(PermissionSetup::Finished {
+                token,
+                success,
+            }));
+        } else if let Some(selection) = selection {
+            cx.verb(PublicVerb::PickPermissions(selection));
+        }
+    }
+
+    fn cancel_then(&mut self, cx: &mut AppCx<'_>) {
+        self.finish_then(false, cx);
+    }
+
+    pub(super) fn clear_owned(&mut self, token: &ModalToken<Selection>) {
+        if self.owns_prompt(token) {
+            self.then_owner = None;
+            self.then = None;
+            self.due = None;
+            self.wished = None;
+        }
+    }
+
+    pub(super) fn start_owned(
+        &mut self,
+        token: &ModalToken<Selection>,
+        mode: Mode,
+        cx: &mut AppCx<'_>,
+    ) {
+        if self.owns_prompt(token) {
+            self.begin(mode, None, cx);
+            if self.pending.is_none() {
+                self.cancel_then(cx);
+            }
         }
     }
 
@@ -502,7 +581,10 @@ impl State {
             cx.note(None, Note::Disallowed);
             return;
         }
-        let cwd = cx.view().working_directory(cx.view().active());
+        let owner = self.then_owner.as_ref().map(|token| token.thread().clone());
+        let cwd = cx
+            .view()
+            .working_directory(owner.as_ref().or_else(|| cx.view().active()));
         self.pending = Some(Pending {
             mode,
             preset: "auto".to_owned(),
@@ -513,7 +595,11 @@ impl State {
         if then.is_some() {
             self.then = then;
         }
-        cx.ask(None, Wanted::Start { mode, cwd }, Ctx::Start(mode));
+        cx.ask(
+            owner.as_ref(),
+            Wanted::Start { mode, cwd },
+            Ctx::Start(mode),
+        );
     }
 
     fn ended(&mut self, mode: Mode, success: bool, error: Option<String>, cx: &mut AppCx<'_>) {
@@ -531,9 +617,7 @@ impl State {
             self.elevated_ready |= mode == Mode::Elevated;
             self.pending = None;
             self.started = false;
-            if let Some(then) = self.then.take() {
-                cx.verb(PublicVerb::PickPermissions(then));
-            }
+            self.finish_then(true, cx);
         } else if mode == Mode::Elevated {
             // The elevated setup failed: the fallback prompt, the setup stays the pending one's
             // (the choice retries it).
@@ -543,7 +627,7 @@ impl State {
         } else {
             self.pending = None;
             self.started = false;
-            self.then = None;
+            self.cancel_then(cx);
             cx.note(
                 None,
                 Note::SetupFailed(error.unwrap_or_else(|| "unknown error".to_owned())),
@@ -573,18 +657,35 @@ feature! {
                     // nothing (oracle: "guard anyway").
                     Intent::Elevate => {
                         if state.degraded() {
-                            state.then = None;
+                            state.cancel_then(cx);
                             state.begin(Mode::Elevated, None, cx);
                         }
                     }
                     Intent::Prompt(then) => {
+                        state.cancel_then(cx);
                         state.then = Some(then);
                         state.due = Some(Prompt::Enable);
                         state.wished = None;
                         state.wish_due(cx);
                     }
-                    Intent::Begin(mode) => state.begin(mode, None, cx),
-                    Intent::BeginThen { mode, then } => state.begin(mode, Some(then), cx),
+                    Intent::PromptOwned(OwnedPrompt(token)) => {
+                        if state.pending.is_some() {
+                            cx.verb(PublicVerb::PermissionSetup(PermissionSetup::Finished { token, success: false }));
+                        } else {
+                            state.cancel_then(cx);
+                            state.then_owner = Some(token);
+                            state.due = Some(Prompt::Enable);
+                            state.wished = None;
+                            state.wish_due(cx);
+                        }
+                    }
+                    Intent::BeginOwned { token, mode } if state.owns_prompt(&token) => {
+                        cx.verb(PublicVerb::PermissionSetup(PermissionSetup::Begin { token, mode }));
+                    }
+                    Intent::DismissOwned(token) if state.owns_prompt(&token) => state.cancel_then(cx),
+                    Intent::Begin(mode) if state.then_owner.is_none() => state.begin(mode, None, cx),
+                    Intent::BeginThen { mode, then } if state.then_owner.is_none() => state.begin(mode, Some(then), cx),
+                    Intent::BeginOwned { .. } | Intent::DismissOwned(_) | Intent::Begin(_) | Intent::BeginThen { .. } => {},
                     Intent::Shown(prompt) => {
                         if state.due == Some(prompt) {
                             state.due = None;
@@ -603,19 +704,19 @@ feature! {
                     Err(RpcError::Remote(message)) if message.contains("-32601") => {
                         state.pending = None;
                         state.started = false;
-                        state.then = None;
+                        state.cancel_then(cx);
                         cx.note(None, Note::UpdateServer);
                     }
                     Err(_) => {
                         state.pending = None;
                         state.started = false;
-                        state.then = None;
+                        state.cancel_then(cx);
                         cx.note(None, Note::Failed);
                     }
                     Ok(Reply::Started(false)) => {
                         state.pending = None;
                         state.started = false;
-                        state.then = None;
+                        state.cancel_then(cx);
                         cx.note(None, Note::NotStarted);
                     }
                 }
@@ -628,7 +729,7 @@ feature! {
                         host,
                         local_server,
                         elevated_ready,
-                    } => state.environment(config, host, local_server, elevated_ready),
+                    } => state.environment(config, host, local_server, elevated_ready, cx),
                     Fact::Completed {
                         mode,
                         success,
@@ -638,12 +739,18 @@ feature! {
                         state.trusted_prompt = true;
                         if state.config.is_some() && state.local_setup() {
                             state.trusted_prompt = false;
-                            state.maybe_prompt();
+                            state.maybe_prompt(cx);
                         }
                     }
                 }
                 // The prompt that fell due is the surface's to show, once.
                 state.wish_due(cx);
+            }
+
+            fn on_shown(state: &mut State, thread: &ThreadId, cx: &mut AppCx<'_>) {
+                if state.then_owner.as_ref().is_some_and(|token| token.thread() != thread) {
+                    state.cancel_then(cx);
+                }
             }
 
             fn note_tone(note: &Note) -> Tone {

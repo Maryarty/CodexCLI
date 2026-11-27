@@ -2951,10 +2951,12 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
         }
         Intent::Screen(ScreenIntent::Approvals(approvals::Intent::LinkEnable { key })) => {
             if let Some(link) = app_link(app, &key) {
-                let intent = crate::screens::select::Intent::SetApp {
-                    id: link.app_id,
-                    enabled: true,
-                };
+                let intent = crate::screens::select::Intent::app_action(
+                    crate::screens::select::apps::ModalAction::Enable {
+                        id: link.app_id,
+                        enabled: true,
+                    },
+                );
                 select::intent(app, intent, fx);
             }
             accept_link(app, key, fx);
