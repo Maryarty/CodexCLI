@@ -310,6 +310,17 @@ pub(super) fn queue_modal_is_current(app: &CodexApp, operation: &ModalOperation)
             .is_some_and(|model| queue::modal_is_open(model, operation, modal_address(app, thread)))
 }
 
+/// An effect may continue into another dialog while its original visit and writer are live.
+pub(super) fn queue_modal_can_reopen(app: &CodexApp, operation: &ModalOperation) -> bool {
+    let thread = operation.thread();
+    app.session.active.as_ref() == Some(thread)
+        && app.threads.get(thread).is_some_and(|model| {
+            model.has_writer()
+                && !model.stream_lost()
+                && queue::modal_is_applying(model, operation, modal_address(app, thread))
+        })
+}
+
 pub(super) fn acknowledge_queue_modal(
     app: &mut CodexApp,
     operation: ModalOperation,
