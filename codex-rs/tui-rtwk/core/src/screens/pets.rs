@@ -98,21 +98,35 @@ impl Motion {
 #[derive(Clone)]
 pub struct Clip {
     pub data: Arc<[u8]>,
-    pub until_idle: Option<Duration>,
+    pub after: Option<ClipTransition>,
+}
+
+/// A finite clip releases the native player to the next source after its last frame.
+#[derive(Clone, Debug)]
+pub struct ClipTransition {
+    pub delay: Duration,
+    pub next: Arc<Clip>,
 }
 
 impl std::fmt::Debug for Clip {
     fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         out.debug_struct("Clip")
             .field("encoded_bytes", &self.data.len())
-            .field("until_idle", &self.until_idle)
+            .field("after", &self.after)
             .finish()
     }
 }
 
 impl PartialEq for Clip {
     fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.data, &other.data) && self.until_idle == other.until_idle
+        Arc::ptr_eq(&self.data, &other.data)
+            && match (&self.after, &other.after) {
+                (None, None) => true,
+                (Some(left), Some(right)) => {
+                    left.delay == right.delay && Arc::ptr_eq(&left.next, &right.next)
+                }
+                _ => false,
+            }
     }
 }
 

@@ -7,7 +7,7 @@ use codex_tui_core::app::effects::{Ask, Done, ImagePreview, ImageSize};
 use codex_tui_core::app::facts::{Rendering, TuiSettings};
 use codex_tui_core::app::{AppEv, Command};
 use codex_tui_core::screens::pets::{
-    Ambient, Anchor, AssetAsk, AssetDone, Clip, Pet, Picker, Unavailable,
+    Ambient, Anchor, AssetAsk, AssetDone, Clip, ClipTransition, Motion, Pet, Picker, Unavailable,
 };
 use codex_tui_rtwk::app::UiApp;
 
@@ -99,7 +99,7 @@ impl Screen {
             },
             clips: std::array::from_fn(|_| Clip {
                 data: png.clone().into(),
-                until_idle: None,
+                after: None,
             }),
         };
         self.pet_answer(
@@ -109,28 +109,37 @@ impl Screen {
     }
 
     pub fn pets_animated_ambient(&mut self) {
-        use image::codecs::gif::{GifEncoder, Repeat};
-        use image::{Delay, Frame, Rgba, RgbaImage};
+        let data = pet_gif(&[30, 90, 150, 210], 125, true);
+        self.pets_ambient_clips(std::array::from_fn(|_| Clip {
+            data: data.clone(),
+            after: None,
+        }));
+    }
 
-        let mut bytes = Vec::new();
-        {
-            let mut encoder = GifEncoder::new(&mut bytes);
-            encoder
-                .set_repeat(Repeat::Infinite)
-                .expect("repeat animation");
-            for red in [30, 90, 150, 210] {
-                let pixels = RgbaImage::from_pixel(9, 10, Rgba([red, 0, 255, 255]));
-                encoder
-                    .encode_frame(Frame::from_parts(
-                        pixels,
-                        0,
-                        0,
-                        Delay::from_numer_denom_ms(125, 1),
-                    ))
-                    .expect("encode test animation frame");
-            }
-        }
-        let data: Arc<[u8]> = bytes.into();
+    pub fn pets_running_fallback(&mut self) {
+        let file = super::image_file_sized("ambient-pet-idle", 192, 208);
+        let still: Arc<[u8]> = std::fs::read(file).expect("ambient pet PNG").into();
+        let waiting = Arc::new(Clip {
+            data: pet_gif(&[48, 49], 125, true),
+            after: None,
+        });
+        self.pets_ambient_clips(Motion::ALL.map(|motion| match motion {
+            Motion::Running => Clip {
+                data: pet_gif(&[56, 57], 125, false),
+                after: Some(ClipTransition {
+                    delay: crate::common::ms(250),
+                    next: waiting.clone(),
+                }),
+            },
+            Motion::Waiting => waiting.as_ref().clone(),
+            _ => Clip {
+                data: still.clone(),
+                after: None,
+            },
+        }));
+    }
+
+    fn pets_ambient_clips(&mut self, clips: [Clip; 5]) {
         self.pet_answer(
             |ask| matches!(ask, AssetAsk::Ambient { selector: None }),
             AssetDone::Ambient(Some(Arc::new(Ambient {
@@ -139,12 +148,16 @@ impl Screen {
                     height: 208,
                 },
                 anchor: Anchor::Composer,
-                clips: std::array::from_fn(|_| Clip {
-                    data: data.clone(),
-                    until_idle: None,
-                }),
+                clips,
             }))),
         );
+    }
+
+    pub fn ambient_kitty_transfers(&mut self, millis: u64) -> usize {
+        const TRANSMIT_AND_PLACE: &str = "\x1b_Ga=T";
+        let before = self.h.t.written().matches(TRANSMIT_AND_PLACE).count();
+        self.h.t.pump_for(crate::common::ms(millis));
+        self.h.t.written().matches(TRANSMIT_AND_PLACE).count() - before
     }
 
     pub fn ambient_frame_counts(&mut self, millis: u64) -> (u64, u64, u64) {
@@ -297,4 +310,31 @@ impl Screen {
         })]);
         self
     }
+}
+
+fn pet_gif(colors: &[u8], delay_ms: u32, repeat: bool) -> Arc<[u8]> {
+    use image::codecs::gif::{GifEncoder, Repeat};
+    use image::{Delay, Frame, Rgba, RgbaImage};
+
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = GifEncoder::new(&mut bytes);
+        if repeat {
+            encoder
+                .set_repeat(Repeat::Infinite)
+                .expect("repeat animation");
+        }
+        for &red in colors {
+            let pixels = RgbaImage::from_pixel(9, 10, Rgba([red, 0, 255, 255]));
+            encoder
+                .encode_frame(Frame::from_parts(
+                    pixels,
+                    0,
+                    0,
+                    Delay::from_numer_denom_ms(delay_ms, 1),
+                ))
+                .expect("encode test animation frame");
+        }
+    }
+    bytes.into()
 }

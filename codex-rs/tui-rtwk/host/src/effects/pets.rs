@@ -222,6 +222,8 @@ struct Animation {
     fps: Option<f64>,
     #[serde(rename = "loop")]
     loop_animation: Option<bool>,
+    #[serde(default)]
+    fallback: String,
 }
 
 #[derive(Clone, Copy, Deserialize)]

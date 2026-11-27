@@ -94,3 +94,44 @@ fn ambient_pet_unsupported_graphics_keeps_the_host_idle() {
         }
     )));
 }
+
+#[test]
+fn ambient_pet_plays_manifest_fallback_during_running_turn() {
+    let mut screen = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .kitty()
+        .live()
+        .open();
+    screen.feed(include_str!(
+        "../oracle/fixtures/chat_status_1/running_turn.jsonl"
+    ));
+    screen.pets_running_fallback();
+    screen.assert_ambient_pet(Some((71, 18, 9, 5)));
+    // The running clip has two 125 ms frames. The continued transmissions after 500 ms
+    // come from the waiting fallback, since idle is a still image.
+    screen.wait(500);
+    assert!((8..=9).contains(&screen.ambient_kitty_transfers(1_000)));
+    screen.focus_out().wait(200);
+    screen.assert_ambient_pet(None);
+    assert_eq!(screen.ambient_kitty_transfers(1_000), 0);
+    screen.focus_in().wait(200);
+    assert!((8..=9).contains(&screen.ambient_kitty_transfers(1_000)));
+}
+
+#[test]
+fn ambient_pet_fits_short_running_chat_without_unused_label_rows() {
+    for (height, top) in [(6, 0), (7, 1)] {
+        let mut screen = Screen::build(Owner::UiPane)
+            .size(80, height)
+            .kitty()
+            .live()
+            .open();
+        screen.pets_ambient(None, false);
+        screen.feed(include_str!(
+            "../oracle/fixtures/chat_status_1/running_turn.jsonl"
+        ));
+        screen.type_text("draft stays visible");
+        screen.assert_ambient_pet(Some((71, top, 9, 5)));
+        screen.assert_contains("draft stays visible");
+    }
+}

@@ -291,7 +291,7 @@ mod live {
             anchor: Anchor::Composer,
             clips: std::array::from_fn(|_| Clip {
                 data: Arc::new([]),
-                until_idle: None,
+                after: None,
             }),
         };
         answer(&mut app, boot, AssetDone::Ambient(Some(Arc::new(asset))));
