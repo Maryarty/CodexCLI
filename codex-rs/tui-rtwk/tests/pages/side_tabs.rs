@@ -77,9 +77,15 @@ fn workspace(attached: bool) -> Harness {
 
 fn open_workspace(attached: bool) -> Harness {
     let mut h = workspace(attached);
+    warm_parent(&mut h);
     send_line(&mut h, "/side first-side");
     assert_active(&h, SIDE);
     h
+}
+
+fn warm_parent(h: &mut Harness) {
+    send_line(h, "parent-start");
+    finish_opening_turn(h, FAKE_THREAD, "PARENT HISTORY");
 }
 
 fn send_line(h: &mut Harness, line: &str) {
@@ -166,7 +172,14 @@ fn native_tabs_select_open_children_by_keyboard_and_mouse_with_independent_draft
     h.advance(150);
     assert_active(&h, FAKE_THREAD);
     assert!(h.t.screen().contains("New side chat"));
-    h.press("down");
+    h.press("enter");
+    h.advance(150);
+    assert_active(&h, SECOND);
+    assert!(h.t.screen().contains("second-draft"));
+    assert!(!submitted(&h, SECOND, "second-draft"));
+    h.press("f12 t");
+    assert_active(&h, FAKE_THREAD);
+    h.press("up");
     h.press("enter");
     h.advance(150);
     assert_active(&h, SIDE);
@@ -309,6 +322,26 @@ fn the_empty_workspace_chooser_creates_and_plus_can_open_a_fresh_child() {
     assert_active(&h, FAKE_THREAD);
     h.press("f12 t");
     h.advance(150);
+    let cold = h.t.screen();
+    assert!(
+        cold.contains("You can start a side chat") && cold.contains("in the main chat."),
+        "{cold}"
+    );
+    assert!(!cold.contains("New side chat"));
+    h.press("enter");
+    h.advance(150);
+    assert_active(&h, FAKE_THREAD);
+    assert!(
+        !h.fake
+            .requests()
+            .iter()
+            .any(|r| r["method"] == "thread/fork")
+    );
+    h.press("esc");
+    assert!(!h.t.screen().contains("You can start a side chat"));
+    warm_parent(&mut h);
+    h.press("f12 t");
+    h.advance(150);
     assert!(h.t.screen().contains("New side chat"), "{}", h.t.screen());
     h.press("enter");
     h.advance(300);
@@ -317,6 +350,7 @@ fn the_empty_workspace_chooser_creates_and_plus_can_open_a_fresh_child() {
     click_label(&mut h, "+");
     assert_active(&h, FAKE_THREAD);
     assert!(h.t.screen().contains("New side chat"), "{}", h.t.screen());
+    h.press("home");
     h.press("enter");
     h.advance(300);
     assert_active(&h, SECOND);
@@ -423,4 +457,41 @@ fn the_vertical_wheel_over_the_tab_header_selects_the_adjacent_child() {
     h.advance(150);
     assert_active(&h, SECOND);
     assert!(h.t.screen().contains("SECOND HISTORY"));
+}
+
+#[test]
+fn sidebar_commands_follow_the_visible_panel_and_ctrl_c_never_archives_a_chooser_row() {
+    let mut h = workspace(false);
+    warm_parent(&mut h);
+    h.press("f12 s");
+    assert!(h.t.screen().contains("New side chat"));
+    h.press("f12 t");
+    h.press("f12 t");
+    assert!(h.t.screen().contains("New side chat"));
+    h.press("f12 x");
+    assert_active(&h, FAKE_THREAD);
+    assert!(!h.t.screen().contains("New side chat"));
+
+    send_line(&mut h, "/side first-side");
+    finish_opening_turn(&mut h, SIDE, "FIRST HISTORY");
+    assert_active(&h, SIDE);
+    h.press("f12 s");
+    assert_active(&h, FAKE_THREAD);
+    assert!(!h.t.screen().contains("FIRST HISTORY"));
+    h.press("f12 t");
+    h.press("down");
+    h.press("ctrl+c");
+    assert_active(&h, FAKE_THREAD);
+    assert!(!h.t.screen().contains("New side chat"));
+    assert!(!h.t.screen().contains("Archive side chat?"));
+    assert!(
+        !h.fake
+            .requests()
+            .iter()
+            .any(|request| request["method"] == "thread/archive")
+    );
+
+    h.press("f12 s");
+    assert_active(&h, SIDE);
+    assert!(h.t.screen().contains("FIRST HISTORY"));
 }

@@ -130,6 +130,7 @@ pub enum PaneActivationKey {
     Escape,
     Left,
     Right,
+    CtrlC,
 }
 
 impl PaneActivationKey {
@@ -144,7 +145,20 @@ impl PaneActivationKey {
     }
 
     pub fn of_press(key: &KeyPress) -> Option<Self> {
+        if is_ctrl_c(key) {
+            return Some(Self::CtrlC);
+        }
         Self::of(key.code, key.mods)
+    }
+
+    fn of_event(event: &KeyEvent<'_>) -> Option<Self> {
+        if event.code == KeyCode::Char
+            && event.modifiers == Mods::CTRL
+            && (event.text == "c" || event.base_char == Some('c'))
+        {
+            return Some(Self::CtrlC);
+        }
+        Self::of(event.code, event.modifiers)
     }
 
     pub fn repeats(event: &KeyEvent<'_>) -> bool {
@@ -183,7 +197,7 @@ impl PaneActivationGuard {
         let Some(armed) = self.0.get() else {
             return false;
         };
-        if PaneActivationKey::of(event.code, event.modifiers) != Some(armed) {
+        if PaneActivationKey::of_event(event) != Some(armed) {
             return false;
         }
         if event.kind == KeyKind::Release {

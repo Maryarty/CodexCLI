@@ -279,7 +279,7 @@ pub(super) fn side_is_temporary(states: &FeatureStates, child: &ThreadId) -> boo
         .is_some_and(|link| link.storage == Storage::Temporary)
 }
 
-pub(crate) use codex_tui_core::features::side::SavedChats;
+pub(crate) use codex_tui_core::features::side::{SavedChats, can_create as can_create_side};
 
 pub(super) fn create_side<S: 'static>(cx: &mut Cx<'_, S>, parent: ThreadId) {
     use codex_tui_core::features::side::Intent;

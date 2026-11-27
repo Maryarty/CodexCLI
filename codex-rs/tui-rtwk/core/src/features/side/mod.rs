@@ -146,6 +146,13 @@ pub enum Start {
     Fork,
 }
 
+/// The side chooser can open a new chat after the main conversation has a turn.
+pub fn can_create(thread: &crate::threads::ThreadCore) -> bool {
+    thread.is_running()
+        || thread.last_ended().is_some()
+        || thread.transcript().last_turn().is_some()
+}
+
 impl State {
     /// `side_start_block_message`, then the reuse of the parent's own side conversation
     /// (`handle_start_side`): `source` is the thread `/side` was typed in.
@@ -637,6 +644,7 @@ feature! {
                         let tui = view.facts().tui();
                         if tui.workspace_enabled && tui.transcript_owned
                             && view.active() == Some(&parent)
+                            && view.thread(&parent).is_some_and(|thread| can_create(thread.core()))
                         {
                             start(state, Some(parent), None, true, true, cx);
                         }

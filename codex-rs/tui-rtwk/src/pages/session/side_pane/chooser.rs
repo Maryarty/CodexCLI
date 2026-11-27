@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use codex_tui_core::ids::ThreadId;
-use rtwk::controls::{SelectionController, SelectionList};
+use rtwk::controls::{Button, SelectionController, SelectionList};
 use rtwk::focus::{Focus, FocusNode, KeyEventResult};
 use rtwk::gestures::{Listener, PointerEvent};
 use rtwk::layout::{Column, Expanded};
@@ -11,8 +11,8 @@ use rtwk::prelude::HitTestBehavior;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Handler, Str};
 
-use crate::features::SavedChats;
-use crate::keymap::press::{PaneActivationGuard, PaneActivationKey, is_ctrl_c};
+use crate::features::{SavedChats, can_create_side};
+use crate::keymap::press::{PaneActivationGuard, PaneActivationKey};
 
 use super::{Dock, DockState, Msg};
 
@@ -53,15 +53,44 @@ pub(super) struct ChooserControls {
 }
 
 impl ChooserControls {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(selected: Option<&ThreadId>) -> Self {
+        let cursor = selected.map_or(SideChoice::Create, |child| SideChoice::Open(child.clone()));
         Self {
             focus: FocusNode::new(),
-            selection: SelectionController::with(false, [], Some(SideChoice::Create)),
+            selection: SelectionController::with(false, [], Some(cursor)),
         }
     }
 
     pub(super) fn view(&self, w: &Dock, cx: &mut Cx<'_, DockState>) -> AnyWidget {
         let words = crate::pages::session::strings::of(cx);
+        if !can_create_side(&w.parent.model) {
+            let tell = cx.local_sender();
+            let guard = rtwk::provider::read::<PaneActivationGuard, _>(cx);
+            let cancel =
+                Button::new(words.side_close_cancel).on_pressed(cx.map(|()| Msg::DismissChooser));
+            let notice = Column::new()
+                .child(Text::line(words.side_saved_title))
+                .child(Text::new(words.side_saved_wait_for_first))
+                .child(cancel);
+            return Focus::new(notice)
+                .focus_node(self.focus.clone())
+                .autofocus()
+                .on_key_event(move |_, key| match PaneActivationKey::of_press(&key) {
+                    Some(activation @ PaneActivationKey::Escape) => {
+                        guard.arm(activation);
+                        tell(Msg::DismissChooser);
+                        KeyEventResult::Handled
+                    }
+                    Some(activation @ PaneActivationKey::CtrlC) => {
+                        guard.arm(activation);
+                        tell(Msg::Hide);
+                        KeyEventResult::Handled
+                    }
+                    Some(PaneActivationKey::Enter) => KeyEventResult::Handled,
+                    _ => KeyEventResult::Ignored,
+                })
+                .into();
+        }
         let mut rows = vec![Row::new(
             cx,
             SideChoice::Create,
@@ -123,7 +152,6 @@ impl ChooserControls {
         .focus_node(self.focus.clone())
         .autofocus(true)
         .on_submitted(cx.map(|choice| Msg::Choose(choice, true)));
-        let selection = self.selection.clone();
         let tell = cx.local_sender();
         let guard = rtwk::provider::read::<PaneActivationGuard, _>(cx);
         let has_live = w.child.is_some();
@@ -142,10 +170,9 @@ impl ChooserControls {
                         guard.arm(activation);
                         tell(Msg::DismissChooser);
                     }
-                    _ if is_ctrl_c(&key) => {
-                        if let Some(SideChoice::Open(child)) = selection.cursor() {
-                            tell(Msg::Archive(child));
-                        }
+                    Some(activation @ PaneActivationKey::CtrlC) => {
+                        guard.arm(activation);
+                        tell(Msg::Hide);
                     }
                     _ => return KeyEventResult::Ignored,
                 }

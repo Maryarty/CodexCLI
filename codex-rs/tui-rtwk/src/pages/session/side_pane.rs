@@ -194,6 +194,7 @@ pub enum Msg {
     Width(i32),
     FocusParent,
     FocusChild,
+    FocusSidebarContent,
     Hide,
     Zoom,
     FocusTabs,
@@ -220,7 +221,7 @@ pub enum Msg {
 pub struct CloseProof {
     thread: ThreadId,
     archive: bool,
-    draft: Option<UserMessage>,
+    draft: UserMessage,
     shell: bool,
     running: bool,
 }
@@ -232,15 +233,7 @@ impl CloseProof {
         archive: bool,
         cx: &mut Cx<'_, DockState>,
     ) -> Option<Self> {
-        let Some(pane) = w.open_child(&thread) else {
-            return (archive && w.has_saved(&thread)).then_some(Self {
-                thread,
-                archive,
-                draft: None,
-                shell: false,
-                running: false,
-            });
-        };
+        let pane = w.open_child(&thread)?;
         if pane.ui.draft.in_burst() || (archive && pane.temporary) {
             return None;
         }
@@ -248,11 +241,10 @@ impl CloseProof {
         Some(Self {
             thread,
             archive,
-            draft: Some(
-                pane.ui
-                    .draft
-                    .submission(&pane.ui.composer, |n| words.image(n)),
-            ),
+            draft: pane
+                .ui
+                .draft
+                .submission(&pane.ui.composer, |n| words.image(n)),
             shell: pane.ui.draft.shell(),
             running: pane.model.task_running(),
         })
@@ -265,11 +257,9 @@ impl CloseProof {
             losses.push(words.side_close_turn);
         }
         if self.shell
-            || self.draft.as_ref().is_some_and(|draft| {
-                !draft.text.is_empty()
-                    || !draft.images.is_empty()
-                    || !draft.remote_images.is_empty()
-            })
+            || !self.draft.text.is_empty()
+            || !self.draft.images.is_empty()
+            || !self.draft.remote_images.is_empty()
         {
             losses.push(words.side_close_draft);
         }
@@ -310,7 +300,7 @@ struct PendingClose {
 const ACTIONS: &[(ActionId, Msg)] = &[
     (GLOBAL_FOCUS_MAIN_COMPOSER, Msg::FocusParent),
     (GLOBAL_FOCUS_PANE_LEFT, Msg::FocusParent),
-    (GLOBAL_FOCUS_SIDEBAR_CONTENT, Msg::FocusChild),
+    (GLOBAL_FOCUS_SIDEBAR_CONTENT, Msg::FocusSidebarContent),
     (GLOBAL_FOCUS_SIDEBAR_TABS, Msg::FocusTabs),
     (GLOBAL_SIDEBAR_UP, Msg::StepFocusedTab(-1)),
     (GLOBAL_SIDEBAR_DOWN, Msg::StepFocusedTab(1)),
@@ -434,6 +424,26 @@ impl DockState {
         cx.emit(&hs.open_thread, id.clone());
     }
 
+    fn open_chooser(&mut self, cx: &mut Cx<'_, Self>, w: &Dock) {
+        if let Some(chooser) = &self.chooser {
+            chooser.focus.request_focus();
+            return;
+        }
+        self.hidden = false;
+        self.zoom = None;
+        let chooser = chooser::ChooserControls::new(w.child.as_ref().map(|child| child.model.id()));
+        if w.on_child() {
+            Self::focus(cx, &w.parent, &w.active);
+        }
+        // Native autofocus fills an empty scope. The outgoing composer can still
+        // own focus while the chooser and its parent are being mounted.
+        Self::focus_after_frame(cx, chooser.focus.clone());
+        self.chooser = Some(chooser);
+        if features::can_create_side(&w.parent.model) {
+            features::refresh_saved_side(cx, w.parent.model.id().clone());
+        }
+    }
+
     fn keyboard_resize(&self) -> bool {
         matches!(self.resize, Some(Resize::Keyboard(_)))
     }
@@ -538,10 +548,16 @@ impl State for DockState {
         if old.active != w.active && w.on_child() && self.chooser.take().is_some() {
             Self::focus_after_frame(cx, composer_node(&w.active_pane().ui));
         }
-        let missing = self.close_pending.as_ref().is_some_and(|pending| {
-            w.open_child(&pending.proof.thread).is_none()
-                && !(pending.proof.archive && w.has_saved(&pending.proof.thread))
-        });
+        if self.chooser.is_some()
+            && !features::can_create_side(&old.parent.model)
+            && features::can_create_side(&w.parent.model)
+        {
+            features::refresh_saved_side(cx, w.parent.model.id().clone());
+        }
+        let missing = self
+            .close_pending
+            .as_ref()
+            .is_some_and(|pending| w.open_child(&pending.proof.thread).is_none());
         if missing && let Some(pending) = self.close_pending.take() {
             pending.dialog.close(None);
         }
@@ -590,29 +606,27 @@ impl State for DockState {
                     Self::focus(cx, child, &w.active);
                 }
             }
-            Msg::FocusTabs if self.width >= SPLIT_AT => {
-                if self.chooser.is_some() {
-                    self.chooser = None;
-                    Self::focus(cx, w.child.as_ref().unwrap_or(&w.parent), &w.active);
-                } else {
-                    self.hidden = false;
-                    self.zoom = None;
-                    let chooser = chooser::ChooserControls::new();
-                    if w.on_child() {
-                        Self::focus(cx, &w.parent, &w.active);
-                    }
-                    // Native autofocus fills an empty scope. The outgoing composer can still
-                    // own focus while the chooser and its parent are being mounted.
-                    Self::focus_after_frame(cx, chooser.focus.clone());
-                    self.chooser = Some(chooser);
-                    features::refresh_saved_side(cx, w.parent.model.id().clone());
-                }
+            Msg::FocusSidebarContent if w.on_child() || self.chooser.is_some() => {
+                self.hidden = true;
+                self.chooser = None;
+                Self::focus(cx, &w.parent, &w.active);
+            }
+            Msg::FocusSidebarContent if w.child.is_some() => {
+                self.hidden = false;
+                Self::focus(cx, w.child.as_ref().unwrap_or(&w.parent), &w.active);
+            }
+            Msg::FocusSidebarContent | Msg::FocusTabs if self.width >= SPLIT_AT => {
+                self.open_chooser(cx, w);
             }
             Msg::DismissChooser if self.chooser.is_some() => {
                 self.chooser = None;
                 Self::focus(cx, w.child.as_ref().unwrap_or(&w.parent), &w.active);
             }
-            Msg::Choose(choice, keyboard) if self.chooser.is_some() && !w.on_child() => {
+            Msg::Choose(choice, keyboard)
+                if self.chooser.is_some()
+                    && !w.on_child()
+                    && features::can_create_side(&w.parent.model) =>
+            {
                 if keyboard {
                     read::<PaneActivationGuard, _>(cx).arm(PaneActivationKey::Enter);
                 }
@@ -659,8 +673,9 @@ impl State for DockState {
                     );
                 }
             }
-            Msg::Hide if w.on_child() => {
+            Msg::Hide if w.on_child() || self.chooser.is_some() => {
                 self.hidden = true;
+                self.chooser = None;
                 Self::focus(cx, &w.parent, &w.active);
             }
             Msg::Zoom if !self.hidden && self.width >= SPLIT_AT => {
@@ -947,7 +962,9 @@ impl ConfirmCloseState {
                 other.request_focus();
                 return KeyEventResult::Handled;
             }
-            let Some(key) = PaneActivationKey::of_press(&press) else {
+            let Some(key @ (PaneActivationKey::Enter | PaneActivationKey::Escape)) =
+                PaneActivationKey::of_press(&press)
+            else {
                 return KeyEventResult::Ignored;
             };
             guard.arm(key);
