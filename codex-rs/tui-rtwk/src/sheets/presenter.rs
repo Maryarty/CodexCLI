@@ -14,9 +14,11 @@ use rtwk::app::AppCx;
 use rtwk::app::MemoCx;
 use rtwk::app::ViewRoot;
 use rtwk::binding::{AppBinding, Timer};
+use rtwk::navigation::{Navigator, NavigatorState};
 use rtwk::{AnyWidget, Cx, Handler, StatelessWidget, impl_widget};
 
 use codex_tui_core::ids::RequestKey;
+use codex_tui_core::screens::approvals::Prompt;
 use codex_tui_core::screens::approvals::order::{Family, to_show};
 
 use crate::app::UiApp;
@@ -27,9 +29,42 @@ use crate::sheets;
 /// `y` could answer.
 pub const TYPING_IDLE_DELAY: Duration = Duration::from_secs(1);
 
-/// Where the home left its handle: a request is shown from it, and the next
-/// one from the handle in the cell then (a replaced home writes its own).
-pub type Place = Rc<Cell<Option<ViewRoot<UiApp>>>>;
+/// Where the home left its handles. A replaced home writes its own.
+#[derive(Clone, Default)]
+pub struct Place(Rc<PlaceState>);
+
+#[derive(Default)]
+struct PlaceState {
+    root: Cell<Option<ViewRoot<UiApp>>>,
+    navigator: RefCell<Option<NavigatorState>>,
+}
+
+impl PartialEq for Place {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Place {
+    /// The memo node other presenters use to open their dialogs.
+    pub fn get(&self) -> Option<ViewRoot<UiApp>> {
+        self.0.root.get()
+    }
+
+    /// Records the home memo node used to open dialogs.
+    pub fn set_root(&self, root: Option<ViewRoot<UiApp>>) {
+        self.0.root.set(root);
+    }
+
+    fn visible_navigator(&self) -> Option<NavigatorState> {
+        self.0
+            .navigator
+            .borrow()
+            .as_ref()
+            .filter(|nav| nav.mounted() && !nav.can_pop())
+            .cloned()
+    }
+}
 
 /// The clock and the timer of the typing delay: the app's binding (left by the home, which is
 /// built inside the app) and the handler that presents again when the delay is over.
@@ -232,25 +267,37 @@ pub fn present(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
     else {
         return;
     };
+    let patch_in_chat = !app.ui.debug
+        && app.core.session().active.as_ref() == Some(&key.thread)
+        && app.core.screens().agents.owner_of(key.thread.as_str()) == key.backend
+        && requests
+            .get(&key)
+            .is_some_and(|entry| matches!(entry.prompt.as_deref(), Some(Prompt::Patch(_))));
     let shown = key.clone();
+    let closed = move |app: &mut UiApp, answer, cx: &mut AppCx<'_, '_, UiApp>| {
+        let requests = app.core.requests();
+        app.ui
+            .presenter
+            .closed(&key, answer, |queued| requests.contains(queued));
+        present(app, cx);
+    };
+    if patch_in_chat && let Some(nav) = app.ui.presenter.place.visible_navigator() {
+        let result = nav.push::<()>(sheets::approvals::patch_route(shown));
+        crate::app::finish_request_route(cx, result, closed);
+        return;
+    }
     let dialog = cx.show_dialog_from::<()>(
         place,
         move |_| sheets::approvals::request_dialog(shown.clone()),
         // A bottom pane without a frame, as the oracle draws a request.
         sheets::sheet_options(),
-        move |app, answer, cx| {
-            let requests = app.core.requests();
-            app.ui
-                .presenter
-                .closed(&key, answer, |queued| requests.contains(queued));
-            present(app, cx);
-        },
+        closed,
     );
     if dialog.is_closed() {
         // The handle's memo node is gone (rtwk showed nothing and `closed`
         // follows with `None`): drop the handle, requests wait for the next
         // home, which leaves its own.
-        app.ui.presenter.place.set(None);
+        app.ui.presenter.place.set_root(None);
     }
 }
 
@@ -261,9 +308,10 @@ pub fn home_node(
     deps: &(Place, DelayHandle, AnyWidget),
     cx: &mut MemoCx<'_, '_, UiApp>,
 ) -> AnyWidget {
-    deps.0.set(Some(cx.root()));
+    deps.0.set_root(Some(cx.root()));
     *deps.1.0.due.borrow_mut() = Some(cx.on(present));
     Home {
+        place: deps.0.clone(),
         delay: deps.1.clone(),
         child: deps.2.clone(),
     }
@@ -273,6 +321,7 @@ pub fn home_node(
 /// The home's child, which leaves the app's binding where the delay reads its clock.
 #[derive(Clone, PartialEq)]
 struct Home {
+    place: Place,
     delay: DelayHandle,
     child: AnyWidget,
 }
@@ -282,6 +331,7 @@ impl_widget!(stateless eq Home);
 impl StatelessWidget for Home {
     fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
         *self.delay.0.binding.borrow_mut() = AppBinding::maybe_of(cx);
+        *self.place.0.navigator.borrow_mut() = Navigator::maybe_of(cx);
         self.child.clone()
     }
 }

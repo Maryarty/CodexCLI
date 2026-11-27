@@ -24,7 +24,9 @@ use rtwk::overlay::{DialogOptions, close_dialog};
 use rtwk::provider::{read, select};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::screens::select::models::{Catalog, GaveUp, Heading, ModelMenu, Next, Onward};
+use codex_tui_core::screens::select::models::{
+    Catalog, GaveUp, Heading, ModelMenu, Next, Onward, Scope,
+};
 use codex_tui_core::screens::select::{Intent, ModelCompletion, ModelResult, Opening};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates};
 use codex_tui_core::threads::queue::QueueOperation;
@@ -127,6 +129,15 @@ fn catalog_now<S>(cx: &mut Cx<'_, S>) -> Catalog {
     read::<ScreenStates, _>(cx).select.catalog.clone()
 }
 
+fn scope_is_current(w: &Page, cx: &mut Cx<'_, PageState>) -> bool {
+    // Queued pickers settle through their own operation, including a catalog error
+    // that arrives after the user has moved to a different conversation.
+    w.completion != Completion::Intent
+        || w.menu.scope().is_none_or(|scope| {
+            select::<ScreenStates, u64, _>(cx, |states| states.select.model_visit) == scope.visit
+        })
+}
+
 /// Says a verb to the model.
 fn say(cx: &mut Cx<'_, PageState>, intent: Intent) {
     let hs = read::<Hs, _>(cx);
@@ -137,11 +148,16 @@ fn close(cx: &mut Cx<'_, PageState>) {
     close_dialog::<_, ()>(cx, None);
 }
 
-fn finish(cx: &mut Cx<'_, PageState>, completion: &Completion, result: ModelResult) {
+fn finish(
+    cx: &mut Cx<'_, PageState>,
+    completion: &Completion,
+    scope: Option<&Scope>,
+    result: ModelResult,
+) {
     match completion {
         Completion::Intent => {
             let intent = match result {
-                ModelResult::Picked(selection) => Intent::settle(selection),
+                ModelResult::Picked(selection) => Intent::settle_model(selection, scope.cloned()),
                 ModelResult::GaveUp(why) => Intent::GiveUp(why),
             };
             say(cx, intent);
@@ -163,14 +179,22 @@ fn back(cx: &mut Cx<'_, PageState>) {
 
 impl PageState {
     /// What a choice does to the pages.
-    fn step(&self, cx: &mut Cx<'_, Self>, step: Onward, completion: Completion) {
+    fn step(&self, cx: &mut Cx<'_, Self>, step: Onward, w: &Page) {
+        let completion = w.completion.clone();
         match step {
             Onward::None => {}
             Onward::Push(menu) => drop(Navigator::of(cx).push::<()>(route(menu, completion))),
             Onward::Replace(menu) => {
                 drop(Navigator::of(cx).push_replacement::<()>(route(menu, completion)));
             }
-            Onward::Done(selection) => finish(cx, &completion, ModelResult::Picked(selection)),
+            Onward::Done(selection) => {
+                finish(
+                    cx,
+                    &completion,
+                    w.menu.scope(),
+                    ModelResult::Picked(selection),
+                );
+            }
             // The plan scope question stands alone: every page under it goes.
             Onward::Prompt(menu) => {
                 drop(
@@ -200,7 +224,7 @@ impl PageState {
                     nav.remove_route(route);
                 }
             }
-            _ => finish(cx, completion, ModelResult::GaveUp(why)),
+            _ => finish(cx, completion, None, ModelResult::GaveUp(why)),
         }
     }
 }
@@ -214,6 +238,10 @@ impl State for PageState {
     // whichever of the two ran last.
     fn did_change_dependencies(&mut self, w: &Page, cx: &mut Cx<'_, Self>) {
         self.route = Route::maybe_of(cx);
+        if !scope_is_current(w, cx) {
+            close(cx);
+            return;
+        }
         let catalog = catalog_of(cx);
         if !self.decided
             && let Some(next) = w.menu.next(&catalog)
@@ -228,12 +256,12 @@ impl State for PageState {
         match msg {
             Msg::Picked(Event::Choose(id)) => {
                 let step = w.menu.choose(&catalog_now(cx), &id, false);
-                self.step(cx, step, w.completion.clone());
+                self.step(cx, step, w);
             }
             // The `s` key: this session only.
             Msg::Picked(Event::Secondary(id)) => {
                 let step = w.menu.choose(&catalog_now(cx), &id, true);
-                self.step(cx, step, w.completion.clone());
+                self.step(cx, step, w);
             }
             Msg::Picked(Event::Cancel) => back(cx),
             // These lists have no toggles, order, tabs or hot keys.
@@ -248,6 +276,9 @@ impl State for PageState {
     }
 
     fn build(&self, w: &Page, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        if !scope_is_current(w, cx) {
+            return AnyWidget::default();
+        }
         let catalog = catalog_of(cx);
         let page = w.menu.page(&catalog);
         let words = strings::of(cx);

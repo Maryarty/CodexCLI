@@ -192,9 +192,12 @@ impl StatusContext<'_> {
                 model
             }
         });
-        let effort = thread
-            .and_then(|thread| thread.effort.as_deref())
-            .unwrap_or_else(|| facts.effort_label());
+        let effort = match thread.map_or(facts.effort.as_deref(), |thread| {
+            thread.effective_reasoning(facts)
+        }) {
+            None | Some("none") => "default",
+            Some(effort) => effort,
+        };
         let tier = thread
             .and_then(|thread| thread.service_tier.as_ref())
             .map_or(facts.service_tier.as_deref(), |tier| tier.as_deref());

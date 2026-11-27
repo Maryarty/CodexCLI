@@ -858,10 +858,6 @@ fn narrow_selection_and_search_keep_complete_exit_hints() {
 // ORACLE transcript_view/footer_tests.rs:439 patch_disclosure_preserves_manual_scrolling kind=ui owner=chat-live
 #[test]
 fn patch_disclosure_preserves_manual_scrolling() {
-    kit::pending(
-        Owner::ChatLive,
-        "The pinned transparent rtwk ModalBarrier of a live patch approval blocks the visible transcript's disclosure above the pane. Resolution with a pre-existing manual viewport is covered separately by transcript_kit::resolving_a_patch_approval_keeps_the_disclosed_manual_viewport.",
-    );
     const PATCH: &str = include_str!("fixtures/transcript_view_2/patch_disclosure.jsonl");
     const APPROVAL: &str =
         include_str!("fixtures/transcript_view_2/patch_disclosure_approval.jsonl");
@@ -1179,10 +1175,81 @@ fn recent_entries_are_reused_and_old_entries_are_evicted() {
 // ORACLE transcript_view/layout_tests.rs:155 fullscreen_image_previews_follow_layout_without_entering_text_surfaces kind=snap owner=chat-live snap=fullscreen_image_artifact_rows
 #[test]
 fn fullscreen_image_previews_follow_layout_without_entering_text_surfaces() {
-    kit::pending(
-        Owner::ChatLive,
-        "G4 (conditional, `rtwk-rich` `Image`; the file read is a services effect): the snapshot holds the kitty image placements (`Graphics: [Rect { .. }]`) of a PNG read from disk and the blank rows reserved under `Viewed image` and `Generated Image`, and its local file links; the chat draws the call rows and their `+ Show details` control (equal to the snapshot's text) but reads no file, so it reserves no preview rows and has no placement list",
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("artifact.png");
+    image::RgbaImage::from_pixel(480, 160, image::Rgba([255, 0, 0, 255]))
+        .save(&path)
+        .unwrap();
+    let link = url::Url::from_file_path(dunce::canonicalize(&path).unwrap()).unwrap();
+    let notify = |item| {
+        serde_json::json!({"step": "notify", "message": {"method": "item/completed", "params": {
+            "threadId": "thread-1", "turnId": "turn-1", "completedAtMs": 0, "item": item,
+        }}})
+    };
+    let script = format!(
+        "{}\n{}\n",
+        notify(serde_json::json!({"type":"imageView","id":"view-1","path":path})),
+        notify(serde_json::json!({
+            "type":"imageGeneration","id":"img-1","status":"completed",
+            "revisedPrompt":"A red rectangle","failure":null,"savedPath":path,
+            "generationId":null,"result":"iVBORw0KGgo=",
+        })),
     );
-    let s = Screen::build(Owner::ChatLive).size(60, 20).live().open();
-    s.assert_snap("fullscreen_image_artifact_rows");
+    for graphics in [false, true] {
+        let builder = Screen::build(Owner::ChatLive)
+            .size(140, 40)
+            .live()
+            .owned_transcript();
+        let mut s = if graphics { builder.kitty() } else { builder }.open();
+        s.local_image(&path);
+        s.feed(&script);
+        s.assert_link("artifact.png", link.as_str());
+        s.assert_no_link("Viewed image");
+        s.assert_image_rows(if graphics { &["Saved to:"] } else { &[] }, 140);
+
+        s.click_text("+ Show details");
+        s.assert_link(path.to_str().unwrap(), link.as_str());
+        s.assert_image_rows(
+            if graphics {
+                &["− Hide details", "Saved to:"]
+            } else {
+                &[]
+            },
+            140,
+        );
+
+        s.selection_copy_policy(true, false);
+        let (x, y) = s.find("Viewed image");
+        let (end_x, end_y) = s.find("A red rectangle");
+        s.drag(x, y, end_x + 14, end_y);
+        s.assert_copy_asked(&format!(
+            "Viewed image {}\n\n• Generated Image:\n  └ A red rectangle",
+            path.display()
+        ));
+
+        s.resize(8, 40);
+        s.assert_image_rows(&[], 8);
+        s.resize(100, 40);
+        s.assert_image_rows(
+            if graphics {
+                &["− Hide details", "Saved to:"]
+            } else {
+                &[]
+            },
+            100,
+        );
+        s.click_text("− Hide details");
+        s.assert_image_rows(if graphics { &["Saved to:"] } else { &[] }, 100);
+        if graphics {
+            s.keys("alt+r");
+            s.assert_image_rows(&[], 100);
+            kit::remove_artifact_file(&path);
+            s.keys("alt+r");
+            s.click_text("+ Show details");
+            s.assert_contains(path.to_str().unwrap());
+            s.assert_no_link(path.to_str().unwrap());
+            s.assert_contains("A red rectangle");
+            s.assert_image_rows(&[], 100);
+        }
+    }
 }

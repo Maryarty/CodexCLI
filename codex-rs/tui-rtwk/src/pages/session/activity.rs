@@ -63,6 +63,7 @@ pub(super) struct Run {
     /// The process the model keeps polling with nothing to write (`ThreadModel::terminal_wait`):
     /// it owns the row's header and details while it lasts.
     wait: Option<WaitStreak>,
+    safety_wait: bool,
     /// What the running hooks say once the reveal delay passed (`hook_reveal::Reveal`).
     pub(super) hook: Option<String>,
     /// The user's input that waits: steers, refused steers, the queue, the model's questions.
@@ -130,6 +131,7 @@ impl Run {
             reviews: thread.screen_slots().approvals.reviews.clone(),
             terminals: thread.terminals().len(),
             wait: thread.terminal_wait().cloned(),
+            safety_wait: thread.safety().is_waiting(),
             hook: None,
             pending: !Pending::of(thread).is_empty(),
             asking: 0,
@@ -157,6 +159,7 @@ impl Run {
     pub(super) fn wait_only(&self) -> bool {
         self.running()
             && self.wait.is_some()
+            && !self.safety_wait
             && self.reviews.is_empty()
             && self.chat.header().is_none()
             && !self.compacting()
@@ -312,7 +315,10 @@ impl StatelessWidget for StatusSlot {
         } else if compacting
             || review.is_some()
             || (running.is_some()
-                && (!run.final_answer || waiting.is_some() || run.chat.header().is_some()))
+                && (!run.final_answer
+                    || run.safety_wait
+                    || waiting.is_some()
+                    || run.chat.header().is_some()))
         {
             working = true;
             let (spinner, shimmer) = if run.wait_only() {
@@ -337,6 +343,7 @@ impl StatelessWidget for StatusSlot {
                     header: review
                         .as_ref()
                         .map(|review| review.header.clone())
+                        .or_else(|| run.safety_wait.then(|| strings.chat.working.to_string()))
                         .or_else(|| {
                             run.chat
                                 .header()
@@ -358,6 +365,14 @@ impl StatelessWidget for StatusSlot {
                         .as_ref()
                         .map(|review| {
                             chat::StatusDetails::preserved(&review.details, review.max_lines)
+                        })
+                        .or_else(|| {
+                            run.safety_wait.then(|| {
+                                chat::StatusDetails::preserved(
+                                    super::session_page::safety::WAITING,
+                                    chat::STATUS_DETAILS_MAX_LINES,
+                                )
+                            })
                         })
                         .or_else(|| match waiting {
                             // the oracle's `set_status` replaces the details: no command, none

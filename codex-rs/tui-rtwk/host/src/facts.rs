@@ -95,6 +95,7 @@ pub async fn status(config: &Config) -> StatusFacts {
             .model_reasoning_effort
             .as_ref()
             .map(|effort| effort.as_str().to_string()),
+        plan_effort: config.plan_mode_reasoning_effort.clone(),
         approval_policy: Some(config.permissions.approval_policy.value().to_string()),
         approval_granular: granular_policy(config),
         permission_profile: config

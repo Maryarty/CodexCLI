@@ -245,6 +245,7 @@ fn debug_screen(seeded: &Seeded<'_>, confirm_reset: bool, inspect: bool) -> AnyW
         confirm_reset,
         inspect,
         live: false,
+        queued: false,
     }
     .into()
 }

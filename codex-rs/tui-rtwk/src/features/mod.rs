@@ -31,6 +31,7 @@ use codex_tui_core::features::{
 };
 use codex_tui_core::ids::{Cwd, ThreadId};
 use codex_tui_core::keymap::ActionId;
+use codex_tui_core::threads::queue::QueueOperation;
 
 use crate::app::debug::Dir;
 use crate::app::view::Hs;
@@ -239,6 +240,14 @@ pub fn open_settings<S: 'static>(cx: &mut Cx<'_, S>, command: SlashCommand, args
     );
 }
 
+/// Opens the status editor for the queued command that already owns its operation.
+pub(crate) fn open_queued_status_line<S: 'static>(cx: &mut Cx<'_, S>, operation: QueueOperation) {
+    verb(
+        cx,
+        codex_tui_core::features::settings::Intent::OpenQueuedStatusLine(operation),
+    );
+}
+
 /// Enter on a pet of the `/pets` picker: `[tui].pet` is written (the settings own the config
 /// writes, and the words of a refusal; `Edit::PetSelected`).
 pub fn pick_pet<S: 'static>(cx: &mut Cx<'_, S>, selector: String) {
@@ -270,6 +279,10 @@ pub fn verb_by<S: 'static>(cx: &mut Cx<'_, S>, hs: &Hs, intent: impl Into<Featur
 }
 
 pub use copy::supersede_status_copy;
+pub(crate) use images::{
+    preview as artifact_preview, request as artifact_request, scope as artifact_scope,
+    snapshot as artifact_snapshot, watch as watch_artifact,
+};
 
 /// The action of the security-setup reminder over the composer (its one row opens the page): the
 /// session page that draws the banner names no feature.
@@ -283,6 +296,10 @@ pub fn open_security_page<S: 'static>(cx: &mut Cx<'_, S>, hs: &Hs) {
 
 /// The browser action of a clicked link in a particular transcript.
 pub fn open_transcript_link<S: 'static>(cx: &mut Cx<'_, S>, thread: ThreadId, url: String) {
+    if url.starts_with("file://") {
+        verb(cx, codex_tui_core::features::images::Open { thread, url });
+        return;
+    }
     verb(
         cx,
         codex_tui_core::features::transcript_links::Intent { thread, url },

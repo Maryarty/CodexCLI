@@ -292,8 +292,15 @@ impl RowTextCache {
             if let Some((key, item)) = transcript.get(row.range.start) {
                 keys.push(Some(key.clone()));
                 let reading = Reading {
-                    revealed: matches!(item, Item::Tool(_) | Item::Patch(_))
-                        && disclosed.is_none_or(|disclosed| disclosed.is_open(key)),
+                    revealed: match item {
+                        Item::Tool(_) | Item::Patch(_) => {
+                            disclosed.is_none_or(|disclosed| disclosed.is_open(key))
+                        }
+                        Item::ImageView { .. } => {
+                            disclosed.is_some_and(|disclosed| disclosed.is_open(key))
+                        }
+                        _ => false,
+                    },
                     ..*reading
                 };
                 texts.push(self.prepare(transcript, row, key, item, &reading, scan));

@@ -4,13 +4,13 @@
 //! outside these two directories (bar their test files) needs an edit when it
 //! grows.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 
 use crate::app::AppFx;
-use crate::ids::ThreadId;
+use crate::ids::{BackendId, ThreadId, Ticket};
 use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ThreadFx;
@@ -328,6 +328,11 @@ pub enum Setting {
 pub struct Model {
     /// The models the pickers list.
     pub catalog: Catalog,
+    /// The current conversation's visit to the live model picker.
+    pub model_visit: u64,
+    pub(crate) plan_defaults: BTreeMap<BackendId, Effort>,
+    /// The newest acknowledged Plan config write on each backend.
+    pub(crate) last_plan_write: BTreeMap<BackendId, Ticket>,
     /// The permission profiles the pickers list.
     pub profiles: Profiles,
     /// The apps `/apps` lists.
@@ -740,7 +745,10 @@ pub enum ModelResult {
 /// The sheet's result or the reason a page left while another page remains.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModelCompletion {
-    Inline(Selection),
+    Inline {
+        selection: Selection,
+        scope: Option<models::Scope>,
+    },
     Queued {
         operation: QueueOperation,
         result: ModelResult,
@@ -891,7 +899,11 @@ impl Intent {
     }
 
     pub fn settle(selection: Selection) -> Self {
-        Self::Settle(ModelCompletion::Inline(selection))
+        Self::settle_model(selection, None)
+    }
+
+    pub fn settle_model(selection: Selection, scope: Option<models::Scope>) -> Self {
+        Self::Settle(ModelCompletion::Inline { selection, scope })
     }
 }
 
@@ -1009,7 +1021,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             let ModelOpen { operation, current } = *request;
             model.open_models(current, operation);
         }
-        Intent::Settle(ModelCompletion::Inline(selection)) => {
+        Intent::Settle(ModelCompletion::Inline { selection, .. }) => {
             model.picked.push(Picked::Selection(selection))
         }
         Intent::GiveUp(why) => model.notes.push(model_picker_note(why)),
@@ -1232,6 +1244,7 @@ pub enum Ctx {
         then: Option<Note>,
         queued: Option<QueuedModelWrite>,
     },
+    PlanWrite(Box<collaboration::PlanWrite>),
     /// The write of an app's switch: the directory takes it once it is saved.
     App {
         id: String,
@@ -1416,8 +1429,14 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
         }),
         SeedEv::Models { current } => model(ModelMenu::Models(current)),
         SeedEv::AllModels { current } => model(ModelMenu::AllModels(current)),
-        SeedEv::Reasoning { preset, current } => model(ModelMenu::Reasoning { preset, current }),
-        SeedEv::Advanced { preset, current } => model(ModelMenu::Advanced { preset, current }),
+        SeedEv::Reasoning { preset, current } => model(ModelMenu::Reasoning {
+            preset,
+            current: Box::new(current),
+        }),
+        SeedEv::Advanced { preset, current } => model(ModelMenu::Advanced {
+            preset,
+            current: Box::new(current),
+        }),
         SeedEv::PlanScope {
             model: name,
             effort,
@@ -1428,6 +1447,7 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
             effort,
             source,
             warning,
+            scope: None,
         }),
         SeedEv::Dials { slots } => Ev::Dials(
             slots

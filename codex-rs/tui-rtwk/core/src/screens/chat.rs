@@ -23,6 +23,7 @@ pub use mcp::{McpHeader, McpStartup, McpStatus, McpWarning};
 
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
+use codex_protocol::openai_models::ReasoningEffort;
 
 use crate::app::AppFx;
 use crate::commands::CommandFlags;
@@ -100,6 +101,8 @@ pub struct StatusFacts {
     pub model: Option<String>,
     /// The reasoning effort's name (`high`); none or `none` reads `default`.
     pub effort: Option<String>,
+    /// The user's Plan reasoning default, when configured on this backend.
+    pub plan_effort: Option<ReasoningEffort>,
     /// The approval policy as the config writes it (`on-request`).
     pub approval_policy: Option<String>,
     /// A granular approval policy as the config's JSON (`/presets` recalls it).
@@ -154,6 +157,7 @@ impl Default for StatusFacts {
         Self {
             model: None,
             effort: None,
+            plan_effort: None,
             approval_policy: None,
             approval_granular: None,
             permission_profile: None,
@@ -548,6 +552,10 @@ pub struct ThreadPart {
     /// What the thread runs with outside of a mask: its model and effort as last seen in Default
     /// mode (`current_collaboration_mode`); the mask of a switch lies over it.
     base: collaboration::Base,
+    /// A Plan effort explicitly accepted for this conversation.
+    plan_override: Option<ReasoningEffort>,
+    /// The most recent request to set the conversation's Plan effort.
+    plan_update: u64,
     /// Plan mode: the proposed plan and the question asked when the turn ends.
     pub plan: plan_mode::PlanMode,
     /// Resumed with history: the token usage is pending until `status` counts one.
@@ -639,6 +647,78 @@ pub enum ActivityPhase {
 }
 
 impl ThreadPart {
+    pub fn effective_reasoning<'a>(&'a self, fallback: &'a StatusFacts) -> Option<&'a str> {
+        if self.mode == codex_protocol::config_types::ModeKind::Plan {
+            self.effort.as_deref()
+        } else {
+            self.effort.as_deref().or(fallback.effort.as_deref())
+        }
+    }
+
+    pub(crate) fn collaboration_base(&self, fallback: &StatusFacts) -> collaboration::Base {
+        if !self.base.model.is_empty() {
+            return self.base.clone();
+        }
+        collaboration::Base::of(
+            fallback.model.as_deref().or(self.model.as_deref()),
+            fallback.effort.as_deref(),
+        )
+    }
+
+    pub(crate) fn plan_override<'a>(
+        &'a self,
+        configured: Option<&'a ReasoningEffort>,
+    ) -> Option<&'a ReasoningEffort> {
+        self.plan_override.as_ref().or(configured)
+    }
+
+    pub(crate) fn set_plan_effort(
+        &mut self,
+        effort: Option<ReasoningEffort>,
+        scope: collaboration::ReasoningScope,
+        operation: Option<crate::threads::queue::QueueOperation>,
+        fx: &mut ThreadFx<'_>,
+    ) {
+        use codex_protocol::config_types::ModeKind;
+        use collaboration::ReasoningScope;
+        if self.mode != ModeKind::Plan {
+            return;
+        }
+        let Some(model) = &self.model else { return };
+        // A saved scope has already been confirmed by config/batchWrite. Subsequent
+        // mode switches must use those defaults even while this Plan RPC is in flight.
+        if scope != ReasoningScope::Session {
+            self.plan_override = None;
+        }
+        if scope == ReasoningScope::AllModes {
+            self.base = collaboration::Base {
+                model: model.clone(),
+                effort: effort.clone(),
+            };
+        }
+        let mut mask =
+            collaboration::plan_mask(fx.modes()).unwrap_or_else(|| collaboration::Mask {
+                name: String::new(),
+                mode: Some(ModeKind::Plan),
+                model: None,
+                reasoning_effort: Some(None),
+                developer_instructions: None,
+            });
+        mask.model = Some(model.clone());
+        self.plan_update = self.plan_update.wrapping_add(1);
+        let settings = collaboration::effective(&self.base, &mask, effort.as_ref());
+        fx.request(
+            Ctx::PlanEffort {
+                update: self.plan_update,
+                session_override: (scope == ReasoningScope::Session)
+                    .then_some(effort)
+                    .flatten(),
+                operation,
+            },
+            Command::Mode(settings),
+        );
+    }
+
     pub(crate) fn begin_turn(&mut self) {
         self.fresh = false;
         self.ran_turn = true;
@@ -753,7 +833,7 @@ impl ThreadPart {
         } else {
             self.base.clone()
         };
-        let effective = collaboration::effective(&base, mask, None);
+        let effective = collaboration::effective(&base, mask, self.plan_override(fx.plan_effort()));
         let previous = (self.mode, self.model.clone(), self.effort.clone());
         self.mode = effective.mode;
         self.error = None;
@@ -828,7 +908,7 @@ pub enum ThreadIntent {
     /// on in the mode `Mask` makes and the server is told; the app chose the mask from the
     /// server's presets (`select::collaboration`). The switch is `threads::apply`'s, which
     /// says what it changed.
-    SetMask(collaboration::Mask),
+    SetMask(collaboration::Change),
     /// Shift+Tab: the next preset in the server's list, only while the thread is idle
     /// (`cycle_collaboration_mode`); `threads::apply` chooses it.
     CycleMode,
@@ -1136,6 +1216,11 @@ pub enum Reply {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ctx {
     Mode,
+    PlanEffort {
+        update: u64,
+        session_override: Option<ReasoningEffort>,
+        operation: Option<crate::threads::queue::QueueOperation>,
+    },
     ApprovePlan,
     Compact,
     CleanTerminals,
@@ -1287,6 +1372,19 @@ pub fn apply_reply(
     // answer that is no refusal keeps it, so a message typed in between queues
     if matches!(ctx, Ctx::Compact) && result.is_err() {
         part.compact_pending = false;
+    }
+    if let Ctx::PlanEffort {
+        update,
+        session_override,
+        ..
+    } = &ctx
+    {
+        if *update != part.plan_update {
+            return;
+        }
+        if matches!(result, Ok(Reply::Ack)) {
+            part.plan_override.clone_from(session_override);
+        }
     }
     // a steer's reply is read by `threads::apply`, never here
     if !matches!(ctx, Ctx::Steer { .. } | Ctx::ListTerminals { .. }) {

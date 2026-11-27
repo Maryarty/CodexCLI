@@ -761,9 +761,10 @@ fn another_model_or_the_session_key_never_asks_for_a_scope() {
 }
 
 #[test]
-fn in_plan_mode_the_plan_override_is_the_effort_the_menu_starts_on() {
+fn in_plan_mode_the_effective_effort_is_the_one_the_menu_starts_on() {
     let mut s = sandbox(presets());
     let mut current = in_plan_mode(Effort::Medium);
+    current.effort = Some(Effort::Low);
     if let Some(plan) = &mut current.plan {
         plan.source = PlanSource::Override(Effort::Low);
     }

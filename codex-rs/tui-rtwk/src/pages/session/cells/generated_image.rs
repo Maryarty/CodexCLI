@@ -2,8 +2,8 @@
 //! A finished image generation call (oracle history_cell/patches.rs
 //! `ImageGenerationHistoryCell`): a bold heading after a dim bullet (a red
 //! cross for a failed one), the revised prompt dim under a dim branch and,
-//! when the image was saved, `Saved to: <url>`. The terminal-image preview
-//! the oracle adds is the debt task `chat-cells-debt-viewed-image`.
+//! when the image was saved, `Saved to: <url>`. A validated local artifact
+//! has a terminal preview beneath these text rows.
 //!
 //! Flutter: a stateless widget, a `Column` of one `Text.rich` per row.
 
@@ -17,6 +17,7 @@ use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
 use codex_tui_core::threads::GeneratedImage;
 
 use crate::app::theme::Tokens;
+use crate::features::{artifact_preview, artifact_request, artifact_snapshot, watch_artifact};
 
 use super::dispatch::{CellEnv, Place, below};
 use super::strings::Strings;
@@ -39,6 +40,7 @@ pub fn texts(image: &GeneratedImage, strings: &Strings) -> Vec<String> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GeneratedImageCell {
     pub image: Arc<GeneratedImage>,
+    pub raw: bool,
 }
 
 impl_widget!(stateless eq GeneratedImageCell);
@@ -47,6 +49,8 @@ impl StatelessWidget for GeneratedImageCell {
     fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
         let tokens = Tokens::of(cx);
         let strings = super::strings::of(cx);
+        let read = artifact_request(cx, !self.raw);
+        let snapshot = read.as_ref().and_then(|read| artifact_snapshot(cx, read));
         let faint = tokens.dim().attrs(Attrs::DIM);
         let heading = if self.image.failed {
             vec![
@@ -68,19 +72,27 @@ impl StatelessWidget for GeneratedImageCell {
                 Span::styled(self.image.detail.clone(), faint.clone()),
             ]));
         if let Some(saved) = &self.image.saved_to {
+            let link = snapshot.as_ref().and_then(|image| image.link.as_deref());
+            let saved = link.map_or_else(
+                || Span::new(saved.clone()),
+                |url| Span::styled(saved.clone(), rtwk::style::Style::default().link(url)),
+            );
             column = column.child(Text::rich(vec![
                 Span::styled(strings.file_branch, faint.clone()),
                 Span::styled(strings.generated_saved_to, faint),
-                Span::new(saved.clone()),
+                saved,
             ]));
         }
-        column.into()
+        if let Some(preview) = snapshot.and_then(|image| image.preview) {
+            column = column.child(artifact_preview(preview));
+        }
+        watch_artifact(read, column.into())
     }
 }
 
 /// A finished image generation.
 /// The cell of `item` when it is this file's (`cell_list!`).
-pub fn view(item: &Item, _env: &CellEnv<'_>, place: &Place) -> AnyWidget {
+pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
     let Item::Generated(image) = item else {
         return AnyWidget::default();
     };
@@ -88,6 +100,7 @@ pub fn view(item: &Item, _env: &CellEnv<'_>, place: &Place) -> AnyWidget {
         place.separator,
         GeneratedImageCell {
             image: image.clone(),
+            raw: env.raw,
         }
         .into(),
     )

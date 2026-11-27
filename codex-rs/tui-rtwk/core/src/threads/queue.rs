@@ -12,7 +12,9 @@ use std::ops::Deref;
 
 use super::{Item, Note, ThreadFx, ThreadModel, apply_appended, give_back, merge_messages};
 use crate::commands::{QueueDrain, SlashCommand, queued_command_drain_result};
+use crate::features::FeatureIntent;
 use crate::ids::ThreadId;
+use crate::rpc::Address;
 use crate::screens::{self, ScreenThreadIntent};
 use crate::threads::UserMessage;
 
@@ -142,6 +144,10 @@ pub struct QueueOperation {
 }
 
 impl QueueOperation {
+    pub(crate) fn modal(thread: ThreadId, seq: u64) -> Self {
+        Self { thread, seq }
+    }
+
     pub fn thread(&self) -> &ThreadId {
         &self.thread
     }
@@ -155,6 +161,58 @@ pub enum QueueEvent {
     PickerClosed(QueueOperation),
     PickerAccepted(QueueOperation),
     ModelApplied(QueueOperation),
+    ModalOpening(ModalOpening),
+    ModalOwnerLeft(ModalOwnerLeft),
+    ModalOpened(QueueOperation),
+    ModalFinished {
+        operation: QueueOperation,
+        accepted: Option<Box<FeatureIntent>>,
+    },
+}
+
+/// Issued only by the queue owner before asking the UI to show a modal.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModalOpening {
+    operation: QueueOperation,
+    address: Address,
+}
+
+/// The app observed the displayed conversation change.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModalOwnerLeft(());
+
+impl QueueEvent {
+    pub(crate) fn opening_modal(operation: QueueOperation, address: Address) -> Self {
+        Self::ModalOpening(ModalOpening { operation, address })
+    }
+
+    pub(crate) fn modal_owner_left() -> Self {
+        Self::ModalOwnerLeft(ModalOwnerLeft(()))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ModalPhase {
+    Opening(Address),
+    Open(Address),
+    /// Its dialog may still close the original hold.
+    OwnerLeft,
+}
+
+pub(crate) fn has_live_modal(model: &ThreadModel) -> bool {
+    model
+        .queue_modals
+        .values()
+        .any(|phase| *phase != ModalPhase::OwnerLeft)
+}
+
+pub(crate) fn modal_is_open(
+    model: &ThreadModel,
+    operation: &QueueOperation,
+    address: Address,
+) -> bool {
+    model.id() == operation.thread()
+        && model.queue_modals.get(&operation.seq) == Some(&ModalPhase::Open(address))
 }
 
 fn holds_picker(due: &DueCommand, operation: &QueueOperation) -> bool {
@@ -273,8 +331,8 @@ impl Dispatched {
     }
 }
 
-/// A model picker receipt can settle its operation even when the writer has detached.
-pub(super) fn is_model_picker_settlement(intent: &ScreenThreadIntent) -> bool {
+/// A picker or modal receipt can settle its operation even when the writer has detached.
+pub(super) fn is_queue_settlement(intent: &ScreenThreadIntent) -> bool {
     use screens::chat::ThreadIntent as Chat;
     matches!(
         intent,
@@ -285,6 +343,10 @@ pub(super) fn is_model_picker_settlement(intent: &ScreenThreadIntent) -> bool {
             }) | QueueEvent::PickerOpened(_)
                 | QueueEvent::PickerClosed(_)
                 | QueueEvent::ModelApplied(_)
+                | QueueEvent::ModalOpening(_)
+                | QueueEvent::ModalOwnerLeft(_)
+                | QueueEvent::ModalOpened(_)
+                | QueueEvent::ModalFinished { .. }
         ))
     )
 }
@@ -319,6 +381,41 @@ pub(super) fn apply(
         // The screen ran the queued command it was handed: the rule of the next item reads what
         // it opened (`submit_queued_slash_prompt`).
         Chat::QueueEvent(event) => match event {
+            QueueEvent::ModalOpening(ModalOpening { operation, address }) => {
+                if model.id() == operation.thread() {
+                    model
+                        .queue_modals
+                        .entry(operation.seq)
+                        .or_insert(ModalPhase::Opening(address));
+                    if model
+                        .due
+                        .as_ref()
+                        .is_some_and(|due| due.operation == operation && due.issued())
+                    {
+                        model.due = None;
+                    }
+                }
+            }
+            QueueEvent::ModalOpened(operation) => {
+                if model.id() == operation.thread()
+                    && let Some(phase) = model.queue_modals.get_mut(&operation.seq)
+                    && let ModalPhase::Opening(address) = *phase
+                {
+                    *phase = ModalPhase::Open(address);
+                }
+            }
+            QueueEvent::ModalOwnerLeft(_) => {
+                for phase in model.queue_modals.values_mut() {
+                    *phase = ModalPhase::OwnerLeft;
+                }
+            }
+            QueueEvent::ModalFinished { operation, .. } => {
+                if model.id() == operation.thread()
+                    && model.queue_modals.remove(&operation.seq).is_some()
+                {
+                    send_next(model, fx);
+                }
+            }
             QueueEvent::Ran(report) => {
                 let Some(due) = model
                     .due
@@ -439,6 +536,7 @@ pub(super) fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
         || model.slots.chat.provider_error.is_some()
         || model.recovered
         || model.due.is_some()
+        || !model.queue_modals.is_empty()
         || model.features.rename.holds_queue()
         || model.slots.chat.is_compacting()
     {

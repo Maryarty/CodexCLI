@@ -3,9 +3,10 @@
 //! blank sheet laid over it by a layout builder that holds no state covers it, so that nothing
 //! of the page's own state stands under a builder.
 
+use rtwk::gestures::IgnorePointer;
 use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, Expanded, SizedBox, Stack, StackFit};
 use rtwk::style::Style;
-use rtwk::{AnyWidget, LayoutBuilder};
+use rtwk::{AnyWidget, Cx, LayoutBuilder, StatelessWidget, impl_widget};
 
 use super::chord_guide::ChordGuide;
 
@@ -32,7 +33,7 @@ pub(super) fn page(
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .overflow_intended(true)
         .child(transcript)
-        .child(body);
+        .child(Bottom { child: body.into() });
     let blank = LayoutBuilder::new(|_, constraints| {
         if constraints.max_height < HIDDEN_BELOW_ROWS {
             BoxWidget::new().style(Style::new()).into()
@@ -45,4 +46,22 @@ pub(super) fn page(
         .child(page)
         .child(guide)
         .child(blank)
+}
+
+/// The patch prompt leaves the transcript's pointer input available. The composer
+/// beneath the prompt keeps its widgets and draft while its pointer input is off.
+#[derive(Clone, PartialEq)]
+struct Bottom {
+    child: AnyWidget,
+}
+
+impl_widget!(stateless eq Bottom);
+
+impl StatelessWidget for Bottom {
+    fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
+        IgnorePointer::new()
+            .ignoring(crate::sheets::approvals::patch_route_active(cx))
+            .child(self.child.clone())
+            .into()
+    }
 }
