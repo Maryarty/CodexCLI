@@ -19,7 +19,7 @@ use codex_tui_core::keymap::{actions, fixed};
 use codex_tui_core::screens::{ScreenIntent, chat, transcript::PagerDoc};
 use codex_tui_core::threads::ThreadModel;
 use codex_tui_core::threads::composer::composer_state;
-use codex_tui_core::threads::safety::{Review, Verb};
+use codex_tui_core::threads::safety::{Review, ReviewId, Verb};
 
 use crate::app::{theme::Tokens, view::Hs};
 use crate::pages::session::{open::open, transcript::pager};
@@ -41,8 +41,11 @@ struct Check {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Surface {
     Waiting(Check),
-    Precaution(Option<u64>),
-    Findings { review: u64, can_continue: bool },
+    Precaution(Option<ReviewId>),
+    Findings {
+        review: ReviewId,
+        can_continue: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -115,7 +118,7 @@ struct Slot {
 #[derive(Default)]
 struct SlotState {
     dismissed: Option<Check>,
-    viewed: Option<u64>,
+    viewed: Option<ReviewId>,
     stopped: Cell<bool>,
     showing_menu: Cell<bool>,
 }
@@ -143,7 +146,7 @@ struct Facts {
     thread: ThreadId,
     check: Option<Check>,
     // Outer Option: this chat is stopped. Inner Option: it can show live findings.
-    precaution: Option<Option<u64>>,
+    precaution: Option<Option<ReviewId>>,
     can_continue: bool,
 }
 
@@ -154,7 +157,7 @@ impl Facts {
         Self {
             thread: thread.id().clone(),
             check: check(thread),
-            precaution: violation.map(|_| review.map(Review::id)),
+            precaution: violation.map(|_| review.map(|review| review.id().clone())),
             can_continue: review.and_then(Review::continuation).is_some()
                 && composer_state(thread, false).takes_text(),
         }
@@ -165,7 +168,7 @@ impl SlotState {
     fn surface(&self, facts: Facts) -> Option<Surface> {
         if let Some(review) = facts.precaution {
             return Some(match review {
-                Some(review) if self.viewed == Some(review) => Surface::Findings {
+                Some(review) if self.viewed.as_ref() == Some(&review) => Surface::Findings {
                     review,
                     can_continue: facts.can_continue,
                 },
@@ -218,9 +221,9 @@ impl State for SlotState {
                 );
                 return Rebuild::No;
             }
-            (Surface::Precaution(Some(seq)), Action::Review) => {
+            (Surface::Precaution(Some(id)), Action::Review) => {
                 if let Some(review) = thread.safety().violation().and_then(|v| v.review.as_ref()) {
-                    self.viewed = Some(seq);
+                    self.viewed = Some(id);
                     show_findings(cx, review);
                 }
             }

@@ -12,7 +12,7 @@ use codex_tui_core::fixtures::builders::{agent_delta, turn_failed, turn_started}
 use codex_tui_core::ids::{ThreadId, Ticket, TurnId};
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::screens::{ScreenIntent, chat};
-use codex_tui_core::threads::safety::{Domain, Source, Topic, Verb};
+use codex_tui_core::threads::safety::{Domain, ReviewId, Source, Topic, Verb};
 use codex_tui_core::threads::{Item, Notice, UserMessage};
 use serde_json::{Value, json};
 
@@ -355,13 +355,13 @@ mod misalignment {
         app
     }
 
-    fn review_seq(app: &CodexApp) -> u64 {
+    fn review_id(app: &CodexApp) -> ReviewId {
         let thread = app.active_thread();
         thread
             .safety()
             .violation()
             .and_then(|violation| violation.review.as_ref())
-            .map(|review| review.id())
+            .map(|review| review.id().clone())
             .expect("a review")
     }
 
@@ -375,7 +375,7 @@ mod misalignment {
         assert!(!thread.is_running());
         assert!(thread.queue().is_empty());
         assert_eq!(rows(&app), vec![]);
-        let seq = review_seq(&app);
+        let original = review_id(&app);
         let thread = app.active_thread();
         let review = thread
             .safety()
@@ -385,7 +385,7 @@ mod misalignment {
         assert_eq!(review.findings(), "The agent drifted.");
         assert_eq!(review.continuation(), Some("Please continue carefully"));
         run(&mut app, AppEv::Backend(turn_failed(T, "turn-1")));
-        assert_eq!(review_seq(&app), seq);
+        assert_eq!(review_id(&app), original);
     }
 
     /// While stopped, ordinary input starts nothing and is not queued.
@@ -425,10 +425,22 @@ mod misalignment {
     #[test]
     fn continuing_needs_the_current_review_and_lifts_the_block_with_the_new_turn() {
         let mut app = stopped();
-        let seq = review_seq(&app);
-        let fx = verb(&mut app, Verb::Continue { review: seq + 1 });
-        assert_eq!(start(&fx), None);
-        let fx = verb(&mut app, Verb::Continue { review: seq });
+        let stale = review_id(&app);
+        notify(
+            &mut app,
+            failure(
+                "turn-1",
+                Some("The agent exceeded the allowed work."),
+                Some("Please continue carefully"),
+            ),
+        );
+        let review = review_id(&app);
+        assert_ne!(stale, review);
+        assert_eq!(
+            start(&verb(&mut app, Verb::Continue { review: stale })),
+            None
+        );
+        let fx = verb(&mut app, Verb::Continue { review });
         let (ticket, text, stamp) = fx
             .commands()
             .iter()
@@ -461,7 +473,7 @@ mod misalignment {
         use codex_tui_core::commands::{SessionIntent, SlashCommand};
 
         let mut app = stopped();
-        let review = review_seq(&app);
+        let review = review_id(&app);
         let opened = run(
             &mut app,
             AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
@@ -487,15 +499,112 @@ mod misalignment {
         let origin = ThreadId::new(T);
         assert!(
             app.thread(&origin)
-                .is_some_and(|thread| thread.safety().is_current(review))
+                .is_some_and(|thread| thread.safety().is_current(&review))
         );
 
-        assert_eq!(start(&verb(&mut app, Verb::Continue { review })), None);
+        let delayed = Verb::Continue {
+            review: review.clone(),
+        };
+        assert_eq!(start(&verb(&mut app, delayed)), None);
         assert_eq!(app.session().active.as_ref(), Some(&other));
 
         run(&mut app, AppEv::Intent(Intent::OpenThread(origin.clone())));
         assert_eq!(app.session().active.as_ref(), Some(&origin));
         assert!(start(&verb(&mut app, Verb::Continue { review })).is_some());
+    }
+
+    #[test]
+    fn reopening_a_thread_cannot_reuse_an_old_turns_review() {
+        use codex_tui_core::screens::{ScreenCommand, ScreenEv, ScreenReply, agents, select};
+        use codex_tui_core::threads::{ThreadAsk, ThreadReply};
+
+        let mut app = stopped();
+        let stale = review_id(&app);
+        let archive = run(
+            &mut app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Select(
+                select::Intent::Confirmed(select::Confirm::Archive { running: false }),
+            ))),
+        );
+        let archive = archive
+            .commands()
+            .iter()
+            .find_map(|command| match command {
+                Command::Screen {
+                    ticket,
+                    command: ScreenCommand::Agents(agents::Command::Archive { .. }),
+                    ..
+                } => Some(*ticket),
+                _ => None,
+            })
+            .expect("archive request");
+        run(
+            &mut app,
+            AppEv::Reply(archive, Reply::thread(ThreadReply::Done)),
+        );
+        assert!(app.thread(&ThreadId::new(T)).is_none());
+
+        let saved: codex_app_server_protocol::Thread = serde_json::from_value(json!({
+            "id": T, "environments": null, "extra": null, "sessionId": T,
+            "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
+            "preview": T, "ephemeral": false, "section": null, "sectionEnteredAt": null,
+            "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
+            "model": null, "reasoningEffort": null, "createdAt": 1_700_000_000,
+            "updatedAt": 1_700_000_000, "recencyAt": 1_700_000_000,
+            "status": {"type": "idle"}, "path": null,
+            "cwd": "/tmp/project", "cliVersion": "0.0.0", "originator": null, "source": "cli",
+            "canAcceptDirectInput": true, "threadSource": null,
+            "agentNickname": null, "agentRole": null, "gitInfo": null, "name": T,
+            "daybreakEnabled": null, "turns": []
+        }))
+        .expect("a saved thread");
+        run(
+            &mut app,
+            AppEv::Screen(ScreenEv::Agents(agents::Ev::Listed(agents::Page {
+                threads: vec![saved.clone()],
+                unread: Vec::new(),
+                next_cursor: None,
+                append: false,
+                pins: None,
+            }))),
+        );
+        let resume = run(
+            &mut app,
+            AppEv::Intent(Intent::OpenThread(ThreadId::new(T))),
+        );
+        let resume = resume.commands().iter().find_map(|command| match command {
+            Command::Screen {
+                ticket,
+                command: ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Resume { thread })),
+                ..
+            } if thread == T => Some(*ticket),
+            _ => None,
+        }).expect("resume request");
+        run(
+            &mut app,
+            AppEv::Reply(
+                resume,
+                Reply::screen(ScreenReply::Agents(agents::Reply::Resumed(Box::new(saved)))),
+            ),
+        );
+        assert_eq!(app.session().active, Some(ThreadId::new(T)));
+        submitted_turn(&mut app, "after reopening", "turn-2");
+        notify(
+            &mut app,
+            failure(
+                "turn-2",
+                Some("The new action exceeded the request."),
+                Some("Use the stated scope."),
+            ),
+        );
+        let current = review_id(&app);
+        assert!(app.active_thread().safety().is_current(&current));
+        assert!(!app.active_thread().safety().is_current(&stale));
+        assert_eq!(
+            start(&verb(&mut app, Verb::Continue { review: stale })),
+            None
+        );
+        assert!(start(&verb(&mut app, Verb::Continue { review: current })).is_some());
     }
 
     /// A turn the server starts on its own lifts the block too (`clear_misalignment_for_new_turn`).
