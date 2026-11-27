@@ -3497,33 +3497,50 @@ mod text_contract {
     }
 
     #[test]
-    fn a_completed_diff_has_numbered_nodes_after_disclosure() {
+    fn live_diffs_keep_numbered_nodes_and_their_outcome_after_disclosure() {
         use codex_tui_core::threads::{PatchActivity, PatchChange, PatchKind, PatchSource};
-        let item = Item::Patch(Arc::new(PatchActivity {
-            changes: vec![PatchChange {
-                path: "notes.txt".into(),
-                kind: PatchKind::Add,
-                diff: "\tline one\nline two\nline three\nline four\n".into(),
-            }],
-            status: ToolStatus::Completed,
-            source: PatchSource::Live,
-        }));
-        for (detailed, expanded) in [(true, false), (false, true)] {
-            let model = model_nodes(&item, 80, detailed, expanded);
-            assert_eq!(
-                model,
-                logical_nodes(std::slice::from_ref(&item), 80, detailed, expanded)
-            );
-            assert!(
-                model
-                    .windows(3)
-                    .any(|row| row == ["1", " +", "    line one"])
-            );
-            assert!(model.windows(3).any(|row| row == ["4", " +", "line four"]));
-            assert_eq!(
-                model.iter().any(|node| node == CELLS.hide_details),
-                expanded
-            );
+        let failure = [
+            " ",
+            "✘ Failed to apply patch",
+            "  └ (error details unavailable)",
+        ];
+        for status in [ToolStatus::Completed, ToolStatus::Failed] {
+            let item = Item::Patch(Arc::new(PatchActivity {
+                changes: vec![PatchChange {
+                    path: "notes.txt".into(),
+                    kind: PatchKind::Add,
+                    diff: "\tline one\nline two\nline three\nline four\n".into(),
+                }],
+                status,
+                source: PatchSource::Live,
+            }));
+            for (detailed, expanded) in [(true, false), (false, true)] {
+                let model = model_nodes(&item, 80, detailed, expanded);
+                assert_eq!(
+                    model,
+                    logical_nodes(std::slice::from_ref(&item), 80, detailed, expanded),
+                    "status={status:?}, detailed={detailed}"
+                );
+                assert!(
+                    model
+                        .windows(3)
+                        .any(|row| row == ["1", " +", "    line one"])
+                );
+                assert!(model.windows(3).any(|row| row == ["4", " +", "line four"]));
+                assert_eq!(
+                    model.iter().any(|node| node == CELLS.hide_details),
+                    expanded
+                );
+                if status == ToolStatus::Failed {
+                    assert_eq!(model[model.len() - failure.len()..], failure);
+                } else {
+                    assert!(
+                        !model
+                            .iter()
+                            .any(|node| failure[1..].contains(&node.as_str()))
+                    );
+                }
+            }
         }
     }
 
