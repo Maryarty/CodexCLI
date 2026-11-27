@@ -715,3 +715,10 @@ impl Screen {
         self.h.advance(100);
     }
 }
+
+impl Screen {
+    /// The number of actual backend catalog reads made by a permission shortcut or picker.
+    pub fn assert_permission_reads(&self, count: usize) {
+        assert_eq!(self.asked_requirements().len(), count, "{}", self.text());
+    }
+}

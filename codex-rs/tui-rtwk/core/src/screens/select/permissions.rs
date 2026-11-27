@@ -366,6 +366,8 @@ pub enum Failure {
 /// the next answer must belong to (`permission_popup_request_id`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Profiles {
+    /// Physical owner of the cached/in-flight catalog.
+    pub(crate) address: Option<Address>,
     pub found: Option<Discovery>,
     /// Why the last read failed: a fact the open menu shows (its `Retry` page). None once a read
     /// answered or was asked again.
@@ -386,6 +388,16 @@ pub struct Profiles {
 }
 
 impl Profiles {
+    pub(crate) fn retire_catalog(&mut self) {
+        self.address = None;
+        self.found = None;
+        self.pending = None;
+        self.failure = None;
+        self.inline = None;
+        self.shortcut = false;
+        self.scope += 1;
+    }
+
     pub(super) fn request(&mut self) -> u64 {
         self.issued += 1;
         self.pending = Some(self.issued);
@@ -484,7 +496,11 @@ impl Snapshot {
         approval: Approval,
         reviewer: Reviewer,
     ) -> Self {
-        Self { profile: profile.map(|profile| profile.id), approval, reviewer }
+        Self {
+            profile: profile.map(|profile| profile.id),
+            approval,
+            reviewer,
+        }
     }
 }
 
@@ -502,7 +518,10 @@ impl Effective {
             address,
             at,
             snapshot: Snapshot {
-                profile: settings.active_permission_profile.as_ref().map(|profile| profile.id.clone()),
+                profile: settings
+                    .active_permission_profile
+                    .as_ref()
+                    .map(|profile| profile.id.clone()),
                 approval: settings.approval_policy,
                 reviewer: settings.approvals_reviewer,
             },
@@ -510,9 +529,16 @@ impl Effective {
     }
 
     pub(crate) fn matches(&self, patch: &SettingsPatch) -> bool {
-        patch.permissions.as_ref().is_none_or(|profile| self.snapshot.profile.as_ref() == Some(profile))
-            && patch.approval_policy.is_none_or(|approval| approval == self.snapshot.approval)
-            && patch.approvals_reviewer.is_none_or(|reviewer| reviewer == self.snapshot.reviewer)
+        patch
+            .permissions
+            .as_ref()
+            .is_none_or(|profile| self.snapshot.profile.as_ref() == Some(profile))
+            && patch
+                .approval_policy
+                .is_none_or(|approval| approval == self.snapshot.approval)
+            && patch
+                .approvals_reviewer
+                .is_none_or(|reviewer| reviewer == self.snapshot.reviewer)
     }
 }
 

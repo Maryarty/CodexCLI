@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 use super::{AppCtx, AppFx, CodexApp, Command};
 use crate::ids::{BackendId, ThreadId};
-use crate::rpc::{Answer, RpcError};
+use crate::rpc::{Address, Answer, RpcError};
 use crate::screens::select::collaboration::{Change, PlanWrite, ReasoningScope};
 use crate::screens::select::models::{Apply, Current, Effort, Scope};
 use crate::screens::select::{self, apps, permissions, review};
@@ -25,6 +25,69 @@ use super::features::{
 };
 
 pub(super) mod presets;
+
+fn permissions_address(app: &CodexApp) -> Address {
+    let agents = &app.screens.agents;
+    let backend = app
+        .session
+        .active
+        .as_ref()
+        .map_or(agents.displayed, |thread| agents.owner_of(thread.as_str()));
+    app.address(backend)
+}
+
+pub(super) fn cycle_permissions(
+    app: &mut CodexApp,
+    thread: &ThreadId,
+    forward: bool,
+    fx: &mut AppFx,
+) {
+    if app.session.active.as_ref() != Some(thread) {
+        return;
+    }
+    let Some(model) = app.threads.get(thread).filter(|model| model.has_writer()) else {
+        return;
+    };
+    let mut current = permissions::Current::from_facts(&app.screens.chat.status);
+    if let Some(effective) = app.screens.select.permissions_effective.get(thread)
+        && effective.address == permissions_address(app)
+    {
+        let snapshot = &effective.snapshot;
+        current.approval = Some(snapshot.approval);
+        current.reviewer = snapshot.reviewer;
+        current.profile = snapshot.profile.clone();
+        if current.profile.is_some() {
+            current.matches = None;
+        }
+    }
+    if let Some(model_id) = &model.screen_slots().chat.model {
+        current.model = Some(model_id.clone());
+    }
+    intent(
+        app,
+        select::Intent::PermissionShortcut { forward, current },
+        fx,
+    );
+}
+
+fn permission_catalog_intent(intent: &select::Intent) -> bool {
+    matches!(
+        intent,
+        select::Intent::OpenPermissions(_)
+            | select::Intent::PermissionsArgs { .. }
+            | select::Intent::PermissionShortcut { .. }
+            | select::Intent::LoadProfiles
+    ) || matches!(intent, select::Intent::OpenQueueDialog(open)
+        if matches!(&open.dialog, select::QueueDialog::Permissions(_)))
+}
+
+fn permission_catalog_current(app: &CodexApp, request: u64) -> bool {
+    let profiles = &app.screens.select.profiles;
+    profiles.pending == Some(request)
+        && profiles
+            .address
+            .is_none_or(|address| app.address(address.backend) == address)
+}
 
 /// An intent of the select screen, and the asks it left open.
 pub(super) fn intent(app: &mut CodexApp, mut intent: select::Intent, fx: &mut AppFx) {
@@ -141,7 +204,18 @@ pub(super) fn intent(app: &mut CodexApp, mut intent: select::Intent, fx: &mut Ap
     } else {
         None
     };
+    let address = permissions_address(app);
+    let reads_permissions = permission_catalog_intent(&intent);
     let screens = Rc::make_mut(&mut app.screens);
+    if reads_permissions
+        && screens
+            .select
+            .profiles
+            .address
+            .is_some_and(|owner| owner != address)
+    {
+        screens.select.profiles.retire_catalog();
+    }
     let before = (
         screens.select.catalog.pending,
         screens.select.profiles.pending,
@@ -182,6 +256,7 @@ pub(super) fn intent(app: &mut CodexApp, mut intent: select::Intent, fx: &mut Ap
         );
     }
     if let Some(request) = after.1.filter(|_| after.1 != before.1) {
+        Rc::make_mut(&mut app.screens).select.profiles.address = Some(address);
         ask(
             app,
             select::Command::Requirements { request },
@@ -1204,6 +1279,13 @@ pub(super) fn forget_permission_settings(app: &mut CodexApp, thread: &ThreadId, 
 pub(super) fn retire_permission_writes(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx) {
     let mut lost = Vec::new();
     let select = &mut Rc::make_mut(&mut app.screens).select;
+    if select
+        .profiles
+        .address
+        .is_some_and(|address| address.backend == backend)
+    {
+        select.profiles.retire_catalog();
+    }
     select
         .permissions_effective
         .retain(|_, effective| effective.address.backend != backend);
@@ -1503,6 +1585,8 @@ fn answered(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx
             },
             result,
         ) => super::banners::switched(app, (backend, thread, model, effort, reason), result, fx),
+        (select::Ctx::Requirements { request }, _) if !permission_catalog_current(app, request) => {
+        }
         (select::Ctx::Requirements { request }, result) => match result {
             Ok(select::Reply::Requirements(requirements)) => {
                 let ctx = select::Ctx::Profiles {
@@ -1521,6 +1605,8 @@ fn answered(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx
             ),
             Err(error) => discovered(app, request, Err(failure(error)), fx),
         },
+        (select::Ctx::Profiles { request, .. }, _) if !permission_catalog_current(app, request) => {
+        }
         (
             select::Ctx::Profiles {
                 request,

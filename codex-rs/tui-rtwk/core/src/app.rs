@@ -612,6 +612,14 @@ impl AppFx {
             ) => *backend,
             AppCtx::Resume(context) => context.backend(),
             AppCtx::SessionRead | AppCtx::OpenSession { .. } => BackendId::default(),
+            AppCtx::Select(
+                screens::select::Ctx::Requirements { .. } | screens::select::Ctx::Profiles { .. },
+            ) => app
+                .screens
+                .select
+                .profiles
+                .address
+                .map_or_else(|| app.choose_backend(&command), |address| address.backend),
             AppCtx::StartThread { .. }
             | AppCtx::Agents(_)
             | AppCtx::Select(_)
@@ -3063,6 +3071,12 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
         Intent::Interrupt(thread) => {
             apply_thread(app, &thread, ThreadEv::Interrupt, fx);
             features::interrupted(app, &thread, fx);
+        }
+        Intent::ThreadScreen {
+            thread,
+            intent: ScreenThreadIntent::CyclePermissions { forward },
+        } => {
+            select::cycle_permissions(app, &thread, forward, fx);
         }
         Intent::ThreadScreen { thread, intent } => {
             if let Err(intent) = features::finish_queue_modal(app, &thread, intent, fx) {

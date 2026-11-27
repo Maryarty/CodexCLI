@@ -14,6 +14,9 @@ use codex_tui_core::keymap::actions::{
     CHAT_INTERRUPT_TURN, CHAT_OPEN_PRESETS, GLOBAL_CHANGE_HOST, GLOBAL_SELECT_TRANSCRIPT,
     VOICE_TOGGLE_VOICE_MUTE,
 };
+use codex_tui_core::keymap::actions::{
+    CHAT_NEXT_PERMISSION_MODE, CHAT_PREVIOUS_PERMISSION_MODE, CHAT_TOGGLE_VOICE,
+};
 use codex_tui_core::keymap::fixed;
 
 use crate::keymap::{chords_of, holds_ctrl_or_alt, pressed_fixed, unmodified};
@@ -447,6 +450,13 @@ pub(super) fn focus(
         });
     voice_keys(state).set(voice_controls);
     for (action, key) in keys::presses(keymap) {
+        if action.id() == CHAT_TOGGLE_VOICE
+            && [CHAT_NEXT_PERMISSION_MODE, CHAT_PREVIOUS_PERMISSION_MODE]
+                .into_iter()
+                .any(|id| crate::keymap::pressed(keymap, id, &key))
+        {
+            continue;
+        }
         if action.id() == VOICE_TOGGLE_VOICE_MUTE {
             if !voice_controls {
                 continue;

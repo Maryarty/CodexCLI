@@ -18,7 +18,7 @@ use codex_tui_core::screens::select::permissions::{
     Preset, Profile, Requirements, Reviewer, Selection,
 };
 use codex_tui_core::screens::select::{self, Intent as SelectIntent, Opening};
-use codex_tui_core::screens::{ScreenCommand, ScreenIntent, ScreenReply, chat};
+use codex_tui_core::screens::{ScreenCommand, ScreenEv, ScreenIntent, ScreenReply, chat};
 use codex_tui_core::threads::{Item, NoteKey, Tone, UserMessage};
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -856,4 +856,115 @@ fn a_shortcut_without_a_catalog_asks_for_it_once() {
     assert_eq!(asked_menus(&app).len(), 1, "its sheet shows the wait");
     select_intent(&mut app, SelectIntent::AbandonPermissions);
     assert_eq!(asked(&key(&mut app)), vec![], "the pending read is reused");
+}
+
+#[test]
+fn permission_catalog_survives_foreign_loss_and_retires_with_its_physical_owner() {
+    use codex_tui_core::app::Ingress;
+    use codex_tui_core::ids::BackendId;
+    use codex_tui_core::screens::ScreenThreadIntent;
+
+    let mut app = start();
+    let foreign = BackendId(1);
+    let foreign_epoch = app.attach_backend(foreign);
+    let cycle = |app: &mut CodexApp| {
+        run(
+            app,
+            AppEv::Intent(Intent::ThreadScreen {
+                thread: ThreadId::new(T),
+                intent: ScreenThreadIntent::CyclePermissions { forward: true },
+            }),
+        )
+    };
+    let before = cycle(&mut app);
+    let (old_requirements, _) = asked(&before).into_iter().next().expect("requirements");
+    app.ingest(Ingress::of(foreign, foreign_epoch, AppEv::Disconnected));
+    assert!(app.screens().select.profiles.pending.is_some());
+    assert!(asked(&cycle(&mut app)).is_empty());
+
+    let page = answer(
+        &mut app,
+        old_requirements,
+        select::Reply::Requirements(None),
+    );
+    let (old_page, _) = asked(&page).into_iter().next().expect("profile page");
+    answer(
+        &mut app,
+        old_page,
+        select::Reply::Profiles {
+            profiles: catalog(),
+            next: None,
+        },
+    );
+    assert!(app.screens().select.profiles.found.is_some());
+    app.ingest(Ingress::of(foreign, foreign_epoch, AppEv::Disconnected));
+    assert!(app.screens().select.profiles.found.is_some());
+
+    let owner = BackendId::default();
+    let epoch = app.epoch_of(owner);
+    app.ingest(Ingress::transport_replaced(owner, epoch, epoch.next()))
+        .expect("new transport");
+    assert!(app.screens().select.profiles.found.is_none());
+    let reads = select_intent(
+        &mut app,
+        SelectIntent::OpenPermissions(Current {
+            discover: true,
+            ..current()
+        }),
+    );
+    let (new_read, request) = asked(&reads)
+        .into_iter()
+        .next()
+        .expect("a fresh catalog read");
+    assert!(matches!(request, select::Command::Requirements { .. }));
+    assert_ne!(new_read, old_requirements);
+
+    for (ticket, response) in [
+        (old_requirements, select::Reply::Requirements(None)),
+        (
+            old_page,
+            select::Reply::Profiles {
+                profiles: catalog(),
+                next: None,
+            },
+        ),
+    ] {
+        assert!(
+            app.ingest(Ingress::transport_reply(
+                owner,
+                epoch,
+                epoch,
+                ticket,
+                Reply::screen(ScreenReply::Select(response))
+            ))
+            .is_none()
+        );
+    }
+    assert!(app.screens().select.profiles.found.is_none());
+    assert!(app.screens().select.profiles.pending.is_some());
+}
+
+#[test]
+fn permission_requirements_from_a_retired_generation_cannot_open_a_page() {
+    let mut app = start();
+    let open = |app: &mut CodexApp| {
+        select_intent(
+            app,
+            SelectIntent::OpenPermissions(Current {
+                discover: true,
+                ..current()
+            }),
+        )
+    };
+    let old = asked(&open(&mut app)).remove(0).0;
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Select(select::Ev::ScopeChanged)),
+    );
+    let fresh = asked(&open(&mut app)).remove(0).0;
+    assert!(asked(&answer(&mut app, old, select::Reply::Requirements(None))).is_empty());
+    assert!(matches!(
+        &asked(&answer(&mut app, fresh, select::Reply::Requirements(None)))[0].1,
+        select::Command::Profiles { .. }
+    ));
 }

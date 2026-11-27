@@ -523,13 +523,35 @@ fn permission_shortcuts_respect_managed_mode_requirements() {
 // ORACLE chatwidget/tests/permission_shortcuts_tests.rs:152 permission_shortcuts_load_once_and_reuse_the_picker_catalog kind=ui owner=dialogs-pane
 #[test]
 fn permission_shortcuts_load_once_and_reuse_the_picker_catalog() {
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    let base = s.shot();
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .keymap(&[
+            ("chat.next_permission_mode", "f8"),
+            ("chat.previous_permission_mode", "f10"),
+        ])
+        .live()
+        .open();
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"permission_profile":":workspace","approval_policy":"on-request"}}}"#);
+
     s.keys("f8");
-    s.assert_rows_differ(&base);
+    s.assert_contains("Loading permission profiles");
+    s.assert_permission_reads(1);
+    s.keys("esc f8");
+    s.assert_contains("Loading permission profiles");
+    s.assert_permission_reads(1);
+    s.answer_permission_catalog(
+        serde_json::Value::Null,
+        serde_json::json!([
+            {"id":":read-only","description":null,"allowed":true},
+            {"id":":workspace","description":null,"allowed":true}
+        ]),
+    );
+
     s.keys("esc");
-    s.assert_same_rows(&base);
-    s.keys("f8");
-    s.keys("esc");
-    s.assert_same_rows(&base);
+    s.type_text("/permissions").keys("enter");
+    s.assert_contains("Update Model Permissions");
+    s.assert_permission_reads(1);
+    s.keys("esc f10");
+    s.assert_permission_updates(&[":read-only"]);
+    s.assert_permission_reads(1);
 }
