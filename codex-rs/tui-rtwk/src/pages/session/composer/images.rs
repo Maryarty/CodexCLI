@@ -7,7 +7,9 @@ use rtwk::binding::{AppBinding, InputListener, ScreenMode};
 use rtwk::foundation::ListenableBuilder;
 use rtwk::gestures::ExcludeSelection;
 use rtwk::graphics::GraphicsScope;
-use rtwk::layout::{CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding, Row, SizedBox};
+use rtwk::layout::{
+    CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding, Row, SizedBox, Stack, StackFit,
+};
 use rtwk::provider::Provider;
 use rtwk::widgets::{Builder, Text};
 use rtwk::{AnyWidget, Cx, Key, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
@@ -94,23 +96,33 @@ impl State for RoomState {
         if inline && image_bounds(cx).is_none() {
             return widget.child.clone();
         }
-        let reported = self.terminal_rows.filter(|_| inline);
+        let reported = self.terminal_rows;
+        let tell = cx.local_sender();
         let child = widget.child.clone();
-        let layout = LayoutBuilder::new(move |_, room| {
-            Provider::value(PageRows {
-                rows: reported.unwrap_or(room.max_height),
-                inline,
-            })
-            .update_should_notify(|old, new| old != new)
-            .child(child.clone())
-            .into()
-        });
+        let page = move |rows| -> AnyWidget {
+            Provider::value(PageRows { rows, inline })
+                .update_should_notify(|old, new| old != new)
+                .child(child.clone())
+                .into()
+        };
         if !inline {
-            return layout.into();
+            // Measure beside the chat so its popover can close during a route
+            // change even when the old route no longer lays out.
+            let measure = LayoutBuilder::new(move |_, room| {
+                if reported != Some(room.max_height) {
+                    tell(room.max_height);
+                }
+                SizedBox::shrink().into()
+            });
+            return Stack::new()
+                .fit(StackFit::Expand)
+                .child(measure)
+                .child(page(reported.unwrap_or_default()))
+                .into();
         }
+        let layout = LayoutBuilder::new(move |_, room| page(reported.unwrap_or(room.max_height)));
         // An inline region grows from its intrinsic height. If a short terminal hides the
         // strip, its current layout stays short even after the physical terminal grows.
-        let tell = cx.local_sender();
         InputListener::new(layout, move |event| {
             if let InputEvent::Resize { height, .. } = event
                 && let Ok(rows) = i32::try_from(*height)
