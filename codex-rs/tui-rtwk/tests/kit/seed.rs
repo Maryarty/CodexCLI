@@ -53,6 +53,7 @@ pub struct Open {
     pub(super) first_frame: bool,
     pub(super) held_start: bool,
     model_catalog: Option<serde_json::Value>,
+    collaboration_catalog: Option<serde_json::Value>,
     /// The fake mints `fake-turn-{n}` for the turns the app starts (`Open::fake_turn_ids`).
     pub(super) fake_turns: bool,
     /// The chat starts inside a `/side` conversation (`Open::side`).
@@ -92,6 +93,7 @@ impl Screen {
             first_frame: false,
             held_start: false,
             model_catalog: None,
+            collaboration_catalog: None,
             fake_turns: false,
             side: false,
             gutter: 0,
@@ -113,6 +115,12 @@ impl Open {
     /// The server's answer to the model list requested at connect.
     pub fn model_catalog(mut self, catalog: serde_json::Value) -> Open {
         self.model_catalog = Some(catalog);
+        self
+    }
+
+    /// The server's answer to the collaboration-mode list requested at connect.
+    pub fn collaboration_catalog(mut self, catalog: serde_json::Value) -> Open {
+        self.collaboration_catalog = Some(catalog);
         self
     }
 
@@ -402,16 +410,17 @@ impl Open {
                 script::Answer::Result(catalog.clone()),
             );
         }
-        // The server's mode catalog (`collaborationMode/list`, read at connect): the Default and
-        // Plan presets with no model or effort of their own, so `/plan` and Shift+Tab have a Plan
-        // to switch to (the oracle's chat widget enables the collaboration modes the same way).
+        // Supply Default and Plan masks when a test does not specify its own catalog.
+        // Both inherit the thread's model and effort.
         answer(
             &mut h,
             "collaborationMode/list".to_string(),
-            script::Answer::Result(serde_json::json!({"data": [
-                {"name": "Plan", "mode": "plan", "model": null, "reasoning_effort": null},
-                {"name": "Default", "mode": "default", "model": null, "reasoning_effort": null},
-            ]})),
+            script::Answer::Result(self.collaboration_catalog.clone().unwrap_or_else(|| {
+                serde_json::json!({"data": [
+                    {"name": "Plan", "mode": "plan", "model": null, "reasoning_effort": null},
+                    {"name": "Default", "mode": "default", "model": null, "reasoning_effort": null},
+                ]})
+            })),
         );
         h.connect();
         self.env.deliver(&mut h);
