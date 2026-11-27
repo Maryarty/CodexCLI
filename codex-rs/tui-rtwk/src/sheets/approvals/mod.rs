@@ -301,6 +301,7 @@ fn confirming_dialog(seeded: &Seeded) -> AnyWidget {
         Some(request) => dialog::RequestDialog {
             key: request.key.clone(),
             confirming: true,
+            patch_route: false,
         }
         .into(),
         None => AnyWidget::default(),
@@ -328,9 +329,12 @@ pub fn request_dialog(key: codex_tui_core::ids::RequestKey) -> AnyWidget {
     dialog::RequestDialog {
         key,
         confirming: false,
+        patch_route: false,
     }
     .into()
 }
+
+pub(crate) use dialog::{patch_route, patch_route_active};
 
 /// Opens the dialog from the widget that asks (`show_dialog`); the result
 /// returns to the model through a handler, as an intent with its ticket.

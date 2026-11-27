@@ -9,12 +9,18 @@
 use std::rc::Rc;
 
 use rtwk::focus::Focus;
-use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding};
+use rtwk::gestures::Listener;
+use rtwk::layout::{
+    Align, Alignment, BoxWidget, Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding,
+};
+use rtwk::navigation::{Route, RouteBehavior, RouteSettings};
 use rtwk::overlay::{Dialog, close_dialog, show_dialog};
+use rtwk::prelude::HitTestBehavior;
 use rtwk::provider::{read, select};
+use rtwk::semantics::BlockSemantics;
 use rtwk::style::{Attrs, Span, Style, TerminalBrightness};
 use rtwk::text::{Text, TextWrap};
-use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::{AnyWidget, BuildCx, Cx, Rebuild, State, StatefulWidget, impl_widget};
 use rtwk_rich::highlight::{Highlighter, SyntaxTheme, language_named};
 
 use codex_tui_core::app::RequestQueue;
@@ -43,6 +49,73 @@ pub struct RequestDialog {
     /// A `request_user_input` that opens on its confirmation of unanswered questions (the
     /// oracle's `open_unanswered_confirmation`; the debug menu's state).
     pub confirming: bool,
+    /// This patch prompt is on the chat's pointer-pass-through route.
+    pub patch_route: bool,
+}
+
+const PATCH_ROUTE: &str = "/patch-approval";
+
+/// A patch prompt keeps the Navigator's key ownership while the visible transcript can
+/// take pointer input. The pane itself still takes every hit in its bounds.
+pub(crate) fn patch_route(key: RequestKey) -> Route {
+    Route::with_settings(PatchRoute(key), RouteSettings::named(PATCH_ROUTE))
+}
+
+struct PatchRoute(RequestKey);
+
+impl RouteBehavior for PatchRoute {
+    fn build(&self, _cx: &mut BuildCx<'_>) -> AnyWidget {
+        let pane = RequestDialog {
+            key: self.0.clone(),
+            confirming: false,
+            patch_route: true,
+        };
+        BlockSemantics::new(Align::new(
+            Alignment::BOTTOM_CENTER,
+            Listener::new()
+                .behavior(HitTestBehavior::Opaque)
+                .child(pane),
+        ))
+        .into()
+    }
+
+    fn opaque(&self) -> bool {
+        false
+    }
+
+    fn pops_on_back(&self) -> bool {
+        false
+    }
+}
+
+fn is_patch_route(route: &Route) -> bool {
+    route.settings().name.as_deref() == Some(PATCH_ROUTE)
+}
+
+/// Whether the patch route currently covers the chat. Its composer remains inaccessible by mouse.
+pub(crate) fn patch_route_active<S>(cx: &mut Cx<'_, S>) -> bool {
+    Route::maybe_of(cx).is_some_and(|home| {
+        !home.is_current()
+            && home
+                .navigator()
+                .is_some_and(|nav| nav.routes().iter().any(is_patch_route))
+    })
+}
+
+impl RequestDialog {
+    fn close(&self, cx: &mut Cx<'_, RequestDialogState>, answer: Option<()>) {
+        if !self.patch_route {
+            close_dialog(cx, answer);
+        } else if let Some(route) = Route::maybe_of(cx).filter(is_patch_route)
+            && let Some(nav) = route.navigator()
+        {
+            if answer.is_some() {
+                nav.remove_route_with(&route, ());
+            } else {
+                nav.remove_route(&route);
+            }
+        }
+    }
 }
 
 pub struct RequestDialogState {
@@ -90,9 +163,14 @@ impl State for RequestDialogState {
 
     fn did_change_dependencies(&mut self, w: &RequestDialog, cx: &mut Cx<'_, Self>) {
         let key = w.key.clone();
-        let queued = select::<RequestQueue, bool, _>(cx, move |queue| queue.contains(&key));
+        let patch_route = w.patch_route;
+        let queued = select::<RequestQueue, bool, _>(cx, move |queue| {
+            queue.get(&key).is_some_and(|entry| {
+                !patch_route || matches!(entry.prompt.as_deref(), Some(Prompt::Patch(_)))
+            })
+        });
         if !queued {
-            close_dialog::<_, ()>(cx, None);
+            w.close(cx, None);
         }
     }
 
@@ -147,7 +225,7 @@ impl State for RequestDialogState {
         let Some(decision) = decision else {
             if msg == Msg::Cancel {
                 cx.emit(&hs.dismiss, w.key.clone());
-                close_dialog(cx, Some(()));
+                w.close(cx, Some(()));
             }
             return Rebuild::No;
         };
@@ -162,7 +240,11 @@ impl State for RequestDialogState {
     }
 
     fn build(&self, w: &RequestDialog, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let Some(prompt) = prompt_of(&w.key, cx) else {
+        let prompt = prompt_of(&w.key, cx);
+        if w.patch_route && !matches!(prompt.as_deref(), Some(Prompt::Patch(_))) {
+            return AnyWidget::default();
+        }
+        let Some(prompt) = prompt else {
             return DismissDialog { key: w.key.clone() }.into();
         };
         // An elicitation whose schema the form takes is the form's dialog.
