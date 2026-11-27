@@ -238,7 +238,7 @@ fn owned_permissions_keep_the_original_choice_through_windows_setup() {
                         command: FeatureCommand::WindowsSandbox(_),
                         ..
                     } => {
-                        assert_eq!(thread.as_ref(), Some(&source));
+                        assert_eq!(thread, &source);
                         Some(*ticket)
                     }
                     _ => None,
