@@ -4,10 +4,12 @@
 //! order (`Restore::onto`); the composer controller only holds the text. The
 //! user messages of a replayed (resumed) thread seed the composer's history.
 
-use std::path::PathBuf;
+use std::collections::BTreeMap;
 
+use codex_tui_core::data::mention::{ToolMention, uri};
 use codex_tui_core::kit::history::{HistoryEntry, MentionBinding, TextElement};
 use codex_tui_core::kit::mentions::codec::{PLUGIN_TEXT_MENTION_SIGIL, TOOL_MENTION_SIGIL};
+use codex_tui_core::kit::mentions::rebind::find_next_mention_token_range;
 use codex_tui_core::screens::backtrack::Prompt;
 use codex_tui_core::threads::UserMessage;
 use codex_tui_core::threads::replay::Submissions;
@@ -18,29 +20,15 @@ use crate::widgets::thread_ui::ThreadUi;
 /// local image's placeholder an attached element again (numbered after the remote ones), the
 /// caret at the end. `image` words a placeholder from its number
 /// (`restore_user_message_to_composer`).
-pub(crate) fn put_back(ui: &ThreadUi, message: &UserMessage, image: impl Fn(usize) -> String) {
-    ui.draft.clear();
-    ui.draft.set_shell(false);
-    ui.composer.reset("");
+pub(crate) fn put_back(
+    ui: &ThreadUi,
+    message: &UserMessage,
+    replaces_draft: bool,
+    image: impl Fn(usize) -> String,
+) {
     ui.draft
-        .set_remote_images(&ui.composer, message.remote_images.clone(), &image);
-    let mut images: Vec<(&std::ops::Range<usize>, &PathBuf)> = message
-        .images
-        .iter()
-        .map(|image| (&image.range, &image.path))
-        .collect();
-    images.sort_by_key(|(range, _)| range.start);
-    let mut cursor = 0;
-    for (range, path) in images {
-        if range.start < cursor || range.end > message.text.len() {
-            continue;
-        }
-        ui.composer.insert(&message.text[cursor..range.start]);
-        ui.draft.attach_image(&ui.composer, path.clone(), &image);
-        cursor = range.end;
-    }
-    ui.composer.insert(&message.text[cursor..]);
-    ui.draft.sync(&ui.composer);
+        .restore_message(&ui.composer, recalled_entry(message), replaces_draft);
+    ui.draft.relabel_images(&ui.composer, image);
 }
 
 /// Seeds the composer's history of `ui` from the user messages of the replayed
@@ -69,13 +57,21 @@ fn history_entry(prompt: &Prompt) -> HistoryEntry {
             .collect(),
         local_image_paths: prompt.local_images.clone(),
         remote_image_urls: prompt.remote_images.clone(),
-        mention_bindings: mention_bindings(prompt),
+        mention_bindings: mention_bindings(
+            &prompt.text,
+            prompt
+                .mentions
+                .iter()
+                .map(|input| (input.skill, input.name.as_str(), input.path.as_str())),
+        ),
         pending_pastes: Vec::new(),
     }
 }
 
-fn mention_bindings(prompt: &Prompt) -> Vec<MentionBinding> {
-    let text = prompt.text.as_str();
+fn mention_bindings<'a>(
+    text: &str,
+    mentions: impl Iterator<Item = (bool, &'a str, &'a str)>,
+) -> Vec<MentionBinding> {
     // the token of `sigil` + `mention` in the text, not followed by a name character
     let start_of = |sigil: char, mention: &str| {
         let token = format!("{sigil}{mention}");
@@ -86,27 +82,25 @@ fn mention_bindings(prompt: &Prompt) -> Vec<MentionBinding> {
                 .then_some(start)
         })
     };
-    let mut bindings: Vec<MentionBinding> = prompt
-        .mentions
-        .iter()
-        .map(|input| {
-            if input.skill {
+    let mut bindings: Vec<MentionBinding> = mentions
+        .map(|(skill, name, path)| {
+            if skill {
                 return MentionBinding {
                     sigil: TOOL_MENTION_SIGIL,
-                    mention: input.name.clone(),
-                    path: input.path.clone(),
+                    mention: name.to_owned(),
+                    path: path.to_owned(),
                 };
             }
-            let plugin = input.path.strip_prefix("plugin://");
+            let plugin = path.strip_prefix("plugin://");
             let mention = if let Some(plugin) = plugin {
                 plugin
                     .split_once('@')
                     .map_or(plugin, |(name, _)| name)
                     .to_string()
-            } else if input.path.starts_with("app://") {
-                connector_slug(&input.name)
+            } else if path.starts_with("app://") {
+                connector_slug(name)
             } else {
-                input.name.clone()
+                name.to_owned()
             };
             let sigil =
                 if plugin.is_some() && start_of(PLUGIN_TEXT_MENTION_SIGIL, &mention).is_some() {
@@ -117,7 +111,7 @@ fn mention_bindings(prompt: &Prompt) -> Vec<MentionBinding> {
             MentionBinding {
                 sigil,
                 mention,
-                path: input.path.clone(),
+                path: path.to_owned(),
             }
         })
         .collect();
@@ -158,6 +152,52 @@ pub(crate) fn recalled_entry(message: &UserMessage) -> HistoryEntry {
         });
         entry.local_image_paths.push(image.path.clone());
     }
+    let tool_bindings = mention_bindings(
+        &message.text,
+        message.mentions.iter().map(|mention| match mention {
+            ToolMention::Skill { name, path } => (true, name.as_str(), path.as_str()),
+            ToolMention::Mention { name, path } => (false, name.as_str(), path.as_str()),
+        }),
+    );
+    let mut cursors = BTreeMap::new();
+    let mut bindings: Vec<_> = tool_bindings
+        .into_iter()
+        .map(|binding| {
+            let token = format!("{}{}", binding.sigil, binding.mention);
+            let cursor = cursors.entry(token.clone()).or_default();
+            let start = find_next_mention_token_range(&message.text, &token, *cursor).map_or(
+                usize::MAX,
+                |range| {
+                    *cursor = range.end;
+                    range.start
+                },
+            );
+            (start, binding)
+        })
+        .collect();
+    for task in &message.tasks {
+        let Some(token) = message.text.get(task.range.clone()) else {
+            continue;
+        };
+        let Some(title) = token.strip_prefix('@') else {
+            continue;
+        };
+        entry.text_elements.push(TextElement {
+            start: task.range.start,
+            end: task.range.end,
+            placeholder: Some(token.to_owned()),
+        });
+        bindings.push((
+            task.range.start,
+            MentionBinding {
+                sigil: '@',
+                mention: title.to_owned(),
+                path: uri("thread", task.thread.as_str()),
+            },
+        ));
+    }
+    bindings.sort_by_key(|(start, _)| *start);
+    entry.mention_bindings = bindings.into_iter().map(|(_, binding)| binding).collect();
     entry.remote_image_urls = message.remote_images.clone();
     entry
 }

@@ -198,34 +198,94 @@ fn a_pending_read_keeps_the_preview_and_an_unavailable_one_restores_the_draft() 
     assert_eq!((w.s.status, w.preview()), (SearchStatus::Idle, None));
 }
 
-/// Ctrl+V: the host answers with a file, and a composer takes the first
-/// answer after the one it counted when it asked (an answer that came
-/// before is another's).
 #[test]
-fn a_clipboard_image_answers_only_the_asks_before_it() {
-    use codex_tui_core::screens::composer::clipboard::Pasted;
-    use std::path::Path;
-    let mut pasted = Pasted::default();
-    assert_eq!(pasted.after(0), None);
-    pasted.on_image("/tmp/a.png".into());
-    assert_eq!(pasted.after(0), Some(Path::new("/tmp/a.png")));
-    assert_eq!(
-        pasted.after(1),
-        None,
-        "asked after the answer: waits for the next"
-    );
-    pasted.on_image("/tmp/b.png".into());
-    assert_eq!(pasted.after(1), Some(Path::new("/tmp/b.png")));
-    assert_eq!(
-        (pasted.answers(), pasted.latest()),
-        (2, Some(Path::new("/tmp/b.png")))
-    );
-}
+fn clipboard_reads_settle_only_their_thread_and_generation() {
+    use codex_tui_core::app::AppFx;
+    use std::path::PathBuf;
 
-#[test]
-fn the_image_pasted_seed_is_an_event() {
-    let ev = seed(serde_json::json!({"image_pasted": "/tmp/a.png"})).expect("seed");
-    assert_eq!(ev, Ev::ImagePasted("/tmp/a.png".into()));
+    let mut model = Model::default();
+    let mut fx = AppFx::default();
+    let first = ClipboardRead {
+        thread: ThreadId::new("first"),
+        number: 1,
+    };
+    let second = ClipboardRead {
+        thread: ThreadId::new("second"),
+        number: 1,
+    };
+    apply_intent(&mut model, Intent::PasteImage(first.clone()), &mut fx);
+    apply_intent(&mut model, Intent::PasteImage(second.clone()), &mut fx);
+    assert_eq!(
+        model.take_asks(),
+        vec![
+            Ask::ClipboardImage(first.clone()),
+            Ask::ClipboardImage(second.clone())
+        ]
+    );
+
+    let replacement = ClipboardRead {
+        number: 2,
+        ..first.clone()
+    };
+    apply_intent(&mut model, Intent::PasteImage(replacement.clone()), &mut fx);
+    apply(
+        &mut model,
+        Ev::ClipboardResult {
+            read: first.clone(),
+            result: Ok("/tmp/old.png".into()),
+        },
+        &mut fx,
+    );
+    assert_eq!(model.pasted.result(&first.thread, first.number), None);
+    assert_eq!(
+        model.pasted.result(&replacement.thread, replacement.number),
+        None
+    );
+    assert_eq!(model.pasted.result(&second.thread, second.number), None);
+
+    apply(
+        &mut model,
+        Ev::ClipboardResult {
+            read: second.clone(),
+            result: Err("no image".to_owned()),
+        },
+        &mut fx,
+    );
+    apply(
+        &mut model,
+        Ev::ClipboardResult {
+            read: replacement.clone(),
+            result: Ok("/tmp/current.png".into()),
+        },
+        &mut fx,
+    );
+    apply_intent(&mut model, Intent::ClipboardReadFinished(first), &mut fx);
+    assert_eq!(
+        model.pasted.result(&second.thread, second.number),
+        Some(&Err("no image".to_owned()))
+    );
+    assert_eq!(
+        model.pasted.result(&replacement.thread, replacement.number),
+        Some(&Ok(PathBuf::from("/tmp/current.png")))
+    );
+
+    apply_intent(
+        &mut model,
+        Intent::ClipboardReadFinished(replacement.clone()),
+        &mut fx,
+    );
+    apply(
+        &mut model,
+        Ev::ClipboardResult {
+            read: replacement.clone(),
+            result: Ok("/tmp/duplicate.png".into()),
+        },
+        &mut fx,
+    );
+    assert_eq!(
+        model.pasted.result(&replacement.thread, replacement.number),
+        None
+    );
 }
 
 /// What the `@` and `$` popups list from the server (oracle `refresh_startup_skills`,

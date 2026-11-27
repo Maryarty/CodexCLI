@@ -343,6 +343,11 @@ impl ComposerDraft {
     /// Forgets every element and the text they were measured on (a submit
     /// or a draft the app replaced).
     pub fn clear(&self) {
+        self.clear_elements();
+        self.0.borrow_mut().clipboard.retire();
+    }
+
+    fn clear_elements(&self) {
         let mut inner = self.0.borrow_mut();
         inner.elements.clear();
         inner.seen = None;
@@ -1039,7 +1044,30 @@ impl ComposerDraft {
     /// stand for, the caret at the end, and the text noted as the one the
     /// walk goes on from.
     pub(super) fn recall(&self, c: &TextEditingController, entry: HistoryEntry) {
+        self.0.borrow_mut().clipboard.retire();
+        self.preview_entry(c, entry);
+    }
+
+    fn preview_entry(&self, c: &TextEditingController, entry: HistoryEntry) {
         let shell = entry.text.starts_with('!');
+        let shown = self.restore_entry(c, entry, shell);
+        self.0.borrow_mut().prompts.record_recalled_text(shown);
+    }
+
+    /// Restores a message the thread gave back. A leading bang is literal in this route.
+    pub fn restore_message(
+        &self,
+        c: &TextEditingController,
+        entry: HistoryEntry,
+        replaces_draft: bool,
+    ) {
+        if replaces_draft {
+            self.0.borrow_mut().clipboard.retire();
+        }
+        self.restore_entry(c, entry, false);
+    }
+
+    fn restore_entry(&self, c: &TextEditingController, entry: HistoryEntry, shell: bool) -> String {
         let skip = usize::from(shell);
         let text = entry.text[skip..].to_string();
         let mut images = entry.local_image_paths.iter();
@@ -1052,6 +1080,15 @@ impl ComposerDraft {
             let Some(label) = text.get(start..end) else {
                 continue;
             };
+            if label.starts_with('@')
+                && entry.mention_bindings.iter().any(|binding| {
+                    binding.sigil == '@'
+                        && valid_thread_path(&binding.path).is_some()
+                        && label.strip_prefix('@') == Some(binding.mention.as_str())
+                })
+            {
+                continue;
+            }
             let label: Rc<str> = Rc::from(label);
             let paste = entry.pending_pastes.iter().find(|(p, _)| **p == *label);
             let (payload, image) = if let Some((_, payload)) = paste {
@@ -1072,7 +1109,7 @@ impl ComposerDraft {
             });
         }
         bind_mentions(&text, &entry, skip, &mut elements);
-        self.clear();
+        self.clear_elements();
         self.set_shell(shell);
         c.set_text(&text);
         {
@@ -1081,6 +1118,7 @@ impl ComposerDraft {
                 e.seq = inner.next_seq;
                 inner.next_seq += 1;
             }
+            elements.sort_by_key(|element| element.start);
             inner.elements = elements;
             inner.seen = Some(c.buffer());
             inner.remote.urls = entry.remote_image_urls.clone();
@@ -1089,8 +1127,7 @@ impl ComposerDraft {
             inner.vim.history.reset();
         }
         self.rest_at_end(c);
-        let shown = if shell { format!("!{text}") } else { text };
-        self.0.borrow_mut().prompts.record_recalled_text(shown);
+        if shell { format!("!{text}") } else { text }
     }
 
     /// The composer cleared (the thread took the submit, a command opened a
@@ -1151,6 +1188,7 @@ impl ComposerDraft {
             inner.vim.history.reset();
             inner.prompts.reset_navigation();
             inner.prompts.record_local_submission(entry);
+            inner.clipboard.retire();
         }
         self.vim_reset_mode(c);
     }
@@ -1196,7 +1234,6 @@ fn bind_mentions(text: &str, entry: &HistoryEntry, skip: usize, elements: &mut V
         }
         scan_from = range.end;
     }
-    elements.sort_by_key(|e| e.start);
 }
 
 fn changed(a: &str, b: &str) -> (usize, usize, usize) {

@@ -230,7 +230,7 @@ impl ComposerDraft {
 
     /// The draft put back as `snapshot` was.
     pub fn restore(&self, c: &TextEditingController, snapshot: &Snapshot) {
-        self.clear();
+        self.clear_elements();
         self.set_shell(snapshot.shell);
         c.set_text(&snapshot.text);
         {

@@ -8,7 +8,7 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::ModelListParams;
 use codex_app_server_protocol::ModelListResponse;
 use codex_app_server_protocol::RequestId;
-use codex_protocol::openai_models::ReasoningEffort;
+use codex_protocol::openai_models::{InputModality, ReasoningEffort};
 use serde::Deserialize;
 
 pub type Effort = ReasoningEffort;
@@ -53,6 +53,9 @@ pub struct Preset {
     pub description: String,
     #[serde(default = "yes")]
     pub show_in_picker: bool,
+    /// Whether the server accepts image inputs for this model.
+    #[serde(default = "yes")]
+    pub accepts_images: bool,
     #[serde(default)]
     pub default_effort: Effort,
     #[serde(default)]
@@ -81,6 +84,7 @@ impl Preset {
             name: model.display_name.clone(),
             description: model.description.clone(),
             show_in_picker: !model.hidden,
+            accepts_images: model.input_modalities.contains(&InputModality::Image),
             default_effort: model.default_reasoning_effort.clone(),
             efforts: model
                 .supported_reasoning_efforts
@@ -242,7 +246,10 @@ impl Catalog {
 pub fn list_request(request_id: RequestId) -> ClientRequest {
     ClientRequest::ModelList {
         request_id,
-        params: ModelListParams { include_hidden: Some(true), ..Default::default() },
+        params: ModelListParams {
+            include_hidden: Some(true),
+            ..Default::default()
+        },
     }
 }
 
@@ -310,7 +317,13 @@ pub struct Current {
 
 impl Current {
     pub fn new(model: impl Into<String>) -> Self {
-        Current { model: model.into(), effort: None, plan: None, threads: None, reserve: None }
+        Current {
+            model: model.into(),
+            effort: None,
+            plan: None,
+            threads: None,
+            reserve: None,
+        }
     }
 
     /// What the chat's status facts know of the thread: its model, effective
@@ -376,7 +389,12 @@ pub enum ModelMenu {
     /// Max and Ultra of one model.
     Advanced { preset: Preset, current: Current },
     /// Where an effort change in Plan mode applies.
-    PlanScope { model: String, effort: Option<Effort>, source: PlanSource, warning: Option<usize> },
+    PlanScope {
+        model: String,
+        effort: Option<Effort>,
+        source: PlanSource,
+        warning: Option<usize>,
+    },
 }
 
 /// What a row does when chosen, for the view to give it its words.
@@ -423,9 +441,14 @@ pub enum Heading {
     Loading,
     Quick,
     All,
-    Reasoning { model: String },
+    Reasoning {
+        model: String,
+    },
     Advanced,
-    PlanScope { effort: Option<Effort>, source: PlanSource },
+    PlanScope {
+        effort: Option<Effort>,
+        source: PlanSource,
+    },
     /// The Reserve-only picker (`Other models return when ordinary usage is available again.`).
     Reserve,
 }
@@ -470,7 +493,11 @@ impl ModelMenu {
     /// The menu as rows.
     pub fn page(&self, catalog: &Catalog) -> Page {
         match self {
-            ModelMenu::Loading { .. } => Page { heading: Heading::Loading, rows: Vec::new(), initial: None },
+            ModelMenu::Loading { .. } => Page {
+                heading: Heading::Loading,
+                rows: Vec::new(),
+                initial: None,
+            },
             ModelMenu::Models(current) => quick(catalog, current),
             ModelMenu::AllModels(current) => Page {
                 heading: Heading::All,
@@ -480,7 +507,10 @@ impl ModelMenu {
             ModelMenu::Reasoning { preset, current } => reasoning(preset, current),
             ModelMenu::Advanced { preset, current } => advanced(preset, current),
             ModelMenu::PlanScope { effort, source, .. } => Page {
-                heading: Heading::PlanScope { effort: effort.clone(), source: source.clone() },
+                heading: Heading::PlanScope {
+                    effort: effort.clone(),
+                    source: source.clone(),
+                },
                 rows: [(PLAN_ONLY, Apply::PlanOnly), (ALL_MODES, Apply::AllModes)]
                     .into_iter()
                     .map(|(id, apply)| Choice {
@@ -506,7 +536,11 @@ impl ModelMenu {
         if catalog.provider != Provider::Settled {
             return Some(Next::Close);
         }
-        let gave_up = |menu: &ModelMenu| Next::GiveUp(GaveUp::Empty { reserve: menu.is_reserve() });
+        let gave_up = |menu: &ModelMenu| {
+            Next::GiveUp(GaveUp::Empty {
+                reserve: menu.is_reserve(),
+            })
+        };
         match self {
             ModelMenu::Loading { current, request } => match catalog.answered {
                 Some((answered, Answer::Failed)) if answered == *request => {
@@ -514,11 +548,17 @@ impl ModelMenu {
                 }
                 Some((answered, Answer::Listed)) if answered == *request => {
                     let menu = ModelMenu::Models(current.clone());
-                    Some(if menu.is_empty(catalog) { gave_up(&menu) } else { Next::Replace(Box::new(menu)) })
+                    Some(if menu.is_empty(catalog) {
+                        gave_up(&menu)
+                    } else {
+                        Next::Replace(Box::new(menu))
+                    })
                 }
                 _ => None,
             },
-            ModelMenu::Models(_) | ModelMenu::AllModels(_) if self.is_empty(catalog) => Some(gave_up(self)),
+            ModelMenu::Models(_) | ModelMenu::AllModels(_) if self.is_empty(catalog) => {
+                Some(gave_up(self))
+            }
             _ => None,
         }
     }
@@ -546,7 +586,11 @@ impl ModelMenu {
         if session {
             return match (&row.session, row_model(self, row)) {
                 (true, Some(model)) => Onward::Done(Selection {
-                    apply: if model == RESERVE_MODEL { Apply::Reserve } else { Apply::Session },
+                    apply: if model == RESERVE_MODEL {
+                        Apply::Reserve
+                    } else {
+                        Apply::Session
+                    },
                     model,
                     effort: row.effort.clone(),
                     warning: warning(self.current(), row.effort.as_ref()),
@@ -563,19 +607,29 @@ impl ModelMenu {
         if let (ModelMenu::Models(current), Kind::Model) = (self, &row.kind)
             && current.reserve.is_some()
         {
-            let Some(preset) = reserve_preset(catalog, current) else { return Onward::None };
+            let Some(preset) = reserve_preset(catalog, current) else {
+                return Onward::None;
+            };
             let mut preset = preset.clone();
             preset.model = RESERVE_MODEL.to_string();
             return reasoning_of(&preset, current);
         }
         match (self, &row.kind) {
-            (ModelMenu::Models(current) | ModelMenu::AllModels(current), Kind::Model) if listing => {
-                let Some(preset) = catalog.find(&row.id) else { return Onward::None };
+            (ModelMenu::Models(current) | ModelMenu::AllModels(current), Kind::Model)
+                if listing =>
+            {
+                let Some(preset) = catalog.find(&row.id) else {
+                    return Onward::None;
+                };
                 reasoning_of(preset, current)
             }
-            (ModelMenu::Models(current), Kind::AllModels) => Onward::Replace(ModelMenu::AllModels(current.clone())),
+            (ModelMenu::Models(current), Kind::AllModels) => {
+                Onward::Replace(ModelMenu::AllModels(current.clone()))
+            }
             (ModelMenu::Models(current), Kind::Model) => {
-                let Some(preset) = catalog.find(&row.id) else { return Onward::None };
+                let Some(preset) = catalog.find(&row.id) else {
+                    return Onward::None;
+                };
                 if preset.needs_advanced() {
                     return Onward::Push(ModelMenu::Reasoning {
                         preset: preset.clone(),
@@ -587,21 +641,29 @@ impl ModelMenu {
             (ModelMenu::Reasoning { preset, current }, Kind::Effort { effort, .. }) => {
                 settle(current, &preset.model, Some(effort.clone()))
             }
-            (ModelMenu::Reasoning { preset, current }, Kind::More(_)) => Onward::Push(ModelMenu::Advanced {
-                preset: preset.clone(),
-                current: current.clone(),
-            }),
+            (ModelMenu::Reasoning { preset, current }, Kind::More(_)) => {
+                Onward::Push(ModelMenu::Advanced {
+                    preset: preset.clone(),
+                    current: current.clone(),
+                })
+            }
             (ModelMenu::Advanced { preset, current }, Kind::Effort { effort, .. }) => {
                 settle(current, &preset.model, Some(effort.clone()))
             }
-            (ModelMenu::PlanScope { model, effort, warning, .. }, Kind::Scope(apply)) => {
-                Onward::Done(Selection {
-                    model: model.clone(),
-                    effort: effort.clone(),
-                    apply: *apply,
-                    warning: *warning,
-                })
-            }
+            (
+                ModelMenu::PlanScope {
+                    model,
+                    effort,
+                    warning,
+                    ..
+                },
+                Kind::Scope(apply),
+            ) => Onward::Done(Selection {
+                model: model.clone(),
+                effort: effort.clone(),
+                apply: *apply,
+                warning: *warning,
+            }),
             _ => Onward::None,
         }
     }
@@ -621,7 +683,9 @@ impl ModelMenu {
 fn row_model(menu: &ModelMenu, row: &Choice) -> Option<String> {
     match menu {
         ModelMenu::Models(_) | ModelMenu::AllModels(_) => Some(row.id.clone()),
-        ModelMenu::Reasoning { preset, .. } | ModelMenu::Advanced { preset, .. } => Some(preset.model.clone()),
+        ModelMenu::Reasoning { preset, .. } | ModelMenu::Advanced { preset, .. } => {
+            Some(preset.model.clone())
+        }
         ModelMenu::Loading { .. } | ModelMenu::PlanScope { .. } => None,
     }
 }
@@ -635,7 +699,9 @@ pub fn warning(current: Option<&Current>, effort: Option<&Effort>) -> Option<usi
 /// model in use that is not a no-op for both the effective effort and the
 /// stored Plan defaults asks where it applies.
 fn asks_scope(current: &Current, model: &str, effort: &Option<Effort>) -> bool {
-    let Some(plan) = &current.plan else { return false };
+    let Some(plan) = &current.plan else {
+        return false;
+    };
     model == current.model
         && (effort != &current.effort || model != plan.model || effort != &plan.effort)
 }
@@ -647,14 +713,36 @@ fn settle(current: &Current, model: &str, effort: Option<Effort>) -> Onward {
     // The Reserve is temporary: its effort is the task's, never a default, and never asks
     // where it applies in Plan mode.
     if model == RESERVE_MODEL {
-        return Onward::Done(Selection { model: model.into(), effort, apply: Apply::Reserve, warning });
+        return Onward::Done(Selection {
+            model: model.into(),
+            effort,
+            apply: Apply::Reserve,
+            warning,
+        });
     }
     if asks_scope(current, model, &effort) {
-        let source = current.plan.as_ref().map_or(PlanSource::Unknown, |plan| plan.source.clone());
-        return Onward::Prompt(ModelMenu::PlanScope { model: model.into(), effort, source, warning });
+        let source = current
+            .plan
+            .as_ref()
+            .map_or(PlanSource::Unknown, |plan| plan.source.clone());
+        return Onward::Prompt(ModelMenu::PlanScope {
+            model: model.into(),
+            effort,
+            source,
+            warning,
+        });
     }
-    let apply = if effort == Some(Effort::Ultra) { Apply::Advanced } else { Apply::Selection };
-    Onward::Done(Selection { model: model.into(), effort, apply, warning })
+    let apply = if effort == Some(Effort::Ultra) {
+        Apply::Advanced
+    } else {
+        Apply::Selection
+    };
+    Onward::Done(Selection {
+        model: model.into(),
+        effort,
+        apply,
+        warning,
+    })
 }
 
 /// The reasoning step of a model chosen in the all-models list: a model with
@@ -665,7 +753,10 @@ fn reasoning_of(preset: &Preset, current: &Current) -> Onward {
     if standard.len() == 1 && advanced.is_empty() {
         return settle(current, &preset.model, standard.first().cloned());
     }
-    Onward::Push(ModelMenu::Reasoning { preset: preset.clone(), current: current.clone() })
+    Onward::Push(ModelMenu::Reasoning {
+        preset: preset.clone(),
+        current: current.clone(),
+    })
 }
 
 fn model_row(preset: &Preset, current: &Current, effort: Option<Effort>, session: bool) -> Choice {
@@ -683,8 +774,12 @@ fn model_row(preset: &Preset, current: &Current, effort: Option<Effort>, session
 /// The preset the Reserve-only row borrows: the normal model of the reserve quota, else Luna
 /// (`open_luna_reserve_model_popup`).
 fn reserve_preset<'a>(catalog: &'a Catalog, current: &Current) -> Option<&'a Preset> {
-    let slug = current.reserve.as_ref().and_then(|reserve| reserve.normal_model.as_deref());
-    slug.and_then(|slug| catalog.find(slug)).or_else(|| catalog.find(LUNA_MODEL))
+    let slug = current
+        .reserve
+        .as_ref()
+        .and_then(|reserve| reserve.normal_model.as_deref());
+    slug.and_then(|slug| catalog.find(slug))
+        .or_else(|| catalog.find(LUNA_MODEL))
 }
 
 /// The Reserve-only list: one row, the borrowed model's name and words, marked current.
@@ -701,7 +796,11 @@ fn reserve(catalog: &Catalog, current: &Current) -> Page {
         })
         .into_iter()
         .collect();
-    Page { heading: Heading::Reserve, rows, initial: None }
+    Page {
+        heading: Heading::Reserve,
+        rows,
+        initial: None,
+    }
 }
 
 fn quick(catalog: &Catalog, current: &Current) -> Page {
@@ -711,7 +810,11 @@ fn quick(catalog: &Catalog, current: &Current) -> Page {
     let (mut auto, other): (Vec<&Preset>, Vec<&Preset>) =
         catalog.visible().partition(|preset| preset.is_auto());
     if auto.is_empty() {
-        return Page { heading: Heading::All, rows: all(catalog, current), initial: None };
+        return Page {
+            heading: Heading::All,
+            rows: all(catalog, current),
+            initial: None,
+        };
     }
     auto.sort_by_key(|preset| preset.auto_order());
     let mut rows: Vec<Choice> = auto
@@ -726,10 +829,10 @@ fn quick(catalog: &Catalog, current: &Current) -> Page {
         let none_current = !rows.iter().any(|row| row.current);
         // The row says which model is in use: its display name when the
         // catalog has it, else the slug.
-        let label = catalog.visible().find(|preset| preset.model == current.model).map_or_else(
-            || current.model.clone(),
-            |preset| preset.name.clone(),
-        );
+        let label = catalog
+            .visible()
+            .find(|preset| preset.model == current.model)
+            .map_or_else(|| current.model.clone(), |preset| preset.name.clone());
         rows.push(Choice {
             id: ALL_MODELS.into(),
             name: String::new(),
@@ -740,7 +843,11 @@ fn quick(catalog: &Catalog, current: &Current) -> Page {
             session: false,
         });
     }
-    Page { heading: Heading::Quick, rows, initial: None }
+    Page {
+        heading: Heading::Quick,
+        rows,
+        initial: None,
+    }
 }
 
 fn all(catalog: &Catalog, current: &Current) -> Vec<Choice> {
@@ -756,22 +863,30 @@ fn all(catalog: &Catalog, current: &Current) -> Vec<Choice> {
 
 fn reasoning(preset: &Preset, current: &Current) -> Page {
     let (standard, advanced) = preset.split_efforts();
-    let default_choice = standard.contains(&preset.default_effort).then(|| preset.default_effort.clone());
+    let default_choice = standard
+        .contains(&preset.default_effort)
+        .then(|| preset.default_effort.clone());
     let in_current_model = current.model == preset.model;
     let highlight = if in_current_model {
         match &current.plan {
-            Some(PlanMode { source: PlanSource::Override(effort), .. }) => Some(effort.clone()),
+            Some(PlanMode {
+                source: PlanSource::Override(effort),
+                ..
+            }) => Some(effort.clone()),
             _ => current.effort.clone(),
         }
     } else {
         default_choice.clone().or_else(|| standard.first().cloned())
     };
     let selection = highlight.clone().or_else(|| default_choice.clone());
-    let initial = standard.iter().position(|effort| Some(effort) == selection.as_ref());
+    let initial = standard
+        .iter()
+        .position(|effort| Some(effort) == selection.as_ref());
     let warn_effort = [Effort::XHigh, Effort::High]
         .into_iter()
         .find(|warn| preset.efforts.iter().any(|option| &option.effort == warn));
-    let warn_model = preset.model.starts_with("gpt-5.1-codex") || preset.model.starts_with("gpt-5.2");
+    let warn_model =
+        preset.model.starts_with("gpt-5.1-codex") || preset.model.starts_with("gpt-5.2");
     let mut rows: Vec<Choice> = standard
         .iter()
         .map(|effort| Choice {
@@ -799,7 +914,13 @@ fn reasoning(preset: &Preset, current: &Current) -> Page {
             kind: Kind::More(advanced),
         });
     }
-    Page { heading: Heading::Reasoning { model: preset.name.clone() }, rows, initial }
+    Page {
+        heading: Heading::Reasoning {
+            model: preset.name.clone(),
+        },
+        rows,
+        initial,
+    }
 }
 
 fn advanced(preset: &Preset, current: &Current) -> Page {
@@ -813,7 +934,9 @@ fn advanced(preset: &Preset, current: &Current) -> Page {
         efforts.push(preset.default_effort.clone());
     }
     efforts.sort_by_key(|effort| matches!(effort, Effort::Ultra));
-    let highlight = (current.model == preset.model).then(|| current.effort.clone()).flatten();
+    let highlight = (current.model == preset.model)
+        .then(|| current.effort.clone())
+        .flatten();
     Page {
         heading: Heading::Advanced,
         rows: efforts
@@ -823,7 +946,11 @@ fn advanced(preset: &Preset, current: &Current) -> Page {
                 name: String::new(),
                 description: String::new(),
                 current: Some(&effort) == highlight.as_ref(),
-                kind: Kind::Effort { effort: effort.clone(), default: false, warns: false },
+                kind: Kind::Effort {
+                    effort: effort.clone(),
+                    default: false,
+                    warns: false,
+                },
                 effort: Some(effort),
                 session: true,
             })

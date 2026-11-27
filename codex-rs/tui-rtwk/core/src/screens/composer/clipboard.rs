@@ -1,38 +1,62 @@
-//! The clipboard's image (Ctrl+V): the host reads it into a file, the
-//! answer is the file's path (`clipboard_paste.rs` `paste_image_to_temp_png`,
-//! `chatwidget/clipboard.rs` `paste_image`). A composer that asked takes the
-//! answer that comes after its question: it counts the answers when it asks
-//! and attaches the latest once there are more.
+//! The host reads a clipboard image into a file. Its answer belongs to the
+//! draft that requested it, even if another thread is showing when it arrives.
 
-use std::path::{Path, PathBuf};
+use std::collections::BTreeMap;
+use std::path::PathBuf;
 
-/// What the host answered to the Ctrl+V asks so far.
+use crate::ids::{ClipboardRead, ThreadId};
+
+/// The latest clipboard read of each thread, waiting on the host or on its composer.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Pasted {
-    answers: u64,
-    latest: Option<PathBuf>,
+    reads: BTreeMap<ThreadId, Read>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Read {
+    number: u64,
+    result: Option<Result<PathBuf, String>>,
 }
 
 impl Pasted {
-    /// The host wrote the clipboard's image to `path`.
-    pub fn on_image(&mut self, path: PathBuf) {
-        self.answers += 1;
-        self.latest = Some(path);
+    pub(in crate::screens) fn wait(&mut self, read: &ClipboardRead) {
+        self.reads.insert(
+            read.thread.clone(),
+            Read {
+                number: read.number,
+                result: None,
+            },
+        );
     }
 
-    /// How many images the host has answered with.
-    pub fn answers(&self) -> u64 {
-        self.answers
+    pub(in crate::screens) fn answered(
+        &mut self,
+        read: &ClipboardRead,
+        result: Result<PathBuf, String>,
+    ) {
+        if let Some(waiting) = self.reads.get_mut(&read.thread)
+            && waiting.number == read.number
+            && waiting.result.is_none()
+        {
+            waiting.result = Some(result);
+        }
     }
 
-    /// The file of the latest answer.
-    pub fn latest(&self) -> Option<&Path> {
-        self.latest.as_deref()
+    pub(in crate::screens) fn forget(&mut self, read: &ClipboardRead) {
+        if self
+            .reads
+            .get(&read.thread)
+            .is_some_and(|waiting| waiting.number == read.number)
+        {
+            self.reads.remove(&read.thread);
+        }
     }
 
-    /// The file of the first answer after the `answers`-th, if there is one
-    /// by now.
-    pub fn after(&self, answers: u64) -> Option<&Path> {
-        (self.answers > answers).then(|| self.latest()).flatten()
+    pub fn result(&self, thread: &ThreadId, number: u64) -> Option<&Result<PathBuf, String>> {
+        self.reads
+            .get(thread)
+            .filter(|read| read.number == number)?
+            .result
+            .as_ref()
     }
 }

@@ -293,25 +293,36 @@ fn handoff_image_survives_model_rejection_and_submission_failure() {
 // ORACLE chatwidget/tests/composer_submission.rs:573 local_clipboard_image_does_not_turn_a_held_bang_into_a_shell_command kind=ui owner=chat-nav-pane
 #[test]
 fn local_clipboard_image_does_not_turn_a_held_bang_into_a_shell_command() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the oracle attaches the clipboard's image in the same instant the `!` is held (a paste detector's 9 ms first-char hold, `attach_image` at once): the draft is `[Image #1]!` and the held `!` goes in after it. The host's answer reaches the composer one frame later (`ComposerMsg::ImageArrived` at the next build), by when the `!` has gone in as the shell prefix, and Enter in that window is a newline before the image",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    // the `!` is the first char of the draft: the paste detector holds it for a moment, and the
-    // clipboard's image arrives while it is held
-    s.type_burst("!");
-    let path = kit::image_file("image.png");
-    s.paste_clipboard_image_at_once("alt+v", &path);
-    s.keys("enter");
-    // the oracle's draft is `[Image #1]!` with shell mode off: nothing is sent yet
-    s.assert_no_turn();
-    s.assert_no_shell_command();
-    s.wait(1000);
-    s.keys("enter");
-    s.wait_for("› Ask Codex to do anything");
-    // the turn is the image then the text, never a shell command
-    s.assert_sole_turn(kit::Turn::text("[Image #1]!").images(&[(&path, 0.."[Image #1]".len())]));
+    for (delayed, read_first) in [(false, false), (true, false), (true, true)] {
+        let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+        if !read_first {
+            s.type_burst("!");
+        }
+        let read = s.ask_clipboard_image("alt+v");
+        if read_first {
+            s.type_burst("!");
+        }
+        let path = kit::image_file("image.png");
+        if delayed {
+            s.wait(600);
+            s.keys("enter");
+        }
+        s.assert_no_turn();
+        s.assert_no_shell_command();
+        s.answer_clipboard_read(read, Ok(path.clone()));
+        if !delayed {
+            s.keys("enter");
+        }
+        s.wait(1000);
+        s.assert_no_turn();
+        s.assert_no_shell_command();
+        s.assert_contains("[Image #1]!");
+        s.keys("enter");
+        s.assert_sole_turn(
+            kit::Turn::text("[Image #1]!").images(&[(&path, 0.."[Image #1]".len())]),
+        );
+        s.assert_no_shell_command();
+    }
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:626 submission_preserves_text_elements_and_local_images kind=ui owner=chat-nav-pane
@@ -430,13 +441,103 @@ fn submission_prefers_selected_duplicate_skill_path() {
 // ORACLE chatwidget/tests/composer_submission.rs:1286 blocked_image_restore_preserves_mention_bindings kind=ui owner=chat-nav-pane
 #[test]
 fn blocked_image_restore_preserves_mention_bindings() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no model input modalities in the core's catalog: nothing marks a model as one without image input, so a submission with an image is never blocked and restored (restore_blocked_image_submission) with the warning \"does not support image inputs\"",
+    let mut catalog: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/chat_commands_2/speed_catalog.json")).unwrap();
+    let mut text_only = catalog["data"][0].clone();
+    text_only["id"] = serde_json::json!("text-only");
+    text_only["model"] = serde_json::json!("text-only");
+    text_only["displayName"] = serde_json::json!("Text only");
+    text_only["inputModalities"] = serde_json::json!(["text"]);
+    catalog["data"].as_array_mut().unwrap().push(text_only);
+    enum Submission {
+        Direct,
+        Queued,
+        RefusedSteer,
+    }
+    for submission in [
+        Submission::Direct,
+        Submission::Queued,
+        Submission::RefusedSteer,
+    ] {
+        let mut s = Screen::build(Owner::ChatNavPane)
+            .size(100, 24)
+            .live()
+            .model_catalog(catalog.clone())
+            .open();
+        s.assert_requests_of("model/list", 1);
+        image_submit_model(&mut s, "gpt-5.5");
+
+        s.feed(r#"{"step":"screen","dir":"popovers","ev":{"mentions":[{"kind":"skill","name":"file","description":"Check a selected file","insert":"file","path":"/tmp/skills/file/SKILL.md"}]}}"#);
+        let path = s.attach_image("blocked.png");
+        s.type_text(" check $file");
+        s.assert_contains("Check a selected file");
+        s.keys("tab");
+        s.type_text("now").keys("end");
+        let input = "[Image #1] check $file now";
+        s.assert_composer(input);
+
+        match submission {
+            Submission::Direct => {
+                image_submit_model(&mut s, "text-only");
+                s.keys("enter");
+            }
+            Submission::Queued => {
+                s.feed(RUNNING);
+                s.keys("tab");
+                s.assert_contains("↳ [Image #1] check $file now");
+                s.assert_composer("");
+                image_submit_model(&mut s, "text-only");
+                s.feed(COMPLETED);
+            }
+            Submission::RefusedSteer => {
+                s.feed(RUNNING);
+                let steer = s.hold_request("turn/steer");
+                s.feed(
+                    r#"{"step":"respond","method":"turn/steer","error":{"message":"no active turn to steer"}}"#,
+                );
+                s.keys("enter");
+                s.assert_requests_of("turn/steer", 1);
+                s.assert_composer("");
+                image_submit_model(&mut s, "text-only");
+                s.release(&steer);
+                s.feed(COMPLETED);
+            }
+        }
+        s.assert_contains("Model text-only does not support image inputs");
+        s.assert_composer(input);
+        s.assert_no_turn();
+        s.assert_no_request("turn/start");
+        s.assert_requests_of(
+            "turn/steer",
+            usize::from(matches!(submission, Submission::RefusedSteer)),
+        );
+
+        image_submit_model(&mut s, "gpt-5.5");
+        s.keys("enter");
+        s.assert_sole_turn(
+            kit::Turn::text(input)
+                .images(&[(&path, 0.."[Image #1]".len())])
+                .skills(&[("file", "/tmp/skills/file/SKILL.md")]),
+        );
+    }
+}
+
+fn image_submit_model(s: &mut Screen, model: &str) {
+    s.feed(
+        &serde_json::json!({
+            "step": "notify", "message": {"method": "thread/settings/updated", "params": {
+                "threadId": "thread-1", "threadSettings": {
+                    "cwd": "/tmp/project", "model": model, "modelProvider": "openai",
+                    "effort": "medium", "approvalPolicy": "on-request",
+                    "approvalsReviewer": "user", "sandboxPolicy": {"type": "dangerFullAccess"},
+                    "collaborationMode": {"mode": "default", "settings": {
+                        "model": model, "reasoning_effort": "medium", "developer_instructions": null
+                    }}
+                }
+            }}
+        })
+        .to_string(),
     );
-    let s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    s.assert_contains("[Image #1] check $file");
-    s.assert_contains("does not support image inputs");
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:1385 startup_draft_handoff_preserves_literal_and_shell_bang kind=ui owner=chat-nav-pane

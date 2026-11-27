@@ -124,6 +124,7 @@ impl ComposerDraft {
                 return false;
             }
             inner.search = None;
+            inner.clipboard.retire();
             inner.search_rev += 1;
             inner.prompts.reset_search();
         }
@@ -213,7 +214,7 @@ impl ComposerDraft {
 
     fn show(&self, c: &TextEditingController, preview: SearchPreview, original: &Snapshot) {
         match preview {
-            SearchPreview::Show(entry) => self.recall(c, entry),
+            SearchPreview::Show(entry) => self.preview_entry(c, entry),
             SearchPreview::Original => self.restore(c, original),
             SearchPreview::Keep => {}
         }

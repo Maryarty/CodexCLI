@@ -103,8 +103,7 @@ impl Target {
     }
 }
 
-/// Why a command did not run, or what is wrong with its arguments: the
-/// oracle's error and info messages as keys.
+/// The oracle's error and info messages for command dispatch and composer input.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Notice {
     /// `Unrecognized command '/name'`.
@@ -139,6 +138,10 @@ pub enum Notice {
     /// before sending input.`: a submit, or the queue's next message, met a thread whose model is
     /// empty; the message goes back to the composer.
     ThreadModelUnavailable,
+    /// The selected model advertises no image input.
+    ImageInputsUnsupported(String),
+    /// The host could not read the clipboard image.
+    ClipboardReadFailed(String),
 }
 
 impl Notice {

@@ -13,7 +13,7 @@ use rtwk::gestures::IgnorePointer;
 use rtwk::layout::{
     BoxConstraints, ConstrainedBox, Expanded, Flexible, IntrinsicWidth, Row, SizedBox,
 };
-use rtwk::provider::select;
+use rtwk::provider::{read, select};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::segmenter_of;
 use rtwk::widgets::Text;
@@ -30,6 +30,7 @@ use codex_tui_core::kit::history::{SearchStatus, WalkDirection};
 use codex_tui_core::kit::vim::VimDirection;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::composer::sanitize_paste;
+use codex_tui_core::threads::ThreadModel;
 
 use super::ComposerMsg;
 use super::editing::{BeforeSearch, KeyData, before_search_key, note_keyboard_activity};
@@ -259,12 +260,8 @@ impl State for HistoryFieldState {
     }
 
     fn build(&self, w: &HistoryField, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let (history, clipboard_answers) = select::<ScreenStates, _, _>(cx, |states| {
-            (
-                states.popovers.history.clone(),
-                states.popovers.pasted.answers(),
-            )
-        });
+        let history = select::<ScreenStates, _, _>(cx, |states| states.popovers.history.clone());
+        let thread = read::<ThreadModel, _>(cx).id().clone();
         let clock = AppBinding::maybe_of(cx).map(|binding| binding.clock());
         let keymap = crate::keymap::keymap(cx);
         let send = cx.local_sender();
@@ -295,9 +292,10 @@ impl State for HistoryFieldState {
                 note_keyboard_activity(&draft, key, now);
                 if before_search_key(
                     &draft,
+                    &thread,
                     &keymap,
                     key,
-                    || now().map(|time| (time, clipboard_answers)),
+                    || now().map(|time| (time, false)),
                     |action| send(Edit::BeforeSearch(action)),
                 ) {
                     return true;

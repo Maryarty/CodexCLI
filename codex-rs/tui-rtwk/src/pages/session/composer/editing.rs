@@ -15,6 +15,7 @@ use rtwk::editing::{KeyCx, StoredStops, TextEditingController, TextSelection, ed
 use rtwk::focus::{KeyCombo, KeyPress};
 
 use codex_tui_core::data::history::Store;
+use codex_tui_core::ids::ThreadId;
 use codex_tui_core::keymap::actions::{
     COMPOSER_QUEUE, COMPOSER_SUBMIT, EDITOR_DELETE_BACKWARD, EDITOR_DELETE_BACKWARD_WORD,
     EDITOR_DELETE_FORWARD, EDITOR_DELETE_FORWARD_WORD, EDITOR_INSERT_NEWLINE, EDITOR_KILL_LINE_END,
@@ -54,6 +55,7 @@ use crate::widgets::composer_sparkle::{Key as SparkleKey, SparkleController};
 /// app (none outside an app: no burst).
 #[derive(Clone)]
 pub struct KeyData {
+    pub thread: ThreadId,
     pub draft: ComposerDraft,
     /// The message history file as far as it was read (shared, a handle).
     pub history: Shared<Store>,
@@ -182,7 +184,7 @@ fn take_key_inner(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> 
     {
         return took;
     }
-    if before_search(data, key) {
+    if before_search(data, c, key) {
         return true;
     }
     // reverse history search owns every key while it is open
@@ -209,6 +211,26 @@ fn take_key_inner(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> 
         && let Some(took) = chord_key(data, c, key, skill_space)
     {
         return took;
+    }
+    if !mode.normal
+        && key.as_text() == Some("!")
+        && crate::keymap::at_most_shift(key)
+        && c.text().is_empty()
+        && data.draft.hold_image_bang()
+    {
+        return true;
+    }
+    if !mode.normal
+        && pressed(&data.keymap, ENTER, key)
+        && unmodified(key)
+        && data.draft.pending_image_newline()
+    {
+        return true;
+    }
+    if !search::opens(data, key)
+        && let Some(prefix) = data.draft.take_image_prefix()
+    {
+        data.draft.insert_text(c, &prefix);
     }
     // a restricted composer only edits: no popup, burst, history, search or
     // submit of its own (`handle_input_basic`)
@@ -298,21 +320,22 @@ fn restricted_key(
 }
 
 /// Global editing actions that precede both the draft's and the query field's keys.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum BeforeSearch {
     VimToggled(bool),
-    PasteImage,
+    PasteImage(popovers::ClipboardRead),
 }
 
-fn before_search(data: &KeyData, key: &KeyPress) -> bool {
+fn before_search(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool {
     before_search_key(
         &data.draft,
+        &data.thread,
         &data.keymap,
         key,
         || {
             data.burst
                 .as_ref()
-                .map(|env| ((env.now)(), data.popovers.pasted.answers()))
+                .map(|env| ((env.now)(), c.text().is_empty()))
         },
         |action| (data.tell)(ComposerMsg::BeforeSearch(action)),
     )
@@ -322,9 +345,10 @@ fn before_search(data: &KeyData, key: &KeyPress) -> bool {
 /// A plain-text composer cannot attach images, and a user can bind the key to Copy.
 pub(super) fn before_search_key(
     draft: &ComposerDraft,
+    thread: &ThreadId,
     keymap: &Keymap,
     key: &KeyPress,
-    clipboard: impl FnOnce() -> Option<(Duration, u64)>,
+    clipboard: impl FnOnce() -> Option<(Duration, bool)>,
     emit: impl FnOnce(BeforeSearch),
 ) -> bool {
     if pressed(keymap, GLOBAL_TOGGLE_VIM_MODE, key) {
@@ -334,11 +358,11 @@ pub(super) fn before_search_key(
     if draft.is_plain() || !pressed(keymap, PASTE_IMAGE, key) || pressed(keymap, GLOBAL_COPY, key) {
         return false;
     }
-    let Some((now, answers)) = clipboard() else {
+    let Some((now, hold_bang)) = clipboard() else {
         return false;
     };
-    if draft.ask_for_image(now, answers) {
-        emit(BeforeSearch::PasteImage);
+    if let Some(read) = draft.ask_for_image(thread, now, hold_bang) {
+        emit(BeforeSearch::PasteImage(read));
     }
     true
 }
@@ -1066,6 +1090,7 @@ mod tests {
 
     fn data() -> KeyData {
         KeyData {
+            thread: ThreadId::default(),
             draft: ComposerDraft::default(),
             history: Shared::default(),
             tell: Rc::new(|_| {}),
@@ -1461,29 +1486,31 @@ mod tests {
         #[test]
         fn ctrl_v_and_alt_v_ask_for_the_clipboard_image_once_per_quarter_second() {
             let r = rig();
-            assert!(before_search(&r.data, &of(PASTE_IMAGE)));
-            assert_eq!(*r.told.borrow(), ["BeforeSearch(PasteImage)"]);
+            let c = at("", 0);
+            assert!(before_search(&r.data, &c, &of(PASTE_IMAGE)));
+            assert!(r.told.borrow()[0].starts_with("BeforeSearch(PasteImage("));
             // the repeat of a held key, 100 ms later, is swallowed
             r.now.set(Duration::from_millis(100));
-            assert!(before_search(&r.data, &of(PASTE_IMAGE)));
+            assert!(before_search(&r.data, &c, &of(PASTE_IMAGE)));
             assert_eq!(r.told.borrow().len(), 1);
             // a press 250 ms after the last asks again, whichever its modifier
             r.now.set(Duration::from_millis(350));
             let alt = nth(PASTE_IMAGE, 1);
-            assert!(before_search(&r.data, &alt));
+            assert!(before_search(&r.data, &c, &alt));
             assert_eq!(r.told.borrow().len(), 2);
         }
 
         #[test]
         fn a_plain_v_is_typed_and_ctrl_v_outside_an_app_is_the_fields() {
             let r = rig();
-            assert!(!before_search(&r.data, &crate::keymap::typed('v')));
+            let c = at("", 0);
+            assert!(!before_search(&r.data, &c, &crate::keymap::typed('v')));
             assert!(r.told.borrow().is_empty());
             let outside = KeyData {
                 burst: None,
                 ..data()
             };
-            assert!(!before_search(&outside, &of(PASTE_IMAGE)));
+            assert!(!before_search(&outside, &c, &of(PASTE_IMAGE)));
         }
 
         #[test]

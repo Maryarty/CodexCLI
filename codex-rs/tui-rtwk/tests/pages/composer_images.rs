@@ -268,7 +268,7 @@ mod page {
 
     use codex_tui_core::app::AppEv;
     use codex_tui_core::screens::ScreenEv;
-    use codex_tui_core::screens::popovers::{Ask, Ev};
+    use codex_tui_core::screens::popovers::{Ask, ClipboardRead, Ev};
     use codex_tui_rtwk::widgets::thread_ui::ThreadUi;
 
     use super::*;
@@ -320,6 +320,13 @@ mod page {
                 _ => None,
             })
             .collect()
+    }
+
+    fn last_image_read(h: &Harness) -> Option<ClipboardRead> {
+        asks(h).into_iter().rev().find_map(|ask| match ask {
+            Ask::ClipboardImage(read) => Some(read),
+            _ => None,
+        })
     }
 
     #[test]
@@ -404,11 +411,12 @@ mod page {
         let mut h = chat();
         h.t.type_text("see ");
         h.press("ctrl+v");
-        h.wait_until("the ask", |h| asks(h).contains(&Ask::ClipboardImage));
+        h.wait_until("the ask", |h| last_image_read(h).is_some());
         let path = png("clip.png");
-        h.inject([AppEv::Screen(ScreenEv::Popovers(Ev::ImagePasted(
-            path.clone(),
-        )))]);
+        h.inject([AppEv::Screen(ScreenEv::Popovers(Ev::ClipboardResult {
+            read: last_image_read(&h).expect("the clipboard ask"),
+            result: Ok(path.clone()),
+        }))]);
         h.advance(100);
         assert!(
             h.t.screen().contains("› see [Image #1]"),
@@ -425,9 +433,13 @@ mod page {
         let mut h = chat();
         h.t.type_text("see ");
         h.advance(100);
-        h.inject([AppEv::Screen(ScreenEv::Popovers(Ev::ImagePasted(png(
-            "x.png",
-        ))))]);
+        h.inject([AppEv::Screen(ScreenEv::Popovers(Ev::ClipboardResult {
+            read: ClipboardRead {
+                thread: codex_tui_core::ids::ThreadId::new("thread-1"),
+                number: 1,
+            },
+            result: Ok(png("x.png")),
+        }))]);
         h.advance(100);
         assert!(!h.t.screen().contains("[Image #1]"), "{}", h.t.screen());
     }
@@ -437,11 +449,11 @@ mod page {
         let mut h = chat();
         h.t.press("ctrl+v");
         h.t.press("ctrl+v");
-        h.wait_until("the ask", |h| asks(h).contains(&Ask::ClipboardImage));
+        h.wait_until("the ask", |h| last_image_read(h).is_some());
         h.advance(100);
         let asked = asks(&h)
             .iter()
-            .filter(|ask| **ask == Ask::ClipboardImage)
+            .filter(|ask| matches!(ask, Ask::ClipboardImage(_)))
             .count();
         assert_eq!(asked, 1);
     }
@@ -490,4 +502,140 @@ fn pending_image_preparation_allows_editing_and_keeps_the_next_draft() {
     s.assert_contains("[Image #1] describe");
     s.assert_contains("new draft");
     s.assert_no_request("turn/start");
+}
+
+#[test]
+fn clipboard_read_stays_with_the_thread_that_held_the_bang() {
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_burst("!");
+    let first = s.ask_clipboard_image("alt+v");
+    s.server_resumes("thread-2").visit_thread("thread-2");
+    s.assert_active_thread("thread-2");
+    s.type_text("draft for the second thread");
+    let second = s.ask_clipboard_image("alt+v");
+    let image = kit::image_file("first-thread.png");
+    s.answer_clipboard_read(first, Ok(image.clone())).wait(300);
+    s.assert_composer("draft for the second thread");
+    s.assert_absent("[Image #1]");
+    s.answer_clipboard_read(second, Err("no image".to_owned()))
+        .wait(300);
+    s.assert_contains("Failed to paste image: no image");
+    s.assert_composer("draft for the second thread");
+    s.server_resumes("thread-1").visit_thread("thread-1");
+    s.assert_active_thread("thread-1");
+    s.wait(1000);
+    s.assert_composer("[Image #1]!");
+    s.keys("enter");
+    s.assert_sole_turn(kit::Turn::text("[Image #1]!").images(&[(&image, 0..10)]));
+    s.assert_started_turn_on("thread-1");
+    s.assert_no_shell_command();
+}
+
+#[test]
+fn clipboard_answer_to_a_cleared_draft_cannot_replace_the_next_read() {
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("first draft");
+    let first = s.ask_clipboard_image("alt+v");
+    s.keys("ctrl+c");
+    s.assert_composer("");
+    s.type_text("next draft");
+    let second = s.ask_clipboard_image("alt+v");
+    let old = kit::image_file("old.png");
+    let new = kit::image_file("new.png");
+    s.answer_clipboard_read(first, Ok(old)).wait(300);
+    s.assert_composer("next draft");
+    s.answer_clipboard_read(second, Ok(new.clone())).wait(300);
+    s.assert_composer("next draft[Image #1]");
+    s.keys("enter");
+    s.assert_sole_turn(kit::Turn::text("next draft[Image #1]").images(&[(&new, 10..20)]));
+    s.assert_no_shell_command();
+}
+
+#[test]
+fn a_history_search_preview_leaves_the_original_clipboard_read_pending() {
+    for (answer_in_search, accept) in [(true, false), (false, false), (false, true)] {
+        let mut s = Screen::build(Owner::ChatNavPane)
+            .size(80, 24)
+            .live()
+            .message_history(&["earlier prompt"])
+            .open();
+        s.type_text("original draft");
+        let read = s.ask_clipboard_image("alt+v");
+        s.keys("ctrl+r").type_text("earlier");
+        s.assert_contains("reverse-i-search: earlier");
+        s.assert_contains("earlier prompt");
+        let image = kit::image_file("search.png");
+        if answer_in_search {
+            s.answer_clipboard_read(read.clone(), Ok(image.clone()))
+                .wait(300);
+            s.assert_absent("[Image #1]");
+        }
+        s.keys(if accept { "enter" } else { "esc" });
+        s.assert_absent("reverse-i-search");
+        if !answer_in_search {
+            s.answer_clipboard_read(read, Ok(image.clone())).wait(300);
+        }
+        if accept {
+            s.assert_composer("earlier prompt");
+        } else {
+            s.assert_composer("original draft[Image #1]");
+            s.keys("enter");
+            s.assert_sole_turn(
+                kit::Turn::text("original draft[Image #1]").images(&[(&image, 14..24)]),
+            );
+        }
+    }
+}
+
+#[test]
+fn clipboard_read_follows_the_blank_draft_into_the_started_thread() {
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .held_start()
+        .open();
+    s.type_text("describe ");
+    let read = s.ask_clipboard_image("alt+v");
+    assert_ne!(read.thread.as_str(), "thread-1");
+    let image = kit::image_file("startup.png");
+    s.start_thread();
+    s.assert_active_thread("thread-1");
+    s.answer_clipboard_read(read, Ok(image.clone())).wait(300);
+    s.assert_composer("describe [Image #1]");
+    s.keys("enter");
+    s.assert_sole_turn(kit::Turn::text("describe [Image #1]").images(&[(&image, 9..19)]));
+    s.assert_started_turn_on("thread-1");
+}
+
+#[test]
+fn restoring_an_older_failed_submission_preserves_the_next_drafts_clipboard_read() {
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.hold_image_preparation();
+    let first = s.attach_image("previous.png");
+    s.type_text(" describe").keys("enter");
+    s.assert_no_request("turn/start");
+    s.type_text("next draft");
+    let read = s.ask_clipboard_image("alt+v");
+    s.fail_image_preparation("Failed to prepare image");
+    s.assert_saved_draft("[Image #1] describe\nnext draft");
+    let second = kit::image_file("next.png");
+    s.answer_clipboard_read(read, Ok(second.clone())).wait(300);
+    let restored = "[Image #1] describe\nnext draft[Image #2]";
+    s.assert_saved_draft(restored);
+    s.keys("enter");
+    let turn = s.turns().pop().expect("the merged draft was submitted");
+    assert_eq!(turn.text, restored);
+    assert_eq!(
+        turn.images,
+        [
+            LocalImage {
+                path: first,
+                range: 0..10
+            },
+            LocalImage {
+                path: second,
+                range: 30..40
+            },
+        ]
+    );
 }

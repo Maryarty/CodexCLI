@@ -452,7 +452,9 @@ pub(super) fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
     // (`pop_next_queued_user_message`).
     if !model.rejected_steers.is_empty() {
         let merged = merge_messages(std::mem::take(&mut model.rejected_steers));
-        if let Err(merged) = fx.start_turn(merged) {
+        if super::reject_image_input(model, fx, &merged) {
+            super::recover(model, merged);
+        } else if let Err(merged) = fx.start_turn(merged) {
             model.rejected_steers.push(merged);
         }
         return;
@@ -474,6 +476,12 @@ pub(super) fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
                     Item::Note(Note::from(crate::commands::Notice::ThreadModelUnavailable)),
                 );
                 give_back(model, vec![message], false);
+                return;
+            }
+            Queued::Message(message) | Queued::Literal(message, _)
+                if super::reject_image_input(model, fx, &message) =>
+            {
+                super::recover(model, message);
                 return;
             }
             Queued::Message(message) => {

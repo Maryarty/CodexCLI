@@ -36,7 +36,7 @@ use session::{
 };
 
 use crate::threads::{ThreadAsk, ThreadReply};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::rc::Rc;
 
 use codex_app_server_protocol::ErrorNotification;
@@ -856,6 +856,14 @@ pub struct CodexApp {
     modes: Vec<crate::screens::select::collaboration::Mask>,
     /// Where each thread returns to when Luna Reserve ends (`ReserveReturnModel`).
     reserve_returns: BTreeMap<ThreadId, banners::ReserveReturn>,
+    /// Models rejecting images in the last catalog read on each connection.
+    image_restrictions: BTreeMap<BackendId, ImageRestrictions>,
+}
+
+struct ImageRestrictions {
+    address: Address,
+    observed: Ticket,
+    models: BTreeSet<String>,
 }
 
 /// When the process's first thread starts.
@@ -933,6 +941,7 @@ impl CodexApp {
             transcript_text: None,
             modes: Vec::new(),
             reserve_returns: BTreeMap::new(),
+            image_restrictions: BTreeMap::new(),
         }
     }
 
@@ -1570,12 +1579,12 @@ fn drain_popover_asks(app: &mut CodexApp, fx: &mut AppFx) {
     if app.screens.popovers.pending_asks().is_empty() {
         return;
     }
-    let thread = app.session.active.clone();
     for ask in Rc::make_mut(&mut app.screens).popovers.take_asks() {
-        fx.host(effects::Ask::Popovers {
-            ask,
-            thread: thread.clone(),
-        });
+        let thread = match &ask {
+            screens::popovers::Ask::ClipboardImage(read) => Some(read.thread.clone()),
+            _ => app.session.active.clone(),
+        };
+        fx.host(effects::Ask::Popovers { ask, thread });
     }
 }
 
@@ -1714,6 +1723,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     // (`invalidate_connector_scope`, `invalidate_permission_discovery`)
                     select::event(app, screens::select::Ev::ScopeChanged, fx);
                     features::retire_rate_offer(app, origin);
+                    invalidate_image_restrictions(app, origin);
                     Rc::make_mut(&mut app.session)
                         .backend_banners
                         .remove(&origin);
@@ -2073,6 +2083,11 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     )
                 );
             match &ev {
+                ScreenEv::Select(screens::select::Ev::Provider(provider))
+                    if *provider != screens::select::models::Provider::Settled =>
+                {
+                    invalidate_image_restrictions(app, origin);
+                }
                 ScreenEv::Chat(chat::Ev::Status(facts)) if facts.account_usage => {
                     reset::startup(app, fx);
                 }
@@ -2344,6 +2359,17 @@ fn set_status(app: &mut CodexApp, status: Session) {
     }
 }
 
+fn invalidate_image_restrictions(app: &mut CodexApp, backend: BackendId) {
+    app.image_restrictions.insert(
+        backend,
+        ImageRestrictions {
+            address: app.address(backend),
+            observed: app.mint.next(),
+            models: BTreeSet::new(),
+        },
+    );
+}
+
 fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx) {
     if let Some(address) = app.outgoing.address(ticket) {
         let Some((ctx, answer)) = app.outgoing.resolve(ticket, reply) else {
@@ -2373,7 +2399,37 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
             }
             AppCtx::Agents(ctx) => screen_answer(app, address.backend, ctx, answer, fx),
             AppCtx::Resume(ctx) => resume_answer(app, ctx, answer, fx),
-            AppCtx::Select(ctx) => select::answer(app, ctx, answer, fx),
+            AppCtx::Select(ctx) => {
+                if let Answer::Screen(ScreenReply::Select(screens::select::Reply::Models(models))) =
+                    &answer
+                    && app
+                        .image_restrictions
+                        .get(&address.backend)
+                        .is_none_or(|old| old.observed < ticket)
+                    && match &ctx {
+                        screens::select::Ctx::Models { request } => {
+                            app.screens.select.catalog.pending == Some(*request)
+                        }
+                        screens::select::Ctx::Fallback { .. } => true,
+                        _ => false,
+                    }
+                {
+                    let restricted = models
+                        .iter()
+                        .filter(|model| !model.accepts_images)
+                        .map(|model| model.model.clone())
+                        .collect();
+                    app.image_restrictions.insert(
+                        address.backend,
+                        ImageRestrictions {
+                            address,
+                            observed: ticket,
+                            models: restricted,
+                        },
+                    );
+                }
+                select::answer(app, ctx, answer, fx);
+            }
             AppCtx::RateLimits { backend, origin } => {
                 let credits = match &answer {
                     Answer::RateLimits { read, .. } => Ok(read.reset_credits.clone()),
@@ -4069,6 +4125,11 @@ pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mu
     let cloud = agents.is_cloud(backend);
     let address = app.address(backend);
     let priority = features::completion_priority(app, thread, &ev, address, fx);
+    let image_restrictions = app
+        .image_restrictions
+        .get(&backend)
+        .filter(|restricted| restricted.address == address)
+        .map(|restricted| &restricted.models);
     if let Some(model) = app.threads.get_mut(thread) {
         threads::apply(
             model,
@@ -4076,6 +4137,7 @@ pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mu
             &mut ThreadFx::new(thread, fx, &mut app.mint)
                 .addressed(address)
                 .with_prompt_priority(priority)
+                .with_image_restrictions(image_restrictions)
                 .stamped(daybreak)
                 .with_modes(&app.modes)
                 .with_cloud(cloud)
