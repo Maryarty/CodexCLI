@@ -579,14 +579,40 @@ mod tests {
     #[test]
     fn only_the_ids_of_the_oracle_are_title_items() {
         let facts = StatusFacts {
-            terminal_title: Some(vec![
-                "project".into(),
-                "no-such-item".into(),
-                "status".into(),
-            ]),
+            terminal_title: Some(
+                [
+                    "project",
+                    "project-root",
+                    "status",
+                    "spinner",
+                    "thread",
+                    "context-usage",
+                    "provider",
+                    "session-id",
+                    "model-name",
+                    "model_name",
+                    "app-name",
+                    "no-such-item",
+                ]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            ),
             ..StatusFacts::default()
         };
-        assert_eq!(title_items(&facts), ["project", "status"]);
+        assert_eq!(
+            title_items(&facts),
+            [
+                "project-name",
+                "run-state",
+                "activity",
+                "thread-title",
+                "context-used",
+                "thread-id",
+                "model",
+                "app-name"
+            ]
+        );
         assert_eq!(
             title_items(&StatusFacts::default()),
             ["activity", "thread-name", "project-name"]
