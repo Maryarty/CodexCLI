@@ -40,7 +40,11 @@ pub enum Edge {
     Recorded(UserMessage),
     /// The messages the model gave back to the composer (an interrupt, a failed steer, the
     /// edit-queued key).
-    Restore(ThreadId, Restore),
+    Restore {
+        thread: ThreadId,
+        restore: Restore,
+        rejected_start: Option<u64>,
+    },
     /// The turn's async questions ended, after any queued messages were restored.
     TurnEnded(ThreadId, LiveTurnEnd),
     /// The prompt an edit of the backtrack gives back to the composer.
@@ -221,7 +225,11 @@ impl State for ListenerState {
                 read::<ThreadModel, _>(cx)
                     .restore()
                     .filter(|restore| restore_changed || restore.preserves_editing())
-                    .cloned()
+                    .map(|restore| Edge::Restore {
+                        thread: now.thread.clone(),
+                        restore: restore.clone(),
+                        rejected_start: restore.preserves_editing().then(|| restore.seq()),
+                    })
             })
             .flatten();
         let before_ends = before
@@ -231,7 +239,7 @@ impl State for ListenerState {
         if now.live_ends.iter().all(|end| end.restore.is_none())
             && let Some(restore) = restore.take()
         {
-            cx.emit(&w.on_edge, Edge::Restore(now.thread.clone(), restore));
+            cx.emit(&w.on_edge, restore);
         }
         for end in &now.live_ends {
             if !before_ends.contains(end) {
@@ -239,7 +247,7 @@ impl State for ListenerState {
             }
         }
         if let Some(restore) = restore {
-            cx.emit(&w.on_edge, Edge::Restore(now.thread.clone(), restore));
+            cx.emit(&w.on_edge, restore);
         }
         // the replayed submissions of a thread seed the history once per resume, and again from
         // the whole list when older turns came in front: a first look and a switch count

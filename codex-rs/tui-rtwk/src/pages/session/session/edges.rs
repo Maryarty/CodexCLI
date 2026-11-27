@@ -28,7 +28,12 @@ impl ChatState {
         self.draft_empty = w.ui.composer.text().is_empty() && !self.draft_shell;
     }
 
-    fn restore_draft(restore: &Restore, w: &Chat, cx: &mut Cx<'_, ChatState>) {
+    fn restore_draft(
+        restore: &Restore,
+        rejected_start: Option<u64>,
+        w: &Chat,
+        cx: &mut Cx<'_, ChatState>,
+    ) {
         let table = crate::pages::session::composer::strings::of(cx);
         let states = read::<ScreenStates, _>(cx);
         // A reverse search is showing a preview. Edit the stored draft that Esc brings back.
@@ -39,10 +44,10 @@ impl ChatState {
                 |chars| table.pasted(chars),
                 |n| table.image(n),
             );
-            if restore.preserves_editing() {
+            if let Some(seq) = rejected_start {
                 if w.ui.draft.prepend_rejected_message(
                     &w.ui.composer,
-                    restore.seq(),
+                    seq,
                     recalled_entry(&restore.merged()),
                 ) {
                     w.ui.draft
@@ -78,11 +83,15 @@ impl ChatState {
             }
             // Messages the model gave back (an interrupt, a failed steer, the edit-queued key)
             // go into the composer.
-            Edge::Restore(thread, restore) => {
+            Edge::Restore {
+                thread,
+                restore,
+                rejected_start,
+            } => {
                 if read::<ThreadModel, _>(cx).id() != &thread {
                     return Rebuild::No;
                 }
-                Self::restore_draft(&restore, w, cx);
+                Self::restore_draft(&restore, rejected_start, w, cx);
                 self.sync_draft(w);
                 Rebuild::Yes
             }
@@ -92,7 +101,7 @@ impl ChatState {
                     return Rebuild::No;
                 }
                 if let Some(restore) = &end.restore {
-                    Self::restore_draft(restore, w, cx);
+                    Self::restore_draft(restore, None, w, cx);
                 }
                 let restored = end.restore.is_some();
                 let recovered = self.recover_questions(&thread, &end, &w.ui, cx);
