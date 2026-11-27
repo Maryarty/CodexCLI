@@ -1202,6 +1202,10 @@ impl CodexApp {
                 ask: effects::Ask::ReconnectIdleThread { address, .. },
                 ..
             } => *address,
+            Command::Effect {
+                request,
+                ask: effects::Ask::ImageSnapshot { .. },
+            } => self.effects.image_address(*request)?,
             _ => match command.ticket() {
                 Some(ticket) => self.request_address(ticket).or(tell)?,
                 None => return Some((self.choose_backend(command), None)),
@@ -1361,6 +1365,7 @@ impl CodexApp {
         self.attaching_events
             .retain(|(source, ..)| *source != backend);
         features::retire_rate_offer(self, backend);
+        features::retire_images(self, backend);
         git_summary::retire(self, backend);
         detach_threads(self, backend, fx);
         self.fail_in_flight(backend);
@@ -1451,6 +1456,7 @@ impl CodexApp {
                 .insert(ingress.backend, transport_epoch);
             host_asks::transport_lost(self, ingress.backend);
             self.retire_outgoing(ingress.backend, &mut fx);
+            features::reconnect_images(self, ingress.backend, &mut fx);
             host_asks::transport_replaced(self, ingress.backend, &mut fx);
             if ingress.backend == BackendId::default() {
                 read_session(self, &mut fx);
@@ -1491,6 +1497,12 @@ impl CodexApp {
                 request,
                 done: effects::Done::GitSummary(_),
             } => git_summary::accepts(self, origin, *request),
+            AppEv::Effect { request, done } => match self.effects.image_address(*request) {
+                Some(address) => {
+                    address == origin && matches!(done, effects::Done::ImageSnapshot(_))
+                }
+                None => !matches!(done, effects::Done::ImageSnapshot(_)),
+            },
             _ => true,
         }
     }
@@ -1503,6 +1515,10 @@ pub fn apply_app(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
     // always enters through `ingest` (or `apply_app_from` with its current connection).
     let origin = match &ev {
         AppEv::Reply(ticket, _) => app.request_address(*ticket).map(|address| address.backend),
+        AppEv::Effect { request, .. } => app
+            .effects
+            .image_address(*request)
+            .map(|address| address.backend),
         _ => None,
     };
     apply_app_from(app, origin.unwrap_or_default(), ev, fx);
@@ -1540,6 +1556,9 @@ fn apply_at(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
     finish_apply(app, lists, fx);
     let active_changed =
         !Rc::ptr_eq(&previous, &app.session) && previous.active != app.session.active;
+    if active_changed {
+        select::retire_model_picker(app);
+    }
     if status || active_changed {
         notices::invalid_status_items(app, fx);
     }
@@ -2130,6 +2149,9 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                             | agents::Ev::Notice(Some(agents::Notice::ReconnectFailed))
                     )
                 );
+            if let ScreenEv::Chat(chat::Ev::Status(facts)) = &ev {
+                select::configured_plan(app, origin, facts.plan_effort.clone());
+            }
             match &ev {
                 ScreenEv::Select(screens::select::Ev::Provider(provider))
                     if *provider != screens::select::models::Provider::Settled =>
@@ -2855,7 +2877,9 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             features::interrupted(app, &thread, fx);
         }
         Intent::ThreadScreen { thread, intent } => {
-            apply_thread(app, &thread, ThreadEv::ScreenIntent(intent), fx)
+            if let Err(intent) = features::finish_queue_modal(app, &thread, intent, fx) {
+                apply_thread(app, &thread, ThreadEv::ScreenIntent(intent), fx);
+            }
         }
         Intent::AutoReview { thread, what } => {
             let ev = match what {
@@ -4220,7 +4244,7 @@ pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mu
                 .with_prompt_priority(priority)
                 .with_image_restrictions(image_restrictions)
                 .stamped(daybreak)
-                .with_modes(&app.modes)
+                .with_modes(&app.modes, app.screens.select.plan_defaults.get(&backend))
                 .with_cloud(cloud)
                 .with_facts(AppFacts::new(
                     app.now,

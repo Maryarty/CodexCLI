@@ -25,22 +25,22 @@ pub mod draft;
 pub mod features;
 pub mod hooks;
 pub mod items;
-mod keys;
 pub mod keymap_editor;
+mod keys;
 pub mod memories;
 mod open;
-mod prompts;
 mod preview;
+mod prompts;
 pub mod setup;
 mod shown;
 pub mod strings;
 pub mod theme;
 mod which;
 
+use open::request;
 pub use open::{debug_entries, open, open_empty};
 pub use shown::{Screen, ScreenState};
 pub use which::Args;
-use open::request;
 
 impl FeatureView for Settings {
     /// The key the keymap cannot take opens the conflict sheet once, at the bottom like the
@@ -49,7 +49,11 @@ impl FeatureView for Settings {
         let (context, action, key, intent, error) = match wish.clone() {
             // The dialog has its catalogue: the sheet opens (Esc is its own key when one is up;
             // the barrier closes it, the theme picker restores its preview as it goes).
-            Wish::Show { which, inspect } => {
+            Wish::Show {
+                which,
+                inspect,
+                queued,
+            } => {
                 return Some(Shown {
                     held_by: None,
                     open: Rc::new(move || -> AnyWidget {
@@ -58,6 +62,7 @@ impl FeatureView for Settings {
                             confirm_reset: false,
                             inspect,
                             live: true,
+                            queued,
                         }
                         .into()
                     }),
@@ -110,4 +115,3 @@ impl FeatureView for Settings {
         })
     }
 }
-

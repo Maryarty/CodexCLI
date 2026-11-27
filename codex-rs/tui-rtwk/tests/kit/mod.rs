@@ -385,7 +385,8 @@ impl Screen {
         self
     }
 
-    fn find(&self, text: &str) -> (u16, u16) {
+    /// The terminal position of the first cell of the first occurrence of `text`.
+    pub fn find(&self, text: &str) -> (u16, u16) {
         match self.grid().locate(text) {
             Some((x, _, y)) => (to_u16(x), to_u16(y)),
             None => panic!("no `{text}` on the screen:\n{}", self.h.t.screen()),
@@ -656,6 +657,35 @@ impl Screen {
     /// The oracle asserts no cell of the first `text` has a link.
     pub fn assert_no_link(&self, text: &str) {
         self.grid().assert_no_link(text);
+    }
+
+    pub fn local_image(&mut self, path: &std::path::Path) {
+        self.h
+            .fake
+            .allow_image_snapshot(path.to_string_lossy().into_owned());
+    }
+
+    /// The retained terminal images start immediately after the named text rows.
+    pub fn assert_image_rows(&self, after: &[&str], width: usize) {
+        let images = self.h.t.images();
+        assert_eq!(
+            images.len(),
+            after.len(),
+            "placements: {images:?}\n{}",
+            self.text()
+        );
+        for (image, anchor) in images.iter().zip(after) {
+            assert_eq!(
+                image.y,
+                self.row_of(anchor) + 1,
+                "{image:?}\n{}",
+                self.text()
+            );
+            assert!(
+                image.x + image.cols <= width && image.rows <= 6,
+                "{image:?}"
+            );
+        }
     }
 
     /// The oracle asserts the window title (OSC 0/2) the app last wrote.

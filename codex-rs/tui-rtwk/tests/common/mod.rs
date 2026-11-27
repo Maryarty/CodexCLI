@@ -22,6 +22,7 @@ use codex_tui_rtwk::app::run::{app_view, localized, root};
 use codex_tui_rtwk::l10n::Lang;
 use codex_tui_rtwk::services::backend::fake::{FakeHandle, FakeServer};
 use codex_tui_rtwk::services::shell::Backend;
+use rtwk::graphics::GraphicsScope;
 use rtwk_test::{Options, Tester};
 
 pub mod wait;
@@ -226,9 +227,16 @@ pub fn start_driven_mode(
     let guard = rtwk_tokio::enter(runtime);
     let (server, fake) = FakeServer::new();
     let app = configure(UiApp::new(Backend::Fake(server)).with_debug_screens(debug));
+    let mut graphics = rtwk_core::graphics::GraphicsCaps::default();
+    let options = options.terminal(|terminal| graphics = terminal.caps.graphics);
     let mut t = Tester::with(options);
     if quittable {
         t.pump_app(app_view(app));
+    } else if graphics.protocol != rtwk_core::graphics::GraphicsProtocol::None {
+        t.pump_widget(GraphicsScope::new(
+            graphics,
+            localized(root(app_view(app)), Lang::En),
+        ));
     } else {
         t.pump_widget(localized(root(app_view(app)), Lang::En));
     }

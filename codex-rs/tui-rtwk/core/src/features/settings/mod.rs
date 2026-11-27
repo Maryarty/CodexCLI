@@ -41,6 +41,7 @@ use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::screens::SeedError;
 use crate::threads::Tone;
+use crate::threads::queue::QueueOperation;
 
 pub use catalog::*;
 pub use persist::Setting;
@@ -71,6 +72,8 @@ pub enum Intent {
     /// The dialog of this kind is opened: its catalogue is built from the facts the app holds
     /// (a kind the server or the host offers has none to build and keeps what it was given).
     Open(Which),
+    /// The status editor opened while the thread drains this queued command.
+    OpenQueuedStatusLine(QueueOperation),
     /// `/keymap debug`: the keymap editor opens on the keypress inspector.
     Inspect,
     /// The syntax theme in force (the picker's preview, and the restore on cancel: none is the
@@ -100,7 +103,11 @@ pub enum Wish {
     /// The dialog of this kind has its catalogue now (`Intent::Open` built it, or the server's
     /// answer did): the presenter shows its sheet. The keymap editor opens on its inspector
     /// when `inspect` says so.
-    Show { which: Which, inspect: bool },
+    Show {
+        which: Which,
+        inspect: bool,
+        queued: bool,
+    },
     /// The captured key cannot be bound: the keymap with it does not resolve (the conflict
     /// sheet: pick another key, or cancel).
     KeymapConflict {
@@ -459,7 +466,28 @@ impl State {
     /// The dialog of kind `which` has its catalogue: its sheet is wished for (ADR-013), once.
     fn show(&mut self, which: Which, inspect: bool, cx: &mut AppCx<'_>) {
         let scope = cx.view().active().cloned().unwrap_or_default();
-        cx.wish(scope, Wish::Show { which, inspect });
+        cx.wish(
+            scope,
+            Wish::Show {
+                which,
+                inspect,
+                queued: false,
+            },
+        );
+    }
+
+    fn open_queued_status_line(&mut self, operation: QueueOperation, cx: &mut AppCx<'_>) {
+        let which = Which::StatusLine;
+        let wish = Wish::Show {
+            which,
+            inspect: false,
+            queued: true,
+        };
+        if cx.wish_for_queued_operation(operation, wish) {
+            self.offer(Offer::Setup(items::status_line(
+                &cx.view().screens().chat.status,
+            )));
+        }
     }
 
     /// `/experimental`: the dialog opens loading and the first page is asked for the active
@@ -1102,6 +1130,7 @@ impl super::Feature for Settings {
     fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
         match intent {
             Intent::Open(which) => state.open(which, false, cx),
+            Intent::OpenQueuedStatusLine(operation) => state.open_queued_status_line(operation, cx),
             Intent::Inspect => state.open(Which::Keymap, true, cx),
             Intent::SyntaxTheme(theme) => {
                 state.syntax_theme = theme.or_else(|| state.facts.syntax_theme.clone());

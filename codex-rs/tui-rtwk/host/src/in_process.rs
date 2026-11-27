@@ -36,7 +36,7 @@ use codex_tui_core::app::BackendEv;
 use codex_tui_core::app::Command;
 use codex_tui_core::app::Ingress;
 use codex_tui_core::app::effects::ConfigEdit;
-use codex_tui_core::app::effects::{Ask as HostAsk, HostDoors, run_ask};
+use codex_tui_core::app::effects::{Ask as HostAsk, Done, HostDoors, ImageSize, run_ask};
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::ids::RequestKey;
 use codex_tui_core::ids::{ThreadId, Ticket};
@@ -133,18 +133,7 @@ async fn start_args(
     // The embedded server fails the launch when the local database cannot be opened, with the
     // typed error `main` recovers from (`state_db::init`).
     let state_db = crate::state_db::init(&config).await?;
-    let runtime_paths = ExecServerRuntimeOptions::from_optional_paths(
-        arg0_paths.codex_self_exe.clone(),
-        arg0_paths.codex_linux_sandbox_exe.clone(),
-    )
-    .context("exec-server runtime paths")?;
-    let environment_manager = EnvironmentManager::from_codex_home(
-        config.codex_home.clone(),
-        Some(runtime_paths),
-        embedded_network_policy.bind(config.http_client_factory()),
-    )
-    .await
-    .context("environment manager")?;
+    let environment_manager = environments(&config, &arg0_paths, &embedded_network_policy).await?;
     let config_warnings = config
         .startup_warnings
         .iter()
@@ -167,7 +156,7 @@ async fn start_args(
         feedback: CodexFeedback::new(),
         log_db: None,
         state_db: Some(state_db),
-        environment_manager: Arc::new(environment_manager),
+        environment_manager,
         config_warnings,
         session_source: SessionSource::Cli,
         enable_codex_api_key_env: true,
@@ -178,6 +167,34 @@ async fn start_args(
         opt_out_notification_methods: Vec::new(),
         channel_capacity: DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
     })
+}
+
+async fn environments(
+    config: &Config,
+    arg0_paths: &Arg0DispatchPaths,
+    policy: &EmbeddedNetworkPolicy,
+) -> anyhow::Result<Arc<EnvironmentManager>> {
+    let runtime_paths = ExecServerRuntimeOptions::from_optional_paths(
+        arg0_paths.codex_self_exe.clone(),
+        arg0_paths.codex_linux_sandbox_exe.clone(),
+    )
+    .context("exec-server runtime paths")?;
+    EnvironmentManager::from_codex_home(
+        config.codex_home.clone(),
+        Some(runtime_paths),
+        policy.bind(config.http_client_factory()),
+    )
+    .await
+    .map(Arc::new)
+    .context("environment manager")
+}
+
+async fn daemon_environments(
+    config: &Config,
+    arg0_paths: &Arg0DispatchPaths,
+) -> Option<Arc<EnvironmentManager>> {
+    let policy = EmbeddedNetworkPolicy::load(&LoaderOverrides::default()).await;
+    environments(config, arg0_paths, &policy).await.ok()
 }
 
 /// The in-process app-server, started when the app attaches it.
@@ -411,7 +428,11 @@ async fn run(
     };
     // The server, and whether its workspace is this machine's (oracle:
     // `worktrees_enabled`: a local workspace, and no cloud list).
-    let (client, local) = match connect_first(&mut mode, reuse, &config, arg0_paths.clone()).await {
+    let Connected {
+        client,
+        worktrees,
+        mut artifact_environments,
+    } = match connect_first(&mut mode, reuse, &config, arg0_paths.clone()).await {
         Ok(connected) => connected,
         Err(error) => {
             // The typed failure first: `main` finds it once the app has ended.
@@ -429,7 +450,7 @@ async fn run(
     };
     let facts = Facts {
         cloud: false,
-        worktrees: local,
+        worktrees,
     };
     // `tui.status_line_use_colors`: whether the tasks get their own colour.
     let thread_colors = config.tui_status_line_use_colors;
@@ -716,6 +737,7 @@ async fn run(
                                     handle: handle.clone(),
                                     ids: ids.clone(),
                                     workspace: workspace.clone(),
+                                    artifact_environments: artifact_environments.clone(),
                                 },
                             )
                         }
@@ -787,7 +809,12 @@ async fn run(
             };
             let mut next = next;
             match connect_first(&mut next, false, &config, arg0_paths.clone()).await {
-                Ok((restarted, _)) => {
+                Ok(Connected {
+                    client: restarted,
+                    artifact_environments: environments,
+                    ..
+                }) => {
+                    artifact_environments = environments;
                     transport_work.clear();
                     handle = restarted.request_handle();
                     if let Some(old) = held.replace(restarted) {
@@ -1103,17 +1130,27 @@ pub(crate) fn reconnect_endpoint(mode: &Mode) -> Option<RemoteAppServerEndpoint>
 ///
 /// `fallback`: the daemon was found running, not started for this launch; one that does not
 /// answer leaves the launch on the embedded server (`mode` says which it is).
+struct Connected {
+    client: AppServerClient,
+    worktrees: bool,
+    artifact_environments: Option<Arc<EnvironmentManager>>,
+}
+
 async fn connect_first(
     mode: &mut Mode,
     fallback: bool,
     config: &Arc<Config>,
     arg0_paths: Arg0DispatchPaths,
-) -> anyhow::Result<(AppServerClient, bool)> {
+) -> anyhow::Result<Connected> {
     if fallback && matches!(mode, Mode::Daemon) {
         if let Some(endpoint) = reconnect_endpoint(mode)
             && let Some(client) = connect_remote(endpoint).await
         {
-            return Ok((client, true));
+            return Ok(Connected {
+                client,
+                worktrees: true,
+                artifact_environments: daemon_environments(config, &arg0_paths).await,
+            });
         }
         *mode = Mode::Embedded;
     }
@@ -1124,11 +1161,16 @@ async fn connect_first(
                 .environment_manager
                 .default_environment()
                 .is_some_and(|environment| environment.is_remote());
+            let artifact_environments = Some(args.environment_manager.clone());
             // Boxed: the start future is large, and the pump should not carry it inline.
             let client = Box::pin(InProcessAppServerClient::start(args))
                 .await
                 .map_err(|error| anyhow::anyhow!(error.to_string()))?;
-            Ok((AppServerClient::InProcess(client), local))
+            Ok(Connected {
+                client: AppServerClient::InProcess(client),
+                worktrees: local,
+                artifact_environments,
+            })
         }
         Mode::Daemon => {
             // As the oracle's startup: the daemon is started when it is not
@@ -1143,13 +1185,25 @@ async fn connect_first(
             let client = connect_remote(RemoteAppServerEndpoint::UnixSocket { socket_path })
                 .await
                 .ok_or_else(|| daemon_failure("failed to connect to the local daemon"))?;
-            Ok((client, true))
+            Ok(Connected {
+                client,
+                worktrees: true,
+                artifact_environments: daemon_environments(config, &arg0_paths).await,
+            })
         }
         Mode::Remote { endpoint, daemon } => {
             let client = connect_remote(endpoint.clone())
                 .await
                 .ok_or_else(|| anyhow::anyhow!("failed to connect to remote app server"))?;
-            Ok((client, *daemon))
+            Ok(Connected {
+                client,
+                worktrees: *daemon,
+                artifact_environments: if *daemon {
+                    daemon_environments(config, &arg0_paths).await
+                } else {
+                    None
+                },
+            })
         }
     }
 }
@@ -1222,10 +1276,50 @@ struct ConnectionDoors {
     handle: AppServerRequestHandle,
     ids: Ids,
     workspace: Arc<dyn Workspace>,
+    artifact_environments: Option<Arc<EnvironmentManager>>,
 }
 
 impl HostDoors for ConnectionDoors {
     type Out = Outcome;
+
+    async fn image_snapshot(
+        &self,
+        _thread: ThreadId,
+        path: String,
+        preview: Option<ImageSize>,
+    ) -> Option<Outcome> {
+        let local = self
+            .artifact_environments
+            .as_ref()
+            .is_some_and(|environments| {
+                let ids = environments.default_environment_ids();
+                !ids.is_empty()
+                    && ids.iter().all(|id| {
+                        environments
+                            .get_environment(id)
+                            .is_some_and(|environment| !environment.is_remote())
+                    })
+            });
+        let ssh =
+            std::env::var_os("SSH_TTY").is_some() || std::env::var_os("SSH_CONNECTION").is_some();
+        let snapshot = if local && !ssh {
+            // One decoder can allocate up to the preview budget for an optional image.
+            static READERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+            let permit = READERS.acquire().await.ok()?;
+            tokio::task::spawn_blocking(move || {
+                let _permit = permit;
+                codex_tui_rtwk::services::images::local_snapshot(
+                    std::path::Path::new(&path),
+                    preview,
+                )
+            })
+            .await
+            .unwrap_or_default()
+        } else {
+            Default::default()
+        };
+        Some(Outcome::Effect(Done::ImageSnapshot(snapshot), None))
+    }
 
     async fn startup(&self, ask: codex_tui_core::screens::onboarding::Ask) -> Option<Outcome> {
         let startup = self.startup.clone()?;
@@ -1320,6 +1414,7 @@ pub(crate) fn work(
                 ids,
                 startup,
                 workspace,
+                artifact_environments: None,
             };
             Box::pin(async move {
                 run_ask(&doors, ask)
