@@ -1281,6 +1281,8 @@ pub struct ThreadCore {
     /// A queued command the screen has to run (and report with `ThreadIntent::QueueEvent`): the
     /// queue waits for the answer.
     due: Option<DueCommand>,
+    /// The modal operations that still hold queued input.
+    queue_modals: BTreeMap<u64, queue::ModalPhase>,
     /// Steers sent to the running turn and not yet echoed, oldest first.
     pending_steers: Vec<PendingSteer>,
     /// Steers the server refused (a review or compact turn): they go out first
@@ -1494,6 +1496,7 @@ impl ThreadModel {
                 recorded: None,
                 queue: Vec::new(),
                 due: None,
+                queue_modals: BTreeMap::new(),
                 pending_steers: Vec::new(),
                 rejected_steers: Vec::new(),
                 steers_after_interrupt: false,
@@ -3096,7 +3099,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         // The model picker can settle a command already issued while its writer is detached.
         // The queue gate waits for the writer before it sends the next line.
         ThreadEv::ScreenIntent(intent)
-            if model.has_writer() || queue::is_model_picker_settlement(&intent) =>
+            if model.has_writer() || queue::is_queue_settlement(&intent) =>
         {
             if let Err(intent) = queue::apply(model, intent, fx) {
                 let busy = model.is_running() || model.outgoing.any(is_start_turn);

@@ -2861,7 +2861,9 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             features::interrupted(app, &thread, fx);
         }
         Intent::ThreadScreen { thread, intent } => {
-            apply_thread(app, &thread, ThreadEv::ScreenIntent(intent), fx)
+            if let Err(intent) = features::finish_queue_modal(app, &thread, intent, fx) {
+                apply_thread(app, &thread, ThreadEv::ScreenIntent(intent), fx);
+            }
         }
         Intent::AutoReview { thread, what } => {
             let ev = match what {
