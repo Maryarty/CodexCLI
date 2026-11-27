@@ -105,25 +105,27 @@ impl State for RoomState {
                 .child(child.clone())
                 .into()
         };
-        if !inline {
+        let content: AnyWidget = if inline {
+            LayoutBuilder::new(move |_, room| page(reported.unwrap_or(room.max_height))).into()
+        } else {
             // Measure beside the chat so its popover can close during a route
             // change even when the old route no longer lays out.
+            let sample = tell.clone();
             let measure = LayoutBuilder::new(move |_, room| {
                 if reported != Some(room.max_height) {
-                    tell(room.max_height);
+                    sample(room.max_height);
                 }
                 SizedBox::shrink().into()
             });
-            return Stack::new()
+            Stack::new()
                 .fit(StackFit::Expand)
                 .child(measure)
                 .child(page(reported.unwrap_or_default()))
-                .into();
-        }
-        let layout = LayoutBuilder::new(move |_, room| page(reported.unwrap_or(room.max_height)));
-        // An inline region grows from its intrinsic height. If a short terminal hides the
-        // strip, its current layout stays short even after the physical terminal grows.
-        InputListener::new(layout, move |event| {
+                .into()
+        };
+        // Apply resize before painting with the last height. The inline
+        // region also needs the physical height to decide whether it can grow.
+        InputListener::new(content, move |event| {
             if let InputEvent::Resize { height, .. } = event
                 && let Ok(rows) = i32::try_from(*height)
             {
