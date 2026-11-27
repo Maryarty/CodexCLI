@@ -79,6 +79,7 @@ pub(crate) type CardFigure<'a> =
 pub(crate) struct ReadContext<'a> {
     pub cwd: Option<&'a str>,
     pub room: Room,
+    pub inline: bool,
     pub status: &'static super::status::strings::Strings,
     pub approvals: &'static crate::sheets::approvals::strings::Strings,
     pub usage: Option<CardFigure<'a>>,
@@ -89,6 +90,7 @@ impl Default for ReadContext<'_> {
         Self {
             cwd: None,
             room: Room::default(),
+            inline: false,
             status: &super::status::strings::EN,
             approvals: &crate::sheets::approvals::strings::EN,
             usage: None,
@@ -235,9 +237,8 @@ pub(crate) fn texts_at(item: &Item, env: &Env<'_>, cx: &ReadContext<'_>) -> Text
             cells,
         )),
         Item::Collab(event) => Texts::Exact(collab::texts(event, cells)),
-        Item::Tool(tool) => {
-            tool_texts(&[tool.as_ref()], env, cx.room).map_or(Texts::Gap(Gap::Rows), Texts::Exact)
-        }
+        Item::Tool(tool) => tool_texts(&[tool.as_ref()], env, cx.room, cx.inline)
+            .map_or(Texts::Gap(Gap::Rows), Texts::Exact),
         Item::Patch(activity) => Texts::Exact(patch::texts(activity, cx.cwd, env)),
         Item::Status { card, .. } => {
             let held = cx.usage.and_then(|figure| figure(card.number));
@@ -262,7 +263,12 @@ pub(crate) fn texts_at(item: &Item, env: &Env<'_>, cx: &ReadContext<'_>) -> Text
 }
 
 /// The text of the first call and the tool calls its row draws with it.
-pub(crate) fn tool_texts(calls: &[&ToolActivity], env: &Env<'_>, room: Room) -> Option<Vec<Part>> {
+pub(crate) fn tool_texts(
+    calls: &[&ToolActivity],
+    env: &Env<'_>,
+    room: Room,
+    inline: bool,
+) -> Option<Vec<Part>> {
     let first = *calls.first()?;
     match &first.kind {
         ToolKind::Shell { .. } => exec::texts_at(calls, env, room),
@@ -274,9 +280,9 @@ pub(crate) fn tool_texts(calls: &[&ToolActivity], env: &Env<'_>, room: Room) -> 
                     _ => None,
                 })
                 .collect();
-            Some(super::computer_activity::texts(&group, env, room))
+            Some(super::computer_activity::texts(&group, env, room, inline))
         }
-        ToolKind::Mcp(call) => Some(super::tool_call::mcp_texts(call, env, room)),
+        ToolKind::Mcp(call) => Some(super::tool_call::mcp_texts(call, env, room, inline)),
         ToolKind::Dynamic(call) => Some(super::tool_call::dynamic_texts(call, env, room)),
     }
 }

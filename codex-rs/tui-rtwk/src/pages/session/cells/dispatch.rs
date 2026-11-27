@@ -44,6 +44,8 @@ pub struct CellEnv<'a> {
 /// Where the item sits in the list.
 #[derive(Default)]
 pub struct Place {
+    /// Normal-screen transcript viewport, using the scrollback preview spelling.
+    pub inline_room: Option<super::text::Room>,
     /// Something is above it: a blank row separates them.
     pub separator: bool,
     /// A prompt that follows another in the detailed transcript (no blank row between).

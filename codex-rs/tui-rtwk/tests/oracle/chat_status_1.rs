@@ -179,14 +179,11 @@ const WARNING: &str = "Heads up, you have less than";
 // ORACLE chatwidget/tests/computer_activity_tests.rs:30 computer_activity_live_and_replay_group_identically kind=snap owner=ui-pane
 #[test]
 fn computer_activity_live_and_replay_group_identically() {
-    kit::pending(
-        Owner::UiPane,
-        "the oracle's snapshot is the inline `display_lines` of the group (its `└ 2 more · ⌃t` row); the chat draws the owned transcript's `compact_hyperlink_lines` (the oracle's own owned-mode spelling: the last row is dropped for the shared `+ Show details` control)",
-    );
     // oracle: four completed cua_repl calls live (started + completed) and replayed (ThreadSnapshot) draw one group;
     // the live and the replayed outputs are equal, and the group is the snapshot.
     let mut live = Screen::build(Owner::UiPane)
         .size(80, 24)
+        .inline(&[])
         .script(RUNNING)
         .open();
     for id in ["1", "2", "3", "4"] {
@@ -204,6 +201,7 @@ fn computer_activity_live_and_replay_group_identically() {
         .collect::<Vec<_>>();
     let replayed = Screen::build(Owner::UiPane)
         .size(80, 24)
+        .inline(&[])
         .replay(vec![kit::replay_turn("turn-1", serde_json::json!(items))])
         .open();
     live.assert_snap_region(

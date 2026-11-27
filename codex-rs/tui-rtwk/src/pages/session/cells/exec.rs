@@ -41,6 +41,7 @@ pub fn parts(
         syntax,
         detailed,
         expanded,
+        ..
     } = *env;
     if detailed {
         return Parts::Plain(detailed_shells(calls, strings, tokens, syntax), None);

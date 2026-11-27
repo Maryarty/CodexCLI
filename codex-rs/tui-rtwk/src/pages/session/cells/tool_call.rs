@@ -30,7 +30,7 @@ const PREVIEW_LINES: usize = 3;
 const PREVIEW_LINE_BYTES: usize = 16 * 1024;
 
 /// The cell of one MCP call.
-pub fn mcp(call: &McpCall, env: &Env<'_>) -> Parts {
+pub fn mcp(call: &McpCall, env: &Env<'_>, inline_room: Option<Room>) -> Parts {
     let Env {
         strings,
         tokens,
@@ -46,7 +46,7 @@ pub fn mcp(call: &McpCall, env: &Env<'_>) -> Parts {
             disclosure: Some(strings.hide_details.to_owned()),
         });
     }
-    let preview = mcp_preview(call, strings);
+    let preview = mcp_preview(call, strings, inline_room.map(text_room));
     let mut spans = Vec::new();
     if let Some(verb) = preview.verb {
         spans.extend([Span::styled(verb, tokens.bold()), Span::new(INLINE_GAP)]);
@@ -64,7 +64,7 @@ pub fn mcp(call: &McpCall, env: &Env<'_>) -> Parts {
             .enumerate()
             .map(|(index, text)| result_row(index, text, tokens))
             .collect(),
-        disclosure: Some(preview.disclosure),
+        disclosure: preview.disclosure,
     })
 }
 
@@ -81,10 +81,19 @@ pub fn mcp_mark(call: &McpCall, tokens: &Tokens) -> Style {
 struct McpPreview {
     verb: Option<&'static str>,
     rows: Vec<String>,
-    disclosure: String,
+    disclosure: Option<String>,
 }
 
-fn mcp_preview(call: &McpCall, strings: &Strings) -> McpPreview {
+pub(in crate::pages::session) fn uses_inline_display(call: &McpCall) -> bool {
+    call.result_kind() == McpResultKind::NodeRepl
+}
+
+fn mcp_preview(call: &McpCall, strings: &Strings, inline: Option<Room>) -> McpPreview {
+    if let Some(room) = inline
+        && uses_inline_display(call)
+    {
+        return inline_preview(call, strings, room.after(BRANCH));
+    }
     if call.result_kind() == McpResultKind::NodeRepl
         && let Some(Ok(result)) = &call.result
         && result.is_error
@@ -118,11 +127,11 @@ fn mcp_preview(call: &McpCall, strings: &Strings) -> McpPreview {
             return McpPreview {
                 verb: None,
                 rows,
-                disclosure: match omitted {
+                disclosure: Some(match omitted {
                     0 => strings.show_details.to_owned(),
                     1 => strings.repl_hidden_line.to_owned(),
                     count => strings.label(strings.repl_hidden_lines, &count.to_string()),
-                },
+                }),
             };
         }
     }
@@ -133,7 +142,68 @@ fn mcp_preview(call: &McpCall, strings: &Strings) -> McpPreview {
             None => strings.calling_tool,
         }),
         rows: tail_preview(call, strings),
-        disclosure: strings.show_details.to_owned(),
+        disclosure: Some(strings.show_details.to_owned()),
+    }
+}
+
+/// The inline history spelling (oracle `display_hyperlink_lines`): preview
+/// the start of a code-mode result, then tell the reader how to open its full
+/// source. The budget counts terminal rows, and a partially shown source line
+/// still counts as hidden.
+fn inline_preview(call: &McpCall, strings: &Strings, room: Room) -> McpPreview {
+    let mut rows = Vec::new();
+    let mut omitted = 0;
+    let width = usize::try_from(room.width).unwrap_or_default().max(1);
+    let mut push = |line: &str| {
+        let available = PREVIEW_LINES - rows.len();
+        if available == 0 {
+            omitted += 1;
+            return;
+        }
+        let end = line.floor_char_boundary(PREVIEW_LINE_BYTES);
+        let wrapped = crate::widgets::measure::rows(room.segmenter, &line[..end], width);
+        omitted += usize::from(end < line.len() || wrapped.len() > available);
+        rows.extend(wrapped.into_iter().take(available));
+    };
+    match &call.result {
+        Some(Ok(result)) => {
+            for block in &result.content {
+                if block.is_image && block.text().is_some() {
+                    push(strings.tool_result_image);
+                }
+                let value = body_text(&call.preview_text(block), strings);
+                let formatted = compact_json(&value);
+                for line in formatted.as_deref().unwrap_or(&value).lines() {
+                    push(line);
+                }
+            }
+        }
+        Some(Err(error)) => {
+            let message = format!("{}{error}", strings.tool_error);
+            for line in message.lines() {
+                push(line);
+            }
+        }
+        None => {}
+    }
+    if omitted > 0 {
+        let count = match omitted {
+            1 => strings.repl_hidden_line.to_owned(),
+            count => strings.label(strings.repl_hidden_lines, &count.to_string()),
+        };
+        rows.push(strings.label(strings.inline_repl_hidden, &count));
+    }
+    McpPreview {
+        verb: call
+            .action_title()
+            .is_none()
+            .then_some(if call.result.is_some() {
+                strings.called_tool
+            } else {
+                strings.calling_tool
+            }),
+        rows,
+        disclosure: None,
     }
 }
 
@@ -428,7 +498,7 @@ pub(super) fn transcript_parts(call: &McpCall, s: &Strings, room: Room) -> Vec<P
     parts
 }
 
-pub(super) fn mcp_texts(call: &McpCall, env: &TextEnv<'_>, room: Room) -> Vec<Part> {
+pub(super) fn mcp_texts(call: &McpCall, env: &TextEnv<'_>, room: Room, inline: bool) -> Vec<Part> {
     let s = env.cells;
     let room = text_room(room);
     let expanded = env.detailed || env.expanded;
@@ -439,7 +509,7 @@ pub(super) fn mcp_texts(call: &McpCall, env: &TextEnv<'_>, room: Room) -> Vec<Pa
             parts.push(Part::gutter(s.hide_details));
         }
     } else {
-        let preview = mcp_preview(call, s);
+        let preview = mcp_preview(call, s, inline.then_some(room));
         let title = call.title();
         parts.push(Part::text(match preview.verb {
             Some(verb) => format!("{verb}{INLINE_GAP}{title}"),
@@ -448,7 +518,7 @@ pub(super) fn mcp_texts(call: &McpCall, env: &TextEnv<'_>, room: Room) -> Vec<Pa
         for (index, row) in preview.rows.into_iter().enumerate() {
             result_parts(index, row, Some(room), &mut parts);
         }
-        parts.push(Part::gutter(preview.disclosure));
+        parts.extend(preview.disclosure.map(Part::gutter));
     }
     parts
 }
