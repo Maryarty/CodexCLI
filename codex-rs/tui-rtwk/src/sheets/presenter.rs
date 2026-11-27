@@ -278,7 +278,7 @@ pub fn present(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
     };
     if patch_in_chat && let Some(nav) = app.ui.presenter.place.visible_navigator() {
         let result = nav.push::<()>(sheets::approvals::patch_route(shown));
-        cx.spawn(result, closed);
+        crate::app::finish_request_route(cx, result, closed);
         return;
     }
     let dialog = cx.show_dialog_from::<()>(
