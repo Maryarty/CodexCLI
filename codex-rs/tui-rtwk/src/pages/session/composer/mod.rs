@@ -17,8 +17,8 @@ use rtwk::focus::FocusNode;
 use rtwk::foundation::{Listenable, VoidCallback};
 use rtwk::gestures::IgnorePointer;
 use rtwk::layout::{
-    BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, Flexible, MainAxisSize, Padding,
-    Row, Shadow, SizedBox,
+    BoxConstraints, BoxWidget, Column, ConstrainedBox, CrossAxisAlignment, EdgeInsets, Expanded,
+    Flexible, MainAxisSize, Padding, Row, Shadow, SizedBox, UNBOUNDED,
 };
 use rtwk::overlay::{OptionItem, OptionList, Panel, Popover, fuzzy_match};
 use rtwk::provider::{read, select, watch};
@@ -1205,13 +1205,25 @@ impl State for ComposerState {
         });
         let strings = l10n::of(cx);
         let composer_words = table;
+        let remote = w.ui.draft.remote_count();
+        // The fullscreen pane's top and bottom insets are outside this column.
+        let body_rows = images::owned_composer_rows(cx)
+            .filter(|_| remote > 0)
+            .map(|rows| rows.saturating_sub(2).max(1));
+        // Reserve the separator and at least one editable row before showing attachments.
+        let visible = body_rows.map_or(remote, |rows| {
+            remote.min(rows.saturating_sub(2).max(0) as usize)
+        });
+        let field_lines = body_rows.map_or(6, |rows| {
+            (rows - visible as i32 - i32::from(visible > 0)).clamp(1, 6) as usize
+        });
         let mut area = area
             .placeholder_style(Style::new().attrs(Attrs::DIM))
             .max_lines(
                 w.plain
                     .as_ref()
                     .and_then(|look| look.max_lines)
-                    .unwrap_or(6),
+                    .unwrap_or(field_lines),
             );
         // shell mode shows its `!` and no placeholder
         if !w.ui.draft.shell() {
@@ -1253,13 +1265,15 @@ impl State for ComposerState {
             .child(mark)
             .child(Expanded::new(1, field));
         // the remote images stand above the draft, one blank row between
-        let remote = w.ui.draft.remote_count();
         let selected = w.ui.draft.remote_selected();
+        let first = selected
+            .unwrap_or_default()
+            .saturating_sub(visible.saturating_sub(1));
         let labels = strings::of(cx);
         let start = Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
             .main_axis_size(MainAxisSize::Min);
-        let rows = (0..remote).fold(start, |column, at| {
+        let rows = (first..first + visible).fold(start, |column, at| {
             let style = if selected == Some(at) {
                 tokens.info().attrs(Attrs::REVERSE)
             } else {
@@ -1270,7 +1284,7 @@ impl State for ComposerState {
                 Text::line(labels.image(at + 1)).style(style),
             ))
         });
-        let rows = if remote > 0 {
+        let rows = if visible > 0 {
             rows.child(SizedBox::new(None, Some(1), None))
         } else {
             rows
@@ -1280,13 +1294,16 @@ impl State for ComposerState {
         } else {
             images::strip(&w.ui, read::<ThreadModel, _>(cx).id().clone())
         };
+        let body = rows
+            // Measure the draft first, then give any remaining rows to the thumbnails.
+            .child(Flexible::new(1, thumbnails))
+            .child(AnyWidget::from(draft_row).with_key(rtwk::Key::value("draft")));
         Aura {
-            child: rows
-                // Measure the draft first. During an inline resize the app's region takes
-                // a frame to grow to its new intrinsic height, so the strip can give up rows.
-                .child(Flexible::new(1, thumbnails))
-                .child(AnyWidget::from(draft_row).with_key(rtwk::Key::value("draft")))
-                .into(),
+            child: ConstrainedBox::new(
+                BoxConstraints::new(0, UNBOUNDED, 0, body_rows.unwrap_or(UNBOUNDED)),
+                body,
+            )
+            .into(),
         }
         .into()
     }

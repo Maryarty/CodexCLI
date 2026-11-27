@@ -7,7 +7,9 @@ use rtwk::binding::{AppBinding, InputListener, ScreenMode};
 use rtwk::foundation::ListenableBuilder;
 use rtwk::gestures::ExcludeSelection;
 use rtwk::graphics::GraphicsScope;
-use rtwk::layout::{CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding, Row, SizedBox};
+use rtwk::layout::{
+    CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding, Row, SizedBox, Stack, StackFit,
+};
 use rtwk::provider::Provider;
 use rtwk::widgets::{Builder, Text};
 use rtwk::{AnyWidget, Cx, Key, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
@@ -38,7 +40,19 @@ struct Attachment {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-struct PageRows(i32);
+struct PageRows {
+    rows: i32,
+    inline: bool,
+}
+
+pub(super) fn owned_composer_rows<S>(cx: &mut Cx<'_, S>) -> Option<i32> {
+    let page = Provider::<PageRows>::maybe_of(cx, true)?;
+    if page.inline {
+        return None;
+    }
+    // The fullscreen pane leaves room above the composer for the transcript.
+    Some((page.rows.saturating_mul(2) / 3).max(8).min(page.rows))
+}
 
 pub(in crate::pages::session) fn page_room(child: AnyWidget) -> AnyWidget {
     PageRoom { child }.into()
@@ -77,26 +91,41 @@ impl State for RoomState {
     }
 
     fn build(&self, widget: &PageRoom, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        if image_bounds(cx).is_none() {
-            return widget.child.clone();
-        }
         let inline =
             AppBinding::maybe_of(cx).is_some_and(|binding| binding.mode() == ScreenMode::Inline);
-        let reported = self.terminal_rows.filter(|_| inline);
+        if inline && image_bounds(cx).is_none() {
+            return widget.child.clone();
+        }
+        let reported = self.terminal_rows;
+        let tell = cx.local_sender();
         let child = widget.child.clone();
-        let layout = LayoutBuilder::new(move |_, room| {
-            Provider::value(PageRows(reported.unwrap_or(room.max_height)))
+        let page = move |rows| -> AnyWidget {
+            Provider::value(PageRows { rows, inline })
                 .update_should_notify(|old, new| old != new)
                 .child(child.clone())
                 .into()
-        });
-        if !inline {
-            return layout.into();
-        }
-        // An inline region grows from its intrinsic height. If a short terminal hides the
-        // strip, its current layout stays short even after the physical terminal grows.
-        let tell = cx.local_sender();
-        InputListener::new(layout, move |event| {
+        };
+        let content: AnyWidget = if inline {
+            LayoutBuilder::new(move |_, room| page(reported.unwrap_or(room.max_height))).into()
+        } else {
+            // Measure beside the chat so its popover can close during a route
+            // change even when the old route no longer lays out.
+            let sample = tell.clone();
+            let measure = LayoutBuilder::new(move |_, room| {
+                if reported != Some(room.max_height) {
+                    sample(room.max_height);
+                }
+                SizedBox::shrink().into()
+            });
+            Stack::new()
+                .fit(StackFit::Expand)
+                .child(measure)
+                .child(page(reported.unwrap_or_default()))
+                .into()
+        };
+        // Apply resize before painting with the last height. The inline
+        // region also needs the physical height to decide whether it can grow.
+        InputListener::new(content, move |event| {
             if let InputEvent::Resize { height, .. } = event
                 && let Ok(rows) = i32::try_from(*height)
             {
@@ -157,7 +186,7 @@ pub(super) fn strip(ui: &Rc<ThreadUi>, thread: ThreadId) -> AnyWidget {
 
 fn preview_size(cx: &mut Cx<'_>) -> Option<ImageSize> {
     let rows = Provider::<PageRows>::maybe_of(cx, true)?;
-    if rows.0 < REQUIRED_PAGE_ROWS {
+    if rows.rows < REQUIRED_PAGE_ROWS {
         return None;
     }
     image_bounds(cx)

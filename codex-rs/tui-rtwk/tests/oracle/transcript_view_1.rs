@@ -929,26 +929,47 @@ fn inline_confirmation_preserves_compact_viewport_without_replaying_history() {
 fn fullscreen_composer_scrolls_without_moving_caret_or_transcript() {
     kit::pending(
         Owner::ChatLive,
-        "no fullscreen composer over a 40-row history at 60x24 that follows the caret: the external-editor edit (apply_external_edit to 'Edited') and the same-length caret restore have no kit call, and the multi-frame snapshot fullscreen_prompt_wheel is not compared; the wheel over the composer, the Left/Right caret and the paste at the caret are ported",
+        "G-new-composer-wheel: an actual external-editor result mounts over the owned transcript, but native TextArea always follows the caret while painting and has no independent wheel viewport. Three wheel-up events at the caret leave Prompt 35 visible.",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(60, 24)
+        .owned_transcript()
         .script(include_str!("fixtures/transcript_view_1/history40.jsonl"))
         .open();
     let draft = (1..=35)
         .map(|n| format!("Prompt {n:02} 界"))
         .collect::<Vec<_>>()
         .join("\n");
-    s.paste(&draft);
-    let (x, y) = at(&s, "Prompt 35");
-    s.wheel_up(x, y, 3);
-    s.assert_absent("Prompt 35");
-    s.assert_contains("History 40");
+    let browse = |s: &mut Screen, last: &str, history| {
+        let (x, y) = (14, s.row_of(last));
+        s.assert_cursor(x, y);
+        for _ in 0..3 {
+            s.wheel_up(x as u16, y as u16, 1);
+        }
+        s.assert_absent(last);
+        s.assert_row(history, "  History 40");
+        s.assert_cursor_hidden();
+    };
+    s.keys("ctrl+g");
+    s.answer_editor("", &draft);
+    let history = s.row_of("History 40");
+    browse(&mut s, "Prompt 35", history);
     s.keys("left");
-    s.assert_contains("Prompt 35");
+    s.assert_cursor(12, s.row_of("Prompt 35"));
     s.keys("right");
+    browse(&mut s, "Prompt 35", history);
+    let edited = draft.replace("Prompt", "Edited");
+    s.keys("ctrl+g");
+    s.answer_editor(&draft, &edited);
+    browse(&mut s, "Edited 35", history);
     s.paste(" pasted here");
-    s.assert_contains("pasted here");
+    s.assert_contains("Edited 35 界 pasted here");
+    s.assert_row(history, "  History 40");
+    s.resize(40, 10);
+    s.assert_contains("History 40");
+    s.assert_contains("Edited 35 界 pasted here");
+    s.keys("enter");
+    s.assert_sole_turn(kit::Turn::text(&format!("{edited} pasted here")));
 }
 
 // ORACLE app/owned_transcript_tests.rs:2055 composer_thumbnails_follow_draft_deletion_and_resize kind=snap owner=chat-live snap=composer_thumbnail_strip
@@ -1014,24 +1035,69 @@ fn composer_thumbnails_follow_draft_deletion_and_resize() {
 // ORACLE app/owned_transcript_tests.rs:2158 fullscreen_composer_remote_images_leave_an_editable_prompt_row kind=snap owner=chat-live snap=fullscreen_prompt_remote_images
 #[test]
 fn fullscreen_composer_remote_images_leave_an_editable_prompt_row() {
-    kit::pending(
-        Owner::ChatLive,
-        "no remote image seed (set_remote_image_urls of twelve urls) at 60x12: the '[Image #N]' rows in the composer and the Home/Up/Delete/Down editing across them are not built; the multi-frame snapshot fullscreen_prompt_remote_images is not compared",
-    );
+    let urls: Vec<_> = (1..=12)
+        .map(|n| format!("https://example.com/image-{n}.png"))
+        .collect();
+    let all: Vec<_> = urls.iter().map(String::as_str).collect();
     let mut s = Screen::build(Owner::ChatLive)
         .size(60, 12)
-        .script(include_str!("fixtures/transcript_view_1/select.jsonl"))
+        .owned_transcript()
+        .kitty()
+        .live()
+        .remote_images(&all)
         .open();
-    s.type_text("Edit this prompt");
-    s.assert_contains("Edit this prompt");
+    s.live_tail("History stays visible").commit_live_tail();
+    s.keys("ctrl+g");
+    s.answer_editor("", "Edit this prompt");
+    let history = s.row_of("History stays visible");
+    let prompt = s.row_of("Edit this prompt");
+    s.assert_screen_row_then(
+        "  [Image #1]",
+        &["  [Image #2]", "  [Image #3]", "  [Image #4]"],
+    );
+    s.assert_absent("[Image #5]");
     s.keys("home up");
-    s.assert_contains("[Image #12]");
+    s.assert_screen_row_then(
+        "  [Image #9]",
+        &["  [Image #10]", "  [Image #11]", "  [Image #12]"],
+    );
+    s.assert_text_style("[Image #12]", "reversed");
+    s.assert_row(prompt, "› Edit this prompt");
     s.keys("up");
-    s.assert_contains("[Image #11]");
+    s.assert_absent("[Image #12]");
+    s.assert_text_style("[Image #11]", "reversed");
     s.keys("delete");
-    s.assert_contains("[Image #11]");
+    s.assert_text_style("[Image #11]", "reversed");
     s.keys("down");
-    s.assert_contains("Edit this prompt");
+    s.assert_screen_row_then(
+        "  [Image #1]",
+        &["  [Image #2]", "  [Image #3]", "  [Image #4]"],
+    );
+    s.assert_cursor(2, prompt);
+    s.assert_row_of("Edit this prompt", &["›"], &[]);
+    s.assert_row(history, "• History stays visible");
+    s.keys("end");
+    s.type_text(" now");
+    let local = kit::image_file_sized("fullscreen-composer-remote-and-local.png", 400, 1);
+    s.attach_image_path(&local);
+    s.assert_contains("Edit this prompt now[Image #12]");
+    s.assert_thumbnails(60, &[]);
+    s.resize(60, 36);
+    s.assert_thumbnails(60, &[(6, 1)]);
+    s.assert_has_row("  [Image #11]");
+    s.resize(60, 12);
+    s.assert_thumbnails(60, &[]);
+    s.assert_row(history, "• History stays visible");
+    s.assert_absent("  [Image #5]");
+    s.keys("backspace");
+    kit::remove_artifact_file(&local);
+    let remaining: Vec<_> = all
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, url)| (index != 10).then_some(url))
+        .collect();
+    s.keys("enter");
+    s.assert_sole_turn(kit::Turn::text("Edit this prompt now").remote_images(&remaining));
 }
 
 // ORACLE app/owned_transcript_tests.rs:2212 footer_selection_defers_warning_clicks_and_preserves_the_draft kind=snap owner=chat-live snap=fullscreen_footer_selection
