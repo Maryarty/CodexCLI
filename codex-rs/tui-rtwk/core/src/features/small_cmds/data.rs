@@ -1,23 +1,6 @@
 //! What the small commands carry as data (the host's facts, the failures their notes word): plain
 //! data, worded by `src/features/small_cmds/`.
 
-/// What the IDE said of its context (oracle `has_prompt_context` of the fetched context).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct IdeReading {
-    /// There is a selection or open tabs future messages will carry.
-    pub has_context: bool,
-}
-
-/// Why the IDE context could not be read, with the two hints the oracle words it by
-/// (`IdeContextError::user_facing_hint`, `prompt_skip_hint`).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct IdeFailure {
-    /// The hint of `/ide`'s own failure line.
-    pub hint: String,
-    /// The hint of the line that says a message went without IDE context.
-    pub skip_hint: String,
-}
-
 /// Why a thread's Daybreak choice was not saved.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DaybreakFailure {
