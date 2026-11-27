@@ -414,7 +414,7 @@ pub(super) fn reconnected(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx
 pub(super) fn retire_images(app: &mut CodexApp, backend: BackendId) {
     app.effects.retire_images(backend);
     let agents = &app.screens.agents;
-    features::images::retire(&mut app.features, |thread| {
+    features::retire_image_snapshots(&mut app.features, |thread| {
         agents.owner_of(thread.as_str()) == backend
     });
 }
