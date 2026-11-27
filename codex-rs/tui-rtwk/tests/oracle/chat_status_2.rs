@@ -864,13 +864,96 @@ fn reasoning_delta_does_not_double_schedule_visible_status_redraw() {
 // ORACLE chatwidget/tests/status_and_layout.rs:5257 reasoning_delta_restores_recreated_status_indicator_header kind=snap owner=ui-pane snap=reasoning_delta_restores_recreated_status_indicator
 #[test]
 fn reasoning_delta_restores_recreated_status_indicator_header() {
-    kit::pending(
-        Owner::UiPane,
-        "reasoning and answer streaming headers, prose previews and per-message headers are not built in the chat skeleton",
-    );
-    let s = Screen::build(Owner::UiPane).size(80, 8).live().open();
-    // seed: a task started, the status indicator recreated, reasoning header 'Checking files and preparing a response'
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 16)
+        .script(BASE)
+        .open();
+    let item =
+        serde_json::json!({"type": "reasoning", "id": "reasoning-1", "summary": [], "content": []});
+    let started = serde_json::json!({"step": "notify", "message": {"method": "item/started", "params": {
+        "threadId": "thread-1", "turnId": "turn-1", "item": item, "startedAtMs": 0
+    }}});
+    let reasoning_delta = |delta: &str| {
+        serde_json::json!({"step": "notify", "message": {
+            "method": "item/reasoning/summaryTextDelta", "params": {
+                "threadId": "thread-1", "turnId": "turn-1", "itemId": "reasoning-1",
+                "summaryIndex": 0, "delta": delta
+            }
+        }})
+        .to_string()
+    };
+    s.feed(&format!(
+        "{TURN}\n{started}\n{}",
+        reasoning_delta("**Checking files**")
+    ));
+    s.assert_contains("Checking files");
+    let preamble = |delta| prose_delta("item/agentMessage/delta", "preamble", delta);
+    s.feed(&preamble("\n"));
+    s.assert_contains("Checking files");
+    s.feed(&preamble("Preamble line"));
+    s.assert_contains("Checking files");
+    s.feed(&preamble("\n"));
+    s.assert_contains("Preamble line");
+    s.assert_absent("esc to interrupt");
+    s.feed(BACKGROUND);
+    s.assert_contains("Checking files");
+    s.assert_contains("1 background terminal running");
+    s.feed(&reasoning_delta(" and preparing a response"));
+    s.assert_contains("Checking files and preparing a response");
+    s.resize(80, 8);
     s.assert_snap("reasoning_delta_restores_recreated_status_indicator");
+}
+
+#[test]
+fn reasoning_status_uses_wire_order_when_terminal_and_line_fit_one_frame() {
+    for terminal_last in [false, true] {
+        let mut s = Screen::build(Owner::UiPane)
+            .size(80, 16)
+            .script(BASE)
+            .open();
+        s.feed(TURN);
+        let answer = prose_delta("item/agentMessage/delta", "answer", "Complete line\n");
+        let events = if terminal_last {
+            format!("{answer}\n{BACKGROUND}")
+        } else {
+            format!("{BACKGROUND}\n{answer}")
+        };
+        s.feed(&events);
+        s.assert_contains("Complete line");
+        s.assert_contains("1 background terminal running");
+        if terminal_last {
+            s.assert_contains("esc to interrupt");
+        } else {
+            s.assert_absent("esc to interrupt");
+            s.feed(BACKGROUND);
+            s.assert_absent("esc to interrupt");
+        }
+    }
+}
+
+#[test]
+fn reasoning_status_keeps_the_new_turn_hidden_under_an_older_terminal() {
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 16)
+        .script(BASE)
+        .open();
+    s.feed(&format!(
+        "{TURN}\n{BACKGROUND}\n{}",
+        turn_ended("completed")
+    ));
+    s.feed(&TURN.replace("turn-1", "turn-2"));
+    let answer = prose_delta("item/agentMessage/delta", "answer", "Complete line\n");
+    s.feed(&answer.replace("turn-1", "turn-2"));
+    s.assert_contains("1 background terminal running");
+    s.assert_contains("Complete line");
+    s.assert_absent("esc to interrupt");
+    s.feed(
+        &BACKGROUND
+            .replace("turn-1", "turn-2")
+            .replace("proc-1", "proc-2"),
+    );
+    s.assert_contains("2 background terminal");
+    s.assert_contains("esc to interrupt");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5296 user_prompt_submit_app_server_hook_notifications_render_snapshot kind=snap owner=ui-pane snap=user_prompt_submit_app_server_hook_notifications_render_snapshot

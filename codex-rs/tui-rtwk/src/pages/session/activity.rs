@@ -45,8 +45,8 @@ pub(super) struct Run {
     pub can_interrupt: bool,
     pub read_only: bool,
     transcript_empty: bool,
-    /// A completed final or legacy answer takes the Working row while input still queues.
-    final_answer: bool,
+    /// A streamed complete line or a completed final answer supplies the turn's progress row.
+    answer_displaces_status: bool,
     /// The thread's last failure, or the one the chat screen keeps.
     failure: Option<Failure>,
     chat: chat::ThreadPart,
@@ -76,9 +76,9 @@ impl Run {
     pub(super) fn of(thread: &ThreadModel) -> Run {
         let screen_error = thread.screen_slots().chat.error.clone().map(Failure::from);
         let transcript = thread.transcript();
-        // The oracle restores the indicator for partial/commentary answers and for pending input
-        // that needs the active turn's status, even after an otherwise final answer.
-        let final_answer = if let TurnState::Running(running) = thread.turn()
+        // Once the stream commits a visible line, it provides the turn's progress feedback.
+        // A stream with only a partial line, completed commentary, or a later tool leaves room for status.
+        let answer_displaces_status = if let TurnState::Running(running) = thread.turn()
             && thread.pending_steers().is_empty()
         {
             (0..transcript.len())
@@ -96,14 +96,20 @@ impl Run {
                     )
                 })
                 .is_some_and(|(key, item)| {
-                    matches!(
-                        item,
-                        Item::Agent {
-                            text,
-                            phase: None | Some(MessagePhase::FinalAnswer),
-                            questions: None,
-                        } if !text.trim().is_empty()
-                    ) && thread.received_item_completion(key)
+                    let Item::Agent {
+                        text,
+                        phase,
+                        questions: None,
+                    } = item
+                    else {
+                        return false;
+                    };
+                    if transcript.is_agent_streaming(key) {
+                        return running.has_recent_agent_line(&key.item);
+                    }
+                    matches!(phase, None | Some(MessagePhase::FinalAnswer))
+                        && !text.trim_start().is_empty()
+                        && thread.received_item_completion(key)
                 })
         } else {
             false
@@ -123,7 +129,7 @@ impl Run {
             can_interrupt: thread.can_interrupt(),
             read_only: thread.read_only(),
             transcript_empty: transcript.is_empty(),
-            final_answer,
+            answer_displaces_status,
             failure: thread.last_error().cloned().or(screen_error),
             chat: thread.screen_slots().chat.clone(),
             reasoning,
@@ -315,7 +321,7 @@ impl StatelessWidget for StatusSlot {
         } else if compacting
             || review.is_some()
             || (running.is_some()
-                && (!run.final_answer
+                && (!run.answer_displaces_status
                     || run.safety_wait
                     || waiting.is_some()
                     || run.chat.header().is_some()))

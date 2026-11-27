@@ -643,9 +643,9 @@ impl Transcript {
         )
     }
 
-    /// Appends a delta in wire order, scanning only its new bytes for a line boundary.
-    pub fn append_agent(&mut self, key: ItemKey, delta: &str) {
-        self.append_text(key, delta, Text::Agent);
+    /// Appends an answer delta and returns its key when it commits a nonblank line.
+    pub fn append_agent(&mut self, key: ItemKey, delta: &str) -> Option<ItemKey> {
+        self.append_text(key, delta, Text::Agent)
     }
 
     /// Appends a delta of the proposed plan (`item/plan/delta`), as an answer's text streams.
@@ -653,18 +653,18 @@ impl Transcript {
         self.append_text(key, delta, Text::Plan);
     }
 
-    fn append_text(&mut self, key: ItemKey, delta: &str, kind: Text) {
+    fn append_text(&mut self, key: ItemKey, delta: &str, kind: Text) -> Option<ItemKey> {
         if delta.is_empty() {
-            return;
+            return None;
         }
         use std::collections::hash_map::Entry;
-        let live = match self.streaming.entry(key) {
-            Entry::Occupied(entry) => entry.into_mut(),
+        let mut entry = match self.streaming.entry(key) {
+            Entry::Occupied(entry) => entry,
             Entry::Vacant(entry) => {
                 let (value, committed) = match self.items.get(entry.key()) {
                     Some(item) => match kind.text_of(&item.item) {
                         Some(text) => (item.clone(), text.len()),
-                        None => return,
+                        None => return None,
                     },
                     None => {
                         Rc::make_mut(&mut self.order).push(entry.key().clone());
@@ -675,20 +675,24 @@ impl Transcript {
                         )
                     }
                 };
-                entry.insert(StreamingItem {
+                entry.insert_entry(StreamingItem {
                     entry: value,
                     committed,
                 })
             }
         };
-        if let Some(text) = kind.text_mut(Rc::make_mut(&mut live.entry.item)) {
-            if let Some(last) = delta.rfind('\n') {
-                live.committed = text.len() + last + 1;
-            }
-            text.push_str(delta);
-            self.item_revision += 1;
-            live.entry.revision = self.item_revision;
+        let live = entry.get_mut();
+        let text = kind.text_mut(Rc::make_mut(&mut live.entry.item))?;
+        let previous = live.committed;
+        if let Some(last) = delta.rfind('\n') {
+            live.committed = text.len() + last + 1;
         }
+        text.push_str(delta);
+        self.item_revision += 1;
+        live.entry.revision = self.item_revision;
+        let committed_agent_line =
+            matches!(kind, Text::Agent) && !text[previous..live.committed].trim_start().is_empty();
+        committed_agent_line.then(|| entry.key().clone())
     }
 
     fn append_command_output(&mut self, key: ItemKey, delta: &str) {
@@ -885,6 +889,16 @@ pub struct RunningTurn {
     /// oracle's status timer, the elapsed time of a turn the server timed no duration for.
     began: i64,
     interrupt_sent: bool,
+    /// Latest agent item to complete a nonblank line since the last command started.
+    last_agent_line: Option<ItemId>,
+    /// The same command's repeated start cannot supersede newer output.
+    started_unified_exec: Rc<HashSet<ItemId>>,
+}
+
+impl RunningTurn {
+    pub fn has_recent_agent_line(&self, item: &ItemId) -> bool {
+        self.last_agent_line.as_ref() == Some(item)
+    }
 }
 
 /// What the client itself warns of (the words are the view's, ADR-010).
@@ -3315,6 +3329,20 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::HookStarted { id, message } => hooks::started(model, id, message),
         ThreadEv::HookEnded { id, turn, item } => hooks::ended(model, &id, turn, item),
         ThreadEv::ItemStarted { key, item, receipt } => {
+            if matches!(&item, Item::Tool(tool) if tool.status == ToolStatus::Running
+                && matches!(tool.kind, ToolKind::Shell { unified_exec: true, .. }))
+            {
+                if model.completed_items.contains(&key) {
+                    return;
+                }
+                if let TurnState::Running(running) = &mut model.turn
+                    && running.turn == key.turn
+                    && !running.started_unified_exec.contains(&key.item)
+                {
+                    Rc::make_mut(&mut running.started_unified_exec).insert(key.item.clone());
+                    running.last_agent_line = None;
+                }
+            }
             processes::track(model, &key, &item);
             note_review(model, &item);
             let (echo, released) = match receipt {
@@ -3376,6 +3404,17 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                         Item::Reasoning { .. } => {
                             model.completed_items.insert(key.clone());
                         }
+                        Item::Tool(tool)
+                            if matches!(
+                                tool.kind,
+                                ToolKind::Shell {
+                                    unified_exec: true,
+                                    ..
+                                }
+                            ) =>
+                        {
+                            model.completed_items.insert(key.clone());
+                        }
                         Item::Plan { text } => {
                             let first = model.completed_items.insert(key.clone());
                             if first
@@ -3404,7 +3443,12 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::AgentDelta { key, delta } => {
             if !model.finished_turns.contains(&key.turn) && !model.completed_items.contains(&key) {
                 processes::flush(model, Some(key.turn.clone()));
-                model.transcript.append_agent(key, &delta);
+                if let Some(committed) = model.transcript.append_agent(key, &delta)
+                    && let TurnState::Running(running) = &mut model.turn
+                    && running.turn == committed.turn
+                {
+                    running.last_agent_line = Some(committed.item);
+                }
             }
         }
         ThreadEv::PlanDelta { key, delta } => {
@@ -4405,6 +4449,8 @@ fn start_turn(model: &mut ThreadModel, turn: TurnId, now: i64) {
                 started_at: None,
                 began: now,
                 interrupt_sent: false,
+                last_agent_line: None,
+                started_unified_exec: Rc::default(),
             })
         }
         TurnState::Running(_) => {}
