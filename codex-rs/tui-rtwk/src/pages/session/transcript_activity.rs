@@ -187,7 +187,13 @@ impl State for ToolRowState {
                     .into();
                 match rows.disclosure.filter(|_| !widget.detailed) {
                     Some(label) => disclosing(cx, cell, label, control, expanded),
-                    None => cell,
+                    // A narrower window can reveal the control while a range is selected.
+                    // Keep the cell first in the same column so its selectable rows stay mounted.
+                    None => Column::new()
+                        .main_axis_size(MainAxisSize::Min)
+                        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                        .child(cell)
+                        .into(),
                 }
             }
         }
