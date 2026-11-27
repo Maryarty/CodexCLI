@@ -198,18 +198,22 @@ impl Prompt {
                     text_elements,
                     ..
                 } => {
+                    let (text, ide_prefix) = crate::threads::UserPrompt::request_part(text);
                     let offset = prompt.text.len();
                     prompt.text.push_str(text);
-                    prompt.elements.extend(text_elements.iter().map(|element| {
-                        let range = element.byte_range.start..element.byte_range.end;
-                        Element {
-                            placeholder: element
-                                .placeholder()
-                                .or_else(|| text.get(range.clone()))
-                                .map(str::to_string),
-                            range: range.start + offset..range.end + offset,
-                        }
-                    }));
+                    prompt
+                        .elements
+                        .extend(text_elements.iter().filter_map(|element| {
+                            let range = element.byte_range.start.checked_sub(ide_prefix)?
+                                ..element.byte_range.end.checked_sub(ide_prefix)?;
+                            Some(Element {
+                                placeholder: element
+                                    .placeholder()
+                                    .or_else(|| text.get(range.clone()))
+                                    .map(str::to_string),
+                                range: range.start + offset..range.end + offset,
+                            })
+                        }));
                 }
                 UserInput::Image {
                     image: ImageReference::Inline { url },

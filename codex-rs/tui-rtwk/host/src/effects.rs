@@ -23,6 +23,8 @@ use codex_tui_core::app::effects::DaemonAsk;
 use codex_tui_core::app::effects::Done;
 use codex_tui_core::app::effects::EditorFailure;
 use codex_tui_core::app::effects::HostDoors;
+use codex_tui_core::app::effects::IdeFailure;
+use codex_tui_core::app::effects::IdePrompt;
 use codex_tui_core::app::effects::IdeReading;
 use codex_tui_core::app::effects::run_ask;
 use codex_tui_core::app::facts::Rendering;
@@ -301,11 +303,9 @@ struct Own<'a> {
     link: Option<&'a Link>,
 }
 
-impl HostDoors for Own<'_> {
-    type Out = Outcome;
-
-    async fn ide_context(&self, _thread: ThreadId, cwd: String) -> Option<Self::Out> {
-        let read = match self.link {
+impl Own<'_> {
+    async fn read_ide(&self, cwd: String) -> Result<Option<String>, IdeFailure> {
+        match self.link {
             Some(link)
                 if link.workspace_local
                     && link.startup.target != crate::startup::Target::Remote =>
@@ -313,11 +313,26 @@ impl HostDoors for Own<'_> {
                 crate::small::read_ide_context(PathBuf::from(cwd), link.codex_home.clone()).await
             }
             _ => Err(crate::small::ide_unavailable()),
-        };
-        let read = read.map(|context| IdeReading {
+        }
+    }
+}
+
+impl HostDoors for Own<'_> {
+    type Out = Outcome;
+
+    async fn ide_context(&self, _thread: ThreadId, cwd: String) -> Option<Self::Out> {
+        let read = self.read_ide(cwd).await.map(|context| IdeReading {
             has_context: context.is_some(),
         });
         Some(Outcome::Effect(Done::IdeContext(read), None))
+    }
+
+    async fn ide_prompt(&self, _thread: ThreadId, cwd: String) -> Option<Self::Out> {
+        let read = self
+            .read_ide(cwd)
+            .await
+            .map(|context| context.map(IdePrompt::new));
+        Some(Outcome::Effect(Done::IdePrompt(read), None))
     }
 
     async fn git_branches(&self, cwd: Option<String>) -> Option<Self::Out> {

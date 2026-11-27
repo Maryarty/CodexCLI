@@ -152,6 +152,28 @@ pub struct IdeFailure {
     pub skip_hint: String,
 }
 
+/// An IDE selection going to the model as part of a single turn.
+#[derive(Clone, PartialEq, Eq)]
+pub struct IdePrompt(Arc<str>);
+
+impl IdePrompt {
+    pub fn new(text: String) -> Self {
+        Self(Arc::from(text))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for IdePrompt {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        out.debug_struct("IdePrompt")
+            .field("bytes", &self.0.len())
+            .finish()
+    }
+}
+
 /// One edit of the user's config file (`config/batchWrite`: a dotted key path and its new value,
 /// the value replaces).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -236,6 +258,9 @@ host_capability_list! {
     /// context cross this reply; the extension's selection stays in the host.
     ide_context => IdeContext { thread: ThreadId, cwd: String }
         by thread -> new IdeContext(Result<IdeReading, IdeFailure>);
+    /// Read the selection and tabs for one accepted user submission.
+    ide_prompt => IdePrompt { thread: ThreadId, cwd: String }
+        by thread -> new IdePrompt(Result<Option<IdePrompt>, IdeFailure>);
     /// Opens `thread` in the Desktop app (`codex://threads/{id}`, `/app`). Answered by nothing,
     /// or the launch's own failure text.
     open_desktop => OpenDesktop { thread: ThreadId } -> new Opened(Result<(), String>);
@@ -351,6 +376,7 @@ impl Ask {
         match self {
             Self::ImageSnapshot { .. } => Some(WorkspaceReceipt::ImageSnapshot),
             Self::IdeContext { .. } => Some(WorkspaceReceipt::IdeContext),
+            Self::IdePrompt { .. } => Some(WorkspaceReceipt::IdePrompt),
             _ => None,
         }
     }
@@ -395,6 +421,7 @@ impl Done {
         match self {
             Self::ImageSnapshot(_) => Some(WorkspaceReceipt::ImageSnapshot),
             Self::IdeContext(_) => Some(WorkspaceReceipt::IdeContext),
+            Self::IdePrompt(_) => Some(WorkspaceReceipt::IdePrompt),
             _ => None,
         }
     }
@@ -431,6 +458,7 @@ struct FeatureRequest {
 pub(super) enum WorkspaceReceipt {
     ImageSnapshot,
     IdeContext,
+    IdePrompt,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

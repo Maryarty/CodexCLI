@@ -726,7 +726,10 @@ async fn run(
                                 ingress: ingress.clone(),
                                 epoch,
                                 codex_home: config.codex_home.to_path_buf(),
-                                workspace_local: matches!(ask, HostAsk::IdeContext { .. })
+                                workspace_local: matches!(
+                                    ask,
+                                    HostAsk::IdeContext { .. } | HostAsk::IdePrompt { .. },
+                                )
                                     && local_workspace(artifact_environments.as_deref()),
                             };
                             effects.run(
