@@ -1283,7 +1283,7 @@ fn startup_draft_renders_full_empty_and_multiline_composer_frames() {
 fn terminal_app_ssh_fallback_renders_inline_startup() {
     kit::pending(
         Owner::ChatNavPane,
-        "feature terminal-app-over-ssh inline startup (w2-composer, startup): not in the port (alt screen off) is not reachable black-box",
+        "Terminal.app over SSH without TERM_PROGRAM is identified by the device-attributes replies. Pinned rtwk fixes its buffer before exposing the probe result, so the app cannot use that identity for inline startup.",
     );
     let s = Screen::build(Owner::ChatNavPane).size(48, 16).live().open();
     s.assert_snap("terminal_app_ssh_startup");

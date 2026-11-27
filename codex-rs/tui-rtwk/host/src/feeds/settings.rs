@@ -24,7 +24,11 @@ use super::{Event, Feed, FeedCx};
 pub(crate) fn feed(event: &Event<'_>, cx: &FeedCx<'_>, out: &mut Vec<Feed>) {
     if matches!(event, Event::Startup | Event::ConfigWritten) {
         let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
-        out.push(Feed::fact(fact(cx.config, home.as_deref())));
+        out.push(Feed::fact(fact(
+            cx.config,
+            home.as_deref(),
+            cx.alternate_screen,
+        )));
     }
 }
 
@@ -59,7 +63,7 @@ pub(crate) fn read(config: &Config, home: Option<&Path>) -> Read {
 
 /// What the dialogs of this config read: the facts of `read`, the rows of the configuration panel
 /// and the tabs of the keymap picker (`home` as in `read`). Sent at start and after every write.
-pub(crate) fn fact(config: &Config, home: Option<&Path>) -> Fact {
+fn fact(config: &Config, home: Option<&Path>, alternate_screen: bool) -> Fact {
     let read = read(config, home);
     Fact::Facts(Facts {
         syntax_theme: read.syntax_theme,
@@ -71,7 +75,7 @@ pub(crate) fn fact(config: &Config, home: Option<&Path>) -> Fact {
                 use_memories,
                 generate_memories,
             }),
-        config_rows: config_rows(config, &PasteEnvironment::detect()),
+        config_rows: config_rows(config, &PasteEnvironment::detect(), alternate_screen),
         keymap_tabs: crate::facts::keymap(config)
             .map(|resolved| keymap::picker(&resolved, keymap::Filter::default()).tabs)
             .unwrap_or_default(),
@@ -139,9 +143,8 @@ fn on_off(on: bool) -> &'static str {
 
 /// The rows of the configuration panel (`config_panel::settings`), in the oracle's order, from
 /// the config as it stands.
-pub(crate) fn config_rows(config: &Config, paste: &PasteEnvironment) -> Vec<Row> {
-    let owned = config.tui_fullscreen_transcript
-        && config.tui_alternate_screen != codex_config::types::AltScreenMode::Never;
+fn config_rows(config: &Config, paste: &PasteEnvironment, alternate_screen: bool) -> Vec<Row> {
+    let owned = crate::terminal_mode::owns_transcript(config, alternate_screen);
     let copy = crate::effects::tui_settings(config).copy_on_select;
     let notifications = &config.tui_notifications;
     let enabled = !matches!(
@@ -389,6 +392,53 @@ fn custom_themes(dir: &Path) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn config_rows_follow_the_buffer_at_startup_and_after_reload() -> anyhow::Result<()> {
+        let home = tempfile::tempdir()?;
+        let ssh = PasteEnvironment {
+            platform_default: false,
+            ssh: true,
+            wsl: false,
+            vscode: false,
+        };
+        let cases = [
+            ("auto", false),
+            ("auto", true),
+            ("always", false),
+            ("never", true),
+        ];
+        for (configured, alternate_screen) in cases {
+            let config = codex_core::config::ConfigBuilder::default()
+                .codex_home(home.path().to_owned())
+                .fallback_cwd(Some(home.path().to_owned()))
+                .cli_overrides(vec![
+                    ("tui.fullscreen_transcript".into(), true.into()),
+                    ("tui.alternate_screen".into(), configured.into()),
+                    ("tui.right_click_paste".into(), "on".into()),
+                ])
+                .build()
+                .await?;
+            let rows = config_rows(&config, &ssh, alternate_screen);
+            assert_eq!(
+                rows.iter()
+                    .any(|row| row.id == SettingId::CollapseTurnDetails),
+                alternate_screen,
+                "{configured}"
+            );
+            let paste = rows
+                .iter()
+                .find(|row| row.id == SettingId::RightClickPaste)
+                .expect("right-click setting");
+            let description = if alternate_screen {
+                "Unavailable over SSH; use your terminal's paste command"
+            } else {
+                "Unavailable in inline mode; use your terminal's paste command"
+            };
+            assert_eq!(paste.description, description, "{configured}");
+        }
+        Ok(())
+    }
 
     #[test]
     fn custom_themes_are_the_tmtheme_stems_in_order() {
