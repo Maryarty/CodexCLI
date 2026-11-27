@@ -91,3 +91,56 @@ fn ctrl_t_searches_live_chat_and_returns_to_the_same_draft() {
     s.type_text("!");
     s.assert_composer("still editing!");
 }
+
+#[test]
+fn ctrl_t_returns_a_following_chat_to_new_output() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(48, 14)
+        .script(include_str!(
+            "../oracle/fixtures/transcript_view_5/rows40.jsonl"
+        ))
+        .open();
+    s.assert_contains("row 39");
+    s.keys("ctrl+t pageup pageup");
+    s.assert_absent("row 39");
+    s.live_tail("response while reading");
+    s.assert_absent("response while reading");
+    s.keys("ctrl+t");
+    s.assert_contains("response while reading");
+}
+
+#[test]
+fn two_ctrl_t_presses_before_the_next_frame_keep_the_compact_position() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(48, 14)
+        .script(include_str!(
+            "../oracle/fixtures/transcript_view_5/rows40.jsonl"
+        ))
+        .draft("keep this draft")
+        .open();
+    s.keys("pageup pageup");
+    s.assert_absent("row 39");
+    let compact = s.shot();
+    s.type_burst("\x14\x14").wait(200);
+    s.assert_same_rows(&compact);
+    s.assert_composer("keep this draft");
+}
+
+#[test]
+fn ctrl_t_restores_each_presentation_to_its_own_reading_position() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(48, 14)
+        .script(include_str!(
+            "../oracle/fixtures/transcript_view_5/rows40.jsonl"
+        ))
+        .open();
+    s.keys("pageup");
+    let compact = s.shot();
+    s.keys("ctrl+t pageup pageup");
+    s.assert_rows_differ(&compact);
+    let detailed = s.shot();
+    s.keys("ctrl+t");
+    s.assert_same_rows(&compact);
+    s.keys("ctrl+t");
+    s.assert_same_rows(&detailed);
+}

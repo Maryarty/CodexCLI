@@ -6,6 +6,7 @@ use std::ops::Range;
 use std::rc::Rc;
 use std::time::Duration;
 
+use rtwk::app::ViewportCx;
 use rtwk::binding::{AppBinding, ScreenMode};
 use rtwk::foundation::{Listenable, VoidCallback};
 use rtwk::gestures::SelectionTarget;
@@ -18,9 +19,10 @@ use rtwk::scroll::{
 use rtwk::style::{Attrs, Style};
 use rtwk::text::segmenter_of;
 use rtwk::{
-    AnyWidget, BuildCx, Cx, GlobalKey, Key, LayoutBuilder, NotificationListener, Rebuild, State,
-    StatefulWidget, StatelessWidget, impl_widget,
+    AnyWidget, BuildCx, Cx, Eid, GlobalKey, Key, LayoutBuilder, NotificationListener, Rebuild,
+    State, StatefulWidget, StatelessWidget, impl_widget,
 };
+use rtwk_render::objects::list::{ListParentData, RenderList};
 
 use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::features::FeatureStates;
@@ -34,13 +36,14 @@ use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
 use crate::widgets::finder::More;
 use crate::widgets::thread_scope::thread_scope;
-use crate::widgets::thread_ui::{Follow, TextSelection};
+use crate::widgets::thread_ui::{Follow, Modes, TextSelection, ThreadUi};
 
 use super::cells::disclosure::tile;
 use super::cells::strings as cells_strings;
 use super::cells::text::{Env, Room};
 use super::cells::user;
 use super::cells::{CellEnv, Place, cell};
+use super::session_page::{Chat, ChatState};
 use super::strings as chat_strings;
 use super::transcript::activity_focus::{self, Activity, Stop, Walk};
 use super::transcript::copy::{self as copying, Targets};
@@ -68,6 +71,191 @@ pub(super) struct Pane {
     pub find: Finder,
     pub detailed: bool,
     pub mark: Option<usize>,
+}
+
+#[derive(Clone, Default)]
+struct PresentationBookmarks(Rc<PresentationState>);
+
+#[derive(Default)]
+struct PresentationState {
+    pane: Cell<Option<(Eid, bool)>>,
+    capture: RefCell<Option<Capture>>,
+    saved: RefCell<[Option<Bookmark>; 2]>,
+    returning: RefCell<Option<(bool, Bookmark)>>,
+}
+
+struct Capture {
+    visit: u64,
+    bookmark: Option<Bookmark>,
+}
+
+impl PresentationState {
+    fn switch(&self, modes: &Modes, detailed: bool, current: Option<Bookmark>) {
+        let mut saved = self.saved.borrow_mut();
+        saved[usize::from(detailed)] = current;
+        let other = !detailed;
+        *self.returning.borrow_mut() = saved[usize::from(other)]
+            .take()
+            .map(|bookmark| (other, bookmark));
+        set_presentation(modes, other);
+    }
+
+    fn cancel_unrendered(&self, modes: &Modes, detailed: bool) {
+        if let Some((target, bookmark)) = self.returning.borrow_mut().take() {
+            self.saved.borrow_mut()[usize::from(target)] = Some(bookmark);
+        }
+        set_presentation(modes, !detailed);
+    }
+}
+
+fn set_presentation(modes: &Modes, detailed: bool) {
+    if detailed {
+        modes.open();
+    } else {
+        modes.close();
+    }
+}
+
+#[derive(Clone)]
+pub(super) enum Bookmark {
+    Latest,
+    Row { key: Key, inset: usize },
+}
+
+/// The list's keyed rows in render order. `ListView` translates the controller's indices
+/// in a reverse list, while `RenderList` and its item parent data always count from the top.
+struct ListRows {
+    keys: Rc<Vec<ItemKey>>,
+    rows: Rc<[Row]>,
+    lead: usize,
+    reverse: bool,
+}
+
+impl ListRows {
+    fn key_at(&self, logical: usize) -> Option<Key> {
+        if self.lead == 1 && logical == 0 {
+            return Some(Key::value("session header"));
+        }
+        let row = self.rows.get(logical.checked_sub(self.lead)?)?;
+        self.keys.get(row.range.start).cloned().map(Key::value)
+    }
+
+    fn logical_index(&self, key: &Key) -> Option<usize> {
+        (0..self.rows.len() + self.lead).find(|&index| self.key_at(index).as_ref() == Some(key))
+    }
+
+    fn list_index(&self, logical: usize) -> usize {
+        if self.reverse {
+            self.rows.len() + self.lead - 1 - logical
+        } else {
+            logical
+        }
+    }
+}
+
+fn with_render_list<R>(
+    viewport: &ViewportCx<'_>,
+    element: Eid,
+    read: impl FnOnce(&rtwk_render::RenderTree, rtwk_render::RenderId, &RenderList) -> Option<R>,
+) -> Option<R> {
+    if !viewport.is_active(element) {
+        return None;
+    }
+    let tree = viewport.render_tree();
+    let mut node = viewport.render_object_of(element)?;
+    loop {
+        if let Some(list) = tree.get::<RenderList>(node) {
+            return read(tree, node, list);
+        }
+        node = tree.first_child(node)?;
+    }
+}
+
+/// Ctrl+T swaps presentations over the same thread. Capture the visible row before the list
+/// rebuilds so resize and pagination cannot change what the bookmark identifies.
+pub(super) fn toggle_details(cx: &mut Cx<'_, ChatState>, ui: &ThreadUi) {
+    let modes = ui.modes.clone();
+    let reading = ui.held(PresentationBookmarks::default);
+    let pending = reading.0.capture.borrow_mut().take();
+    if modes.browsing() {
+        modes.toggle_detailed();
+        return;
+    }
+    // A second press before the capture settles cancels that switch.
+    if pending.is_some() {
+        return;
+    }
+    let detailed = modes.detailed();
+    let pane = reading.0.pane.get();
+    if pane.is_some_and(|(_, shown)| shown != detailed) {
+        reading.0.cancel_unrendered(&modes, detailed);
+        return;
+    }
+    if ui.follow.at_tail() {
+        reading.0.switch(&modes, detailed, Some(Bookmark::Latest));
+        return;
+    }
+    let mounted = pane.and_then(|(pane, _)| {
+        let (key, rows) = cx.with_state(pane, |state: &ViewportState| state.mounted_list())??;
+        Some((cx.global_key_element(&key)?, rows))
+    });
+    let Some((element, rows)) = mounted else {
+        reading.0.switch(&modes, detailed, None);
+        return;
+    };
+    let visit = cx.serial();
+    *reading.0.capture.borrow_mut() = Some(Capture {
+        visit,
+        bookmark: None,
+    });
+    let capture = reading.clone();
+    let opening = reading.clone();
+    let open = modes.clone();
+    let follow = ui.follow.clone();
+    let completion = cx.callback_with(move |_, _, cx| {
+        let mut capture = opening.0.capture.borrow_mut();
+        if capture
+            .as_ref()
+            .is_none_or(|capture| capture.visit != visit)
+        {
+            return Rebuild::No;
+        }
+        let bookmark = capture.take().and_then(|capture| capture.bookmark);
+        drop(capture);
+        let active = cx
+            .with_widget(cx.id(), |chat: &Chat| chat.ui.follow == follow)
+            .unwrap_or(false);
+        if active && open.detailed() == detailed && !open.browsing() {
+            opening.0.switch(&open, detailed, bookmark);
+        }
+        Rebuild::No
+    });
+    if !cx.request_viewport(
+        move |viewport| {
+            let mut capture = capture.0.capture.borrow_mut();
+            let Some(capture) = capture.as_mut().filter(|capture| capture.visit == visit) else {
+                return false;
+            };
+            capture.bookmark = with_render_list(viewport, element, |tree, id, list| {
+                tree.children(id).find_map(|child| {
+                    let index = tree.parent_data::<ListParentData>(child)?.index;
+                    let (offset, height) = list.item_place(index)?;
+                    if height <= 0 || offset + i64::from(height) <= 0 {
+                        return None;
+                    }
+                    Some(Bookmark::Row {
+                        key: rows.key_at(index)?,
+                        inset: usize::try_from(offset.saturating_neg().max(0)).ok()?,
+                    })
+                })
+            });
+            true
+        },
+        completion,
+    ) {
+        reading.0.capture.borrow_mut().take();
+        reading.0.switch(&modes, detailed, None);
+    }
 }
 
 /// How many frames after a swap of the list the reader is put back again (the first lands on
@@ -137,6 +325,8 @@ pub(super) struct ViewportState {
     /// again where a pixel offset is no longer the place (another list is built with other
     /// extents of the rows above).
     anchor: Cell<Option<Placed>>,
+    list_keys: [GlobalKey; 2],
+    list_rows: RefCell<Option<Rc<ListRows>>>,
     /// What copy mode can copy of those rows, kept while the rows are the same ones (it parses the
     /// messages' Markdown).
     targets: RefCell<Option<(Rc<RowTexts>, Rc<Targets>)>>,
@@ -247,9 +437,16 @@ pub(super) enum Msg {
     /// The list is put at its anchor again, as many more times as the count says (the rows above
     /// it are measured as they are built).
     KeepRow(usize, usize, u8),
+    RestorePresentation(Follow, u64, bool, Bookmark),
+    AlignPresentation(Follow, u64, bool, Key, usize),
 }
 
 impl ViewportState {
+    fn mounted_list(&self) -> Option<(GlobalKey, Rc<ListRows>)> {
+        let rows = self.list_rows.borrow().clone()?;
+        Some((self.list_keys[usize::from(rows.reverse)].clone(), rows))
+    }
+
     /// The visible rows: runs of explorations share one, and the reasoning
     /// summary and the warnings show only in the detailed transcript (oracle
     /// `ReasoningSummaryCell::transcript_only`, `WarningHistoryCell`). With the
@@ -766,6 +963,8 @@ impl StatefulWidget for Pane {
             texted: Cell::new(false),
             counted: Cell::new(0),
             anchor: Cell::new(None),
+            list_keys: [GlobalKey::new(), GlobalKey::new()],
+            list_rows: RefCell::default(),
             targets: RefCell::default(),
         }
     }
@@ -917,6 +1116,68 @@ impl State for ViewportState {
                 {
                     binding.add_post_frame_callback(
                         cx.map(move |_: Duration| Msg::Keep(pixels, again - 1)),
+                    );
+                }
+                Rebuild::No
+            }
+            Msg::RestorePresentation(follow, moves, detailed, bookmark) => {
+                if follow != widget.follow || follow.moves() != moves || widget.detailed != detailed
+                {
+                    return Rebuild::No;
+                }
+                match bookmark {
+                    Bookmark::Latest => follow.jump_to_latest(),
+                    Bookmark::Row { key, inset } => {
+                        let rows = self.list_rows.borrow();
+                        if let Some(rows) = rows.as_ref()
+                            && let Some(logical) = rows.logical_index(&key)
+                        {
+                            let index = rows.list_index(logical);
+                            follow.scroll().jump_to_index_rows(index, inset);
+                            if rows.reverse
+                                && let Some(binding) = AppBinding::maybe_of(cx)
+                            {
+                                binding.add_post_frame_callback(cx.map(move |_: Duration| {
+                                    Msg::AlignPresentation(
+                                        follow.clone(),
+                                        moves,
+                                        detailed,
+                                        key.clone(),
+                                        inset,
+                                    )
+                                }));
+                            }
+                        }
+                    }
+                }
+                Rebuild::No
+            }
+            Msg::AlignPresentation(follow, moves, detailed, key, inset) => {
+                if follow != widget.follow || follow.moves() != moves || widget.detailed != detailed
+                {
+                    return Rebuild::No;
+                }
+                let mounted = self.mounted_list().and_then(|(list, rows)| {
+                    Some((cx.global_key_element(&list)?, rows.logical_index(&key)?))
+                });
+                if let Some((element, logical)) = mounted {
+                    // The reverse controller aligns an item at the bottom. Move by the
+                    // measured difference to put the original line back at the top.
+                    let _ = cx.request_viewport(
+                        move |viewport| {
+                            with_render_list(viewport, element, |_, _, list| {
+                                let (offset, height) = list.item_place(logical)?;
+                                if height <= 0 {
+                                    return None;
+                                }
+                                let inset = i64::try_from(inset).ok()?.min(i64::from(height - 1));
+                                let position = follow.scroll().try_position().ok()?;
+                                position.jump_to(position.pixels().saturating_sub(offset + inset));
+                                Some(())
+                            })
+                            .is_some()
+                        },
+                        cx.callback_with(|_, _, _| Rebuild::No),
                     );
                 }
                 Rebuild::No
@@ -1396,25 +1657,26 @@ impl State for ViewportState {
         // where a row went when rows came in above it (an older page joined): the list keeps the
         // row the reader is at on its line (Flutter's `findChildIndexCallback`)
         let item_keys = thread.transcript().item_keys();
-        let finder = {
-            let (item_keys, rows) = (item_keys.clone(), rows.clone());
-            move |key: &Key| -> Option<usize> {
-                let logical = if lead == 1 && *key == Key::value("session header") {
-                    0
-                } else {
-                    rows.iter().position(|row| {
-                        item_keys
-                            .get(row.range.start)
-                            .is_some_and(|item| *key == Key::value(item.clone()))
-                    })? + lead
-                };
-                Some(if reverse {
-                    count - 1 - logical
-                } else {
-                    logical
-                })
-            }
-        };
+        let list_rows = Rc::new(ListRows {
+            keys: item_keys.clone(),
+            rows: rows.clone(),
+            lead,
+            reverse,
+        });
+        *self.list_rows.borrow_mut() = Some(list_rows.clone());
+        let bookmarks = search.held(PresentationBookmarks::default);
+        bookmarks.0.pane.set(Some((cx.id(), detailed)));
+        if let Some(binding) = AppBinding::maybe_of(cx)
+            && let Some((target, bookmark)) = bookmarks.0.returning.borrow_mut().take()
+            && target == detailed
+        {
+            let follow = widget.follow.clone();
+            let moves = follow.moves();
+            binding.add_post_frame_callback(cx.map(move |_: Duration| {
+                Msg::RestorePresentation(follow.clone(), moves, detailed, bookmark.clone())
+            }));
+        }
+        let finder = { move |key: &Key| Some(list_rows.list_index(list_rows.logical_index(key)?)) };
         let draw_rows = rows.clone();
         let draw: DrawRow = Rc::new(move |thread, listed| {
             let row = &draw_rows[listed - lead];
@@ -1632,7 +1894,11 @@ impl State for ViewportState {
         } else {
             list
         };
-        let list = AnyWidget::from(WheelPolicy { child: list }).with_key(Key::value(reverse));
+        let list = AnyWidget::from(WheelPolicy {
+            child: list,
+            list_key: self.list_keys[usize::from(reverse)].clone(),
+        })
+        .with_key(Key::value(reverse));
         let send = cx.local_sender();
         let follow = widget.follow.clone();
         // every thread owns its reader (#57499; Flutter's `PageStorageKey` per list): the list of
@@ -1712,29 +1978,13 @@ impl_widget!(stateful eq Pane);
 #[derive(Clone, PartialEq)]
 struct WheelPolicy {
     child: AnyWidget,
-}
-
-struct WheelPolicyState {
     list_key: GlobalKey,
 }
 
-impl StatefulWidget for WheelPolicy {
-    type State = WheelPolicyState;
-
-    fn create_state(&self) -> Self::State {
-        WheelPolicyState {
-            list_key: GlobalKey::new(),
-        }
-    }
-}
-
-impl State for WheelPolicyState {
-    type Widget = WheelPolicy;
-    type Msg = ();
-
-    fn build(&self, widget: &WheelPolicy, cx: &mut Cx<'_, Self>) -> AnyWidget {
+impl StatelessWidget for WheelPolicy {
+    fn build(&self, cx: &mut BuildCx<'_>) -> AnyWidget {
         let step = select::<TuiSettings, _, _>(cx, |settings| settings.wheel_rows_per_event);
-        let list = widget.child.clone().with_key(&self.list_key);
+        let list = self.child.clone().with_key(&self.list_key);
         match step {
             Some(step) => {
                 // Keep positive speeds representable and each native delta within i32, even
@@ -1748,7 +1998,7 @@ impl State for WheelPolicyState {
     }
 }
 
-impl_widget!(stateful eq WheelPolicy);
+impl_widget!(stateless eq WheelPolicy);
 
 type DrawRow = Rc<dyn Fn(&ThreadModel, usize) -> AnyWidget>;
 
