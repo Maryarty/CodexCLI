@@ -10,9 +10,8 @@ CHILD_PROMPT = "[mock-child] Reply with one short line."
 SPAWN_ID = "call-spawn-1"
 # The v1 collab tools are namespace multi_agent_v1 (subagent_notifications.rs:108, args
 # {message}); the v2 tools are namespace `collaboration` (code_mode_agent_message_tests.rs:62,
-# args {task_name, message}). The installed 0.167 knows only the second ("unsupported call:
-# multi_agent_v1spawn_agent"), so MOCK_AGENT_API=v2 selects it; v1 is the default (the pinned tree).
-API = os.environ.get("MOCK_AGENT_API", "v1")
+# args {task_name, message}). Both current binaries use v2. Use MOCK_AGENT_API=v1 for older builds.
+API = os.environ.get("MOCK_AGENT_API", "v2")
 if API == "v2":
     SPAWN_CALL = ev_function_call_with_namespace(
         SPAWN_ID, "collaboration", "spawn_agent", json.dumps({"task_name": "helper", "message": CHILD_PROMPT})
@@ -68,7 +67,7 @@ parent_3 = Resp(
 RESPONSES = [parent_1, child, parent_2, parent_3] if API == "v2" else [parent_1, child, parent_3]
 SCENARIO = Scenario(
     name="multi-agent",
-    description="spawn_agent (namespace multi_agent_v1): the child request is matched by its prompt, the parent resumes after it",
+    description="spawn_agent: the child request is matched by its prompt, then the parent reports its result",
     turns=[Turn("Spawn a helper and wait for it.", RESPONSES)],
     sentinel="END-multi-agent",
     helpers="ev_function_call_with_namespace (responses.rs:1028), mount_sse_once_match (the child is matched by body)",
