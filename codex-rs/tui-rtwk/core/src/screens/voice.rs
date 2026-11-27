@@ -9,7 +9,10 @@ use crate::commands::VoiceControl;
 use crate::ids::{ThreadId, Ticket};
 use crate::rpc::{Address, RpcError};
 use crate::screens::Kind;
-use crate::threads::{Failure, ThreadFx, voice_transcript::Page};
+use crate::threads::{
+    Failure, ThreadFx,
+    voice_transcript::{Page, ThreadEvent},
+};
 
 pub const NAME: &str = "voice";
 pub const ID: &str = "S25";
@@ -111,6 +114,7 @@ pub enum ThreadIntent {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadEv {
+    Transcript(ThreadEvent),
     Started { session: Option<String> },
     Answer(Sdp),
     Error(String),
@@ -390,6 +394,7 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
         }
         ThreadEv::Sample => {}
         ThreadEv::Retired => part.retire(fx),
+        ThreadEv::Transcript(_) => {} // Applied by the thread transcript.
     }
     activate(part, fx.facts().now());
 }

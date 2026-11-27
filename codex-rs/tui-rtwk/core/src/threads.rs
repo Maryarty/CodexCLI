@@ -1071,16 +1071,6 @@ pub enum ThreadEv {
     FeatureIntent(FeatureThreadIntent),
     /// An event of a screen slot's per-thread part.
     Screen(ScreenThreadEv),
-    VoiceCaption {
-        event: voice_transcript::Event,
-        show_user_preview: bool,
-    },
-    VoiceHistorySupported(bool),
-    ReadVoiceHistory {
-        oldest: Option<TurnId>,
-        more_history: bool,
-    },
-    LoadOlderVoiceHistory,
     Reply {
         ticket: Ticket,
         reply: Reply,
@@ -1184,6 +1174,12 @@ pub enum ThreadEv {
     McpLagged,
 }
 
+impl From<voice_transcript::ThreadEvent> for ThreadEv {
+    fn from(event: voice_transcript::ThreadEvent) -> Self {
+        Self::Screen(screens::voice::ThreadEv::Transcript(event).into())
+    }
+}
+
 impl ThreadEv {
     /// Whether the event can put a turn's error in the transcript (so its wording needs the
     /// Daybreak facts): a failed turn, a restored page. Not a delta.
@@ -1199,6 +1195,7 @@ impl ThreadEv {
     fn is_notification(&self) -> bool {
         match self {
             Self::Screen(ScreenThreadEv::Chat(screens::chat::ThreadEv::Retry { .. })) => false,
+            Self::Screen(ScreenThreadEv::Voice(screens::voice::ThreadEv::Transcript(_))) => false,
             // what the user says to the safety state is no news of the server
             Self::Screen(ScreenThreadEv::Chat(screens::chat::ThreadEv::Safety(
                 safety::SafetyEv::Verb(_),
@@ -3229,27 +3226,8 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 .map(|text| Queued::Message(UserMessage::text(text)))
                 .collect();
         }
-        ThreadEv::VoiceHistorySupported(supported) => model.voice_history_supported = supported,
-        ThreadEv::LoadOlderVoiceHistory => model.core.transcript.load_older_voice_history(fx),
-        ThreadEv::ReadVoiceHistory {
-            oldest,
-            more_history,
-        } => {
-            model
-                .core
-                .transcript
-                .read_voice_history(oldest, more_history, fx);
-        }
-        ThreadEv::VoiceCaption {
-            event,
-            show_user_preview,
-        } => {
-            if let Some(session) = model.slots.voice.caption_session(fx.address) {
-                model
-                    .core
-                    .transcript
-                    .apply_voice_caption(session, event, show_user_preview);
-            }
+        ThreadEv::Screen(ScreenThreadEv::Voice(screens::voice::ThreadEv::Transcript(event))) => {
+            voice_transcript::apply(model, event, fx);
         }
         ThreadEv::Screen(ev) => {
             if let ScreenThreadEv::Chat(ref ev) = ev

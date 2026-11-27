@@ -26,7 +26,7 @@ pub(super) fn texts(role: Role, text: &str, cells: &Strings, chat: &Chat) -> Tex
     ])
 }
 
-pub(super) fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
+pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
     let Item::VoiceTranscript { role, text } = item else {
         return AnyWidget::default();
     };

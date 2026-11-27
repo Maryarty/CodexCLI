@@ -1820,10 +1820,11 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     apply_thread(
                         app,
                         &thread,
-                        ThreadEv::VoiceCaption {
+                        threads::voice_transcript::ThreadEvent::Caption {
                             event,
                             show_user_preview: app.screens.chat.status.animations,
-                        },
+                        }
+                        .into(),
                         fx,
                     );
                 }
@@ -3210,7 +3211,12 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 .get(&id)
                 .is_some_and(|thread| thread.can_load_voice_history())
             {
-                apply_thread(app, &id, ThreadEv::LoadOlderVoiceHistory, fx);
+                apply_thread(
+                    app,
+                    &id,
+                    threads::voice_transcript::ThreadEvent::LoadOlder.into(),
+                    fx,
+                );
             }
         }
         Intent::OpenThread(id) => {
@@ -4041,10 +4047,11 @@ fn screen_answer(
                 apply_thread(
                     app,
                     &thread,
-                    ThreadEv::ReadVoiceHistory {
+                    threads::voice_transcript::ThreadEvent::Read {
                         oldest: turns.last().map(|turn| TurnId::new(&turn.id)),
                         more_history: next.is_some(),
-                    },
+                    }
+                    .into(),
                     fx,
                 );
             }
@@ -4414,7 +4421,7 @@ fn attach_thread_with_metadata(
         apply_thread(
             app,
             thread,
-            ThreadEv::VoiceHistorySupported(voice_history),
+            threads::voice_transcript::ThreadEvent::Supported(voice_history).into(),
             fx,
         );
         apply_thread(

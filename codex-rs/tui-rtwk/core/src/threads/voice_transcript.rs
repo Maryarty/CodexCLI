@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use codex_app_server_protocol as wire;
 
-use super::{HistoryState, Item, ItemKey, Text, ThreadFx, Transcript};
+use super::{HistoryState, Item, ItemKey, Text, ThreadFx, ThreadModel, Transcript};
 use crate::ids::{ItemId, ThreadId, Ticket, TurnId};
 use crate::screens::voice;
 
@@ -16,6 +16,47 @@ pub enum Event {
     Started(wire::ThreadRealtimeItem),
     Delta { item: ItemId, text: String },
     Completed(wire::ThreadRealtimeItem),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ThreadEvent {
+    Caption {
+        event: Event,
+        show_user_preview: bool,
+    },
+    Supported(bool),
+    Read {
+        oldest: Option<TurnId>,
+        more_history: bool,
+    },
+    LoadOlder,
+}
+
+pub(super) fn apply(model: &mut ThreadModel, event: ThreadEvent, fx: &mut ThreadFx<'_>) {
+    match event {
+        ThreadEvent::Supported(supported) => model.voice_history_supported = supported,
+        ThreadEvent::Read {
+            oldest,
+            more_history,
+        } => {
+            model
+                .core
+                .transcript
+                .read_voice_history(oldest, more_history, fx);
+        }
+        ThreadEvent::LoadOlder => model.core.transcript.load_older_voice_history(fx),
+        ThreadEvent::Caption {
+            event,
+            show_user_preview,
+        } => {
+            if let Some(session) = model.slots.voice.caption_session(fx.address) {
+                model
+                    .core
+                    .transcript
+                    .apply_voice_caption(session, event, show_user_preview);
+            }
+        }
+    }
 }
 
 pub(crate) fn project(notification: &wire::ServerNotification) -> Option<(ThreadId, Event)> {
@@ -45,7 +86,7 @@ fn caption(item: wire::ThreadRealtimeItem) -> Option<(ItemKey, Role, String)> {
     };
     let key = ItemKey {
         // The server's turn IDs form a separate namespace from realtime sessions.
-        turn: TurnId::new(format!("#voice/{}", item.realtime_session_id)),
+        turn: TurnId::new(format!("#/{}", item.realtime_session_id)),
         item: ItemId::new(item.id),
     };
     Some((key, role, text))
