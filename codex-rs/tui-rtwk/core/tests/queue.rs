@@ -11,7 +11,9 @@ use codex_app_server_protocol::{
     ThreadItem, ThreadItemPayload, TurnError, TurnStatus, UserInput,
 };
 use codex_tui_core::app::effects::Ask;
-use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app, apply_app_from};
+use codex_tui_core::app::{
+    AppEv, AppFx, CodexApp, Command, Ingress, Intent, apply_app, apply_app_from,
+};
 use codex_tui_core::commands::{
     DispatchCx, Outcome, QueueDrain, SlashCommand, Target, dispatch_queued,
 };
@@ -697,6 +699,37 @@ fn a_modal_result_only_settles_the_queue_of_its_original_thread() {
     }));
     assert!(
         modal_receipt(&mut app, B, saved_status(second))
+            .commands()
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_modal_result_cannot_apply_its_choice_after_transport_replacement() {
+    let mut app = running();
+    tab(&mut app, "/statusline", false);
+    tab(&mut app, "after reattach", false);
+    let operation = drain_to_status_line(&mut app, T, "turn-1");
+    modal_receipt(&mut app, T, QueueEvent::ModalOpened(operation.clone()));
+    let epoch = app.epoch();
+    app.ingest(Ingress::transport_replaced(
+        BackendId::default(),
+        epoch,
+        epoch.next(),
+    ))
+    .expect("the replacement transport");
+    assert_eq!(app.session().active, Some(ThreadId::new(T)));
+
+    let closed = modal_receipt(&mut app, T, saved_status(operation.clone()));
+    assert_eq!(config_writes(&closed), 0);
+    assert!(started_texts(&closed).is_empty());
+    let history = reattach(&mut app);
+    assert_eq!(
+        started_texts(&reply_history(&mut app, history, None)),
+        ["after reattach"]
+    );
+    assert!(
+        modal_receipt(&mut app, T, saved_status(operation))
             .commands()
             .is_empty()
     );

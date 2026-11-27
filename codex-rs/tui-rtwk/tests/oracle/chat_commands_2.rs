@@ -795,9 +795,9 @@ fn copy_status_fields_hold_the_queue_until_the_picker_closes() {
         .script(PREVIOUS)
         .open();
     status_settings(&mut s, "gpt-5.5", "/workspace");
-    s.type_text("/status").keys("enter");
     s.feed(ACTIVE);
     s.type_text("after copying status").keys("tab");
+    s.type_text("/status").keys("enter");
     s.type_text("/copy").keys("enter");
     s.assert_contains("1. Whole status");
     s.feed(ACTIVE_DONE);
@@ -807,6 +807,22 @@ fn copy_status_fields_hold_the_queue_until_the_picker_closes() {
     s.keys("2");
     s.assert_copies_asked(&["gpt-5.5"]);
     s.assert_turn_texts(&["after copying status"]);
+}
+
+#[test]
+fn copy_picker_cannot_choose_after_its_thread_visit_has_ended() {
+    let mut s = Screen::build(Owner::ChatNavPane).script(PREVIOUS).open();
+    s.type_text("/copy").keys("enter");
+    s.assert_contains("1. Whole response");
+    s.server_resumes("other-thread")
+        .visit_thread("other-thread");
+    s.assert_active_thread("other-thread");
+    s.visit_thread("thread-1");
+    s.assert_active_thread("thread-1");
+    s.assert_contains("1. Whole response");
+
+    s.keys("enter");
+    s.assert_copies_asked(&[]);
 }
 
 #[test]
