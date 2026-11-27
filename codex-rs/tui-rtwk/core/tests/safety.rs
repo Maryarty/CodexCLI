@@ -456,6 +456,48 @@ mod misalignment {
         assert_eq!(app.active_thread().safety().violation(), None);
     }
 
+    #[test]
+    fn a_review_cannot_start_a_turn_after_another_thread_is_displayed() {
+        use codex_tui_core::commands::{SessionIntent, SlashCommand};
+
+        let mut app = stopped();
+        let review = review_seq(&app);
+        let opened = run(
+            &mut app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
+                thread: Some(ThreadId::new(T)),
+                command: SlashCommand::New,
+                intent: SessionIntent::New { name: None },
+            }))),
+        );
+        let ticket = opened
+            .commands()
+            .iter()
+            .find_map(|command| match command {
+                Command::StartThread { ticket, .. } => Some(*ticket),
+                _ => None,
+            })
+            .expect("a new conversation was requested");
+        let other = ThreadId::new("thread-2");
+        run(
+            &mut app,
+            AppEv::Reply(ticket, Reply::thread_started(other.clone())),
+        );
+        assert_eq!(app.session().active.as_ref(), Some(&other));
+        let origin = ThreadId::new(T);
+        assert!(
+            app.thread(&origin)
+                .is_some_and(|thread| thread.safety().is_current(review))
+        );
+
+        assert_eq!(start(&verb(&mut app, Verb::Continue { review })), None);
+        assert_eq!(app.session().active.as_ref(), Some(&other));
+
+        run(&mut app, AppEv::Intent(Intent::OpenThread(origin.clone())));
+        assert_eq!(app.session().active.as_ref(), Some(&origin));
+        assert!(start(&verb(&mut app, Verb::Continue { review })).is_some());
+    }
+
     /// A turn the server starts on its own lifts the block too (`clear_misalignment_for_new_turn`).
     #[test]
     fn a_new_turn_from_the_server_lifts_the_block() {
