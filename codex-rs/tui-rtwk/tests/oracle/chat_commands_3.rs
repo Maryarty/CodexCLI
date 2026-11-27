@@ -29,6 +29,165 @@ fn completed(n: usize) -> String {
 
 const ROLLOUT: &str = include_str!("fixtures/chat_commands_3/rollout.jsonl");
 
+fn queued_behind_presets() -> Screen {
+    const PREVIOUS: &str = include_str!("fixtures/chat_commands_2/previous.jsonl");
+    const ACTIVE: &str = include_str!("fixtures/chat_commands_2/active.jsonl");
+    const DONE: &str = include_str!("fixtures/chat_commands_2/active_done.jsonl");
+    let mut s = Screen::build(Owner::ChatNavPane).script(PREVIOUS).open();
+    s.feed(r#"{"step":"presets","slots":[{"slot":1,"input":"/status","label":"status","origin":"user"}]}"#);
+    s.feed(ACTIVE);
+    s.type_text("/presets").keys("tab");
+    s.type_text("after presets").keys("tab");
+    s.feed(DONE);
+    s.assert_contains("1 · status");
+    s.assert_no_turn();
+    s
+}
+
+#[test]
+fn the_presets_hud_does_not_hold_the_queue() {
+    let mut s = queued_behind_presets();
+    s.feed(r#"{"step":"lagged","skipped":1}"#);
+    s.assert_turn_texts(&["after presets"]);
+}
+
+#[test]
+fn nested_presets_editor_holds_the_queue_until_the_last_escape() {
+    let mut s = queued_behind_presets();
+    s.keys("e");
+    s.assert_contains("Edit a preset");
+    s.keys("enter");
+    s.assert_contains("Edit preset 1");
+    s.feed(r#"{"step":"lagged","skipped":1}"#);
+    s.assert_no_turn();
+    s.keys("esc");
+    s.assert_contains("Edit a preset");
+    s.feed(r#"{"step":"lagged","skipped":1}"#);
+    s.assert_no_turn();
+    s.keys("esc");
+    s.assert_turn_texts(&["after presets"]);
+    s.feed(r#"{"step":"lagged","skipped":1}"#);
+    s.assert_turn_texts(&["after presets"]);
+}
+
+#[test]
+fn a_preset_save_holds_the_queue_until_the_write_or_restored_editor_settles() {
+    for refused in [false, true] {
+        let mut s = queued_behind_presets();
+        let write = s.hold_request("config/batchWrite");
+        if refused {
+            s.server_refuses("config/batchWrite", Some(-32000), "read-only config");
+        } else {
+            s.server_answers(
+                "config/batchWrite",
+                serde_json::json!({
+                    "status": "ok", "version": "v", "filePath": "/c", "overriddenMetadata": null
+                }),
+            );
+        }
+        confirm_preset_edit(&mut s);
+        let writes = s.request_params("config/batchWrite");
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0]["edits"][0]["keyPath"], "tui.presets.1");
+        assert_eq!(
+            writes[0]["edits"][0]["value"],
+            serde_json::json!({"input": "/status updated", "label": "status"})
+        );
+        s.feed(r#"{"step":"lagged","skipped":1}"#);
+        s.assert_no_turn();
+        s.release(&write);
+        if refused {
+            s.assert_contains("Edit preset 1");
+            s.assert_contains("/status updated");
+            s.assert_no_turn();
+            s.keys("esc");
+        } else {
+            s.assert_contains("Saved preset 1.");
+        }
+        s.assert_turn_texts(&["after presets"]);
+        s.assert_requests_of("config/batchWrite", 1);
+    }
+}
+
+fn confirm_preset_edit(s: &mut Screen) {
+    s.keys("e");
+    s.keys("enter");
+    s.assert_contains("Edit preset 1");
+    s.keys("end").type_text(" updated").keys("enter");
+    s.assert_contains("Replace preset 1?");
+    s.keys("enter");
+}
+
+#[test]
+fn leaving_a_preset_sheet_releases_its_original_thread() {
+    let mut s = queued_behind_presets();
+    s.keys("e");
+    s.assert_contains("Edit a preset");
+    s.server_resumes("thread-2").visit_thread("thread-2");
+    s.assert_active_thread("thread-2");
+    s.assert_absent("Edit a preset");
+    s.assert_requests_of("config/batchWrite", 0);
+    s.assert_turn_texts(&["after presets"]);
+    s.assert_started_turn_on("thread-1");
+}
+
+#[test]
+fn a_late_preset_write_refusal_does_not_restore_an_editor_after_a_visit_changes() {
+    let mut s = queued_behind_presets();
+    let write = s.hold_request("config/batchWrite");
+    s.server_refuses("config/batchWrite", Some(-32000), "read-only config");
+    confirm_preset_edit(&mut s);
+    s.assert_requests_of("config/batchWrite", 1);
+    s.server_resumes("thread-2").visit_thread("thread-2");
+    s.assert_active_thread("thread-2");
+    s.assert_no_turn();
+    s.visit_thread("thread-1");
+    s.assert_active_thread("thread-1");
+    s.release(&write);
+    s.assert_absent("Edit preset 1");
+    s.assert_contains("read-only config");
+    s.assert_turn_texts(&["after presets"]);
+    s.assert_started_turn_on("thread-1");
+    s.assert_requests_of("config/batchWrite", 1);
+}
+
+#[test]
+fn replacing_transport_closes_an_open_preset_picker() {
+    let mut s = queued_behind_presets();
+    s.keys("e");
+    s.assert_contains("Edit a preset");
+    s.replace_transport();
+    s.assert_absent("Edit a preset");
+    s.assert_no_turn();
+    s.restore_writer();
+    s.feed(r#"{"step":"lagged","skipped":1}"#);
+    s.assert_turn_texts(&["after presets"]);
+    s.assert_started_turn_on("thread-1");
+    s.assert_requests_of("config/batchWrite", 0);
+}
+
+#[test]
+fn replacing_transport_retires_a_pending_preset_write_and_its_late_answer() {
+    let mut s = queued_behind_presets();
+    let write = s.hold_request("config/batchWrite");
+    s.server_refuses("config/batchWrite", Some(-32000), "old config refusal");
+    confirm_preset_edit(&mut s);
+    s.assert_requests_of("config/batchWrite", 1);
+    s.assert_no_turn();
+    s.replace_transport();
+    s.assert_absent("Edit preset 1");
+    s.restore_writer();
+    s.feed(r#"{"step":"lagged","skipped":1}"#);
+    s.assert_turn_texts(&["after presets"]);
+    s.server_refuses("config/batchWrite", Some(-32000), "old config refusal");
+    s.release(&write);
+    s.assert_absent("Edit preset 1");
+    s.assert_absent("old config refusal");
+    s.assert_turn_texts(&["after presets"]);
+    s.assert_started_turn_on("thread-1");
+    s.assert_requests_of("config/batchWrite", 1);
+}
+
 // ---- oracle: chatwidget/tests/slash_commands.rs (46 screen-level tests here; 22 state tests left to chat-nav-pane)
 // ORACLE chatwidget/tests/slash_commands.rs:2210 slash_copy_picker_remains_available_from_parent_owned_threads kind=ui owner=chat-nav-pane
 #[test]

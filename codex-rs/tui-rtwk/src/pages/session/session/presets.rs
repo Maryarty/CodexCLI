@@ -9,9 +9,9 @@ use rtwk::provider::read;
 use rtwk::{Cx, Rebuild};
 
 use codex_tui_core::app::{Session, SessionSlice};
-use codex_tui_core::screens::select::Intent;
 use codex_tui_core::screens::select::models;
 use codex_tui_core::screens::select::quick_dials::{Composer, Gate, Open, Settings};
+use codex_tui_core::screens::select::{Intent, QueueDialog, QueueOpen};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, ScreenThreadIntent, chat};
 use codex_tui_core::threads::{Queued, Ran, ThreadModel, UserMessage};
 
@@ -70,8 +70,16 @@ pub(super) fn key(
     }
     let settings = key.wants_settings().then(|| settings_of(cx, &states));
     let composer = key.wants_composer().then(|| composer_of(w, cx, &states));
-    let intent = hud::intent(key, gate, quick, settings, composer);
-    if let Some(intent) = intent {
+    if let Some(open) = hud::opening(key, quick, settings, composer) {
+        let intent = if gate != Gate::Ready || matches!(open, Open::Recall(_)) {
+            Intent::Quick { gate, open }
+        } else {
+            Intent::OpenQueueDialog(Box::new(QueueOpen {
+                thread: read::<ThreadModel, _>(cx).id().clone(),
+                issued: None,
+                dialog: QueueDialog::Preset { gate, open },
+            }))
+        };
         cx.emit(&hs.screen, ScreenIntent::Select(intent));
     }
     Rebuild::Yes

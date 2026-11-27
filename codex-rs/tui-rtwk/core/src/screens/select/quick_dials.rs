@@ -154,7 +154,10 @@ pub enum Action {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Menu {
     /// The slot picker; `dial` is what `PickerMode::Save` keeps (the saved slot's own dial otherwise).
-    Slots { mode: PickerMode, dial: Option<Dial> },
+    Slots {
+        mode: PickerMode,
+        dial: Option<Dial>,
+    },
     /// `Start preset from current settings`: the four sources.
     Sources(Vec<SourceRow>),
     /// The text prompt (`New preset`, `Edit preset {slot}`): its answer is `Menu::submit`.
@@ -278,10 +281,16 @@ impl Settings {
             approval,
             auto_review: facts.auto_review,
             title: facts.terminal_title.clone().unwrap_or_else(|| {
-                DEFAULT_TITLE_ITEMS.iter().map(ToString::to_string).collect()
+                DEFAULT_TITLE_ITEMS
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect()
             }),
             status: facts.items.clone().unwrap_or_else(|| {
-                DEFAULT_STATUS_LINE_ITEMS.iter().map(ToString::to_string).collect()
+                DEFAULT_STATUS_LINE_ITEMS
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect()
             }),
             colors: facts.colors,
         }
@@ -510,6 +519,24 @@ pub struct Write {
     pub dial: Option<Dial>,
 }
 
+impl Write {
+    pub(crate) fn check_against(&self, quick: &Quick) -> Result<(), super::Note> {
+        quick
+            .check(self.slot, self.dial.as_ref())
+            .map_err(|refused| match refused {
+                Refused::Outside(slot) => super::Note::PresetOutside(slot),
+                Refused::Invalid(reason) => super::Note::PresetInvalid(reason),
+            })
+    }
+
+    pub(crate) fn retry_editor(self) -> Option<Menu> {
+        self.dial.map(|dial| Menu::Editor {
+            target: Target::Slot(self.slot),
+            dial,
+        })
+    }
+}
+
 impl Quick {
     /// The slot's preset, if saved.
     pub fn get(&self, slot: u8) -> Option<&Slot> {
@@ -518,7 +545,10 @@ impl Quick {
 
     /// The saved presets in slot order (1 to 9, then 0): what the shortcut menu lists.
     pub fn saved(&self) -> Vec<&Slot> {
-        SLOTS.iter().filter_map(|slot| self.slots.get(slot)).collect()
+        SLOTS
+            .iter()
+            .filter_map(|slot| self.slots.get(slot))
+            .collect()
     }
 
     pub(super) fn set(&mut self, slots: Vec<Slot>) {
@@ -549,6 +579,25 @@ impl Quick {
     /// The writes the app has still to send, once each.
     pub fn take_wanted(&mut self) -> Vec<Write> {
         std::mem::take(&mut self.unsent)
+    }
+
+    pub(crate) fn write_result(
+        &mut self,
+        write: &Write,
+        result: Result<(), String>,
+    ) -> super::Note {
+        if let Err(error) = result {
+            return super::Note::PresetFailed {
+                slot: write.slot,
+                error,
+            };
+        }
+        self.written(write.clone());
+        if write.dial.is_some() {
+            super::Note::PresetSaved(write.slot)
+        } else {
+            super::Note::PresetDeleted(write.slot)
+        }
     }
 
     /// The config took the write: the slot follows it (a saved slot has a label, empty when it
@@ -606,7 +655,11 @@ pub(super) fn sources(settings: &Settings, catalog: &Catalog) -> Vec<SourceRow> 
                 "/statusline",
                 &settings.status,
                 STATUS_LINE_ITEMS,
-                Some(if settings.colors { "--colors" } else { "--no-colors" }),
+                Some(if settings.colors {
+                    "--colors"
+                } else {
+                    "--no-colors"
+                }),
                 Unavailable::StatusItems,
             ),
         },
