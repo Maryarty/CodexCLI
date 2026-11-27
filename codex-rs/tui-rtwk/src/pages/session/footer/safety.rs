@@ -340,11 +340,24 @@ impl State for SlotState {
             return Rebuild::No;
         }
         let hs = read::<Hs, _>(cx);
-        let refusal = surface.refusal_turn().cloned();
         match (surface, action) {
-            (_, Action::CloseRefusal) if refusal.is_some() => self.dismissed_refusal = refusal,
-            (_, Action::EnableDaybreak) if refusal.is_some() => {
-                let turn = refusal.expect("a live refusal owns the choice");
+            (
+                Surface::EnableDaybreak(turn)
+                | Surface::Recourse {
+                    offer: Offer { turn, .. },
+                    ..
+                },
+                Action::CloseRefusal,
+            ) => self.dismissed_refusal = Some(turn),
+            (
+                Surface::EnableDaybreak(turn)
+                | Surface::Recourse {
+                    offer: Offer { turn, .. },
+                    can_enable: true,
+                    ..
+                },
+                Action::EnableDaybreak,
+            ) => {
                 self.dismissed_refusal = Some(turn.clone());
                 crate::features::enable_daybreak_for_refusal(cx, owner, turn);
             }
