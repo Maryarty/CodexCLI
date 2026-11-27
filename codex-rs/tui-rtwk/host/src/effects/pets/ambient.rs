@@ -13,9 +13,10 @@ use codex_tui_core::screens::pets::{Ambient, Anchor, Clip, ClipTransition, DISAB
 use codex_tui_rtwk::services::agents::workspace::blocking;
 use image::{RgbaImage, imageops};
 
-use super::{BUILTIN, Grid, Manifest, ensure_builtin, local_asset, support};
+use super::{
+    BUILTIN, Grid, Manifest, STOCK_IDLE, ensure_builtin, local_asset, stock_state, support,
+};
 
-const MAX_FRAMES: usize = 256;
 const MAX_EDGE: u32 = 256;
 const MAX_ENCODED: usize = 16 * 1024 * 1024;
 
@@ -100,7 +101,7 @@ impl Compiler<'_> {
         if let Some(source) = self.sources.get(name) {
             return Ok(source.clone());
         }
-        let mut timeline = timeline(self.manifest, self.grid, name)?;
+        let mut timeline = timeline(self.manifest, name)?;
         if !self.animated {
             timeline.frames.truncate(1);
             timeline.plays = 0;
@@ -138,18 +139,11 @@ struct Timeline {
     fallback: String,
 }
 
-fn timeline(manifest: &Manifest, grid: Grid, name: &str) -> Result<Timeline> {
-    let count = grid.columns * grid.rows;
+fn timeline(manifest: &Manifest, name: &str) -> Result<Timeline> {
     if let Some(spec) = manifest.animations.get(name) {
-        let fps = spec.fps.unwrap_or(8.0);
-        if spec.frames.is_empty()
-            || spec.frames.len() > MAX_FRAMES
-            || spec.frames.iter().any(|&frame| frame >= count)
-            || !(0.0 < fps && fps <= 60.0)
-        {
-            bail!("invalid animation {name}");
-        }
-        let delay = (1000.0 / fps).round().clamp(1.0, f64::from(u16::MAX)) as u16;
+        let delay = (1000.0 / spec.fps())
+            .round()
+            .clamp(1.0, f64::from(u16::MAX)) as u16;
         return Ok(Timeline {
             plays: if spec.loop_animation.unwrap_or(true) {
                 0
@@ -157,42 +151,26 @@ fn timeline(manifest: &Manifest, grid: Grid, name: &str) -> Result<Timeline> {
                 1
             },
             frames: spec.frames.iter().map(|&frame| (frame, delay)).collect(),
-            fallback: if spec.fallback.is_empty() {
-                "idle".into()
-            } else {
-                spec.fallback.clone()
-            },
+            fallback: spec.fallback().to_owned(),
         });
     }
-    let mut frames: Vec<_> = if name == "idle" {
-        [(0, 1680), (1, 660), (2, 660), (3, 840), (4, 840), (5, 1920)].into()
+    let frames = if name == "idle" {
+        STOCK_IDLE.into()
     } else {
-        let (row, frame_count, delay, last_delay) = match name {
-            "running-right" | "move_right" => (1, 8, 120, 220),
-            "running-left" | "move_left" => (2, 8, 120, 220),
-            "waving" | "wave" => (3, 4, 140, 280),
-            "jumping" | "bounce" => (4, 5, 140, 280),
-            "failed" | "sad" => (5, 8, 140, 240),
-            "waiting" => (6, 6, 150, 260),
-            "running" => (7, 6, 120, 220),
-            "review" => (8, 6, 150, 280),
-            _ => bail!("unknown animation {name}"),
-        };
-        (0..frame_count)
-            .map(|column| {
-                let time = if column + 1 == frame_count {
-                    last_delay
+        let stock = stock_state(name).with_context(|| format!("unknown animation {name}"))?;
+        stock
+            .frames
+            .clone()
+            .map(|frame| {
+                let delay = if frame + 1 == stock.frames.end {
+                    stock.last_delay
                 } else {
-                    delay
+                    stock.delay
                 };
-                (row * 8 + column, time)
+                (frame, delay)
             })
             .collect()
     };
-    frames.retain(|&(frame, _)| frame < count);
-    if frames.is_empty() {
-        return timeline(manifest, grid, "idle");
-    }
     Ok(Timeline {
         plays: if name == "idle" { 0 } else { 3 },
         frames,
@@ -271,7 +249,7 @@ mod tests {
                 i64::from(frame / grid.columns * grid.height),
             );
         }
-        let timeline = timeline(&Manifest::default(), grid, "running")?;
+        let timeline = timeline(&Manifest::default(), "running")?;
         let clip = encode(&sheet, grid, &timeline, MAX_ENCODED)?;
         assert_eq!(
             clip.after,
@@ -373,7 +351,7 @@ mod tests {
             ..Grid::default()
         };
         let sheet = RgbaImage::new(grid.width * grid.columns, grid.height * grid.rows);
-        let mut timeline = timeline(&manifest, grid, "idle")?;
+        let mut timeline = timeline(&manifest, "idle")?;
         assert_eq!(timeline.frames, [(3, 125), (1, 125)]);
         let animated = encode(&sheet, grid, &timeline, MAX_ENCODED)?;
         let reader = png::Decoder::new(Cursor::new(&*animated.data)).read_info()?;

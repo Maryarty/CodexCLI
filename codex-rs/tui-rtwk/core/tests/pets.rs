@@ -321,7 +321,10 @@ mod live {
         let path = "./my pets/owl/pet.json";
         let mut app = CodexApp::default();
         for (result, valid) in [
-            (AssetDone::Preview(Err("missing pet.json".into())), false),
+            (
+                AssetDone::Preview(Err("animation idle references sprite index 999".into())),
+                false,
+            ),
             (image(2), true),
         ] {
             let visit = Visit::fresh();

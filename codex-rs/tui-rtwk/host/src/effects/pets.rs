@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{Cursor, Write};
+use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,6 +23,8 @@ mod ambient;
 
 const WIDTH: u32 = 1536;
 const HEIGHT: u32 = 1872;
+const MAX_FRAMES: u32 = 256;
+const MAX_FPS: f64 = 60.0;
 const MAX_DOWNLOAD: usize = 4 * 1024 * 1024;
 const CDN: &str = "https://persistent.oaistatic.com/codex/pets/v1";
 
@@ -226,6 +229,105 @@ struct Animation {
     fallback: String,
 }
 
+impl Animation {
+    fn fps(&self) -> f64 {
+        self.fps.unwrap_or(8.0)
+    }
+
+    fn fallback(&self) -> &str {
+        if self.fallback.is_empty() {
+            "idle"
+        } else {
+            &self.fallback
+        }
+    }
+}
+
+const STOCK_IDLE: [(u32, u16); 6] = [(0, 1680), (1, 660), (2, 660), (3, 840), (4, 840), (5, 1920)];
+const STOCK_STATES: &[StockAnimation] = &[
+    StockAnimation::new(&["running-right", "move_right"], 8..16, 120, 220),
+    StockAnimation::new(&["running-left", "move_left"], 16..24, 120, 220),
+    StockAnimation::new(&["waving", "wave"], 24..28, 140, 280),
+    StockAnimation::new(&["jumping", "bounce"], 32..37, 140, 280),
+    StockAnimation::new(&["failed", "sad"], 40..48, 140, 240),
+    StockAnimation::new(&["waiting"], 48..54, 150, 260),
+    StockAnimation::new(&["running"], 56..62, 120, 220),
+    StockAnimation::new(&["review"], 64..70, 150, 280),
+];
+
+struct StockAnimation {
+    names: &'static [&'static str],
+    frames: Range<u32>,
+    delay: u16,
+    last_delay: u16,
+}
+
+impl StockAnimation {
+    const fn new(
+        names: &'static [&'static str],
+        frames: Range<u32>,
+        delay: u16,
+        last_delay: u16,
+    ) -> Self {
+        Self {
+            names,
+            frames,
+            delay,
+            last_delay,
+        }
+    }
+}
+
+fn stock_state(name: &str) -> Option<&'static StockAnimation> {
+    STOCK_STATES
+        .iter()
+        .find(|stock| stock.names.contains(&name))
+}
+
+impl Manifest {
+    fn validate(&self) -> Result<()> {
+        let frame_count = self.frame.unwrap_or_default().validate()?;
+        for (name, animation) in &self.animations {
+            if animation.frames.is_empty() {
+                bail!("animation {name} must include at least one frame");
+            }
+            if animation.frames.len() > MAX_FRAMES as usize {
+                bail!("animation {name} exceeds the {MAX_FRAMES}-frame limit");
+            }
+            if let Some(frame) = animation.frames.iter().find(|&&frame| frame >= frame_count) {
+                bail!(
+                    "animation {name} references sprite index {frame}, but pet has {frame_count} frames"
+                );
+            }
+            let fps = animation.fps();
+            if !(0.0 < fps && fps <= MAX_FPS) {
+                bail!("animation {name} fps must be finite and between 0 and {MAX_FPS}, got {fps}");
+            }
+            let fallback = animation.fallback();
+            if fallback != "idle"
+                && !self.animations.contains_key(fallback)
+                && stock_state(fallback).is_none()
+            {
+                bail!("animation {name} fallback {fallback} does not exist");
+            }
+        }
+        let defaults = std::iter::once(("idle", STOCK_IDLE.len() as u32)).chain(
+            STOCK_STATES
+                .iter()
+                .flat_map(|stock| stock.names.iter().map(|&name| (name, stock.frames.end))),
+        );
+        for (name, end) in defaults {
+            if end > frame_count && !self.animations.contains_key(name) {
+                bail!(
+                    "animation {name} references sprite index {}, but pet has {frame_count} frames",
+                    end - 1
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, Deserialize)]
 struct Grid {
     width: u32,
@@ -242,6 +344,35 @@ impl Default for Grid {
             columns: 8,
             rows: 9,
         }
+    }
+}
+
+impl Grid {
+    fn validate(self) -> Result<u32> {
+        if self.width == 0 || self.height == 0 || self.columns == 0 || self.rows == 0 {
+            bail!("pet frame dimensions and grid counts must be non-zero");
+        }
+        let width = self
+            .width
+            .checked_mul(self.columns)
+            .context("pet frame grid width overflow")?;
+        let height = self
+            .height
+            .checked_mul(self.rows)
+            .context("pet frame grid height overflow")?;
+        if (width, height) != (WIDTH, HEIGHT) {
+            bail!(
+                "pet frame grid must cover spritesheet exactly: expected {WIDTH}x{HEIGHT}, got {width}x{height}"
+            );
+        }
+        let frame_count = self
+            .columns
+            .checked_mul(self.rows)
+            .context("pet frame count overflow")?;
+        if frame_count > MAX_FRAMES {
+            bail!("pet frame count {frame_count} exceeds maximum {MAX_FRAMES}");
+        }
+        Ok(frame_count)
     }
 }
 
@@ -266,7 +397,7 @@ fn custom_asset(directory: &Path, filename: &str) -> Result<(Manifest, PathBuf)>
         bail!("pet spritesheet must be inside its manifest directory");
     }
     validate_sheet(&sheet)?;
-    validate_grid(manifest.frame.unwrap_or_default())?;
+    manifest.validate()?;
     Ok((manifest, sheet))
 }
 
@@ -314,25 +445,6 @@ fn local_asset(home: &Path, selector: &str) -> Result<(Manifest, PathBuf)> {
     bail!("missing pet.json or avatar.json in {}", directory.display());
 }
 
-fn validate_grid(grid: Grid) -> Result<()> {
-    if grid.width == 0
-        || grid.height == 0
-        || grid.columns == 0
-        || grid.rows == 0
-        || grid
-            .width
-            .checked_mul(grid.columns)
-            .is_none_or(|span| span > WIDTH)
-        || grid
-            .height
-            .checked_mul(grid.rows)
-            .is_none_or(|span| span > HEIGHT)
-    {
-        bail!("pet sprite grid does not fit its spritesheet");
-    }
-    Ok(())
-}
-
 fn validate_sheet(path: &Path) -> Result<()> {
     if image::image_dimensions(path)? != (WIDTH, HEIGHT) {
         bail!("pet spritesheet must be {WIDTH}×{HEIGHT} pixels");
@@ -359,16 +471,10 @@ async fn preview(config: Option<Arc<Config>>, selector: String) -> Result<ImageP
 fn first_idle(sheet: &Path, manifest: &Manifest) -> Result<ImagePreview> {
     validate_sheet(sheet)?;
     let grid = manifest.frame.unwrap_or_default();
-    validate_grid(grid)?;
     let index = manifest
         .animations
         .get("idle")
-        .and_then(|idle| {
-            idle.frames
-                .iter()
-                .copied()
-                .find(|index| *index < grid.columns * grid.rows)
-        })
+        .and_then(|idle| idle.frames.first().copied())
         .unwrap_or(0);
     let image = image::open(sheet)?.crop_imm(
         (index % grid.columns) * grid.width,
@@ -450,7 +556,19 @@ async fn save(config: Option<&Config>, selector: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codex_core::config::ConfigBuilder;
     use image::GenericImageView as _;
+
+    fn kitty() -> TerminalInfo {
+        TerminalInfo {
+            name: TerminalName::Kitty,
+            term_program: None,
+            version: None,
+            term: None,
+            multiplexer: None,
+            backend: None,
+        }
+    }
 
     #[test]
     fn host_checks_the_terminal_before_enabling_pets() {
@@ -577,7 +695,6 @@ mod tests {
     #[tokio::test]
     async fn configured_pet_path_opens_preview_and_native_ambient_from_the_same_pack() -> Result<()>
     {
-        use codex_core::config::ConfigBuilder;
         use codex_tui_core::screens::pets::Motion;
 
         let home = tempfile::tempdir()?;
@@ -608,15 +725,7 @@ mod tests {
             image::load_from_memory(&preview.png)?.get_pixel(0, 0),
             marker
         );
-        let kitty = TerminalInfo {
-            name: TerminalName::Kitty,
-            term_program: None,
-            version: None,
-            term: None,
-            multiplexer: None,
-            backend: None,
-        };
-        let ambient = ambient::load(Some(config), None, &kitty)
+        let ambient = ambient::load(Some(config), None, &kitty())
             .await?
             .context("configured path at startup")?;
         let data = &ambient.clip(Motion::Idle).data;
@@ -625,6 +734,71 @@ mod tests {
         assert_eq!((control.num_frames, control.num_plays), (2, 0));
         assert_eq!(image::load_from_memory(data)?.get_pixel(0, 0), marker);
         assert!(!home.path().join("cache/tui-pets/v1/assets").exists());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn explicit_pet_pack_validation_agrees_at_preview_and_ambient_boundaries() -> Result<()> {
+        let home = tempfile::tempdir()?;
+        let pack = tempfile::tempdir()?;
+        let manifest = pack.path().join("pet.json");
+        image::RgbaImage::new(WIDTH, HEIGHT).save(pack.path().join("sheet.png"))?;
+        let selector = manifest.to_str().context("UTF-8 pet selector")?.to_owned();
+        let config = Arc::new(
+            ConfigBuilder::default()
+                .codex_home(home.path().to_owned())
+                .fallback_cwd(Some(home.path().to_owned()))
+                .cli_overrides(vec![("tui.pet".into(), selector.clone().into())])
+                .build()
+                .await?,
+        );
+        for (settings, diagnostic) in [
+            (
+                r#""frame":{"width":192,"height":208,"columns":4,"rows":9}"#,
+                "frame grid must cover spritesheet exactly",
+            ),
+            (
+                r#""animations":{"idle":{"frames":[0,999]}}"#,
+                "animation idle references sprite index 999",
+            ),
+            (
+                r#""animations":{"idle":{"frames":[]}}"#,
+                "animation idle must include at least one frame",
+            ),
+            (
+                r#""animations":{"idle":{"frames":[0],"fps":120}}"#,
+                "animation idle fps must be finite",
+            ),
+            (
+                r#""animations":{"wave":{"frames":[0],"fallback":"missing"}}"#,
+                "animation wave fallback missing does not exist",
+            ),
+            (
+                r#""frame":{"width":8,"height":8,"columns":192,"rows":234}"#,
+                "exceeds maximum",
+            ),
+        ] {
+            writeln!(
+                fs::File::create(&manifest)?,
+                r#"{{"spritesheetPath":"sheet.png",{settings}}}"#,
+            )?;
+            let preview = run(
+                AssetAsk::Preview {
+                    selector: selector.clone(),
+                },
+                Some(config.clone()),
+            )
+            .await;
+            let AssetDone::Preview(Err(error)) = preview else {
+                panic!("expected preview validation error for {settings}");
+            };
+            assert!(error.contains(diagnostic), "{error}");
+            let ambient = ambient::load(Some(config.clone()), None, &kitty()).await;
+            let Err(error) = ambient else {
+                panic!("expected ambient validation error for {settings}");
+            };
+            assert!(error.to_string().contains(diagnostic), "{error}");
+        }
         Ok(())
     }
 }
