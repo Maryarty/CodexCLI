@@ -3050,13 +3050,13 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             screens::select::collaboration::Change::Preset(mask) => switch_mode(model, &mask, fx),
             screens::select::collaboration::Change::PlanEffort {
                 effort,
-                all_modes,
+                scope,
                 operation,
             } => {
                 model
                     .slots
                     .chat
-                    .set_plan_effort(effort, all_modes, operation, fx);
+                    .set_plan_effort(effort, scope, operation, fx);
             }
         },
         // Shift+Tab (`cycle_collaboration_mode`): the next preset of the server's list, while no

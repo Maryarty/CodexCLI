@@ -440,9 +440,15 @@ pub enum ModelMenu {
     AllModels(Current),
     /// The standard efforts of one model; the preset is the one the menu
     /// opened on (a refresh of the catalog leaves it as it was).
-    Reasoning { preset: Preset, current: Current },
+    Reasoning {
+        preset: Preset,
+        current: Box<Current>,
+    },
     /// Max and Ultra of one model.
-    Advanced { preset: Preset, current: Current },
+    Advanced {
+        preset: Preset,
+        current: Box<Current>,
+    },
     /// Where an effort change in Plan mode applies.
     PlanScope {
         model: String,
@@ -689,7 +695,7 @@ impl ModelMenu {
                 if preset.needs_advanced() {
                     return Onward::Push(ModelMenu::Reasoning {
                         preset: preset.clone(),
-                        current: current.clone(),
+                        current: Box::new(current.clone()),
                     });
                 }
                 settle(current, &preset.model, Some(preset.default_effort.clone()))
@@ -726,10 +732,10 @@ impl ModelMenu {
 
     fn current(&self) -> Option<&Current> {
         match self {
-            ModelMenu::Models(current)
-            | ModelMenu::AllModels(current)
-            | ModelMenu::Reasoning { current, .. }
-            | ModelMenu::Advanced { current, .. } => Some(current),
+            ModelMenu::Models(current) | ModelMenu::AllModels(current) => Some(current),
+            ModelMenu::Reasoning { current, .. } | ModelMenu::Advanced { current, .. } => {
+                Some(current)
+            }
             ModelMenu::Loading { .. } | ModelMenu::PlanScope { .. } => None,
         }
     }
@@ -820,7 +826,7 @@ fn reasoning_of(preset: &Preset, current: &Current) -> Onward {
     }
     Onward::Push(ModelMenu::Reasoning {
         preset: preset.clone(),
-        current: current.clone(),
+        current: Box::new(current.clone()),
     })
 }
 

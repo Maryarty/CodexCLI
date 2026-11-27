@@ -129,6 +129,15 @@ fn catalog_now<S>(cx: &mut Cx<'_, S>) -> Catalog {
     read::<ScreenStates, _>(cx).select.catalog.clone()
 }
 
+fn scope_is_current(w: &Page, cx: &mut Cx<'_, PageState>) -> bool {
+    // Queued pickers settle through their own operation, including a catalog error
+    // that arrives after the user has moved to a different conversation.
+    w.completion != Completion::Intent
+        || w.menu.scope().is_none_or(|scope| {
+            select::<ScreenStates, u64, _>(cx, |states| states.select.model_visit) == scope.visit
+        })
+}
+
 /// Says a verb to the model.
 fn say(cx: &mut Cx<'_, PageState>, intent: Intent) {
     let hs = read::<Hs, _>(cx);
@@ -229,13 +238,8 @@ impl State for PageState {
     // whichever of the two ran last.
     fn did_change_dependencies(&mut self, w: &Page, cx: &mut Cx<'_, Self>) {
         self.route = Route::maybe_of(cx);
-        if let Some(scope) = w.menu.scope()
-            && select::<ScreenStates, u64, _>(cx, |states| states.select.model_visit) != scope.visit
-        {
-            match w.completion {
-                Completion::Dialog(_) => close_dialog::<_, ModelResult>(cx, None),
-                Completion::Intent => close(cx),
-            }
+        if !scope_is_current(w, cx) {
+            close(cx);
             return;
         }
         let catalog = catalog_of(cx);
@@ -272,6 +276,9 @@ impl State for PageState {
     }
 
     fn build(&self, w: &Page, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        if !scope_is_current(w, cx) {
+            return AnyWidget::default();
+        }
         let catalog = catalog_of(cx);
         let page = w.menu.page(&catalog);
         let words = strings::of(cx);

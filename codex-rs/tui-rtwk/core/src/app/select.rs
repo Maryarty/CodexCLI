@@ -10,7 +10,7 @@ use std::rc::Rc;
 use super::{AppCtx, AppFx, CodexApp, Command};
 use crate::ids::{BackendId, ThreadId};
 use crate::rpc::{Answer, RpcError};
-use crate::screens::select::collaboration::{Change, PlanWrite};
+use crate::screens::select::collaboration::{Change, PlanWrite, ReasoningScope};
 use crate::screens::select::models::{Apply, Current, Effort, Scope};
 use crate::screens::select::{self, apps, permissions, review};
 use crate::screens::{ScreenCommand, ScreenReply, ScreenThreadIntent, chat};
@@ -623,6 +623,7 @@ fn model_pick(
             return;
         };
         let backend = app.screens.agents.owner_of(thread.as_str());
+        let issued = app.mint.next();
         ask(
             app,
             select::Command::Write {
@@ -631,6 +632,7 @@ fn model_pick(
             select::Ctx::PlanWrite(Box::new(PlanWrite {
                 thread,
                 backend,
+                issued,
                 selection,
                 operation,
             })),
@@ -640,8 +642,8 @@ fn model_pick(
     }
     let session = selection.apply == Apply::Session;
     let line = select::Note::ModelChanged {
-        model: selection.model.clone(),
-        effort: selection.effort.clone(),
+        model: selection.model,
+        effort: selection.effort,
         session,
     };
     let has_thread_update = effects.patch.is_some();
@@ -697,13 +699,13 @@ fn plan_effort(
     app: &mut CodexApp,
     thread: &ThreadId,
     effort: Option<Effort>,
-    all_modes: bool,
+    scope: ReasoningScope,
     operation: Option<QueueOperation>,
     fx: &mut AppFx,
 ) {
     let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::SetMask(Change::PlanEffort {
         effort,
-        all_modes,
+        scope,
         operation,
     }));
     super::apply_thread(app, thread, ThreadEv::ScreenIntent(intent), fx);
@@ -718,6 +720,7 @@ fn plan_written(
     let PlanWrite {
         thread,
         backend,
+        issued,
         selection,
         operation,
     } = write;
@@ -730,17 +733,26 @@ fn plan_written(
         select::Setting::PlanEffort
     };
     let note = match result {
-        Ok(select::Reply::Written { overridden: false }) => {
+        Ok(select::Reply::Written { overridden: false })
+            if app
+                .screens
+                .select
+                .last_plan_write
+                .get(&backend)
+                .is_none_or(|last| *last < issued) =>
+        {
+            Rc::make_mut(&mut app.screens)
+                .select
+                .last_plan_write
+                .insert(backend, issued);
             configured_plan(app, backend, selection.effort.clone());
             if owns_thread && plan_thread(app, &thread, &selection.model) {
-                plan_effort(
-                    app,
-                    &thread,
-                    selection.effort.clone(),
-                    all_modes,
-                    operation,
-                    fx,
-                );
+                let scope = if all_modes {
+                    ReasoningScope::AllModes
+                } else {
+                    ReasoningScope::PlanOnly
+                };
+                plan_effort(app, &thread, selection.effort.clone(), scope, operation, fx);
                 if all_modes {
                     let note = select::Note::ModelChanged {
                         model: selection.model,
@@ -794,7 +806,14 @@ fn effort_pick(
         if let Some(thread) = app.session.active.clone()
             && plan_thread(app, &thread, model)
         {
-            plan_effort(app, &thread, Some(effort), false, None, fx);
+            plan_effort(
+                app,
+                &thread,
+                Some(effort),
+                ReasoningScope::Session,
+                None,
+                fx,
+            );
         }
         return;
     }
