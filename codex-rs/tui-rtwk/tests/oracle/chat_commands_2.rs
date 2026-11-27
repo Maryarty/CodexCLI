@@ -706,20 +706,123 @@ fn slash_copy_picker_preserves_completed_source_whitespace_and_hides_directives(
 // ORACLE chatwidget/tests/slash_commands.rs:1777 slash_copy_picker_defers_queued_input_until_selection_or_cancellation_settles kind=ui owner=chat-nav-pane
 #[test]
 fn slash_copy_picker_defers_queued_input_until_selection_or_cancellation_settles() {
-    for queued in ["/new", "/clear", "follow-up prompt"] {
+    for queued in ["follow-up prompt", "/new", "/clear"] {
         for close_key in ["enter", "esc"] {
             let mut s = Screen::build(Owner::ChatNavPane).script(PREVIOUS).open();
+            let starts = s.commands_named("StartThread").len();
             s.feed(ACTIVE);
             s.type_text(queued).keys("tab");
             s.type_text("/copy").keys("enter");
+            s.assert_contains("1. Whole response");
             s.feed(ACTIVE_DONE);
-            s.assert_contains("Previous response");
+            s.assert_contains("1. Whole response");
+            s.assert_no_turn();
+            kit::assert_same(
+                s.commands_named("StartThread").len(),
+                starts,
+                "a new thread waits for the active copy modal",
+            );
+            s.assert_copies_asked(&[]);
+
             s.keys(close_key);
             if queued == "follow-up prompt" {
-                s.assert_contains("follow-up prompt");
+                s.assert_turn_texts(&["follow-up prompt"]);
+            } else {
+                kit::assert_same(
+                    s.commands_named("StartThread").len(),
+                    starts + 1,
+                    "closing releases exactly one queued new-thread command",
+                );
+            }
+            if close_key == "enter" {
+                s.assert_copies_asked(&["Previous response"]);
+            } else {
+                s.assert_copies_asked(&[]);
             }
         }
     }
+}
+
+#[test]
+fn status_line_editor_releases_queued_input_after_save_or_cancel() {
+    let status =
+        r#"{"step":"screen","dir":"chat","ev":{"status":{"items":["model"],"colors":false}}}"#;
+    for queued_editor in [false, true] {
+        for close_key in ["enter", "esc"] {
+            let mut s = Screen::build(Owner::ChatNavPane)
+                .size(96, 26)
+                .script(PREVIOUS)
+                .open();
+            s.feed(status);
+            s.feed(ACTIVE);
+            if queued_editor {
+                s.type_text("/statusline").keys("tab");
+            }
+            s.type_text("after status editor").keys("tab");
+            if !queued_editor {
+                s.type_text("/statusline").keys("enter");
+                s.assert_contains("Configure Status Line");
+            }
+
+            s.feed(ACTIVE_DONE);
+            s.assert_contains("Configure Status Line");
+            if queued_editor {
+                s.assert_no_turn();
+            } else {
+                s.assert_turn_texts(&["after status editor"]);
+            }
+            s.assert_no_config_write();
+            s.keys(close_key);
+            s.assert_turn_texts(&["after status editor"]);
+            if close_key == "enter" {
+                kit::assert_same(
+                    s.config_writes().len(),
+                    1,
+                    "one confirmed status-line write",
+                );
+            } else {
+                s.assert_no_config_write();
+            }
+        }
+    }
+}
+
+#[test]
+fn copy_status_fields_hold_the_queue_until_the_picker_closes() {
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(96, 26)
+        .owned_transcript()
+        .script(PREVIOUS)
+        .open();
+    status_settings(&mut s, "gpt-5.5", "/workspace");
+    s.type_text("/status").keys("enter");
+    s.feed(ACTIVE);
+    s.type_text("after copying status").keys("tab");
+    s.type_text("/copy").keys("enter");
+    s.assert_contains("1. Whole status");
+    s.feed(ACTIVE_DONE);
+    s.assert_no_turn();
+    s.assert_copies_asked(&[]);
+
+    s.keys("2");
+    s.assert_copies_asked(&["gpt-5.5"]);
+    s.assert_turn_texts(&["after copying status"]);
+}
+
+#[test]
+fn queued_review_refusal_releases_the_follow_up_without_starting_review() {
+    let mut s = Screen::build(Owner::ChatNavPane).script(PREVIOUS).open();
+    s.feed(ACTIVE);
+    s.type_text("/review").keys("tab");
+    s.type_text("after review refusal").keys("tab");
+    s.feed(ACTIVE_DONE);
+    s.assert_turn_texts(&["after review refusal"]);
+    s.assert_absent("Select a review preset");
+    kit::assert_same(
+        s.requests_of("review/start"),
+        0,
+        "review was blocked by the queued prompt",
+    );
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:1834 slash_copy_picker_previews_whole_response_code_blocks_and_blockquotes kind=ui owner=chat-nav-pane
