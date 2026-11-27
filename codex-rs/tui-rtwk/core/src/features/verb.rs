@@ -9,6 +9,21 @@ use crate::rpc::Address;
 use crate::screens::chat::{Nudge, StatusOverride};
 use crate::screens::select::models::{Effort, Selection};
 use crate::screens::select::permissions;
+use crate::threads::queue::ModalToken;
+use codex_app_server_protocol::WindowsSandboxSetupMode;
+
+/// A sandbox setup that stands between a selected permission and its write.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PermissionSetup {
+    Begin {
+        token: ModalToken<permissions::Selection>,
+        mode: WindowsSandboxSetupMode,
+    },
+    Finished {
+        token: ModalToken<permissions::Selection>,
+        success: bool,
+    },
+}
 
 /// What a feature asks of an owner outside it (`AppCx::verb`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -23,6 +38,7 @@ pub enum PublicVerb {
     /// A `/permissions` pick applied once its precondition is met (the Windows sandbox is set
     /// up): the app's permissions pick, as the sheet's own pick is carried out.
     PickPermissions(permissions::Selection),
+    PermissionSetup(PermissionSetup),
     /// The model and effort the thread's next turns use, saved nowhere and said nowhere (oracle
     /// `override_turn_context` with a model and an effort, then `UpdateModel` and
     /// `UpdateReasoningEffort`: the rate limit prompt's "Switch to {model}"). `PickModel` for

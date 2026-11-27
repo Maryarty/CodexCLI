@@ -352,6 +352,7 @@ pub struct Model {
     pub profiles: Profiles,
     /// Profile changes whose accepted write and effective facts must both be seen.
     pub(crate) permissions_applying: BTreeMap<ThreadId, permissions::Applying>,
+    pub(crate) permissions_effective: BTreeMap<ThreadId, permissions::Effective>,
     /// The apps `/apps` lists.
     pub apps: apps::Apps,
     /// The `/review` menus' working directory and the git list asked for.
@@ -390,7 +391,7 @@ impl Model {
 
     /// An app of the directory was picked and has no page to open (`App::link` is none): the
     /// note says why. The sheet opens the link dialog of an app that has one.
-    fn app_unlinked(&mut self, id: &str) {
+    pub(crate) fn app_unlinked(&mut self, id: &str) {
         if let Some(app) = self.apps.app(id) {
             let status = app.status();
             self.notes.push(Note::AppLinkUnavailable(status));
@@ -879,7 +880,7 @@ pub enum Intent {
     RetryOwnedPermissions(ModalToken<permissions::Selection>),
     /// A still-open Apps directory or link acts on its own connection.
     ActInApps {
-        token: ModalToken<apps::ModalChoice>,
+        token: Option<ModalToken<apps::ModalChoice>>,
         action: apps::ModalAction,
     },
     /// `/review`: the presets menu; the git lists are asked in `cwd`.
@@ -919,15 +920,6 @@ pub enum Intent {
     /// What a page of `/presets` asks of the model (`quick_dials::Ask`): a write of a slot, or
     /// the note that the text typed is not a preset.
     Preset(quick_dials::Ask),
-    /// The link dialog of an app switched it on or off (`SetAppEnabled`): the dialog shows the
-    /// switch at once, the app writes the config and, once it is saved, tells the directory
-    /// (`Ev::AppSwitched`).
-    SetApp { id: String, enabled: bool },
-    /// The link dialog of the app `id` opens its page in the browser (`AppEvent::OpenUrlInBrowser`):
-    /// the app does it.
-    OpenAppPage(String),
-    /// The app `id` was picked from the directory and has no page to open: the note says why.
-    AppUnlinked(String),
     /// A confirmation is asked for (`/archive`, `/delete`): a sheet shows it.
     Confirm(Confirm),
     /// The answer Yes of a confirmation (No is the sheet's own: it closes).
@@ -948,6 +940,13 @@ pub enum Intent {
 }
 
 impl Intent {
+    pub fn app_action(action: apps::ModalAction) -> Self {
+        Self::ActInApps {
+            token: None,
+            action,
+        }
+    }
+
     pub fn open_models(current: Current) -> Self {
         Self::OpenModels(Box::new(ModelOpen {
             operation: None,
@@ -1185,10 +1184,6 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         },
         // The app writes the config (`app/select.rs`); the directory follows the saved write. The
         // dialog of the app shows its switch at once, the screen keeps no copy of it.
-        Intent::SetApp { .. } => {}
-        // The page of the app is opened by the app (`app/select.rs`); the screen keeps no record.
-        Intent::OpenAppPage(_) => {}
-        Intent::AppUnlinked(id) => model.app_unlinked(&id),
         // The answer is acted on by the app (`app/select.rs`); the screen keeps no record of it.
         Intent::PlanAnswer(_)
         | Intent::Settle(_)

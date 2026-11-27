@@ -2,7 +2,7 @@
 //! carried out by its owner's own step, as if the owner had been told by its own surface.
 
 use super::{AppEv, AppFx, CodexApp, Intent, apply_app, select};
-use crate::features::{PublicVerb, rate_offer_origin_available};
+use crate::features::{PermissionSetup, PublicVerb, rate_offer_origin_available};
 use crate::screens::{ScreenIntent, chat};
 
 /// One verb a feature asked for.
@@ -14,6 +14,12 @@ pub(super) fn carry(app: &mut CodexApp, verb: PublicVerb, fx: &mut AppFx) {
         }
         PublicVerb::PickModel(selection) => select::model_verb(app, selection, fx),
         PublicVerb::PickPermissions(selection) => select::permissions_apply(app, selection, fx),
+        PublicVerb::PermissionSetup(PermissionSetup::Begin { token, mode }) => {
+            select::start_owned_permission_setup(app, token, mode, fx);
+        }
+        PublicVerb::PermissionSetup(PermissionSetup::Finished { token, success }) => {
+            select::finish_owned_permission_setup(app, token, success, fx);
+        }
         PublicVerb::OverrideTurn {
             thread,
             turn,
