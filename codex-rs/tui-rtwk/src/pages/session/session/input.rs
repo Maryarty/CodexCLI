@@ -5,14 +5,15 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use rtwk::binding::AppBinding;
+use rtwk::binding::{AppBinding, InputListener};
 use rtwk::focus::{Focus, KeyBindings, KeyEventResult, KeyPress};
 use rtwk::layout::Stack;
 use rtwk::{AnyWidget, Cx, Key};
+use rtwk_core::input::{InputEvent, KeyKind};
 
 use codex_tui_core::keymap::actions::{
-    CHAT_INTERRUPT_TURN, CHAT_OPEN_PRESETS, GLOBAL_CHANGE_HOST, GLOBAL_SELECT_TRANSCRIPT,
-    PAGER_CLOSE_TRANSCRIPT, VOICE_TOGGLE_VOICE_MUTE,
+    CHAT_INTERRUPT_TURN, CHAT_OPEN_PRESETS, COMPOSER_SUBMIT, GLOBAL_CHANGE_HOST,
+    GLOBAL_SELECT_TRANSCRIPT, PAGER_CLOSE_TRANSCRIPT, VOICE_TOGGLE_VOICE_MUTE,
 };
 use codex_tui_core::keymap::actions::{
     CHAT_NEXT_PERMISSION_MODE, CHAT_PREVIOUS_PERMISSION_MODE, CHAT_TOGGLE_VOICE,
@@ -423,6 +424,7 @@ pub(super) fn focus(
     state: &ChatState,
     cx: &mut Cx<'_, ChatState>,
     frame: &Frame,
+    ui: &ThreadUi,
     page: Stack,
 ) -> AnyWidget {
     let (thread, keymap) = (&frame.thread, &frame.keymap);
@@ -522,7 +524,36 @@ pub(super) fn focus(
         }
         focus = focus.bind(key, cx.send(ChatMsg::Action(action)));
     }
-    AnyWidget::from(focus).with_key(Key::value((thread.read_only(), frame.provider.is_some())))
+    let focus =
+        AnyWidget::from(focus).with_key(Key::value((thread.read_only(), frame.provider.is_some())));
+    let ui = ui.clone();
+    let node = state.node.clone();
+    let menu = state.banner.quick_menu.clone();
+    let submit_on_enter = crate::keymap::press_for(fixed::ENTER)
+        .is_some_and(|key| crate::keymap::pressed(keymap, COMPOSER_SUBMIT, &key));
+    // Ordinary Enter returns an empty composer to the latest row. The native
+    // focus path treats repeats as presses, so filter this gesture before it.
+    InputListener::with_raw_key_repeats(focus, move |event| {
+        let InputEvent::Key(key) = event else {
+            return false;
+        };
+        key.kind == KeyKind::Repeat
+            && submit_on_enter
+            && crate::keymap::event_is_fixed(fixed::ENTER, key)
+            && node.has_primary_focus()
+            && ui.follow.away()
+            && ui.input() == Input::Plain
+            && !ui.modes.browsing()
+            && !ui.selection.held()
+            && !activity_focus::of(&ui.find).focused()
+            && !menu.get()
+            && ui.composer.text().is_empty()
+            && !ui.draft.shell()
+            && ui.draft.remote_count() == 0
+            && !ui.draft.in_burst()
+            && !ui.draft.searching()
+    })
+    .into()
 }
 
 /// The footer's entries are these bindings' hints: every key it shows is bound here.

@@ -309,29 +309,38 @@ fn plan_menu_allows_transcript_selection_and_copy_but_respects_popup_bounds() {
 // ORACLE app/owned_transcript_input_tests.rs:450 empty_enter_returns_to_latest_with_contextual_hints kind=ui owner=chat-live
 #[test]
 fn empty_enter_returns_to_latest_with_contextual_hints() {
-    kit::pending(
-        Owner::ChatLive,
-        "G63: the fixture's rows are joined by single newlines, which MarkdownView joins into one paragraph (the oracle breaks the line), so the rows never scroll; the kit also has no bytes for shift+enter (no kitty keyboard protocol) and the 40-wide pass opens the detailed view (ctrl+t: the pager, task pager). The hints and the Enter back are built: tests/pages/transcript_follow.rs",
-    );
     for (width, detailed) in [(80, false), (40, true)] {
         let mut s = Screen::build(Owner::ChatLive)
             .size(width, 12)
             .script(include_str!("fixtures/transcript_view_1/rows_30.jsonl"))
             .open();
-        s.wheel_up(0, 4, 4);
         if detailed {
             s.keys("ctrl+t");
         }
+        s.keys("pageup");
         s.assert_contains("enter/esc latest");
+        s.assert_absent("row 29");
+        let reading = s.shot();
+        s.key_release("enter");
+        s.assert_same_rows_in(&reading, 0..6);
+        s.key_repeat("enter");
+        s.assert_same_rows_in(&reading, 0..6);
         s.keys("shift+enter");
+        s.assert_absent("row 29");
+        s.assert_no_turn();
+        s.keys("backspace");
         s.type_text("draft");
         s.assert_contains("esc latest");
         s.assert_absent("enter/esc latest");
         s.keys("backspace backspace backspace backspace backspace");
-        s.feed(include_str!("fixtures/transcript_view_1/new_output.jsonl"));
+        s.assert_composer("");
+        s.live_tail("new output").commit_live_tail();
+        s.assert_absent("new output");
         s.keys("enter");
         s.assert_contains("new output");
         s.assert_absent("latest");
+        s.assert_composer("");
+        s.assert_no_turn();
     }
 }
 

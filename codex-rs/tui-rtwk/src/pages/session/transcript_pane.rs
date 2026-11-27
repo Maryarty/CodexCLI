@@ -254,6 +254,9 @@ pub(super) fn remember_browsing(cx: &mut Cx<'_, ChatState>, ui: &ThreadUi, go_la
 
 /// Closing the preview returns the existing reader to its own prior presentation and row.
 pub(super) fn cancel_browsing(ui: &ThreadUi) {
+    if !ui.modes.browsing() {
+        return;
+    }
     let reading = ui.held(PresentationBookmarks::default);
     if let Some((detailed, capture)) = reading.0.browsing.borrow_mut().take()
         && let Some(bookmark) = capture.bookmark

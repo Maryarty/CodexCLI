@@ -371,7 +371,7 @@ impl State for ChatState {
                 self.sync_draft(w);
                 self.startup_edited(w);
                 // a paste or an edit while prompts are browsed ends browsing
-                modes.leave_browsing();
+                super::transcript_pane::cancel_browsing(&w.ui);
                 if self.shortcuts && !text.is_empty() {
                     // Any other edit puts the overlay away (`FooterMode`).
                     self.shortcuts = false;
@@ -415,7 +415,7 @@ impl State for ChatState {
         let guide = chord_guide::guide(w.ui.draft.clone(), frame.keymap.clone());
         let pet = overlay::pet(self, w, &frame);
         let page = overlay::page(transcript, body, inline_draft, guide, pet);
-        let focus = input::focus(self, cx, &frame, page);
+        let focus = input::focus(self, cx, &frame, &w.ui, page);
         // The listener stands outside the keyed focus: a key that changes in the same flush as a
         // directive (the continue key ends the lock and gives the words in one step) would end its
         // state, and the edge with it.
