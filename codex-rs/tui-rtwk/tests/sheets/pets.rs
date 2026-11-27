@@ -116,8 +116,11 @@ fn answer(h: &mut Harness, wanted: AssetAsk, done: AssetDone) {
             });
         held.is_some()
     });
+    let Some(request) = held else {
+        panic!("pet request was not captured")
+    };
     h.inject([AppEv::Effect {
-        request: held.expect("pet request"),
+        request,
         done: Done::Pet(done),
     }]);
 }
@@ -127,7 +130,7 @@ fn native_preview() -> ImagePreview {
     let image = image::RgbaImage::from_pixel(192, 208, image::Rgba([103, 177, 54, 255]));
     image::DynamicImage::ImageRgba8(image)
         .write_to(&mut bytes, image::ImageFormat::Png)
-        .expect("PNG");
+        .unwrap_or_else(|error| panic!("encode native pet preview: {error}"));
     ImagePreview {
         png: bytes.into_inner().into(),
         size: ImageSize {
