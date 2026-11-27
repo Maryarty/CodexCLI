@@ -68,8 +68,7 @@ impl Screen {
         height: u32,
     ) -> std::path::PathBuf {
         let path = super::image_file_sized(name, width, height);
-        self.paste(&path.to_string_lossy());
-        self.keys("backspace");
+        self.attach_image_path(&path);
         path
     }
 }
@@ -482,6 +481,16 @@ pub fn image_file_sized(name: &str, width: u32, height: u32) -> std::path::PathB
         .save_with_format(&path, image::ImageFormat::Png)
         .expect("write the image");
     path
+}
+
+/// Overwrite the same file with a nonuniform image. Its visible bounds stay the same,
+/// while the encoded terminal payload necessarily differs from the solid seed.
+pub fn rewrite_image_file(path: &std::path::Path, width: u32, height: u32) {
+    image::RgbaImage::from_fn(width, height, |x, y| {
+        image::Rgba([x as u8, y as u8, (y * 3) as u8, 255])
+    })
+    .save_with_format(path, image::ImageFormat::Png)
+    .expect("overwrite the image");
 }
 
 /// The server's `thread/start` answer: the thread `model` runs on (`""`: none).

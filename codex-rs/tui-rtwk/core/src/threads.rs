@@ -1756,7 +1756,7 @@ impl ThreadCore {
 
     /// A turn runs or its start is in flight.
     pub fn busy(&self) -> bool {
-        self.is_running() || self.outgoing.any(is_start_turn)
+        self.is_running() || self.outgoing.any(is_start_turn) || self.safety.retrying()
     }
 
     /// The thread's event stream was lost and has not come back.
@@ -2538,6 +2538,11 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     }
     safety::observe(model, &ev);
     if matches!(ev, ThreadEv::ConnectionLost | ThreadEv::StreamLost) {
+        safety::apply(
+            model,
+            safety::SafetyEv::RetryLifecycle(safety::RetryLifecycle::RetireOffer),
+            fx,
+        );
         model.features.rename.connection_lost();
     }
     match ev {
@@ -2765,7 +2770,8 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             let starting = model.outgoing.any(is_start_turn);
             // During recovery or ambiguous admission, later input stays queued. After a Cloud
             // turn ends, its in-flight steers can still decide whether the next input may start.
-            if model.stream_lost
+            if model.safety.retrying()
+                || model.stream_lost
                 || model.reconciling_submissions
                 || (fx.cloud && matches!(model.queue.first(), Some(Queued::Unconfirmed { .. })))
                 || (!model.is_running() && cloud_admission_pending(model, fx))

@@ -36,7 +36,9 @@ use codex_tui_core::app::BackendEv;
 use codex_tui_core::app::Command;
 use codex_tui_core::app::Ingress;
 use codex_tui_core::app::effects::ConfigEdit;
-use codex_tui_core::app::effects::{Ask as HostAsk, Done, HostDoors, ImageSize, run_ask};
+use codex_tui_core::app::effects::{
+    Ask as HostAsk, Done, HostDoors, ImageRevision, ImageSize, run_ask,
+};
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::ids::RequestKey;
 use codex_tui_core::ids::{ThreadId, Ticket};
@@ -49,7 +51,8 @@ use codex_tui_core::screens::dialogs::Ev as DialogsEv;
 use codex_tui_core::screens::dialogs::Warning;
 use codex_tui_core::screens::onboarding::auth::provider::wire;
 use codex_tui_core::screens::status::Ev as StatusEv;
-use codex_tui_core::screens::{ScreenCommand, ScreenEv, chat};
+use codex_tui_core::screens::{ScreenCommand, ScreenEv, agents, chat};
+use codex_tui_core::threads::ThreadAsk;
 use codex_tui_rtwk::services::agents::search::Latest;
 use codex_tui_rtwk::services::agents::version;
 use codex_tui_rtwk::services::agents::workspace::Boxed;
@@ -1304,12 +1307,13 @@ impl HostDoors for ConnectionDoors {
         _thread: ThreadId,
         path: String,
         preview: Option<ImageSize>,
+        previous: Option<ImageRevision>,
     ) -> Option<Outcome> {
         let local = local_workspace(self.artifact_environments.as_deref());
         let ssh =
             std::env::var_os("SSH_TTY").is_some() || std::env::var_os("SSH_CONNECTION").is_some();
         let snapshot = if local && !ssh {
-            codex_tui_rtwk::services::images::read_local_snapshot(path, preview).await
+            codex_tui_rtwk::services::images::read_local_snapshot(path, preview, previous).await
         } else {
             Default::default()
         };
@@ -1421,7 +1425,9 @@ pub(crate) fn work(
         command @ (Command::StartTurn { ticket, .. }
         | Command::Screen {
             ticket,
-            command: ScreenCommand::Chat(chat::Command::Steer { .. }),
+            command:
+                ScreenCommand::Chat(chat::Command::Steer { .. })
+                | ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::RetryStart(_))),
             ..
         }) => Box::pin(async move {
             let request = protocol::client_request(&command, ids.next(), model.as_deref())?;

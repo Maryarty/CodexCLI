@@ -7,15 +7,76 @@ use codex_app_server_protocol as wire;
 use serde::Deserialize;
 use serde_json::Value;
 
+use super::safety::retry::{
+    ForkRequest, ITEM_LIMIT, ItemsRequest, StartRequest, TURN_LIMIT, TurnsRequest,
+};
 use super::{ReviewTarget, SettingsPatch, UserMessage, structured};
 use crate::ids::{ThreadId, TurnId};
 use crate::rpc::{RpcError, ServerError};
 use crate::screens::status::AgentsSource;
 use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_READ_ONLY;
+use codex_protocol::openai_models::ReasoningEffort;
 
 /// An ask owned by an app or screen command. Transport can borrow a pending
 /// turn's existing input through `ThreadRpc` while it builds the request.
 pub type ThreadAsk = ThreadRpc<UserMessage>;
+
+impl TurnsRequest {
+    pub(super) fn params(&self) -> wire::ThreadTurnsListParams {
+        wire::ThreadTurnsListParams {
+            thread_id: self.thread().to_string(),
+            cursor: None,
+            limit: Some(TURN_LIMIT),
+            sort_direction: Some(wire::SortDirection::Desc),
+            items_view: Some(match self.mode() {
+                wire::ThreadHistoryMode::Legacy => wire::TurnItemsView::Full,
+                wire::ThreadHistoryMode::Paginated => wire::TurnItemsView::NotLoaded,
+            }),
+        }
+    }
+}
+
+impl ItemsRequest {
+    pub(super) fn params(&self) -> wire::ThreadItemsListParams {
+        wire::ThreadItemsListParams {
+            thread_id: self.thread().to_string(),
+            turn_id: Some(self.turn().to_string()),
+            cursor: None,
+            limit: Some(ITEM_LIMIT),
+            sort_direction: Some(wire::SortDirection::Asc),
+            defer_output: None,
+        }
+    }
+}
+
+impl ForkRequest {
+    pub(super) fn params(&self) -> wire::ThreadForkParams {
+        let (turn, mode) = self.point();
+        // Leave permission parameters absent so the server inherits the source's settings.
+        wire::ThreadForkParams {
+            thread_id: self.thread().to_string(),
+            before_turn_id: Some(turn.to_string()),
+            defer_goal_continuation: true,
+            exclude_turns: mode == wire::ThreadHistoryMode::Paginated,
+            ..Default::default()
+        }
+    }
+}
+
+impl StartRequest {
+    pub(super) fn params(&self) -> wire::TurnStartParams {
+        let (input, client_id, model) = self.submission();
+        // The fork's effective permissions stay in force because the turn carries no overrides.
+        wire::TurnStartParams {
+            thread_id: self.thread().to_string(),
+            input: input.to_vec(),
+            client_user_message_id: Some(client_id.to_owned()),
+            model: Some(model.to_owned()),
+            effort: Some(ReasoningEffort::Low),
+            ..Default::default()
+        }
+    }
+}
 
 /// Which part of the thread listing a caller wants. Each caller supplies the
 /// filters it needs; unused filters stay absent on the wire.
@@ -167,6 +228,24 @@ crate::rpc_list! {
             ..Default::default()
         })
         -> wire::TurnSteerResponse, |answer| ThreadReply::Steered(TurnId::new(answer.turn_id));
+    /// A confirmed safety retry needs a decoded interrupt receipt, not the center's generic done.
+    RetryInterrupt { thread: ThreadId, turn: TurnId }, Self::RetryInterrupt { thread, turn }
+        => TurnInterrupt(wire::TurnInterruptParams { thread_id: thread.to_string(), turn_id: turn.to_string() })
+        -> wire::TurnInterruptResponse, |_| ThreadReply::RetryInterrupted;
+    RetryTurns(TurnsRequest), Self::RetryTurns(params)
+        => ThreadTurnsList(params.params())
+        -> wire::ThreadTurnsListResponse, |answer| ThreadReply::RetryTurns(Box::new(answer));
+    RetryItems(ItemsRequest), Self::RetryItems(params)
+        => ThreadItemsList(params.params())
+        -> wire::ThreadItemsListResponse, |answer| ThreadReply::RetryItems(Box::new(answer));
+    RetryFork(ForkRequest), Self::RetryFork(params)
+        => ThreadFork(params.params())
+        -> wire::ThreadForkResponse, |answer| ThreadReply::RetryForked(Box::new(answer.thread));
+    RetryStart(StartRequest), Self::RetryStart(params)
+        => TurnStart(params.params())
+        -> wire::TurnStartResponse, |answer| ThreadReply::TurnStarted {
+            thread: params.thread().clone(), turn: TurnId::new(answer.turn.id),
+        };
     Compact { thread: String }, Self::Compact { thread }
         => ThreadCompactStart(wire::ThreadCompactStartParams { thread_id: thread.clone() })
         -> wire::ThreadCompactStartResponse, |_| ThreadReply::Done;
@@ -278,6 +357,10 @@ pub enum ThreadReply {
     },
     Interrupted,
     InterruptTurnChanged(TurnId),
+    RetryInterrupted,
+    RetryTurns(Box<wire::ThreadTurnsListResponse>),
+    RetryItems(Box<wire::ThreadItemsListResponse>),
+    RetryForked(Box<wire::Thread>),
     Started(Box<wire::Thread>),
     Resumed(Box<wire::Thread>),
     Forked(Box<wire::Thread>),
@@ -343,7 +426,12 @@ impl<M: Borrow<UserMessage>> ThreadRpc<M> {
             | Self::PrepareApprovedPlan { thread, .. }
             | Self::StructuredTurn { thread, .. }
             | Self::Unsubscribe { thread } => Some(thread),
-            Self::StartUserTurn { thread, .. }
+            Self::RetryTurns(params) => Some(params.thread().as_str()),
+            Self::RetryItems(params) => Some(params.thread().as_str()),
+            Self::RetryFork(params) => Some(params.thread().as_str()),
+            Self::RetryStart(params) => Some(params.thread().as_str()),
+            Self::RetryInterrupt { thread, .. }
+            | Self::StartUserTurn { thread, .. }
             | Self::ListTerminals { thread, .. }
             | Self::Archive { thread }
             | Self::Unarchive { thread }

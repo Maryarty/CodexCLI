@@ -610,6 +610,7 @@ pub(super) fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
         || matches!(model.queue.first(), Some(Queued::Unconfirmed { .. }))
         || model.slots.chat.mcp.is_starting()
         || model.safety.blocks_input()
+        || model.safety.retrying()
         || model.slots.chat.provider_error.is_some()
         || model.recovered
         || model.due.is_some()

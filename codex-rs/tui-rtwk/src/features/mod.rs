@@ -280,8 +280,8 @@ pub fn verb_by<S: 'static>(cx: &mut Cx<'_, S>, hs: &Hs, intent: impl Into<Featur
 
 pub use copy::supersede_status_copy;
 pub(crate) use images::{
-    preview as artifact_preview, request as artifact_request, scope as artifact_scope,
-    snapshot as artifact_snapshot, watch as watch_artifact,
+    attachment as attachment_thumbnail, preview as artifact_preview, request as artifact_request,
+    scope as artifact_scope, snapshot as artifact_snapshot, watch as watch_artifact,
 };
 
 /// The action of the security-setup reminder over the composer (its one row opens the page): the
@@ -297,7 +297,8 @@ pub fn open_security_page<S: 'static>(cx: &mut Cx<'_, S>, hs: &Hs) {
 /// The browser action of a clicked link in a particular transcript.
 pub fn open_transcript_link<S: 'static>(cx: &mut Cx<'_, S>, thread: ThreadId, url: String) {
     if url.starts_with("file://") {
-        verb(cx, codex_tui_core::features::images::Open { thread, url });
+        use codex_tui_core::features::images::{Intent, Open};
+        verb(cx, Intent::Open(Open { thread, url }));
         return;
     }
     verb(

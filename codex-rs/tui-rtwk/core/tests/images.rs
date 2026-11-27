@@ -1,7 +1,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use codex_tui_core::app::effects::{Ask, Done, ImageSnapshot};
-use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Ingress, Intent, apply_app};
+use codex_tui_core::app::effects::{Ask, Done, ImageRead, ImageRevision, ImageSize, ImageSnapshot};
+use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Ingress, Intent, Now, apply_app};
 use codex_tui_core::features::{InterestStep, images};
 use codex_tui_core::ids::{BackendId, ItemId, ThreadId, TurnId};
 use codex_tui_core::rpc::{Address, Reply};
@@ -35,10 +35,10 @@ fn ready() -> (CodexApp, images::Interest) {
     let interest = images::Interest {
         source: images::Source {
             thread,
-            item: ItemKey {
+            kind: images::SourceKind::Transcript(ItemKey {
                 turn: TurnId::new("turn-1"),
                 item: ItemId::new("image-1"),
-            },
+            }),
             path: "/tmp/artifact.png".to_owned(),
         },
         preview: None,
@@ -65,6 +65,7 @@ fn snapshot_request(fx: &AppFx, source: &images::Interest) -> u64 {
                         thread,
                         path,
                         preview,
+                        ..
                     },
                 ..
             } => {
@@ -153,10 +154,10 @@ fn close(app: &mut CodexApp, source: &images::Interest) {
 fn image_answer(request: u64, url: &str) -> AppEv {
     AppEv::Effect {
         request,
-        done: Done::ImageSnapshot(ImageSnapshot {
+        done: Done::ImageSnapshot(ImageRead::Snapshot(ImageSnapshot {
             link: Some(url.to_owned()),
-            preview: None,
-        }),
+            ..Default::default()
+        })),
     }
 }
 
@@ -182,10 +183,10 @@ fn the_open_action_requires_a_held_local_link_of_its_source_thread() {
     step(&mut app, image_answer(current, link));
     let open = |thread: ThreadId, url: &str| {
         AppEv::Intent(Intent::Feature(
-            images::Open {
+            images::Intent::Open(images::Open {
                 thread,
                 url: url.to_owned(),
-            }
+            })
             .into(),
         ))
     };
@@ -211,5 +212,59 @@ fn the_open_action_requires_a_held_local_link_of_its_source_thread() {
         step(&mut app, open(source.source.thread, link))
             .commands()
             .is_empty()
+    );
+}
+
+#[test]
+fn mounted_attachment_refresh_is_conditional_and_cannot_outlive_its_interest() {
+    let (mut app, mut source) = ready();
+    source.source.kind = images::SourceKind::Attachment(7);
+    source.preview = Some(ImageSize {
+        width: 48,
+        height: 48,
+    });
+    let answer = |request, result| AppEv::Effect {
+        request,
+        done: Done::ImageSnapshot(result),
+    };
+    let clock = |millis| AppEv::Clock(Now::at_millis(millis));
+    let snapshot = |revision| {
+        ImageRead::Snapshot(ImageSnapshot {
+            revision: Some(ImageRevision(revision)),
+            ..Default::default()
+        })
+    };
+
+    let initial = raise(&mut app, &source);
+    step(&mut app, answer(initial, snapshot(24)));
+    assert!(step(&mut app, clock(999)).commands().is_empty());
+    let fx = step(&mut app, clock(1000));
+    let pending = snapshot_request(&fx, &source);
+    assert!(fx.commands().iter().any(|command| matches!(
+        command,
+        Command::Effect {
+            ask: Ask::ImageSnapshot {
+                previous: Some(ImageRevision(24)),
+                ..
+            },
+            ..
+        }
+    )));
+    assert!(step(&mut app, clock(2000)).commands().is_empty());
+    step(&mut app, answer(pending, ImageRead::Unchanged));
+    assert_eq!(
+        app.features().images.snapshot(&source).unwrap().revision,
+        Some(ImageRevision(24))
+    );
+
+    let late = snapshot_request(&step(&mut app, clock(3000)), &source);
+    close(&mut app, &source);
+    assert!(step(&mut app, clock(4000)).commands().is_empty());
+    let reopened = raise(&mut app, &source);
+    step(&mut app, answer(reopened, snapshot(25)));
+    step(&mut app, answer(late, snapshot(26)));
+    assert_eq!(
+        app.features().images.snapshot(&source).unwrap().revision,
+        Some(ImageRevision(25))
     );
 }
