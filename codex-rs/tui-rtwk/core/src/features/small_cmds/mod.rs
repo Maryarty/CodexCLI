@@ -319,8 +319,10 @@ impl Feature for SmallCmds {
         state.ide.shown();
     }
 
-    fn on_connection(state: &mut State, _connection: Connection, _cx: &mut AppCx<'_>) {
-        state.ide.reset();
+    fn on_connection(state: &mut State, connection: Connection, _cx: &mut AppCx<'_>) {
+        if connection == Connection::ShuttingDown {
+            state.ide.retire();
+        }
     }
 
     fn effect_done(state: &mut State, ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {

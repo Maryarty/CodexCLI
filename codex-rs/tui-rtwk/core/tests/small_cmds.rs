@@ -5,7 +5,7 @@
 //! what is IO, and its answers are the notes of the thread in use. The words are the view's.
 
 use codex_tui_core::app::effects::{Ask, Done};
-use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
+use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Ingress, Intent, apply_app};
 use codex_tui_core::commands::{SessionIntent, SlashCommand};
 use codex_tui_core::features::small_cmds::{
     Command as Wanted, DaybreakFailure, DefaultFailure, Fact, IdeFailure, IdeReading,
@@ -13,8 +13,8 @@ use codex_tui_core::features::small_cmds::{
 };
 use codex_tui_core::features::{self, FeatureCommand, FeatureIntent, FeatureNote, FeatureWish};
 use codex_tui_core::fixtures::script::build;
-use codex_tui_core::ids::{ThreadId, Ticket};
-use codex_tui_core::rpc::Reply;
+use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
+use codex_tui_core::rpc::{Address, Reply};
 use codex_tui_core::screens::{ScreenIntent, chat};
 use codex_tui_core::threads::daybreak::{Access, ModelAccess, Programs};
 use codex_tui_core::threads::{Item as Entry, Note, NoteKey};
@@ -250,6 +250,170 @@ fn ide_off_and_disconnect_retire_exact_pending_reads() {
     ide_reply(&mut app, third, Ok(ready));
     assert!(!app.features().small_cmds.ide.enabled);
     assert_eq!(notes(&app), vec![SmallNote::IdeOff]);
+}
+
+#[test]
+fn ide_request_accepts_only_its_owner_address_and_expected_receipt() {
+    let mut app = ide_app();
+    let local = BackendId::default();
+    let foreign = BackendId(9);
+    let foreign_epoch = app.attach_backend(foreign);
+    let epoch = app.epoch();
+    let fx = ide(&mut app, "on");
+    let command = fx
+        .commands()
+        .iter()
+        .find(|command| {
+            matches!(
+                command,
+                Command::Effect {
+                    ask: Ask::IdeContext { .. },
+                    ..
+                }
+            )
+        })
+        .expect("the IDE read");
+    let Command::Effect { request, .. } = command else {
+        unreachable!()
+    };
+    let request = *request;
+    assert_eq!(
+        app.dispatch_route(command, None),
+        Some((
+            local,
+            Some(Address {
+                backend: local,
+                epoch
+            })
+        ))
+    );
+    let ready = |request| AppEv::Effect {
+        request,
+        done: Done::IdeContext(Ok(IdeReading { has_context: true })),
+    };
+    assert!(
+        app.ingest(Ingress::transport_event(
+            foreign,
+            foreign_epoch,
+            foreign_epoch,
+            ready(request)
+        ))
+        .is_none()
+    );
+    assert!(
+        app.ingest(Ingress::transport_event(
+            local,
+            epoch,
+            epoch,
+            AppEv::Effect {
+                request,
+                done: Done::ImageSnapshot(Default::default()),
+            }
+        ))
+        .is_none()
+    );
+    assert!(!app.features().small_cmds.ide.enabled);
+    assert!(
+        app.ingest(Ingress::transport_event(
+            local,
+            epoch,
+            epoch,
+            ready(request)
+        ))
+        .is_some()
+    );
+    assert!(app.features().small_cmds.ide.enabled);
+    assert!(
+        app.ingest(Ingress::transport_event(
+            local,
+            epoch,
+            epoch,
+            ready(request)
+        ))
+        .is_none()
+    );
+    assert_eq!(notes(&app), vec![SmallNote::IdeOn { has_context: true }]);
+}
+
+#[test]
+fn ide_pending_read_retires_on_physical_transport_replacement() {
+    let mut app = ide_app();
+    let backend = BackendId::default();
+    let connector = app.epoch();
+    let next = connector.next();
+    let old = ide_request(&mut app, "on");
+    assert!(
+        app.ingest(Ingress::transport_replaced(backend, connector, next))
+            .is_some()
+    );
+    let ready = |request| AppEv::Effect {
+        request,
+        done: Done::IdeContext(Ok(IdeReading { has_context: false })),
+    };
+    assert!(
+        app.ingest(Ingress::transport_event(
+            backend,
+            connector,
+            connector,
+            ready(old)
+        ))
+        .is_none()
+    );
+    assert!(
+        app.ingest(Ingress::transport_event(
+            backend,
+            connector,
+            next,
+            ready(old)
+        ))
+        .is_none()
+    );
+    assert!(!app.features().small_cmds.ide.enabled);
+    let current = ide_request(&mut app, "on");
+    assert!(
+        app.ingest(Ingress::transport_event(
+            backend,
+            connector,
+            next,
+            ready(current)
+        ))
+        .is_some()
+    );
+    assert!(app.features().small_cmds.ide.enabled);
+    assert_eq!(notes(&app), vec![SmallNote::IdeOn { has_context: false }]);
+}
+
+#[test]
+fn ide_read_from_an_old_visit_cannot_light_the_footer_after_returning() {
+    let mut app = ide_app();
+    let request = ide_request(&mut app, "on");
+    let start = command(
+        &mut app,
+        SlashCommand::New,
+        SessionIntent::New { name: None },
+    );
+    let ticket = start
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::StartThread { ticket, .. } => Some(*ticket),
+            _ => None,
+        })
+        .expect("a new conversation request");
+    let other = ThreadId::new("thread-2");
+    run(
+        &mut app,
+        AppEv::Reply(ticket, Reply::thread_started(other.clone())),
+    );
+    assert_eq!(app.session().active.as_ref(), Some(&other));
+    run(
+        &mut app,
+        AppEv::Intent(Intent::OpenThread(ThreadId::new(T))),
+    );
+    assert_eq!(app.session().active.as_ref().map(ThreadId::as_str), Some(T));
+    ide_reply(&mut app, request, Ok(IdeReading { has_context: true }));
+    assert!(!app.features().small_cmds.ide.enabled);
+    assert!(notes(&app).is_empty());
 }
 
 fn access(eligible: bool, daybreak: bool) -> Access {

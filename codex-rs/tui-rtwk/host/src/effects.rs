@@ -288,6 +288,7 @@ pub(crate) struct Link {
     pub ingress: IngressTx,
     pub epoch: ConnEpoch,
     pub codex_home: PathBuf,
+    pub workspace_local: bool,
 }
 
 /// The executors that are this host's own: the git lists, the background server, the editor, the
@@ -304,7 +305,10 @@ impl HostDoors for Own<'_> {
 
     async fn ide_context(&self, _thread: ThreadId, cwd: String) -> Option<Self::Out> {
         let read = match self.link {
-            Some(link) if link.startup.target != crate::startup::Target::Remote => {
+            Some(link)
+                if link.workspace_local
+                    && link.startup.target != crate::startup::Target::Remote =>
+            {
                 crate::small::read_ide_context(PathBuf::from(cwd), link.codex_home.clone()).await
             }
             _ => Err(crate::small::ide_unavailable()),

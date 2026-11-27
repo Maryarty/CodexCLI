@@ -1,7 +1,7 @@
 //! Ownership of the IDE read requested by `/ide`.
 
 use crate::app::effects::Ask;
-use crate::features::AppCx;
+use crate::features::{AppCx, AppView};
 use crate::ids::{BackendId, ThreadId};
 
 use super::{Ctx, IdeFailure, IdeReading, Note};
@@ -22,6 +22,10 @@ struct Owner {
 }
 
 impl Ide {
+    pub(crate) fn retire(&mut self) {
+        self.reset();
+    }
+
     pub(super) fn reset(&mut self) {
         self.generation = self.generation.wrapping_add(1);
         self.enabled = false;
@@ -69,18 +73,15 @@ impl Ide {
 
     fn probe(&mut self, source: Option<ThreadId>, cx: &mut AppCx<'_>) {
         let view = cx.view();
-        let Some(thread) = source.filter(|thread| view.active() == Some(thread)) else {
+        let Some(thread) = source else {
             return cx.note(None, Note::IdeNoLocalWorkspace);
         };
-        let backend = view.screens().agents.owner_of(thread.as_str());
-        let cwd = view.working_directory(Some(&thread));
-        if backend != BackendId::default()
-            || view.screens().agents.is_cloud(backend)
-            || cwd.is_empty()
-        {
-            self.reset();
+        let Some(cwd) = workspace(view, &thread) else {
+            if view.active() == Some(&thread) {
+                self.reset();
+            }
             return cx.note(Some(thread), Note::IdeNoLocalWorkspace);
-        }
+        };
 
         self.reset();
         self.owner = Some(Owner {
@@ -114,7 +115,7 @@ impl Ide {
         else {
             return;
         };
-        if view.active() != Some(&thread) || view.working_directory(Some(&thread)) != owner.cwd {
+        if workspace(view, &thread).as_deref() != Some(owner.cwd.as_str()) {
             self.reset();
             return;
         }
@@ -134,4 +135,18 @@ impl Ide {
             }
         }
     }
+}
+
+fn workspace(view: AppView<'_>, thread: &ThreadId) -> Option<String> {
+    let agents = &view.screens().agents;
+    let backend = agents.owner_of(thread.as_str());
+    if view.active() != Some(thread)
+        || view.thread(thread).is_none()
+        || backend != BackendId::default()
+        || agents.is_cloud(backend)
+    {
+        return None;
+    }
+    let cwd = view.working_directory(Some(thread));
+    (!cwd.is_empty()).then_some(cwd)
 }
