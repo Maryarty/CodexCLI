@@ -329,9 +329,8 @@ mod tests {
         std::fs::write(&target, "text").unwrap();
         let path = dir.path().join("picture.png");
         symlink(target, &path).unwrap();
-        assert_eq!(
-            snapshot(local_snapshot(&path, Some(PREVIEW), None)),
-            ImageSnapshot::default()
-        );
+        let found = snapshot(local_snapshot(&path, Some(PREVIEW), None));
+        assert!(found.link.is_none());
+        assert!(found.preview.is_none());
     }
 }

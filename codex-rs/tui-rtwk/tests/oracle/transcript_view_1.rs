@@ -940,11 +940,17 @@ fn fullscreen_composer_scrolls_without_moving_caret_or_transcript() {
 // ORACLE app/owned_transcript_tests.rs:2055 composer_thumbnails_follow_draft_deletion_and_resize kind=snap owner=chat-live snap=composer_thumbnail_strip
 #[test]
 fn composer_thumbnails_follow_draft_deletion_and_resize() {
+    let clock = |millis| format!("{{\"step\":\"clock\",\"millis\":{millis}}}\n");
     for owned in [false, true] {
         let portrait = kit::image_file_sized("composer-portrait.png", 4, 400);
         let panorama = kit::image_file_sized("composer-panorama.png", 400, 1);
         let open = Screen::build(Owner::ChatLive).size(20, 24).kitty();
-        let mut s = if owned { open.owned_transcript() } else { open }.open();
+        let mut s = if owned {
+            open.owned_transcript()
+        } else {
+            open.inline(&[])
+        }
+        .open();
         s.attach_image_path(&portrait)
             .keys("home")
             .attach_image_path(&panorama)
@@ -961,7 +967,7 @@ fn composer_thumbnails_follow_draft_deletion_and_resize() {
 
         let earlier = s.thumbnail_bytes(0);
         kit::rewrite_image_file(&portrait, 4, 400);
-        s.wait(2000);
+        s.feed(&clock(2_000_000_000_000_i64));
         s.assert_thumbnails(60, &[(1, 3), (6, 1)]);
         s.assert_thumbnail_changed(0, earlier);
 
@@ -975,7 +981,12 @@ fn composer_thumbnails_follow_draft_deletion_and_resize() {
         s.assert_thumbnails(60, &[(6, 1)]);
 
         let open = Screen::build(Owner::ChatLive).size(60, 24);
-        let mut s = if owned { open.owned_transcript() } else { open }.open();
+        let mut s = if owned {
+            open.owned_transcript()
+        } else {
+            open.inline(&[])
+        }
+        .open();
         s.attach_image_path(&portrait).attach_image_path(&panorama);
         s.assert_thumbnails(60, &[]);
         s.assert_contains("[Image #1][Image #2]");
