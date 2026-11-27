@@ -959,6 +959,11 @@ fn patch_disclosure_preserves_manual_scrolling() {
         s.feed(APPROVAL);
         s.assert_in_order(&["approval-patch.txt", "+ Show details", PROMPT]);
         s.click_text("+ Show details");
+        // The approval takes the bottom rows, so the expanded control can sit just below
+        // the manually held viewport. Scroll one row to reach it in the ordinary list.
+        if s.grid().locate("Hide details").is_none() {
+            s.wheel_down(1, 1, 1);
+        }
         s.assert_in_order(&["approval-patch.txt", "patch line five", "Hide details"]);
         s.assert_contains(PROMPT);
         s.assert_no_resolved_requests();
