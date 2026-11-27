@@ -23,6 +23,7 @@ use codex_tui_core::app::effects::DaemonAsk;
 use codex_tui_core::app::effects::Done;
 use codex_tui_core::app::effects::EditorFailure;
 use codex_tui_core::app::effects::HostDoors;
+use codex_tui_core::app::effects::IdeReading;
 use codex_tui_core::app::effects::run_ask;
 use codex_tui_core::app::facts::Rendering;
 use codex_tui_core::app::facts::TuiSettings;
@@ -313,7 +314,7 @@ impl HostDoors for Own<'_> {
             }
             _ => Err(crate::small::ide_unavailable()),
         };
-        let read = read.map(|context| codex_tui_core::features::small_cmds::IdeReading {
+        let read = read.map(|context| IdeReading {
             has_context: context.is_some(),
         });
         Some(Outcome::Effect(Done::IdeContext(read), None))

@@ -5,12 +5,15 @@
 //! `chat_composer.rs`: `handle_paste_image_path`). The file is looked at
 //! here, in a service, never in a view.
 
-use std::fs::{File, OpenOptions};
+use std::fs::{File, Metadata, OpenOptions};
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use codex_tui_core::app::effects::{ImagePreview, ImageSize, ImageSnapshot};
+use codex_tui_core::app::effects::{
+    ImagePreview, ImageRead, ImageRevision, ImageSize, ImageSnapshot,
+};
 use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, Limits};
 use url::Url;
 
@@ -18,29 +21,72 @@ const MAX_FILE_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_DECODE_BYTES: u64 = 32 * 1024 * 1024;
 
 /// The host's worker for local reads. Keep simultaneous optional raster decodes bounded.
-pub async fn read_local_snapshot(path: String, preview: Option<ImageSize>) -> ImageSnapshot {
+pub async fn read_local_snapshot(
+    path: String,
+    preview: Option<ImageSize>,
+    previous: Option<ImageRevision>,
+) -> ImageRead {
     static READERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
     let Ok(permit) = READERS.acquire().await else {
-        return ImageSnapshot::default();
+        return ImageRead::Unavailable;
     };
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        local_snapshot(Path::new(&path), preview)
+        local_snapshot(Path::new(&path), preview, previous)
     })
     .await
     .unwrap_or_default()
 }
 
-/// Read one snapshot of a path whose workspace the host has already verified as local.
-/// No path-only cache is shared between requests, so rereading the same path sees a rewrite.
-pub fn local_snapshot(path: &Path, preview: Option<ImageSize>) -> ImageSnapshot {
+/// Read a file from a workspace the host has verified is local. A conditional read can
+/// confirm the previous file revision from metadata without decoding another image.
+pub fn local_snapshot(
+    path: &Path,
+    preview: Option<ImageSize>,
+    previous: Option<ImageRevision>,
+) -> ImageRead {
     let Some((target, url)) = local_image_target(path) else {
-        return ImageSnapshot::default();
+        return ImageRead::Snapshot(ImageSnapshot::default());
     };
     let link = (ImageFormat::from_path(path).is_ok() && ImageFormat::from_path(&target).is_ok())
         .then(|| url.to_string());
-    let preview = preview.and_then(|size| read_preview(&target, size));
-    ImageSnapshot { link, preview }
+    let (revision, preview) = if let Some(size) = preview
+        && let Some(file) = open_image(&target)
+        && let Ok(metadata) = file.metadata()
+        && metadata.is_file()
+    {
+        let revision = image_revision(&target, &metadata);
+        if revision.is_some() && revision == previous {
+            return ImageRead::Unchanged;
+        }
+        (revision, read_preview(file, metadata.len(), size))
+    } else {
+        (None, None)
+    };
+    ImageRead::Snapshot(ImageSnapshot {
+        link,
+        preview,
+        revision,
+    })
+}
+
+fn image_revision(path: &Path, metadata: &Metadata) -> Option<ImageRevision> {
+    let mut version = DefaultHasher::new();
+    path.hash(&mut version);
+    metadata.len().hash(&mut version);
+    metadata.modified().ok()?.hash(&mut version);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        (
+            metadata.dev(),
+            metadata.ino(),
+            metadata.ctime(),
+            metadata.ctime_nsec(),
+        )
+            .hash(&mut version);
+    }
+    Some(ImageRevision(version.finish()))
 }
 
 fn local_image_target(path: &Path) -> Option<(PathBuf, Url)> {
@@ -67,12 +113,7 @@ fn local_image_target(path: &Path) -> Option<(PathBuf, Url)> {
     (url.host().is_none() && target.is_file()).then_some((target, url))
 }
 
-fn read_preview(path: &Path, bound: ImageSize) -> Option<ImagePreview> {
-    let width = u32::from(bound.width.min(384));
-    let height = u32::from(bound.height.min(160));
-    if width == 0 || height == 0 {
-        return None;
-    }
+fn open_image(path: &Path) -> Option<File> {
     let mut open = OpenOptions::new();
     open.read(true);
     #[cfg(unix)]
@@ -87,9 +128,13 @@ fn read_preview(path: &Path, bound: ImageSize) -> Option<ImagePreview> {
         const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
         open.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
-    let file = open.open(path).ok()?;
-    let metadata = file.metadata().ok()?;
-    if !metadata.is_file() || metadata.len() > MAX_FILE_BYTES {
+    open.open(path).ok()
+}
+
+fn read_preview(file: File, bytes_on_disk: u64, bound: ImageSize) -> Option<ImagePreview> {
+    let width = u32::from(bound.width.min(384));
+    let height = u32::from(bound.height.min(160));
+    if width == 0 || height == 0 || bytes_on_disk > MAX_FILE_BYTES {
         return None;
     }
     let mut bytes = Vec::new();
@@ -215,6 +260,13 @@ mod tests {
         height: 96,
     };
 
+    fn snapshot(read: ImageRead) -> ImageSnapshot {
+        match read {
+            ImageRead::Snapshot(snapshot) => snapshot,
+            other => panic!("expected a file snapshot, got {other:?}"),
+        }
+    }
+
     #[test]
     fn same_path_rewrite_gives_new_bounded_pixels_and_the_same_safe_link() {
         let dir = tempfile::tempdir().unwrap();
@@ -225,9 +277,15 @@ mod tests {
                 .unwrap();
         };
         write([255, 0, 0, 255]);
-        let first = local_snapshot(&path, Some(PREVIEW));
+        let first = snapshot(local_snapshot(&path, Some(PREVIEW), None));
+        assert!(first.revision.is_some());
+        assert_eq!(
+            local_snapshot(&path, Some(PREVIEW), first.revision),
+            ImageRead::Unchanged
+        );
         write([0, 0, 255, 255]);
-        let second = local_snapshot(&path, Some(PREVIEW));
+        let second = snapshot(local_snapshot(&path, Some(PREVIEW), first.revision));
+        assert_ne!(first.revision, second.revision);
 
         assert_eq!(first.link, second.link);
         assert!(
@@ -256,7 +314,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("large.png");
         image::RgbImage::new(4000, 3000).save(&path).unwrap();
-        let snapshot = local_snapshot(&path, Some(PREVIEW));
+        let snapshot = snapshot(local_snapshot(&path, Some(PREVIEW), None));
         assert!(snapshot.link.is_some());
         assert!(snapshot.preview.is_none());
     }
@@ -271,9 +329,8 @@ mod tests {
         std::fs::write(&target, "text").unwrap();
         let path = dir.path().join("picture.png");
         symlink(target, &path).unwrap();
-        assert_eq!(
-            local_snapshot(&path, Some(PREVIEW)),
-            ImageSnapshot::default()
-        );
+        let found = snapshot(local_snapshot(&path, Some(PREVIEW), None));
+        assert!(found.link.is_none());
+        assert!(found.preview.is_none());
     }
 }

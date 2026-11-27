@@ -118,7 +118,7 @@ mod tests {
             "activeFile": {
                 "label": "main.rs",
                 "path": "雪".repeat(MAX_ACTIVE_FILE_PATH_BYTES),
-                "selection": range.clone(),
+                "selection": range,
                 "selections": vec![range; 100],
                 "activeSelectionContent": "a".repeat(MAX_ACTIVE_SELECTION_CHARS + 10),
             },

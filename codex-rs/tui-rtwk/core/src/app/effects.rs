@@ -21,7 +21,6 @@ mod capability;
 
 use super::Command;
 use crate::features::FeatureCtx;
-use crate::features::small_cmds::{IdeFailure, IdeReading};
 use crate::ids::{RequestKey, ThreadId, Ticket};
 use crate::rpc::Address;
 use crate::screens::approvals::verify::{AttemptId, Cause, Verifications};
@@ -138,6 +137,34 @@ impl Eq for ImagePreview {}
 pub struct ImageSnapshot {
     pub link: Option<String>,
     pub preview: Option<ImagePreview>,
+    pub revision: Option<ImageRevision>,
+}
+
+/// A file identity and modification stamp produced by the local image reader.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ImageRevision(pub u64);
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum ImageRead {
+    /// This workspace or host does not support the read.
+    #[default]
+    Unavailable,
+    Snapshot(ImageSnapshot),
+    /// The previous revision still identifies the file in this read.
+    Unchanged,
+}
+
+/// Whether the local IDE's successful read included a selection or tabs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IdeReading {
+    pub has_context: bool,
+}
+
+/// The extension's failure hints for enabling IDE context or sending a message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IdeFailure {
+    pub hint: String,
+    pub skip_hint: String,
 }
 
 /// One edit of the user's config file (`config/batchWrite`: a dotted key path and its new value,
@@ -218,8 +245,12 @@ host_capability_list! {
     clipboard_text => ClipboardText -> new ClipboardText(Result<String, String>);
     /// Check whether a workspace image is a trustworthy local file, optionally reading a
     /// bounded preview. Paths from remote workspaces cannot be resolved on the client.
-    image_snapshot => ImageSnapshot { thread: ThreadId, path: String, preview: Option<ImageSize> }
-        by thread -> new ImageSnapshot(ImageSnapshot);
+    image_snapshot => ImageSnapshot {
+        thread: ThreadId,
+        path: String,
+        preview: Option<ImageSize>,
+        previous: Option<ImageRevision>,
+    } by thread -> new ImageSnapshot(ImageRead);
     /// Probe the extension for a local workspace. Only its availability and whether it has
     /// context cross this reply; the extension's selection stays in the host.
     ide_context => IdeContext { thread: ThreadId, cwd: String }

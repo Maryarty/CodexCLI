@@ -30,7 +30,8 @@ use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::threads::Tone;
 
-pub use data::{DaybreakFailure, DefaultFailure, IdeFailure, IdeReading, Row, Style};
+pub use crate::app::effects::{IdeFailure, IdeReading};
+pub use data::{DaybreakFailure, DefaultFailure, Row, Style};
 pub use ide::Ide;
 pub use rpcs::{Command, Reply};
 

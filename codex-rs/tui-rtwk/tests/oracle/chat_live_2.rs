@@ -1139,10 +1139,7 @@ fn replayed_mcp_tool_call_stays_active_until_completion() {
 // ORACLE chatwidget/tests/history_replay.rs:1419 failed_repl_mcp_tool_call_preserves_status_and_result kind=snap owner=chat-live
 #[test]
 fn failed_repl_mcp_tool_call_preserves_status_and_result() {
-    kit::pending(
-        Owner::ChatLive,
-        "the cell of a failed REPL tool call (node_repl, cua_repl) is the generic MCP failure cell: `• Failed Inspect workspace` with the result's first text dropped and `+ Show details`, where the oracle draws `• Inspect workspace`, `└ Script failed`, the reformatted JSON, `Script error:` and `+1 line (⌃t to view transcript)` (cells/ mcp cell, chunk-cells)",
-    );
+    const OUTPUT: &str = r#"{"exit_code":0,"output":"ready","chunk_id":"chunk-1"}"#;
     for server in ["node_repl", "cua_repl"] {
         let mut s = Screen::build(Owner::ChatLive)
             .size(80, 24)
@@ -1153,30 +1150,48 @@ fn failed_repl_mcp_tool_call_preserves_status_and_result() {
         s.feed(&item_completed(
             "thread-1",
             mcp_call(
-                "mcp-failed", server, "js", "failed",
+                "mcp-failed",
+                server,
+                "js",
+                "failed",
                 serde_json::json!({"title": "Inspect workspace"}),
                 serde_json::json!({"content": [
                     {"type": "text", "text": "Script failed"},
-                    {"type": "text", "text": r#"{"exit_code":0,"output":"ready","chunk_id":"chunk-1"}"#},
+                    {"type": "text", "text": OUTPUT},
                     {"type": "text", "text": "Script error:\npermission denied"}
                 ], "structuredContent": null, "_meta": null}),
                 serde_json::json!(5),
             ),
         ));
         if server == "cua_repl" {
-            s.assert_snap_region("failed_computer_activity", row_of(&s, "•"), 0);
-            continue;
+            let at = row_of(&s, "• Used computer");
+            s.assert_row(at, "• Used computer · 1 action · 1 failed");
+            s.assert_row(at + 1, "  └ Failed: Inspect workspace — permission denied");
+            s.assert_absent(OUTPUT);
+        } else {
+            let at = row_of(&s, "• Inspect workspace");
+            s.assert_row(at, "• Inspect workspace");
+            s.assert_row(at + 1, "  └ Script failed");
+            s.assert_row(
+                at + 2,
+                r#"    {"exit_code": 0, "output": "ready", "chunk_id": "chunk-1"}"#,
+            );
+            s.assert_row(at + 3, "    Script error:");
+            s.assert_row(at + 4, "    +1 line");
+            s.assert_absent("permission denied");
+            s.click_text("+1 line").wait_for("permission denied");
+            s.click_text("− Hide details").wait_for("+1 line");
         }
-        let at = row_of(&s, "• Inspect workspace");
-        s.assert_row(at, "• Inspect workspace");
-        s.assert_row(at + 1, "  └ Script failed");
-        s.assert_row(
-            at + 2,
-            r#"    {"exit_code": 0, "output": "ready", "chunk_id": "chunk-1"}"#,
-        );
-        s.assert_row(at + 3, "    Script error:");
-        s.assert_row(at + 4, "    +1 line (⌃t to view transcript)");
-        s.assert_text_style("Inspect workspace", "fg=Cyan");
+        s.keys("ctrl+t");
+        s.wait_for(&format!("Called {server}.js("));
+        s.assert_in_order(&[
+            "Inspect workspace",
+            "Script failed",
+            OUTPUT,
+            "Script error:",
+            "permission denied",
+        ]);
+        s.assert_absent("+1 line");
     }
 }
 

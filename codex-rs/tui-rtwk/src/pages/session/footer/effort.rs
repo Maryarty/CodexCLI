@@ -55,9 +55,13 @@ pub(crate) struct Signal {
 /// The effort the status line and the prompt show: the thread's, else the
 /// config's (`effective_reasoning_effort`).
 pub(crate) fn signal<S>(cx: &mut Cx<'_, S>) -> Signal {
-    let (effort, known) = select::<ThreadModel, (Option<String>, bool), _>(cx, |thread| {
+    let (effort, known) = select::<ThreadModel, _, _>(cx, |thread| {
         let part = &thread.screen_slots().chat;
-        (part.effort.clone(), part.cwd.is_some())
+        (
+            part.thread_reasoning()
+                .map(|effort| effort.map(str::to_owned)),
+            part.cwd.is_some(),
+        )
     });
     let (configured, animations) =
         select::<ScreenStates, (Option<String>, bool), _>(cx, |states| {
@@ -65,7 +69,7 @@ pub(crate) fn signal<S>(cx: &mut Cx<'_, S>) -> Signal {
             (facts.effort.clone(), facts.animations)
         });
     Signal {
-        effort: effort.or(configured),
+        effort: effort.unwrap_or(configured),
         known,
         animations,
     }

@@ -4,6 +4,7 @@ use codex_app_server_protocol::{
     ClientRequest, RequestId, SortDirection, ThreadListCwdFilter, ThreadSortKey, ThreadSourceKind,
     TurnItemsView, UserInput,
 };
+use codex_protocol::openai_models::ReasoningEffort;
 use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::ids::{ThreadId, TurnId};
 use codex_tui_core::protocol::{client_request, reply};
@@ -39,7 +40,7 @@ fn configured_model_facts_survive_sparse_thread_announcements_and_submit() {
         resumed
             .reasoning_effort
             .as_ref()
-            .map(|effort| effort.as_str()),
+            .map(ReasoningEffort::as_str),
         Some("high")
     );
 
