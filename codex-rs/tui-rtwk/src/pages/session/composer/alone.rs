@@ -228,6 +228,7 @@ impl State for AloneState {
                         spans: vec![Span::styled(text.to_string(), tokens.dim())],
                         composer: w.ui.composer.clone(),
                         hints: Some(footer),
+                        footer: None,
                     })
                     .child(hints)
                     .into(),

@@ -24,6 +24,7 @@ mod lead;
 mod sparkle;
 pub use sparkle::Sparkle;
 mod status_rows;
+use status_rows::HintRows;
 pub use status_rows::StatusRows;
 pub(crate) mod strings;
 
@@ -158,11 +159,13 @@ impl StatelessWidget for Footer {
             return line;
         }
         let spec = self.spec(cx);
+        let hint_rows = Provider::<HintRows>::maybe_of(cx, true).map(|rows| rows.0);
         LayoutBuilder::new(move |cx, constraints| {
             let seg = segmenter_of(cx);
             spec.row(
                 &|text: &str| seg.width(text),
                 usize::try_from(constraints.max_width).unwrap_or(0),
+                hint_rows,
             )
         })
         .into()
@@ -546,11 +549,17 @@ impl Spec {
     }
 
     /// The footer at `total` cells: the spellings that fit, in one row or two.
-    fn row(&self, width: &dyn Fn(&str) -> usize, total: usize) -> AnyWidget {
+    fn row(
+        &self,
+        width: &dyn Fn(&str) -> usize,
+        total: usize,
+        max_rows: Option<usize>,
+    ) -> AnyWidget {
         let mut hints = self.forms(width);
         let room = room_of(total);
         let labels = labels_of(&hints);
-        let rows = usize::from(hints::desired_rows(&labels, room)).max(1);
+        let rows =
+            usize::from(hints::desired_rows(&labels, room)).min(max_rows.unwrap_or(usize::MAX));
         let layout = hints::fit(&labels, room, rows > 1);
         let separator = || -> AnyWidget { Text::line(SEPARATOR).style(self.tokens.dim()).into() };
         let mut column = Column::new()

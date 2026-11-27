@@ -325,44 +325,56 @@ fn footer_status_line_truncates_to_keep_mode_indicator() {
     s.assert_contains("Plan mode");
 }
 
+fn footer_pr_link(project: &str) -> Screen {
+    let mut s = Screen::build(Owner::UiPane).size(13, 4).live().open();
+    s.feed(
+        &serde_json::json!({
+            "step": "screen", "dir": "chat", "ev": {
+                "status": {"cwd": "/workspace", "project_root": project,
+                    "items": ["project-name", "pull-request-number"]}
+            }
+        })
+        .to_string(),
+    );
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"facts":{"cwd":"/workspace"}}}
+{"step":"screen","dir":"chat","ev":{"facts":{"git_summary":{"request":1,"summary":{"pull_request":{"number":42,"url":"https://example.com/pr/42"}}}}}}"#);
+    s
+}
+
 // ---- oracle: bottom_pane/footer/footer_content_tests.rs (3 screen-level tests here; 0 state tests left to ui-pane)
 // ORACLE bottom_pane/footer/footer_content_tests.rs:11 clipped_links_keep_their_cells_after_a_halfwidth_katakana_grapheme kind=ui owner=ui-pane
 #[test]
 fn clipped_links_keep_their_cells_after_a_halfwidth_katakana_grapheme() {
+    assert_footer_pr_link("ｶﾞ", "ｶﾞ");
     kit::pending(
         Owner::UiPane,
-        "no footer link line: no entry chat/clipped_links_katakana (10x1: `ｶﾞ` linked to the project, ` · `, `PR #42` linked to the PR, clipped with an ellipsis)",
+        "the oracle attaches its own URL to the Katakana project, keeps PR # on the clipped row, and leaves the ellipsis unlinked. The live status line only has a PR destination; the toolkit can give its ellipsis the clipped span's link. The surviving PR cells are verified above",
     );
-    let s = Screen::build(Owner::UiPane)
-        .size(10, 1)
-        .entry("chat", "clipped_links_katakana")
-        .open();
-    s.assert_link("ｶﾞ", "https://example.com/project");
-    s.assert_text_at(2, 0, " · ");
-    s.assert_link("PR #", "https://example.com/pr/42");
-    s.assert_text_at(9, 0, "…");
 }
 
-// ORACLE bottom_pane/footer/footer_content_tests.rs:38 arabic_prefix_keeps_link_on_the_painted_cells_at_exact_fit_and_overflow kind=ui owner=ui-pane
+// ORACLE bottom_pane/footer/footer_content_tests.rs:35 arabic_prefix_keeps_link_on_the_painted_cells_at_exact_fit_and_overflow kind=ui owner=ui-pane
 #[test]
 fn arabic_prefix_keeps_link_on_the_painted_cells_at_exact_fit_and_overflow() {
+    assert_footer_pr_link("لا", "ال");
     kit::pending(
         Owner::UiPane,
-        "no footer link line after an Arabic prefix: no entries chat/arabic_prefix_exact (11x1, `لا · PR #42`) and chat/arabic_prefix_overflow (10x1)",
+        "the live bidi path paints PR #42 on the left of the Arabic prefix. The original snapshot asserts specific PR and ellipsis cell columns in logical order. The surviving PR cells are verified above",
     );
-    let exact = Screen::build(Owner::UiPane)
-        .size(11, 1)
-        .entry("chat", "arabic_prefix_exact")
-        .open();
-    exact.assert_text_at(4, 0, " ");
-    exact.assert_link("PR #42", "https://example.com/pr/42");
-    let overflow = Screen::build(Owner::UiPane)
-        .size(10, 1)
-        .entry("chat", "arabic_prefix_overflow")
-        .open();
-    overflow.assert_text_at(4, 0, " ");
-    overflow.assert_link("PR #", "https://example.com/pr/42");
-    overflow.assert_text_at(9, 0, "…");
+}
+
+fn assert_footer_pr_link(project: &str, painted: &str) {
+    let mut s = footer_pr_link(project);
+    s.assert_row_of(painted, &[" · ", "PR #42"], &[]);
+    s.assert_no_link(painted);
+    s.assert_link("PR #42", "https://example.com/pr/42");
+    s.resize(10, 4);
+    s.assert_link("PR", "https://example.com/pr/42");
+}
+
+#[test]
+fn footer_pr_links_follow_native_painted_cells_through_resize() {
+    assert_footer_pr_link("ｶﾞ", "ｶﾞ");
+    assert_footer_pr_link("لا", "ال");
 }
 
 // ORACLE bottom_pane/footer/footer_content_tests.rs:60 prepared_tree_uses_its_natural_width_and_paints_only_the_footer_viewport kind=snap owner=ui-pane snap=prepared_tree_uses_its_natural_width_and_paints_only_the_footer_viewport
