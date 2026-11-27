@@ -14,16 +14,18 @@ use codex_tui_core::keymap::actions::{
 use codex_tui_core::keymap::{ActionId, Keymap};
 use codex_tui_core::threads::{ThreadModel, UserMessage};
 use rtwk::binding::InputListener;
-use rtwk::controls::Button;
+use rtwk::controls::Pressable;
 use rtwk::focus::{Focus, FocusNode, FocusScope, KeyBindings, KeyCombo, KeyEventResult, KeyPress};
 use rtwk::gestures::{AbsorbPointer, Listener, PointerEvent};
 use rtwk::layout::{
-    BorderType, BoxWidget, Column, CrossAxisAlignment, Expanded, MainAxisSize, Offstage,
-    Positioned, Row, SizedBox, SplitController, SplitPane, SplitView, Stack, StackFit,
+    BorderType, BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize,
+    Offstage, Positioned, Row, SizedBox, SplitController, SplitPane, SplitView, Stack, StackFit,
 };
 use rtwk::overlay::{Dialog, DialogHandle, DialogOptions, close_dialog, show_dialog};
 use rtwk::prelude::HitTestBehavior;
 use rtwk::provider::{Provider, read};
+use rtwk::semantics::{Semantics, SemanticsRole};
+use rtwk::style::Theme;
 use rtwk::widgets::Text;
 use rtwk::{
     AnyWidget, Cx, GlobalKey, Handler, Key, LayoutBuilder, Rebuild, State, StatefulWidget,
@@ -33,7 +35,9 @@ use rtwk_core::input::InputEvent;
 
 use crate::app::{UiApp, view::Hs};
 use crate::features::{self, PageKey};
-use crate::keymap::press::{ResizeKey, horizontal_focus, resize_key};
+use crate::keymap::press::{
+    PaneActivationGuard, PaneActivationKey, ResizeKey, horizontal_focus, resize_key,
+};
 use crate::widgets::thread_ui::ThreadUi;
 
 use super::{Presentation, session_page::Chat};
@@ -276,7 +280,7 @@ impl DockState {
         let cells = self.child_width();
         if before != cells {
             let percent = ((cells * 100 + self.width / 2) / self.width).clamp(1, 99);
-            let percent = u8::try_from(percent).expect("sidebar width is between 1 and 99 percent");
+            let percent = u8::try_from(percent).unwrap_or(99);
             features::save_sidebar_width(cx, percent);
         }
     }
@@ -554,6 +558,8 @@ impl State for DockState {
             })
             .collect();
         let key = tell.clone();
+        let activation = read::<PaneActivationGuard, _>(cx);
+        let arm = activation.clone();
         let shown = Focus::new(AbsorbPointer::new().absorbing(resize).child(shown))
             .focus_node(self.resize_focus.clone())
             .skip_traversal(true)
@@ -563,20 +569,30 @@ impl State for DockState {
                 }
                 if let Some(action) = resize_key(&press) {
                     key(match action {
-                        ResizeKey::Finish => Msg::FinishResize,
+                        ResizeKey::Finish(activation) => {
+                            arm.arm(activation);
+                            Msg::FinishResize
+                        }
                         ResizeKey::Step(delta) => Msg::Step(delta),
                     });
                 }
                 KeyEventResult::Handled
             });
         let shown = KeyBindings::new(crate::keymap::first_of_each(keys), shown);
-        InputListener::new(shown, move |event| {
+        let resize_focus = self.resize_focus.clone();
+        InputListener::with_raw_key_repeats(shown, move |event| {
             if let InputEvent::Resize { width, .. } = event
                 && let Ok(width) = i32::try_from(*width)
             {
                 tell(Msg::Width(width));
             }
-            resize && matches!(event, InputEvent::Paste(_))
+            if matches!(event, InputEvent::Focus(false)) {
+                activation.clear();
+            }
+            resize
+                && (matches!(event, InputEvent::Paste(_))
+                    || matches!(event, InputEvent::Key(key)
+                        if resize_focus.has_primary_focus() && PaneActivationKey::repeats(key)))
         })
         .into()
     }
@@ -590,6 +606,8 @@ struct ConfirmClose {
 
 struct ConfirmCloseState {
     on_decision: Option<Handler<bool>>,
+    cancel: FocusNode,
+    close: FocusNode,
 }
 
 impl StatefulWidget for ConfirmClose {
@@ -598,11 +616,53 @@ impl StatefulWidget for ConfirmClose {
     fn create_state(&self) -> Self::State {
         ConfirmCloseState {
             on_decision: Some(self.on_decision.clone()),
+            cancel: FocusNode::new(),
+            close: FocusNode::new(),
         }
     }
 }
 
 impl_widget!(stateful eq ConfirmClose);
+
+impl ConfirmCloseState {
+    fn button(
+        cx: &mut Cx<'_, Self>,
+        label: &'static str,
+        node: &FocusNode,
+        close: bool,
+    ) -> AnyWidget {
+        let guard = read::<PaneActivationGuard, _>(cx);
+        let decide = cx.local_sender();
+        let button = Pressable::new(move |cx, focused| {
+            let theme = Theme::of(cx);
+            let style = if focused {
+                &theme.selection
+            } else {
+                &theme.primary
+            };
+            BoxWidget::new()
+                .padding(EdgeInsets::x(1))
+                .child(Text::line(label).style(style.clone()))
+                .into()
+        })
+        .focus_node(Some(node.clone()))
+        .autofocus(!close)
+        .behavior(HitTestBehavior::Opaque)
+        .on_tap(cx.map(move |_| close))
+        .on_key_event(move |_, press| {
+            let Some(key) = PaneActivationKey::of_press(&press) else {
+                return KeyEventResult::Ignored;
+            };
+            guard.arm(key);
+            decide(close && key == PaneActivationKey::Enter);
+            KeyEventResult::Handled
+        });
+        Semantics::new(button)
+            .role(SemanticsRole::Button)
+            .label(label)
+            .into()
+    }
+}
 
 impl State for ConfirmCloseState {
     type Widget = ConfirmClose;
@@ -617,6 +677,8 @@ impl State for ConfirmCloseState {
     }
 
     fn dispose_with(&mut self, cx: &mut Cx<'_, Self>) {
+        self.cancel.dispose();
+        self.close.dispose();
         if let Some(on_decision) = self.on_decision.take() {
             cx.emit(&on_decision, false);
         }
@@ -626,19 +688,20 @@ impl State for ConfirmCloseState {
         let words = super::strings::of(cx);
         let actions = Row::new()
             .main_axis_size(MainAxisSize::Min)
-            .child(
-                Button::new(words.side_close_cancel)
-                    .autofocus(true)
-                    .on_pressed(cx.send(false)),
-            )
-            .child(Button::new(words.side_close).on_pressed(cx.send(true)));
+            .child(Self::button(
+                cx,
+                words.side_close_cancel,
+                &self.cancel,
+                false,
+            ))
+            .child(Self::button(cx, words.side_close, &self.close, true));
         let mut body = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Start);
         for loss in &w.losses {
             body = body.child(Text::new(*loss));
         }
-        Focus::new(Dialog::new(body.child(actions)).title(words.side_close_title))
+        let dialog = Focus::new(Dialog::new(body.child(actions)).title(words.side_close_title))
             .can_request_focus(false)
             .on_key_event(|node, key| {
                 let moved = match horizontal_focus(&key) {
@@ -651,7 +714,14 @@ impl State for ConfirmCloseState {
                 } else {
                     KeyEventResult::Ignored
                 }
-            })
-            .into()
+            });
+        let cancel = self.cancel.clone();
+        let close = self.close.clone();
+        InputListener::with_raw_key_repeats(dialog, move |event| {
+            matches!(event, InputEvent::Key(key)
+                if (cancel.has_primary_focus() || close.has_primary_focus())
+                    && PaneActivationKey::repeats(key))
+        })
+        .into()
     }
 }

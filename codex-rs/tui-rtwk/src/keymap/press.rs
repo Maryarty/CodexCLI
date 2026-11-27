@@ -2,8 +2,12 @@
 //! keypress inspector's raw event): where a `KeyCode` may be matched beside the parent module
 //! (ADR-006). The `/keymap` editor's capture view and inspector use it; their words are theirs.
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use rtwk::focus::KeyPress;
 use rtwk::prelude::{KeyCode, Mods};
+use rtwk_core::input::{KeyEvent, KeyKind};
 
 use codex_tui_core::keymap::{Key, Mods as StrokeMods, Stroke};
 
@@ -100,19 +104,87 @@ pub fn is_escape(key: &KeyPress) -> bool {
 
 /// The fixed controls of the workspace's modal divider preview.
 pub enum ResizeKey {
-    Finish,
+    Finish(PaneActivationKey),
     Step(i32),
 }
 
 pub fn resize_key(key: &KeyPress) -> Option<ResizeKey> {
+    if let Some(activation) = PaneActivationKey::of_press(key) {
+        return Some(ResizeKey::Finish(activation));
+    }
     Some(match (key.code, key.mods, key.ch) {
-        (KeyCode::Escape | KeyCode::Enter, Mods::NONE, _) => ResizeKey::Finish,
         (KeyCode::Left, Mods::SHIFT, _) => ResizeKey::Step(-10),
         (KeyCode::Right, Mods::SHIFT, _) => ResizeKey::Step(10),
         (KeyCode::Left, Mods::NONE, _) | (_, Mods::NONE, Some('h')) => ResizeKey::Step(-1),
         (KeyCode::Right, Mods::NONE, _) | (_, Mods::NONE, Some('l')) => ResizeKey::Step(1),
         _ => return None,
     })
+}
+
+/// A physical key that completes a workspace interaction before the composer regains focus.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum PaneActivationKey {
+    Enter,
+    Escape,
+}
+
+impl PaneActivationKey {
+    fn of(code: KeyCode, mods: Mods) -> Option<Self> {
+        match (code, mods) {
+            (KeyCode::Enter, Mods::NONE) => Some(Self::Enter),
+            (KeyCode::Escape, Mods::NONE) => Some(Self::Escape),
+            _ => None,
+        }
+    }
+
+    pub fn of_press(key: &KeyPress) -> Option<Self> {
+        Self::of(key.code, key.mods)
+    }
+
+    pub fn repeats(event: &KeyEvent<'_>) -> bool {
+        event.kind == KeyKind::Repeat && Self::of(event.code, event.modifiers).is_some()
+    }
+}
+
+/// Held transition keys never activate the next view. Fresh presses still reach it.
+#[derive(Clone, Default)]
+pub(crate) struct PaneActivationGuard(Rc<Cell<Option<PaneActivationKey>>>);
+
+impl PartialEq for PaneActivationGuard {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl PaneActivationGuard {
+    pub(crate) fn arm(&self, key: PaneActivationKey) {
+        self.0.set(Some(key));
+    }
+
+    pub(crate) fn fresh(&self, key: &KeyPress) {
+        if let Some(armed) = self.0.get()
+            && PaneActivationKey::of_press(key) == Some(armed)
+        {
+            self.0.set(None);
+        }
+    }
+
+    pub(crate) fn suppresses(&self, event: &KeyEvent<'_>) -> bool {
+        let Some(armed) = self.0.get() else {
+            return false;
+        };
+        if PaneActivationKey::of(event.code, event.modifiers) != Some(armed) {
+            return false;
+        }
+        if event.kind == KeyKind::Release {
+            self.0.set(None);
+        }
+        event.kind == KeyKind::Repeat
+    }
+
+    pub(crate) fn clear(&self) {
+        self.0.set(None);
+    }
 }
 
 /// The previous/next button of a confirmation controlled by the arrow keys.

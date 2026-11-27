@@ -8,6 +8,7 @@ use std::rc::Rc;
 use rtwk::binding::{AppBinding, InputListener};
 use rtwk::focus::{Focus, KeyBindings, KeyEventResult, KeyPress};
 use rtwk::layout::Stack;
+use rtwk::provider::Provider;
 use rtwk::{AnyWidget, Cx, Key};
 use rtwk_core::input::{InputEvent, KeyKind};
 
@@ -20,6 +21,7 @@ use codex_tui_core::keymap::actions::{
 };
 use codex_tui_core::keymap::fixed;
 
+use crate::keymap::press::PaneActivationGuard;
 use crate::keymap::{chords_of, holds_ctrl_or_alt, pressed_fixed, unmodified};
 use crate::pages::session::composer::editing::completes_editor_chord;
 use crate::pages::session::composer::vim;
@@ -69,7 +71,11 @@ pub(super) fn install(state: &mut ChatState, workspace: bool, cx: &mut Cx<'_, Ch
     let clock = AppBinding::maybe_of(cx).map(|binding| binding.clock());
     let (banner, blocked) = (state.banner.clone(), state.banner_blocked.clone());
     let keymap = state.keymap.clone();
+    let activation = Provider::<PaneActivationGuard>::maybe_of(cx, false);
     state.node.set_on_key_event(Some(Rc::new(move |_, key| {
+        if let Some(activation) = &activation {
+            activation.fresh(&key);
+        }
         // the menu of `/presets` is open: its keys come first, any other key closes it and goes on
         // to the field (`handle_quick_dial_menu`)
         if banner.quick_menu.get() {
@@ -565,12 +571,20 @@ pub(super) fn focus(
     let menu = state.banner.quick_menu.clone();
     let submit_on_enter = crate::keymap::press_for(fixed::ENTER)
         .is_some_and(|key| crate::keymap::pressed(keymap, COMPOSER_SUBMIT, &key));
+    let activation = Provider::<PaneActivationGuard>::maybe_of(cx, false);
     // Ordinary Enter returns an empty composer to the latest row. The native
     // focus path treats repeats as presses, so filter this gesture before it.
     InputListener::with_raw_key_repeats(focus, move |event| {
         let InputEvent::Key(key) = event else {
             return false;
         };
+        if activation
+            .as_ref()
+            .is_some_and(|guard| guard.suppresses(key))
+            && node.has_primary_focus()
+        {
+            return true;
+        }
         key.kind == KeyKind::Repeat
             && submit_on_enter
             && crate::keymap::event_is_fixed(fixed::ENTER, key)

@@ -79,7 +79,13 @@ fn width_writes(h: &Harness) -> Vec<(u64, u64)> {
             } => edits
                 .iter()
                 .find(|edit| edit.key_path == "tui.sidebar_width_percent")
-                .map(|edit| (request, edit.value.as_u64().expect("an integer width"))),
+                .map(|edit| {
+                    let width = edit
+                        .value
+                        .as_u64()
+                        .unwrap_or_else(|| panic!("width must be an integer: {:?}", edit.value));
+                    (request, width)
+                }),
             _ => None,
         })
         .collect()
@@ -367,7 +373,22 @@ fn closing_a_side_chat_asks_before_losing_either_draft_or_temporary_history() {
         };
         h.press("f12 c");
         assert!(h.t.screen().contains(loss), "{}", h.t.screen());
-        h.press("esc");
+        if history {
+            h.press("esc");
+        } else {
+            let cancel =
+                h.t.lines()
+                    .iter()
+                    .enumerate()
+                    .find_map(|(row, line)| {
+                        line.find("Cancel")
+                            .map(|at| (line[..at].chars().count(), row))
+                    })
+                    .unwrap_or_else(|| panic!("missing Cancel:\n{}", h.t.screen()));
+            h.t.click(cancel.0 as u16, cancel.1 as u16);
+            h.advance(100);
+            assert!(!h.t.screen().contains(loss));
+        }
         let kept = if history {
             "temporary answer"
         } else {
@@ -407,4 +428,37 @@ fn closing_a_running_side_chat_names_the_interrupted_turn() {
             .iter()
             .any(|request| request["method"] == "turn/interrupt")
     );
+}
+
+#[test]
+fn held_enter_from_resize_or_close_cannot_submit_the_returned_draft() {
+    for (open, mode, release) in [("f12 r", "Resize ·", true), ("f12 c", "Cancel", false)] {
+        let mut h = workspace(true, true);
+        let draft = "keep this draft until a fresh Enter";
+        h.t.type_text(draft);
+        h.advance(120);
+        h.press(open);
+        assert!(h.t.screen().contains(mode));
+
+        h.t.input(b"\x1b[13;1:1u");
+        h.advance(100);
+        assert!(!h.t.screen().contains(mode));
+        h.t.input(b"\x1b[13;1:2u");
+        h.advance(100);
+        let submitted = |h: &Harness| {
+            h.fake.commands().iter().any(|command| {
+                matches!(command, Command::StartTurn { thread, message, .. }
+                    if thread.as_str() == SIDE && message.text == draft)
+            })
+        };
+        assert!(!submitted(&h), "{open} let a held Enter send the draft");
+        assert!(h.t.screen().contains(draft));
+
+        if release {
+            h.t.input(b"\x1b[13;1:3u");
+        }
+        h.t.input(b"\x1b[13;1:1u");
+        h.advance(150);
+        assert!(submitted(&h), "{open} blocked a fresh Enter");
+    }
 }
