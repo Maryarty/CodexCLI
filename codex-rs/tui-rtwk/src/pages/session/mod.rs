@@ -43,6 +43,7 @@ use crate::app::debug::EntryOpen;
 use crate::app::debug::seeded::Seeded;
 
 mod side_pane;
+mod side_tabs;
 pub mod strings;
 
 /// The draft before the first session has no server thread yet.

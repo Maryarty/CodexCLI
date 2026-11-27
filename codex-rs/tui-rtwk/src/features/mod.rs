@@ -27,7 +27,8 @@ use codex_tui_core::commands::SlashCommand;
 use codex_tui_core::feature_list;
 use codex_tui_core::features::settings::SettingId;
 use codex_tui_core::features::{
-    Feature, FeatureIntent, FeatureInterest, FeatureNote, FeatureTarget, FeatureWish, Scope,
+    Feature, FeatureIntent, FeatureInterest, FeatureNote, FeatureStates, FeatureTarget,
+    FeatureWish, Scope,
 };
 use codex_tui_core::ids::{Cwd, ThreadId, TurnId};
 use codex_tui_core::keymap::ActionId;
@@ -270,6 +271,19 @@ pub fn hide_rate_limit_prompt<S: 'static>(cx: &mut Cx<'_, S>) {
 pub(super) fn save_sidebar_width<S: 'static>(cx: &mut Cx<'_, S>, percent: u8) {
     use codex_tui_core::features::settings::{Edit, Intent};
     verb(cx, Intent::Request(Edit::SidebarWidth(percent)));
+}
+
+pub(super) fn side_is_temporary(states: &FeatureStates, child: &ThreadId) -> bool {
+    use codex_tui_core::features::side::Storage;
+    states
+        .side
+        .link(child)
+        .is_some_and(|link| link.storage == Storage::Temporary)
+}
+
+pub(super) fn select_side<S: 'static>(cx: &mut Cx<'_, S>, parent: ThreadId, child: ThreadId) {
+    use codex_tui_core::features::side::Intent;
+    verb(cx, Intent::Select { parent, child });
 }
 
 /// A verb of a feature, from the widget that has the user's decision: the app applies it

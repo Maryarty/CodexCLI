@@ -499,14 +499,7 @@ impl Keymap {
     fn build(spec: &KeymapSpec, strict: bool, workspace: bool) -> Result<Keymap, KeymapError> {
         // Pane shortcuts have no pane to act on (classic mode): they must not
         // claim keys or chord prefixes.
-        // Tab picking belongs to the later multi-chat sidebar. Keep its keys
-        // free while the workspace contains a single peer.
-        let unsupported = ["focus_sidebar_tabs", "sidebar_up", "sidebar_down"];
-        let inactive = if workspace {
-            &unsupported[..]
-        } else {
-            SIDE_PANE
-        };
+        let inactive = if workspace { &[] } else { SIDE_PANE };
         let spec = &spec.without("global", inactive);
         let parsed = parse_configured(spec, strict)?;
         let mut slots = vec![Slot::default(); ROWS.len()];
@@ -866,7 +859,11 @@ impl Keymap {
             let ctrl_c = Stroke::new(Key::Char('c'), Mods::CTRL);
             let hit = reserved.iter().find(|(_, spec)| {
                 let key = Stroke::parse(spec);
-                key == Some(prefix) || key == Some(completion) && (!list || key == Some(ctrl_c))
+                // The tab step acts only after its chord prefix; bare Shift+Tab still cycles mode.
+                let sidebar_step =
+                    *spec == "shift-tab" && *id == ActionId::new(Context::Global, "sidebar_up");
+                key == Some(prefix)
+                    || key == Some(completion) && !sidebar_step && (!list || key == Some(ctrl_c))
             });
             if let Some((reserved_action, _)) = hit {
                 return Err(KeymapError::ChordReserved {
