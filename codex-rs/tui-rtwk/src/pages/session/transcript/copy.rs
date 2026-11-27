@@ -400,11 +400,20 @@ impl Targets {
                     label: table.copy_user,
                     payload: (!shown.text.is_empty()).then(|| shown.text.to_string()),
                 });
+                // The whole prompt uses the displayed text. A fenced block can keep
+                // source CRLF when line endings are the only transformation.
+                let source: &str = if prompt.text.contains("\r\n")
+                    && prompt.text.replace("\r\n", "\n") == shown.text
+                {
+                    &prompt.text
+                } else {
+                    &shown.text
+                };
                 found.extend(literal_blocks(
                     row,
                     &text,
                     (first, last),
-                    &shown.text,
+                    source,
                     table,
                     cutter,
                 ));
@@ -613,19 +622,27 @@ fn literal_blocks(
     for piece in (cutter.pieces)(source) {
         match piece {
             Piece::Code(content) => {
-                let content = content.trim_end_matches('\n');
-                if content.trim().is_empty() {
+                let normalized;
+                let drawn = if content.contains("\r\n") {
+                    normalized = content.replace("\r\n", "\n");
+                    normalized.as_str()
+                } else {
+                    content.as_str()
+                };
+                let drawn = drawn.trim_end_matches('\n');
+                if drawn.trim().is_empty() {
                     continue;
                 }
-                if let Some(at) = text[cursor..last].find(content).map(|at| at + cursor) {
+                if let Some(at) = text[cursor..last].find(drawn).map(|at| at + cursor) {
+                    let end = at + drawn.len();
                     found.push(Target {
                         row,
                         fill: None,
-                        range: at..at + content.len(),
+                        range: at..end,
                         label: table.copy_code,
-                        payload: Some(content.to_owned()),
+                        payload: Some(content),
                     });
-                    cursor = at + content.len();
+                    cursor = end;
                 }
             }
             Piece::Quote {

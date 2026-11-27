@@ -375,13 +375,43 @@ fn fullscreen_markdown_keeps_a_fitting_url_on_one_row() {
 fn command_and_output_copy_preserve_hard_lines_across_resize() {
     kit::pending(
         Owner::ChatLive,
-        "no exec-command entry (a printf command with two output lines) and no detailed-transcript toggle (ctrl+t) in the chat yet",
+        "the exact command and two output hard lines copy at 64 columns. At 24 the compact tool preview truncates both long lines; the retained native range stops owning Ctrl+C and no second clipboard request is sent",
     );
-    let mut s = Screen::build(Owner::ChatLive).size(32, 8).live().open();
-    s.resize(24, 8);
-    s.assert_snap("compact_command_copy");
-    s.keys("ctrl+t");
-    s.assert_snap("detailed_command_copy");
+    const COMMAND: &str = "printf 'alpha beta gamma delta'";
+    const OUTPUT: &str = "  output alpha beta gamma delta\nnext line";
+    const EXPECTED: &str =
+        "printf 'alpha beta gamma delta'\n  output alpha beta gamma delta\nnext line";
+
+    for detailed in [false, true] {
+        let mut s = Screen::build(Owner::ChatLive).size(64, 20).live().open();
+        s.selection_copy_policy(false, false);
+        s.feed(
+            &serde_json::json!({"step":"notify","message":{"method":"item/completed","params":{
+            "threadId":"thread-1","turnId":"turn-1","completedAtMs":0,"item":{
+                "type":"commandExecution","id":"copy-test","command":COMMAND,"cwd":"/work",
+                "processId":null,"source":"agent","status":"completed","commandActions":[],
+                "aggregatedOutput":OUTPUT,"exitCode":0,"durationMs":null
+            }}}})
+            .to_string(),
+        );
+        if detailed {
+            s.keys("ctrl+t");
+        }
+        let grid = s.grid();
+        let (x, _, start) = grid.locate(COMMAND).expect("command starts on screen");
+        let (_, after, end) = grid.locate("next line").expect("output is on screen");
+        s.drag(x as u16, start as u16, (after - 1) as u16, end as u16);
+        s.keys("ctrl+c");
+        s.assert_copies_asked(&[EXPECTED]);
+        s.answer_copy_unconfirmed();
+        s.resize(24, 20);
+        s.keys("ctrl+c");
+        s.assert_copies_asked(&[EXPECTED, EXPECTED]);
+        s.answer_copy_unconfirmed();
+        s.resize(64, 20);
+        s.keys("ctrl+c");
+        s.assert_copies_asked(&[EXPECTED, EXPECTED, EXPECTED]);
+    }
 }
 
 // ---- oracle: transcript_view_tests.rs (34 screen-level tests here; 3 state tests left to chat-live)
@@ -1085,17 +1115,32 @@ fn scrolling_out_of_held_live_content_releases_its_revision() {
 fn repeated_resize_preserves_plain_and_markdown_passages_before_the_next_draw() {
     kit::pending(
         Owner::ChatLive,
-        "no plain or markdown passage entry (forty joined café words) and no reading position kept across repeated resizes in the chat",
+        "a paused production Markdown paragraph loses the reading passage on 18 → 34 → 12 columns: café28 is visible after widening and the narrow view returns to café38 and the tail. The reader needs a source anchor through native reflow",
     );
-    let mut s = Screen::build(Owner::ChatLive).size(18, 3).live().open();
-    s.wheel_up(0, 0, 5);
-    let before = s.shot();
-    s.resize(34, 3);
-    s.assert_contains("café");
-    s.resize(12, 3);
-    s.assert_contains("café");
-    s.resize(18, 3);
-    s.assert_same_rows(&before);
+    let passage = (0..40)
+        .map(|index| format!("café{index:02}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut s = Screen::build(Owner::ChatLive).size(18, 10).live().open();
+    s.live_tail("older entry").commit_live_tail();
+    s.live_tail(&passage).commit_live_tail();
+    s.keys("pageup");
+    let original = s.shot();
+    let first = s
+        .rows()
+        .into_iter()
+        .find_map(|row| {
+            row.split_whitespace()
+                .find(|word| word.starts_with("café"))
+                .map(str::to_owned)
+        })
+        .expect("the visible Unicode passage");
+    s.resize(34, 10);
+    s.assert_contains(&first);
+    s.resize(12, 10);
+    s.assert_contains(&first);
+    s.resize(18, 10);
+    s.assert_same_rows_in(&original, 0..5);
 }
 
 // ORACLE transcript_view_tests.rs:1175 resizing_repeated_lines_keeps_the_same_occurrence kind=snap owner=chat-live

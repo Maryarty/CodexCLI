@@ -277,18 +277,35 @@ fn user_code_blocks_preserve_original_line_endings() {
 // ORACLE transcript_view/copy_mode_tests.rs:521 copying_a_disabled_fenced_table_uses_the_original_body kind=ui owner=chat-live
 #[test]
 fn copying_a_disabled_fenced_table_uses_the_original_body() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript draws the fenced md block as text; the tables preference (preferences::init with tables off) is not a kit seed yet",
+    const BODY: &str = "| Name | Value |\r\n|---|---|\r\n| alpha | beta |  \r\n";
+    const MESSAGE: &str = "Intro\n\n```md\n| Name | Value |\n|---|---|\n| alpha | beta |  \n```\n\n```sh\necho done\n```\n";
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/disabled_table.jsonl"),
+        50,
+        15,
     );
-    let s = Screen::build(Owner::ChatLive)
-        .size(50, 12)
-        .script(include_str!(
-            "fixtures/transcript_view_2/disabled_table.jsonl"
-        ))
-        .open();
-    s.assert_contains("```md");
-    // the oracle: the copy payloads (`echo done`, the table body, the whole message) are clipboard text
+    s.rendering(kit::Renderers {
+        tables: false,
+        ..Default::default()
+    });
+    s.assert_in_order(&[
+        "| Name | Value |",
+        "|---|---|",
+        "| alpha | beta |",
+        "echo done",
+    ]);
+    let mut expected = Vec::new();
+    for (keys, payload) in [
+        ("enter", "echo done\r\n"),
+        ("up enter", BODY),
+        ("up up enter", MESSAGE),
+    ] {
+        begin_copy_mode(&mut s);
+        s.keys(keys);
+        expected.push(payload);
+        s.assert_copies_asked(&expected);
+        s.answer_copy(Ok(()));
+    }
 }
 
 #[test]
