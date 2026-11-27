@@ -41,14 +41,20 @@ pub(super) fn refresh_rates(
 ) {
     if origin.folds_into_a_read_in_flight()
         && app.outgoing.any(
-            |ctx| matches!(ctx, AppCtx::RateLimits { backend: target, .. } if *target == backend),
+            |ctx| matches!(ctx, AppCtx::RateLimits { backend: target, superseded: false, .. } if *target == backend),
         )
     {
         return;
     }
-    fx.ask(app, AppCtx::RateLimits { backend, origin }, |_, ticket| {
-        Command::ReadRateLimits { ticket, backend }
-    });
+    fx.ask(
+        app,
+        AppCtx::RateLimits {
+            backend,
+            origin,
+            superseded: false,
+        },
+        |_, ticket| Command::ReadRateLimits { ticket, backend },
+    );
 }
 
 /// `/status` (oracle `SlashCommand::Status`): the card is an entry of the

@@ -235,10 +235,6 @@ fn backend_banner_sparse_updates_preserve_visible_and_dismissed_occurrences() {
 // ORACLE chatwidget/tests/backend_banners_tests.rs:396 backend_banner_changed_remedy_keeps_fallback_until_applicable_replacement kind=ui owner=chat-live
 #[test]
 fn backend_banner_changed_remedy_keeps_fallback_until_applicable_replacement() {
-    kit::pending(
-        Owner::ChatLive,
-        "a change from workspace credits to the usage cap leaves the old Notify owner banner after a rolling update or an error, preventing the workspace fallback",
-    );
     for rolling_update in [false, true] {
         let mut read = banner_response(
             Some("inline"),
@@ -250,6 +246,7 @@ fn backend_banner_changed_remedy_keeps_fallback_until_applicable_replacement() {
         s.assert_contains("Notify owner");
 
         // Keep the full account read in flight until the backend can offer the new remedy.
+        let reads = s.requests_of("account/rateLimits/read");
         let pending = s.hold_request("account/rateLimits/read");
         if rolling_update {
             s.feed(&format!(
@@ -267,19 +264,31 @@ fn backend_banner_changed_remedy_keeps_fallback_until_applicable_replacement() {
         ));
         s.assert_absent("Notify owner");
         s.assert_contains(REQUEST_INCREASE);
+        s.assert_requests_of("account/rateLimits/read", reads + 1);
 
         read["rateLimits"] = exhausted_workspace(USAGE_CAP_REACHED);
         read["rateLimitUpsell"]["title"] = serde_json::json!("Workspace spending cap reached");
         read["rateLimitUpsell"]["ctas"] =
             serde_json::json!([{"action":"request_increase","label":"Request more usage"}]);
         read["rateLimitUpsell"]["model_slug"] = serde_json::json!("test-model-b");
-        s.feed(&(answer(&read) + &model_step("test-model-a", true)));
+        s.feed(&answer(&read));
         s.release(&pending);
         s.assert_contains(REQUEST_INCREASE);
         s.assert_absent("Workspace spending cap reached");
 
+        // A real command approval can cover the fallback when the replacement arrives.
+        const APPROVAL: &str = "Would you like to run the following command?";
+        if rolling_update {
+            s.feed(r#"{"step":"request","message":{"method":"item/commandExecution/requestApproval","id":7,"params":{"kind":"command","itemId":"call-cover","approvalId":"call-cover","environmentId":null,"command":"echo hi","cwd":"/tmp","threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}"#);
+            s.wait_for(APPROVAL);
+        }
         read["rateLimitUpsell"]["model_slug"] = serde_json::json!("test-model-a");
         s.feed(&(answer(&read) + &model_step("test-model-a", true)));
+        if rolling_update {
+            s.assert_contains(APPROVAL);
+            s.keys("esc");
+            s.assert_absent(APPROVAL);
+        }
         s.assert_contains("Workspace spending cap reached");
         s.assert_contains("Request more usage");
         s.assert_absent(REQUEST_INCREASE);

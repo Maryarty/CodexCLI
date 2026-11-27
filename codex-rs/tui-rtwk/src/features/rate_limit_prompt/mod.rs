@@ -26,7 +26,10 @@ impl FeatureView for RateLimitPrompt {
                 offer: offer.clone(),
                 candidate: candidate.clone(),
             },
-            Wish::Nudge(nudge) => Kind::Nudge(*nudge),
+            Wish::Nudge { id, kind } => Kind::Nudge {
+                id: id.clone(),
+                kind: *kind,
+            },
         };
         Some(Shown {
             held_by: None,

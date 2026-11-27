@@ -26,9 +26,12 @@
 //! e-mail is the app's one nudge path (`PublicVerb::NotifyOwner`: its request, its note), and the
 //! words of an owner's limit error are the slice's (`fault_words`).
 
+use std::collections::BTreeMap;
+use std::rc::Rc;
+
 use codex_app_server_protocol::{
-    ClientRequest, CodexErrorInfo, ModelListParams, ModelListResponse, RateLimitReachedType,
-    RateLimitSnapshot, RequestId, ServerNotification,
+    ClientRequest, CodexErrorInfo, ErrorNotification, ModelListParams, ModelListResponse,
+    RateLimitReachedType, RateLimitSnapshot, RequestId,
 };
 
 use super::{AppCx, AppView, FeatureStates, Never, PublicVerb, ThreadView};
@@ -106,6 +109,14 @@ pub struct OfferId {
     generation: u64,
 }
 
+/// The workspace remediation a failure offered, on the connection that reported it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NudgeId {
+    address: Address,
+    thread: ThreadId,
+    generation: u64,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ctx {
     Models(OfferId),
@@ -121,7 +132,9 @@ pub enum Intent {
         effort: Effort,
     },
     /// `Yes` of the workspace nudge: the owner is e-mailed.
-    Nudge(Nudge),
+    Nudge(NudgeId),
+    /// The member declined the request.
+    DeclineNudge(NudgeId),
     /// The switch or recovery prompt is closed (picked, dismissed): nothing keeps a sheet for it.
     Closed(OfferId),
     /// The clock reached the moment the recovery prompt's count changes (the feature's own
@@ -149,24 +162,20 @@ pub enum Wish {
         candidate: Candidate,
     },
     /// The workspace owner is asked for credits or for a higher limit.
-    Nudge(Nudge),
+    Nudge { id: NudgeId, kind: Nudge },
 }
 
 /// What a turn failure of the limit says (`RateLimitErrorKind`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Failure {
+pub(crate) enum Failure {
     UsageLimit,
     Generic,
 }
 
-/// What the slice makes of the stream.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Event {
-    /// A turn of `thread` failed and will not be retried: with a limit error (`kind`) or another.
-    Failed {
-        thread: ThreadId,
-        kind: Option<Failure>,
-    },
+/// A change to the remedy the backend last reported.
+pub(crate) enum Remedy {
+    Rolling(RateLimitReachedType),
+    UsageLimitError,
 }
 
 /// What a snapshot says that the prompts decide by (`on_rate_limit_snapshot_from`).
@@ -215,13 +224,15 @@ pub struct State {
     stage: Stage,
     generation: u64,
     /// The kind of limit last reached (`codex_rate_limit_reached_type`).
-    reached: Option<RateLimitReachedType>,
+    reached: BTreeMap<BackendId, RateLimitReachedType>,
     spend_control: Option<bool>,
     /// Whether the credits the last read saw can be spent (`rate_limit_snapshots_by_limit_id`;
     /// rolling updates do not write it, they are judged by it).
     credits: Option<bool>,
     /// The model is offered and the offer still stands (the prompt closes when it does not).
     offered: Option<OfferId>,
+    /// The failure for which the member can still authorize a request.
+    nudge: Option<(NudgeId, Nudge)>,
     /// The seconds the recovery prompt says.
     seconds: u64,
     /// The thread whose limit error the slice has words for, and the words.
@@ -229,6 +240,12 @@ pub struct State {
 }
 
 impl State {
+    pub fn nudge_pending(&self, id: &NudgeId) -> bool {
+        self.nudge
+            .as_ref()
+            .is_some_and(|(current, _)| current == id)
+    }
+
     /// What the prompt's sheet shows: the offer, its recovery countdown, or nothing.
     pub fn standing(&self, offer: &OfferId) -> Standing {
         if self.offered.as_ref() != Some(offer) {
@@ -250,6 +267,7 @@ impl State {
     fn reset(&mut self) {
         *self = Self {
             generation: self.generation,
+            reached: std::mem::take(&mut self.reached),
             ..Self::default()
         };
     }
@@ -261,10 +279,20 @@ impl State {
         }
     }
 
+    fn dismiss_nudge_of(&mut self, backend: BackendId) {
+        if self
+            .nudge
+            .as_ref()
+            .is_some_and(|(id, _)| id.address.backend == backend)
+        {
+            self.nudge = None;
+        }
+    }
+
     fn workspace_limit_reached(&self) -> bool {
         self.spend_control == Some(true)
             || matches!(
-                self.reached,
+                self.reached.get(&self.backend.unwrap_or_default()),
                 Some(
                     RateLimitReachedType::WorkspaceOwnerCreditsDepleted
                         | RateLimitReachedType::WorkspaceMemberCreditsDepleted
@@ -280,9 +308,6 @@ impl State {
         let reading = read.is_some();
         if sample.codex && (reading || sample.spend_control.is_some()) {
             self.spend_control = sample.spend_control;
-        }
-        if (sample.codex && reading) || sample.reached.is_some() {
-            self.reached = sample.reached;
         }
         let credits = if reading {
             sample.credits
@@ -351,20 +376,8 @@ impl State {
         }
     }
 
-    /// `on_rate_limit_error`: the limit the failure names, a usage limit being what a credits
-    /// limit is when the error says so.
-    fn failed(&mut self, kind: Failure) -> Option<Nudge> {
-        let usage = kind == Failure::UsageLimit;
-        self.reached = self.reached.map(|reached| match (usage, reached) {
-            (true, RateLimitReachedType::WorkspaceOwnerCreditsDepleted) => {
-                RateLimitReachedType::WorkspaceOwnerUsageLimitReached
-            }
-            (true, RateLimitReachedType::WorkspaceMemberCreditsDepleted) => {
-                RateLimitReachedType::WorkspaceMemberUsageLimitReached
-            }
-            (_, other) => other,
-        });
-        match self.reached {
+    fn owner_nudge(&self, backend: BackendId) -> Option<Nudge> {
+        match self.reached.get(&backend) {
             Some(RateLimitReachedType::WorkspaceMemberCreditsDepleted) => Some(Nudge::Credits),
             Some(RateLimitReachedType::WorkspaceMemberUsageLimitReached) => Some(Nudge::UsageLimit),
             _ => None,
@@ -372,8 +385,8 @@ impl State {
     }
 
     /// What the owner of a workspace that ran out is told (`on_rate_limit_error`).
-    fn owner_words(&self) -> Option<&'static str> {
-        match self.reached {
+    fn owner_words(&self, backend: BackendId) -> Option<&'static str> {
+        match self.reached.get(&backend) {
             Some(RateLimitReachedType::WorkspaceOwnerCreditsDepleted) => Some(OWNER_CREDITS_WORDS),
             Some(RateLimitReachedType::WorkspaceOwnerUsageLimitReached) => Some(OWNER_USAGE_WORDS),
             _ => None,
@@ -383,7 +396,7 @@ impl State {
 
 /// A backend banner is showing for the model in use (`has_applicable_backend_banner`): the
 /// prompts wait for it.
-fn banner_shows(view: AppView<'_>) -> bool {
+pub(crate) fn banner_shows(view: AppView<'_>) -> bool {
     let model = model_in_use(view);
     view.facts()
         .backend_banner()
@@ -397,14 +410,91 @@ fn model_in_use(view: AppView<'_>) -> Option<String> {
         .or_else(|| view.screens().chat.status.model.clone())
 }
 
-fn failure_of(info: &CodexErrorInfo) -> Option<Failure> {
-    match info {
+pub(crate) fn failure_of(error: &ErrorNotification) -> Option<Failure> {
+    match error.error.codex_error_info.as_ref()? {
         CodexErrorInfo::UsageLimitExceeded => Some(Failure::UsageLimit),
         CodexErrorInfo::ResponseTooManyFailedAttempts {
             http_status_code: Some(429),
         } => Some(Failure::Generic),
         _ => None,
     }
+}
+
+/// Record a new known reason. A sparse notification cannot undo a known remedy and an
+/// initial observation cannot contradict the read that supplied the existing banner.
+pub(crate) fn change_remedy(
+    states: &mut Rc<FeatureStates>,
+    backend: BackendId,
+    update: Remedy,
+) -> bool {
+    use RateLimitReachedType as Reached;
+    let previous = states.rate_limit_prompt.reached.get(&backend).copied();
+    let next = match (update, previous) {
+        (Remedy::Rolling(reached), _) => reached,
+        (Remedy::UsageLimitError, Some(Reached::WorkspaceOwnerCreditsDepleted)) => {
+            Reached::WorkspaceOwnerUsageLimitReached
+        }
+        (Remedy::UsageLimitError, Some(Reached::WorkspaceMemberCreditsDepleted)) => {
+            Reached::WorkspaceMemberUsageLimitReached
+        }
+        _ => return false,
+    };
+    if previous == Some(next) {
+        return false;
+    }
+    let state = &mut Rc::make_mut(states).rate_limit_prompt;
+    state.reached.insert(backend, next);
+    if previous.is_some() {
+        state.dismiss_nudge_of(backend);
+        return true;
+    }
+    false
+}
+
+/// The app has routed a terminal error and retired any superseded banner.
+pub(crate) fn failed(
+    states: &mut FeatureStates,
+    thread: ThreadId,
+    address: Address,
+    kind: Option<Failure>,
+    can_nudge: bool,
+    cx: &mut AppCx<'_>,
+) {
+    let state = &mut states.rate_limit_prompt;
+    state.said = kind
+        .and_then(|_| state.owner_words(address.backend))
+        .map(|words| (thread.clone(), words));
+    if cx.view().active() != Some(&thread) {
+        return;
+    }
+    if banner_shows(cx.view()) {
+        state.yield_to_banner();
+        return;
+    }
+    if can_nudge && let Some(nudge) = kind.and_then(|_| state.owner_nudge(address.backend)) {
+        if state.nudge.as_ref().is_some_and(|(id, current)| {
+            id.thread == thread && id.address == address && *current == nudge
+        }) {
+            return;
+        }
+        state.generation = state.generation.wrapping_add(1);
+        let id = NudgeId {
+            address,
+            thread: thread.clone(),
+            generation: state.generation,
+        };
+        state.nudge = Some((id.clone(), nudge));
+        cx.wish(thread, Wish::Nudge { id, kind: nudge });
+    }
+}
+
+pub(crate) fn nudge_origin(states: &FeatureStates) -> Option<(&ThreadId, Address)> {
+    let (id, _) = states.rate_limit_prompt.nudge.as_ref()?;
+    Some((&id.thread, id.address))
+}
+
+pub(crate) fn dismiss_nudge(states: &mut Rc<FeatureStates>) {
+    Rc::make_mut(states).rate_limit_prompt.nudge = None;
 }
 
 fn sample_of(snapshot: &RateLimitSnapshot) -> Sample {
@@ -445,10 +535,30 @@ pub(crate) fn rolling(
     state.take(&sample_of(snapshot), None, hidden, model.as_deref());
 }
 
-/// A replaced transport or account invalidates the limits and offers belonging to it.
-pub(crate) fn retire(states: &mut std::rc::Rc<FeatureStates>, backend: BackendId) {
-    if states.rate_limit_prompt.backend == Some(backend) {
-        std::rc::Rc::make_mut(states).rate_limit_prompt.reset();
+/// A replaced transport or account invalidates the operations belonging to it.
+pub(crate) fn retire(states: &mut Rc<FeatureStates>, backend: BackendId) {
+    let current = &states.rate_limit_prompt;
+    if current.backend == Some(backend)
+        || current
+            .nudge
+            .as_ref()
+            .is_some_and(|(id, _)| id.address.backend == backend)
+    {
+        let state = &mut Rc::make_mut(states).rate_limit_prompt;
+        state.dismiss_nudge_of(backend);
+        if state.backend == Some(backend) {
+            state.reset();
+        }
+    }
+}
+
+/// Forget the last remedy when the app also forgets the backend's banner.
+pub(crate) fn forget_remedy(states: &mut Rc<FeatureStates>, backend: BackendId) {
+    if states.rate_limit_prompt.reached.contains_key(&backend) {
+        Rc::make_mut(states)
+            .rate_limit_prompt
+            .reached
+            .remove(&backend);
     }
 }
 
@@ -548,46 +658,22 @@ feature! {
         type Ctx = Ctx;
         type Note = Never<Self>;
         type Wish = Wish;
-        type Event = Event;
+        type Event = Never<Self>;
         {
-            fn project(notification: &ServerNotification) -> Option<Event> {
-                match notification {
-                    ServerNotification::Error(error) if !error.will_retry => {
-                        Some(Event::Failed {
-                            thread: ThreadId::new(error.thread_id.clone()),
-                            kind: error.error.codex_error_info.as_ref().and_then(failure_of),
-                        })
-                    }
-                    _ => None,
-                }
-            }
-
-            fn on_event(state: &mut State, event: Event, cx: &mut AppCx<'_>) {
-                if banner_shows(cx.view()) {
-                    state.yield_to_banner();
-                }
-                match event {
-                    Event::Failed { thread, kind } => {
-                        let nudge = kind.and_then(|kind| state.failed(kind));
-                        state.said = kind
-                            .and_then(|_| state.owner_words())
-                            .map(|words| (thread.clone(), words));
-                        if cx.view().active() == Some(&thread)
-                            && !banner_shows(cx.view())
-                            && let Some(nudge) = nudge
-                        {
-                            cx.wish(thread, Wish::Nudge(nudge));
-                        }
-                    }
-                }
-            }
-
             fn on_rate_limits_read(
                 state: &mut State,
                 backend: BackendId,
                 read: &RateRead,
                 cx: &mut AppCx<'_>,
             ) {
+                let sample = sample_of_read(read);
+                if let Some(sample) = &sample {
+                    if let Some(reached) = sample.reached {
+                        state.reached.insert(backend, reached);
+                    } else if sample.codex {
+                        state.reached.remove(&backend);
+                    }
+                }
                 if !read.active {
                     return;
                 }
@@ -595,7 +681,7 @@ feature! {
                 if banner_shows(cx.view()) {
                     state.yield_to_banner();
                 }
-                let Some(sample) = sample_of_read(read) else {
+                let Some(sample) = sample else {
                     return;
                 };
                 let hidden = cx.view().facts().tui().hide_rate_limit_model_nudge;
@@ -648,11 +734,22 @@ feature! {
                             effort: Some(effort),
                         });
                     }
-                    Intent::Nudge(nudge) => cx.verb(PublicVerb::NotifyOwner(nudge)),
+                    Intent::Nudge(id) if state.nudge_pending(&id)
+                        && cx.view().active() == Some(&id.thread)
+                        && !banner_shows(cx.view()) =>
+                    {
+                        if let Some((_, nudge)) = state.nudge.take() {
+                            cx.verb(PublicVerb::NotifyOwner(nudge));
+                        }
+                    }
+                    Intent::DeclineNudge(id) if state.nudge_pending(&id) => {
+                        state.nudge = None;
+                    }
                     Intent::Closed(offer) if state.offered.as_ref() == Some(&offer) => {
                         state.dismiss();
                     }
-                    Intent::Switch { .. } | Intent::Closed(_) => {}
+                    Intent::Switch { .. } | Intent::Closed(_) |
+                        Intent::Nudge(_) | Intent::DeclineNudge(_) => {}
                     Intent::Tick => state.tick(cx.view().facts().now().millis()),
                 }
             }

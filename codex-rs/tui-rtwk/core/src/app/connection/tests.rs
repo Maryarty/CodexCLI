@@ -49,6 +49,7 @@ fn samples() -> Vec<AppCtx> {
         AppCtx::RateLimits {
             backend,
             origin: status::RateLimitOrigin::Startup,
+            superseded: false,
         },
         AppCtx::Redemption {
             key: "redeem".to_owned(),
@@ -136,6 +137,7 @@ fn a_loss_keeps_the_asks_of_another_connection() {
         AppCtx::RateLimits {
             backend: other,
             origin: status::RateLimitOrigin::Startup,
+            superseded: false,
         },
     );
     lost(&mut app, BackendId::default(), &mut AppFx::default());

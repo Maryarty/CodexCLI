@@ -1190,9 +1190,12 @@ pub fn daybreak_of(thread: ThreadView<'_>) -> Option<bool> {
 // The app owns turn completion and account boundaries. The slice owns the offer and its
 // eligibility; expose its operations through the feature list.
 pub(crate) use rate_limit_prompt::{
-    origin_available as rate_offer_origin_available, reserve as reserve_completion_prompt,
-    retire as retire_rate_offer, revalidate as revalidate_rate_offer,
-    rolling as rolling_rate_limits,
+    Failure as RateFailure, Remedy as RateRemedy, banner_shows as rate_banner_shows,
+    change_remedy as change_rate_remedy, dismiss_nudge as dismiss_rate_nudge,
+    failed as rate_failed, failure_of as rate_failure_of, forget_remedy as forget_rate_remedy,
+    nudge_origin as rate_nudge_origin, origin_available as rate_offer_origin_available,
+    reserve as reserve_completion_prompt, retire as retire_rate_offer,
+    revalidate as revalidate_rate_offer, rolling as rolling_rate_limits,
 };
 
 pub(crate) fn remember_copy_status(parts: &mut FeatureThreadParts, key: crate::threads::ItemKey) {
