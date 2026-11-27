@@ -519,6 +519,7 @@ async fn run(
             Arc::new(move |ev| emit(&ingress, epoch, crate::effects::popover_ev(ev)))
         },
     ));
+    emit_voice_publisher(&ingress, epoch, epoch, &client);
     let mut held = HandBack::new(client, done);
     emit(&ingress, epoch, AppEv::Connected);
     emit(&ingress, epoch, backend_ev(facts));
@@ -647,6 +648,7 @@ async fn run(
     let mut connector_work: FuturesUnordered<Boxed<CommandDone>> = FuturesUnordered::new();
     // The history file and the mention usage are read once, when the first thread is asked.
     let mut thread_asked = false;
+    let backend = codex_tui_core::ids::BackendId::default();
     while let Some(client) = held.get() {
         // The connection ended: restored or not, decided after the select,
         // when the client is no longer borrowed.
@@ -658,7 +660,9 @@ async fn run(
             event = client.next_event() => match event {
                 None | Some(AppServerEvent::Disconnected { .. }) => lost = true,
                 Some(AppServerEvent::Lagged { skipped }) => {
-                    emit(&ingress, epoch, AppEv::Backend(BackendEv::Lagged(skipped)));
+                    let _ = ingress.send(Ingress::transport_event(
+                        backend, epoch, transport_epoch, AppEv::Backend(BackendEv::Lagged(skipped)),
+                    ));
                 }
                 Some(AppServerEvent::ServerNotification(notification)) => {
                     // The slices that follow the stream tell their facts first.
@@ -677,7 +681,10 @@ async fn run(
                         epoch,
                         &mut inflight,
                     );
-                    emit(&ingress, epoch, AppEv::Backend(BackendEv::Notification(notification)));
+                    let _ = ingress.send(Ingress::transport_event(
+                        backend, epoch, transport_epoch,
+                        AppEv::Backend(BackendEv::Notification(notification)),
+                    ));
                 }
                 Some(AppServerEvent::ServerRequest(request)) => {
                     emit(&ingress, epoch, AppEv::Backend(BackendEv::Request(request)));
@@ -696,7 +703,7 @@ async fn run(
                 }
                 Some(AppServerEvent::ThreadStreamReconnected(_)) => {}
             },
-            command = next_dispatch(&mut commands, codex_tui_core::ids::BackendId::default(), transport_epoch) => match command {
+            command = next_dispatch(&mut commands, backend, transport_epoch) => match command {
                 None => break,
                 Some((Command::RejectRequest { key, .. }, _)) => {
                     if key.epoch == request_epoch {
@@ -829,6 +836,9 @@ async fn run(
                         let _ = old.shutdown().await;
                     }
                     announce_replacement(&ingress, epoch, &mut transport_epoch);
+                    if let Some(client) = held.get() {
+                        emit_voice_publisher(&ingress, epoch, transport_epoch, client);
+                    }
                     // The commands after this one talk to the new server.
                     if let Some(done) = done {
                         let _ = done.send(Ok(()));
@@ -902,6 +912,7 @@ async fn run(
         handle = client.request_handle();
         if !moved {
             announce_replacement(&ingress, epoch, &mut transport_epoch);
+            emit_voice_publisher(&ingress, epoch, transport_epoch, client);
             emit(
                 &ingress,
                 epoch,
@@ -952,6 +963,17 @@ async fn run(
         )));
     }
     // Leaving the loop drops `client`: the guard hands it to `main`.
+}
+
+fn emit_voice_publisher(
+    ingress: &IngressTx,
+    epoch: ConnEpoch,
+    transport_epoch: ConnEpoch,
+    client: &AppServerClient,
+) {
+    if matches!(client, AppServerClient::InProcess(_)) {
+        let _ = ingress.send(Ingress::legacy_voice_publisher(epoch, transport_epoch));
+    }
 }
 
 fn announce_replacement(ingress: &IngressTx, epoch: ConnEpoch, transport_epoch: &mut ConnEpoch) {

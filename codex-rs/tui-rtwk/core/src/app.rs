@@ -418,6 +418,21 @@ impl Ingress {
         }
     }
 
+    /// The selected in-process publisher orders unkeyed captions within this physical transport.
+    pub fn legacy_voice_publisher(epoch: ConnEpoch, transport_epoch: ConnEpoch) -> Self {
+        let backend = BackendId::default();
+        let address = Address {
+            backend,
+            epoch: transport_epoch,
+        };
+        Self::transport_event(
+            backend,
+            epoch,
+            transport_epoch,
+            AppEv::Screen(screens::voice::Ev::OrderedLegacyPublisher(address).into()),
+        )
+    }
+
     /// A startup ask ended fatally. Its owner must still hold the request before it can end the app.
     pub fn host_failure(
         epoch: ConnEpoch,
@@ -1526,6 +1541,14 @@ impl CodexApp {
         if ingress.transport_epoch.is_some() && self.address(ingress.backend) != address {
             return None;
         }
+        if let AppEv::Screen(ScreenEv::Voice(screens::voice::Ev::OrderedLegacyPublisher(publisher))) =
+            &event
+            && (ingress.transport_epoch.is_none()
+                || *publisher != address
+                || address.backend != BackendId::default())
+        {
+            return None;
+        }
         if let Some(ticket) = ingress.host_failure
             && !host_asks::accept_failure(self, address, ticket)
         {
@@ -1536,7 +1559,13 @@ impl CodexApp {
         {
             return None;
         }
-        apply_at(self, ingress.backend, event, &mut fx);
+        apply_at(
+            self,
+            ingress.backend,
+            ingress.transport_epoch.map(|_| address),
+            event,
+            &mut fx,
+        );
         Some(fx)
     }
 
@@ -1581,10 +1610,16 @@ pub fn apply_app_from(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut
     if !app.accepts_reply(address, &ev) || !host_asks::accept(app, address, &ev, true) {
         return;
     }
-    apply_at(app, origin, ev, fx);
+    apply_at(app, origin, None, ev, fx);
 }
 
-fn apply_at(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
+fn apply_at(
+    app: &mut CodexApp,
+    origin: BackendId,
+    transport: Option<Address>,
+    ev: AppEv,
+    fx: &mut AppFx,
+) {
     let emitted_from = fx.commands.len();
     let clock = matches!(ev, AppEv::Clock(_));
     // Only events that can bring tasks of other directories into the center.
@@ -1604,7 +1639,7 @@ fn apply_at(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
     if app.session.cloud_switch == Some(CloudSwitch::Failed) {
         Rc::make_mut(&mut app.session).cloud_switch = None;
     }
-    apply_event(app, origin, ev, fx);
+    apply_event(app, origin, transport, ev, fx);
     finish_apply(app, lists, fx);
     let active_changed =
         !Rc::ptr_eq(&previous, &app.session) && previous.active != app.session.active;
@@ -1723,7 +1758,13 @@ fn drain_popover_asks(app: &mut CodexApp, fx: &mut AppFx) {
     }
 }
 
-fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
+fn apply_event(
+    app: &mut CodexApp,
+    origin: BackendId,
+    transport: Option<Address>,
+    ev: AppEv,
+    fx: &mut AppFx,
+) {
     let connection = match &ev {
         AppEv::Connected | AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnected)) => {
             Some(ConnectionState::Connected)
@@ -1809,9 +1850,41 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             features::connection(app, crate::features::Connection::ShuttingDown, fx);
         }
         AppEv::Backend(BackendEv::Notification(notification)) => {
+            let ordered_legacy_publisher =
+                transport.is_some_and(|address| app.screens.voice.legacy_captions_from(address));
             if let Some((thread, voice)) = screens::voice::project(&notification) {
+                let needs_proof = app
+                    .threads
+                    .get(&thread)
+                    .is_some_and(|thread| thread.screen_slots().voice.uses_legacy_captions());
+                if app.screens.agents.owner_of(thread.as_str()) == origin
+                    && (!needs_proof || ordered_legacy_publisher)
+                {
+                    let event = match voice {
+                        screens::voice::ThreadEv::Closed if needs_proof => {
+                            threads::voice_transcript::ThreadEvent::LegacyClosed.into()
+                        }
+                        _ => ThreadEv::Screen(voice.into()),
+                    };
+                    apply_thread(app, &thread, event, fx);
+                }
+                return;
+            }
+            if ordered_legacy_publisher
+                && let Some((thread, caption)) =
+                    threads::voice_transcript::project_legacy(&notification)
+            {
                 if app.screens.agents.owner_of(thread.as_str()) == origin {
-                    apply_thread(app, &thread, ThreadEv::Screen(voice.into()), fx);
+                    apply_thread(
+                        app,
+                        &thread,
+                        threads::voice_transcript::ThreadEvent::LegacyCaption {
+                            caption,
+                            show_user_preview: app.screens.chat.status.animations,
+                        }
+                        .into(),
+                        fx,
+                    );
                 }
                 return;
             }
@@ -2182,6 +2255,25 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             }
         }
         AppEv::Backend(BackendEv::Lagged(skipped)) => {
+            if transport.is_some_and(|address| app.screens.voice.legacy_captions_from(address)) {
+                let legacy_calls: Vec<_> = app
+                    .threads
+                    .iter()
+                    .filter_map(|(thread, model)| {
+                        (app.screens.agents.owner_of(thread.as_str()) == origin
+                            && model.screen_slots().voice.uses_legacy_captions())
+                        .then_some(thread.clone())
+                    })
+                    .collect();
+                for thread in legacy_calls {
+                    apply_thread(
+                        app,
+                        &thread,
+                        threads::voice_transcript::ThreadEvent::LostLegacyOrder.into(),
+                        fx,
+                    );
+                }
+            }
             // Events were dropped: what the command center derived from them
             // is stale and its list is read again (oracle: `Lagged`).
             app.threads.previews_mut().clear();
@@ -2299,6 +2391,8 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             attempt,
             result,
         } => verified(app, key, attempt, result, fx),
+        AppEv::Screen(ScreenEv::Voice(screens::voice::Ev::OrderedLegacyPublisher(address)))
+            if transport != Some(address) => {}
         AppEv::Screen(ev) => {
             if origin != BackendId::default() && matches!(ev, ScreenEv::Onboarding(_)) {
                 return;
@@ -4321,6 +4415,7 @@ fn stream_lost(
     apply_event(
         app,
         origin,
+        None,
         AppEv::Backend(BackendEv::Notification(Box::new(
             ServerNotification::Error(*error),
         ))),
@@ -4415,9 +4510,7 @@ fn attach_thread_with_metadata(
 ) {
     app.threads.open(thread, origin);
     if let Some(details) = details {
-        let voice_history = details.history_mode
-            == codex_app_server_protocol::ThreadHistoryMode::Paginated
-            && !details.ephemeral;
+        let voice_history = threads::voice_transcript::History::of(details);
         apply_thread(
             app,
             thread,
@@ -4553,6 +4646,7 @@ pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mu
             ev,
             &mut ThreadFx::new(thread, fx, &mut app.mint)
                 .addressed(address)
+                .with_legacy_voice(app.screens.voice.legacy_captions_from(address))
                 .with_prompt_priority(priority)
                 .with_image_restrictions(image_restrictions)
                 .stamped(daybreak)

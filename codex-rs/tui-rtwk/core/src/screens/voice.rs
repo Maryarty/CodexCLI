@@ -11,7 +11,7 @@ use crate::rpc::{Address, RpcError};
 use crate::screens::Kind;
 use crate::threads::{
     Failure, ThreadFx,
-    voice_transcript::{Page, ThreadEvent},
+    voice_transcript::{History, Legacy, Page, ThreadEvent},
 };
 
 pub const NAME: &str = "voice";
@@ -19,16 +19,28 @@ pub const ID: &str = "S25";
 pub const KIND: Kind = Kind::Sheet;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Model;
+pub struct Model {
+    ordered_legacy_publisher: Option<Address>,
+}
+
+impl Model {
+    pub(crate) fn legacy_captions_from(&self, address: Address) -> bool {
+        self.ordered_legacy_publisher == Some(address)
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Ev {}
+pub enum Ev {
+    OrderedLegacyPublisher(Address),
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {}
 
-pub fn apply(_: &mut Model, ev: Ev, _: &mut AppFx) {
-    match ev {}
+pub fn apply(model: &mut Model, ev: Ev, _: &mut AppFx) {
+    match ev {
+        Ev::OrderedLegacyPublisher(address) => model.ordered_legacy_publisher = Some(address),
+    }
 }
 
 pub fn apply_intent(_: &mut Model, intent: Intent, _: &mut AppFx) {
@@ -148,7 +160,6 @@ pub enum Ctx {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct Negotiating {
     accepted: bool,
-    started: bool,
     connected: bool,
     answering: bool,
 }
@@ -167,10 +178,18 @@ enum Phase {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+enum Captions {
+    Canonical,
+    Legacy(Legacy),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct Call {
     owner: Owner,
     session: String,
     phase: Phase,
+    started: bool,
+    captions: Captions,
     muted: bool,
     pending_mute: Option<bool>,
     microphone: [u8; 6],
@@ -181,6 +200,7 @@ struct Call {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ThreadPart {
     call: Option<Call>,
+    history: History,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -225,12 +245,62 @@ impl ThreadPart {
         }
     }
 
-    pub(crate) fn caption_session(&self, address: Address) -> Option<&str> {
-        let call = self
-            .call
+    pub(crate) fn history(&self) -> History {
+        self.history
+    }
+
+    pub(crate) fn set_history(&mut self, history: History) {
+        self.history = history;
+    }
+
+    pub(crate) fn uses_legacy_captions(&self) -> bool {
+        self.call
             .as_ref()
-            .filter(|call| call.owner.address == address)?;
-        (!matches!(call.phase, Phase::Preparing)).then_some(call.session.as_str())
+            .is_some_and(|call| matches!(call.captions, Captions::Legacy(_)))
+    }
+
+    pub(crate) fn captions_open(&self) -> bool {
+        self.call
+            .as_ref()
+            .is_some_and(|call| !matches!(call.phase, Phase::Stopping { closed: true, .. }))
+    }
+
+    pub(crate) fn caption_session(&self, address: Address) -> Option<&str> {
+        let call = self.call.as_ref()?;
+        (call.owner.address == address
+            && matches!(call.captions, Captions::Canonical)
+            && !matches!(
+                call.phase,
+                Phase::Preparing | Phase::Stopping { closed: true, .. }
+            ))
+        .then_some(call.session.as_str())
+    }
+
+    pub(crate) fn legacy_captions(&mut self, address: Address) -> Option<(&str, &mut Legacy)> {
+        let call = self.call.as_mut()?;
+        if call.owner.address != address
+            || !call.started
+            || matches!(
+                call.phase,
+                Phase::Preparing | Phase::Stopping { closed: true, .. }
+            )
+        {
+            return None;
+        }
+        let Captions::Legacy(legacy) = &mut call.captions else {
+            return None;
+        };
+        legacy.ordered().then_some((call.session.as_str(), legacy))
+    }
+
+    pub(crate) fn lose_legacy_order(&mut self) -> bool {
+        if let Some(call) = self.call.as_mut()
+            && let Captions::Legacy(legacy) = &mut call.captions
+        {
+            legacy.lose_order();
+            return true;
+        }
+        false
     }
 
     pub(crate) fn has_call(&self) -> bool {
@@ -264,6 +334,12 @@ pub(crate) fn apply_intent_on_thread(
                 owner,
                 session,
                 phase: Phase::Preparing,
+                started: false,
+                captions: if part.history == History::Legacy && fx.ordered_legacy_voice() {
+                    Captions::Legacy(Legacy::new())
+                } else {
+                    Captions::Canonical
+                },
                 muted: false,
                 pending_mute: None,
                 microphone: [0; 6],
@@ -345,15 +421,15 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
     };
     match ev {
         ThreadEv::Started { session } => {
-            if let Phase::Negotiating(ref mut setup) = call.phase
+            if matches!(call.phase, Phase::Negotiating(_))
                 && session.as_deref() == Some(call.session.as_str())
             {
-                setup.started = true;
+                call.started = true;
             }
         }
         ThreadEv::Answer(answer) => {
             if let Phase::Negotiating(ref mut setup) = call.phase
-                && setup.started
+                && call.started
                 && !setup.answering
             {
                 setup.answering = true;
@@ -466,11 +542,11 @@ fn intensity(peak: u16) -> u8 {
 
 fn activate(part: &mut ThreadPart, now: Now) {
     if let Some(call) = part.call.as_mut()
+        && call.started
         && matches!(
             call.phase,
             Phase::Negotiating(Negotiating {
                 accepted: true,
-                started: true,
                 connected: true,
                 ..
             })

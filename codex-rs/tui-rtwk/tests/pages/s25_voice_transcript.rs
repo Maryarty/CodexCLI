@@ -1,5 +1,5 @@
 // test root: pages
-//! Canonical voice captions alongside ordinary chat on the native terminal screen.
+//! Voice captions alongside ordinary chat on the native terminal screen.
 
 use crate::kit::{self, Owner, Screen};
 use serde_json::json;
@@ -105,4 +105,34 @@ fn an_older_page_with_only_ordinary_anchors_repositions_a_newer_caption() {
         None,
     );
     s.assert_in_order(&["Previous ordinary answer", "Newer spoken answer"]);
+}
+
+#[test]
+fn ordered_legacy_preview_final_and_identical_utterances_share_the_ordinary_stream() {
+    let mut s = Screen::build(Owner::UiPane)
+        .size(48, 26)
+        .replay(Vec::new())
+        .open();
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"animations":false}}}"#);
+    s.ordered_voice_publisher()
+        .voice_available()
+        .type_text("/voice")
+        .keys("enter");
+    let session = s.connect_ordered_voice();
+    s.feed(r#"{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"replayed-1","turnId":"ordinary-turn","itemId":"answer","delta":"Ordinary answer arriving"}}}"#);
+    s.wait_for("Ordinary answer arriving");
+
+    s.legacy_voice_caption(false, "user", "tell me");
+    s.assert_absent("tell me");
+    s.legacy_voice_caption(false, "assistant", "live caption");
+    s.wait_for("live caption");
+
+    s.legacy_voice_caption(true, "assistant", "final caption");
+    s.legacy_voice_caption(true, "user", "tell me");
+    s.legacy_voice_caption(true, "user", "tell me");
+    s.voice_caption(true, &session, "keyed", "assistant", "canonical duplicate");
+    s.assert_in_order(&["Ordinary answer arriving", "final caption", "› tell me"]);
+    s.assert_absent("live caption");
+    s.assert_absent("canonical duplicate");
+    assert_eq!(s.text().matches("› tell me").count(), 2, "{}", s.text());
 }

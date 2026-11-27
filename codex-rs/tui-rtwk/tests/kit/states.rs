@@ -562,6 +562,23 @@ impl Screen {
     }
 
     pub fn connect_voice(&mut self) -> String {
+        self.connect_voice_from(false)
+    }
+
+    pub fn ordered_voice_publisher(&mut self) -> &mut Self {
+        let epoch = self.h.fake.epoch().expect("attached");
+        self.h
+            .fake
+            .inject_ingress(Ingress::legacy_voice_publisher(epoch, epoch));
+        self.h.advance(100);
+        self
+    }
+
+    pub fn connect_ordered_voice(&mut self) -> String {
+        self.connect_voice_from(true)
+    }
+
+    fn connect_voice_from(&mut self, stamped: bool) -> String {
         use codex_app_server_protocol::{ClientRequest, RequestId};
         use codex_tui_core::screens::voice::{AudioAction, AudioResult, Sdp};
 
@@ -578,7 +595,8 @@ impl Screen {
         };
         assert_eq!(params.thread_id, self.active_thread().as_str());
         self.answer_request(&start, serde_json::json!({}));
-        self.voice_notify(
+        self.voice_notify_from(
+            stamped,
             "thread/realtime/started",
             serde_json::json!({
                 "threadId": params.thread_id,
@@ -586,7 +604,8 @@ impl Screen {
                 "version": "v3",
             }),
         );
-        self.voice_notify(
+        self.voice_notify_from(
+            stamped,
             "thread/realtime/sdp",
             serde_json::json!({
                 "threadId": params.thread_id,
@@ -633,6 +652,24 @@ impl Screen {
                 "threadId": self.active_thread().as_str(), "itemId": item, "delta": text,
             }),
         );
+        self
+    }
+
+    pub fn legacy_voice_caption(&mut self, completed: bool, role: &str, text: &str) -> &mut Self {
+        let thread = self.active_thread();
+        if completed {
+            self.voice_notify_from(
+                true,
+                "thread/realtime/transcript/done",
+                serde_json::json!({"threadId": thread.as_str(), "role": role, "text": text}),
+            );
+        } else {
+            self.voice_notify_from(
+                true,
+                "thread/realtime/transcript/delta",
+                serde_json::json!({"threadId": thread.as_str(), "role": role, "delta": text}),
+            );
+        }
         self
     }
 
@@ -783,11 +820,25 @@ impl Screen {
     }
 
     fn voice_notify(&mut self, method: &str, params: serde_json::Value) {
+        self.voice_notify_from(false, method, params);
+    }
+
+    fn voice_notify_from(&mut self, stamped: bool, method: &str, params: serde_json::Value) {
         let note =
             serde_json::from_value(serde_json::json!({ "method": method, "params": params }))
                 .expect("pinned voice notification");
-        self.h
-            .inject([AppEv::Backend(BackendEv::Notification(Box::new(note)))]);
+        let event = AppEv::Backend(BackendEv::Notification(Box::new(note)));
+        if stamped {
+            let epoch = self.h.fake.epoch().expect("attached");
+            self.h.fake.inject_ingress(Ingress::transport_event(
+                BackendId::default(),
+                epoch,
+                epoch,
+                event,
+            ));
+        } else {
+            self.h.inject([event]);
+        }
         self.h.advance(100);
     }
 }
