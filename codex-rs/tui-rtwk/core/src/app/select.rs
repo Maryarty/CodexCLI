@@ -9,11 +9,11 @@ use std::rc::Rc;
 
 use super::{AppCtx, AppFx, CodexApp, Command};
 use crate::ids::{BackendId, ThreadId};
-use crate::rpc::{Address, Answer, RpcError};
+use crate::rpc::{Answer, RpcError};
 use crate::screens::select::collaboration::{Change, PlanWrite, ReasoningScope};
 use crate::screens::select::models::{Apply, Current, Effort, Scope};
 use crate::screens::select::{self, apps, permissions, review};
-use crate::screens::{ScreenCommand, ScreenReply, ScreenThreadIntent, chat};
+use crate::screens::{ScreenCommand, ScreenReply, ScreenThreadIntent, agents, chat, startup};
 use crate::threads::ThreadEv;
 use crate::threads::queue::{
     self, ModalKind, ModalOperation, ModalToken, QueueEvent, QueueOperation,
@@ -1119,24 +1119,72 @@ fn settle_effective_permission(app: &mut CodexApp, thread: &ThreadId, fx: &mut A
     }
 }
 
-pub(super) fn observe_permission_settings(
+pub(super) fn opening_permission_baseline(
+    ctx: &AppCtx,
+    answer: &Answer,
+) -> Option<(ThreadId, permissions::Snapshot)> {
+    let Answer::Thread(reply) = answer else {
+        return None;
+    };
+    let (id, snapshot) = reply.permission_baseline()?;
+    let matches = match ctx {
+        AppCtx::OpenThread { thread, .. }
+        | AppCtx::OpenSession {
+            action: startup::Action::Resume,
+            thread,
+        } => thread.as_str() == id,
+        AppCtx::Agents(agents::Ctx::Resume { thread }) => thread == id,
+        AppCtx::StartThread { .. }
+        | AppCtx::NewConversation { .. }
+        | AppCtx::Agents(agents::Ctx::Start | agents::Ctx::Fork { .. })
+        | AppCtx::OpenSession {
+            action: startup::Action::Fork,
+            ..
+        } => true,
+        _ => false,
+    };
+    matches.then(|| (ThreadId::new(id), snapshot.clone()))
+}
+
+pub(super) fn record_permission_settings(
     app: &mut CodexApp,
-    address: Address,
-    notice: &codex_app_server_protocol::ThreadSettingsUpdatedNotification,
+    thread: &ThreadId,
+    observed: permissions::Effective,
     fx: &mut AppFx,
 ) {
-    let thread = ThreadId::new(&notice.thread_id);
+    let backend = observed.address.backend;
+    if !app.threads.contains(thread)
+        || app.address(backend) != observed.address
+        || app.screens.agents.owners.get(thread.as_str()) != Some(&backend)
+    {
+        return;
+    }
     let select = &mut Rc::make_mut(&mut app.screens).select;
-    let observed = permissions::Effective::observed(address, &notice.thread_settings);
-    if let Some(pending) = select.permissions_applying.get_mut(&thread)
-        && pending.address == address
+    // A settings notification since the opening request is newer than its snapshot.
+    if select
+        .permissions_effective
+        .get(thread)
+        .is_some_and(|prior| prior.address == observed.address && prior.at >= observed.at)
+    {
+        return;
+    }
+    if let Some(pending) = select.permissions_applying.get_mut(thread)
+        && pending.address == observed.address
     {
         pending.effective = observed.matches(&pending.patch);
     }
     select
         .permissions_effective
         .insert(thread.clone(), observed);
-    settle_effective_permission(app, &thread, fx);
+    settle_effective_permission(app, thread, fx);
+}
+
+pub(super) fn forget_permission_settings(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx) {
+    let select = &mut Rc::make_mut(&mut app.screens).select;
+    select.permissions_effective.remove(thread);
+    if let Some(pending) = select.permissions_applying.remove(thread) {
+        discard_owned_permission_setup(app, &pending.token, fx);
+    }
 }
 
 pub(super) fn retire_permission_writes(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx) {

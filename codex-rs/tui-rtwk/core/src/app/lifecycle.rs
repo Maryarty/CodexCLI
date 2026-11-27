@@ -196,5 +196,5 @@ fn discard(app: &mut CodexApp, child: &ThreadId, fx: &mut AppFx) {
             thread: child.to_string(),
         })),
     });
-    app.threads.forget(child);
+    super::forget_thread(app, child, fx);
 }

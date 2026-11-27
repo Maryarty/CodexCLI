@@ -14,6 +14,7 @@ use super::{ReviewTarget, SettingsPatch, UserMessage, structured};
 use crate::app::effects::IdePrompt;
 use crate::ids::{ThreadId, TurnId};
 use crate::rpc::{RpcError, ServerError};
+use crate::screens::select::permissions::Snapshot as PermissionSnapshot;
 use crate::screens::status::AgentsSource;
 use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_READ_ONLY;
 use codex_protocol::openai_models::ReasoningEffort;
@@ -159,7 +160,7 @@ crate::rpc_list! {
     /// Create a task. The center reads its row independently of the rest of the settings.
     Start { cwd: Option<String> }, Self::Start { cwd }
         => ThreadStart(wire::ThreadStartParams { cwd: cwd.clone(), ..Default::default() })
-        -> StartedThread, |answer| ThreadReply::Started(Box::new(answer.thread));
+        -> StartedThread, |answer| ThreadReply::Started(answer.opened());
     /// Resume with paged history. The initial response carries only the thread row.
     Resume { thread: String }, Self::Resume { thread }
         => ThreadResume(resume(thread, None))
@@ -356,8 +357,36 @@ crate::rpc_list! {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct StartedThread {
     thread: wire::Thread,
+    approval_policy: Option<wire::AskForApproval>,
+    approvals_reviewer: Option<wire::ApprovalsReviewer>,
+    active_permission_profile: Option<wire::ActivePermissionProfile>,
+}
+
+impl StartedThread {
+    fn opened(self) -> OpenedThread {
+        OpenedThread {
+            thread: Box::new(self.thread),
+            permissions: self.approval_policy.zip(self.approvals_reviewer).map(
+                |(approval, reviewer)| {
+                    PermissionSnapshot::from_opening(
+                        self.active_permission_profile,
+                        approval,
+                        reviewer,
+                    )
+                },
+            ),
+        }
+    }
+}
+
+/// The attached thread and the permissions its opening reply reports.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OpenedThread {
+    pub thread: Box<wire::Thread>,
+    pub permissions: Option<PermissionSnapshot>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -366,6 +395,7 @@ pub enum ThreadReply {
         thread: ThreadId,
         details: Option<Box<wire::Thread>>,
         sources: Vec<AgentsSource>,
+        permissions: Option<PermissionSnapshot>,
     },
     TurnStarted {
         thread: ThreadId,
@@ -377,9 +407,9 @@ pub enum ThreadReply {
     RetryTurns(Box<wire::ThreadTurnsListResponse>),
     RetryItems(Box<wire::ThreadItemsListResponse>),
     RetryForked(Box<wire::Thread>),
-    Started(Box<wire::Thread>),
-    Resumed(Box<wire::Thread>),
-    Forked(Box<wire::Thread>),
+    Started(OpenedThread),
+    Resumed(OpenedThread),
+    Forked(OpenedThread),
     Read {
         thread: Box<wire::Thread>,
         unread: bool,
@@ -413,6 +443,22 @@ pub enum ThreadReply {
 }
 
 impl Eq for ThreadReply {}
+
+impl ThreadReply {
+    pub(crate) fn permission_baseline(&self) -> Option<(&str, &PermissionSnapshot)> {
+        match self {
+            Self::SessionStarted {
+                thread,
+                permissions: Some(permissions),
+                ..
+            } => Some((thread.as_str(), permissions)),
+            Self::Started(opened) | Self::Resumed(opened) | Self::Forked(opened) => {
+                Some((&opened.thread.id, opened.permissions.as_ref()?))
+            }
+            _ => None,
+        }
+    }
+}
 
 /// How many turns one page of a thread's history holds.
 pub const HISTORY_PAGE: u32 = 20;
@@ -549,23 +595,34 @@ fn session_started(response: wire::ThreadStartResponse) -> ThreadReply {
             response.reasoning_effort,
         )),
         sources,
+        permissions: Some(PermissionSnapshot::from_opening(
+            response.active_permission_profile,
+            response.approval_policy,
+            response.approvals_reviewer,
+        )),
     }
 }
 
 fn resumed(response: wire::ThreadResumeResponse) -> ThreadReply {
-    ThreadReply::Resumed(configured_model(
-        response.thread,
-        response.model,
-        response.reasoning_effort,
-    ))
+    ThreadReply::Resumed(OpenedThread {
+        thread: configured_model(response.thread, response.model, response.reasoning_effort),
+        permissions: Some(PermissionSnapshot::from_opening(
+            response.active_permission_profile,
+            response.approval_policy,
+            response.approvals_reviewer,
+        )),
+    })
 }
 
 fn forked(response: wire::ThreadForkResponse) -> ThreadReply {
-    ThreadReply::Forked(configured_model(
-        response.thread,
-        response.model,
-        response.reasoning_effort,
-    ))
+    ThreadReply::Forked(OpenedThread {
+        thread: configured_model(response.thread, response.model, response.reasoning_effort),
+        permissions: Some(PermissionSnapshot::from_opening(
+            response.active_permission_profile,
+            response.approval_policy,
+            response.approvals_reviewer,
+        )),
+    })
 }
 
 /// The opening response names the live configuration, while the embedded row can omit it.

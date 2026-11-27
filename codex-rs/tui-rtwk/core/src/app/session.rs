@@ -745,7 +745,7 @@ pub(super) fn removed(
         session_note(app, Some(thread.clone()), note, fx);
         return false;
     }
-    app.threads.forget(thread);
+    super::forget_thread(app, thread, fx);
     true
 }
 

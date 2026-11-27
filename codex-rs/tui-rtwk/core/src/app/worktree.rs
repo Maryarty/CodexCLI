@@ -4,7 +4,7 @@
 use std::rc::Rc;
 
 use crate::ids::{BackendId, ThreadId, Ticket};
-use crate::rpc::{Answer, RpcError};
+use crate::rpc::{Address, Answer, RpcError};
 use crate::screens::{ScreenCommand, agents};
 use crate::threads::{Origin, ThreadAsk};
 
@@ -12,7 +12,7 @@ use super::{
     AppCtx, AppFx, CodexApp, Command, attach_thread, fetch_history, session_note, show_held_thread,
 };
 use crate::screens::select;
-use crate::screens::select::worktree::Refusal;
+use crate::screens::select::{permissions, worktree::Refusal};
 use crate::threads::{Item, Note, NoteKey};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -56,6 +56,7 @@ pub(super) enum Step {
         checkout: Checkout,
         thread: ThreadId,
         chat: Option<Chat>,
+        permissions: Option<permissions::Effective>,
     },
     Unsubscribing {
         root: String,
@@ -158,13 +159,23 @@ impl Step {
         });
     }
 
+    pub(super) fn attaching(&self, id: &ThreadId) -> bool {
+        match self {
+            Self::Starting { .. } => true,
+            Self::Binding { thread, .. } => thread == id,
+            _ => false,
+        }
+    }
+
     pub(super) fn advance(
         self,
         app: &mut CodexApp,
-        backend: BackendId,
+        address: Address,
+        ticket: Ticket,
         answer: Answer,
         fx: &mut AppFx,
     ) {
+        let backend = address.backend;
         match (self, answer) {
             (Self::Creating { chat }, Answer::WorktreeCreated(Ok(checkout))) => {
                 let cwd = Some(checkout.cwd.clone());
@@ -190,12 +201,17 @@ impl Step {
                     | crate::threads::ThreadReply::Forked(thread),
                 ),
             ) => {
-                let id = ThreadId::new(&thread.id);
-                let cwd = thread.cwd.display().to_string();
+                let id = ThreadId::new(&thread.thread.id);
+                let cwd = thread.thread.cwd.display().to_string();
                 Self::Binding {
                     checkout: checkout.clone(),
                     thread: id.clone(),
                     chat,
+                    permissions: thread.permissions.map(|snapshot| permissions::Effective {
+                        address,
+                        at: ticket,
+                        snapshot,
+                    }),
                 }
                 .ask(app, backend, fx, |ticket| {
                     Command::host(crate::app::effects::Ask::BindWorktree {
@@ -215,12 +231,23 @@ impl Step {
                 let root = checkout.root;
                 finish(app, chat, Said::Retained { root, reason }, fx);
             }
-            (Self::Binding { thread, chat, .. }, Answer::WorktreeBound(Ok(()))) => {
+            (
+                Self::Binding {
+                    thread,
+                    chat,
+                    permissions,
+                    ..
+                },
+                Answer::WorktreeBound(Ok(())),
+            ) => {
                 let agents = &mut Rc::make_mut(&mut app.screens).agents;
                 agents.observe(backend, thread.as_str());
                 agents.display(backend);
                 agents::finish_start(agents, thread.as_str());
                 attach_thread(app, &thread, backend, Origin::Started, fx);
+                if let Some(permissions) = permissions {
+                    super::select::record_permission_settings(app, &thread, permissions, fx);
+                }
                 if let Some(chat) = chat {
                     // `/new <name>`, `/fork <name>`: named once it has started.
                     if let Some(name) = chat.name {
@@ -239,6 +266,7 @@ impl Step {
                     checkout,
                     thread,
                     chat,
+                    ..
                 },
                 Answer::WorktreeBound(Err(error)),
             ) => {

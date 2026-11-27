@@ -818,6 +818,13 @@ fn queue_before_thread(app: &mut CodexApp, ask: BeforeThread, fx: &mut AppFx) {
     );
 }
 
+struct AttachEvent {
+    backend: BackendId,
+    thread: ThreadId,
+    event: ThreadEv,
+    permissions: Option<screens::select::permissions::Effective>,
+}
+
 /// The model.
 pub struct CodexApp {
     session: Rc<SessionSlice>,
@@ -848,7 +855,7 @@ pub struct CodexApp {
     /// configured).
     queued_submits: Vec<BeforeThread>,
     /// Notifications may be delivered before the reply to the operation attaching the writer.
-    attaching_events: VecDeque<(BackendId, ThreadId, ThreadEv)>,
+    attaching_events: VecDeque<AttachEvent>,
     /// What the spawns in progress asked for (thread, call id): the row of the completed call
     /// shows it when the completed item has none.
     spawn_requests: std::collections::HashMap<(String, String), threads::SpawnRequest>,
@@ -1400,7 +1407,7 @@ impl CodexApp {
         ide_submit::retire(self, backend, fx);
         safety_retry::lost(self, backend, fx);
         self.attaching_events
-            .retain(|(source, ..)| *source != backend);
+            .retain(|entry| entry.backend != backend);
         features::retire_rate_offer(self, backend);
         features::retire_workspace_effects(self, backend);
         git_summary::retire(self, backend);
@@ -1996,14 +2003,26 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             if let Some((thread, ev)) = threads::project(&notification) {
                 let ev = reworded(app, &thread, ev);
                 let ev = named(app, &thread, ev);
-                if app.threads.contains(&thread) {
+                let attached = app.threads.contains(&thread);
+                let attaching =
+                    !attached && app.outgoing.any_on(origin, |ctx| may_attach(ctx, &thread));
+                let permissions = match &*notification {
+                    ServerNotification::ThreadSettingsUpdated(note) if attached || attaching => {
+                        Some(screens::select::permissions::Effective::observed(
+                            app.address(origin),
+                            app.mint.next(),
+                            &note.thread_settings,
+                        ))
+                    }
+                    _ => None,
+                };
+                if attached {
                     let reverted = matches!(ev, ThreadEv::Reverted);
                     // a user message of a thread with no name (`automatic_title_user_message`)
                     let unnamed = unnamed_request(app, &thread, &notification);
                     apply_thread(app, &thread, ev, fx);
-                    if let ServerNotification::ThreadSettingsUpdated(note) = &*notification {
-                        let address = app.address(origin);
-                        select::observe_permission_settings(app, address, note, fx);
+                    if let Some(permissions) = permissions {
+                        select::record_permission_settings(app, &thread, permissions, fx);
                     }
                     if let Some(text) = unnamed {
                         features::on_user_message(app, &thread, &text, fx);
@@ -2012,14 +2031,19 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         // the retained turns are the server's: read them again
                         fetch_history(app, &thread, fx);
                     }
-                } else if app.outgoing.any_on(origin, |ctx| may_attach(ctx, &thread)) {
+                } else if attaching {
                     // Bound the startup/reconnect window. A loaded turn or terminal
                     // snapshot can recover the transcript if this buffer overflows.
                     const MAX_ATTACH_EVENTS: usize = 256;
                     if app.attaching_events.len() == MAX_ATTACH_EVENTS {
                         app.attaching_events.pop_front();
                     }
-                    app.attaching_events.push_back((origin, thread, ev));
+                    app.attaching_events.push_back(AttachEvent {
+                        backend: origin,
+                        thread,
+                        event: ev,
+                        permissions,
+                    });
                 }
             }
         }
@@ -2509,6 +2533,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
         let Some((ctx, answer)) = resolved else {
             return;
         };
+        let permissions = select::opening_permission_baseline(&ctx, &answer);
         match ctx {
             AppCtx::StartThread { switch } => {
                 match (switch, answer) {
@@ -2518,6 +2543,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                             thread,
                             details,
                             sources,
+                            ..
                         }),
                     ) => {
                         switch_to(app, backend, thread, details.as_deref(), sources, fx);
@@ -2678,9 +2704,14 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                         thread,
                         details,
                         sources,
+                        ..
                     }) => Ok((thread, details, sources)),
                     Answer::Thread(ThreadReply::Forked(thread) | ThreadReply::Started(thread)) => {
-                        Ok((ThreadId::new(&thread.id), Some(thread), Vec::new()))
+                        Ok((
+                            ThreadId::new(&thread.thread.id),
+                            Some(thread.thread),
+                            Vec::new(),
+                        ))
                     }
                     Answer::Failed(error) => Err(error),
                     _ => Err(RpcError::Mismatch),
@@ -2769,10 +2800,10 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                         &thread,
                         backend,
                         Origin::Resumed,
-                        Some(&resumed),
+                        Some(&resumed.thread),
                         fx,
                     );
-                    apply_thread(app, &thread, threads::history_page_of(&resumed), fx);
+                    apply_thread(app, &thread, threads::history_page_of(&resumed.thread), fx);
                     let read = if app
                         .threads
                         .get(&thread)
@@ -2794,7 +2825,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                     request_history(app, &thread, None, read, fx);
                 }
             }
-            AppCtx::Worktree { backend, step } => step.advance(app, backend, answer, fx),
+            AppCtx::Worktree { step, .. } => step.advance(app, address, ticket, answer, fx),
             AppCtx::SessionRead => {
                 // An id nothing is saved under (or a server that cannot read
                 // it) ends the launch with the oracle's message.
@@ -2826,6 +2857,18 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 safety_retry::answered(app, ticket, generation, address, answer, fx);
             }
             AppCtx::Feature(ctx) => features::answer(app, ctx, answer, fx),
+        }
+        if let Some((thread, snapshot)) = permissions {
+            select::record_permission_settings(
+                app,
+                &thread,
+                screens::select::permissions::Effective {
+                    address,
+                    at: ticket,
+                    snapshot,
+                },
+                fx,
+            );
         }
         return;
     }
@@ -3937,6 +3980,7 @@ fn started(app: &mut CodexApp, answer: Answer, fx: &mut AppFx) {
             thread,
             details,
             sources,
+            ..
         }) => {
             attach_thread_with_metadata(
                 app,
@@ -4024,6 +4068,7 @@ fn session_opened(
     Rc::make_mut(&mut app.session).launching = None;
     match answer {
         Answer::Thread(ThreadReply::Resumed(opened) | ThreadReply::Forked(opened)) => {
+            let opened = opened.thread;
             let id = ThreadId::new(&opened.id);
             let origin = match action {
                 Action::Resume => Origin::Resumed,
@@ -4194,9 +4239,20 @@ fn is_attach(ctx: &AppCtx) -> bool {
 
 fn may_attach(ctx: &AppCtx, id: &ThreadId) -> bool {
     match ctx {
-        AppCtx::OpenThread { thread, .. } => thread == id,
+        AppCtx::OpenThread { thread, .. }
+        | AppCtx::OpenSession {
+            action: screens::startup::Action::Resume,
+            thread,
+        } => thread == id,
+        AppCtx::Worktree { step, .. } => step.attaching(id),
         _ => is_attach(ctx),
     }
+}
+
+fn forget_thread(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx) {
+    app.threads.forget(thread);
+    app.attaching_events.retain(|entry| entry.thread != *thread);
+    select::forget_permission_settings(app, thread, fx);
 }
 
 fn attach_thread(
@@ -4232,13 +4288,16 @@ fn attach_thread_with_metadata(
         .observe(backend, thread.as_str());
     let count = app.attaching_events.len();
     for _ in 0..count {
-        let Some((source, id, ev)) = app.attaching_events.pop_front() else {
+        let Some(entry) = app.attaching_events.pop_front() else {
             break;
         };
-        if id == *thread && source == backend {
-            apply_thread(app, thread, ev, fx);
+        if entry.thread == *thread && entry.backend == backend {
+            apply_thread(app, thread, entry.event, fx);
+            if let Some(permissions) = entry.permissions {
+                select::record_permission_settings(app, thread, permissions, fx);
+            }
         } else {
-            app.attaching_events.push_back((source, id, ev));
+            app.attaching_events.push_back(entry);
         }
     }
     notices::session_card(app, thread, fx);

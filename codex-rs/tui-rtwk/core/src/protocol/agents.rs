@@ -166,9 +166,9 @@ pub(crate) fn decode_thread(
 /// The screen projects a thread result onto its own view state.
 pub(crate) fn from_thread(reply: ThreadReply) -> Result<Reply, RpcError> {
     Ok(match reply {
-        ThreadReply::Resumed(thread) => Reply::Resumed(thread),
-        ThreadReply::Forked(thread) => Reply::Forked(thread),
-        ThreadReply::Started(thread) => Reply::Started(thread),
+        ThreadReply::Resumed(opened) => Reply::Resumed(opened.thread),
+        ThreadReply::Forked(opened) => Reply::Forked(opened.thread),
+        ThreadReply::Started(opened) => Reply::Started(opened.thread),
         ThreadReply::Read { thread, unread } => Reply::Read { thread, unread },
         ThreadReply::LatestTurn(turn) => turn_previews(turn.as_deref()),
         ThreadReply::History { turns, next } => Reply::History { turns, next },

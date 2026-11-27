@@ -21,6 +21,7 @@ fn configured_model_facts_survive_sparse_thread_announcements_and_submit() {
     .unwrap_or_else(|error| panic!("valid opening fixture: {error}"));
     let slug = "vendor.session-model";
     opening["model"] = slug.into();
+    opening["activePermissionProfile"] = json!({"id": "team-policy"});
     opening["reasoningEffort"] = "high".into();
     opening["thread"]["model"] = serde_json::Value::Null;
     opening["thread"]["reasoningEffort"] = serde_json::Value::Null;
@@ -35,9 +36,14 @@ fn configured_model_facts_survive_sparse_thread_announcements_and_submit() {
     .unwrap_or_else(|error| panic!("valid resume: {error:?}")) else {
         panic!("expected resumed thread");
     };
-    assert_eq!(resumed.model.as_deref(), Some(slug));
+    assert_eq!(resumed.thread.model.as_deref(), Some(slug));
+    assert_eq!(
+        resumed.permissions.and_then(|snapshot| snapshot.profile),
+        Some("team-policy".to_owned())
+    );
     assert_eq!(
         resumed
+            .thread
             .reasoning_effort
             .as_ref()
             .map(ReasoningEffort::as_str),

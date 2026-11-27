@@ -129,6 +129,7 @@ impl Reply {
             thread,
             details: None,
             sources,
+            permissions: None,
         })
     }
 
@@ -177,9 +178,24 @@ impl Reply {
         // Older fake-host and state fixtures also use the screen reply shape.
         // Give them the same typed result as replies from the live thread RPCs.
         let thread = match reply {
-            ScreenReply::Agents(agents::Reply::Resumed(thread)) => ThreadReply::Resumed(thread),
-            ScreenReply::Agents(agents::Reply::Forked(thread)) => ThreadReply::Forked(thread),
-            ScreenReply::Agents(agents::Reply::Started(thread)) => ThreadReply::Started(thread),
+            ScreenReply::Agents(agents::Reply::Resumed(thread)) => {
+                ThreadReply::Resumed(crate::threads::asks::OpenedThread {
+                    thread,
+                    permissions: None,
+                })
+            }
+            ScreenReply::Agents(agents::Reply::Forked(thread)) => {
+                ThreadReply::Forked(crate::threads::asks::OpenedThread {
+                    thread,
+                    permissions: None,
+                })
+            }
+            ScreenReply::Agents(agents::Reply::Started(thread)) => {
+                ThreadReply::Started(crate::threads::asks::OpenedThread {
+                    thread,
+                    permissions: None,
+                })
+            }
             ScreenReply::Agents(agents::Reply::Read { thread, unread }) => {
                 ThreadReply::Read { thread, unread }
             }

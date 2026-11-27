@@ -180,6 +180,59 @@ fn a_menu_selection_is_compared_to_the_current_permissions_when_applied() {
 }
 
 #[test]
+fn cold_permission_snapshot_settles_an_unchanged_write_on_its_ack() {
+    for newer_settings in [false, true] {
+        let mut s = Screen::build(Owner::DialogsPane)
+            .size(100, 24)
+            .live()
+            .held_start()
+            .open();
+        let start = s
+            .commands()
+            .into_iter()
+            .find(|command| matches!(command, codex_tui_core::app::Command::StartThread { .. }))
+            .expect("cold open requested thread/start");
+        let mut opening: serde_json::Value = serde_json::from_str(include_str!(
+            "fixtures/chat_commands_3/export_thread_start.json"
+        ))
+        .expect("valid start reply");
+        opening["thread"]["id"] = "thread-1".into();
+        opening["activePermissionProfile"] = json!({"id": "team-policy"});
+        if newer_settings {
+            effective_permissions(&mut s, ":read-only", "on-request", "user");
+        }
+        s.answer_request(&start, opening);
+        s.server_answers("thread/settings/update", json!({}));
+        s.feed(&turn_note("turn/started", "inProgress"));
+        s.type_text("/permissions").keys("tab");
+        s.type_text("after permission changes").keys("tab");
+        s.feed(&turn_note("turn/completed", "completed"));
+        s.answer_permission_catalog(
+            json!({
+                "allowedApprovalsReviewers": ["user"],
+                "allowedPermissionProfiles": {":workspace": true, "team-policy": true},
+            }),
+            json!([
+                {"id": ":workspace", "description": null, "allowed": true},
+                {"id": "team-policy", "description": null, "allowed": true},
+            ]),
+        );
+        let settings = s.hold_request("thread/settings/update");
+        s.assert_contains("2. team-policy");
+        s.keys("2");
+        s.assert_permission_updates(&["team-policy"]);
+        s.assert_no_turn();
+        s.release(&settings);
+        if newer_settings {
+            // Settings pushed while the open was in flight supersede its old snapshot.
+            s.assert_no_turn();
+            effective_permissions(&mut s, "team-policy", "on-request", "user");
+        }
+        s.assert_turn_texts(&["after permission changes"]);
+    }
+}
+
+#[test]
 fn refused_permission_write_retains_the_queued_input() {
     let mut s = queued_permissions_selection();
     s.server_refuses(

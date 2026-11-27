@@ -25,6 +25,7 @@ use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_WORKSPACE;
 use serde::Deserialize;
 
 use super::models::Catalog as ModelCatalog;
+use crate::ids::Ticket;
 use crate::rpc::Address;
 use crate::threads::SettingsPatch;
 use crate::threads::queue::ModalToken;
@@ -469,39 +470,49 @@ pub enum Label {
     Profile(String),
 }
 
-/// Effective permission fields reported by a thread's live connection.
+/// The effective permission fields of a thread opening or settings notification.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Snapshot {
+    pub profile: Option<String>,
+    pub approval: Approval,
+    pub reviewer: Reviewer,
+}
+
+impl Snapshot {
+    pub(crate) fn from_opening(
+        profile: Option<codex_app_server_protocol::ActivePermissionProfile>,
+        approval: Approval,
+        reviewer: Reviewer,
+    ) -> Self {
+        Self { profile: profile.map(|profile| profile.id), approval, reviewer }
+    }
+}
+
+/// An authoritative snapshot and the order of its request or live observation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Effective {
     pub(crate) address: Address,
-    pub(crate) profile: Option<String>,
-    pub(crate) approval: Option<Approval>,
-    pub(crate) reviewer: Reviewer,
+    pub(crate) at: Ticket,
+    pub(crate) snapshot: Snapshot,
 }
 
 impl Effective {
-    pub(crate) fn observed(address: Address, settings: &ThreadSettings) -> Self {
+    pub(crate) fn observed(address: Address, at: Ticket, settings: &ThreadSettings) -> Self {
         Self {
             address,
-            profile: settings
-                .active_permission_profile
-                .as_ref()
-                .map(|profile| profile.id.clone()),
-            approval: Some(settings.approval_policy),
-            reviewer: settings.approvals_reviewer,
+            at,
+            snapshot: Snapshot {
+                profile: settings.active_permission_profile.as_ref().map(|profile| profile.id.clone()),
+                approval: settings.approval_policy,
+                reviewer: settings.approvals_reviewer,
+            },
         }
     }
 
     pub(crate) fn matches(&self, patch: &SettingsPatch) -> bool {
-        patch
-            .permissions
-            .as_ref()
-            .is_none_or(|profile| self.profile.as_ref() == Some(profile))
-            && patch
-                .approval_policy
-                .is_none_or(|approval| self.approval == Some(approval))
-            && patch
-                .approvals_reviewer
-                .is_none_or(|reviewer| reviewer == self.reviewer)
+        patch.permissions.as_ref().is_none_or(|profile| self.snapshot.profile.as_ref() == Some(profile))
+            && patch.approval_policy.is_none_or(|approval| approval == self.snapshot.approval)
+            && patch.approvals_reviewer.is_none_or(|reviewer| reviewer == self.snapshot.reviewer)
     }
 }
 
