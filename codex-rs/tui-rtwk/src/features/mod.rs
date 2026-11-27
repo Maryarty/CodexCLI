@@ -283,6 +283,7 @@ pub(crate) use images::{
     attachment as attachment_thumbnail, preview as artifact_preview, request as artifact_request,
     scope as artifact_scope, snapshot as artifact_snapshot, watch as watch_artifact,
 };
+pub(crate) use pets::{PetIntent, PetPhase, PetVisit, is_pet_disable};
 
 /// The action of the security-setup reminder over the composer (its one row opens the page): the
 /// session page that draws the banner names no feature.

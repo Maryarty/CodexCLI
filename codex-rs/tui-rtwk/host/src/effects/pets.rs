@@ -15,6 +15,7 @@ use codex_http_client::{ClientRouteClass, RouteAwareClientPool};
 use codex_terminal_detection::{Multiplexer, TerminalInfo, TerminalName, terminal_info};
 use codex_tui_core::app::effects::{ImagePreview, ImageSize};
 use codex_tui_core::screens::pets::{AssetAsk, AssetDone, DISABLED, Pet, Picker, Unavailable};
+use codex_tui_rtwk::services::agents::workspace::blocking;
 use serde::Deserialize;
 
 const WIDTH: u32 = 1536;
@@ -85,11 +86,9 @@ pub(super) async fn run(ask: AssetAsk, config: Option<Arc<Config>>) -> AssetDone
         AssetAsk::Catalog { graphics } => {
             let support = support(&terminal_info(), graphics);
             AssetDone::Catalog(match support {
-                Ok(()) => Ok(
-                    tokio::task::spawn_blocking(move || catalog(config.as_deref()))
-                        .await
-                        .unwrap_or_else(|_| catalog(None)),
-                ),
+                Ok(()) => Ok(blocking(move || catalog(config.as_deref()))
+                    .await
+                    .unwrap_or_else(|| catalog(None))),
                 Err(reason) => Err(reason),
             })
         }
@@ -170,7 +169,10 @@ fn custom_catalog(home: &Path) -> impl Iterator<Item = Pet> {
             if id == DISABLED || id.starts_with("custom:") || pets.contains_key(&id) {
                 continue;
             }
-            let Ok((manifest, _)) = custom_asset(&child.path(), filename) else {
+            if !child.path().join(filename).is_file() {
+                continue;
+            }
+            let Ok((manifest, _)) = installed_asset(home, &id) else {
                 continue;
             };
             let trim = |value: Option<String>| {
@@ -254,6 +256,20 @@ fn custom_asset(directory: &Path, filename: &str) -> Result<(Manifest, PathBuf)>
     Ok((manifest, sheet))
 }
 
+fn installed_asset(home: &Path, selector: &str) -> Result<(Manifest, PathBuf)> {
+    let id = selector.strip_prefix("custom:").unwrap_or(selector);
+    let mut components = Path::new(id).components();
+    if matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none() {
+        for (directory, filename) in CUSTOM_DIRS {
+            let path = home.join(directory).join(id);
+            if path.join(filename).is_file() {
+                return custom_asset(&path, filename);
+            }
+        }
+    }
+    bail!("unknown pet {selector}");
+}
+
 fn validate_grid(grid: Grid) -> Result<()> {
     if grid.width == 0
         || grid.height == 0
@@ -284,26 +300,13 @@ async fn preview(config: Option<Arc<Config>>, selector: String) -> Result<ImageP
     let config = config.context("pet configuration is unavailable")?;
     if let Some(pet) = BUILTIN.iter().find(|pet| pet.id == selector) {
         let sheet = ensure_builtin(&config, pet).await?;
-        return tokio::task::spawn_blocking(move || first_idle(&sheet, &Manifest::default()))
+        return blocking(move || first_idle(&sheet, &Manifest::default()))
             .await
             .context("read built-in pet frame")?;
     }
-    tokio::task::spawn_blocking(move || {
-        let id = selector.strip_prefix("custom:").unwrap_or(&selector);
-        if !matches!(
-            Path::new(id).components().collect::<Vec<_>>().as_slice(),
-            [Component::Normal(_)]
-        ) {
-            bail!("unknown pet {selector}");
-        }
-        for (directory, filename) in CUSTOM_DIRS {
-            let path = config.codex_home.join(directory).join(id);
-            if path.join(filename).is_file() {
-                let (manifest, sheet) = custom_asset(&path, filename)?;
-                return first_idle(&sheet, &manifest);
-            }
-        }
-        bail!("unknown pet {selector}");
+    blocking(move || {
+        let (manifest, sheet) = installed_asset(config.codex_home.as_path(), &selector)?;
+        first_idle(&sheet, &manifest)
     })
     .await
     .context("read custom pet frame")?
@@ -347,7 +350,10 @@ async fn ensure_builtin(config: &Config, pet: &Builtin) -> Result<PathBuf> {
         .join("cache/tui-pets/v1/assets")
         .join(pet.file);
     let read_path = path.clone();
-    if tokio::task::spawn_blocking(move || validate_sheet(&read_path).is_ok()).await? {
+    if blocking(move || validate_sheet(&read_path).is_ok())
+        .await
+        .unwrap_or(false)
+    {
         return Ok(path);
     }
     let pool = RouteAwareClientPool::new(config.http_client_factory(), ClientRouteClass::Other);
@@ -371,7 +377,7 @@ async fn ensure_builtin(config: &Config, pet: &Builtin) -> Result<PathBuf> {
         }
         bytes.extend_from_slice(&chunk);
     }
-    tokio::task::spawn_blocking(move || {
+    blocking(move || {
         let directory = path.parent().context("pet cache has no parent directory")?;
         fs::create_dir_all(directory)?;
         let mut temporary = tempfile::Builder::new()
@@ -395,4 +401,62 @@ async fn save(config: Option<&Config>, selector: &str) -> Result<()> {
         .apply()
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::GenericImageView as _;
+
+    #[test]
+    fn host_checks_the_terminal_before_enabling_pets() {
+        let mut info = TerminalInfo {
+            name: TerminalName::Iterm2,
+            term_program: None,
+            version: Some("3.5.8".into()),
+            term: None,
+            multiplexer: None,
+            backend: None,
+        };
+        assert_eq!(support(&info, true), Err(Unavailable::OldIterm));
+        info.version = Some("3.6".into());
+        assert_eq!(support(&info, false), Err(Unavailable::Terminal));
+        assert_eq!(support(&info, true), Ok(()));
+        info.multiplexer = Some(Multiplexer::Tmux { version: None });
+        assert_eq!(support(&info, true), Err(Unavailable::Tmux));
+    }
+
+    #[test]
+    fn catalog_resolves_legacy_ids_and_reads_the_first_configured_idle_frame() -> Result<()> {
+        let home = tempfile::tempdir()?;
+        let directory = home.path().join("avatars/owl");
+        fs::create_dir_all(&directory)?;
+        fs::write(
+            directory.join("avatar.json"),
+            r#"{
+            "displayName": "Owl",
+            "spritesheetPath": "spritesheet.png",
+            "animations": {"idle": {"frames": [1, 0]}}
+        }"#,
+        )?;
+        let mut pixels = image::RgbaImage::new(WIDTH, HEIGHT);
+        let marker = image::Rgba([80, 160, 120, 255]);
+        pixels.put_pixel(192, 0, marker);
+        pixels.save(directory.join("spritesheet.png"))?;
+        let listed: Vec<_> = custom_catalog(home.path()).collect();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].selector, "custom:owl");
+        assert_eq!(listed[0].legacy_selector.as_deref(), Some("owl"));
+        let (manifest, path) = installed_asset(home.path(), "owl")?;
+        let frame = first_idle(&path, &manifest)?;
+        assert_eq!(
+            frame.size,
+            ImageSize {
+                width: 192,
+                height: 208
+            }
+        );
+        assert_eq!(image::load_from_memory(&frame.png)?.get_pixel(0, 0), marker);
+        Ok(())
+    }
 }

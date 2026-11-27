@@ -677,47 +677,70 @@ fn slash_resume_with_arg_requests_named_session_while_mcp_startup_is_running() {
 // ORACLE chatwidget/tests/slash_commands.rs:3155 slash_pets_opens_picker kind=snap owner=chat-nav-pane snap=slash_pets_picker
 #[test]
 fn slash_pets_opens_picker() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the pets picker needs pet image support (force_pet_image_support) seeded; no seed registers it, the pets screen is not reachable from a live chat black-box",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .kitty()
+        .live()
+        .open();
     s.type_text("/pets");
     s.keys("enter");
-    s.assert_snap("slash_pets_picker");
+    s.pets_catalog();
+    s.wait_for("Loading preview...");
+    s.assert_snap_region("slash_pets_picker", s.row_of("Select Pet"), 0);
+    s.pets_preview("codex");
+    s.wait(100);
+    s.assert_absent("Loading preview...");
+    s.assert_pet_previews(1);
+    s.keys("esc");
+    s.assert_pet_previews(0);
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3170 slash_pets_with_arg_selects_named_pet kind=ui owner=chat-nav-pane
 #[test]
 fn slash_pets_with_arg_selects_named_pet() {
-    kit::na(
-        Owner::ChatNavPane,
-        "asserts the FollowTranscript and PetSelected{pet_id: chefito} events and no core op, nothing drawn",
-    );
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .kitty()
+        .live()
+        .open();
+    s.type_text("/pets chefito");
+    s.keys("enter");
+    s.pets_catalog();
+    s.assert_pet_saves(&[]);
+    s.pets_preview("chefito");
+    s.assert_pet_saves(&["chefito"]);
+    s.pets_save_accepted("chefito");
+    s.wait(100);
+    s.assert_absent("Loading Pet");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3188 slash_pet_disable_aliases_work_on_unsupported_terminal kind=ui owner=chat-nav-pane
 #[test]
 fn slash_pet_disable_aliases_work_on_unsupported_terminal() {
-    kit::na(
-        Owner::ChatNavPane,
-        "asserts the FollowTranscript and PetDisabled events and no core op for \"/pets disable\" and \"/pet hide\", nothing drawn",
-    );
+    for command in ["/pets disable", "/pet hide"] {
+        let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+        s.type_text(command);
+        s.keys("enter");
+        s.assert_pet_saves(&["disabled"]);
+        s.pets_save_accepted("disabled");
+        s.assert_absent("Pets unavailable");
+    }
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3205 slash_pets_in_tmux_shows_notice_and_preserves_draft kind=snap owner=chat-nav-pane snap=slash_pets_unavailable_tmux_40
 #[test]
 fn slash_pets_in_tmux_shows_notice_and_preserves_draft() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the tmux pets notice popup and the unsupported-terminal seed (force_tmux_pet_image_unsupported) are not registered",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(40, 24).live().open();
-    s.type_text("Keep this draft");
-    // The oracle dispatches /pets while the draft stays in the composer; a black-box way to run
-    // the command with a draft kept is not in the kit yet (kit gap: no command dispatch seed).
-    s.assert_snap("slash_pets_unavailable_tmux_40");
-    s.assert_contains("Pets are unavailable in this tmux pane.");
+    s.type_text("/pets");
+    s.keys("enter");
+    s.draft("Keep this draft");
+    s.pets_unavailable("tmux");
+    s.wait_for("Pets unavailable");
+    s.assert_snap_region(
+        "slash_pets_unavailable_tmux_40",
+        s.row_of("Pets unavailable"),
+        0,
+    );
     s.assert_contains("outside tmux");
     s.keys("esc");
     s.assert_contains("Keep this draft");
@@ -726,29 +749,25 @@ fn slash_pets_in_tmux_shows_notice_and_preserves_draft() {
 // ORACLE chatwidget/tests/slash_commands.rs:3234 slash_pets_with_arg_on_unsupported_terminal_shows_notice_without_selection kind=ui owner=chat-nav-pane
 #[test]
 fn slash_pets_with_arg_on_unsupported_terminal_shows_notice_without_selection() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the tmux pets notice popup and the unsupported-terminal seed (force_tmux_pet_image_unsupported) are not registered",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/pets chefito");
     s.keys("enter");
+    s.pets_unavailable("tmux");
+    s.wait_for("Pets unavailable");
     s.assert_contains("Pets are unavailable in this tmux pane.");
     s.keys("enter");
-    // The oracle asserts the popup is dismissed by Enter and no selection event or core op: the dismissal is drawn below.
     s.assert_absent("Pets are unavailable in this tmux pane.");
+    s.assert_pet_saves(&[]);
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3265 slash_pets_on_unsupported_terminal_shows_terminal_warning kind=ui owner=chat-nav-pane
 #[test]
 fn slash_pets_on_unsupported_terminal_shows_terminal_warning() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the unsupported-terminal pets warning and its seed (force_terminal_pet_image_unsupported) are not registered",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/pets");
     s.keys("enter");
+    s.pets_unavailable("terminal");
+    s.wait_for("Pets unavailable");
     s.assert_contains("Pets aren’t available in this terminal.");
     s.assert_contains("Kitty graphics or Sixel support");
 }
@@ -756,13 +775,11 @@ fn slash_pets_on_unsupported_terminal_shows_terminal_warning() {
 // ORACLE chatwidget/tests/slash_commands.rs:3288 slash_pets_on_old_iterm2_shows_upgrade_warning kind=ui owner=chat-nav-pane
 #[test]
 fn slash_pets_on_old_iterm2_shows_upgrade_warning() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the old-iTerm2 pets warning and its seed (force_old_iterm2_pet_image_unsupported) are not registered",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/pets");
     s.keys("enter");
+    s.pets_unavailable("iTerm2");
+    s.wait_for("Pets unavailable");
     s.assert_contains("Pets require iTerm2 3.6 or newer.");
     s.assert_contains("Upgrade iTerm2 to use terminal pets.");
 }

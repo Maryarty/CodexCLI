@@ -1,8 +1,10 @@
 //! The `[tui]` settings a screen test turns on after the screen is open (the host sends them
 //! once at the start: `AppEv::Tui`).
 
-use codex_tui_core::app::AppEv;
+use codex_tui_core::app::effects::{Ask, Done, ImagePreview, ImageSize};
 use codex_tui_core::app::facts::{Rendering, TuiSettings};
+use codex_tui_core::app::{AppEv, Command};
+use codex_tui_core::screens::pets::{AssetAsk, AssetDone, Pet, Picker, Unavailable};
 use codex_tui_rtwk::app::UiApp;
 
 use super::Screen;
@@ -28,6 +30,105 @@ impl Default for Renderers {
 }
 
 impl Screen {
+    /// The local host's catalog for the first supported `/pets` visit.
+    pub fn pets_catalog(&mut self) {
+        let fixture = include_str!("../../src/sheets/pets/fixtures/picker.jsonl");
+        let row = fixture.lines().last().expect("pet catalog fixture");
+        let seed: serde_json::Value = serde_json::from_str(row).expect("pet catalog seed");
+        let pets: Vec<Pet> = serde_json::from_value(seed["ev"]["pets"].clone()).expect("pet rows");
+        self.pet_answer(
+            |ask| matches!(ask, AssetAsk::Catalog { graphics: true }),
+            AssetDone::Catalog(Ok(Picker::build(None, pets))),
+        );
+    }
+
+    /// The catalog cannot be opened in this terminal. The fake still sees the real catalog ask.
+    pub fn pets_unavailable(&mut self, terminal: &str) {
+        let reason = match terminal {
+            "tmux" => Unavailable::Tmux,
+            "iTerm2" => Unavailable::OldIterm,
+            "terminal" => Unavailable::Terminal,
+            other => panic!("unknown pet terminal fixture: {other}"),
+        };
+        self.pet_answer(
+            |ask| matches!(ask, AssetAsk::Catalog { graphics: false }),
+            AssetDone::Catalog(Err(reason)),
+        );
+    }
+
+    /// Return a real static PNG to the preview/selection read the app asked for.
+    pub fn pets_preview(&mut self, selector: &str) {
+        let file = super::image_file_sized("pet-preview", 192, 208);
+        let png = std::fs::read(file).expect("pet preview PNG");
+        self.pet_answer(
+            |ask| matches!(ask, AssetAsk::Preview { selector: id } if id == selector),
+            AssetDone::Preview(Ok(ImagePreview {
+                png: png.into(),
+                size: ImageSize {
+                    width: 192,
+                    height: 208,
+                },
+            })),
+        );
+    }
+
+    pub fn pets_save_accepted(&mut self, selector: &str) {
+        self.pet_answer(
+            |ask| matches!(ask, AssetAsk::Save { selector: id } if id == selector),
+            AssetDone::Saved(Ok(())),
+        );
+    }
+
+    pub fn assert_pet_saves(&mut self, selectors: &[&str]) {
+        self.h.settle();
+        let saves: Vec<_> = self
+            .h
+            .fake
+            .commands()
+            .into_iter()
+            .filter_map(|command| match command {
+                Command::Effect {
+                    ask: Ask::Pet(AssetAsk::Save { selector }),
+                    ..
+                } => Some(selector),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(saves, selectors);
+    }
+
+    pub fn assert_pet_previews(&mut self, count: usize) {
+        self.h.settle();
+        let images = self.h.t.images();
+        assert_eq!(images.len(), count, "{images:?}\n{}", self.text());
+        assert!(images.iter().all(|image| image.rows <= 4), "{images:?}");
+    }
+
+    fn pet_answer(&mut self, wanted: impl Fn(&AssetAsk) -> bool, done: AssetDone) {
+        let mut request = None;
+        self.h
+            .wait_until("an observed pet capability request", |h| {
+                request = h
+                    .fake
+                    .commands()
+                    .into_iter()
+                    .rev()
+                    .find_map(|command| match command {
+                        Command::Effect {
+                            request,
+                            ask: Ask::Pet(ask),
+                            ..
+                        } if wanted(&ask) => Some(request),
+                        _ => None,
+                    });
+                request.is_some()
+            });
+        self.h.inject([AppEv::Effect {
+            request: request.expect("pet request"),
+            done: Done::Pet(done),
+        }]);
+    }
+
     /// The host's explicit rows per native wheel event.
     pub fn mouse_scroll_speed(&mut self, speed: Option<f64>) -> &mut Screen {
         let settings = self.h.t.read_app(|app: &UiApp| app.core.tui());

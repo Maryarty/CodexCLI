@@ -6,6 +6,7 @@
 //! else in this directory holds user-visible text (the rules test
 //! `adr010_no_user_visible_literal_outside_the_string_tables`).
 
+use codex_tui_core::screens::pets::Unavailable;
 use rtwk::l10n::DependCx;
 
 use crate::l10n::Lang;
@@ -25,6 +26,18 @@ pub struct Strings {
     pub disable_row: &'static str,
     /// pets/preview.rs: `PetPickerPreviewStatus::Loading`.
     pub preview_loading: &'static str,
+    pub preview_unavailable: &'static str,
+    pub preview_disabled: &'static str,
+    pub preview_disabled_detail: &'static str,
+    pub catalog_loading: &'static str,
+    pub unavailable_title: &'static str,
+    pub unavailable_terminal: &'static str,
+    pub unavailable_tmux: &'static str,
+    pub unavailable_zellij: &'static str,
+    pub unavailable_iterm: &'static str,
+    pub apply_title: &'static str,
+    pub apply_detail: &'static str,
+    pub close: &'static str,
     /// The two columns before a row of the pane: the cursor's `›` or blanks.
     pub cursor_marker: &'static str,
     pub indent: &'static str,
@@ -46,6 +59,18 @@ pub const EN: Strings = Strings {
     search_placeholder: "Type to filter pets...",
     disable_row: "Disable terminal pets",
     preview_loading: "Loading preview...",
+    preview_unavailable: "Preview unavailable",
+    preview_disabled: "Terminal pets disabled",
+    preview_disabled_detail: "No pet will be shown.",
+    catalog_loading: "Loading terminal pets...",
+    unavailable_title: "Pets unavailable",
+    unavailable_terminal: "Pets aren’t available in this terminal. Terminal pets need image support, and this terminal environment doesn’t expose a supported image protocol. Try a terminal with Kitty graphics or Sixel support, or run Codex outside tmux.",
+    unavailable_tmux: "Pets are unavailable in this tmux pane. Use fullscreen Codex with allow-passthrough all, or run Codex outside tmux.",
+    unavailable_zellij: "Pets are disabled in Zellij. Terminal images don’t stay reliably pane-local in Zellij. Run Codex outside Zellij to use pets.",
+    unavailable_iterm: "Pets require iTerm2 3.6 or newer. Upgrade iTerm2 to use terminal pets.",
+    apply_title: "Loading Pet",
+    apply_detail: "Preparing the terminal pet.",
+    close: "1. Close",
     cursor_marker: "\u{203a} ",
     indent: "  ",
     more_below: "\u{2193}",
@@ -53,6 +78,17 @@ pub const EN: Strings = Strings {
     hint: "enter select \u{b7} esc back",
     current_marker: " (current)",
 };
+
+impl Strings {
+    pub fn unavailable(&self, reason: Unavailable) -> &'static str {
+        match reason {
+            Unavailable::Terminal => self.unavailable_terminal,
+            Unavailable::Tmux => self.unavailable_tmux,
+            Unavailable::Zellij => self.unavailable_zellij,
+            Unavailable::OldIterm => self.unavailable_iterm,
+        }
+    }
+}
 
 static TABLES: Tables<Strings> = Tables::english(&EN);
 
