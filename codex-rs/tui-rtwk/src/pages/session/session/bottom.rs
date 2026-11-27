@@ -28,6 +28,7 @@ use crate::pages::session::status_surfaces::{line_interests, raise};
 use crate::pages::session::transcript;
 use crate::sheets::approvals::PendingThreadsBanner;
 use crate::sheets::dialogs::shortcut_panel;
+use crate::sheets::pets::ambient;
 use crate::sheets::select::hud;
 use crate::widgets::status_line::{SEPARATOR, status_spans, thread_color};
 
@@ -232,7 +233,7 @@ pub(super) fn body(
                         child: BoxWidget::new()
                             .style(tokens.prompt_surface(cx, false))
                             .padding(EdgeInsets::only(0, 1, 1, 1))
-                            .child(composer)
+                            .child(ambient::reserve(composer))
                             .into(),
                     })
                     .with_key(Key::value("composer")),

@@ -45,6 +45,7 @@ use crate::features::{
 };
 use crate::keymap::bind_fixed;
 
+pub(crate) mod ambient;
 pub mod strings;
 
 /// Rows of the list shown at once (`max_visible_rows` of the picker).

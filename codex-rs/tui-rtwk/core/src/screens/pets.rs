@@ -4,6 +4,9 @@
 //! outside these two directories (bar their test files) needs an edit when it
 //! grows.
 
+use std::sync::Arc;
+use std::time::Duration;
+
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 
@@ -54,12 +57,87 @@ pub enum Unavailable {
     OldIterm,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Anchor {
+    #[default]
+    Composer,
+    ScreenBottom,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Motion {
+    #[default]
+    Idle,
+    Running,
+    Waiting,
+    Review,
+    Failed,
+}
+
+impl Motion {
+    pub const ALL: [Self; 5] = [
+        Self::Idle,
+        Self::Running,
+        Self::Waiting,
+        Self::Review,
+        Self::Failed,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Running => "running",
+            Self::Waiting => "waiting",
+            Self::Review => "review",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+/// One immutable PNG or APNG, produced by the host at asset-load time.
+#[derive(Clone)]
+pub struct Clip {
+    pub data: Arc<[u8]>,
+    pub until_idle: Option<Duration>,
+}
+
+impl std::fmt::Debug for Clip {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        out.debug_struct("Clip")
+            .field("encoded_bytes", &self.data.len())
+            .field("until_idle", &self.until_idle)
+            .finish()
+    }
+}
+
+impl PartialEq for Clip {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.data, &other.data) && self.until_idle == other.until_idle
+    }
+}
+
+impl Eq for Clip {}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Ambient {
+    pub size: crate::app::effects::ImageSize,
+    pub anchor: Anchor,
+    pub clips: [Clip; 5],
+}
+
+impl Ambient {
+    pub fn clip(&self, motion: Motion) -> &Clip {
+        &self.clips[motion as usize]
+    }
+}
+
 /// Local pet assets and configuration are independent of the app-server connection.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AssetAsk {
     Catalog { graphics: bool },
     Preview { selector: String },
     Save { selector: String },
+    Ambient { selector: Option<String> },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -67,6 +145,7 @@ pub enum AssetDone {
     Catalog(Result<Picker, Unavailable>),
     Preview(Result<crate::app::effects::ImagePreview, String>),
     Saved(Result<(), String>),
+    Ambient(Option<Arc<Ambient>>),
 }
 
 /// What the `/pets` picker lists (`pets/picker.rs`: `build_pet_picker_params`): the host's

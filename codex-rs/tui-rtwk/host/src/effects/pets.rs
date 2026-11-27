@@ -18,6 +18,8 @@ use codex_tui_core::screens::pets::{AssetAsk, AssetDone, DISABLED, Pet, Picker, 
 use codex_tui_rtwk::services::agents::workspace::blocking;
 use serde::Deserialize;
 
+mod ambient;
+
 const WIDTH: u32 = 1536;
 const HEIGHT: u32 = 1872;
 const MAX_DOWNLOAD: usize = 4 * 1024 * 1024;
@@ -96,6 +98,13 @@ pub(super) async fn run(ask: AssetAsk, config: Option<Arc<Config>>) -> AssetDone
             preview(config, selector)
                 .await
                 .map_err(|err| err.to_string()),
+        ),
+        AssetAsk::Ambient { selector } => AssetDone::Ambient(
+            ambient::load(config, selector)
+                .await
+                .ok()
+                .flatten()
+                .map(Arc::new),
         ),
         AssetAsk::Save { selector } => AssetDone::Saved(
             save(config.as_deref(), &selector)
@@ -210,6 +219,9 @@ struct Manifest {
 struct Animation {
     #[serde(default)]
     frames: Vec<u32>,
+    fps: Option<f64>,
+    #[serde(rename = "loop")]
+    loop_animation: Option<bool>,
 }
 
 #[derive(Clone, Copy, Deserialize)]

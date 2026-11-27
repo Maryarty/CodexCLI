@@ -7,9 +7,14 @@ use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, Expanded, SizedBox, St
 use rtwk::style::Style;
 use rtwk::{AnyWidget, Cx, LayoutBuilder, StatelessWidget, impl_widget};
 
+use codex_tui_core::screens::pets::Motion;
+
 use crate::pages::session::composer::images;
+use crate::sheets::pets::ambient;
 
 use super::chord_guide::ChordGuide;
+use super::frame::Frame;
+use super::{Chat, ChatState};
 
 /// The window height under which the chat draws nothing.
 const HIDDEN_BELOW_ROWS: i32 = 4;
@@ -24,9 +29,11 @@ pub(super) fn page(
     body: Column,
     inline_draft: bool,
     guide: ChordGuide,
+    pet: ambient::Pet,
 ) -> Stack {
-    let transcript: AnyWidget = if inline_draft {
-        transcript.into()
+    let transcript = ambient::reserve(transcript);
+    let transcript = if inline_draft {
+        transcript
     } else {
         Expanded::new(1, transcript).into()
     };
@@ -42,11 +49,33 @@ pub(super) fn page(
             SizedBox::shrink().into()
         }
     });
-    Stack::new()
-        .fit(StackFit::Expand)
-        .child(images::page_room(page.into()))
-        .child(guide)
-        .child(blank)
+    Stack::new().fit(StackFit::Expand).child(ambient::cover(
+        pet,
+        Stack::new()
+            .fit(StackFit::Expand)
+            .child(images::page_room(page.into()))
+            .child(guide)
+            .child(blank)
+            .into(),
+    ))
+}
+
+pub(super) fn pet(state: &ChatState, w: &Chat, frame: &Frame) -> ambient::Pet {
+    let motion = match () {
+        () if frame.run.asking > 0 => Motion::Waiting,
+        () if frame.run.running() => Motion::Running,
+        () if frame.run.failure(&frame.session).is_some() => Motion::Failed,
+        () => Motion::Idle,
+    };
+    ambient::Pet {
+        thread: frame.thread.id().clone(),
+        motion,
+        hidden: state.shortcuts
+            || state.banner.quick_menu.get()
+            || frame.searching.is_some()
+            || state.editing(frame.run.asking),
+        ui: w.ui.clone(),
+    }
 }
 
 /// The patch prompt leaves the transcript's pointer input available. The composer

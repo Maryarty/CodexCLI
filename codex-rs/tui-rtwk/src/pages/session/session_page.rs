@@ -406,8 +406,6 @@ impl State for ChatState {
     fn build(&self, w: &Chat, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let frame = frame::Frame::read(self, w, cx);
         self.tell(w, &frame);
-        // the sections, top to bottom: the transcript, the composer's place and the bottom pane
-        // around it, the terminal title, and the blank sheet a window too small to draw lays over
         let inline_draft = super::transcript_header::startup_draft(&frame.session)
             && AppBinding::maybe_of(cx).is_some_and(|binding| binding.mode() == ScreenMode::Inline);
         let transcript = reader::pane(self, w, &frame, inline_draft);
@@ -415,7 +413,8 @@ impl State for ChatState {
         let body = bottom::body(self, w, cx, &frame, slot);
         let body = bottom::with_titles(&frame, body, title::titles(cx, &frame));
         let guide = chord_guide::guide(w.ui.draft.clone(), frame.keymap.clone());
-        let page = overlay::page(transcript, body, inline_draft, guide);
+        let pet = overlay::pet(self, w, &frame);
+        let page = overlay::page(transcript, body, inline_draft, guide, pet);
         let focus = input::focus(self, cx, &frame, page);
         // The listener stands outside the keyed focus: a key that changes in the same flush as a
         // directive (the continue key ends the lock and gives the words in one step) would end its

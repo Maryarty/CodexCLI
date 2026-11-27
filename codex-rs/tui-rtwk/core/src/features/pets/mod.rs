@@ -1,10 +1,11 @@
 //! Local catalog reads and confirmed pet selection for the live `/pets` opener.
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::app::effects::{Ask, Done};
 use crate::ids::ThreadId;
-use crate::screens::pets::{AssetAsk, AssetDone, DISABLED, Picker, Preview, Unavailable};
+use crate::screens::pets::{Ambient, AssetAsk, AssetDone, DISABLED, Picker, Preview, Unavailable};
 
 use super::AppCx;
 
@@ -22,6 +23,7 @@ impl Visit {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
+    FetchAmbient,
     Request {
         visit: Visit,
         selector: Option<String>,
@@ -40,6 +42,7 @@ pub enum Intent {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ctx {
+    Ambient(u64),
     Catalog {
         visit: Visit,
         selector: Option<String>,
@@ -91,9 +94,29 @@ pub struct State {
     operation: Option<Operation>,
     saving: Option<Write>,
     selected: Option<String>,
+    ambient_requested: bool,
+    ambient_revision: u64,
+    ambient: Option<Arc<Ambient>>,
 }
 
 impl State {
+    pub fn ambient(&self) -> Option<&Arc<Ambient>> {
+        self.ambient.as_ref()
+    }
+
+    fn fetch_ambient(&mut self, cx: &mut AppCx<'_>) {
+        self.ambient_revision += 1;
+        self.ambient = None;
+        if self.selected.as_deref() != Some(DISABLED) {
+            cx.effect(
+                Ask::Pet(AssetAsk::Ambient {
+                    selector: self.selected.clone(),
+                }),
+                Ctx::Ambient(self.ambient_revision),
+            );
+        }
+    }
+
     pub fn phase(&self, visit: Visit) -> Option<&Phase> {
         self.operation
             .as_ref()
@@ -281,6 +304,7 @@ fn saved(state: &mut State, visit: Visit, result: Result<(), String>, cx: &mut A
     };
     match result {
         Ok(()) => {
+            let changed = state.selected.as_deref() != Some(write.selector.as_str());
             if let Some(Operation {
                 phase: Phase::Ready(picker),
                 ..
@@ -289,6 +313,9 @@ fn saved(state: &mut State, visit: Visit, result: Result<(), String>, cx: &mut A
                 picker.current = Some(write.selector.clone());
             }
             state.selected = Some(write.selector);
+            if changed && state.ambient_requested {
+                state.fetch_ambient(cx);
+            }
         }
         Err(error) => {
             if write.thread.is_some() || cx.view().active().is_none() {
@@ -315,6 +342,12 @@ feature! {
         {
             fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
                 match intent {
+                    Intent::FetchAmbient => {
+                        if !state.ambient_requested {
+                            state.ambient_requested = true;
+                            state.fetch_ambient(cx);
+                        }
+                    }
                     Intent::Request { visit, selector, graphics } => request(state, visit, selector, graphics, cx),
                     Intent::ReadPreview { visit, selector } => read_preview(state, visit, selector, cx),
                     Intent::Apply { visit, selector } => apply(state, visit, selector, cx),
@@ -328,6 +361,7 @@ feature! {
 
             fn effect_done(state: &mut State, ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {
                 match (ctx, done) {
+                    (Ctx::Ambient(revision), Done::Pet(AssetDone::Ambient(ambient))) if revision == state.ambient_revision => state.ambient = ambient,
                     (Ctx::Catalog { visit, selector }, Done::Pet(AssetDone::Catalog(read))) => catalog(state, visit, selector, read, cx),
                     (Ctx::Preview { visit, revision }, Done::Pet(AssetDone::Preview(read))) => {
                         if let Some(active) = state.current(visit, cx)
