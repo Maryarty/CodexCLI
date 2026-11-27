@@ -6,6 +6,7 @@
 //! default key: the oracle toggles it by the `/vim` command).
 
 use crate::common;
+use crate::kit::{Owner, Screen};
 
 use common::{Harness, start};
 
@@ -254,6 +255,39 @@ fn a_typed_character_is_what_dot_repeats_after_escape() {
     h.advance(100);
     keys(&mut h, "esc .");
     assert_eq!(prompt(&h), "› xx");
+}
+
+#[test]
+fn an_accepted_submit_starts_a_fresh_vim_recording_and_keeps_the_register() {
+    let mut s = Screen::build(Owner::ChatLive).live().open();
+    s.type_text("/vim").keys("enter i");
+    s.type_text("register prompt").keys("esc 0 d w i");
+    s.type_text("sent ").keys("esc A");
+    s.type_text(" now").keys("enter");
+    s.assert_turn_texts(&["sent prompt now"]);
+    s.assert_contains("Vim: Insert");
+
+    s.keys("esc .");
+    s.assert_composer("");
+    s.keys("p");
+    s.assert_composer("register");
+    s.keys("u i").type_text("x").keys("esc .");
+    s.assert_composer("xx");
+}
+
+#[test]
+fn a_refused_submit_keeps_recording_the_same_vim_insert() {
+    let mut s = Screen::build(Owner::ChatLive).live().open();
+    s.type_text("/vim").keys("enter i");
+    s.set_thread_model("");
+    s.type_text("a").keys("enter");
+    s.assert_contains("Thread model is unavailable.");
+    s.assert_contains("Vim: Insert");
+    s.assert_no_turn();
+    s.assert_composer("a");
+
+    s.type_text("b").keys("esc 0 .");
+    s.assert_composer("abab");
 }
 
 /// The draft's own recovered-answer append (`append_recovered_drafts`), the

@@ -253,7 +253,14 @@ impl Vim {
         self.enter_normal(t);
     }
 
-    /// Insert mode (a submit, a new draft): a change starts recording.
+    /// Start a fresh draft without commands or searches recorded against the previous buffer.
+    pub fn reset_for_new_buffer(&mut self, t: &mut dyn VimText) {
+        self.forget_commands();
+        self.last_search = SearchQuery::default();
+        self.enter_insert(t);
+    }
+
+    /// Enter Insert mode, starting a recording if one is not already open.
     pub fn enter_insert(&mut self, t: &mut dyn VimText) {
         if !self.enabled {
             return;

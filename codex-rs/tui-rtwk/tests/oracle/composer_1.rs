@@ -400,10 +400,6 @@ fn slash_command_dispatches_after_vim_insert_slash() {
 // ORACLE bottom_pane/chat_composer.rs:6190 inline_slash_command_dispatch_resets_vim_mode_to_insert kind=ui owner=chat-live
 #[test]
 fn inline_slash_command_dispatch_resets_vim_mode_to_insert() {
-    kit::pending(
-        Owner::ChatLive,
-        "Inline /plan dispatch submits the payload and returns to Insert; after x Esc dot the Vim repeat also restores the submitted slash draft",
-    );
     let mut s = vim(100, 9);
     s.keys("i");
     s.type_text("/plan investigate this").keys("enter");

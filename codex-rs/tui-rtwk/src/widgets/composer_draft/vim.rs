@@ -377,10 +377,10 @@ impl ComposerDraft {
         self.with_vim(|v| v.swap_persistent(&mut kept));
     }
 
-    /// Back to Insert mode as a submit or a new draft leaves it.
+    /// Back to Insert mode with a fresh recording when the previous draft is retired.
     pub(super) fn vim_reset_mode(&self, c: &TextEditingController) {
         let mut host = VimHost::new(c, self);
-        self.with_vim(|v| v.enter_insert(&mut host));
+        self.with_vim(|v| v.reset_for_new_buffer(&mut host));
     }
 }
 
