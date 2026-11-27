@@ -17,7 +17,7 @@ use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
 use codex_tui_core::threads::GeneratedImage;
 
 use crate::app::theme::Tokens;
-use crate::features::images;
+use crate::features::{artifact_preview, artifact_request, artifact_snapshot, watch_artifact};
 
 use super::dispatch::{CellEnv, Place, below};
 use super::strings::Strings;
@@ -40,7 +40,6 @@ pub fn texts(image: &GeneratedImage, strings: &Strings) -> Vec<String> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GeneratedImageCell {
     pub image: Arc<GeneratedImage>,
-    pub source: Option<codex_tui_core::features::images::Source>,
     pub raw: bool,
 }
 
@@ -50,11 +49,8 @@ impl StatelessWidget for GeneratedImageCell {
     fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
         let tokens = Tokens::of(cx);
         let strings = super::strings::of(cx);
-        let read = self
-            .source
-            .as_ref()
-            .map(|source| images::request(cx, source, !self.raw));
-        let snapshot = read.as_ref().and_then(|read| images::snapshot(cx, read));
+        let read = artifact_request(cx, !self.raw);
+        let snapshot = read.as_ref().and_then(|read| artifact_snapshot(cx, read));
         let faint = tokens.dim().attrs(Attrs::DIM);
         let heading = if self.image.failed {
             vec![
@@ -88,9 +84,9 @@ impl StatelessWidget for GeneratedImageCell {
             ]));
         }
         if let Some(preview) = snapshot.and_then(|image| image.preview) {
-            column = column.child(images::preview(preview));
+            column = column.child(artifact_preview(preview));
         }
-        images::watch(read, column.into())
+        watch_artifact(read, column.into())
     }
 }
 
@@ -104,7 +100,6 @@ pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
         place.separator,
         GeneratedImageCell {
             image: image.clone(),
-            source: place.image.clone(),
             raw: env.raw,
         }
         .into(),

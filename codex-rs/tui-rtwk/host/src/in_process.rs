@@ -1303,18 +1303,7 @@ impl HostDoors for ConnectionDoors {
         let ssh =
             std::env::var_os("SSH_TTY").is_some() || std::env::var_os("SSH_CONNECTION").is_some();
         let snapshot = if local && !ssh {
-            // One decoder can allocate up to the preview budget for an optional image.
-            static READERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
-            let permit = READERS.acquire().await.ok()?;
-            tokio::task::spawn_blocking(move || {
-                let _permit = permit;
-                codex_tui_rtwk::services::images::local_snapshot(
-                    std::path::Path::new(&path),
-                    preview,
-                )
-            })
-            .await
-            .unwrap_or_default()
+            codex_tui_rtwk::services::images::read_local_snapshot(path, preview).await
         } else {
             Default::default()
         };
