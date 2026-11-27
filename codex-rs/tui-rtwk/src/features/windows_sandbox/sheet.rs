@@ -63,7 +63,7 @@ impl State for PromptSheetState {
             });
             if !active || !current {
                 if current {
-                    verb(cx, Intent::DismissOwned(token));
+                    verb(cx, Intent::CancelOwnedSetup(token));
                 }
                 close_dialog::<_, ()>(cx, None);
             }
@@ -100,7 +100,7 @@ impl State for PromptSheetState {
                 let page = read::<FeatureStates, _>(cx).windows_sandbox.page(w.prompt);
                 if !page.choice_required {
                     if let Some(token) = &w.owner {
-                        verb(cx, Intent::DismissOwned(token.clone()));
+                        verb(cx, Intent::CancelOwnedSetup(token.clone()));
                     }
                     close_dialog::<_, ()>(cx, None);
                 }

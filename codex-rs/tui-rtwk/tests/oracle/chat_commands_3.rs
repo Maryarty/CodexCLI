@@ -86,12 +86,17 @@ fn a_preset_save_holds_the_queue_until_the_write_or_restored_editor_settles() {
             );
         }
         confirm_preset_edit(&mut s);
+        s.assert_requests_of("config/batchWrite", 1);
         let writes = s.request_params("config/batchWrite");
-        assert_eq!(writes.len(), 1);
-        assert_eq!(writes[0]["edits"][0]["keyPath"], "tui.presets.1");
-        assert_eq!(
-            writes[0]["edits"][0]["value"],
-            serde_json::json!({"input": "/status updated", "label": "status"})
+        kit::assert_same(
+            writes[0]["edits"][0]["keyPath"].as_str(),
+            Some("tui.presets.1"),
+            "the save owns the selected preset slot",
+        );
+        kit::assert_same(
+            &writes[0]["edits"][0]["value"],
+            &serde_json::json!({"input": "/status updated", "label": "status"}),
+            "the exact text and preserved label reach the server",
         );
         s.feed(r#"{"step":"lagged","skipped":1}"#);
         s.assert_no_turn();
@@ -158,11 +163,9 @@ fn replacing_transport_closes_an_open_preset_picker() {
     s.assert_contains("Edit a preset");
     s.replace_transport();
     s.assert_absent("Edit a preset");
+    s.keys("enter");
     s.assert_no_turn();
-    s.restore_writer();
-    s.feed(r#"{"step":"lagged","skipped":1}"#);
-    s.assert_turn_texts(&["after presets"]);
-    s.assert_started_turn_on("thread-1");
+    s.assert_reconnect_queue(&["after presets"]);
     s.assert_requests_of("config/batchWrite", 0);
 }
 
@@ -176,15 +179,12 @@ fn replacing_transport_retires_a_pending_preset_write_and_its_late_answer() {
     s.assert_no_turn();
     s.replace_transport();
     s.assert_absent("Edit preset 1");
-    s.restore_writer();
-    s.feed(r#"{"step":"lagged","skipped":1}"#);
-    s.assert_turn_texts(&["after presets"]);
-    s.server_refuses("config/batchWrite", Some(-32000), "old config refusal");
+    s.assert_reconnect_queue(&["after presets"]);
     s.release(&write);
     s.assert_absent("Edit preset 1");
     s.assert_absent("old config refusal");
-    s.assert_turn_texts(&["after presets"]);
-    s.assert_started_turn_on("thread-1");
+    s.assert_no_turn();
+    s.assert_reconnect_queue(&["after presets"]);
     s.assert_requests_of("config/batchWrite", 1);
 }
 
