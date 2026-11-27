@@ -20,6 +20,7 @@ use codex_tui_core::ids::ThreadId;
 
 use crate::app::theme::Tokens;
 use crate::features::attachment_thumbnail;
+use crate::widgets::composer_draft::Element;
 use crate::widgets::thread_ui::ThreadUi;
 
 const TILE_COLS: i32 = 6;
@@ -31,7 +32,7 @@ const INSET: i32 = super::PROMPT_COLS;
 const REQUIRED_PAGE_ROWS: i32 = TILE_ROWS + GAP + 4;
 
 struct Attachment {
-    seq: u64,
+    sequence: u64,
     path: String,
     label: Rc<str>,
 }
@@ -119,13 +120,17 @@ pub(super) fn strip(ui: &Rc<ThreadUi>, thread: ThreadId) -> AnyWidget {
                 .draft
                 .elements(&ui.composer)
                 .into_iter()
-                .filter_map(|element| {
-                    Some(Attachment {
-                        seq: element.seq,
-                        path: element.image?.to_str()?.to_owned(),
-                        label: element.label,
-                    })
-                })
+                .filter_map(
+                    |Element {
+                         seq, image, label, ..
+                     }| {
+                        Some(Attachment {
+                            sequence: seq,
+                            path: image?.to_str()?.to_owned(),
+                            label,
+                        })
+                    },
+                )
                 .collect();
             if files.is_empty() {
                 return SizedBox::shrink().into();
@@ -191,7 +196,7 @@ fn row(
         let tile = attachment_thumbnail(
             cx,
             thread.clone(),
-            file.seq,
+            file.sequence,
             file.path.clone(),
             size,
             |preview| match preview {
@@ -211,7 +216,7 @@ fn row(
                 .into(),
             },
         );
-        row = row.child(tile.with_key(Key::value(file.seq)));
+        row = row.child(tile.with_key(Key::value(file.sequence)));
     }
     if hidden > 0 {
         let badge = format!("+{hidden}");

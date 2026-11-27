@@ -17,8 +17,8 @@ use rtwk::focus::FocusNode;
 use rtwk::foundation::{Listenable, VoidCallback};
 use rtwk::gestures::IgnorePointer;
 use rtwk::layout::{
-    BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row,
-    Shadow, SizedBox,
+    BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, Flexible, MainAxisSize, Padding,
+    Row, Shadow, SizedBox,
 };
 use rtwk::overlay::{OptionItem, OptionList, Panel, Popover, fuzzy_match};
 use rtwk::provider::{read, select, watch};
@@ -1272,7 +1272,9 @@ impl State for ComposerState {
         };
         Aura {
             child: rows
-                .child(thumbnails)
+                // Measure the draft first. During an inline resize the app's region takes
+                // a frame to grow to its new intrinsic height, so the strip can give up rows.
+                .child(Flexible::new(1, thumbnails))
                 .child(AnyWidget::from(draft_row).with_key(rtwk::Key::value("draft")))
                 .into(),
         }
