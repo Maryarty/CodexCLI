@@ -541,13 +541,19 @@ fn blocked_image_restore_preserves_mention_bindings() {
 
 fn image_submission_catalog() -> serde_json::Value {
     let mut catalog: serde_json::Value =
-        serde_json::from_str(include_str!("fixtures/chat_commands_2/speed_catalog.json")).unwrap();
-    let mut text_only = catalog["data"][0].clone();
+        serde_json::from_str(include_str!("fixtures/chat_commands_2/speed_catalog.json"))
+            .unwrap_or_else(|error| panic!("image submission catalog: {error}"));
+    let serde_json::Value::Array(models) = &mut catalog["data"] else {
+        panic!("image submission catalog is missing the model list");
+    };
+    let Some(mut text_only) = models.first().cloned() else {
+        panic!("image submission catalog has no models");
+    };
     text_only["id"] = serde_json::json!("text-only");
     text_only["model"] = serde_json::json!("text-only");
     text_only["displayName"] = serde_json::json!("Text only");
     text_only["inputModalities"] = serde_json::json!(["text"]);
-    catalog["data"].as_array_mut().unwrap().push(text_only);
+    models.push(text_only);
     catalog
 }
 
