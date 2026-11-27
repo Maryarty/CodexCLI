@@ -1763,7 +1763,7 @@ impl ThreadCore {
         self.last_ended.as_ref()
     }
 
-    pub(crate) fn turn_finished(&self, turn: &TurnId) -> bool {
+    pub fn turn_finished(&self, turn: &TurnId) -> bool {
         self.finished_turns.contains(turn)
     }
 
