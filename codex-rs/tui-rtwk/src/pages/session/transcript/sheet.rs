@@ -13,7 +13,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use rtwk::focus::{Focus, FocusNode, KeyEventResult};
+use rtwk::focus::{Focus, FocusNode, KeyBindings, KeyEventResult};
 use rtwk::foundation::{Listenable, ListenableBuilder, VoidCallback};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, SizedBox};
 use rtwk::navigation::Navigator;
@@ -23,8 +23,11 @@ use rtwk::text::{Text, TextOverflow, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::app::facts::TuiSettings;
-use codex_tui_core::keymap::actions::{GLOBAL_FIND_TRANSCRIPT, GLOBAL_FOCUS_ACTIVITY, PAGER_FIND};
-use codex_tui_core::keymap::fixed;
+use codex_tui_core::keymap::actions::{
+    GLOBAL_FIND_TRANSCRIPT, GLOBAL_FOCUS_ACTIVITY, PAGER_CLOSE, PAGER_CLOSE_TRANSCRIPT, PAGER_FIND,
+    PAGER_JUMP_BOTTOM,
+};
+use codex_tui_core::keymap::{Keymap, fixed};
 use codex_tui_core::screens::backtrack::{EscStep, Targets};
 use codex_tui_core::screens::{ScreenThreadIntent, chat};
 use codex_tui_core::threads::{HistoryState, ThreadModel};
@@ -279,6 +282,7 @@ impl State for SheetState {
     fn build(&self, w: &TranscriptSheet, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let table = strings::of(cx);
         let tokens = crate::app::theme::Tokens::of(cx);
+        let keymap = crate::keymap::keymap(cx);
         let (dim, bold, accent) = (tokens.dim(), tokens.bold(), tokens.accent());
         let (follow, modes) = (w.follow.clone(), w.modes.clone());
         let marked = {
@@ -305,6 +309,8 @@ impl State for SheetState {
                 Some(follow.listenable()),
                 Some(modes.listenable() as Rc<dyn Listenable>),
             ]);
+            let keymap = keymap.clone();
+            let latest = pager::hint(&keymap, PAGER_JUMP_BOTTOM, table.key_end);
             ListenableBuilder::new(Rc::new(listenable), move |_, _| {
                 let browsing = modes.browsing();
                 let look = history::Look {
@@ -312,7 +318,7 @@ impl State for SheetState {
                     dim: dim.clone(),
                     key: bold.clone(),
                 };
-                let hints = second(modes.selected().is_some(), table);
+                let hints = second(&keymap, modes.selected().is_some(), table);
                 let mut rows = Column::new()
                     .main_axis_size(MainAxisSize::Min)
                     .cross_axis_alignment(CrossAxisAlignment::Stretch);
@@ -325,7 +331,7 @@ impl State for SheetState {
                             dim.clone(),
                         ))
                         .child(pager::hint_row(
-                            &pager::navigation(table),
+                            &pager::navigation(&keymap, table),
                             table,
                             dim.clone(),
                         ))
@@ -341,14 +347,15 @@ impl State for SheetState {
                             state,
                             table,
                             &look,
+                            latest.clone(),
                         ))
                         // the hints' two rows and the blank one under them stay (`chrome_height` 5)
                         .child(SizedBox::new(None, Some(3), None));
                 } else {
                     rows = rows
-                        .child(status(false, false, false, state, table, &look))
+                        .child(status(false, false, false, state, table, &look, None))
                         .child(pager::hint_row(
-                            &pager::navigation(table),
+                            &pager::navigation(&keymap, table),
                             table,
                             dim.clone(),
                         ))
@@ -387,7 +394,6 @@ impl State for SheetState {
         );
         // the focus on the folds and the cells: the compact view's, which keeps what a cell hides
         let activity = (w.chrome == Chrome::Compact).then(|| activity_focus::of(&w.find));
-        let keymap = crate::keymap::keymap(cx);
         let held = keymap.clone();
         let pager_keys = pager::bindings(&keymap, false);
         let pager_scroll: Vec<_> = pager_keys
@@ -501,8 +507,14 @@ impl State for SheetState {
         } else {
             Vec::new()
         };
+        let close_transcript = if w.chrome == Chrome::Overlay {
+            step(PAGER_CLOSE_TRANSCRIPT, Msg::Pager(pager::Msg::Close))
+        } else {
+            Vec::new()
+        };
         for (key, msg) in [
             focusing,
+            close_transcript,
             step(PAGER_FIND, Msg::Find),
             step(GLOBAL_FIND_TRANSCRIPT, Msg::Find),
             step(fixed::DISMISS, Msg::Esc),
@@ -518,7 +530,20 @@ impl State for SheetState {
         {
             focus = focus.bind(key, cx.send(msg));
         }
-        focus.into()
+        let mut chords = vec![(PAGER_FIND, Msg::Find)];
+        if w.chrome == Chrome::Overlay {
+            chords.push((PAGER_CLOSE_TRANSCRIPT, Msg::Pager(pager::Msg::Close)));
+        }
+        let chords = pager::chords(&keymap)
+            .map(|(name, msg)| (name, Msg::Pager(msg)))
+            .chain(chords.into_iter().flat_map(|(id, msg)| {
+                crate::keymap::bindings(&keymap, id, &msg)
+                    .into_iter()
+                    .filter(|(name, _)| name.contains(' '))
+            }))
+            .map(|(name, msg)| (name, cx.send(msg)))
+            .collect();
+        KeyBindings::new(crate::keymap::first_of_each(chords), focus).into()
     }
 }
 
@@ -552,15 +577,25 @@ fn bare_bottom(cx: &mut Cx<'_, SheetState>, find: &Finder, selection: &TextSelec
 
 /// The second hint row: close, find, browse, and with a prompt marked the
 /// keys that edit it (`render_hints`).
-fn second(highlight: bool, table: &'static Strings) -> Vec<pager::Pair> {
+fn second(keymap: &Keymap, highlight: bool, table: &'static Strings) -> Vec<pager::Pair> {
     let mut pairs = vec![
-        (vec![table.key_close], table.hint_close),
-        (vec![table.key_find], table.hint_find),
-        (vec![table.key_esc], table.hint_browse),
+        (
+            pager::hint(keymap, PAGER_CLOSE, table.key_close)
+                .into_iter()
+                .collect(),
+            table.hint_close,
+        ),
+        (
+            pager::hint(keymap, PAGER_FIND, table.key_find)
+                .into_iter()
+                .collect(),
+            table.hint_find,
+        ),
+        (vec![table.key_esc.to_owned()], table.hint_browse),
     ];
     if highlight {
-        pairs.push((vec![table.key_right], table.hint_edit_next));
-        pairs.push((vec![table.key_enter], table.hint_edit_message));
+        pairs.push((vec![table.key_right.to_owned()], table.hint_edit_next));
+        pairs.push((vec![table.key_enter.to_owned()], table.hint_edit_message));
     }
     pairs
 }
@@ -578,16 +613,22 @@ fn status(
     history: HistoryState,
     table: &'static Strings,
     look: &history::Look,
+    latest: Option<String>,
 ) -> AnyWidget {
     let look = look.clone();
     let (key, dim) = (look.key.clone(), look.dim.clone());
     LayoutBuilder::new(move |cx, constraints| {
         let segmenter = segmenter_of(cx);
         let navigation = if away {
-            vec![
-                Span::styled(table.key_end, key.clone()),
-                Span::styled(table.latest_action, dim.clone()),
-            ]
+            latest
+                .as_ref()
+                .map(|label| {
+                    vec![
+                        Span::styled(label.clone(), key.clone()),
+                        Span::styled(table.latest_action, dim.clone()),
+                    ]
+                })
+                .unwrap_or_default()
         } else if passive {
             Vec::new()
         } else {

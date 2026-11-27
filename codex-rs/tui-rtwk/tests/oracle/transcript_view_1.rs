@@ -1074,10 +1074,6 @@ fn escape_closes_selection_and_search_before_returning_to_latest() {
 // ORACLE transcript_view/bookmark_tests.rs:8 cancel_restores_both_positions_after_resize_and_pagination kind=ui owner=chat-live
 #[test]
 fn cancel_restores_both_positions_after_resize_and_pagination() {
-    kit::pending(
-        Owner::ChatLive,
-        "The in-place full transcript reader restores the draft and stays away from the live tail after resize and a real prepend, but reopening compact mode shows row 00 instead of the original row 13. The oracle restores both bookmarked positions.",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 16)
         .replay(Vec::new())

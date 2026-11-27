@@ -111,19 +111,60 @@ fn select_enter_closes_and_remapped_action_marks_in_the_inline_overlay() {
 // ORACLE pager_overlay/transcript_tests.rs:113 scrolling_prepend_and_resize_preserve_reading_content kind=ui owner=chat-live
 #[test]
 fn scrolling_prepend_and_resize_preserve_reading_content() {
-    kit::missing(
-        Owner::ChatLive,
-        "a history page prepended to the open sheet: a seeded sheet entry plays its notifications before the first draw and no route feeds it a `thread/turns/list` page (the thread's history paging is chunk-live's, `ThreadAsk::History`)",
-    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(40, 12)
+        .replay(Vec::new())
+        .view_overlay()
+        .open();
+    s.wait_for("T R A N S C R I P T");
+    s.history_page(kit::turns_of("line", 0..30), Some("cursor-1"));
+    s.keys("home");
+    // The reader moves away from the pending jump to the beginning while the page is in flight.
+    for _ in 0..30 {
+        if s.text().contains("line 12") {
+            break;
+        }
+        s.keys("pageup");
+    }
+    s.assert_contains("line 12");
+    let before = s.shot();
+    s.history_page(kit::turns_of("older", 0..1), None);
+    s.assert_same_rows_in(&before, 1..8);
+    s.resize(24, 9);
+    s.assert_contains("line 12");
+    s.assert_absent("line 29");
 }
 
 // ORACLE pager_overlay/transcript_tests.rs:168 activity_hint_uses_the_configured_pager_jump_binding kind=snap owner=chat-live
 #[test]
 fn activity_hint_uses_the_configured_pager_jump_binding() {
-    kit::missing(
-        Owner::ChatLive,
-        "the news reaches an open sheet only while the reader is away and the thread changes: a seeded sheet entry plays before its first draw and the chat does not open the sheet yet (Ctrl+T in session_page is chunk-live's); the remapped and unbound jump keys wait for the keymap to reach the pager. The row itself is built and tested away from the tail: tests/pages/transcript_sheet.rs",
-    );
+    for (bindings, hint, key) in [
+        (&[][..], Some("end latest"), "end"),
+        (&[("pager.jump_bottom", "f8")][..], Some("f8 latest"), "f8"),
+        (&[("pager.jump_bottom", "")][..], None, "end"),
+    ] {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(64, 12)
+            .keymap(bindings)
+            .script(include_str!("fixtures/transcript_view_5/rows40.jsonl"))
+            .view_overlay()
+            .open();
+        s.keys("pageup pageup");
+        s.live_tail("new output");
+        s.assert_contains("New activity");
+        s.assert_absent("new output");
+        if let Some(hint) = hint {
+            s.assert_contains(&format!("New activity · {hint}"));
+            s.keys(key);
+            s.assert_contains("new output");
+            s.assert_absent("New activity");
+        } else {
+            s.assert_absent("latest");
+            s.keys(key);
+            s.assert_contains("New activity");
+            s.assert_absent("new output");
+        }
+    }
 }
 
 // ORACLE pager_overlay/transcript_tests.rs:215 pager_bindings_use_rendered_page_height_and_keep_control_f_navigation kind=ui owner=chat-live
@@ -347,10 +388,41 @@ fn transcript_overlay_consolidation_remaps_highlight_after_range() {
 // ORACLE pager_overlay/transcript_tests.rs:838 completing_agent_and_plan_streams_preserves_reading_in_later_fragments kind=ui owner=chat-live
 #[test]
 fn completing_agent_and_plan_streams_preserves_reading_in_later_fragments() {
-    kit::missing(
-        Owner::ChatLive,
-        "a stream that completes under a reading sheet: a seeded sheet entry plays before its first draw and the chat does not open the sheet yet (Ctrl+T in session_page is chunk-live's), so no route changes the thread under an open sheet",
-    );
+    for (kind, method) in [
+        ("agentMessage", "item/agentMessage/delta"),
+        ("plan", "item/plan/delta"),
+    ] {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(40, 9)
+            .live()
+            .view_overlay()
+            .open();
+        s.feed(r#"{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"t","items":[],"itemsView":"full","status":"inProgress"}}}}"#);
+        let mut source = String::new();
+        for index in 0..12 {
+            let delta = format!(
+                "Passage {index:02} alpha   beta   gamma   delta   epsilon   zeta   theta.\n\n"
+            );
+            s.feed(
+                &serde_json::json!({"step": "notify", "message": {"method": method, "params": {
+                    "threadId": "thread-1", "turnId": "t", "itemId": "prose", "delta": delta,
+                }}})
+                .to_string(),
+            );
+            source.push_str(&delta);
+        }
+        s.keys("pageup pageup");
+        s.assert_contains("Passage");
+        s.assert_absent("Passage 11");
+        let before = s.shot();
+        s.feed(&serde_json::json!({"step": "notify", "message": {"method": "item/completed", "params": {
+            "threadId": "thread-1", "turnId": "t", "completedAtMs": 0,
+            "item": {"type": kind, "id": "prose", "text": source,
+                "phase": null, "memoryCitation": null, "moderation": null,
+                "delivery": null, "questions": null},
+        }}}).to_string());
+        s.assert_same_rows_in(&before, 1..5);
+    }
 }
 
 // ORACLE pager_overlay/transcript_tests.rs:928 navigation_supersedes_home_before_and_after_the_first_draw kind=ui owner=chat-live

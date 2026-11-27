@@ -8,13 +8,17 @@ use rtwk::navigation::Navigator;
 use rtwk::provider::read;
 
 use codex_tui_core::commands::Target;
-use codex_tui_core::keymap::{actions::CHAT_INTERRUPT_TURN, fixed};
+use codex_tui_core::keymap::{
+    actions::{CHAT_INTERRUPT_TURN, PAGER_CLOSE_TRANSCRIPT},
+    fixed,
+};
 use codex_tui_core::screens::backtrack::{EscStep, Targets};
 use codex_tui_core::screens::{ScreenThreadIntent, chat};
 use codex_tui_core::threads::ThreadModel;
 
 use crate::app::view::Hs;
 use crate::pages::session::open::open;
+use crate::pages::session::transcript_pane::{DetailAction, change_details};
 
 use super::{Chat, ChatState};
 
@@ -66,6 +70,15 @@ impl ChatState {
                 cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
             }
             return Some(Rebuild::Yes);
+        }
+        if super::input::may_close_transcript(&w.ui)
+            && crate::keymap::press_for(fixed::ESCAPE).is_some_and(|esc| {
+                let keymap = crate::keymap::keymap(cx);
+                crate::keymap::pressed(&keymap, PAGER_CLOSE_TRANSCRIPT, &esc)
+            })
+        {
+            change_details(cx, &w.ui, DetailAction::Close);
+            return Some(Rebuild::No);
         }
         // Esc is the reader's way back before it is the chat's
         // (`handle_scroll_key`); on an empty composer it also primes

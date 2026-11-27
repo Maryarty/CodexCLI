@@ -12,7 +12,7 @@ use rtwk::{AnyWidget, Cx, Key};
 
 use codex_tui_core::keymap::actions::{
     CHAT_INTERRUPT_TURN, CHAT_OPEN_PRESETS, GLOBAL_CHANGE_HOST, GLOBAL_SELECT_TRANSCRIPT,
-    VOICE_TOGGLE_VOICE_MUTE,
+    PAGER_CLOSE_TRANSCRIPT, VOICE_TOGGLE_VOICE_MUTE,
 };
 use codex_tui_core::keymap::actions::{
     CHAT_NEXT_PERMISSION_MODE, CHAT_PREVIOUS_PERMISSION_MODE, CHAT_TOGGLE_VOICE,
@@ -32,7 +32,7 @@ use crate::pages::session::transcript::selection::Key as SelectionKey;
 use crate::pages::session::transcript::{self, find};
 use crate::sheets::select::hud::Step as PresetStep;
 use crate::widgets::finder::{Finder, Mode as FindMode};
-use crate::widgets::thread_ui::Input;
+use crate::widgets::thread_ui::{Input, ThreadUi};
 
 use super::frame::Frame;
 use super::{ChatMsg, ChatState};
@@ -42,6 +42,15 @@ struct VoiceKeys(Rc<Cell<bool>>);
 
 fn voice_keys(state: &ChatState) -> Rc<Cell<bool>> {
     state.find.borrow().held(VoiceKeys::default).0
+}
+
+pub(super) fn may_close_transcript(ui: &ThreadUi) -> bool {
+    ui.modes.detailed()
+        && !ui.modes.browsing()
+        && ui.input() == Input::Plain
+        && !ui.selection.held()
+        && !caret::of(&ui.find).extending()
+        && !activity_focus::of(&ui.find).focused()
 }
 
 /// `?` (the shortcut overlay, `footer_shortcuts_default`) and `←` (the agents page,
@@ -168,11 +177,32 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
             send(ChatMsg::Selection(step));
             return KeyEventResult::Handled;
         }
+        // A detailed reader's close belongs to it before ordinary chat shortcuts. Plain Esc
+        // still goes through the editor and the page's Escape ladder.
+        let may_close = {
+            let modes = modes.borrow();
+            modes.detailed()
+                && !modes.browsing()
+                && !finder.active()
+                && !copier.active()
+                && !caret.active()
+                && !caret.extending()
+                && !selection.borrow().held()
+                && !activity.focused()
+        };
+        let close_action = ChatMsg::Action(keys::Action::CloseTranscript);
+        if may_close
+            && !pressed_fixed(fixed::ESCAPE, &key)
+            && crate::keymap::pressed(&keymap.borrow(), PAGER_CLOSE_TRANSCRIPT, &key)
+        {
+            send(close_action);
+            return KeyEventResult::Handled;
+        }
         // the leader chords: `change_host` (`Ctrl+X b`) is live while the backend control shows
         // (`visible_new_backend_control`), `open_presets` (`Ctrl+X p`) opens the menu of `/presets`
         // where the page is free (`no_modal_or_popup_active`), `select_transcript` (`Ctrl+X [`)
         // begins select mode; all work with a draft in the composer.
-        let (hosts, presets, selects, voice) = {
+        let (hosts, presets, selects, voice, close) = {
             let keymap = keymap.borrow();
             let hosts = if control.get() {
                 chords_of(&keymap, GLOBAL_CHANGE_HOST)
@@ -185,6 +215,11 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
                 chords_of(&keymap, GLOBAL_SELECT_TRANSCRIPT),
                 if voice_controls.get() {
                     chords_of(&keymap, VOICE_TOGGLE_VOICE_MUTE)
+                } else {
+                    Vec::new()
+                },
+                if may_close {
+                    chords_of(&keymap, PAGER_CLOSE_TRANSCRIPT)
                 } else {
                     Vec::new()
                 },
@@ -203,6 +238,14 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
             None
         };
         if let Some(first) = held {
+            if close
+                .iter()
+                .any(|(prefix, done)| prefix.accepts_press(&first) && done.accepts_press(&key))
+            {
+                draft_now.set_chord(None);
+                send(close_action);
+                return KeyEventResult::Handled;
+            }
             if voice
                 .iter()
                 .any(|(prefix, done)| prefix.accepts_press(&first) && done.accepts_press(&key))
@@ -231,6 +274,7 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
                 .chain(&presets)
                 .chain(&selects)
                 .chain(&voice)
+                .chain(&close)
                 .any(|(prefix, _)| prefix.accepts_press(&first) && prefix.accepts_press(&key));
             if again || (unmodified(&key) && pressed_fixed(fixed::DISMISS, &key)) {
                 draft_now.set_chord(None);
@@ -251,6 +295,7 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
             .chain(&presets)
             .chain(&selects)
             .chain(&voice)
+            .chain(&close)
             .any(|(prefix, _)| prefix.accepts_press(&key))
         {
             draft_now.set_leader_chord(Some((key, now)));
@@ -382,11 +427,19 @@ pub(super) fn focus(
 ) -> AnyWidget {
     let (thread, keymap) = (&frame.thread, &frame.keymap);
     let finder = state.find.clone();
+    let find_keymap = keymap.clone();
     let send = cx.local_sender();
     // The Find field is a sibling of the composer. Its selection keys reach this common ancestor.
     let mut focus = Focus::new(page).on_key_event(move |_, key| {
-        if let Some(step) = find_selection_key(&finder.borrow(), &key) {
+        let finder = finder.borrow();
+        if let Some(step) = find_selection_key(&finder, &key) {
             send(ChatMsg::Selection(step));
+            KeyEventResult::Handled
+        } else if finder.mode() == FindMode::Editing
+            && crate::keymap::pressed(&find_keymap, PAGER_CLOSE_TRANSCRIPT, &key)
+        {
+            // The query has first use of the key, including an editor binding or typed text.
+            // A key it did not use must not close the reader or reach a colliding chat action.
             KeyEventResult::Handled
         } else {
             KeyEventResult::Ignored
@@ -450,6 +503,9 @@ pub(super) fn focus(
         });
     voice_keys(state).set(voice_controls);
     for (action, key) in keys::presses(keymap) {
+        if action == keys::Action::CloseTranscript {
+            continue;
+        }
         if action.id() == CHAT_TOGGLE_VOICE
             && [CHAT_NEXT_PERMISSION_MODE, CHAT_PREVIOUS_PERMISSION_MODE]
                 .into_iter()
