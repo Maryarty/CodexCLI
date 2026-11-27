@@ -171,21 +171,33 @@ fn with_render_list<R>(
     }
 }
 
-/// Ctrl+T swaps presentations over the same thread. Capture the visible row before the list
-/// rebuilds so resize and pagination cannot change what the bookmark identifies.
-pub(super) fn toggle_details(cx: &mut Cx<'_, ChatState>, ui: &ThreadUi) {
+/// What the reader asked of the detailed presentation.
+pub(super) enum DetailAction {
+    Toggle,
+    Close,
+}
+
+/// Capture the visible row before the transcript swaps presentations. Its bookmark survives
+/// resize and pagination because it identifies an item instead of a scroll offset.
+pub(super) fn change_details(cx: &mut Cx<'_, ChatState>, ui: &ThreadUi, action: DetailAction) {
     let modes = ui.modes.clone();
+    let close = matches!(action, DetailAction::Close);
+    let detailed = modes.detailed();
+    if close && (!detailed || modes.browsing()) {
+        return;
+    }
     let reading = ui.held(PresentationBookmarks::default);
-    let pending = reading.0.capture.borrow_mut().take();
+    if reading.0.capture.borrow().is_some() {
+        // Repeating a close keeps the pending close. A second toggle cancels its switch.
+        if !close {
+            reading.0.capture.borrow_mut().take();
+        }
+        return;
+    }
     if modes.browsing() {
         modes.toggle_detailed();
         return;
     }
-    // A second press before the capture settles cancels that switch.
-    if pending.is_some() {
-        return;
-    }
-    let detailed = modes.detailed();
     let pane = reading.0.pane.get();
     if pane.is_some_and(|(_, shown)| shown != detailed) {
         reading.0.cancel_unrendered(&modes, detailed);
@@ -211,6 +223,7 @@ pub(super) fn toggle_details(cx: &mut Cx<'_, ChatState>, ui: &ThreadUi) {
     let capture = reading.clone();
     let opening = reading.clone();
     let open = modes.clone();
+    let mode_revision = modes.listenable().value();
     let follow = ui.follow.clone();
     let completion = cx.callback_with(move |_, _, cx| {
         let mut capture = opening.0.capture.borrow_mut();
@@ -225,7 +238,7 @@ pub(super) fn toggle_details(cx: &mut Cx<'_, ChatState>, ui: &ThreadUi) {
         let active = cx
             .with_widget(cx.id(), |chat: &Chat| chat.ui.follow == follow)
             .unwrap_or(false);
-        if active && open.detailed() == detailed && !open.browsing() {
+        if active && open.listenable().value() == mode_revision {
             opening.0.switch(&open, detailed, bookmark);
         }
         Rebuild::No
