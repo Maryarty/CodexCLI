@@ -31,6 +31,7 @@ use codex_tui_core::features::{
 };
 use codex_tui_core::ids::{Cwd, ThreadId};
 use codex_tui_core::keymap::ActionId;
+use codex_tui_core::threads::queue::QueueOperation;
 
 use crate::app::debug::Dir;
 use crate::app::view::Hs;
@@ -236,6 +237,14 @@ pub fn open_settings<S: 'static>(cx: &mut Cx<'_, S>, command: SlashCommand, args
         } else {
             opens
         },
+    );
+}
+
+/// Opens the status editor for the queued command that already owns its operation.
+pub(crate) fn open_queued_status_line<S: 'static>(cx: &mut Cx<'_, S>, operation: QueueOperation) {
+    verb(
+        cx,
+        codex_tui_core::features::settings::Intent::OpenQueuedStatusLine(operation),
     );
 }
 

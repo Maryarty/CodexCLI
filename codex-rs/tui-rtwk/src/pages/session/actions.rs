@@ -246,7 +246,7 @@ pub(super) fn run(
             // The settings dialog is opened by the kind the command names (`open_settings`):
             // the feature builds its catalogue from its facts.
             if opened.target == Target::Settings {
-                queue::open_settings(cx, hs, &opened, deferred, ran);
+                queue::open_settings(cx, &opened, deferred, ran);
             }
             // The confirmation of `/archive` and `/delete` is the model's
             // question (is a turn running?), then the select sheet shows it.
