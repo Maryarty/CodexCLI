@@ -507,9 +507,11 @@ impl State for SheetState {
         } else {
             Vec::new()
         };
-        let close_transcript = (w.chrome == Chrome::Overlay)
-            .then(|| step(PAGER_CLOSE_TRANSCRIPT, Msg::Pager(pager::Msg::Close)))
-            .unwrap_or_default();
+        let close_transcript = if w.chrome == Chrome::Overlay {
+            step(PAGER_CLOSE_TRANSCRIPT, Msg::Pager(pager::Msg::Close))
+        } else {
+            Vec::new()
+        };
         for (key, msg) in [
             focusing,
             close_transcript,
