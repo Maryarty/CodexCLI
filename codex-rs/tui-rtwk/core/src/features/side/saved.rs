@@ -156,9 +156,11 @@ fn begin(
     let attached = state
         .link(&child)
         .is_some_and(|link| link.parent == parent && link.storage == Storage::Attached);
+    let available =
+        state.saved.contains(&parent, &child) || (attached && kind == Operation::Archive);
     if child == parent
         || !family(state, &parent, cx)
-        || (!state.saved.contains(&parent, &child) && !(attached && kind == Operation::Archive))
+        || !available
         || state.saved.actions.contains_key(&parent)
     {
         return;
