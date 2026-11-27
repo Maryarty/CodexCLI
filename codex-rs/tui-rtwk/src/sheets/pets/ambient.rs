@@ -56,13 +56,17 @@ struct Cover {
 
 struct CoverState {
     focused: bool,
+    requested: bool,
 }
 
 impl StatefulWidget for Cover {
     type State = CoverState;
 
     fn create_state(&self) -> CoverState {
-        CoverState { focused: true }
+        CoverState {
+            focused: true,
+            requested: false,
+        }
     }
 }
 
@@ -72,8 +76,9 @@ impl State for CoverState {
     type Widget = Cover;
     type Msg = bool;
 
-    fn init_state(&mut self, _: &Cover, cx: &mut Cx<'_, Self>) {
-        if supported(cx) {
+    fn did_change_dependencies(&mut self, _: &Cover, cx: &mut Cx<'_, Self>) {
+        if !self.requested && supported(cx) {
+            self.requested = true;
             verb(cx, PetIntent::FetchAmbient);
         }
     }
