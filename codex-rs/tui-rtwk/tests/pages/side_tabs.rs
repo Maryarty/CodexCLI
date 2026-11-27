@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use codex_tui_core::app::{AppEv, Command, Ingress, LocalSideStorage};
 use codex_tui_core::fixtures::builders::{agent_completed, turn_completed, turn_started};
+use codex_tui_core::ids::ThreadId;
 use codex_tui_core::keymap::{Keymap, KeymapSpec, actions::GLOBAL_SIDEBAR_UP};
 use codex_tui_rtwk::app::UiApp;
 use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
@@ -86,7 +87,7 @@ fn assert_active(h: &Harness, expected: &str) {
     let active =
         h.t.read_app(|app: &UiApp| app.core.session().active.clone());
     assert_eq!(
-        active.as_ref().map(|id| id.as_str()),
+        active.as_ref().map(ThreadId::as_str),
         Some(expected),
         "wire requests: {:?}\n{}",
         h.fake.requests(),
