@@ -93,7 +93,7 @@ pub fn open<S: 'static>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
 }
 
 /// The slash command keeps its argument all the way to the local pet feature.
-pub fn command<S: 'static>(cx: &mut Cx<'_, S>, args: &str) {
+pub fn command<S: State + 'static>(cx: &mut Cx<'_, S>, args: &str) {
     let args = args.trim();
     if is_disable(args) {
         verb(
@@ -105,7 +105,18 @@ pub fn command<S: 'static>(cx: &mut Cx<'_, S>, args: &str) {
             },
         );
     } else {
-        drop(open_visit(cx, (!args.is_empty()).then(|| args.to_owned())));
+        let previous_focus = Focus::maybe_of(cx, false)
+            .and_then(|node| node.manager())
+            .and_then(|manager| manager.primary_focus());
+        let dialog = open_visit(cx, (!args.is_empty()).then(|| args.to_owned()));
+        cx.spawn(async move {
+            if dialog.await.is_some()
+                && let Some(focus) = previous_focus
+            {
+                focus.request_focus();
+            }
+            None
+        });
     }
 }
 
@@ -162,6 +173,7 @@ pub enum Msg {
     Pick,
     Close,
     Finished,
+    Retired,
 }
 
 impl StatefulWidget for Screen {
@@ -223,7 +235,7 @@ impl ScreenState {
             let hs = read::<Hs, _>(cx);
             cx.emit(&hs.screen, ScreenIntent::Pets(Intent::ReleasePreview));
         }
-        close_dialog::<_, ()>(cx, None);
+        close_dialog(cx, w.visit.map(|_| ()));
     }
 
     fn apply(w: &Screen, selector: String, cx: &mut Cx<'_, Self>) {
@@ -267,8 +279,10 @@ impl State for ScreenState {
                 self.live = Some((read::<Hs, _>(cx), visit));
             }
             let phase = phase(w, cx);
-            if matches!(phase, Some(Phase::Finished)) || (self.live_seen && phase.is_none()) {
+            if matches!(phase, Some(Phase::Finished)) {
                 cx.local_sender()(Msg::Finished);
+            } else if self.live_seen && phase.is_none() {
+                cx.local_sender()(Msg::Retired);
             }
             self.live_seen |= phase.is_some();
         }
@@ -287,6 +301,10 @@ impl State for ScreenState {
     fn update(&mut self, msg: Msg, w: &Screen, cx: &mut Cx<'_, Self>) -> Rebuild {
         if matches!(msg, Msg::Finished) {
             Self::leave(w, cx);
+            return Rebuild::No;
+        }
+        if matches!(msg, Msg::Retired) {
+            close_dialog::<_, ()>(cx, None);
             return Rebuild::No;
         }
         let Some(picker) = picker(w, cx) else {
@@ -355,7 +373,7 @@ impl State for ScreenState {
                     }
                 }
             }
-            Msg::Finished => {}
+            Msg::Finished | Msg::Retired => {}
         }
         Rebuild::Yes
     }
@@ -548,8 +566,7 @@ fn live_status(
 ) -> AnyWidget {
     let (title, detail, unavailable) = match phase(w, cx) {
         Some(Phase::Unavailable(reason)) => (s.unavailable_title, s.unavailable(reason), true),
-        Some(Phase::Applying) => (s.apply_title, s.apply_detail, false),
-        Some(Phase::Finished) => return AnyWidget::default(),
+        Some(Phase::Applying | Phase::Finished) => (s.apply_title, s.apply_detail, false),
         _ => (s.picker_title, s.catalog_loading, false),
     };
     let mut column = Column::new()
