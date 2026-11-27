@@ -5,14 +5,14 @@ use std::time::Duration;
 
 use codex_tui_core::features::FeatureStates;
 use codex_tui_core::ids::ThreadId;
-use codex_tui_core::screens::pets::{Ambient, Clip, Motion};
+use codex_tui_core::screens::pets::{Ambient, Anchor, Clip, Motion};
 use rtwk::animation::TickerMode;
-use rtwk::binding::{AppBinding, InputListener, Timer};
+use rtwk::binding::{AppBinding, InputListener, ScreenMode, Timer};
 use rtwk::foundation::ListenableBuilder;
 use rtwk::gestures::IgnorePointer;
 use rtwk::graphics::GraphicsScope;
 use rtwk::impl_widget;
-use rtwk::layout::{EdgeInsets, Offstage, Padding, Positioned, Stack, StackFit};
+use rtwk::layout::{EdgeInsets, Offstage, Padding, Positioned, RepaintBoundary, Stack, StackFit};
 use rtwk::navigation::Route;
 use rtwk::provider::{Provider, select};
 use rtwk::{AnyWidget, Cx, Key, LayoutBuilder, Rebuild, State, StatefulWidget, StatelessWidget};
@@ -92,6 +92,8 @@ impl State for CoverState {
         }
         let ambient =
             select::<FeatureStates, _, _>(cx, |features| features.pets.ambient().cloned());
+        let inline =
+            AppBinding::maybe_of(cx).is_some_and(|binding| binding.mode() == ScreenMode::Inline);
         let visible = self.focused && Route::is_current_of(cx) && TickerMode::of(cx);
         let Cover { pet, child } = widget.clone();
         let mentions = pet.ui.draft.mentions();
@@ -110,6 +112,7 @@ impl State for CoverState {
                 let fits = room.max_width >= cols && room.max_height >= ROWS + BOTTOM_GAP;
                 let visible = visible && !pet.hidden && fits;
                 let pet = pet.clone();
+                let anchor = ambient.anchor;
                 let ambient = ambient.clone();
                 let mentions = mentions.clone();
                 let player = ListenableBuilder::new(mentions.listenable(), move |_, _| {
@@ -120,15 +123,18 @@ impl State for CoverState {
                     })
                     .with_key(Key::value(pet.thread.clone()))
                 });
-                // A filling viewport ends at both anchors. Native inline painting can only
-                // target the current viewport, including when ScreenBottom is configured.
-                stack = stack.child(
-                    Positioned::new(IgnorePointer::new().child(player))
-                        .right(0)
-                        .bottom(BOTTOM_GAP)
-                        .width(cols)
-                        .height(ROWS),
-                );
+                let position = Positioned::new(IgnorePointer::new().child(player))
+                    .right(0)
+                    .width(cols)
+                    .height(ROWS);
+                stack = stack.child(match anchor {
+                    // Inline gives the chat a maximum available height. The native canvas
+                    // still clips the image if the actual inline surface ends earlier.
+                    Anchor::ScreenBottom if inline => {
+                        position.top((room.max_height - ROWS - BOTTOM_GAP).max(0))
+                    }
+                    Anchor::Composer | Anchor::ScreenBottom => position.bottom(BOTTOM_GAP),
+                });
             }
             stack.into()
         });
@@ -287,7 +293,7 @@ impl State for Playback {
             !widget.visible,
             TickerMode::new(
                 widget.visible,
-                Image::memory(clip.data.clone()).fit(ImageFit::Fill),
+                RepaintBoundary::new(Image::memory(clip.data.clone()).fit(ImageFit::Fill)),
             ),
         )
         .into()
