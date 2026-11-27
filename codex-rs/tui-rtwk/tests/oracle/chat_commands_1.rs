@@ -280,10 +280,6 @@ fn parent_owned_thread_blocks_settings_shortcuts() {
 // ORACLE chatwidget/tests/composer_submission.rs:480 handoff_image_survives_model_rejection_and_submission_failure kind=snap owner=chat-nav-pane
 #[test]
 fn handoff_image_survives_model_rejection_and_submission_failure() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "The startup image reaches the session and survives an unsupported model. A definitive JSON-RPC turn/start rejection after switching to an image-capable model drops the original draft.",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .live()

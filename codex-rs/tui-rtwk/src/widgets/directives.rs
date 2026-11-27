@@ -212,8 +212,17 @@ impl State for ListenerState {
                 .as_ref()
                 .is_some_and(|restore| Some(restore.seq()) == now.restore)
         });
-        let mut restore = (!owned_restore && Self::moved(before.as_ref(), &now, |c| c.restore))
-            .then(|| read::<ThreadModel, _>(cx).restore().cloned())
+        let restore_changed = Self::moved(before.as_ref(), &now, |c| c.restore);
+        let newly_shown = before
+            .as_ref()
+            .is_none_or(|before| before.thread != now.thread);
+        let mut restore = (!owned_restore && (restore_changed || newly_shown))
+            .then(|| {
+                read::<ThreadModel, _>(cx)
+                    .restore()
+                    .filter(|restore| restore_changed || restore.preserves_editing())
+                    .cloned()
+            })
             .flatten();
         let before_ends = before
             .as_ref()

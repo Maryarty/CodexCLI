@@ -86,6 +86,7 @@ pub struct Reply(ReplyResult);
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ReplyResult {
     Answer(Answer),
+    StartRejected(String),
     SubmissionUnconfirmed(String),
     CloudSubmission(CloudSubmission),
 }
@@ -105,6 +106,11 @@ pub enum CloudSubmission {
 impl Reply {
     fn new(answer: Answer) -> Self {
         Self(ReplyResult::Answer(answer))
+    }
+
+    /// The server refused a native turn start before it could accept the submitted input.
+    pub(crate) fn start_rejected(message: String) -> Self {
+        Self(ReplyResult::StartRejected(message))
     }
 
     /// The connection failed while a submission was in flight. Receipt still needs verification.
@@ -378,7 +384,9 @@ impl<C> Pending<C> {
             ReplyResult::SubmissionUnconfirmed(message) => {
                 Answer::Failed(RpcError::Remote(message))
             }
-            ReplyResult::CloudSubmission(_) => Answer::Failed(RpcError::Mismatch),
+            ReplyResult::StartRejected(_) | ReplyResult::CloudSubmission(_) => {
+                Answer::Failed(RpcError::Mismatch)
+            }
         };
         Some((ctx, answer))
     }

@@ -177,7 +177,7 @@ pub fn reply(
     }
 }
 
-/// Preserve a typed server refusal for the interrupt race before formatting other errors.
+/// Preserve server refusals that prove the outcome of a request before formatting other errors.
 pub fn reply_from_server(
     command: &Command,
     result: Result<serde_json::Value, ServerError>,
@@ -211,6 +211,15 @@ pub fn reply_from_server(
             } => return Some((*ticket, Reply::error(RpcError::Provider(provider)))),
             _ => {}
         }
+    }
+    // The JSON-RPC request itself was rejected, so no turn can have been admitted.
+    if let (Command::StartTurn { ticket, .. }, Err(error)) = (command, &result)
+        && error.refused()
+    {
+        return Some((
+            *ticket,
+            Reply::start_rejected(format!("turn/start: {error}")),
+        ));
     }
     // A refusal that is an answer of a feature's ask (the feature says which).
     if let (

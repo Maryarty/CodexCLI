@@ -39,6 +39,17 @@ impl ChatState {
                 |chars| table.pasted(chars),
                 |n| table.image(n),
             );
+            if restore.preserves_editing() {
+                if w.ui.draft.prepend_rejected_message(
+                    &w.ui.composer,
+                    restore.seq(),
+                    recalled_entry(&restore.merged()),
+                ) {
+                    w.ui.draft
+                        .relabel_images(&w.ui.composer, |n| table.image(n));
+                }
+                return;
+            }
             let draft = w.ui.draft.submission_with(
                 &w.ui.composer,
                 |n| table.image(n),

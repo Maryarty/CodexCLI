@@ -87,6 +87,8 @@ struct Inner {
     next_seq: u64,
     /// The text the elements are measured on.
     seen: Option<TextBuffer>,
+    /// The last submission refusal consumed by this retained editor.
+    rejected_restore: u64,
     /// What the last `Ctrl+K` / `Ctrl+W` killed (`textarea.rs`
     /// `kill_buffer`), put back by `Ctrl+Y`, with the elements it held.
     kill: Option<(String, Vec<Element>)>,
@@ -1088,9 +1090,73 @@ impl ComposerDraft {
         self.restore_entry(c, entry, false);
     }
 
-    fn restore_entry(&self, c: &TextEditingController, entry: HistoryEntry, shell: bool) -> String {
-        let skip = usize::from(shell);
-        let text = entry.text[skip..].to_string();
+    /// Puts a rejected submission before the current edit, preserving its text, elements and
+    /// selection. Image numbers are updated with the caller's locale after insertion.
+    pub(crate) fn prepend_rejected_message(
+        &self,
+        c: &TextEditingController,
+        seq: u64,
+        entry: HistoryEntry,
+    ) -> bool {
+        {
+            let mut inner = self.0.borrow_mut();
+            if inner.rejected_restore >= seq {
+                return false;
+            }
+            inner.rejected_restore = seq;
+        }
+        let current = c.text();
+        let shell = self.shell();
+        if current.is_empty() && !shell && self.remote_count() == 0 {
+            self.restore_message(c, entry, false);
+            return true;
+        }
+
+        let selection = c.selection();
+        let mut prefix = entry.text.clone();
+        if !prefix.is_empty() && (!current.is_empty() || shell) {
+            prefix.push('\n');
+        }
+        if shell {
+            prefix.push('!');
+        }
+        let offset = prefix.len();
+        prefix.push_str(&current);
+
+        let mut elements = Self::entry_elements(&entry, &entry.text, 0);
+        let mut retained = self.elements(c);
+        retained.sort_by_key(|element| element.seq);
+        elements.extend(retained.into_iter().map(|mut element| {
+            element.start += offset;
+            element.end += offset;
+            element
+        }));
+
+        self.clear_elements();
+        self.set_shell(false);
+        c.set_text(&prefix);
+        {
+            let mut inner = self.0.borrow_mut();
+            for element in &mut elements {
+                element.seq = inner.next_seq;
+                inner.next_seq += 1;
+            }
+            elements.sort_by_key(|element| element.start);
+            inner.elements = elements;
+            inner.seen = Some(c.buffer());
+            inner.remote.urls.splice(0..0, entry.remote_image_urls);
+            inner.remote.selected = None;
+            inner.skill_space = inner.skill_space.map(|at| at + offset);
+            inner.vim.history.reset();
+        }
+        c.set_selection(TextSelection::new(
+            offset + selection.base_offset,
+            offset + selection.extent_offset,
+        ));
+        true
+    }
+
+    fn entry_elements(entry: &HistoryEntry, text: &str, skip: usize) -> Vec<Element> {
         let mut images = entry.local_image_paths.iter();
         let mut elements = Vec::new();
         for e in &entry.text_elements {
@@ -1129,7 +1195,14 @@ impl ComposerDraft {
                 binding: None,
             });
         }
-        bind_mentions(&text, &entry, skip, &mut elements);
+        bind_mentions(text, entry, skip, &mut elements);
+        elements
+    }
+
+    fn restore_entry(&self, c: &TextEditingController, entry: HistoryEntry, shell: bool) -> String {
+        let skip = usize::from(shell);
+        let text = entry.text[skip..].to_string();
+        let mut elements = Self::entry_elements(&entry, &text, skip);
         self.clear_elements();
         self.set_shell(shell);
         c.set_text(&text);

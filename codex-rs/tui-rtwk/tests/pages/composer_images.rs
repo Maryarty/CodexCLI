@@ -639,3 +639,57 @@ fn restoring_an_older_failed_submission_preserves_the_next_drafts_clipboard_read
         ]
     );
 }
+
+#[test]
+fn a_rejected_start_returns_to_its_own_draft_and_preserves_a_later_edit() {
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(100, 24)
+        .live()
+        .open();
+    s.hold_image_preparation();
+    let first = s.attach_image("rejected-original.png");
+    s.type_text(" rejected").keys("enter");
+    s.assert_sole_turn(kit::Turn::text("[Image #1] rejected").images(&[(&first, 0..10)]));
+
+    let second = s.attach_image("newer-draft.png");
+    s.type_text(" newer").keys("left left");
+    s.server_resumes("thread-2").visit_thread("thread-2");
+    s.assert_active_thread("thread-2");
+    s.type_text("other draft").keys("left left left left left");
+
+    s.reject_turn_start("submission rejected");
+    s.assert_absent("submission rejected");
+    s.type_text("X");
+    s.assert_composer("other Xdraft");
+
+    s.server_resumes("thread-1").visit_thread("thread-1");
+    s.assert_active_thread("thread-1");
+    s.assert_composer("[Image #1] rejected\n[Image #2] newer");
+    s.type_text("X");
+    let restored = "[Image #1] rejected\n[Image #2] newXer";
+    s.assert_composer(restored);
+
+    s.server_resumes("thread-2").visit_thread("thread-2");
+    s.assert_composer("other Xdraft");
+    s.server_resumes("thread-1").visit_thread("thread-1");
+    s.assert_composer(restored);
+    s.keys("enter");
+    s.assert_turn_texts(&["[Image #1] rejected", restored]);
+    let turn = s
+        .turns()
+        .pop()
+        .expect("the returned message was sent explicitly");
+    assert_eq!(
+        turn.images,
+        [
+            LocalImage {
+                path: first,
+                range: 0..10
+            },
+            LocalImage {
+                path: second,
+                range: 20..30
+            },
+        ]
+    );
+}

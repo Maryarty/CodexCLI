@@ -955,7 +955,14 @@ impl PendingSteer {
 pub struct Restore {
     seq: u64,
     messages: Vec<UserMessage>,
-    replace: bool,
+    kind: RestoreKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RestoreKind {
+    Replace,
+    Merge,
+    RejectedStart,
 }
 
 impl Restore {
@@ -972,7 +979,12 @@ impl Restore {
     /// Whether the composer's draft is replaced (edit-queued) or the messages
     /// go before it (an interrupt or a failure).
     pub fn replaces(&self) -> bool {
-        self.replace
+        self.kind == RestoreKind::Replace
+    }
+
+    /// An asynchronous start refusal can arrive with another edit in progress.
+    pub fn preserves_editing(&self) -> bool {
+        self.kind == RestoreKind::RejectedStart
     }
 
     /// The messages as one, joined by newlines, image placeholders renumbered.
@@ -985,7 +997,7 @@ impl Restore {
     /// messages_for_restore`); an edit-queued restore replaces the draft.
     pub fn onto(&self, draft: UserMessage) -> UserMessage {
         let mut messages = self.messages.clone();
-        if !self.replace && !draft.is_empty() {
+        if !self.replaces() && !draft.is_empty() {
             messages.push(draft);
         }
         merge_messages(messages)
@@ -2985,6 +2997,10 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             };
             let answer = match result {
                 crate::rpc::ReplyResult::Answer(answer) => answer,
+                crate::rpc::ReplyResult::StartRejected(error) => {
+                    rejected_start(model, ctx, error);
+                    return;
+                }
                 crate::rpc::ReplyResult::SubmissionUnconfirmed(_) => {
                     hold_submission_reply(model, ticket, ctx, true);
                     return;
@@ -3067,10 +3083,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     },
                     Answer::Failed(_),
                 ) => {
-                    model.last_error = Some(Failure::Message(
-                        "Couldn’t continue this chat. Review its latest status before trying again."
-                            .to_owned(),
-                    ));
+                    model.last_error = Some(acknowledged_start_error());
                 }
                 (ThreadCtx::StartTurn { .. }, Answer::Failed(error)) => {
                     if !model.is_running() {
@@ -3803,8 +3816,37 @@ fn reject_image_input(model: &mut ThreadModel, fx: &ThreadFx<'_>, message: &User
 /// A message that never left goes back to the composer whole; what waits in
 /// the queue stays there, unsent (oracle `recovered_queue`).
 fn recover(model: &mut ThreadModel, message: UserMessage) {
+    recover_as(model, message, RestoreKind::Merge);
+}
+
+fn rejected_start(model: &mut ThreadModel, ctx: ThreadCtx, error: String) {
+    let ThreadCtx::StartTurn {
+        message,
+        client_id: Some(_),
+        acknowledged,
+        ..
+    } = ctx
+    else {
+        // An exact receipt or transport reconciliation has already retired this submission.
+        return;
+    };
+    if acknowledged {
+        model.last_error = Some(acknowledged_start_error());
+        return;
+    }
+    model.last_error = Some(Failure::Message(error));
+    recover_as(model, message, RestoreKind::RejectedStart);
+}
+
+fn acknowledged_start_error() -> Failure {
+    Failure::Message(
+        "Couldn’t continue this chat. Review its latest status before trying again.".to_owned(),
+    )
+}
+
+fn recover_as(model: &mut ThreadModel, message: UserMessage, kind: RestoreKind) {
     model.recovered |= !model.queue.is_empty() || !model.rejected_steers.is_empty();
-    give_back(model, vec![message], false);
+    give_back_as(model, vec![message], kind);
 }
 
 /// The user's switch to the mode `mask` makes: the thread goes on in it, the server is told, and
@@ -3834,6 +3876,15 @@ fn finish_plan_effort_pick(
 
 /// Messages back to the composer (`restore_composer_state`).
 fn give_back(model: &mut ThreadModel, messages: Vec<UserMessage>, replace: bool) {
+    let kind = if replace {
+        RestoreKind::Replace
+    } else {
+        RestoreKind::Merge
+    };
+    give_back_as(model, messages, kind);
+}
+
+fn give_back_as(model: &mut ThreadModel, messages: Vec<UserMessage>, kind: RestoreKind) {
     if messages.is_empty() {
         return;
     }
@@ -3841,7 +3892,7 @@ fn give_back(model: &mut ThreadModel, messages: Vec<UserMessage>, replace: bool)
     model.restore = Some(Restore {
         seq,
         messages,
-        replace,
+        kind,
     });
 }
 

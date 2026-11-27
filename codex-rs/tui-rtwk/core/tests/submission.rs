@@ -5,12 +5,13 @@
 //! queue waits, and the next explicit submit goes out first (oracle `on_images_prepared`,
 //! `recovered_queue`).
 
-use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
-use codex_tui_core::fixtures::builders::{turn_completed, turn_started};
-use codex_tui_core::ids::{ThreadId, Ticket};
-use codex_tui_core::rpc::Reply;
+use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app, apply_app_from};
+use codex_tui_core::fixtures::builders::{turn_completed, turn_started, user_item_with_receipt};
+use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
+use codex_tui_core::protocol::reply_from_server;
+use codex_tui_core::rpc::{Reply, ServerError};
 use codex_tui_core::screens::{ScreenCommand, ScreenThreadIntent, chat};
-use codex_tui_core::threads::{LocalImage, UserMessage};
+use codex_tui_core::threads::{LocalImage, Queued, UserMessage};
 
 const T: &str = "thread-1";
 
@@ -143,4 +144,103 @@ fn a_follow_up_waits_after_a_failed_preparation_and_the_next_submit_goes_first()
     // what the user sends now goes out, not behind the follow-up
     let fx = submit(&mut app, UserMessage::text("now"));
     assert_eq!(start_turn(&fx).map(|(_, text)| text), Some("now".into()));
+}
+
+fn rejected_start(command: &Command, code: Option<i64>) -> (Ticket, Reply) {
+    reply_from_server(
+        command,
+        Err(ServerError {
+            code,
+            message: "server refused start".to_owned(),
+            data: None,
+        }),
+    )
+    .expect("a start reply")
+}
+
+#[test]
+fn a_definitive_start_rejection_spends_only_its_own_pending_submission() {
+    let mut app = ready();
+    let message = with_image("[Image #1] describe");
+    let request = submit(&mut app, message.clone());
+    let (ticket, reply) = rejected_start(&request.commands()[0], Some(-32602));
+
+    let mut fx = AppFx::default();
+    apply_app_from(
+        &mut app,
+        BackendId(1),
+        AppEv::Reply(ticket, reply.clone()),
+        &mut fx,
+    );
+    assert!(app.active_thread().restore().is_none(), "wrong backend");
+
+    let fx = run(&mut app, AppEv::Reply(ticket, reply.clone()));
+    assert!(fx.commands().is_empty(), "{:?}", fx.commands());
+    let restore = app
+        .active_thread()
+        .restore()
+        .expect("returned draft")
+        .clone();
+    assert_eq!(restore.messages(), [message]);
+    assert!(restore.preserves_editing());
+    assert!(!restore.replaces());
+
+    let fx = run(&mut app, AppEv::Reply(ticket, reply));
+    assert!(fx.commands().is_empty(), "{:?}", fx.commands());
+    assert_eq!(app.active_thread().restore(), Some(&restore));
+}
+
+#[test]
+fn a_start_rejection_after_the_definitive_receipt_cannot_restore_the_prompt() {
+    let mut app = ready();
+    let request = submit(&mut app, UserMessage::text("sent"));
+    let command = &request.commands()[0];
+    let Command::StartTurn { client_id, .. } = command else {
+        panic!("a pending start");
+    };
+    let (ticket, reply) = rejected_start(command, Some(-32602));
+    run(
+        &mut app,
+        AppEv::Backend(user_item_with_receipt(
+            T,
+            "turn-received",
+            "item",
+            "sent",
+            Some(client_id.clone()),
+        )),
+    );
+    run(&mut app, AppEv::Reply(ticket, reply));
+    assert!(app.active_thread().restore().is_none());
+    assert!(app.active_thread().last_error().is_none());
+}
+
+#[test]
+fn a_connection_loss_or_untyped_failure_does_not_prove_start_rejection() {
+    let original = UserMessage::text("uncertain");
+    for code in [None, Some(-32603)] {
+        let mut app = ready();
+        let request = submit(&mut app, original.clone());
+        let (ticket, reply) = rejected_start(&request.commands()[0], code);
+        run(&mut app, AppEv::Reply(ticket, reply));
+        assert!(app.active_thread().restore().is_none());
+    }
+
+    let mut app = ready();
+    let request = submit(&mut app, original.clone());
+    let (ticket, reply) = reply_from_server(&request.commands()[0], Ok(serde_json::json!({})))
+        .expect("a malformed response");
+    run(&mut app, AppEv::Reply(ticket, reply));
+    assert!(app.active_thread().restore().is_none());
+
+    let mut app = ready();
+    let (ticket, _) = start_turn(&submit(&mut app, original.clone())).expect("a start");
+    run(
+        &mut app,
+        AppEv::Reply(ticket, Reply::submission_unconfirmed("connection lost")),
+    );
+    let thread = app.active_thread();
+    assert!(thread.restore().is_none());
+    assert!(
+        matches!(thread.queue(), [Queued::Unconfirmed { message, .. }] if **message == original)
+    );
 }
