@@ -31,6 +31,13 @@ impl PatchActivity {
     pub fn recorded_failure(&self) -> bool {
         self.source == PatchSource::History && self.status == ToolStatus::Failed
     }
+
+    /// A refresh of the same item can repeat a recorded failure through the live channel.
+    pub(super) fn matches_refresh(&self, incoming: &Self) -> bool {
+        self.status == incoming.status
+            && (self.source == incoming.source || self.recorded_failure())
+            && self.changes == incoming.changes
+    }
 }
 
 /// One file of a patch: its path, what happened to it and its diff (the

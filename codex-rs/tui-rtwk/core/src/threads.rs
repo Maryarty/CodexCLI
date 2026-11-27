@@ -330,10 +330,16 @@ struct ItemEntry {
 impl ItemEntry {
     fn updated(before: Option<&Self>, mut item: Item, revision: &mut u64) -> Self {
         item.keep_previous_plan_text(before.map(|entry| entry.item.as_ref()));
-        if let Some(before) = before
-            && *before.item == item
-        {
-            return before.clone();
+        if let Some(before) = before {
+            let unchanged = match (before.item.as_ref(), &item) {
+                (Item::Patch(previous), Item::Patch(incoming)) => {
+                    previous.matches_refresh(incoming)
+                }
+                (previous, incoming) => previous == incoming,
+            };
+            if unchanged {
+                return before.clone();
+            }
         }
         *revision += 1;
         Self {

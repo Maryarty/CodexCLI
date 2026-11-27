@@ -644,6 +644,65 @@ fn snapshot_formatter_empty_success_and_failed_patch_keep_their_outcomes() {
     }
 }
 
+#[test]
+fn repeated_completed_turn_keeps_one_recorded_patch_failure() {
+    let turn = |patch: serde_json::Value| {
+        kit::replay_turn("failed-patch-turn", serde_json::json!([patch]))
+    };
+    let failed = turn(patch_item("failed"));
+    let mut s = resumed(vec![failed.clone()]);
+    let completion = |turn| {
+        notify(
+            "turn/completed",
+            serde_json::json!({"threadId": kit::REPLAYED, "turn": turn}),
+        )
+    };
+
+    for _ in 0..2 {
+        s.assert_text_count("Failed to apply patch", 1);
+        for phantom in ["Edited", "old sample", "new sample"] {
+            s.assert_absent(phantom);
+        }
+        s.feed(&completion(failed.clone()));
+    }
+    s.assert_text_count("Failed to apply patch", 1);
+    s.assert_absent("Edited");
+
+    s.feed(&completion(turn(patch_item("completed"))));
+    s.assert_text_count("Edited sample.txt", 1);
+    s.assert_contains("new sample");
+    s.assert_absent("Failed to apply patch");
+
+    let mut corrected = patch_item("completed");
+    corrected["changes"][0]["diff"] =
+        serde_json::json!("@@ -1 +1 @@\n-old sample\n+authoritative replacement\n");
+    s.feed(&completion(turn(corrected)));
+    s.assert_text_count("Edited sample.txt", 1);
+    s.assert_contains("authoritative replacement");
+    s.assert_absent("new sample");
+}
+
+#[test]
+fn a_fresh_failed_patch_keeps_its_live_preview_and_outcome() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(SEED)
+        .live()
+        .open();
+    s.feed(&turn_started("thread-1", "turn-1"));
+    s.feed(&notify(
+        "item/started",
+        serde_json::json!({"threadId": "thread-1", "turnId": "turn-1",
+            "startedAtMs": 0, "item": patch_item("inProgress")}),
+    ));
+    s.assert_text_count("Edited sample.txt", 1);
+    s.assert_contains("new sample");
+    s.assert_absent("Failed to apply patch");
+    s.feed(&item_completed("thread-1", patch_item("failed")));
+    s.assert_text_count("Edited sample.txt", 1);
+    s.assert_text_count("Failed to apply patch", 1);
+}
+
 // ---- oracle: chatwidget/tests/history_replay.rs (24 screen-level tests here; 11 state tests left to chat-live)
 
 /// A chat of a resumed thread whose recorded turns are `turns` (`replay_turn`s), oldest first as
