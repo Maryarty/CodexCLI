@@ -1558,6 +1558,9 @@ fn apply_at(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
         !Rc::ptr_eq(&previous, &app.session) && previous.active != app.session.active;
     if active_changed {
         select::retire_model_picker(app);
+        if let Some(thread) = &previous.active {
+            features::retire_queue_modal_choices(app, thread, fx);
+        }
     }
     if status || active_changed {
         notices::invalid_status_items(app, fx);
