@@ -37,6 +37,7 @@ pub fn note(note: &Note) -> String {
         }
         Note::IdeOn { has_context: false } => "IDE context is on.\nConnected to your IDE.".to_owned(),
         Note::IdeCouldNotEnable { hint } => format!("IDE context could not be enabled.\n{hint}"),
+        Note::IdeNoLocalWorkspace => "IDE context could not be enabled.\nOpen a local workspace to connect to your IDE.".to_owned(),
         Note::IdeUsage => "Usage: /ide [on|off|status]".to_owned(),
         Note::DebugConfig(rows) => rows
             .iter()

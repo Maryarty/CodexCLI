@@ -10,8 +10,15 @@ use std::path::PathBuf;
 use codex_tui_core::features::small_cmds::IdeFailure;
 use serde::Deserialize;
 
-pub(crate) const OPEN_IDE_HINT: &str =
+const OPEN_IDE_HINT: &str =
     "Open this project in VS Code or Cursor with the Codex extension active.";
+
+pub(crate) fn ide_unavailable() -> IdeFailure {
+    IdeFailure {
+        hint: OPEN_IDE_HINT.to_owned(),
+        skip_hint: OPEN_IDE_HINT.to_owned(),
+    }
+}
 
 /// One read of the local IDE's active file and tabs. The caller has already
 /// checked that the owning session uses a local workspace.
@@ -21,10 +28,7 @@ pub(crate) async fn read_ide_context(
 ) -> Result<Option<String>, IdeFailure> {
     tokio::task::spawn_blocking(move || {
         if !workspace.is_absolute() || !workspace.is_dir() {
-            return Err(IdeFailure {
-                hint: OPEN_IDE_HINT.to_owned(),
-                skip_hint: OPEN_IDE_HINT.to_owned(),
-            });
+            return Err(ide_unavailable());
         }
         ipc::fetch_ide_context(&workspace, &codex_home)
             .map(|context| prompt::render_prompt_context(&context))

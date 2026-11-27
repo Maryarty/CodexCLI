@@ -4,11 +4,12 @@
 //! `chatwidget/ide_context.rs`, `app/daybreak.rs`, `debug_config.rs`): the verbs ask the host for
 //! what is IO, and its answers are the notes of the thread in use. The words are the view's.
 
+use codex_tui_core::app::effects::{Ask, Done};
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::commands::{SessionIntent, SlashCommand};
 use codex_tui_core::features::small_cmds::{
-    Command as Wanted, DaybreakFailure, DefaultFailure, Fact, Intent as SmallIntent,
-    Note as SmallNote, Wish,
+    Command as Wanted, DaybreakFailure, DefaultFailure, Fact, IdeFailure, IdeReading,
+    Intent as SmallIntent, Note as SmallNote, Wish,
 };
 use codex_tui_core::features::{self, FeatureCommand, FeatureIntent, FeatureNote, FeatureWish};
 use codex_tui_core::fixtures::script::build;
@@ -25,6 +26,60 @@ fn app() -> CodexApp {
     build(r#"{"step":"seed","seed":"session","thread":"thread-1"}"#)
         .expect("plays")
         .app
+}
+
+fn ide_app() -> CodexApp {
+    build(concat!(
+        r#"{"step":"seed","seed":"session","thread":"thread-1"}"#,
+        "\n",
+        r#"{"step":"screen","dir":"chat","ev":{"status":{"cwd":"/workspace"}}}"#,
+    ))
+    .expect("plays")
+    .app
+}
+
+fn ide(app: &mut CodexApp, args: &str) -> AppFx {
+    command(
+        app,
+        SlashCommand::Ide,
+        SessionIntent::Feature {
+            args: args.to_owned(),
+        },
+    )
+}
+
+fn ide_request(app: &mut CodexApp, args: &str) -> u64 {
+    let fx = ide(app, args);
+    let requests: Vec<_> = fx
+        .commands()
+        .iter()
+        .filter_map(|command| match command {
+            Command::Effect {
+                request,
+                ask: Ask::IdeContext { thread, cwd },
+                ..
+            } => {
+                assert_eq!(thread.as_str(), T);
+                assert_eq!(cwd, "/workspace");
+                Some(*request)
+            }
+            _ => None,
+        })
+        .collect();
+    let [request] = requests.as_slice() else {
+        panic!("expected one owned IDE read, got {:?}", fx.commands());
+    };
+    *request
+}
+
+fn ide_reply(app: &mut CodexApp, request: u64, result: Result<IdeReading, IdeFailure>) {
+    run(
+        app,
+        AppEv::Effect {
+            request,
+            done: Done::IdeContext(result),
+        },
+    );
 }
 
 fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
@@ -139,22 +194,15 @@ fn a_failed_logout_says_why() {
 
 #[test]
 fn ide_toggles_and_says_what_the_host_found() {
-    let mut app = app();
-    let ide = |app: &mut CodexApp, args: Option<&str>| {
-        command(
-            app,
-            SlashCommand::Ide,
-            SessionIntent::Feature {
-                args: args.unwrap_or_default().to_owned(),
-            },
-        )
-    };
-    fact(&mut app, Fact::ide_context(true));
-    ide(&mut app, None);
-    assert!(app.features().small_cmds.ide.enabled);
-    ide(&mut app, None);
+    let mut app = ide_app();
+    let request = ide_request(&mut app, "on");
     assert!(!app.features().small_cmds.ide.enabled);
-    ide(&mut app, Some("bogus"));
+    assert!(notes(&app).is_empty());
+    ide_reply(&mut app, request, Ok(IdeReading { has_context: true }));
+    assert!(app.features().small_cmds.ide.enabled);
+    ide(&mut app, "");
+    assert!(!app.features().small_cmds.ide.enabled);
+    ide(&mut app, "bogus");
     assert_eq!(
         notes(&app),
         vec![
@@ -167,16 +215,15 @@ fn ide_toggles_and_says_what_the_host_found() {
 
 #[test]
 fn an_ide_that_is_not_there_turns_the_context_off_with_the_hosts_hint() {
-    let mut app = app();
-    fact(
+    let mut app = ide_app();
+    let request = ide_request(&mut app, "on");
+    ide_reply(
         &mut app,
-        Fact::ide_unavailable("Open it".to_owned(), "open it".to_owned()),
-    );
-    verb(
-        &mut app,
-        SmallIntent::Ide {
-            args: Some("on".to_owned()),
-        },
+        request,
+        Err(IdeFailure {
+            hint: "Open it".to_owned(),
+            skip_hint: "open it".to_owned(),
+        }),
     );
     assert!(!app.features().small_cmds.ide.enabled);
     assert_eq!(
@@ -185,6 +232,24 @@ fn an_ide_that_is_not_there_turns_the_context_off_with_the_hosts_hint() {
             hint: "Open it".to_owned()
         }]
     );
+}
+
+#[test]
+fn ide_off_and_disconnect_retire_exact_pending_reads() {
+    let mut app = ide_app();
+    let first = ide_request(&mut app, "on");
+    let second = ide_request(&mut app, "on");
+    let ready = IdeReading { has_context: true };
+    ide_reply(&mut app, first, Ok(ready.clone()));
+    assert!(!app.features().small_cmds.ide.enabled);
+    ide(&mut app, "off");
+    ide_reply(&mut app, second, Ok(ready.clone()));
+    assert!(!app.features().small_cmds.ide.enabled);
+    let third = ide_request(&mut app, "on");
+    run(&mut app, AppEv::Disconnected);
+    ide_reply(&mut app, third, Ok(ready));
+    assert!(!app.features().small_cmds.ide.enabled);
+    assert_eq!(notes(&app), vec![SmallNote::IdeOff]);
 }
 
 fn access(eligible: bool, daybreak: bool) -> Access {
