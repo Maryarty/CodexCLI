@@ -15,7 +15,7 @@ use rtwk::{AnyWidget, Cx, Handler, Key, Rebuild, State, StatefulWidget, impl_wid
 
 use codex_tui_core::app::SessionSlice;
 use codex_tui_core::commands::{SessionIntent, SlashCommand, Target};
-use codex_tui_core::features::{FeatureStates, daybreak_of, feedback, small_cmds};
+use codex_tui_core::features::{FeatureStates, daybreak_of};
 use codex_tui_core::ids::{ThreadId, TurnId};
 use codex_tui_core::keymap::{actions, fixed};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, transcript::PagerDoc};
@@ -346,24 +346,10 @@ impl State for SlotState {
             (_, Action::EnableDaybreak) if refusal.is_some() => {
                 let turn = refusal.expect("a live refusal owns the choice");
                 self.dismissed_refusal = Some(turn.clone());
-                crate::features::verb_by(
-                    cx,
-                    &hs,
-                    small_cmds::Intent::EnableDaybreakForRefusal {
-                        thread: owner,
-                        turn,
-                    },
-                );
+                crate::features::enable_daybreak_for_refusal(cx, owner, turn);
             }
             (Surface::Recourse { offer, .. }, Action::GiveFeedback) => {
-                crate::features::verb_by(
-                    cx,
-                    &hs,
-                    feedback::Intent::OpenForSafety(feedback::SafetySubject {
-                        thread: owner,
-                        turn: offer.turn,
-                    }),
-                );
+                crate::features::open_safety_feedback(cx, owner, offer.turn);
                 return Rebuild::No;
             }
             (Surface::Recourse { offer, .. }, Action::ReviewRewrite(index)) => {
