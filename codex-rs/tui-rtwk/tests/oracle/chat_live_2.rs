@@ -52,6 +52,28 @@ fn banner_chat(width: u16, model: &str, response: &serde_json::Value) -> Screen 
     s
 }
 
+const OWNER_NUDGE: &str = "account/sendAddCreditsNudgeEmail";
+const CREDITS_DEPLETED: &str = "workspace_member_credits_depleted";
+const USAGE_CAP_REACHED: &str = "workspace_member_usage_limit_reached";
+const REQUEST_INCREASE: &str = "Request a limit increase from your owner";
+
+fn exhausted_workspace(reached: &str) -> serde_json::Value {
+    serde_json::json!({
+        "limitId": "codex", "rateLimitReachedType": reached,
+        "primary": {"usedPercent": 100, "windowDurationMins": 300, "resetsAt": null},
+    })
+}
+
+fn rate_limit_error(turn: &str, info: serde_json::Value) -> String {
+    format!(
+        "{}\n",
+        serde_json::json!({"step": "notify", "message": {"method": "error", "params": {
+            "threadId": "thread-1", "turnId": turn, "willRetry": false,
+            "error": {"message": "Workspace usage was blocked.", "codexErrorInfo": info},
+        }}})
+    )
+}
+
 // ORACLE chatwidget/tests/backend_banners_tests.rs:29 backend_banner_presentation_and_cta_do_not_imply_recovery kind=snap owner=chat-live
 #[test]
 fn backend_banner_presentation_and_cta_do_not_imply_recovery() {
@@ -106,14 +128,39 @@ fn backend_banner_presentation_and_cta_do_not_imply_recovery() {
 // ORACLE chatwidget/tests/backend_banners_tests.rs:292 backend_banner_invalid_content_and_absence_restore_fallback kind=ui owner=chat-live
 #[test]
 fn backend_banner_invalid_content_and_absence_restore_fallback() {
-    kit::pending(
-        Owner::ChatLive,
-        "the usage-limit error that shows the workspace-owner fallback (`on_rate_limit_error`, rate_limits.rs) is not built; the banner side (invalid content or absence drops it) is a core test",
-    );
-    let s = Screen::build(Owner::ChatLive).size(90, 24).live().open();
-    s.assert_contains("Selected model usage exhausted");
-    // The oracle removes the banner or breaks its content, then a usage-limit error shows the fallback.
-    s.assert_contains("workspace owner");
+    for invalid in [
+        serde_json::Value::Null,
+        serde_json::json!({"presentation": "future_mode"}),
+        serde_json::json!({"presentation": null}),
+        serde_json::json!({"title": " "}),
+    ] {
+        let mut read = banner_response(Some("inline"), serde_json::json!([]), |_| {});
+        read["rateLimits"] = exhausted_workspace(CREDITS_DEPLETED);
+        let mut s = banner_chat(100, "test-model-a", &read);
+        if let Some(fields) = invalid.as_object() {
+            for (key, value) in fields {
+                read["rateLimitUpsell"][key] = value.clone();
+            }
+        } else {
+            read =
+                serde_json::json!({"accountId": "workspace-a", "rateLimits": read["rateLimits"]});
+        }
+        s.feed(&(answer(&read) + &model_step("test-model-a", true)));
+        s.assert_absent("Selected model usage exhausted");
+        s.feed(&rate_limit_error(
+            "turn-1",
+            serde_json::json!({"responseTooManyFailedAttempts": {"httpStatusCode": 429}}),
+        ));
+        s.assert_contains("Ask your workspace owner to add more.");
+        s.assert_no_request(OWNER_NUDGE);
+        s.feed(
+            r#"{"step":"respond","method":"account/sendAddCreditsNudgeEmail","result":{"status":"sent"}}"#,
+        );
+        s.keys("y");
+        s.assert_requests_of(OWNER_NUDGE, 1);
+        s.assert_last_request_has(OWNER_NUDGE, r#""creditType":"credits""#);
+        s.wait_for("Workspace owner notified.");
+    }
 }
 
 // ORACLE chatwidget/tests/backend_banners_tests.rs:322 backend_banner_fallback_candidates_and_notice_follow_selected_model kind=ui owner=chat-live
@@ -190,19 +237,67 @@ fn backend_banner_sparse_updates_preserve_visible_and_dismissed_occurrences() {
 fn backend_banner_changed_remedy_keeps_fallback_until_applicable_replacement() {
     kit::pending(
         Owner::ChatLive,
-        "the usage-cap error rows (`on_rate_limit_error`: `Request a limit increase from your owner`, the workspace nudge popup) are not built: only the replacement banner half (title, cta) is on screen",
+        "a change from workspace credits to the usage cap leaves the old Notify owner banner after a rolling update or an error, preventing the workspace fallback",
     );
     for rolling_update in [false, true] {
-        let s = Screen::build(Owner::ChatLive).size(90, 24).live().open();
+        let mut read = banner_response(
+            Some("inline"),
+            serde_json::json!([{"action":"notify_owner","label":"Notify owner"}]),
+            |_| {},
+        );
+        read["rateLimits"] = exhausted_workspace(CREDITS_DEPLETED);
+        let mut s = banner_chat(100, "test-model-a", &read);
         s.assert_contains("Notify owner");
+
+        // Keep the full account read in flight until the backend can offer the new remedy.
+        let pending = s.hold_request("account/rateLimits/read");
         if rolling_update {
-            s.assert_contains("Request a limit increase from your owner");
+            s.feed(&format!(
+                "{}\n",
+                serde_json::json!({"step": "notify", "message": {
+                    "method": "account/rateLimits/updated",
+                    "params": {"rateLimits": exhausted_workspace(USAGE_CAP_REACHED)},
+                }})
+            ));
+            s.assert_absent("Notify owner");
         }
-        s.assert_contains("Request a limit increase from your owner");
-        // The oracle replaces the banner with the spending-cap title and request-more-usage cta.
+        s.feed(&rate_limit_error(
+            "turn-1",
+            serde_json::json!("usageLimitExceeded"),
+        ));
+        s.assert_absent("Notify owner");
+        s.assert_contains(REQUEST_INCREASE);
+
+        read["rateLimits"] = exhausted_workspace(USAGE_CAP_REACHED);
+        read["rateLimitUpsell"]["title"] = serde_json::json!("Workspace spending cap reached");
+        read["rateLimitUpsell"]["ctas"] =
+            serde_json::json!([{"action":"request_increase","label":"Request more usage"}]);
+        read["rateLimitUpsell"]["model_slug"] = serde_json::json!("test-model-b");
+        s.feed(&(answer(&read) + &model_step("test-model-a", true)));
+        s.release(&pending);
+        s.assert_contains(REQUEST_INCREASE);
+        s.assert_absent("Workspace spending cap reached");
+
+        read["rateLimitUpsell"]["model_slug"] = serde_json::json!("test-model-a");
+        s.feed(&(answer(&read) + &model_step("test-model-a", true)));
         s.assert_contains("Workspace spending cap reached");
         s.assert_contains("Request more usage");
-        s.assert_absent("Request a limit increase from your owner");
+        s.assert_absent(REQUEST_INCREASE);
+        s.assert_no_request(OWNER_NUDGE);
+
+        s.feed(&model_step("test-model-b", false));
+        s.feed(&rate_limit_error(
+            "turn-2",
+            serde_json::json!("usageLimitExceeded"),
+        ));
+        s.assert_contains(REQUEST_INCREASE);
+        s.feed(
+            r#"{"step":"respond","method":"account/sendAddCreditsNudgeEmail","result":{"status":"sent"}}"#,
+        );
+        s.keys("y");
+        s.assert_requests_of(OWNER_NUDGE, 1);
+        s.assert_last_request_has(OWNER_NUDGE, r#""creditType":"usage_limit""#);
+        s.wait_for("Limit increase requested.");
     }
 }
 
