@@ -103,12 +103,13 @@ pub enum ModalChoice {
     RefreshAfterVisit,
 }
 
-/// An action taken while the directory or its link page remains open.
+/// An Apps directory or link action.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModalAction {
     Retry,
     Visit(String),
     Enable { id: String, enabled: bool },
+    Unlinked(String),
 }
 
 /// The directory and thread whose config the switch update was sent to.

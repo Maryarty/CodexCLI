@@ -26,15 +26,18 @@ use super::features::{
 
 /// An intent of the select screen, and the asks it left open.
 pub(super) fn intent(app: &mut CodexApp, mut intent: select::Intent, fx: &mut AppFx) {
-    // The dialog of the app shows its switch at once; the directory follows the saved write.
-    if let select::Intent::SetApp { id, enabled } = intent {
-        set_app(app, id, enabled, None, fx);
-        return;
-    }
     if let select::Intent::ActInApps { token, action } = intent {
-        let operation = ModalOperation::Apps(token);
-        if queue_modal_is_current(app, &operation) {
-            act_in_owned_apps(app, operation.thread(), action, fx);
+        let operation = token.map(ModalOperation::Apps);
+        if operation
+            .as_ref()
+            .is_none_or(|operation| queue_modal_is_current(app, operation))
+        {
+            act_in_apps(
+                app,
+                operation.as_ref().map(ModalOperation::thread),
+                action,
+                fx,
+            );
         }
         return;
     }
@@ -46,19 +49,6 @@ pub(super) fn intent(app: &mut CodexApp, mut intent: select::Intent, fx: &mut Ap
     }
     if let select::Intent::PlanAnswer(answer) = intent {
         super::session::plan_answer(app, answer, fx);
-        return;
-    }
-    // `AppEvent::OpenUrlInBrowser`: the page of the app the link dialog shows.
-    if let select::Intent::OpenAppPage(id) = &intent {
-        if let Some(url) = app
-            .screens
-            .select
-            .apps
-            .app(id)
-            .and_then(|found| found.install_url.clone())
-        {
-            fx.host(crate::app::effects::Ask::open_url_or_report(url));
-        }
         return;
     }
     match &mut intent {
@@ -227,33 +217,48 @@ fn set_app(
     );
 }
 
-fn act_in_owned_apps(
+fn act_in_apps(
     app: &mut CodexApp,
-    thread: &ThreadId,
+    thread: Option<&ThreadId>,
     action: apps::ModalAction,
     fx: &mut AppFx,
 ) {
     match action {
         apps::ModalAction::Retry => intent(app, select::Intent::RefreshApps, fx),
-        apps::ModalAction::Visit(id) => intent(app, select::Intent::OpenAppPage(id), fx),
-        apps::ModalAction::Enable { id, enabled } => {
-            if app.screens.select.app_installed(&id) {
-                let owner = apps::ModalWriteOwner {
-                    thread: thread.clone(),
-                    scope: app.screens.select.apps.scope(),
-                };
-                set_app(app, id, enabled, Some(owner), fx);
+        apps::ModalAction::Visit(id) => {
+            if let Some(url) = app
+                .screens
+                .select
+                .apps
+                .app(&id)
+                .and_then(|found| found.install_url.clone())
+            {
+                fx.host(crate::app::effects::Ask::open_url_or_report(url));
             }
+        }
+        apps::ModalAction::Enable { id, enabled } => {
+            if thread.is_some() && !app.screens.select.app_installed(&id) {
+                return;
+            }
+            let owner = thread.map(|thread| apps::ModalWriteOwner {
+                thread: thread.clone(),
+                scope: app.screens.select.apps.scope(),
+            });
+            set_app(app, id, enabled, owner, fx);
+        }
+        apps::ModalAction::Unlinked(id) => {
+            Rc::make_mut(&mut app.screens).select.app_unlinked(&id);
+            drain(app, fx);
         }
     }
 }
 
 pub(super) fn finish_owned_apps(app: &mut CodexApp, choice: apps::ModalChoice, fx: &mut AppFx) {
-    let intent = match choice {
-        apps::ModalChoice::Unlinked(id) => select::Intent::AppUnlinked(id),
-        apps::ModalChoice::RefreshAfterVisit => select::Intent::RefreshApps,
+    let action = match choice {
+        apps::ModalChoice::Unlinked(id) => apps::ModalAction::Unlinked(id),
+        apps::ModalChoice::RefreshAfterVisit => apps::ModalAction::Retry,
     };
-    self::intent(app, intent, fx);
+    act_in_apps(app, None, action, fx);
 }
 
 fn live_current(app: &CodexApp, asked: &Current) -> Option<Current> {
@@ -1024,25 +1029,25 @@ pub(super) fn apply_owned_permissions(
         settle_owned_permission(app, token, true, fx);
         return;
     }
-    if let Some(setup) = crate::features::setup_before_pick(&app.features, &selection) {
-        super::features::intent(app, setup, fx);
-        settle_owned_permission(app, token, true, fx);
-        return;
-    }
-    let unchanged = matches!(
-        &selection,
-        permissions::Selection::Profile {
-            unchanged: true,
-            ..
-        }
-    );
-    if matches!(&selection, permissions::Selection::Profile { id, unchanged: true, .. } if id.starts_with(':'))
+    let patch = select::persist::permissions_patch(&selection);
+    let address = modal_address(app, &thread);
+    let effective = app
+        .screens
+        .select
+        .permissions_effective
+        .get(&thread)
+        .is_some_and(|effective| effective.address == address && effective.matches(&patch));
+    let setup = crate::features::setup_before_owned_pick(&app.features, &token, &selection);
+    if setup.is_none()
+        && effective
+        && patch
+            .permissions
+            .as_ref()
+            .is_some_and(|id| id.starts_with(':'))
     {
         settle_owned_permission(app, token, false, fx);
         return;
     }
-    let patch = select::persist::permissions_patch(&selection);
-    let address = modal_address(app, &thread);
     Rc::make_mut(&mut app.screens)
         .select
         .permissions_applying
@@ -1052,10 +1057,15 @@ pub(super) fn apply_owned_permissions(
                 token: token.clone(),
                 address,
                 patch: patch.clone(),
+                deferred: setup.is_some().then_some(selection),
                 accepted: false,
-                effective: unchanged,
+                effective,
             },
         );
+    if let Some(setup) = setup {
+        super::features::intent(app, setup, fx);
+        return;
+    }
     ask(
         app,
         select::Command::Settings {
@@ -1106,31 +1116,87 @@ pub(super) fn observe_permission_settings(
     fx: &mut AppFx,
 ) {
     let thread = ThreadId::new(&notice.thread_id);
-    if let Some(pending) = Rc::make_mut(&mut app.screens)
-        .select
-        .permissions_applying
-        .get_mut(&thread)
+    let select = &mut Rc::make_mut(&mut app.screens).select;
+    let observed = permissions::Effective::observed(address, &notice.thread_settings);
+    if let Some(pending) = select.permissions_applying.get_mut(&thread)
+        && pending.address == address
     {
-        pending.observe(address, &notice.thread_settings);
-        settle_effective_permission(app, &thread, fx);
+        pending.effective = observed.matches(&pending.patch);
     }
+    select
+        .permissions_effective
+        .insert(thread.clone(), observed);
+    settle_effective_permission(app, &thread, fx);
 }
 
 pub(super) fn retire_permission_writes(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx) {
     let mut lost = Vec::new();
-    Rc::make_mut(&mut app.screens)
-        .select
-        .permissions_applying
-        .retain(|_, pending| {
-            if pending.address.backend != backend {
-                return true;
-            }
-            lost.push(pending.token.clone());
-            false
-        });
+    let select = &mut Rc::make_mut(&mut app.screens).select;
+    select
+        .permissions_effective
+        .retain(|_, effective| effective.address.backend != backend);
+    select.permissions_applying.retain(|_, pending| {
+        if pending.address.backend != backend {
+            return true;
+        }
+        lost.push(pending.token.clone());
+        false
+    });
     for token in lost {
+        discard_owned_permission_setup(app, &token, fx);
         settle_owned_permission(app, token, true, fx);
     }
+}
+
+pub(super) fn start_owned_permission_setup(
+    app: &mut CodexApp,
+    token: ModalToken<permissions::Selection>,
+    mode: codex_app_server_protocol::WindowsSandboxSetupMode,
+    fx: &mut AppFx,
+) {
+    let deferred = app.screens.select.permissions_applying.get(token.thread());
+    if deferred.is_some_and(|write| write.deferred.is_some() && write.token == token)
+        && queue_modal_can_reopen(app, &ModalOperation::Permissions(token.clone()))
+    {
+        super::features::run(app, fx, |states, cx| {
+            crate::features::start_owned_permission_setup(states, &token, mode, cx);
+        });
+    } else {
+        finish_owned_permission_setup(app, token, false, fx);
+    }
+}
+
+pub(super) fn finish_owned_permission_setup(
+    app: &mut CodexApp,
+    token: ModalToken<permissions::Selection>,
+    success: bool,
+    fx: &mut AppFx,
+) {
+    let pending = &mut Rc::make_mut(&mut app.screens).select.permissions_applying;
+    let Some(selection) = pending
+        .get_mut(token.thread())
+        .filter(|write| write.token == token)
+        .and_then(|write| write.deferred.take())
+    else {
+        return;
+    };
+    pending.remove(token.thread());
+    discard_owned_permission_setup(app, &token, fx);
+    if success {
+        apply_owned_permissions(app, token, selection, fx);
+    } else {
+        settle_owned_permission(app, token, true, fx);
+    }
+}
+
+fn discard_owned_permission_setup(
+    app: &mut CodexApp,
+    token: &ModalToken<permissions::Selection>,
+    fx: &mut AppFx,
+) {
+    super::features::run(app, fx, |states, _| {
+        crate::features::clear_owned_permission_setup(states, token)
+    });
 }
 
 fn permission_write_answer(

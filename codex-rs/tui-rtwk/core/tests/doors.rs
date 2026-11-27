@@ -5,17 +5,23 @@
 
 use std::rc::Rc;
 
-use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app};
+use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Ingress, Intent, apply_app};
 use codex_tui_core::features::windows_sandbox::{
-    Config, Fact, Host, Intent as Sandbox, Mode, Reply,
+    Config, Fact, Host, Intent as Sandbox, Mode, Reply, Wish,
 };
-use codex_tui_core::features::{FeatureCommand, FeatureFact, FeatureIntent, FeatureReply};
+use codex_tui_core::features::{
+    FeatureCommand, FeatureFact, FeatureIntent, FeatureReply, FeatureWish,
+};
+use codex_tui_core::fixtures::builders::{turn_completed, turn_started};
+use codex_tui_core::fixtures::script::build;
 use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
 use codex_tui_core::rpc::Reply as Answer;
 use codex_tui_core::screens::agents::CenterThreads;
-use codex_tui_core::screens::select::Note;
 use codex_tui_core::screens::select::permissions::{Label, Preset, Reviewer, Selection};
-use codex_tui_core::threads::{NoteKey, ThreadPreviews};
+use codex_tui_core::screens::select::{self, Note, QueueDialog, QueueOpen};
+use codex_tui_core::screens::{ScreenCommand, ScreenIntent, ScreenThreadIntent, chat};
+use codex_tui_core::threads::queue::{ModalOperation, ModalReceipt, ModalToken, QueueEvent};
+use codex_tui_core::threads::{NoteKey, Queued, ThreadPreviews, UserMessage};
 
 #[test]
 fn the_center_names_the_live_thread() {
@@ -122,6 +128,163 @@ fn a_permissions_pick_waits_for_the_windows_sandbox_setup() {
     completed(&mut app, Mode::Elevated, false);
     assert_eq!(applied(&app), []);
     assert_eq!(app.features().windows_sandbox.then(), Some(&pick));
+}
+
+fn owned_windows_permission(app: &mut CodexApp, thread: &ThreadId) -> ModalToken<Selection> {
+    let say = |app: &mut CodexApp, event| {
+        run(
+            app,
+            AppEv::Intent(Intent::ThreadScreen {
+                thread: thread.clone(),
+                intent: ScreenThreadIntent::Chat(event),
+            }),
+        )
+    };
+    sandbox_ready(app, None);
+    run(app, AppEv::Backend(turn_started(thread.as_str(), "turn")));
+    say(
+        app,
+        chat::ThreadIntent::Queue(Queued::Message(UserMessage::text("keep this follow-up"))),
+    );
+    let open = QueueOpen {
+        thread: thread.clone(),
+        issued: None,
+        dialog: QueueDialog::Permissions(Default::default()),
+    };
+    run(
+        app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Select(
+            select::Intent::OpenQueueDialog(Box::new(open)),
+        ))),
+    );
+    let operation = app
+        .screens()
+        .select
+        .shows
+        .pending()
+        .last()
+        .and_then(|show| show.queue_modal.clone())
+        .expect("typed permissions opening");
+    say(
+        app,
+        chat::ThreadIntent::QueueEvent(QueueEvent::ModalOpened(operation.clone())),
+    );
+    let ModalOperation::Permissions(token) = operation else {
+        panic!("permissions token")
+    };
+    let selection = Selection::Preset {
+        preset: Preset::Auto,
+        reviewer: Reviewer::User,
+    };
+    let fx = say(
+        app,
+        chat::ThreadIntent::QueueEvent(QueueEvent::ModalFinished(ModalReceipt::Permissions(
+            token.clone(),
+            Some(selection),
+        ))),
+    );
+    assert!(!fx.commands().iter().any(permission_settings));
+    assert!(app.wishes().pending().any(|wish| matches!(
+        &wish.wish, FeatureWish::WindowsSandbox(Wish::OwnedPrompt { token: issued, .. }) if issued == &token
+    )));
+    let fx = run(app, AppEv::Backend(turn_completed(thread.as_str(), "turn")));
+    assert!(
+        !fx.commands()
+            .iter()
+            .any(|cmd| matches!(cmd, Command::StartTurn { .. }))
+    );
+    token
+}
+
+fn permission_settings(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::Screen {
+            command: ScreenCommand::Select(select::Command::Settings { .. }),
+            ..
+        }
+    )
+}
+
+#[test]
+fn owned_permissions_keep_the_original_choice_through_windows_setup() {
+    let source = ThreadId::new("thread-1");
+    for outcome in ["accepted", "cancelled", "replaced"] {
+        let mut app = build(r#"{"step":"seed","seed":"session","thread":"thread-1"}"#)
+            .expect("running session")
+            .app;
+        let token = owned_windows_permission(&mut app, &source);
+        let sandbox_intent =
+            |app: &mut CodexApp, intent| run(app, AppEv::Intent(Intent::Feature(intent)));
+        let begin = || {
+            FeatureIntent::from(Sandbox::BeginOwned {
+                token: token.clone(),
+                mode: Mode::Elevated,
+            })
+        };
+        if outcome == "cancelled" {
+            let fx = sandbox_intent(&mut app, Sandbox::DismissOwned(token.clone()).into());
+            assert!(!fx.commands().iter().any(permission_settings));
+            assert!(sandbox_intent(&mut app, begin()).commands().is_empty());
+        } else {
+            let fx = sandbox_intent(&mut app, begin());
+            let ticket = fx
+                .commands()
+                .iter()
+                .find_map(|command| match command {
+                    Command::Feature {
+                        ticket,
+                        thread,
+                        command: FeatureCommand::WindowsSandbox(_),
+                        ..
+                    } => {
+                        assert_eq!(thread.as_ref(), Some(&source));
+                        Some(*ticket)
+                    }
+                    _ => None,
+                })
+                .expect("the scoped Windows setup started");
+            started(&mut app, ticket);
+            if outcome == "replaced" {
+                let old = app.epoch();
+                app.ingest(Ingress::transport_replaced(
+                    BackendId::default(),
+                    old,
+                    old.next(),
+                ))
+                .expect("the physical connection was replaced");
+                assert!(sandbox_intent(&mut app, begin()).commands().is_empty());
+            }
+            let result = run(
+                &mut app,
+                AppEv::Feature(FeatureFact::from(Fact::Completed {
+                    mode: Mode::Elevated,
+                    success: true,
+                    error: None,
+                })),
+            );
+            let settings: Vec<_> = result
+                .commands()
+                .iter()
+                .filter(|cmd| permission_settings(cmd))
+                .collect();
+            if outcome == "accepted" {
+                assert!(matches!(settings.as_slice(), [Command::Screen {
+                    command: ScreenCommand::Select(select::Command::Settings { thread, patch }), ..
+                }] if thread == source.as_str() && patch.permissions.as_deref() == Some(":workspace")));
+            } else {
+                assert!(settings.is_empty());
+            }
+            assert!(
+                !result
+                    .commands()
+                    .iter()
+                    .any(|cmd| matches!(cmd, Command::StartTurn { .. }))
+            );
+        }
+        let model = app.thread(&source).expect("the originating thread remains");
+        assert_eq!(model.queue()[0].text, "keep this follow-up");
+    }
 }
 
 /// The catalog (the list of every thread) picks the profile of a mode row, the legacy list the
