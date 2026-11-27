@@ -34,7 +34,7 @@ use rtwk::{
 use rtwk_core::input::InputEvent;
 
 use crate::app::{UiApp, view::Hs};
-use crate::features::{self, PageKey};
+use crate::features;
 use crate::keymap::press::{
     PaneActivationGuard, PaneActivationKey, ResizeKey, horizontal_focus, resize_key,
 };
@@ -60,9 +60,6 @@ impl PartialEq for Pane {
 }
 
 #[derive(Clone)]
-struct PaneKey(GlobalKey);
-
-#[derive(Clone)]
 struct ComposerNode(FocusNode);
 
 pub(super) fn composer_node(ui: &ThreadUi) -> FocusNode {
@@ -74,6 +71,7 @@ pub(super) struct Dock {
     parent: Pane,
     child: Pane,
     children: Rc<[ThreadId]>,
+    tab_names: Rc<[Option<String>]>,
     active: ThreadId,
     preferred_width: Option<u8>,
     temporary: bool,
@@ -102,10 +100,23 @@ impl Dock {
         if !children.contains(child) {
             return None;
         }
+        let previews = app.core.agents_threads();
+        let tab_names = children
+            .iter()
+            .map(|id| {
+                app.core
+                    .thread(id)
+                    .and_then(|thread| thread.screen_slots().chat.name.as_deref())
+                    .or_else(|| previews.preview(id.as_str())?.latest_prompt.as_deref())
+                    .and_then(|label| label.lines().map(str::trim).find(|line| !line.is_empty()))
+                    .map(str::to_owned)
+            })
+            .collect();
         Some(Self {
             parent: pane(parent)?,
             child: pane(child)?,
             children: Rc::from(children),
+            tab_names,
             active: active.clone(),
             preferred_width: settings.sidebar_width_percent,
             temporary: features::side_is_temporary(app.core.features(), child),
@@ -126,6 +137,8 @@ pub(super) struct DockState {
     width: i32,
     split: SplitController,
     tabs: Tabs,
+    parent_key: GlobalKey,
+    child_key: GlobalKey,
     initial_width: Option<u8>,
     hidden: bool,
     zoom: Option<ThreadId>,
@@ -223,12 +236,16 @@ pub(super) fn chords(keymap: &Keymap) -> Vec<(KeyCombo, KeyCombo, Msg)> {
 }
 
 #[derive(Clone, PartialEq)]
-struct Commands(Handler<Msg>);
+struct Commands(Handler<Msg>, FocusNode);
 
 pub(super) fn take<S>(cx: &mut Cx<'_, S>, message: Msg) {
     if let Some(commands) = Provider::<Commands>::maybe_of(cx, false) {
         cx.emit(&commands.0, message);
     }
+}
+
+pub(super) fn tabs_focused<S>(cx: &mut Cx<'_, S>) -> bool {
+    Provider::<Commands>::maybe_of(cx, false).is_some_and(|commands| commands.1.has_primary_focus())
 }
 
 impl StatefulWidget for Dock {
@@ -239,6 +256,8 @@ impl StatefulWidget for Dock {
             width: 0,
             split: SplitController::new().with_fractions([2.0, 1.0]),
             tabs: Tabs::new(self.children.clone(), self.child.model.id()),
+            parent_key: GlobalKey::new(),
+            child_key: GlobalKey::new(),
             initial_width: self.preferred_width,
             hidden: false,
             zoom: None,
@@ -264,13 +283,6 @@ impl DockState {
         }
         let hs = read::<Hs, _>(cx);
         cx.emit(&hs.open_thread, id.clone());
-    }
-
-    fn close(cx: &mut Cx<'_, Self>, child: &ThreadId) {
-        if let Some(intent) = features::run_key(PageKey::ClosePane, child, "", cx) {
-            let hs = read::<Hs, _>(cx);
-            cx.emit(&hs.intent, codex_tui_core::app::Intent::Feature(intent));
-        }
     }
 
     fn keyboard_resize(&self) -> bool {
@@ -306,13 +318,14 @@ impl DockState {
     }
 
     fn pane(
+        &self,
         cx: &mut Cx<'_, Self>,
         pane: &Pane,
+        key: &GlobalKey,
         focused: bool,
         activate: Msg,
         resizing: bool,
     ) -> AnyWidget {
-        let key = pane.ui.held(|| PaneKey(GlobalKey::new()));
         let chat = Chat {
             ui: pane.ui.clone(),
             presentation: if focused {
@@ -321,8 +334,9 @@ impl DockState {
                 Presentation::Passive
             },
         };
-        let chat = Provider::value_shared(pane.model.clone())
-            .child(Provider::value(Commands(cx.map(|msg: Msg| msg))).child(chat));
+        let controls = Commands(cx.map(|msg: Msg| msg), self.tabs.focus.clone());
+        let chat =
+            Provider::value_shared(pane.model.clone()).child(Provider::value(controls).child(chat));
         let hint: AnyWidget = if resizing {
             let label = crate::oracle_strings::commands::SIDE_PANE_RESIZE_H_L_SHIFT_10_COLS;
             Positioned::new(BoxWidget::new().child(Text::line(format!("  {label}"))))
@@ -349,7 +363,7 @@ impl DockState {
                 }))
                 .child(scope),
         )
-        .with_key(key.0.key())
+        .with_key(key.key())
     }
 }
 
@@ -420,6 +434,8 @@ impl State for DockState {
             Msg::FocusTabs => Self::focus(cx, &w.child, &w.active),
             Msg::SelectTab(child) if w.children.contains(&child) && child != w.active => {
                 self.hidden = false;
+                // The controller's click is a request. The core decides which child is shown.
+                self.tabs.project(&w.children, w.child.model.id());
                 features::select_side(cx, w.parent.model.id().clone(), child);
             }
             Msg::StepTab(step) if w.on_child() || self.tabs.focus.has_primary_focus() => {
@@ -474,7 +490,7 @@ impl State for DockState {
                     losses.push(words.side_close_history);
                 }
                 if losses.is_empty() {
-                    Self::close(cx, w.child.model.id());
+                    features::close_side(cx, w.parent.model.id().clone(), target);
                     return Rebuild::No;
                 }
                 let proof = Rc::new(CloseProof {
@@ -514,7 +530,7 @@ impl State for DockState {
                     && proof.shell == ui.draft.shell()
                     && proof.draft == ui.draft.submission(&ui.composer, |n| words.image(n))
                 {
-                    Self::close(cx, &proof.thread);
+                    features::close_side(cx, w.parent.model.id().clone(), proof.thread.clone());
                 }
             }
             Msg::Step(delta) if self.keyboard_resize() => {
@@ -569,17 +585,25 @@ impl State for DockState {
         let wide = self.wide();
         let on_child = w.on_child();
         let resize = self.keyboard_resize();
-        let parent = Self::pane(
+        let parent = self.pane(
             cx,
             &w.parent,
+            &self.parent_key,
             !on_child,
             Msg::FocusParent,
             resize && !on_child,
         );
-        let child = Self::pane(cx, &w.child, on_child, Msg::FocusChild, resize && on_child);
+        let child = self.pane(
+            cx,
+            &w.child,
+            &self.child_key,
+            on_child,
+            Msg::FocusChild,
+            resize && on_child,
+        );
         let shown: AnyWidget = if wide {
             let child = Column::new()
-                .child(self.tabs.view(cx, w.child.model.id()))
+                .child(self.tabs.view(cx, w.child.model.id(), &w.tab_names))
                 .child(Expanded::new(1, child));
             let mut split = SplitView::new([
                 SplitPane::new(parent).min_size(PARENT_MIN),

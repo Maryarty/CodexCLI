@@ -18,12 +18,38 @@ fn workspace(enabled: bool, owned: bool) -> Harness {
 }
 
 fn workspace_with_width(enabled: bool, owned: bool, sidebar_width_percent: Option<u8>) -> Harness {
+    let mut h = configured_workspace(enabled, owned, sidebar_width_percent);
+    h.fake.respond(|request| match request["method"].as_str()? {
+        "thread/fork" => {
+            let mut answer = forked();
+            answer["thread"]["name"] = serde_json::Value::Null;
+            Some(Ok(answer))
+        }
+        "thread/inject_items" | "thread/unsubscribe" | "turn/interrupt" => {
+            Some(Ok(serde_json::json!({})))
+        }
+        _ => None,
+    });
+    h.t.type_text("/side");
+    h.press("enter");
+    h.advance(300);
+    h.quiesce();
+    h
+}
+
+pub(super) fn configured_workspace(
+    enabled: bool,
+    owned: bool,
+    sidebar_width_percent: Option<u8>,
+) -> Harness {
     let mut h = start_driven(false, 120, 24);
     h.connect();
     h.quiesce();
     let spec = KeymapSpec::default()
         .with("global", "focus_main_composer", &["f12 h"])
         .with("global", "focus_sidebar_content", &["f12 s"])
+        .with("global", "focus_sidebar_tabs", &["f12 t"])
+        .with("global", "sidebar_up", &["f12 u"])
         .with("global", "hide_pane", &["f12 x"])
         .with("global", "close_sidebar_tab", &["f12 c"])
         .with("global", "toggle_pane_zoom", &["f12 z"])
@@ -38,17 +64,6 @@ fn workspace_with_width(enabled: bool, owned: bool, sidebar_width_percent: Optio
         sidebar_width_percent,
         ..TuiSettings::default()
     })]);
-    h.fake.respond(|request| match request["method"].as_str()? {
-        "thread/fork" => Some(Ok(forked())),
-        "thread/inject_items" | "thread/unsubscribe" | "turn/interrupt" => {
-            Some(Ok(serde_json::json!({})))
-        }
-        _ => None,
-    });
-    h.t.type_text("/side");
-    h.press("enter");
-    h.advance(300);
-    h.quiesce();
     h
 }
 

@@ -270,8 +270,15 @@ impl State for ChatState {
         input::install(self, w.presentation != Presentation::Solo, cx);
     }
 
-    fn did_update_widget(&mut self, old: &Chat, w: &Chat, _cx: &mut Cx<'_, Self>) {
+    fn did_update_widget(&mut self, old: &Chat, w: &Chat, cx: &mut Cx<'_, Self>) {
+        let mut refocus = false;
         if !Rc::ptr_eq(&old.ui, &w.ui) {
+            if w.presentation != Presentation::Solo {
+                refocus = self.node.has_primary_focus();
+                self.node.set_on_key_event(None);
+                self.node = super::side_pane::composer_node(&w.ui);
+                input::install(self, true, cx);
+            }
             self.close_editor();
             self.asking = w.ui.held(Rc::default);
             *self.composer.borrow_mut() = w.ui.composer.clone();
@@ -290,7 +297,10 @@ impl State for ChatState {
             self.banner.quick_menu.set(false);
             self.forking = None;
         }
-        if !old.presentation.focused() && w.presentation.focused() {
+        if w.presentation.focused()
+            && (refocus || !old.presentation.focused())
+            && !super::side_pane::tabs_focused(cx)
+        {
             self.node.request_focus();
         }
     }

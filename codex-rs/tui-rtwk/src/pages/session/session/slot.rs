@@ -4,11 +4,11 @@
 //! thread another process writes.
 
 use rtwk::AnyWidget;
-use rtwk::Cx;
 use rtwk::layout::{EdgeInsets, Padding, SizedBox};
 use rtwk::provider::select;
 use rtwk::style::Theme;
 use rtwk::widgets::Text;
+use rtwk::{Cx, Key};
 
 use codex_tui_core::ids::BackendId;
 use codex_tui_core::screens::ScreenStates;
@@ -28,7 +28,7 @@ use crate::widgets::status_line::{Notice, with_warning_notice};
 
 use super::cloud_wait;
 use super::frame::Frame;
-use super::{Chat, ChatMsg, ChatState};
+use super::{Chat, ChatMsg, ChatState, Presentation};
 
 /// The composer's place and the footer's, and the footer's props where the page's own keys need
 /// them (the status rows show the same hints).
@@ -208,7 +208,13 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
                 footer
             }
         };
-        (composer.into(), footer)
+        let composer = AnyWidget::from(composer);
+        let composer = if w.presentation == Presentation::Solo {
+            composer
+        } else {
+            composer.with_key(Key::value(thread.id().clone()))
+        };
+        (composer, footer)
     };
     // `⚠ N warnings · f2 to view` at the right of the read-only footer; the
     // composer's footer holds its own.

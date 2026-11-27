@@ -67,14 +67,21 @@ impl Tabs {
         self.focus.dispose();
     }
 
-    pub fn view(&self, cx: &mut Cx<'_, DockState>, selected: &ThreadId) -> AnyWidget {
+    pub fn view(
+        &self,
+        cx: &mut Cx<'_, DockState>,
+        selected: &ThreadId,
+        names: &[Option<String>],
+    ) -> AnyWidget {
         let words = super::strings::of(cx);
         let count = self.controller.length();
-        let labels = (1..=count).map(|index| {
-            if count == 1 {
+        let labels = names.iter().enumerate().map(|(index, name)| {
+            if let Some(name) = name {
+                name.clone()
+            } else if count == 1 {
                 words.side_chat.trim().to_owned()
             } else {
-                Fmt::new(words.side_tab, [Arg::Int(index as u64)], &words.num).to_string()
+                Fmt::new(words.side_tab, [Arg::Int(index as u64 + 1)], &words.num).to_string()
             }
         });
         let tabs = TabBar::strip(&self.controller, labels).focus_node(Some(self.focus.clone()));

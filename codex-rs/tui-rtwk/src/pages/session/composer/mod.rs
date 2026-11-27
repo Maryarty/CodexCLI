@@ -747,11 +747,23 @@ impl State for ComposerState {
         }
     }
 
+    fn deactivate(&mut self, _: &Composer, _: &mut Cx<'_, Self>) {
+        self.unlisten();
+    }
+
+    fn activate(&mut self, w: &Composer, cx: &mut Cx<'_, Self>) {
+        self.listen(&w.ui, cx.local_sender());
+    }
+
     fn dispose(&mut self) {
         self.unlisten();
     }
 
     fn update(&mut self, msg: ComposerMsg, w: &Composer, cx: &mut Cx<'_, Self>) -> rtwk::Rebuild {
+        // A controller can already have queued a repaint when its composer leaves the tree.
+        if self.listener.is_none() {
+            return rtwk::Rebuild::No;
+        }
         match msg {
             ComposerMsg::Changed(text) => {
                 // an image gone or yanked back: the rest are numbered again
@@ -1078,7 +1090,11 @@ impl State for ComposerState {
             .controller(c.clone())
             .cursor_shape(CursorShape::TerminalDefault)
             .min_lines(1)
-            .autofocus(!w.passive && w.plain.as_ref().is_none_or(|look| look.autofocus))
+            .autofocus(
+                !w.passive
+                    && !super::side_pane::tabs_focused(cx)
+                    && w.plain.as_ref().is_none_or(|look| look.autofocus),
+            )
             // the oracle draws the selection REVERSED (`textarea.rs`)
             .selection_style(Style::new().attrs(Attrs::REVERSE))
             .on_changed(cx.map(ComposerMsg::Changed));

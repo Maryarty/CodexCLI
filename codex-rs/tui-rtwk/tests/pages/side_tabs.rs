@@ -1,0 +1,246 @@
+//! Open side tabs share their parent and keep their own drafts and transcript writers.
+
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use codex_tui_core::app::{AppEv, Command, Ingress, LocalSideStorage};
+use codex_tui_core::fixtures::builders::{agent_completed, turn_completed, turn_started};
+use codex_tui_core::keymap::{Keymap, KeymapSpec, actions::GLOBAL_SIDEBAR_UP};
+use codex_tui_rtwk::app::UiApp;
+use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
+use rtwk_core::input::{Mods, MouseKind};
+
+use crate::common::Harness;
+use crate::side_pane::configured_workspace;
+use crate::side_return::{SIDE, forked};
+
+const SECOND: &str = "side-2";
+
+fn open_workspace(attached: bool) -> Harness {
+    let mut h = configured_workspace(true, true, None);
+    if attached {
+        let epoch = h
+            .fake
+            .epoch()
+            .unwrap_or_else(|| panic!("workspace transport"));
+        h.fake.inject_ingress(Ingress::local_side_storage(
+            epoch,
+            epoch,
+            LocalSideStorage::Embedded,
+        ));
+        h.advance(100);
+    }
+    let forks = AtomicUsize::new(0);
+    h.fake
+        .respond(move |request| match request["method"].as_str()? {
+            "thread/read" if attached && request["params"]["threadId"] == FAKE_THREAD => {
+                let mut thread = forked()["thread"].clone();
+                thread["id"] = FAKE_THREAD.into();
+                thread["sessionId"] = FAKE_THREAD.into();
+                thread["ephemeral"] = false.into();
+                thread["historyMode"] = "paginated".into();
+                thread["path"] = "/tmp/main.jsonl".into();
+                Some(Ok(serde_json::json!({"thread": thread})))
+            }
+            "thread/fork" => {
+                let id = match forks.fetch_add(1, Ordering::Relaxed) {
+                    0 => SIDE,
+                    1 => SECOND,
+                    _ => panic!("/btw must not fork a third chat"),
+                };
+                let mut reply = forked();
+                let thread = &mut reply["thread"];
+                thread["id"] = id.into();
+                thread["sessionId"] = id.into();
+                thread["preview"] = "".into();
+                thread["name"] = serde_json::Value::Null;
+                thread["forkedFromId"] = FAKE_THREAD.into();
+                if attached {
+                    assert_eq!(request["params"]["attachToSource"], true);
+                    thread["attachedToThreadId"] = FAKE_THREAD.into();
+                    thread["ephemeral"] = false.into();
+                    thread["historyMode"] = "paginated".into();
+                    thread["path"] = format!("/tmp/{id}.jsonl").into();
+                }
+                Some(Ok(reply))
+            }
+            "thread/inject_items" | "thread/unsubscribe" | "turn/interrupt" => {
+                Some(Ok(serde_json::json!({})))
+            }
+            _ => None,
+        });
+    send_line(&mut h, "/side");
+    assert_active(&h, SIDE);
+    h
+}
+
+fn send_line(h: &mut Harness, line: &str) {
+    h.t.type_text(line);
+    h.press("enter");
+    h.advance(300);
+    h.quiesce();
+}
+
+fn assert_active(h: &Harness, expected: &str) {
+    let active =
+        h.t.read_app(|app: &UiApp| app.core.session().active.clone());
+    assert_eq!(
+        active.as_ref().map(|id| id.as_str()),
+        Some(expected),
+        "wire requests: {:?}\n{}",
+        h.fake.requests(),
+        h.t.screen()
+    );
+}
+
+fn completed_answer(h: &mut Harness, thread: &str, answer: &str) {
+    let turn = format!("{thread}-{answer}");
+    h.inject([
+        AppEv::Backend(turn_started(thread, &turn)),
+        AppEv::Backend(agent_completed(thread, &turn, "answer", answer)),
+        AppEv::Backend(turn_completed(thread, &turn)),
+    ]);
+    h.advance(150);
+}
+
+fn click_label(h: &mut Harness, label: &str) {
+    let (x, y) =
+        h.t.lines()
+            .iter()
+            .enumerate()
+            .find_map(|(y, line)| line.find(label).map(|at| (line[..at].chars().count(), y)))
+            .unwrap_or_else(|| panic!("missing {label}:\n{}", h.t.screen()));
+    h.t.click(x as u16, y as u16);
+    h.advance(150);
+}
+
+fn submitted(h: &Harness, thread_id: &str, text: &str) -> bool {
+    h.fake.commands().iter().any(|command| {
+        matches!(command, Command::StartTurn { thread, message, .. }
+            if thread.as_str() == thread_id && message.text == text)
+    })
+}
+
+#[test]
+fn native_tabs_select_open_children_by_keyboard_and_mouse_with_independent_drafts() {
+    let mut h = open_workspace(false);
+    completed_answer(&mut h, SIDE, "FIRST HISTORY");
+    h.t.type_text("first-draft");
+    h.press("left");
+    h.press("f12 h");
+    send_line(&mut h, "/side");
+    assert_active(&h, SECOND);
+    completed_answer(&mut h, SECOND, "SECOND HISTORY");
+    h.t.type_text("second-draft");
+    h.advance(120);
+    assert!(h.t.screen().contains("Side 1") && h.t.screen().contains("Side 2"));
+
+    h.press("f12 t");
+    h.press("left");
+    h.advance(150);
+    assert_active(&h, SIDE);
+    assert!(h.t.screen().contains("FIRST HISTORY") && h.t.screen().contains("first-draft"));
+    assert!(!h.t.screen().contains("SECOND HISTORY"));
+    h.press("enter");
+    assert!(
+        !submitted(&h, SIDE, "first-draft"),
+        "Enter focuses the composer from the tabs"
+    );
+    h.t.type_text("!");
+    h.advance(120);
+    assert!(h.t.screen().contains("first-draf!t"), "{}", h.t.screen());
+
+    click_label(&mut h, "Side 2");
+    assert_active(&h, SECOND);
+    assert!(h.t.screen().contains("SECOND HISTORY") && h.t.screen().contains("second-draft"));
+    h.press("f12 h");
+    send_line(&mut h, "/btw one more question");
+    assert_active(&h, SECOND);
+    assert!(submitted(&h, SECOND, "one more question"));
+    assert!(h.t.screen().contains("second-draft"));
+    h.press("f12 u");
+    assert_active(&h, SIDE);
+    assert!(h.t.screen().contains("first-draf!t"));
+    assert_eq!(
+        h.fake
+            .requests()
+            .iter()
+            .filter(|r| r["method"] == "thread/fork")
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn side_tabs_restore_the_readers_position_and_enable_the_default_shift_tab_chord() {
+    let default = Keymap::resolve_for_workspace(&KeymapSpec::default(), true)
+        .unwrap_or_else(|error| panic!("workspace defaults: {error}"));
+    assert!(
+        default
+            .specs(GLOBAL_SIDEBAR_UP)
+            .iter()
+            .any(|spec| spec == "leader shift-tab")
+    );
+
+    let mut h = open_workspace(false);
+    for i in 0..18 {
+        completed_answer(&mut h, SIDE, &format!("first reader line {i:02}"));
+    }
+    assert!(h.t.screen().contains("first reader line 17"));
+    for _ in 0..24 {
+        h.t.mouse(MouseKind::WheelUp, 105, 9, 0, Mods::NONE);
+        h.advance(80);
+    }
+    assert!(h.t.screen().contains("first reader line 00"));
+    h.press("f12 h");
+    send_line(&mut h, "/side");
+    assert_active(&h, SECOND);
+    click_label(&mut h, "Side 1");
+    assert_active(&h, SIDE);
+    assert!(
+        h.t.screen().contains("first reader line 00"),
+        "{}",
+        h.t.screen()
+    );
+    assert!(!h.t.screen().contains("first reader line 17"));
+}
+
+#[test]
+fn close_uses_storage_and_leaves_the_previous_child_alive() {
+    for attached in [false, true] {
+        let mut h = open_workspace(attached);
+        completed_answer(&mut h, SIDE, "FIRST HISTORY");
+        h.press("f12 h");
+        send_line(&mut h, "/side");
+        completed_answer(&mut h, SECOND, "SECOND HISTORY");
+        if attached {
+            click_label(&mut h, "×");
+        } else {
+            h.press("f12 c");
+            assert!(h.t.screen().contains("lose this temporary chat’s history"));
+            h.press("right");
+            h.press("left");
+            h.press("enter");
+            assert_active(&h, SECOND);
+            h.press("f12 c");
+            h.press("right");
+            h.press("enter");
+        }
+        h.advance(250);
+        assert!(!h.t.screen().contains("Close side chat?"));
+        assert_active(&h, SIDE);
+        assert!(h.t.screen().contains("FIRST HISTORY"));
+        assert!(!h.t.screen().contains("SECOND HISTORY"));
+        let requests = h.fake.requests();
+        assert!(
+            requests
+                .iter()
+                .any(|r| r["method"] == "thread/unsubscribe" && r["params"]["threadId"] == SECOND)
+        );
+        assert!(
+            !requests
+                .iter()
+                .any(|r| r["method"] == "thread/unsubscribe" && r["params"]["threadId"] == SIDE)
+        );
+        assert!(!requests.iter().any(|r| r["method"] == "thread/archive"));
+    }
+}

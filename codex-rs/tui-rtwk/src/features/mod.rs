@@ -124,8 +124,6 @@ pub enum PageKey {
     Interrupt,
     /// Ctrl+D (`QUIT_ON_EMPTY`).
     Quit,
-    /// The workspace's explicit Close Side Tab action.
-    ClosePane,
 }
 
 /// What `FeatureView::in_place` says of a wish.
@@ -284,6 +282,11 @@ pub(super) fn side_is_temporary(states: &FeatureStates, child: &ThreadId) -> boo
 pub(super) fn select_side<S: 'static>(cx: &mut Cx<'_, S>, parent: ThreadId, child: ThreadId) {
     use codex_tui_core::features::side::Intent;
     verb(cx, Intent::Select { parent, child });
+}
+
+pub(super) fn close_side<S: 'static>(cx: &mut Cx<'_, S>, parent: ThreadId, child: ThreadId) {
+    use codex_tui_core::features::side::Intent;
+    verb(cx, Intent::CloseTab { parent, child });
 }
 
 /// A verb of a feature, from the widget that has the user's decision: the app applies it
