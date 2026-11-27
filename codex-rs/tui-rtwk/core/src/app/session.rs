@@ -353,13 +353,15 @@ pub(super) fn session_intent(
             let current = Current::from_facts(&app.screens.chat.status);
             super::select::intent(app, Intent::OpenPermissions(current), fx);
         }
-        // What another chunk or a later step builds: until then the answer that says so.
-        S::VoiceControl(_) => session_note(
-            app,
-            source,
-            Note::from(crate::commands::Notice::NotAvailable(command)),
-            fx,
-        ),
+        S::VoiceControl(control) => {
+            let thread = source.or_else(|| app.session.active.clone());
+            if let Some(thread) = thread
+                && let Some(intent) = app.threads.get(&thread)
+                    .and_then(|model| model.screen_slots().voice.control(control))
+            {
+                apply_thread(app, &thread, ThreadEv::ScreenIntent(ScreenThreadIntent::Voice(intent)), fx);
+            }
+        }
     }
 }
 

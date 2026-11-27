@@ -1812,6 +1812,7 @@ pub struct ThreadFx<'a> {
     mint: &'a mut TicketMint,
     registered: Vec<(Ticket, ThreadCtx)>,
     published_name: Option<String>,
+    voice_failure: Option<Failure>,
     address: Address,
     /// The app's arbitration for the completed turn carried by this event.
     prompt_priority: screens::chat::plan_mode::PromptPriority,
@@ -1840,6 +1841,7 @@ impl<'a> ThreadFx<'a> {
             mint,
             registered: Vec::new(),
             published_name: None,
+            voice_failure: None,
             address: Address::default(),
             prompt_priority: screens::chat::plan_mode::PromptPriority::Ordinary,
             daybreak: Daybreak::Apply,
@@ -2038,6 +2040,18 @@ impl<'a> ThreadFx<'a> {
             thread: self.thread.clone(),
             command,
         });
+    }
+
+    pub(crate) fn voice_owner(&mut self) -> screens::voice::Owner {
+        screens::voice::Owner { thread: self.thread.clone(), address: self.address, call: self.mint.next() }
+    }
+
+    pub(crate) fn voice_audio(&mut self, command: screens::voice::AudioCommand) {
+        self.out.host(crate::app::effects::Ask::Audio(command));
+    }
+
+    pub(crate) fn voice_failure(&mut self, failure: Failure) {
+        self.voice_failure = Some(failure);
     }
 
     pub(crate) fn publish_name(&mut self, name: String) {
@@ -2535,6 +2549,9 @@ fn reset_history(model: &mut ThreadModel) {
 /// (R9): a delta may come before its item, a started turn twice.
 pub fn apply(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     apply_ev(model, ev, fx);
+    if let Some(failure) = fx.voice_failure.take() {
+        model.last_error = Some(failure);
+    }
     for (ticket, ctx) in std::mem::take(&mut fx.registered) {
         if matches!(
             ctx,
@@ -2561,6 +2578,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             fx,
         );
         model.features.rename.connection_lost();
+        model.slots.voice.retire(fx);
     }
     match ev {
         // the thread's own facts ride the chat's events (`threads/compaction.rs`, `safety.rs`)

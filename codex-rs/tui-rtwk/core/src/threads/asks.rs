@@ -149,6 +149,16 @@ crate::rpc_list! {
     /// The wire operations for thread lifecycle, input and discovery.
     pub enum ThreadRpc<M: Borrow<UserMessage>> => ThreadReply, request model_override: Option<&str>;
 
+    /// Open the backend side of a call once local WebRTC has prepared an offer.
+    RealtimeStart { thread: String, session: String, offer: crate::screens::voice::Sdp },
+        Self::RealtimeStart { thread, session, offer }
+        => ThreadRealtimeStart(crate::screens::voice::start_params(thread, session, offer))
+        -> wire::ThreadRealtimeStartResponse, |_| ThreadReply::Done;
+    /// Stop the backend side of a voice call after closing the local peer.
+    RealtimeStop { thread: String }, Self::RealtimeStop { thread }
+        => ThreadRealtimeStop(wire::ThreadRealtimeStopParams { thread_id: thread.clone() })
+        -> wire::ThreadRealtimeStopResponse, |_| ThreadReply::Done;
+
     /// Launch the chat with its configured model and working directory.
     StartSession { model: Option<String>, cwd: Option<String> }, Self::StartSession { model, cwd }
         => ThreadStart(wire::ThreadStartParams {

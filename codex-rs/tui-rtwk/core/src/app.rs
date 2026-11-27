@@ -1578,6 +1578,7 @@ pub fn apply_app_from(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut
 
 fn apply_at(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
     let emitted_from = fx.commands.len();
+    let clock = matches!(ev, AppEv::Clock(_));
     // Only events that can bring tasks of other directories into the center.
     let lists = matches!(ev, AppEv::Reply(..) | AppEv::Screen(_));
     let ancestry = matches!(ev, AppEv::Reply(..) | AppEv::Screen(ScreenEv::Agents(_)))
@@ -1620,6 +1621,18 @@ fn apply_at(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
         sync_picker_root(app);
     }
     ide_submit::prepare(app, fx, emitted_from);
+    if let Some(thread) = app.session.active.clone()
+        && let Some(at) = app.threads.get(&thread).and_then(|model| model.screen_slots().voice.sample_at())
+    {
+        if clock && app.now.reached(at) {
+            apply_thread(app, &thread, ThreadEv::Screen(screens::voice::ThreadEv::Sample.into()), fx);
+        } else {
+            let wake = Wake::new(app.now, at);
+            if fx.wake.is_none_or(|current| wake.at().millis() < current.at().millis()) {
+                fx.wake = Some(wake);
+            }
+        }
+    }
 }
 
 fn sync_picker_root(app: &mut CodexApp) {
@@ -1760,9 +1773,21 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         }
         AppEv::ShuttingDown => {
             ide_submit::shutdown(app, fx);
+            let voice_calls: Vec<_> = app.threads.iter()
+                .filter(|(_, model)| model.screen_slots().voice.has_call())
+                .map(|(id, _)| id.clone()).collect();
+            for thread in voice_calls {
+                apply_thread(app, &thread, ThreadEv::Screen(screens::voice::ThreadEv::Retired.into()), fx);
+            }
             features::connection(app, crate::features::Connection::ShuttingDown, fx);
         }
         AppEv::Backend(BackendEv::Notification(notification)) => {
+            if let Some((thread, voice)) = screens::voice::project(&notification) {
+                if app.screens.agents.owner_of(thread.as_str()) == origin {
+                    apply_thread(app, &thread, ThreadEv::Screen(voice.into()), fx);
+                }
+                return;
+            }
             match &*notification {
                 ServerNotification::AccountRateLimitsUpdated(note) => {
                     features::rolling_remedy(app, origin, &note.rate_limits);
@@ -2193,6 +2218,21 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             request,
             done: effects::Done::IdePrompt(reading),
         } => ide_submit::answered(app, request, reading),
+        AppEv::Effect { done: effects::Done::Audio(report), .. } => {
+            let owner = &report.owner;
+            let thread = owner.thread.clone();
+            if app.address(owner.address.backend) == owner.address
+                && app.screens.agents.owner_of(thread.as_str()) == owner.address.backend
+                && app.threads.get(&thread).is_some_and(|model| model.screen_slots().voice.owns(owner))
+            {
+                apply_thread(app, &thread, ThreadEv::Screen(screens::voice::ThreadEv::Audio(report).into()), fx);
+            } else if matches!(&report.result, screens::voice::AudioResult::Prepared(Ok(_))) {
+                fx.host(effects::Ask::Audio(screens::voice::AudioCommand {
+                    owner: report.owner,
+                    action: screens::voice::AudioAction::Close,
+                }));
+            }
+        }
         AppEv::Effect { request, done } if effects::is_feature_request(request) => {
             features::effect_done(app, request, done, fx);
         }
@@ -4250,6 +4290,9 @@ fn may_attach(ctx: &AppCtx, id: &ThreadId) -> bool {
 }
 
 fn forget_thread(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx) {
+    if app.threads.get(thread).is_some_and(|model| model.screen_slots().voice.has_call()) {
+        apply_thread(app, thread, ThreadEv::Screen(screens::voice::ThreadEv::Retired.into()), fx);
+    }
     app.threads.forget(thread);
     app.attaching_events.retain(|entry| entry.thread != *thread);
     select::forget_permission_settings(app, thread, fx);
