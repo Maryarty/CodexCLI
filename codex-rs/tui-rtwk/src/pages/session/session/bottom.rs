@@ -208,12 +208,17 @@ pub(super) fn body(
                 .child(Flexible::new(1, banners))
                 .child(gap),
         ));
-        // Above-draft status and notices get the room left by the input and footer.
-        let body = Column::new()
-            .main_axis_size(MainAxisSize::Min)
-            .cross_axis_alignment(CrossAxisAlignment::Start)
-            .overflow_intended(true)
-            .child(Flexible::new(1, upper));
+        let body = if editing || menu || state.shortcuts {
+            // The question editor and the panels own the bottom pane's layout.
+            upper
+        } else {
+            // While the chat is accepting input, status and notices yield to the draft and footer.
+            Column::new()
+                .main_axis_size(MainAxisSize::Min)
+                .cross_axis_alignment(CrossAxisAlignment::Start)
+                .overflow_intended(true)
+                .child(Flexible::new(1, upper))
+        };
         // the editor of the model's questions stands in the composer's place
         if editing {
             body.child(composer)
