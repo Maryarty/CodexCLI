@@ -328,6 +328,8 @@ pub enum Intent {
 /// side conversation shows it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
+    Archived(ThreadId),
+    Unarchived(ThreadId),
     Parent {
         parent: ThreadId,
         change: StatusChange,
@@ -433,14 +435,20 @@ fn restore(cx: &mut AppCx<'_>, thread: &ThreadId, prompt: Option<String>) {
 /// Drops the side conversation `child` (`discard_side_thread`). Done once its parent is the thread
 /// shown, never while the side conversation still is.
 fn drop_side(state: &mut State, child: &ThreadId, cx: &mut AppCx<'_>) {
+    if unlink(state, child, cx) {
+        cx.discard(child);
+    }
+}
+
+fn unlink(state: &mut State, child: &ThreadId, cx: &mut AppCx<'_>) -> bool {
     if cx.view().active() == Some(child) || !state.is_side(child) {
-        return;
+        return false;
     }
     state.forget(child);
     state.preparing.remove(child);
     state.parked.remove(child);
-    cx.discard(child);
     cx.chat_facts(chat_facts(state, cx.view()));
+    true
 }
 
 fn close_side(
@@ -506,7 +514,9 @@ fn start(
             cx.note(source, note);
         }
         (Start::Reuse(child), Some(parent)) => {
-            if prompt.is_some() && state.preparing.contains_key(&child) {
+            if (prompt.is_some() && state.preparing.contains_key(&child))
+                || state.saved.unavailable_child(&parent, &child)
+            {
                 return restore(cx, &parent, prompt);
             }
             starting(cx);
@@ -609,9 +619,10 @@ feature! {
                 }
                 let tui = cx.view().facts().tui();
                 let retained = tui.workspace_enabled && tui.transcript_owned;
-                let fresh = slash.command == SlashCommand::Side && retained;
                 let source = slash.source.clone();
-                start(state, source, slash.into_args(), fresh, retained, cx);
+                let prompt = slash.into_args();
+                let fresh = retained && prompt.as_ref().is_some_and(|prompt| !prompt.trim().is_empty());
+                start(state, source, prompt, fresh, retained, cx);
             }
 
             fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
@@ -626,6 +637,7 @@ feature! {
                         if family_shown
                             && state.link(&child).is_some_and(|link| link.parent == parent)
                             && !state.preparing.contains_key(&child)
+                            && !state.saved.unavailable_child(&parent, &child)
                         {
                             cx.open_thread(&child, Ctx::Reuse { parent, prompt: None });
                         }
@@ -645,6 +657,11 @@ feature! {
 
             /// `SideParentStatusChange::for_notification` of the stream.
             fn project(notification: &ServerNotification) -> Option<Event> {
+                match notification {
+                    ServerNotification::ThreadArchived(event) => return Some(Event::Archived(ThreadId::new(&event.thread_id))),
+                    ServerNotification::ThreadUnarchived(event) => return Some(Event::Unarchived(ThreadId::new(&event.thread_id))),
+                    _ => {}
+                }
                 Some(Event::Parent {
                     parent: ThreadId::new(targets::notification_thread(notification)?),
                     change: StatusChange::for_notification(notification)?,
@@ -664,7 +681,11 @@ feature! {
             /// What the parent did (`apply_side_parent_status_change`): each side conversation of it
             /// shows it, and the footer follows.
             fn on_event(state: &mut State, event: Event, cx: &mut AppCx<'_>) {
-                let Event::Parent { parent, change } = event;
+                let (parent, change) = match event {
+                    Event::Archived(child) => return saved::archived(state, child, cx),
+                    Event::Unarchived(child) => return state.saved.unarchived(&child),
+                    Event::Parent { parent, change } => (parent, change),
+                };
                 if state.side_of(&parent).is_none() {
                     return;
                 }
@@ -770,6 +791,7 @@ feature! {
             /// What the chat reads of the thread shown (`sync_side_thread_ui`).
             fn on_shown(state: &mut State, thread: &ThreadId, cx: &mut AppCx<'_>) {
                 state.shown(thread);
+                saved::discard_archived_background(state, thread, cx);
                 cx.chat_facts(chat_facts(state, cx.view()));
                 if let Some(prompt) = state.parked.remove(thread) {
                     cx.submit(thread, UserMessage::text(prompt));

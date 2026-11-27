@@ -630,6 +630,13 @@ impl<'a> AppCx<'a> {
         }));
     }
 
+    /// Release the local model of a thread already retired by its server.
+    pub fn forget_thread(&mut self, thread: &ThreadId) {
+        self.out.push(Out::Lifecycle(Lifecycle::Forget {
+            thread: thread.clone(),
+        }));
+    }
+
     /// Delete an offscreen conversation created by a feature whose required preparation failed.
     pub fn rollback_thread(&mut self, thread: &ThreadId, ctx: impl Into<FeatureCtx>) {
         self.out.push(Out::Lifecycle(Lifecycle::Discard {

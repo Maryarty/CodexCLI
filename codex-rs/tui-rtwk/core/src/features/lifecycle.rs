@@ -83,6 +83,8 @@ pub enum Lifecycle {
         thread: ThreadId,
         rollback: Option<FeatureCtx>,
     },
+    /// Forget an offscreen thread after its server lifecycle has already ended.
+    Forget { thread: ThreadId },
     /// Make a fork available after the feature's prerequisite RPC has succeeded.
     FinishPreparation { thread: ThreadId },
     /// The user sent `message` in `thread`: the thread's own input pipeline takes it (a running
