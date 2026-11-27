@@ -36,7 +36,9 @@ use codex_tui_core::app::BackendEv;
 use codex_tui_core::app::Command;
 use codex_tui_core::app::Ingress;
 use codex_tui_core::app::effects::ConfigEdit;
-use codex_tui_core::app::effects::{Ask as HostAsk, Done, HostDoors, ImageSize, run_ask};
+use codex_tui_core::app::effects::{
+    Ask as HostAsk, Done, HostDoors, ImageRevision, ImageSize, run_ask,
+};
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::ids::RequestKey;
 use codex_tui_core::ids::{ThreadId, Ticket};
@@ -1301,12 +1303,13 @@ impl HostDoors for ConnectionDoors {
         _thread: ThreadId,
         path: String,
         preview: Option<ImageSize>,
+        previous: Option<ImageRevision>,
     ) -> Option<Outcome> {
         let local = local_workspace(self.artifact_environments.as_deref());
         let ssh =
             std::env::var_os("SSH_TTY").is_some() || std::env::var_os("SSH_CONNECTION").is_some();
         let snapshot = if local && !ssh {
-            codex_tui_rtwk::services::images::read_local_snapshot(path, preview).await
+            codex_tui_rtwk::services::images::read_local_snapshot(path, preview, previous).await
         } else {
             Default::default()
         };

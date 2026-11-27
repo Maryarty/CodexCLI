@@ -16,7 +16,7 @@ use thiserror::Error;
 
 use super::IdeContext;
 #[cfg(any(unix, windows))]
-use super::OPEN_IDE_HINT;
+use super::{OPEN_IDE_HINT, monotonic_now};
 
 // The desktop IPC client gives requests 5 seconds to complete. Match that prompt-time budget here:
 // fetching IDE context includes router discovery and extension event-loop work, so a shorter TUI
@@ -146,7 +146,7 @@ pub(crate) fn fetch_ide_context(
     workspace_root: &Path,
     codex_home: &Path,
 ) -> Result<IdeContext, IdeContextError> {
-    let deadline = Instant::now() + IDE_CONTEXT_REQUEST_TIMEOUT;
+    let deadline = monotonic_now() + IDE_CONTEXT_REQUEST_TIMEOUT;
     let primary_socket_path = primary_ipc_socket_path(codex_home);
     let uid = unsafe { libc::getuid() };
     let legacy_socket_paths = legacy_ipc_socket_paths(&std::env::temp_dir(), uid);
@@ -204,7 +204,7 @@ fn fetch_ide_context_from_socket(
     workspace_root: &Path,
     timeout: Duration,
 ) -> Result<IdeContext, IdeContextError> {
-    let deadline = Instant::now() + timeout;
+    let deadline = monotonic_now() + timeout;
     let mut stream = connect_stream(socket_path, deadline)?;
     fetch_ide_context_from_stream(&mut stream, workspace_root, deadline)
 }
@@ -230,7 +230,7 @@ fn fetch_ide_context_from_unix_socket_paths(
             Err(err) if err.kind() == std::io::ErrorKind::TimedOut => {
                 return Err(IdeContextError::Connect(err));
             }
-            Err(err) if Instant::now() >= deadline => {
+            Err(err) if monotonic_now() >= deadline => {
                 return Err(IdeContextError::Connect(std::io::Error::new(
                     std::io::ErrorKind::TimedOut,
                     format!("IDE IPC connection exhausted the request deadline: {err}"),
@@ -436,7 +436,7 @@ fn socket_error(fd: libc::c_int) -> std::io::Result<libc::c_int> {
 #[cfg(unix)]
 fn remaining_timeout(deadline: Instant) -> std::io::Result<Duration> {
     deadline
-        .checked_duration_since(Instant::now())
+        .checked_duration_since(monotonic_now())
         .filter(|duration| !duration.is_zero())
         .ok_or_else(deadline_timeout_io_error)
 }
@@ -812,7 +812,7 @@ fn read_response_frame(
 
 #[cfg(any(unix, windows))]
 fn ensure_deadline_not_expired(deadline: Instant) -> Result<(), IdeContextError> {
-    if Instant::now() >= deadline {
+    if monotonic_now() >= deadline {
         return Err(timeout_error());
     }
 

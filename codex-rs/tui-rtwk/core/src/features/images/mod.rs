@@ -5,7 +5,8 @@
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use crate::app::effects::{Ask, Done, ImageSize, ImageSnapshot};
+use crate::app::Now;
+use crate::app::effects::{Ask, Done, ImageRead, ImageSize, ImageSnapshot};
 use crate::ids::ThreadId;
 use crate::threads::ItemKey;
 
@@ -13,11 +14,19 @@ use super::{AppCx, FeatureStates};
 
 pub struct Images;
 
+const ATTACHMENT_REFRESH_MS: i64 = 1000;
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Source {
     pub thread: ThreadId,
-    pub item: ItemKey,
+    pub kind: SourceKind,
     pub path: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SourceKind {
+    Transcript(ItemKey),
+    Attachment(u64),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -33,6 +42,12 @@ pub struct Open {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Intent {
+    Open(Open),
+    Refresh,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ctx {
     Read { interest: Interest, generation: u64 },
     Open,
@@ -42,6 +57,7 @@ pub enum Ctx {
 struct Entry {
     generation: u64,
     snapshot: Option<ImageSnapshot>,
+    refresh: Option<Now>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -54,6 +70,24 @@ impl State {
     pub fn snapshot(&self, interest: &Interest) -> Option<&ImageSnapshot> {
         self.entries.get(interest)?.snapshot.as_ref()
     }
+}
+
+fn read(interest: &Interest, entry: &Entry, cx: &mut AppCx<'_>) {
+    cx.effect(
+        Ask::ImageSnapshot {
+            thread: interest.source.thread.clone(),
+            path: interest.source.path.clone(),
+            preview: interest.preview,
+            previous: entry
+                .snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.revision),
+        },
+        Ctx::Read {
+            interest: interest.clone(),
+            generation: entry.generation,
+        },
+    );
 }
 
 pub(crate) fn retire(states: &mut Rc<FeatureStates>, owns: impl Fn(&ThreadId) -> bool) {
@@ -74,7 +108,7 @@ feature! {
     impl Feature for Images {
         const NAME: &'static str = "images";
         type State = State;
-        type Intent = Open;
+        type Intent = Intent;
         type Ctx = Ctx;
         type Interest = Interest;
         {
@@ -88,36 +122,61 @@ feature! {
                     return;
                 }
                 state.generation = state.generation.wrapping_add(1);
-                let generation = state.generation;
-                state.entries.insert(interest.clone(), Entry { generation, snapshot: None });
-                cx.effect(
-                    Ask::ImageSnapshot {
-                        thread: interest.source.thread.clone(),
-                        path: interest.source.path.clone(),
-                        preview: interest.preview,
-                    },
-                    Ctx::Read { interest: interest.clone(), generation },
-                );
+                let entry = Entry { generation: state.generation, snapshot: None, refresh: None };
+                read(interest, &entry, cx);
+                state.entries.insert(interest.clone(), entry);
             }
 
-            fn effect_done(state: &mut State, ctx: Ctx, done: Done, _: &mut AppCx<'_>) {
+            fn effect_done(state: &mut State, ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {
                 if let Ctx::Read { interest, generation } = ctx
                     && let Some(entry) = state.entries.get_mut(&interest)
                     && entry.generation == generation
-                    && let Done::ImageSnapshot(snapshot) = done
+                    && let Done::ImageSnapshot(result) = done
                 {
-                    entry.snapshot = Some(snapshot);
+                    let attachment = matches!(interest.source.kind, SourceKind::Attachment(_));
+                    if matches!(result, ImageRead::Unavailable) {
+                        entry.snapshot = None;
+                        return;
+                    }
+                    if let ImageRead::Snapshot(mut snapshot) = result {
+                        if attachment {
+                            snapshot.link = None;
+                        }
+                        entry.snapshot = Some(snapshot);
+                    }
+                    if attachment {
+                        entry.refresh = Some(cx.view().now().plus_millis(ATTACHMENT_REFRESH_MS));
+                    }
                 }
             }
 
-            fn intent(state: &mut State, open: Open, cx: &mut AppCx<'_>) {
-                let held = state.entries.iter().any(|(interest, entry)| {
-                    interest.source.thread == open.thread &&
-                        entry.snapshot.as_ref().and_then(|snapshot| snapshot.link.as_ref()) == Some(&open.url)
-                });
-                if held && cx.view().thread(&open.thread).is_some() {
-                    cx.effect(Ask::open_url(open.url), Ctx::Open);
+            fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
+                match intent {
+                    Intent::Open(open) => {
+                        let held = state.entries.iter().any(|(interest, entry)| {
+                            matches!(interest.source.kind, SourceKind::Transcript(_))
+                                && interest.source.thread == open.thread
+                                && entry.snapshot.as_ref().and_then(|snapshot| snapshot.link.as_ref()) == Some(&open.url)
+                        });
+                        if held && cx.view().thread(&open.thread).is_some() {
+                            cx.effect(Ask::open_url(open.url), Ctx::Open);
+                        }
+                    }
+                    Intent::Refresh => {
+                        let now = cx.view().now();
+                        for (interest, entry) in &mut state.entries {
+                            if entry.refresh.is_some_and(|at| now.reached(at)) {
+                                entry.refresh = None;
+                                read(interest, entry, cx);
+                            }
+                        }
+                    }
                 }
+            }
+
+            fn wake_at(state: &State) -> Option<(Now, Intent)> {
+                state.entries.values().filter_map(|entry| entry.refresh)
+                    .reduce(Now::min).map(|at| (at, Intent::Refresh))
             }
         }
     }
