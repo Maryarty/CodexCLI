@@ -201,9 +201,27 @@ struct Player {
     visible: bool,
 }
 
+#[derive(Clone, Copy, Default)]
+enum PlaybackMode {
+    #[default]
+    Current,
+    Review,
+    Idle,
+}
+
+impl PlaybackMode {
+    fn motion(self, current: Motion) -> Motion {
+        match self {
+            Self::Current => current,
+            Self::Review => Motion::Review,
+            Self::Idle => Motion::Idle,
+        }
+    }
+}
+
 #[derive(Default)]
 struct Playback {
-    motion: Motion,
+    mode: PlaybackMode,
     timer: Option<Timer>,
     epoch: u64,
     started: Option<Duration>,
@@ -221,9 +239,10 @@ impl StatefulWidget for Player {
 impl_widget!(stateful eq Player);
 
 impl Playback {
-    fn play(&mut self, widget: &Player, motion: Motion, cx: &mut Cx<'_, Self>) {
+    fn play(&mut self, widget: &Player, mode: PlaybackMode, cx: &mut Cx<'_, Self>) {
         self.cancel();
-        self.motion = motion;
+        self.mode = mode;
+        let motion = mode.motion(widget.motion);
         let Clip { until_idle, .. } = widget.ambient.clip(motion);
         self.remaining = if motion == Motion::Idle {
             None
@@ -264,18 +283,18 @@ impl State for Playback {
     type Msg = u64;
 
     fn init_state(&mut self, widget: &Player, cx: &mut Cx<'_, Self>) {
-        self.play(widget, widget.motion, cx);
+        self.play(widget, PlaybackMode::Current, cx);
     }
 
     fn did_update_widget(&mut self, old: &Player, widget: &Player, cx: &mut Cx<'_, Self>) {
         if !Arc::ptr_eq(&old.ambient, &widget.ambient) {
-            self.play(widget, widget.motion, cx);
+            self.play(widget, PlaybackMode::Current, cx);
         } else if old.motion != widget.motion {
-            let motion = match (old.motion, widget.motion) {
-                (Motion::Running, Motion::Idle) => Motion::Review,
-                (_, motion) => motion,
+            let mode = match (old.motion, widget.motion) {
+                (Motion::Running, Motion::Idle) => PlaybackMode::Review,
+                _ => PlaybackMode::Current,
             };
-            self.play(widget, motion, cx);
+            self.play(widget, mode, cx);
         } else if old.visible != widget.visible {
             if widget.visible {
                 self.resume(cx);
@@ -295,12 +314,12 @@ impl State for Playback {
         }
         self.cancel();
         self.remaining = None;
-        self.motion = Motion::Idle;
+        self.mode = PlaybackMode::Idle;
         Rebuild::Yes
     }
 
     fn build(&self, widget: &Player, _: &mut Cx<'_, Self>) -> AnyWidget {
-        let clip = widget.ambient.clip(self.motion);
+        let clip = widget.ambient.clip(self.mode.motion(widget.motion));
         Offstage::new(
             !widget.visible,
             TickerMode::new(
