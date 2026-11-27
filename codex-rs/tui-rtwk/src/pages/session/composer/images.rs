@@ -122,10 +122,13 @@ pub(super) fn strip(ui: &Rc<ThreadUi>, thread: ThreadId) -> AnyWidget {
                 .into_iter()
                 .filter_map(
                     |Element {
-                         seq, image, label, ..
+                         seq: sequence,
+                         image,
+                         label,
+                         ..
                      }| {
                         Some(Attachment {
-                            sequence: seq,
+                            sequence,
                             path: image?.to_str()?.to_owned(),
                             label,
                         })
