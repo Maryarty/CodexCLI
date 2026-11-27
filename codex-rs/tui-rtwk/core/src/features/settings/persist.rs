@@ -19,6 +19,7 @@ pub enum Subject {
     Memories(MemoryFacts),
     /// `/tui`: fullscreen transcript on or off.
     TuiMode(bool),
+    SidebarWidth(u8),
     Keymap,
     /// `/pets`: the pet picked (or the selector that turns pets off), `[tui].pet`.
     Pet(String),
@@ -37,6 +38,7 @@ impl Subject {
             Subject::Title(_) => Setting::Title,
             Subject::Memories(_) => Setting::Memories,
             Subject::TuiMode(_) => Setting::TuiMode,
+            Subject::SidebarWidth(_) => Setting::SidebarWidth,
             Subject::Keymap => Setting::Keymap,
             Subject::Pet(selector) if selector == crate::screens::pets::DISABLED => {
                 Setting::PetsDisabled
@@ -57,6 +59,7 @@ pub enum Setting {
     Title,
     Memories,
     TuiMode,
+    SidebarWidth,
     Keymap,
     PetSelection,
     PetsDisabled,
@@ -121,6 +124,13 @@ pub fn write_of(edit: &Edit) -> Option<Write> {
             edits: vec![replace(
                 "tui.fullscreen_transcript",
                 serde_json::json!(enabled),
+            )],
+        },
+        Edit::SidebarWidth(percent) => Write {
+            subject: Subject::SidebarWidth(*percent),
+            edits: vec![replace(
+                "tui.sidebar_width_percent",
+                serde_json::json!(percent),
             )],
         },
         // `PetSelected` / `PetDisabled` (`app/pets.rs`): `[tui].pet` is the selector.

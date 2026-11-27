@@ -154,6 +154,7 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
             Provider::value(app.core.agents_threads()).update_should_notify(|old, new| old != new),
         )
         .with(Provider::value(app.core.tui()).update_should_notify(|old, new| old != new))
+        .with(Provider::value(app.ui.pane_activation.clone()))
         .with(
             Provider::value(ChatVim(
                 app.ui

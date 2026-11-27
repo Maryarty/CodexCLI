@@ -400,8 +400,7 @@ pub struct ActionItem {
     pub search: String,
 }
 
-impl ActionItem {
-}
+impl ActionItem {}
 
 /// A tab of the keymap picker.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
@@ -775,6 +774,8 @@ pub enum Edit {
     KeymapPicked(String),
     /// The `/tui` picker was answered: fullscreen (`true`) or scrollback, for the next launch.
     TuiMode(bool),
+    /// The user committed a new workspace sidebar width.
+    SidebarWidth(u8),
     /// A shortcut was captured for an action of the keymap picker: the context and action as
     /// the config names them, and the keys now bound (none: unbound).
     KeymapBound {
@@ -784,7 +785,10 @@ pub enum Edit {
     },
     /// The custom binding of an action of the keymap picker was removed (the key is cleared
     /// from the config).
-    KeymapCleared { context: String, action: String },
+    KeymapCleared {
+        context: String,
+        action: String,
+    },
     /// Enter on a switch of the memories dialog (`UpdateMemorySettings`).
     MemoriesSaved {
         use_memories: bool,

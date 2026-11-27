@@ -35,6 +35,7 @@ use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::chat::{ID, NAME};
+use codex_tui_core::{ids::ThreadId, threads::ThreadModel};
 
 use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
@@ -43,6 +44,27 @@ use crate::app::debug::seeded::Seeded;
 
 mod side_pane;
 pub mod strings;
+
+/// The draft before the first session has no server thread yet.
+fn thread_address(thread: &ThreadModel) -> Option<ThreadId> {
+    let id = thread.id();
+    (!id.as_str().is_empty()).then(|| id.clone())
+}
+
+/// Only the selected chat presents terminal-wide controls.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Presentation {
+    #[default]
+    Solo,
+    Focused,
+    Passive,
+}
+
+impl Presentation {
+    fn focused(self) -> bool {
+        self != Self::Passive
+    }
+}
 
 /// What the debug menu lists for this directory: a screen per state worth
 /// opening, on the model a fixture script makes.
@@ -54,7 +76,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         open: EntryOpen::Route(|seeded: &Seeded| {
             session_page::Chat {
                 ui: seeded.thread_ui.get(seeded.core.session().active.as_ref()),
-                presentation: session_page::Presentation::Solo,
+                presentation: Presentation::Solo,
             }
             .into()
         }),
@@ -69,7 +91,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
 pub fn seeded(seeded: &Seeded<'_>) -> AnyWidget {
     session_page::Chat {
         ui: seeded.thread_ui.get(seeded.core.session().active.as_ref()),
-        presentation: session_page::Presentation::Solo,
+        presentation: Presentation::Solo,
     }
     .into()
 }
@@ -81,7 +103,7 @@ pub fn home(app: &crate::app::UiApp) -> AnyWidget {
     }
     session_page::Chat {
         ui: app.ui.thread_ui.get(app.core.session().active.as_ref()),
-        presentation: session_page::Presentation::Solo,
+        presentation: Presentation::Solo,
     }
     .into()
 }

@@ -15,13 +15,41 @@ use codex_tui_core::screens::pets::Motion;
 
 use crate::pages::session::composer::images;
 use crate::sheets::pets::ambient;
+use crate::widgets::directives::Listener;
 
 use super::chord_guide::ChordGuide;
 use super::frame::Frame;
-use super::{Chat, ChatState};
+use super::{Chat, ChatState, bottom, chord_guide, input, reader, slot, title};
 
 /// The window height under which the chat draws nothing.
 const HIDDEN_BELOW_ROWS: i32 = 4;
+
+pub(super) fn view(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>) -> AnyWidget {
+    let frame = Frame::read(state, w, cx);
+    state.tell(w, &frame);
+    let inline_draft = super::super::transcript_header::startup_draft(&frame.session)
+        && AppBinding::maybe_of(cx).is_some_and(|binding| binding.mode() == ScreenMode::Inline);
+    let transcript = reader::pane(state, w, &frame, inline_draft);
+    let slot = slot::slot(state, w, cx, &frame);
+    let body = bottom::body(state, w, cx, &frame, slot);
+    let titles = if w.presentation.focused() {
+        title::titles(cx, &frame)
+    } else {
+        Vec::new()
+    };
+    let body = bottom::with_titles(&frame, body, titles);
+    let guide = chord_guide::guide(w.ui.draft.clone(), frame.keymap.clone());
+    let page = page(transcript, body, inline_draft, guide, pet(state, w, &frame));
+    let focus = input::focus(state, cx, &frame, &w.ui, w.presentation, page);
+    // A directive can replace the keyed focus in the same flush as its input.
+    let mut shown = Stack::new().fit(StackFit::Expand).child(focus);
+    if let Some(on_edge) = &state.edges {
+        shown = shown.child(Listener {
+            on_edge: on_edge.clone(),
+        });
+    }
+    input::hints(cx, &frame, AnyWidget::from(shown))
+}
 
 /// The transcript above the bottom pane, the guide of a held chord at the bottom right, and the
 /// blank sheet over all. The live inline region fits its rows after settled output leaves it.

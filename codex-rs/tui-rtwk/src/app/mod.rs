@@ -46,6 +46,7 @@ pub struct UiState {
     pub nav_key: GlobalKey,
     /// Per-thread UI controllers (R2, R14).
     pub thread_ui: ThreadUiMap,
+    pub(super) pane_activation: crate::keymap::press::PaneActivationGuard,
     /// The language of the text, negotiated once at start (ADR-010).
     pub lang: Lang,
     /// Open the debug menu at start (`--debug-screens`).
@@ -103,6 +104,7 @@ impl UiApp {
             ui: UiState {
                 nav_key: GlobalKey::with_label("navigator"),
                 thread_ui: ThreadUiMap::default(),
+                pane_activation: crate::keymap::press::PaneActivationGuard::default(),
                 lang: Lang::default(),
                 debug: false,
                 start_agents: false,

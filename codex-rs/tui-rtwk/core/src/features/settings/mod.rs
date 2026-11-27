@@ -320,6 +320,12 @@ pub struct State {
     pub hook_writes: BTreeMap<String, Option<bool>>,
     /// The skills' switches when `/skills` was opened, by path: what its summary compares to.
     pub skills_opened: BTreeMap<String, bool>,
+    sidebar_width_write: Option<SidebarWidthWrite>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct SidebarWidthWrite {
+    next: Option<u8>,
 }
 
 impl State {
@@ -926,6 +932,16 @@ impl State {
     fn request(&mut self, edit: Edit, cx: &mut AppCx<'_>) {
         match &edit {
             Edit::ThemeSelected(theme) => self.syntax_theme = Some(theme.clone()),
+            Edit::SidebarWidth(percent) => {
+                if let Some(write) = self.sidebar_width_write.as_mut() {
+                    write.next = Some(*percent);
+                    return;
+                }
+                if cx.view().facts().tui().sidebar_width_percent != Some(*percent) {
+                    self.write_sidebar_width(*percent, cx);
+                }
+                return;
+            }
             // A write is on its way: a failed answer can follow a committed write, so these
             // keys stay dirty and putting a value back still sends a correction.
             Edit::FeaturesSave(updates) => {
@@ -1006,12 +1022,23 @@ impl State {
         }
     }
 
+    fn write_sidebar_width(&mut self, percent: u8, cx: &mut AppCx<'_>) {
+        if let Some(write) = persist::write_of(&Edit::SidebarWidth(percent)) {
+            self.sidebar_width_write = Some(SidebarWidthWrite::default());
+            cx.effect(
+                Ask::ConfigWrite { edits: write.edits },
+                Ctx::Write(write.subject),
+            );
+        }
+    }
+
     /// The config file has what a dialog saved.
     fn saved(&mut self, subject: persist::Subject) {
         match subject {
             persist::Subject::Theme(name) => self.facts.syntax_theme = Some(name),
             persist::Subject::Memories(memories) => self.facts.memories = Some(memories),
             persist::Subject::TuiMode(_)
+            | persist::Subject::SidebarWidth(_)
             | persist::Subject::Enable(_)
             | persist::Subject::Keymap
             | persist::Subject::Pet(_)
@@ -1208,6 +1235,13 @@ impl super::Feature for Settings {
         let (Ctx::Write(subject), Done::Config(result)) = (ctx, done) else {
             return;
         };
+        if let persist::Subject::SidebarWidth(percent) = &subject
+            && let Some(write) = state.sidebar_width_write.take()
+            && let Some(next) = write.next
+            && (next != *percent || result.is_err())
+        {
+            state.write_sidebar_width(next, cx);
+        }
         match result {
             Ok(()) => {
                 if let persist::Subject::TuiMode(fullscreen) = &subject {

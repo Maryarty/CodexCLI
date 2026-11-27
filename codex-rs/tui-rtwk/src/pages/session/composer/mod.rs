@@ -559,7 +559,7 @@ fn apply_before_search<S>(cx: &mut Cx<'_, S>, action: BeforeSearch) -> rtwk::Reb
     let hs = read::<Hs, _>(cx);
     match action {
         BeforeSearch::VimToggled(on) => {
-            let thread = super::actions::thread_address(&read::<ThreadModel, _>(cx));
+            let thread = super::thread_address(&read::<ThreadModel, _>(cx));
             let note = Note::from(NoteKey::Toggled(Toggle::Vim, on));
             let intent = chat::Intent::Note { thread, note };
             cx.emit(&hs.screen, ScreenIntent::from(intent));

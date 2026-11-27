@@ -12,7 +12,7 @@ use codex_tui_core::commands::{
     parent_owned_takes,
 };
 use codex_tui_core::features::FeatureStates;
-use codex_tui_core::ids::{Cwd, ThreadId};
+use codex_tui_core::ids::Cwd;
 use codex_tui_core::screens::composer::{self, ShellLine};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, popovers};
 use codex_tui_core::threads::{Failure, Note, NoteKey, Ran, ThreadModel, Toggle};
@@ -51,12 +51,6 @@ pub(super) fn open_warnings(cx: &mut Cx<'_, ChatState>) {
     super::open::open_warnings(cx);
 }
 
-/// The draft before the first session has no server thread yet.
-pub(super) fn thread_address(thread: &ThreadModel) -> Option<ThreadId> {
-    let id = thread.id();
-    (!id.as_str().is_empty()).then(|| id.clone())
-}
-
 /// A settings shortcut (`Shift+Tab`, `Alt+,`, `Alt+.`) on a thread its parent controls says so
 /// and does nothing (`add_error_message(PARENT_OWNED_INPUT_MESSAGE)`); true when it refused.
 pub(super) fn refuses_parent_owned(cx: &mut Cx<'_, ChatState>, hs: &Hs) -> bool {
@@ -65,7 +59,7 @@ pub(super) fn refuses_parent_owned(cx: &mut Cx<'_, ChatState>, hs: &Hs) -> bool 
         return false;
     }
     let intent = chat::Intent::Note {
-        thread: thread_address(&thread),
+        thread: super::thread_address(&thread),
         note: Note::from(NoteKey::ParentOwned),
     };
     cx.emit(&hs.screen, ScreenIntent::from(intent));
@@ -119,7 +113,6 @@ pub(super) fn run(
     if !drained && line.trim().is_empty() && w.ui.draft.remote_count() == 0 {
         return;
     }
-    // the composer is emptied for a line it sent, not for one the queue ran
     let clear_sent = |ui: &_| {
         if !drained {
             clear_sent(ui);
@@ -128,8 +121,7 @@ pub(super) fn run(
     let states = read::<ScreenStates, _>(cx);
     let thread = read::<ThreadModel, _>(cx);
     let session = read::<SessionSlice, _>(cx);
-    let source = thread_address(&thread);
-    // the commands the current model's service tiers add (`/fast`)
+    let source = super::thread_address(&thread);
     let thread_model = thread.screen_slots().chat.model.clone();
     let tiers = codex_tui_core::screens::chat::facts::tier_commands(
         &states.chat.status,
@@ -138,7 +130,9 @@ pub(super) fn run(
         &states.chat.service_tiers,
     );
     let mut flags = states.chat.flags;
-    flags.side_conversation_active = read::<FeatureStates, _>(cx).side.is_side(thread.id());
+    if w.presentation != super::Presentation::Solo {
+        flags.side_conversation_active = read::<FeatureStates, _>(cx).side.is_side(thread.id());
+    }
     flags.service_tier_commands_enabled = !tiers.is_empty();
     let facts = DispatchCx {
         flags,
