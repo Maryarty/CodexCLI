@@ -938,6 +938,7 @@ impl State for ViewportState {
                     thread.history_state(),
                     thread.read_only(),
                     thread.screen_slots().chat.cwd.clone(),
+                    thread.screen_slots().chat.session_header.clone(),
                 )
             });
             read::<ThreadModel, _>(cx)
@@ -980,15 +981,39 @@ impl State for ViewportState {
             .cwd
             .as_deref()
             .or(facts.cwd.as_deref());
-        let header = cwd.filter(|cwd| !cwd.is_empty()).map(|cwd| {
-            super::transcript_header::header(cwd, &facts, &tokens, table)
-                .with_key(Key::value("session header"))
-        });
+        let raw = select::<ScreenStates, _, _>(cx, |states| states.chat.raw_output);
+        let session = live.screen_slots().chat.session_header.as_deref();
+        let header = if let Some(session) = session.filter(|_| raw) {
+            let display_name = session.model.as_ref().and_then(|slug| {
+                let slug = slug.clone();
+                select::<ScreenStates, _, _>(cx, move |states| {
+                    states
+                        .select
+                        .catalog
+                        .presets
+                        .iter()
+                        .find(|preset| preset.model == slug)
+                        .map(|preset| preset.name.clone())
+                })
+            });
+            Some(super::transcript_header::raw_header(
+                session,
+                &facts,
+                display_name.as_deref(),
+                table,
+            ))
+        } else {
+            session
+                .map(|session| session.cwd.as_str())
+                .or(facts.cwd.as_deref())
+                .filter(|cwd| !cwd.is_empty())
+                .map(|cwd| super::transcript_header::header(cwd, &facts, &tokens, table))
+        }
+        .map(|header| header.with_key(Key::value("session header")));
         let markdown = tokens.transcript_markdown(cx);
         let thread_id = thread.id().clone();
         let can_load = live.can_load_history();
         let detailed = widget.detailed;
-        let raw = select::<ScreenStates, _, _>(cx, |states| states.chat.raw_output);
         let show_raw_reasoning =
             select::<ScreenStates, _, _>(cx, |states| states.cells.show_raw_reasoning);
         let collapse = select::<TuiSettings, _, _>(cx, |settings| settings.collapse_turn_details);

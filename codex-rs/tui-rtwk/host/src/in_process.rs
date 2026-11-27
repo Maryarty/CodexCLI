@@ -726,6 +726,8 @@ async fn run(
                                 ingress: ingress.clone(),
                                 epoch,
                                 codex_home: config.codex_home.to_path_buf(),
+                                workspace_local: matches!(ask, HostAsk::IdeContext { .. })
+                                    && local_workspace(artifact_environments.as_deref()),
                             };
                             effects.run(
                                 *request,
@@ -1279,6 +1281,18 @@ struct ConnectionDoors {
     artifact_environments: Option<Arc<EnvironmentManager>>,
 }
 
+fn local_workspace(environments: Option<&EnvironmentManager>) -> bool {
+    environments.is_some_and(|environments| {
+        let ids = environments.default_environment_ids();
+        !ids.is_empty()
+            && ids.iter().all(|id| {
+                environments
+                    .get_environment(id)
+                    .is_some_and(|environment| !environment.is_remote())
+            })
+    })
+}
+
 impl HostDoors for ConnectionDoors {
     type Out = Outcome;
 
@@ -1288,18 +1302,7 @@ impl HostDoors for ConnectionDoors {
         path: String,
         preview: Option<ImageSize>,
     ) -> Option<Outcome> {
-        let local = self
-            .artifact_environments
-            .as_ref()
-            .is_some_and(|environments| {
-                let ids = environments.default_environment_ids();
-                !ids.is_empty()
-                    && ids.iter().all(|id| {
-                        environments
-                            .get_environment(id)
-                            .is_some_and(|environment| !environment.is_remote())
-                    })
-            });
+        let local = local_workspace(self.artifact_environments.as_deref());
         let ssh =
             std::env::var_os("SSH_TTY").is_some() || std::env::var_os("SSH_CONNECTION").is_some();
         let snapshot = if local && !ssh {

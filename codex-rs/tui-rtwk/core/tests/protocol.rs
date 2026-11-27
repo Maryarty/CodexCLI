@@ -4,11 +4,99 @@ use codex_app_server_protocol::{
     ClientRequest, RequestId, SortDirection, ThreadListCwdFilter, ThreadSortKey, ThreadSourceKind,
     TurnItemsView, UserInput,
 };
+use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::ids::{ThreadId, TurnId};
+use codex_tui_core::protocol::{client_request, reply};
 use codex_tui_core::rpc::RpcError;
 use codex_tui_core::threads::asks::{ListQuery, ThreadRpc};
 use codex_tui_core::threads::{HISTORY_PAGE, ThreadAsk, ThreadReply, UserMessage};
 use serde_json::json;
+
+#[test]
+fn configured_model_facts_survive_sparse_thread_announcements_and_submit() {
+    let mut opening: serde_json::Value = serde_json::from_str(include_str!(
+        "../../tests/oracle/fixtures/chat_commands_3/export_thread_start.json"
+    ))
+    .unwrap_or_else(|error| panic!("valid opening fixture: {error}"));
+    let slug = "vendor.session-model";
+    opening["model"] = slug.into();
+    opening["reasoningEffort"] = "high".into();
+    opening["thread"]["model"] = serde_json::Value::Null;
+    opening["thread"]["reasoningEffort"] = serde_json::Value::Null;
+    let notification = serde_json::from_value(json!({
+        "method":"thread/started", "params":{"thread":opening["thread"].clone()}
+    }))
+    .unwrap_or_else(|error| panic!("valid thread announcement: {error}"));
+    let ThreadReply::Resumed(resumed) = ThreadAsk::Resume {
+        thread: String::new(),
+    }
+    .decode(opening.clone())
+    .unwrap_or_else(|error| panic!("valid resume: {error:?}")) else {
+        panic!("expected resumed thread");
+    };
+    assert_eq!(resumed.model.as_deref(), Some(slug));
+    assert_eq!(
+        resumed
+            .reasoning_effort
+            .as_ref()
+            .map(|effort| effort.as_str()),
+        Some("high")
+    );
+
+    let mut app = CodexApp::new();
+    let mut effects = AppFx::default();
+    apply_app(&mut app, AppEv::Connected, &mut effects);
+    let start = effects
+        .commands()
+        .iter()
+        .find(|command| matches!(command, Command::StartThread { .. }));
+    let Some((ticket, reply)) = start.and_then(|start| reply(start, Ok(opening))) else {
+        panic!("expected the session start request");
+    };
+    // The server announces the new thread before the start reply is consumed.
+    let mut effects = AppFx::default();
+    apply_app(
+        &mut app,
+        AppEv::Backend(BackendEv::Notification(Box::new(notification))),
+        &mut effects,
+    );
+    apply_app(&mut app, AppEv::Reply(ticket, reply), &mut effects);
+    let thread = app.active_thread();
+    let chat = &thread.screen_slots().chat;
+    assert_eq!(chat.model.as_deref(), Some(slug));
+    assert_eq!(chat.effort.as_deref(), Some("high"));
+    let Some(header) = &chat.session_header else {
+        panic!("expected opening settings");
+    };
+    assert_eq!(header.model.as_deref(), Some(slug));
+    assert_eq!(header.effort.as_deref(), Some("high"));
+
+    let mut effects = AppFx::default();
+    apply_app(
+        &mut app,
+        AppEv::Intent(Intent::Submit {
+            thread: Some(thread.id().clone()),
+            message: UserMessage::text("continue"),
+        }),
+        &mut effects,
+    );
+    let turn = effects
+        .commands()
+        .iter()
+        .find(|command| matches!(command, Command::StartTurn { .. }));
+    let Some(ClientRequest::TurnStart { params, .. }) =
+        turn.and_then(|turn| client_request(turn, RequestId::Integer(1), None))
+    else {
+        panic!("expected the turn request");
+    };
+    assert_eq!(params.thread_id, thread.id().as_str());
+    assert_eq!(params.model, None);
+    assert_eq!(params.effort, None);
+    assert_eq!(
+        app.active_thread().screen_slots().chat.model.as_deref(),
+        Some(slug)
+    );
+}
 
 #[test]
 fn thread_catalog_keeps_launch_settings_separate_from_new_tasks() {

@@ -125,7 +125,11 @@ impl Reply {
         thread: ThreadId,
         sources: Vec<crate::screens::status::AgentsSource>,
     ) -> Self {
-        Self::thread(ThreadReply::SessionStarted { thread, sources })
+        Self::thread(ThreadReply::SessionStarted {
+            thread,
+            details: None,
+            sources,
+        })
     }
 
     pub fn turn_started(thread: ThreadId, turn: TurnId) -> Self {

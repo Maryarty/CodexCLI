@@ -722,6 +722,21 @@ impl Screen {
         self.answer_latest_effect(|ask| matches!(ask, Effect::Export { .. }), done);
     }
 
+    /// The local extension's answer to the workspace probe requested by `/ide`.
+    pub fn answer_ide_context(&mut self, result: Result<bool, &str>) {
+        use codex_tui_core::features::small_cmds::{IdeFailure, IdeReading};
+        let reading = result
+            .map(|has_context| IdeReading { has_context })
+            .map_err(|hint| IdeFailure {
+                hint: hint.to_owned(),
+                skip_hint: hint.to_owned(),
+            });
+        self.answer_latest_effect(
+            |ask| matches!(ask, Effect::IdeContext { .. }),
+            Done::IdeContext(reading),
+        );
+    }
+
     /// The host's answer to the latest clipboard copy asked for: `Ok(())` confirmed,
     /// `Err(why)` refused.
     pub fn answer_copy(&mut self, result: Result<(), &str>) {

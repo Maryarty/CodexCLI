@@ -482,21 +482,74 @@ fn provider_error_preserves_draft_and_survives_thread_navigation() {
 }
 
 // ---- oracle: chatwidget/tests/app_server.rs (40 screen-level tests here; 8 state tests left to chat-live)
+const SESSION_HEADER_MODEL: &str = "us.openai.gpt-5.6-luna";
+
+fn header_model_catalog() -> serde_json::Value {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "fixtures/chat_live_4/plan_reasoning_catalog.json"
+    ))
+    .unwrap_or_else(|error| panic!("model catalog fixture: {error}"));
+    let mut catalog = fixture["models"].clone();
+    let model = &mut catalog["data"][0];
+    model["id"] = SESSION_HEADER_MODEL.into();
+    model["model"] = SESSION_HEADER_MODEL.into();
+    model["displayName"] = "GPT-5.6 Luna".into();
+    catalog
+}
+
+/// The opening response's model and effort are present even on a server whose thread list
+/// row omits them. No later settings notification fills them in for this fixture.
+fn header_session(thread: &str, model: &str) -> serde_json::Value {
+    serde_json::json!({
+        "thread": {
+            "id":thread, "sessionId":thread, "preview":"", "historyMode":"legacy",
+            "ephemeral":false, "modelProvider":"openai", "model":null, "reasoningEffort":null,
+            "createdAt":0, "updatedAt":0, "status":{"type":"idle"}, "cwd":"/tmp/thread-settings",
+            "cliVersion":"0.0.0", "source":"cli", "canAcceptDirectInput":true, "turns":[]
+        },
+        "model":model, "modelProvider":"openai", "serviceTier":null, "cwd":"/tmp/thread-settings",
+        "approvalPolicy":"on-request", "approvalsReviewer":"user",
+        "sandbox":{"type":"dangerFullAccess"}, "reasoningEffort":"high"
+    })
+}
+
 // ORACLE chatwidget/tests/app_server.rs:75 session_header_uses_catalog_display_name_without_changing_model kind=snap owner=chat-live
 #[test]
 fn session_header_uses_catalog_display_name_without_changing_model() {
-    kit::pending(
-        Owner::ChatLive,
-        "no thread session on the chat screen: a session with the catalog's display name is not fed, so the session header with that name, or with the raw model slug when the catalog has none, is not drawn",
-    );
-    for name in [
-        "catalog_model_session_header_startup",
-        "catalog_model_session_header_resume",
-        "catalog_model_session_header_unknown_model",
+    for (resume, model, label) in [
+        (false, SESSION_HEADER_MODEL, "GPT-5.6 Luna"),
+        (true, SESSION_HEADER_MODEL, "GPT-5.6 Luna"),
+        (true, "vendor.unlisted-model", "vendor.unlisted-model"),
     ] {
-        let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-        // oracle: the session header at the top of the transcript, version and cwd as placeholders.
-        s.assert_snap_region(name, 0, 0);
+        let mut app = Screen::build(Owner::ChatLive)
+            .size(80, 24)
+            .live()
+            .model_catalog(header_model_catalog())
+            .tooltips_off();
+        let thread = if resume { "thread-2" } else { "thread-1" };
+        let settings = header_session(thread, model);
+        if !resume {
+            app = app.thread_start(settings.clone());
+        }
+        let mut s = app.open();
+        if resume {
+            s.server_answers("thread/resume", settings)
+                .visit_thread(thread);
+            s.assert_requests_of("thread/resume", 1);
+        } else {
+            s.assert_requests_of("thread/start", 1);
+        }
+        s.assert_requests_of("model/list", 1);
+        s.assert_active_thread(thread);
+        s.assert_contains("OpenAI Codex");
+        s.assert_absent("model:");
+        s.keys("alt+r");
+        s.assert_text_count(&["model: ", label, " high"].concat(), 1);
+        s.assert_contains("directory: /tmp/thread-settings");
+        s.type_text("use the configured conversation").keys("enter");
+        s.assert_turn_texts(&["use the configured conversation"]);
+        s.assert_started_turn_on(thread);
+        s.assert_no_request("thread/settings/update");
     }
 }
 
@@ -792,15 +845,31 @@ fn tool_suggestion_install_url_is_validated_before_opening() {
 // ORACLE chatwidget/tests/app_server.rs:684 thread_settings_updated_updates_visible_state_without_transcript kind=ui owner=chat-live
 #[test]
 fn thread_settings_updated_updates_visible_state_without_transcript() {
-    kit::pending(
-        Owner::ChatLive,
-        "a settings update on a chat that has no session draws the session header: the transcript shows its header as soon as ThreadPart.cwd is known (transcript_header.rs), and the settings carry the cwd; the oracle draws the header from the session configuration only",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    let before = s.shot();
-    s.feed(&thread_settings_updated("gpt-5.4", "server-ollama"));
-    // oracle: the update draws no transcript history (the state it changes is internal and not asserted on screen).
-    s.assert_same_rows(&before);
+    let update = thread_settings_updated("gpt-5.4", "server-ollama");
+    let mut unconfigured = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    unconfigured.assert_absent("OpenAI Codex");
+    unconfigured.feed(&update);
+    unconfigured.assert_contains("gpt-5.4 default");
+    unconfigured.assert_absent("OpenAI Codex");
+    unconfigured.keys("alt+r");
+    unconfigured.assert_absent("OpenAI Codex");
+    unconfigured.assert_absent("model: gpt-5.4");
+
+    let mut configured = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .live()
+        .thread_start(header_session("thread-1", SESSION_HEADER_MODEL))
+        .model_catalog(header_model_catalog())
+        .tooltips_off()
+        .open();
+    configured.keys("alt+r");
+    configured.assert_text_count("model: GPT-5.6 Luna high", 1);
+    configured.feed(&update);
+    configured.assert_contains("gpt-5.4 default");
+    configured.assert_text_count("OpenAI Codex", 1);
+    configured.assert_text_count("model: GPT-5.6 Luna high", 1);
+    configured.assert_contains("directory: /tmp/thread-settings");
+    configured.assert_absent("model: gpt-5.4");
 }
 
 // ORACLE chatwidget/tests/app_server.rs:790 collab_spawn_end_shows_requested_model_and_effort kind=ui owner=chat-live

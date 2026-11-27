@@ -1202,10 +1202,9 @@ impl CodexApp {
                 ask: effects::Ask::ReconnectIdleThread { address, .. },
                 ..
             } => *address,
-            Command::Effect {
-                request,
-                ask: effects::Ask::ImageSnapshot { .. },
-            } => self.effects.image_address(*request)?,
+            Command::Effect { request, ask } if ask.workspace_receipt().is_some() => {
+                self.effects.workspace_dispatch(*request, ask)?
+            }
             _ => match command.ticket() {
                 Some(ticket) => self.request_address(ticket).or(tell)?,
                 None => return Some((self.choose_backend(command), None)),
@@ -1365,7 +1364,7 @@ impl CodexApp {
         self.attaching_events
             .retain(|(source, ..)| *source != backend);
         features::retire_rate_offer(self, backend);
-        features::retire_images(self, backend);
+        features::retire_workspace_effects(self, backend);
         git_summary::retire(self, backend);
         detach_threads(self, backend, fx);
         self.fail_in_flight(backend);
@@ -1497,12 +1496,9 @@ impl CodexApp {
                 request,
                 done: effects::Done::GitSummary(_),
             } => git_summary::accepts(self, origin, *request),
-            AppEv::Effect { request, done } => match self.effects.image_address(*request) {
-                Some(address) => {
-                    address == origin && matches!(done, effects::Done::ImageSnapshot(_))
-                }
-                None => !matches!(done, effects::Done::ImageSnapshot(_)),
-            },
+            AppEv::Effect { request, done } => self
+                .effects
+                .accepts_workspace_receipt(*request, origin, done),
             _ => true,
         }
     }
@@ -1517,7 +1513,7 @@ pub fn apply_app(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
         AppEv::Reply(ticket, _) => app.request_address(*ticket).map(|address| address.backend),
         AppEv::Effect { request, .. } => app
             .effects
-            .image_address(*request)
+            .workspace_address(*request)
             .map(|address| address.backend),
         _ => None,
     };
@@ -1558,6 +1554,7 @@ fn apply_at(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
         !Rc::ptr_eq(&previous, &app.session) && previous.active != app.session.active;
     if active_changed {
         select::retire_model_picker(app);
+        features::retire_ide(app);
         if let Some(thread) = &previous.active {
             features::retire_queue_modal_choices(app, thread, fx);
         }
@@ -2453,9 +2450,13 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 match (switch, answer) {
                     (
                         Some(backend),
-                        Answer::Thread(ThreadReply::SessionStarted { thread, sources }),
+                        Answer::Thread(ThreadReply::SessionStarted {
+                            thread,
+                            details,
+                            sources,
+                        }),
                     ) => {
-                        switch_to(app, backend, thread, sources, fx);
+                        switch_to(app, backend, thread, details.as_deref(), sources, fx);
                     }
                     (Some(backend), Answer::Failed(error)) => {
                         // The oracle shows the error and stays where it was.
@@ -2609,9 +2610,11 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 spawned,
             } => {
                 let result = match answer {
-                    Answer::Thread(ThreadReply::SessionStarted { thread, sources }) => {
-                        Ok((thread, None, sources))
-                    }
+                    Answer::Thread(ThreadReply::SessionStarted {
+                        thread,
+                        details,
+                        sources,
+                    }) => Ok((thread, details, sources)),
                     Answer::Thread(ThreadReply::Forked(thread) | ThreadReply::Started(thread)) => {
                         Ok((ThreadId::new(&thread.id), Some(thread), Vec::new()))
                     }
@@ -3855,8 +3858,19 @@ fn run_shell(app: &mut CodexApp, thread: &ThreadId, command: String, fx: &mut Ap
 /// The first thread's answer.
 fn started(app: &mut CodexApp, answer: Answer, fx: &mut AppFx) {
     match answer {
-        Answer::Thread(ThreadReply::SessionStarted { thread, sources }) => {
-            attach_thread(app, &thread, BackendId::default(), Origin::Started, fx);
+        Answer::Thread(ThreadReply::SessionStarted {
+            thread,
+            details,
+            sources,
+        }) => {
+            attach_thread_with_metadata(
+                app,
+                &thread,
+                BackendId::default(),
+                Origin::Started,
+                details.as_deref(),
+                fx,
+            );
             note_instruction_sources(app, &thread, sources, fx);
             let session = Rc::make_mut(&mut app.session);
             session.active = Some(thread.clone());
@@ -3968,10 +3982,11 @@ fn switch_to(
     app: &mut CodexApp,
     backend: BackendId,
     thread: ThreadId,
+    details: Option<&codex_app_server_protocol::Thread>,
     sources: Vec<status::AgentsSource>,
     fx: &mut AppFx,
 ) {
-    attach_thread(app, &thread, backend, Origin::Started, fx);
+    attach_thread_with_metadata(app, &thread, backend, Origin::Started, details, fx);
     note_instruction_sources(app, &thread, sources, fx);
     let session = Rc::make_mut(&mut app.session);
     session.switched_from = session.active.replace(thread.clone());

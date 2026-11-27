@@ -534,6 +534,8 @@ pub struct ThreadPart {
     /// The thread this one was forked from (`/status` shows it).
     pub forked_from: Option<String>,
     pub cwd: Option<String>,
+    /// The original configuration of the heading in the transcript.
+    pub session_header: Option<Rc<SessionHeader>>,
     /// The file the thread's history is written to (`/rollout`), once the
     /// server has named it.
     pub path: Option<String>,
@@ -584,6 +586,14 @@ pub struct ThreadPart {
     /// The streamed deltas of the reasoning item in flight, which the status row's header reads
     /// besides the transcript (`reasoning_header`).
     live_reasoning: reasoning::Live,
+}
+
+/// Facts captured when the conversation opens, before later thread settings changes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionHeader {
+    pub cwd: String,
+    pub model: Option<String>,
+    pub effort: Option<String>,
 }
 
 /// The default of `STATUS_DETAILS_DEFAULT_MAX_LINES`.
@@ -1294,6 +1304,13 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
             resumed,
             fresh,
         } => {
+            part.session_header.get_or_insert_with(|| {
+                Rc::new(SessionHeader {
+                    cwd: cwd.clone(),
+                    model: model.clone(),
+                    effort: effort.clone(),
+                })
+            });
             part.name = name;
             part.forked_from = forked_from;
             part.daybreak = daybreak;
@@ -1301,11 +1318,15 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
             part.path = path;
             part.parent_owned = parent_owned;
             part.ephemeral = ephemeral;
-            if part.mode == codex_protocol::config_types::ModeKind::Default {
-                part.base = collaboration::Base::of(model.as_deref(), effort.as_deref());
+            // A sparse thread announcement does not clear the model named by the opening
+            // response or by a settings notification.
+            if model.is_some() || part.model.is_none() {
+                if part.mode == codex_protocol::config_types::ModeKind::Default {
+                    part.base = collaboration::Base::of(model.as_deref(), effort.as_deref());
+                }
+                part.model = model;
+                part.effort = effort;
             }
-            part.model = model;
-            part.effort = effort;
             part.provider = (!provider.is_empty()).then_some(provider);
             // a later `thread/started` without turns does not make a resumed thread fresh
             part.awaiting_usage |= resumed;
