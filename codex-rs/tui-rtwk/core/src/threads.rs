@@ -59,6 +59,7 @@ pub use note::{CdRefusal, ModeNote, Note, NoteKey, RemoveNote, Stub, Toggle, Ton
 pub use processes::{Listed, Terminal, WaitStreak};
 pub use queue::{DueCommand, Queued, Ran};
 use queue::{enqueue, send_next};
+pub(crate) use user_prompt::prepend_ide_context;
 pub(crate) use user_prompt::without_controls;
 pub use user_prompt::{Shown, UserPrompt, request_text};
 
@@ -1943,6 +1944,7 @@ impl<'a> ThreadFx<'a> {
             message,
             client_id,
             misalignment_override: None,
+            ide_prompt: None,
         });
         Ok(ticket)
     }
@@ -1974,6 +1976,7 @@ impl<'a> ThreadFx<'a> {
             message,
             client_id,
             misalignment_override: Some(stamp),
+            ide_prompt: None,
         });
         Ok(ticket)
     }
@@ -3586,6 +3589,7 @@ fn steer(
             turn,
             message,
             client_id,
+            ide_prompt: None,
         }
         .into(),
     );

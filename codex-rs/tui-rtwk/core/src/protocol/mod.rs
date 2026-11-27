@@ -47,7 +47,7 @@ pub fn client_request(
     request_id: RequestId,
     model: Option<&str>,
 ) -> Option<ClientRequest> {
-    match command {
+    let mut request = match command {
         Command::ReadRateLimits { .. } => Some(ClientRequest::GetAccountRateLimits {
             request_id,
             params: None,
@@ -75,7 +75,27 @@ pub fn client_request(
         Command::RejectRequest { .. } | Command::ResolveRequest { .. } | Command::Effect { .. } => {
             None
         }
+    }?;
+    let ide_prompt = match command {
+        Command::StartTurn { ide_prompt, .. }
+        | Command::Screen {
+            command: screens::ScreenCommand::Chat(screens::chat::Command::Steer { ide_prompt, .. }),
+            ..
+        } => ide_prompt.as_ref(),
+        _ => None,
+    };
+    if let Some(context) = ide_prompt {
+        match &mut request {
+            ClientRequest::TurnStart { params, .. } => {
+                crate::threads::prepend_ide_context(&mut params.input, context.as_str());
+            }
+            ClientRequest::TurnSteer { params, .. } => {
+                crate::threads::prepend_ide_context(&mut params.input, context.as_str());
+            }
+            _ => {}
+        }
     }
+    Some(request)
 }
 
 /// The ticket and reply for `command` out of the request's JSON `result`
@@ -248,6 +268,7 @@ fn lifecycle_ask(command: &Command) -> Option<(Ticket, &'static str, ThreadRpc<&
             message,
             client_id,
             misalignment_override,
+            ..
         } => (
             *ticket,
             "turn/start",

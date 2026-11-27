@@ -183,6 +183,8 @@ pub enum Note {
     IdeCouldNotEnable { hint: String },
     /// The command has no conversation on a local filesystem.
     IdeNoLocalWorkspace,
+    /// The original message went through after a failed or timed-out read.
+    IdeSkipped { hint: Option<String> },
     /// `Usage: /ide [on|off|status]` (error).
     IdeUsage,
     /// The config as the host holds it, one row a line.
@@ -370,6 +372,7 @@ impl Feature for SmallCmds {
             | Note::IdeOn { .. }
             | Note::IdeCouldNotEnable { .. }
             | Note::IdeNoLocalWorkspace
+            | Note::IdeSkipped { .. }
             | Note::DebugConfig(_) => Tone::Info,
             Note::LogoutFailed(_)
             | Note::DaybreakNeedsProvider

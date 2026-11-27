@@ -1,6 +1,6 @@
 //! Ownership of the IDE read requested by `/ide`.
 
-use crate::app::effects::Ask;
+use crate::app::effects::{Ask, IdePermit, IdePrompt};
 use crate::features::{AppCx, AppView};
 use crate::ids::{BackendId, ThreadId};
 
@@ -12,13 +12,9 @@ pub struct Ide {
     /// A read for this visit succeeded. This is the footer's indicator.
     pub enabled: bool,
     generation: u64,
-    owner: Option<Owner>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct Owner {
-    thread: ThreadId,
-    cwd: String,
+    owner: Option<IdePermit>,
+    confirmed: bool,
+    warned: bool,
 }
 
 impl Ide {
@@ -30,6 +26,8 @@ impl Ide {
         self.generation = self.generation.wrapping_add(1);
         self.enabled = false;
         self.owner = None;
+        self.confirmed = false;
+        self.warned = false;
     }
 
     pub(super) fn command(
@@ -78,9 +76,10 @@ impl Ide {
         };
 
         self.reset();
-        self.owner = Some(Owner {
+        self.owner = Some(IdePermit {
             thread: thread.clone(),
             cwd: cwd.clone(),
+            generation: self.generation,
         });
         cx.effect(
             Ask::IdeContext {
@@ -116,6 +115,7 @@ impl Ide {
         match reading {
             Ok(reading) => {
                 self.enabled = true;
+                self.confirmed = true;
                 cx.note(
                     Some(thread),
                     Note::IdeOn {
@@ -126,6 +126,46 @@ impl Ide {
             Err(error) => {
                 self.reset();
                 cx.note(Some(thread), Note::IdeCouldNotEnable { hint: error.hint });
+            }
+        }
+    }
+
+    pub(crate) fn permit(&self, view: AppView<'_>, thread: &ThreadId) -> Option<IdePermit> {
+        let owner = self
+            .owner
+            .as_ref()
+            .filter(|owner| self.confirmed && &owner.thread == thread)?;
+        (workspace(view, thread).as_deref() == Some(owner.cwd.as_str())).then(|| owner.clone())
+    }
+
+    pub(crate) fn has_consent(&self) -> bool {
+        self.confirmed
+    }
+
+    /// Keep consent for retrying a skipped message. Availability describes only the last read.
+    pub(crate) fn settled(
+        &mut self,
+        owner: &IdePermit,
+        reading: Option<&Result<Option<IdePrompt>, IdeFailure>>,
+        cx: &mut AppCx<'_>,
+    ) {
+        if self.owner.as_ref() != Some(owner) {
+            return;
+        }
+        match reading {
+            Some(Ok(_)) => {
+                self.enabled = true;
+                self.warned = false;
+            }
+            failure => {
+                self.enabled = false;
+                if !self.warned {
+                    self.warned = true;
+                    let hint = failure
+                        .and_then(|result| result.as_ref().err())
+                        .map(|failure| failure.skip_hint.clone());
+                    cx.note(Some(owner.thread.clone()), Note::IdeSkipped { hint });
+                }
             }
         }
     }

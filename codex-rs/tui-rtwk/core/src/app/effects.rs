@@ -152,6 +152,14 @@ pub struct IdeFailure {
     pub skip_hint: String,
 }
 
+/// The worktree and opt-in for the current visit to a conversation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct IdePermit {
+    pub thread: ThreadId,
+    pub cwd: String,
+    pub generation: u64,
+}
+
 /// An IDE selection going to the model as part of a single turn.
 #[derive(Clone, PartialEq, Eq)]
 pub struct IdePrompt(Arc<str>);
@@ -449,9 +457,15 @@ pub struct Effects {
 
 #[derive(Debug)]
 struct FeatureRequest {
-    ctx: FeatureCtx,
+    continuation: EffectContinuation,
     /// Some host capabilities depend on the physical connection's locality.
     workspace: Option<WorkspaceEffect>,
+}
+
+#[derive(Debug)]
+enum EffectContinuation {
+    Feature(Box<FeatureCtx>),
+    IdeSubmit,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -505,11 +519,46 @@ impl Effects {
         ctx: FeatureCtx,
         workspace: Option<WorkspaceEffect>,
     ) -> u64 {
+        self.register(EffectContinuation::Feature(Box::new(ctx)), workspace)
+    }
+
+    pub(super) fn ask_for_ide_submit(&mut self, thread: ThreadId, address: Address) -> u64 {
+        self.register(
+            EffectContinuation::IdeSubmit,
+            Some(WorkspaceEffect {
+                thread,
+                address,
+                receipt: WorkspaceReceipt::IdePrompt,
+            }),
+        )
+    }
+
+    fn register(
+        &mut self,
+        continuation: EffectContinuation,
+        workspace: Option<WorkspaceEffect>,
+    ) -> u64 {
         self.feature_asks += 1;
         let request = FEATURE_REQUEST_BIT | self.feature_asks;
-        self.features
-            .insert(request, FeatureRequest { ctx, workspace });
+        self.features.insert(
+            request,
+            FeatureRequest {
+                continuation,
+                workspace,
+            },
+        );
         request
+    }
+
+    pub(super) fn take_ide_submit(&mut self, request: u64) -> Option<Address> {
+        let pending = self.features.get(&request)?;
+        if !matches!(pending.continuation, EffectContinuation::IdeSubmit) {
+            return None;
+        }
+        self.features
+            .remove(&request)?
+            .workspace
+            .map(|effect| effect.address)
     }
 
     pub(super) fn workspace_address(&self, request: u64) -> Option<Address> {
@@ -551,10 +600,18 @@ impl Effects {
     /// What the answer `done` to the feature ask `request` is for: none for a number no feature
     /// waits for (a late answer of an ask that has ended). The last answer ends the ask.
     pub(super) fn feature_answered(&mut self, request: u64, done: &Done) -> Option<FeatureCtx> {
+        let pending = self.features.get(&request)?;
+        let EffectContinuation::Feature(ctx) = &pending.continuation else {
+            return None;
+        };
         if done.is_final() {
-            self.features.remove(&request).map(|ask| ask.ctx)
+            let EffectContinuation::Feature(ctx) = self.features.remove(&request)?.continuation
+            else {
+                return None;
+            };
+            Some(*ctx)
         } else {
-            self.features.get(&request).map(|ask| ask.ctx.clone())
+            Some(ctx.as_ref().clone())
         }
     }
 
