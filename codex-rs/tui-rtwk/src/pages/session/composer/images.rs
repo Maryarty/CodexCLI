@@ -38,7 +38,19 @@ struct Attachment {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-struct PageRows(i32);
+struct PageRows {
+    rows: i32,
+    inline: bool,
+}
+
+pub(super) fn owned_composer_rows<S>(cx: &mut Cx<'_, S>) -> Option<i32> {
+    let page = Provider::<PageRows>::maybe_of(cx, true)?;
+    if page.inline {
+        return None;
+    }
+    // The fullscreen pane leaves room above the composer for the transcript.
+    Some((page.rows.saturating_mul(2) / 3).max(8).min(page.rows))
+}
 
 pub(in crate::pages::session) fn page_room(child: AnyWidget) -> AnyWidget {
     PageRoom { child }.into()
@@ -77,18 +89,21 @@ impl State for RoomState {
     }
 
     fn build(&self, widget: &PageRoom, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        if image_bounds(cx).is_none() {
-            return widget.child.clone();
-        }
         let inline =
             AppBinding::maybe_of(cx).is_some_and(|binding| binding.mode() == ScreenMode::Inline);
+        if inline && image_bounds(cx).is_none() {
+            return widget.child.clone();
+        }
         let reported = self.terminal_rows.filter(|_| inline);
         let child = widget.child.clone();
         let layout = LayoutBuilder::new(move |_, room| {
-            Provider::value(PageRows(reported.unwrap_or(room.max_height)))
-                .update_should_notify(|old, new| old != new)
-                .child(child.clone())
-                .into()
+            Provider::value(PageRows {
+                rows: reported.unwrap_or(room.max_height),
+                inline,
+            })
+            .update_should_notify(|old, new| old != new)
+            .child(child.clone())
+            .into()
         });
         if !inline {
             return layout.into();
@@ -157,7 +172,7 @@ pub(super) fn strip(ui: &Rc<ThreadUi>, thread: ThreadId) -> AnyWidget {
 
 fn preview_size(cx: &mut Cx<'_>) -> Option<ImageSize> {
     let rows = Provider::<PageRows>::maybe_of(cx, true)?;
-    if rows.0 < REQUIRED_PAGE_ROWS {
+    if rows.rows < REQUIRED_PAGE_ROWS {
         return None;
     }
     image_bounds(cx)
