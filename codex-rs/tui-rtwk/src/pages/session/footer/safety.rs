@@ -91,9 +91,10 @@ pub(super) fn slot(
     w: &Chat,
     state: &ChatState,
     cx: &mut Cx<'_, ChatState>,
-    thread: &ThreadId,
     child: AnyWidget,
 ) -> AnyWidget {
+    // The first thread inherits the provisional composer's controllers.
+    let key = Key::object(&w.ui);
     let w = w.clone();
     let on_stop = cx.callback(move |state, ()| {
         w.ui.draft.discard(&w.ui.composer);
@@ -105,7 +106,7 @@ pub(super) fn slot(
         on_stop,
         composer_focus: state.node.clone(),
     })
-    .with_key(Key::value(thread.clone()))
+    .with_key(key)
 }
 
 #[derive(Clone, PartialEq)]
