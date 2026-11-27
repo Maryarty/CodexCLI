@@ -98,6 +98,32 @@ pub fn is_escape(key: &KeyPress) -> bool {
     key.code == KeyCode::Escape && key.mods == Mods::NONE
 }
 
+/// The fixed controls of the workspace's modal divider preview.
+pub enum ResizeKey {
+    Finish,
+    Step(i32),
+}
+
+pub fn resize_key(key: &KeyPress) -> Option<ResizeKey> {
+    Some(match (key.code, key.mods, key.ch) {
+        (KeyCode::Escape | KeyCode::Enter, Mods::NONE, _) => ResizeKey::Finish,
+        (KeyCode::Left, Mods::SHIFT, _) => ResizeKey::Step(-10),
+        (KeyCode::Right, Mods::SHIFT, _) => ResizeKey::Step(10),
+        (KeyCode::Left, Mods::NONE, _) | (_, Mods::NONE, Some('h')) => ResizeKey::Step(-1),
+        (KeyCode::Right, Mods::NONE, _) | (_, Mods::NONE, Some('l')) => ResizeKey::Step(1),
+        _ => return None,
+    })
+}
+
+/// The previous/next button of a confirmation controlled by the arrow keys.
+pub fn horizontal_focus(key: &KeyPress) -> Option<bool> {
+    match (key.code, key.mods) {
+        (KeyCode::Left, Mods::NONE) => Some(false),
+        (KeyCode::Right, Mods::NONE) => Some(true),
+        _ => None,
+    }
+}
+
 /// Ctrl+C: the key typed, or the key it is on a US layout (a Cyrillic layout's Ctrl+с is Ctrl+C,
 /// as `keymap::holds` reads a press).
 pub fn is_ctrl_c(key: &KeyPress) -> bool {

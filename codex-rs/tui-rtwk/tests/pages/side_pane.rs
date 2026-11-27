@@ -160,6 +160,39 @@ fn docked_streams_and_submissions_stay_with_their_thread() {
 }
 
 #[test]
+fn scrolling_the_passive_chat_preserves_its_reader_and_the_active_input() {
+    let mut h = workspace(true, true);
+    for index in 0..18 {
+        let turn = format!("turn-{index}");
+        let reply = format!("retained side history {index:02}");
+        h.inject([
+            AppEv::Backend(turn_started(SIDE, &turn)),
+            AppEv::Backend(agent_completed(SIDE, &turn, "answer", &reply)),
+            AppEv::Backend(turn_completed(SIDE, &turn)),
+        ]);
+    }
+    h.advance(100);
+    h.press("f12 h");
+    h.t.type_text("parent draft");
+    h.advance(100);
+    assert!(column(&h, "parent draft") < 79);
+    assert!(column(&h, "retained side history 17") > 79);
+    assert!(!h.t.screen().contains("retained side history 00"));
+
+    for _ in 0..24 {
+        h.t.mouse(MouseKind::WheelUp, 105, 10, 0, Mods::NONE);
+        h.advance(80);
+    }
+    assert!(column(&h, "retained side history 00") > 79);
+    assert!(!h.t.screen().contains("retained side history 17"));
+    assert_eq!(column(&h, "parent draft"), 2);
+    assert!(h.t.cursor_visible() && h.t.cursor().0 < 79);
+    h.press("f12 s");
+    assert!(column(&h, "retained side history 00") > 79);
+    assert!(h.t.cursor_visible() && h.t.cursor().0 > 79);
+}
+
+#[test]
 fn narrowing_zoom_hide_and_close_preserve_the_retained_pair() {
     let mut h = workspace(true, true);
     h.t.type_text("retained child draft");

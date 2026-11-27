@@ -3,7 +3,6 @@
 
 use std::rc::Rc;
 
-use codex_tui_core::features::settings::{Edit, Intent as SettingsIntent};
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::keymap::actions::{
     GLOBAL_CLOSE_SIDEBAR_TAB, GLOBAL_EQUALIZE_PANE_WIDTHS, GLOBAL_FOCUS_MAIN_COMPOSER,
@@ -22,7 +21,7 @@ use rtwk::layout::{
     BorderType, BoxWidget, Column, CrossAxisAlignment, Expanded, MainAxisSize, Offstage,
     Positioned, Row, SizedBox, SplitController, SplitPane, SplitView, Stack, StackFit,
 };
-use rtwk::overlay::{Dialog, DialogOptions, close_dialog, show_dialog};
+use rtwk::overlay::{Dialog, DialogHandle, DialogOptions, close_dialog, show_dialog};
 use rtwk::prelude::HitTestBehavior;
 use rtwk::provider::{Provider, read};
 use rtwk::widgets::Text;
@@ -30,13 +29,14 @@ use rtwk::{
     AnyWidget, Cx, GlobalKey, Handler, Key, LayoutBuilder, Rebuild, State, StatefulWidget,
     impl_widget,
 };
-use rtwk_core::input::{InputEvent, KeyCode, Mods};
+use rtwk_core::input::InputEvent;
 
 use crate::app::{UiApp, view::Hs};
 use crate::features::{self, PageKey};
+use crate::keymap::press::{ResizeKey, horizontal_focus, resize_key};
 use crate::widgets::thread_ui::ThreadUi;
 
-use super::session_page::{Chat, Presentation};
+use super::{Presentation, session_page::Chat};
 
 const SPLIT_AT: i32 = 100;
 const PARENT_MIN: i32 = 63;
@@ -120,7 +120,7 @@ pub(super) struct DockState {
     zoom: Option<ThreadId>,
     resize: Option<Resize>,
     resize_focus: FocusNode,
-    close_pending: bool,
+    close_pending: Option<DialogHandle<()>>,
 }
 
 #[derive(Clone, Copy)]
@@ -220,7 +220,7 @@ impl StatefulWidget for Dock {
             zoom: None,
             resize: None,
             resize_focus: FocusNode::new(),
-            close_pending: false,
+            close_pending: None,
         }
     }
 }
@@ -277,7 +277,7 @@ impl DockState {
         if before != cells {
             let percent = ((cells * 100 + self.width / 2) / self.width).clamp(1, 99);
             let percent = u8::try_from(percent).expect("sidebar width is between 1 and 99 percent");
-            features::verb(cx, SettingsIntent::Request(Edit::SidebarWidth(percent)));
+            features::save_sidebar_width(cx, percent);
         }
     }
 
@@ -301,7 +301,7 @@ impl DockState {
         let chat = Provider::value_shared(pane.model.clone())
             .child(Provider::value(Commands(cx.map(|msg: Msg| msg))).child(chat));
         let heading = if heading {
-            AnyWidget::from(Text::line(" Side chat"))
+            AnyWidget::from(Text::line(super::strings::of(cx).side_chat))
         } else {
             SizedBox::shrink().into()
         };
@@ -350,6 +350,9 @@ impl State for DockState {
     }
 
     fn dispose(&mut self) {
+        if let Some(dialog) = self.close_pending.take() {
+            dialog.close(None);
+        }
         self.split.dispose();
         self.resize_focus.dispose();
     }
@@ -380,7 +383,7 @@ impl State for DockState {
             Msg::Zoom if !self.hidden && self.width >= SPLIT_AT => {
                 self.zoom = self.zoom.is_none().then(|| w.active.clone());
             }
-            Msg::Close if w.on_child() && !self.close_pending => {
+            Msg::Close if w.on_child() && self.close_pending.is_none() => {
                 let ui = &w.child.ui;
                 if ui.draft.in_burst() {
                     return Rebuild::No;
@@ -393,33 +396,34 @@ impl State for DockState {
                     || !draft.images.is_empty()
                     || !draft.remote_images.is_empty();
                 let running = w.child.model.task_running();
+                let words = super::strings::of(cx);
                 let mut losses = Vec::new();
                 if running {
-                    losses.push("This will stop the running turn.");
+                    losses.push(words.side_close_turn);
                 }
                 if unsent {
-                    losses.push("This will discard unsent input.");
+                    losses.push(words.side_close_draft);
                 }
                 // All side conversations use temporary storage at this boundary.
-                losses.push("This will lose this temporary chat’s history.");
-                self.close_pending = true;
-                let dialog = ConfirmClose { losses };
-                let result =
-                    show_dialog(cx, move |_| dialog.clone().into(), DialogOptions::default());
+                losses.push(words.side_close_history);
                 let proof = Rc::new(CloseProof {
                     thread: w.child.model.id().clone(),
                     draft,
                     shell,
                     running,
                 });
-                cx.spawn(async move {
-                    Some(Msg::CloseDecision(
-                        (result.await == Some(true)).then_some(proof),
-                    ))
-                });
+                let dialog = ConfirmClose {
+                    losses,
+                    on_decision: cx.map(move |accepted: bool| {
+                        Msg::CloseDecision(accepted.then(|| proof.clone()))
+                    }),
+                };
+                let result =
+                    show_dialog(cx, move |_| dialog.clone().into(), DialogOptions::default());
+                self.close_pending = Some(result.handle());
             }
             Msg::CloseDecision(proof) => {
-                self.close_pending = false;
+                self.close_pending = None;
                 let ui = &w.child.ui;
                 let words = super::composer::strings::of(cx);
                 // A rejected send can bring input back while the dialog owns the keys.
@@ -507,7 +511,7 @@ impl State for DockState {
                 SplitPane::new(child).min_size(CHILD_MIN),
             ])
             .controller(&self.split);
-            if self.close_pending {
+            if self.close_pending.is_some() {
                 // Keep the gutter but clear its line under the modal's text.
                 split = split.kind(BorderType::None);
             }
@@ -557,15 +561,12 @@ impl State for DockState {
                 if !resize || !node.has_primary_focus() {
                     return KeyEventResult::Ignored;
                 }
-                let message = match (press.code, press.mods, press.ch) {
-                    (KeyCode::Escape | KeyCode::Enter, Mods::NONE, _) => Msg::FinishResize,
-                    (KeyCode::Left, Mods::SHIFT, _) => Msg::Step(-10),
-                    (KeyCode::Right, Mods::SHIFT, _) => Msg::Step(10),
-                    (KeyCode::Left, Mods::NONE, _) | (_, Mods::NONE, Some('h')) => Msg::Step(-1),
-                    (KeyCode::Right, Mods::NONE, _) | (_, Mods::NONE, Some('l')) => Msg::Step(1),
-                    _ => return KeyEventResult::Handled,
-                };
-                key(message);
+                if let Some(action) = resize_key(&press) {
+                    key(match action {
+                        ResizeKey::Finish => Msg::FinishResize,
+                        ResizeKey::Step(delta) => Msg::Step(delta),
+                    });
+                }
                 KeyEventResult::Handled
             });
         let shown = KeyBindings::new(crate::keymap::first_of_each(keys), shown);
@@ -584,15 +585,20 @@ impl State for DockState {
 #[derive(Clone, PartialEq)]
 struct ConfirmClose {
     losses: Vec<&'static str>,
+    on_decision: Handler<bool>,
 }
 
-struct ConfirmCloseState;
+struct ConfirmCloseState {
+    on_decision: Option<Handler<bool>>,
+}
 
 impl StatefulWidget for ConfirmClose {
     type State = ConfirmCloseState;
 
     fn create_state(&self) -> Self::State {
-        ConfirmCloseState
+        ConfirmCloseState {
+            on_decision: Some(self.on_decision.clone()),
+        }
     }
 }
 
@@ -603,32 +609,42 @@ impl State for ConfirmCloseState {
     type Msg = bool;
 
     fn update(&mut self, close: bool, _: &ConfirmClose, cx: &mut Cx<'_, Self>) -> Rebuild {
-        close_dialog(cx, Some(close));
+        if let Some(on_decision) = self.on_decision.take() {
+            cx.emit(&on_decision, close);
+            close_dialog(cx, None::<()>);
+        }
         Rebuild::No
     }
 
+    fn dispose_with(&mut self, cx: &mut Cx<'_, Self>) {
+        if let Some(on_decision) = self.on_decision.take() {
+            cx.emit(&on_decision, false);
+        }
+    }
+
     fn build(&self, w: &ConfirmClose, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        let words = super::strings::of(cx);
         let actions = Row::new()
             .main_axis_size(MainAxisSize::Min)
             .child(
-                Button::new("Cancel")
+                Button::new(words.side_close_cancel)
                     .autofocus(true)
                     .on_pressed(cx.send(false)),
             )
-            .child(Button::new("Close").on_pressed(cx.send(true)));
+            .child(Button::new(words.side_close).on_pressed(cx.send(true)));
         let mut body = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Start);
         for loss in &w.losses {
             body = body.child(Text::new(*loss));
         }
-        Focus::new(Dialog::new(body.child(actions)).title("Close side chat?"))
+        Focus::new(Dialog::new(body.child(actions)).title(words.side_close_title))
             .can_request_focus(false)
             .on_key_event(|node, key| {
-                let moved = match (key.code, key.mods) {
-                    (KeyCode::Left, Mods::NONE) => node.previous_focus(),
-                    (KeyCode::Right, Mods::NONE) => node.next_focus(),
-                    _ => false,
+                let moved = match horizontal_focus(&key) {
+                    Some(false) => node.previous_focus(),
+                    Some(true) => node.next_focus(),
+                    None => false,
                 };
                 if moved {
                     KeyEventResult::Handled

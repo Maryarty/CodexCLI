@@ -266,6 +266,12 @@ pub fn hide_rate_limit_prompt<S: 'static>(cx: &mut Cx<'_, S>) {
     verb(cx, Intent::Request(Edit::RateLimitPromptHidden));
 }
 
+/// Committing a workspace divider writes the sidebar width through settings.
+pub(super) fn save_sidebar_width<S: 'static>(cx: &mut Cx<'_, S>, percent: u8) {
+    use codex_tui_core::features::settings::{Edit, Intent};
+    verb(cx, Intent::Request(Edit::SidebarWidth(percent)));
+}
+
 /// A verb of a feature, from the widget that has the user's decision: the app applies it
 /// (`Intent::Feature`). The arguments are ids (a directory, a plugin's row), never what was
 /// pressed.

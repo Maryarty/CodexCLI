@@ -30,10 +30,8 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use rtwk::binding::{AppBinding, ScreenMode};
 use rtwk::editing::TextEditingController;
 use rtwk::focus::FocusNode;
-use rtwk::layout::{Stack, StackFit};
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::provider::read;
 use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
@@ -49,10 +47,11 @@ use crate::features::PageKey;
 use crate::pages::session::key_actions::Keyed;
 use crate::pages::session::open::open;
 use crate::widgets::composer_draft::ComposerDraft;
-use crate::widgets::directives::{Edge, Listener};
+use crate::widgets::directives::Edge;
 use crate::widgets::finder::Finder;
 use crate::widgets::thread_ui::{Modes, TextSelection, ThreadUi};
 
+use super::Presentation;
 use super::actions::reasoning_shortcut;
 use super::banners::BannerGate;
 use super::hook_reveal;
@@ -103,21 +102,6 @@ pub use msg::ChatMsg;
 pub struct Chat {
     pub ui: Rc<ThreadUi>,
     pub(super) presentation: Presentation,
-}
-
-/// Only the selected chat presents terminal-wide controls.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) enum Presentation {
-    #[default]
-    Solo,
-    Focused,
-    Passive,
-}
-
-impl Presentation {
-    pub(super) fn focused(self) -> bool {
-        self != Self::Passive
-    }
 }
 
 impl PartialEq for Chat {
@@ -432,32 +416,6 @@ impl State for ChatState {
     }
 
     fn build(&self, w: &Chat, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let frame = frame::Frame::read(self, w, cx);
-        self.tell(w, &frame);
-        let inline_draft = super::transcript_header::startup_draft(&frame.session)
-            && AppBinding::maybe_of(cx).is_some_and(|binding| binding.mode() == ScreenMode::Inline);
-        let transcript = reader::pane(self, w, &frame, inline_draft);
-        let slot = slot::slot(self, w, cx, &frame);
-        let body = bottom::body(self, w, cx, &frame, slot);
-        let titles = if w.presentation.focused() {
-            title::titles(cx, &frame)
-        } else {
-            Vec::new()
-        };
-        let body = bottom::with_titles(&frame, body, titles);
-        let guide = chord_guide::guide(w.ui.draft.clone(), frame.keymap.clone());
-        let pet = overlay::pet(self, w, &frame);
-        let page = overlay::page(transcript, body, inline_draft, guide, pet);
-        let focus = input::focus(self, cx, &frame, &w.ui, w.presentation, page);
-        // The listener stands outside the keyed focus: a key that changes in the same flush as a
-        // directive (the continue key ends the lock and gives the words in one step) would end its
-        // state, and the edge with it.
-        let mut shown = Stack::new().fit(StackFit::Expand).child(focus);
-        if let Some(on_edge) = &self.edges {
-            shown = shown.child(Listener {
-                on_edge: on_edge.clone(),
-            });
-        }
-        input::hints(cx, &frame, AnyWidget::from(shown))
+        overlay::view(self, w, cx)
     }
 }
