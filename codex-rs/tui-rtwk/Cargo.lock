@@ -3713,6 +3713,7 @@ dependencies = [
  "codex-app-server-protocol",
  "codex-arg0",
  "codex-backend-client",
+ "codex-build-info",
  "codex-config",
  "codex-core",
  "codex-exec-server",

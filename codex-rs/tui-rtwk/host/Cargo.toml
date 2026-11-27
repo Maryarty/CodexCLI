@@ -20,6 +20,7 @@ codex-app-server-daemon = { path = "/Users/admin/.cache/codexcli/backend-pin/cod
 codex-app-server-protocol = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/app-server-protocol" }
 codex-backend-client = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/backend-client" }
 codex-arg0 = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/arg0" }
+codex-build-info = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/build-info" }
 codex-config = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/config" }
 codex-core = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/core" }
 codex-exec-server = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/exec-server" }
