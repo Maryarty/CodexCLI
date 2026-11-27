@@ -853,9 +853,57 @@ fn pending_input_preview_desired_height_empty() {
 // ORACLE bottom_pane/pending_input_preview.rs:263 oversized_preview_urls_keep_complete_destinations kind=snap owner=ui-pane snap=render_oversized_preview_url
 #[test]
 fn oversized_preview_urls_keep_complete_destinations() {
+    let url = format!(
+        "https://example.test/review?notes={}&mode=raw#hidden-url-tail",
+        "x".repeat(100)
+    );
+    let hidden = "https://example.test/after-preview";
+    let message = format!("Review {url}\nsecond\nthird\nfourth\n{hidden}");
+    for (section, heading) in [
+        ("steers", "Messages to be submitted after next tool call"),
+        ("rejected", "Messages to be submitted at end of turn"),
+        ("queued", "Queued follow-up inputs"),
+    ] {
+        let mut s = Screen::build(Owner::UiPane).size(32, 18).live().open();
+        let mut pending = serde_json::json!({"thread": "thread-1"});
+        pending[section] = serde_json::json!([message]);
+        s.feed(
+            &serde_json::json!({
+                "step": "screen", "dir": "chat", "ev": {"pending": pending}
+            })
+            .to_string(),
+        );
+        s.assert_contains_unwrapped(heading);
+        s.assert_no_link("Review");
+        s.assert_link("https://", &url);
+        s.assert_link_targets(&[&url]);
+        s.assert_absent("hidden-url-tail");
+        s.assert_absent("after-preview");
+    }
+}
+
+#[test]
+fn queued_url_preview_keeps_the_submitted_payload() {
+    let mut s = Screen::build(Owner::UiPane)
+        .size(32, 18)
+        .script(include_str!("fixtures/chat_status_1/running_turn.jsonl"))
+        .open();
+    let url = format!("https://example.test/review?note={}#all", "x".repeat(100));
+    let payload = format!("Review {url}\nsecond\nthird\nfourth\nfull payload tail");
+    s.paste(&payload).keys("tab");
+    s.assert_contains("Queued follow-up inputs");
+    s.assert_link_targets(&[&url]);
+    s.assert_absent("full payload tail");
+    s.assert_no_turn();
+    s.feed(r#"{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","items":[],"itemsView":"full","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}"#);
+    s.assert_turn_texts(&[&payload]);
+}
+
+#[test]
+fn oversized_preview_url_visual_wrap_matches_the_oracle() {
     kit::pending(
         Owner::UiPane,
-        "pending(G48): the oracle keeps a URL-like token whole and clips it to the row (`adaptive_wrap_line_with_source`, then `truncate_line_to_width`); `TextWrap::Word` breaks an oversized token over rows, a hand wrapper would be R15. The preview itself is built (entry chat/render_oversized_preview_url)",
+        "G48: the oracle keeps a URL intact on one row and clips its visible label; native TextWrap::Word may wrap it across visible rows. OSC 8 destinations and payload are verified separately",
     );
     let s = Screen::build(Owner::UiPane)
         .size(32, 4)

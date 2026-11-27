@@ -676,7 +676,7 @@ fn header(
     let description_shown = description_rows.min(budget - title_shown.min(budget));
     let part = |text: &str, lines: usize, style| -> Option<AnyWidget> {
         (lines > 0).then(|| {
-            Text::rich(banner_spans(text, style))
+            Text::rich(web_spans(text, style))
                 .max_lines(Some(lines))
                 .overflow(TextOverflow::Clip)
                 .into()
@@ -702,7 +702,7 @@ fn header(
 }
 
 /// Keep the source copy literal, and give every painted fragment of a web URL its full target.
-fn banner_spans(text: &str, style: Style) -> Vec<Span> {
+pub(super) fn web_spans(text: &str, style: Style) -> Vec<Span> {
     let mut finder = LinkFinder::new();
     finder.kinds(&[LinkKind::Url]);
     finder

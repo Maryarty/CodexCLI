@@ -19,6 +19,7 @@ use codex_tui_core::keymap::actions::{CHAT_EDIT_QUEUED_MESSAGE, CHAT_INTERRUPT_T
 use codex_tui_core::question_reply as reply;
 use codex_tui_core::threads::ThreadModel;
 
+use crate::pages::session::banners::web_spans;
 use crate::widgets::measure;
 
 use super::strings::{self, Strings};
@@ -206,8 +207,7 @@ fn message_rows(
                 ))
                 .child(Expanded::new(
                     1,
-                    Text::new(shown)
-                        .style(style.clone())
+                    Text::rich(web_spans(&shown, style.clone()))
                         .wrap(TextWrap::Word)
                         .max_lines(Some(PREVIEW_LINE_LIMIT))
                         .overflow(TextOverflow::Clip),
