@@ -183,7 +183,14 @@ impl_widget!(stateless eq Wrap);
 impl StatelessWidget for Wrap {
     fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
         let right = Provider::<Reserve>::maybe_of(cx, true).map_or(0, |reserve| reserve.0);
-        Padding::new(EdgeInsets::only(0, right, 0, 0), self.child.clone()).into()
+        Padding::new(
+            EdgeInsets {
+                right,
+                ..EdgeInsets::ZERO
+            },
+            self.child.clone(),
+        )
+        .into()
     }
 }
 
