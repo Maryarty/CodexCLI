@@ -336,10 +336,11 @@ impl State for HostState {
                 &read::<TuiSettings, _>(cx),
                 w.copy_origin(cx),
             ),
-            // a press that is not a copy is the reader selecting: not Find's match any more
             Msg::Press(press) => {
                 super::select::of(&w.find).end_extension();
                 if press.button == 0 {
+                    // Only the primary press can start the reader's own selection.
+                    w.find.pressed();
                     w.selection.revise_copy_surface(cx.id());
                     self.primary_scope = None;
                     self.primary_press = read::<TuiSettings, _>(cx).primary_selection
@@ -356,7 +357,6 @@ impl State for HostState {
                     );
                     self.link_released = false;
                 }
-                w.find.pressed();
                 return Rebuild::No;
             }
             Msg::Drag(pointer) => {

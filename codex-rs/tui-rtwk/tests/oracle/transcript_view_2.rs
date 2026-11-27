@@ -674,10 +674,6 @@ fn selection_at_bottom_restores_footer_without_resuming_following() {
 // ORACLE transcript_view/footer_tests.rs:126 selection_hints_follow_selected_text_instead_of_mouse_down kind=snap owner=chat-live snap=selection_hint_threshold
 #[test]
 fn selection_hints_follow_selected_text_instead_of_mouse_down() {
-    kit::pending(
-        Owner::ChatLive,
-        "A one-character drag shows the copy footer in the regular reader. When Find is active the same character visibly becomes selected, but the search hints still take priority over copy hints.",
-    );
     for searching in [false, true] {
         let mut s = Screen::build(Owner::ChatLive)
             .size(80, 14)
@@ -686,6 +682,8 @@ fn selection_hints_follow_selected_text_instead_of_mouse_down() {
         s.selection_copy_policy(false, false);
         if searching {
             s.keys("f3");
+            s.assert_contains("Find:");
+            s.assert_contains("Type to find");
         }
         let row = s.row_of("é selection");
         let y = u16::try_from(row).expect("selection row");
@@ -695,10 +693,18 @@ fn selection_hints_follow_selected_text_instead_of_mouse_down() {
         s.mouse_drag(3, y);
         s.assert_style(2, row, "reversed");
         s.assert_contains("⌃c copy");
+        if searching {
+            s.assert_contains("Find:");
+            s.assert_absent("Type to find");
+        }
         s.mouse_drag(2, y);
         s.mouse_up(2, y);
         s.assert_absent("⌃c copy");
         s.assert_copies_asked(&[]);
+        if searching {
+            s.assert_contains("Find:");
+            s.assert_contains("Type to find");
+        }
     }
 }
 

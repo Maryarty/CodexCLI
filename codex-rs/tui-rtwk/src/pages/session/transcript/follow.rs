@@ -19,12 +19,12 @@ use rtwk::gestures::{GestureDetector, MouseRegion, PointerEvent};
 use rtwk::layout::{Center, Column, Expanded, MainAxisSize, Row, SizedBox};
 use rtwk::provider::{select, watch};
 use rtwk::style::{Attrs, Span, Style};
-use rtwk::text::{Text, segmenter_of};
+use rtwk::text::{Text, TextOverflow, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::composer::trigger;
-use codex_tui_core::threads::ThreadModel;
+use codex_tui_core::threads::{HistoryState, ThreadModel};
 
 use crate::app::theme;
 use crate::keymap::{pressed_fixed, unmodified};
@@ -264,42 +264,12 @@ pub fn footer<S>(
             } else {
                 Vec::new()
             };
-            // what the keys of a selection do: pairs of keys and their action
-            let hint = |pairs: &[(&'static str, &'static str)]| -> Vec<Span> {
-                let mut spans = Vec::new();
-                for (index, (keys, action)) in pairs.iter().enumerate() {
-                    if index > 0 {
-                        spans.push(Span::styled(table.footer_joiner, dim.clone()));
-                    }
-                    spans.push(Span::styled(*keys, key_style.clone()));
-                    if !action.is_empty() {
-                        spans.push(Span::styled(*action, dim.clone()));
-                    }
-                }
-                spans
-            };
             let fits = |spans: &[Span]| {
                 let cells: usize = spans.iter().map(|span| segmenter.width(&span.text)).sum();
                 i32::try_from(cells).unwrap_or(i32::MAX) <= constraints.max_width
             };
             let candidates: Vec<Vec<Span>> = if selected {
-                // the widest hint, led by the news while the reader is away and has some, or by
-                // the page on its way (`status_line_with_navigation`), then the hints alone
-                let mut all = Vec::new();
-                if unseen || pending {
-                    all.push(history::whole(
-                        table,
-                        &look,
-                        &history::Say {
-                            history: state,
-                            news: unseen,
-                            navigation: &hint(table.selection_hints[0]),
-                            selected: true,
-                        },
-                    ));
-                }
-                all.extend(table.selection_hints.iter().map(|pairs| hint(pairs)));
-                all
+                selection_candidates(table, &look, state, unseen)
             } else {
                 history::candidates(
                     table,
@@ -340,6 +310,63 @@ pub fn footer<S>(
             .child(SizedBox::new(Some(2), None, None))
             .child(Expanded::new(1, hint))
             .into()
+    })
+    .into()
+}
+
+fn selection_candidates(
+    table: &Strings,
+    look: &history::Look,
+    state: HistoryState,
+    news: bool,
+) -> Vec<Vec<Span>> {
+    let hint = |pairs: &[(&'static str, &'static str)]| {
+        let mut spans = Vec::new();
+        for (index, (keys, action)) in pairs.iter().enumerate() {
+            if index > 0 {
+                spans.push(Span::styled(table.footer_joiner, look.dim.clone()));
+            }
+            spans.push(Span::styled(*keys, look.key.clone()));
+            if !action.is_empty() {
+                spans.push(Span::styled(*action, look.dim.clone()));
+            }
+        }
+        spans
+    };
+    // Give news or the pending page room before falling back to selection hints alone.
+    let mut candidates = Vec::new();
+    if news || history::pending(state) {
+        candidates.push(history::whole(
+            table,
+            look,
+            &history::Say {
+                history: state,
+                news,
+                navigation: &hint(table.selection_hints[0]),
+                selected: true,
+            },
+        ));
+    }
+    candidates.extend(table.selection_hints.iter().map(|pairs| hint(pairs)));
+    candidates
+}
+
+/// The status of a selection made during Find. Editing uses the hints alone.
+pub(super) fn selection_row(
+    table: &'static Strings,
+    look: history::Look,
+    state: HistoryState,
+) -> AnyWidget {
+    LayoutBuilder::new(move |cx, constraints| {
+        let segmenter = segmenter_of(cx);
+        let spans = selection_candidates(table, &look, state, false)
+            .into_iter()
+            .find(|spans| {
+                let cells: usize = spans.iter().map(|span| segmenter.width(&span.text)).sum();
+                i32::try_from(cells).unwrap_or(i32::MAX) <= constraints.max_width
+            })
+            .unwrap_or_default();
+        Text::rich_line(spans).overflow(TextOverflow::Clip).into()
     })
     .into()
 }

@@ -5,7 +5,7 @@
 use std::rc::Rc;
 
 use rtwk::binding::AppBinding;
-use rtwk::focus::{Focus, KeyBindings, KeyEventResult};
+use rtwk::focus::{Focus, KeyBindings, KeyEventResult, KeyPress};
 use rtwk::layout::Stack;
 use rtwk::{AnyWidget, Cx, Key};
 
@@ -26,7 +26,7 @@ use crate::pages::session::transcript::select::{self as caret, Step};
 use crate::pages::session::transcript::selection::Key as SelectionKey;
 use crate::pages::session::transcript::{self, find};
 use crate::sheets::select::hud::Step as PresetStep;
-use crate::widgets::finder::Mode as FindMode;
+use crate::widgets::finder::{Finder, Mode as FindMode};
 use crate::widgets::thread_ui::Input;
 
 use super::frame::Frame;
@@ -75,6 +75,10 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
                 ActivityStep::Taken => KeyEventResult::Handled,
                 ActivityStep::Left => KeyEventResult::Ignored,
             };
+        }
+        if let Some(step) = find_selection_key(&finder, &key) {
+            send(ChatMsg::Selection(step));
+            return KeyEventResult::Handled;
         }
         if finder.reading()
             && let Some(taken) = find::key(finder.mode(), &key)
@@ -317,6 +321,14 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
     })));
 }
 
+fn find_selection_key(finder: &Finder, key: &KeyPress) -> Option<SelectionKey> {
+    if finder.paused() && !caret::of(finder).active() {
+        transcript::selection::key(key)
+    } else {
+        None
+    }
+}
+
 /// The jump a key asks of the transcript: its first row (Ctrl+Home, Alt+<) or its last (Ctrl+End,
 /// Alt+>).
 fn jump_of(key: &rtwk::focus::KeyPress) -> Option<ChatMsg> {
@@ -341,7 +353,17 @@ pub(super) fn focus(
     page: Stack,
 ) -> AnyWidget {
     let (thread, keymap) = (&frame.thread, &frame.keymap);
-    let mut focus = Focus::new(page);
+    let finder = state.find.clone();
+    let send = cx.local_sender();
+    // The Find field is a sibling of the composer. Its selection keys reach this common ancestor.
+    let mut focus = Focus::new(page).on_key_event(move |_, key| {
+        if let Some(step) = find_selection_key(&finder.borrow(), &key) {
+            send(ChatMsg::Selection(step));
+            KeyEventResult::Handled
+        } else {
+            KeyEventResult::Ignored
+        }
+    });
     for (id, msg) in [
         (fixed::INTERRUPT_OR_QUIT, ChatMsg::CtrlC),
         (fixed::QUIT_ON_EMPTY, ChatMsg::CtrlD),

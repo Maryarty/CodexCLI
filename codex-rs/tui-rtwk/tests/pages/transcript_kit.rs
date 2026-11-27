@@ -3,6 +3,8 @@
 //! makes of it. The features that use them have their own tests.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::disallowed_methods)]
 
+use rtwk_core::input::{Mods, MouseKind};
+
 use crate::kit::{Owner, Screen};
 
 const TOP_BOTTOM: &str = include_str!("../oracle/fixtures/transcript_view_4/sm_entry_1.jsonl");
@@ -142,4 +144,85 @@ fn an_older_page_joins_above_a_partial_history_and_the_live_tail() {
     s.live_tail(" and more");
     s.wheel_down(0, 0, 100);
     s.assert_contains("• latest answer and more");
+}
+
+fn find_in_the_reader(overlay: bool, accepted: bool) -> Screen {
+    let open = Screen::build(Owner::ChatLive)
+        .size(80, 18)
+        .script(include_str!(
+            "../oracle/fixtures/transcript_view_2/sel_hint.jsonl"
+        ));
+    let mut s = if overlay { open.view_overlay() } else { open }.open();
+    s.selection_copy_policy(false, false);
+    s.keys("f3");
+    s.type_text("selection");
+    s.assert_find_query("selection");
+    s.assert_text_style("selection", "reversed");
+    s.assert_absent("⌃c copy");
+    if accepted {
+        s.keys("enter");
+        s.assert_contains("Find ·");
+    }
+    s
+}
+
+fn find_with_range_in_the_reader(overlay: bool, accepted: bool) -> Screen {
+    let mut s = find_in_the_reader(overlay, accepted);
+    s.double_click_text("é");
+    s.assert_text_style("é", "reversed");
+    s.assert_contains("⌃c copy");
+    s.assert_copies_asked(&[]);
+    s
+}
+
+#[test]
+fn a_manual_range_copies_while_the_find_query_is_being_edited() {
+    for overlay in [false, true] {
+        let mut s = find_with_range_in_the_reader(overlay, false);
+        s.assert_contains("Find: selection");
+        s.assert_absent("enter accept");
+        s.keys("ctrl+c");
+        s.assert_copies_asked(&["é"]);
+        s.assert_find_query("selection");
+        s.answer_copy(Ok(()));
+        s.assert_text_style("é", "!reversed");
+        s.assert_contains("enter accept");
+        s.assert_absent("⌃c copy");
+        s.type_text("x");
+        s.assert_find_query("selectionx");
+        s.assert_contains("Find: selectionx");
+        s.keys("ctrl+c");
+        s.assert_absent("Find:");
+        s.assert_copies_asked(&["é"]);
+    }
+}
+
+#[test]
+fn a_manual_range_copies_while_reading_an_accepted_find_match() {
+    for overlay in [false, true] {
+        let mut s = find_with_range_in_the_reader(overlay, true);
+        s.assert_absent("Find ·");
+        s.keys("ctrl+c");
+        s.assert_copies_asked(&["é"]);
+        s.answer_copy(Ok(()));
+        s.assert_find_query("selection");
+        s.assert_contains("Find ·");
+        s.assert_text_style("é", "!reversed");
+        s.assert_absent("⌃c copy");
+    }
+}
+
+#[test]
+fn middle_click_does_not_make_a_find_match_copyable() {
+    for overlay in [false, true] {
+        let mut s = find_in_the_reader(overlay, true);
+        let y = u16::try_from(s.row_of("é selection")).expect("a transcript row");
+        s.mouse_event(MouseKind::Down, 1, 2, y, Mods::NONE);
+        s.mouse_event(MouseKind::Up, 1, 2, y, Mods::NONE);
+        s.assert_contains("Find ·");
+        s.assert_absent("⌃c copy");
+        s.keys("ctrl+c");
+        s.assert_copies_asked(&[]);
+        s.assert_absent("Find ·");
+    }
 }

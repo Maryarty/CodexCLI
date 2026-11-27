@@ -361,8 +361,14 @@ impl State for SheetState {
         // while Find is open its query row and status row take the place of the status row and the
         // hints (`footer_with_navigation`), from the first column
         let bottom = match bottom {
-            Some(rows) => Some(find_footer::slot_in(cx, &find, rows.into(), 0)),
-            None => Some(bare_bottom(cx, &find)),
+            Some(rows) => Some(find_footer::slot_in(
+                cx,
+                &find,
+                &w.selection,
+                rows.into(),
+                0,
+            )),
+            None => Some(bare_bottom(cx, &find, &w.selection)),
         };
         let mut column = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
         if w.chrome == Chrome::Overlay {
@@ -520,9 +526,9 @@ impl State for SheetState {
 /// alone has no bottom pane (Find's query is edited all the same, in a field that draws nothing).
 /// While select mode (or copy mode) is on the rows of the footer show and take the list's last
 /// rows, as they do under the oracle's app: its hints, and Find's query and status over them.
-fn bare_bottom(cx: &mut Cx<'_, SheetState>, find: &Finder) -> AnyWidget {
+fn bare_bottom(cx: &mut Cx<'_, SheetState>, find: &Finder, selection: &TextSelection) -> AnyWidget {
     let nothing = || -> AnyWidget { SizedBox::new(None, Some(0), None).into() };
-    let seen = find_footer::slot_in(cx, find, nothing(), 0);
+    let seen = find_footer::slot_in(cx, find, selection, nothing(), 0);
     let unseen = find_footer::unseen_query(cx, find);
     let (caret, copier, activity) = (
         select::of(find),

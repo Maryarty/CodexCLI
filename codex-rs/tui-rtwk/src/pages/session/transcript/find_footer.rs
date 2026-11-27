@@ -15,7 +15,7 @@ use std::time::Duration;
 use rtwk::binding::AppBinding;
 use rtwk::editing::{EditingKeys, TextField};
 use rtwk::focus::{Focus, FocusNode, KeyPress};
-use rtwk::foundation::ListenableBuilder;
+use rtwk::foundation::{Listenable, ListenableBuilder};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
 use rtwk::provider::select as select_state;
 use rtwk::style::{Span, Style};
@@ -25,6 +25,7 @@ use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_wi
 use super::activity_focus::{self, Activity};
 use super::copy;
 use super::find::{self, Finder, Mode};
+use super::follow;
 use super::history;
 use super::select;
 use super::selection;
@@ -32,6 +33,7 @@ use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
 use crate::pages::session::composer::editing::edit_query;
 pub use crate::widgets::finder::{Progress, Status};
+use crate::widgets::thread_ui::TextSelection;
 use codex_tui_core::threads::{HistoryState, ThreadModel};
 
 /// The spellings of the status row, the widest first (`status_line`).
@@ -218,8 +220,13 @@ pub fn query_row(table: &'static Strings, label: Style, editor: AnyWidget) -> An
 /// row, two cells in, in the place of `normal`, the footer the page would draw; while select mode
 /// is on and Find is not, its hint row (`select_hints`) (Flutter: a `ListenableBuilder` on the
 /// finder and on the select mode). One call from the page's footer slot.
-pub fn slot<S: 'static>(cx: &mut Cx<'_, S>, finder: &Finder, normal: AnyWidget) -> AnyWidget {
-    slot_in(cx, finder, normal, COMPOSER_MARGIN)
+pub fn slot<S: 'static>(
+    cx: &mut Cx<'_, S>,
+    finder: &Finder,
+    selection: &TextSelection,
+    normal: AnyWidget,
+) -> AnyWidget {
+    slot_in(cx, finder, selection, normal, COMPOSER_MARGIN)
 }
 
 /// The cells the composer's footer rows start in from the left.
@@ -231,6 +238,7 @@ const COMPOSER_MARGIN: i32 = 2;
 pub fn slot_in<S: 'static>(
     cx: &mut Cx<'_, S>,
     finder: &Finder,
+    selection: &TextSelection,
     normal: AnyWidget,
     margin: i32,
 ) -> AnyWidget {
@@ -262,7 +270,11 @@ pub fn slot_in<S: 'static>(
     let state = select_state::<ThreadModel, _, _>(cx, ThreadModel::history_state);
     let accent = tokens.accent();
     let activity = activity_focus::of(&finder);
-    let shown: AnyWidget = ListenableBuilder::new(finder.listenable(), move |_, _| {
+    let listenable = <dyn Listenable>::merge([
+        Some(finder.listenable() as Rc<dyn Listenable>),
+        Some(selection.listenable()),
+    ]);
+    let shown: AnyWidget = ListenableBuilder::new(Rc::new(listenable), move |_, _| {
         let (dim, bold) = (shown_dim.clone(), shown_key.clone());
         let mode = finder.mode();
         if mode == Mode::Closed {
@@ -276,6 +288,21 @@ pub fn slot_in<S: 'static>(
                 margin,
                 QueryField::new(&finder, table, dim.clone()).into(),
             ));
+        }
+        if finder.paused() {
+            let look = history::Look {
+                accent: accent.clone(),
+                dim,
+                key: bold,
+            };
+            let state = if mode == Mode::Editing {
+                HistoryState::Complete
+            } else {
+                state
+            };
+            return rows
+                .child(row(margin, follow::selection_row(table, look, state)))
+                .into();
         }
         let status = finder.status();
         if mode == Mode::Reading && status.reading && history::pending(state) {
