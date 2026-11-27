@@ -142,9 +142,9 @@ fn advanced_reasoning_selection_in_plan_mode_uses_expected_scope() {
 }
 
 /// Default-mode settings and the live settings the backend echoes after changing mode or effort.
-fn reasoning_settings(mode: &str, effort: &str) -> String {
+fn reasoning_settings(thread: &str, mode: &str, effort: &str) -> String {
     serde_json::json!({"step":"notify","message":{"method":"thread/settings/updated","params":{
-        "threadId":"thread-1",
+        "threadId":thread,
         "threadSettings":{"cwd":"/tmp/project","approvalPolicy":"on-request","approvalsReviewer":"user",
             "sandboxPolicy":{"type":"dangerFullAccess"},"activePermissionProfile":null,
             "model":"gpt-5.5","modelProvider":"openai","serviceTier":null,"effort":effort,"summary":null,
@@ -153,7 +153,7 @@ fn reasoning_settings(mode: &str, effort: &str) -> String {
     .to_string()
 }
 
-fn plan_reasoning_picker(low_override: bool) -> Screen {
+fn plan_reasoning_session(configured_effort: Option<&str>) -> Screen {
     let catalog: serde_json::Value = serde_json::from_str(include_str!(
         "fixtures/chat_live_4/plan_reasoning_catalog.json"
     ))
@@ -165,14 +165,36 @@ fn plan_reasoning_picker(low_override: bool) -> Screen {
         .collaboration_catalog(catalog["collaboration"].clone())
         .open();
     // The host's configured global High and the live Plan mode's effort can differ.
-    s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.5","effort":"high","items":["model-with-reasoning"]}}}"#);
-    s.feed(&reasoning_settings("default", "high"));
+    s.feed(
+        &serde_json::json!({"step":"screen","dir":"chat","ev":{"status":{
+            "model":"gpt-5.5","effort":"high","plan_effort":configured_effort,
+            "items":["model-with-reasoning"]
+        }}})
+        .to_string(),
+    );
+    s.feed(&reasoning_settings("thread-1", "default", "high"));
     s.assert_contains("GPT-5.5 high");
     s.type_text("/plan").keys("enter");
-    s.assert_last_request_has("thread/settings/update", r#""medium""#);
-    s.feed(&reasoning_settings("plan", "medium"));
+    let effective = configured_effort.unwrap_or("medium");
+    s.assert_last_request_has(
+        "thread/settings/update",
+        &[r#""reasoning_effort":""#, effective, "\""].concat(),
+    );
+    s.feed(&reasoning_settings("thread-1", "plan", effective));
     s.assert_contains("Plan mode");
-    s.assert_contains("GPT-5.5 medium");
+    s.assert_contains(&["GPT-5.5 ", effective].concat());
+    s
+}
+
+fn open_reasoning_picker(s: &mut Screen) {
+    s.type_text("/model").keys("enter");
+    s.assert_contains("Select Model and Effort");
+    s.keys("enter");
+    s.assert_contains("Select Reasoning Level for GPT-5.5");
+}
+
+fn plan_reasoning_picker(low_override: bool) -> Screen {
+    let mut s = plan_reasoning_session(None);
     if low_override {
         // The user chooses Low through the Plan shortcut and the server echoes it.
         let updates = s.requests_of("thread/settings/update");
@@ -180,13 +202,10 @@ fn plan_reasoning_picker(low_override: bool) -> Screen {
         s.assert_requests_of("thread/settings/update", updates + 1);
         s.assert_last_request_has("thread/settings/update", r#""low""#);
         s.assert_last_request_has("thread/settings/update", r#""plan""#);
-        s.feed(&reasoning_settings("plan", "low"));
+        s.feed(&reasoning_settings("thread-1", "plan", "low"));
         s.assert_contains("GPT-5.5 low");
     }
-    s.type_text("/model").keys("enter");
-    s.assert_contains("Select Model and Effort");
-    s.keys("enter");
-    s.assert_contains("Select Reasoning Level for GPT-5.5");
+    open_reasoning_picker(&mut s);
     s
 }
 
@@ -202,10 +221,6 @@ fn choose_medium_reasoning(s: &mut Screen) {
 // ORACLE chatwidget/tests/plan_mode.rs:412 plan_mode_reasoning_override_is_marked_current_in_reasoning_popup kind=ui owner=chat-live
 #[test]
 fn plan_mode_reasoning_override_is_marked_current_in_reasoning_popup() {
-    kit::pending(
-        Owner::ChatLive,
-        "The live Plan shortcut sets Low and the footer shows it, but /model reads the global High and marks that row current. The live opener does not supply the picker with Plan context.",
-    );
     let s = plan_reasoning_picker(true);
     s.assert_contains("Low (current)");
     s.assert_absent("High (current)");
@@ -232,10 +247,6 @@ fn plan_reasoning_scope_popup_all_modes_persists_global_and_plan_override() {
 // ORACLE chatwidget/tests/plan_mode.rs:618 plan_reasoning_scope_popup_mentions_selected_reasoning kind=ui owner=chat-live
 #[test]
 fn plan_reasoning_scope_popup_mentions_selected_reasoning() {
-    kit::pending(
-        Owner::ChatLive,
-        "After choosing Low in Plan, selecting Medium in /model closes the picker and sends config/batchWrite before any scope choice. The live picker does not receive the user-chosen Plan override.",
-    );
     let mut s = plan_reasoning_picker(true);
     choose_medium_reasoning(&mut s);
     s.assert_contains("Always use medium reasoning in Plan mode");
@@ -247,13 +258,147 @@ fn plan_reasoning_scope_popup_mentions_selected_reasoning() {
 // ORACLE chatwidget/tests/plan_mode.rs:640 plan_reasoning_scope_popup_mentions_built_in_plan_default_when_no_override kind=ui owner=chat-live
 #[test]
 fn plan_reasoning_scope_popup_mentions_built_in_plan_default_when_no_override() {
-    kit::pending(
-        Owner::ChatLive,
-        "With the real Plan catalog default Medium and global High, reselecting Medium sends config/batchWrite instead of opening the scope picker. The live picker does not receive the built-in Plan default.",
-    );
     let mut s = plan_reasoning_picker(false);
     choose_medium_reasoning(&mut s);
     s.assert_contains_unwrapped("built-in Plan default (medium)");
+    let updates = s.requests_of("thread/settings/update");
+    s.keys("esc");
+    s.assert_absent("Choose where to apply medium reasoning.");
+    s.assert_no_request("config/batchWrite");
+    s.assert_requests_of("thread/settings/update", updates);
+    s.assert_contains("GPT-5.5 medium");
+}
+
+#[test]
+fn plan_reasoning_picker_reads_the_configured_override_on_entering_plan() {
+    let mut s = plan_reasoning_session(Some("low"));
+    open_reasoning_picker(&mut s);
+    s.assert_contains("Low (current)");
+    choose_medium_reasoning(&mut s);
+    s.assert_contains_unwrapped("user-chosen Plan override (low)");
+}
+
+#[test]
+fn switching_conversations_drops_the_scope_draft_and_the_shortcut_is_local() {
+    let mut s = plan_reasoning_picker(true);
+    choose_medium_reasoning(&mut s);
+    s.server_resumes("thread-2").visit_thread("thread-2");
+    s.assert_active_thread("thread-2");
+    s.assert_absent("Choose where to apply medium reasoning.");
+    s.assert_no_request("config/batchWrite");
+    s.feed(&reasoning_settings("thread-2", "default", "high"));
+    s.type_text("/plan").keys("enter");
+    s.assert_last_request_has("thread/settings/update", r#""threadId":"thread-2""#);
+    s.assert_last_request_has("thread/settings/update", r#""reasoning_effort":"medium""#);
+    s.feed(&reasoning_settings("thread-2", "plan", "medium"));
+    open_reasoning_picker(&mut s);
+    s.assert_contains("Medium (default) (current)");
+    choose_medium_reasoning(&mut s);
+    s.assert_contains_unwrapped("built-in Plan default (medium)");
+}
+
+#[test]
+fn refused_plan_scope_save_keeps_the_original_effort_and_reports_to_its_thread() {
+    let mut s = plan_reasoning_picker(true);
+    choose_medium_reasoning(&mut s);
+    let updates = s.requests_of("thread/settings/update");
+    let write = s.hold_request("config/batchWrite");
+    s.server_refuses(
+        "config/batchWrite",
+        Some(-32000),
+        "Plan configuration is read-only",
+    );
+    s.click_text("Apply to Plan mode override");
+    s.assert_requests_of("config/batchWrite", 1);
+    s.assert_last_request_has(
+        "config/batchWrite",
+        r#""keyPath":"plan_mode_reasoning_effort""#,
+    );
+    s.assert_last_request_mentions(
+        "config/batchWrite",
+        r#""keyPath":"model_reasoning_effort""#,
+        false,
+    );
+    s.assert_requests_of("thread/settings/update", updates);
+    s.server_resumes("thread-2").visit_thread("thread-2");
+    s.release(&write);
+    s.assert_active_thread("thread-2");
+    s.assert_absent("Plan configuration is read-only");
+    s.visit_thread("thread-1");
+    s.assert_active_thread("thread-1");
+    s.assert_contains("Plan configuration is read-only");
+    s.assert_contains("GPT-5.5 low");
+    s.assert_requests_of("thread/settings/update", updates);
+}
+
+#[test]
+fn all_modes_reasoning_waits_for_the_config_write_before_updating_plan() {
+    let mut s = plan_reasoning_picker(true);
+    choose_medium_reasoning(&mut s);
+    let updates = s.requests_of("thread/settings/update");
+    let write = s.hold_request("config/batchWrite");
+    s.server_answers(
+        "config/batchWrite",
+        serde_json::json!({
+            "status":"ok","version":"v","filePath":"/c","overriddenMetadata":null
+        }),
+    );
+    s.click_text("Apply to global default and Plan mode override");
+    s.assert_requests_of("config/batchWrite", 1);
+    s.assert_last_request_has("config/batchWrite", r#""keyPath":"model_reasoning_effort""#);
+    s.assert_last_request_has(
+        "config/batchWrite",
+        r#""keyPath":"plan_mode_reasoning_effort""#,
+    );
+    s.assert_requests_of("thread/settings/update", updates);
+    s.release(&write);
+    s.assert_requests_of("thread/settings/update", updates + 1);
+    s.assert_last_request_has("thread/settings/update", r#""threadId":"thread-1""#);
+    s.assert_last_request_has("thread/settings/update", r#""reasoning_effort":"medium""#);
+    s.feed(&reasoning_settings("thread-1", "plan", "medium"));
+    s.assert_contains("GPT-5.5 medium");
+    s.keys("shift+tab");
+    s.assert_last_request_has("thread/settings/update", r#""mode":"default""#);
+    s.assert_last_request_has("thread/settings/update", r#""reasoning_effort":"medium""#);
+}
+
+#[test]
+fn accepting_plan_only_uses_the_new_effort_for_plan_and_keeps_default() {
+    let mut s = plan_reasoning_picker(true);
+    choose_medium_reasoning(&mut s);
+    let updates = s.requests_of("thread/settings/update");
+    s.server_answers(
+        "config/batchWrite",
+        serde_json::json!({
+            "status":"ok","version":"v","filePath":"/c","overriddenMetadata":null
+        }),
+    );
+    s.click_text("Apply to Plan mode override");
+    s.assert_requests_of("config/batchWrite", 1);
+    s.assert_last_request_has(
+        "config/batchWrite",
+        r#""keyPath":"plan_mode_reasoning_effort""#,
+    );
+    s.assert_last_request_mentions(
+        "config/batchWrite",
+        r#""keyPath":"model_reasoning_effort""#,
+        false,
+    );
+    s.assert_requests_of("thread/settings/update", updates + 1);
+    s.assert_last_request_has("thread/settings/update", r#""mode":"plan""#);
+    s.assert_last_request_has("thread/settings/update", r#""reasoning_effort":"medium""#);
+    s.feed(&reasoning_settings("thread-1", "plan", "medium"));
+    open_reasoning_picker(&mut s);
+    s.assert_contains("Medium (default) (current)");
+    s.keys("esc").keys("esc");
+    s.keys("shift+tab");
+    s.assert_last_request_has("thread/settings/update", r#""mode":"default""#);
+    s.assert_last_request_has("thread/settings/update", r#""reasoning_effort":"high""#);
+    s.keys("shift+tab");
+    s.assert_last_request_has("thread/settings/update", r#""mode":"plan""#);
+    s.assert_last_request_has("thread/settings/update", r#""reasoning_effort":"medium""#);
+    s.type_text("plan with this reasoning").keys("enter");
+    s.assert_turn_texts(&["plan with this reasoning"]);
 }
 
 // ORACLE chatwidget/tests/plan_mode.rs:657 plan_reasoning_scope_popup_plan_only_does_not_update_all_modes_reasoning kind=ui owner=chat-live

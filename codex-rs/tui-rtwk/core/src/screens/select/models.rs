@@ -11,6 +11,11 @@ use codex_app_server_protocol::RequestId;
 use codex_protocol::openai_models::{InputModality, ReasoningEffort};
 use serde::Deserialize;
 
+use crate::ids::ThreadId;
+use crate::screens::chat::{StatusFacts, ThreadPart};
+
+use super::collaboration::{self, Mask};
+
 pub type Effort = ReasoningEffort;
 
 /// How many concurrent threads make an Ultra pick warn
@@ -271,8 +276,8 @@ pub enum PlanSource {
     Unknown,
 }
 
-/// The collaboration mode the thread is in when it is Plan
-/// (`current_collaboration_mode` and `plan_mode_reasoning_effort`).
+/// The settings underneath the active Plan mode: the thread's Default-mode base and where
+/// Plan gets its default reasoning. `Current` carries the effective model and effort.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct PlanMode {
     pub model: String,
@@ -295,6 +300,14 @@ pub struct ReserveOnly {
     pub normal_model: Option<String>,
 }
 
+/// Which visit to a conversation opened the picker.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Scope {
+    pub(crate) thread: ThreadId,
+    pub(crate) address: Option<crate::rpc::Address>,
+    pub visit: u64,
+}
+
 /// What the thread had when the menu opened: the dispatcher reads it from
 /// the thread's part and the menu keeps it (a snapshot that dies with the
 /// menu, not a copy of the thread).
@@ -313,6 +326,8 @@ pub struct Current {
     /// Set while the Reserve is the model and ordinary usage is not back.
     #[serde(default)]
     pub reserve: Option<ReserveOnly>,
+    #[serde(skip)]
+    pub scope: Option<Scope>,
 }
 
 impl Current {
@@ -323,21 +338,61 @@ impl Current {
             plan: None,
             threads: None,
             reserve: None,
+            scope: None,
         }
     }
 
     /// What the chat's status facts know of the thread: its model, effective
     /// effort and the configured thread limit. The plan mode is not among
     /// them (the opener adds it when the thread model carries it).
-    pub fn from_facts(facts: &crate::screens::chat::StatusFacts) -> Self {
-        let effort = facts.effort.as_deref().and_then(|name| {
-            serde_json::from_value(serde_json::Value::String(name.to_owned())).ok()
-        });
+    pub fn from_facts(facts: &StatusFacts) -> Self {
+        let effort = facts.effort.as_deref().and_then(|name| name.parse().ok());
         Current {
             effort,
             threads: facts.agent_threads,
             ..Current::new(facts.model.clone().unwrap_or_default())
         }
+    }
+
+    /// Request the current settings of this conversation from the ordered model.
+    pub fn for_thread(thread: ThreadId) -> Self {
+        Self {
+            scope: Some(Scope {
+                thread,
+                address: None,
+                visit: 0,
+            }),
+            ..Self::new(String::new())
+        }
+    }
+
+    pub(crate) fn from_thread(
+        part: &ThreadPart,
+        facts: &StatusFacts,
+        plan_enabled: bool,
+        configured_plan: Option<&Effort>,
+        masks: &[Mask],
+    ) -> Self {
+        use codex_protocol::config_types::ModeKind;
+        let mut current = Self::from_facts(facts);
+        if let Some(model) = &part.model {
+            current.model.clone_from(model);
+        }
+        current.effort = part
+            .effective_reasoning(facts)
+            .and_then(|name| name.parse().ok());
+        if plan_enabled && part.mode() == ModeKind::Plan {
+            let base = part.collaboration_base(facts);
+            current.plan = Some(PlanMode {
+                model: base.model,
+                effort: base.effort,
+                source: collaboration::plan_source(
+                    part.plan_override(configured_plan),
+                    collaboration::plan_mask(masks).as_ref(),
+                ),
+            });
+        }
+        current
     }
 }
 
@@ -394,6 +449,7 @@ pub enum ModelMenu {
         effort: Option<Effort>,
         source: PlanSource,
         warning: Option<usize>,
+        scope: Option<Scope>,
     },
 }
 
@@ -677,6 +733,14 @@ impl ModelMenu {
             ModelMenu::Loading { .. } | ModelMenu::PlanScope { .. } => None,
         }
     }
+
+    pub fn scope(&self) -> Option<&Scope> {
+        match self {
+            Self::PlanScope { scope, .. } => scope.as_ref(),
+            Self::Loading { current, .. } => current.scope.as_ref(),
+            _ => self.current().and_then(|current| current.scope.as_ref()),
+        }
+    }
 }
 
 /// The model a row of `menu` picks.
@@ -697,7 +761,7 @@ pub fn warning(current: Option<&Current>, effort: Option<&Effort>) -> Option<usi
 
 /// `should_prompt_plan_mode_reasoning_scope`: in Plan mode, a pick of the
 /// model in use that is not a no-op for both the effective effort and the
-/// stored Plan defaults asks where it applies.
+/// stored Default-mode settings asks where it applies.
 fn asks_scope(current: &Current, model: &str, effort: &Option<Effort>) -> bool {
     let Some(plan) = &current.plan else {
         return false;
@@ -730,6 +794,7 @@ fn settle(current: &Current, model: &str, effort: Option<Effort>) -> Onward {
             effort,
             source,
             warning,
+            scope: current.scope.clone(),
         });
     }
     let apply = if effort == Some(Effort::Ultra) {
@@ -868,13 +933,7 @@ fn reasoning(preset: &Preset, current: &Current) -> Page {
         .then(|| preset.default_effort.clone());
     let in_current_model = current.model == preset.model;
     let highlight = if in_current_model {
-        match &current.plan {
-            Some(PlanMode {
-                source: PlanSource::Override(effort),
-                ..
-            }) => Some(effort.clone()),
-            _ => current.effort.clone(),
-        }
+        current.effort.clone()
     } else {
         default_choice.clone().or_else(|| standard.first().cloned())
     };
