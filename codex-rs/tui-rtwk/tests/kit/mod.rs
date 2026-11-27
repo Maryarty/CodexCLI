@@ -487,6 +487,11 @@ impl Screen {
         self.h.t.screen()
     }
 
+    /// Rows already written above the terminal's visible screen.
+    pub fn scrollback(&self) -> Vec<String> {
+        self.h.t.scrollback()
+    }
+
     /// What the app wrote to the terminal as the window title (OSC 0 or 2),
     /// the last one; `None` when it wrote none.
     pub fn title(&self) -> Option<String> {
