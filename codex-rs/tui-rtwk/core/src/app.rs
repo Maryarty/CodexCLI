@@ -564,8 +564,30 @@ pub enum Command {
         thread: ThreadId,
         command: crate::features::FeatureCommand,
         preparation_checkpoint: Option<PreparationCheckpoint>,
+        attached_history: Option<(LocalSideStorage, AttachedHistory)>,
     },
 }
+
+/// A local attached-history operation carried by an ordinary feature ticket.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AttachedHistory {
+    Discover,
+    Verify { child: ThreadId },
+    Archive { child: ThreadId },
+}
+
+/// A row whose exact attached relationship and checkpoint were read by the local host.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SavedAttachment {
+    #[serde(with = "AttachmentId")]
+    pub id: ThreadId,
+    pub name: Option<String>,
+    pub preview: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(remote = "ThreadId")]
+struct AttachmentId(String);
 
 /// The local rollout that must confirm a persistent fork's context before admission.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -648,6 +670,10 @@ impl AppFx {
         let command = build(app, ticket);
         debug_assert_eq!(command.ticket(), Some(ticket));
         let backend = match &context {
+            AppCtx::Opening {
+                attached_to: Some(parent),
+                ..
+            } => app.screens.agents.owner_of(parent.as_str()),
             AppCtx::Worktree { backend, .. }
             | AppCtx::OpenThread { backend, .. }
             | AppCtx::NewConversation { backend, .. }
@@ -791,6 +817,7 @@ enum AppCtx {
     Opening {
         thread: ThreadId,
         ctx: crate::features::FeatureCtx,
+        attached_to: Option<ThreadId>,
     },
     Worktree {
         backend: BackendId,
@@ -3116,7 +3143,13 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
             AppCtx::OpenSession { action, thread } => {
                 session_opened(app, action, thread, answer, fx);
             }
-            AppCtx::Opening { thread, ctx } => lifecycle::read(app, thread, ctx, answer, fx),
+            AppCtx::Opening {
+                thread,
+                ctx,
+                attached_to,
+            } => {
+                lifecycle::read(app, thread, ctx, attached_to, (address, ticket), answer, fx);
+            }
             AppCtx::TurnOperation(TurnOperation::Structured { run, .. }) => {
                 structured::answered(app, run, answer, fx);
             }
@@ -4554,7 +4587,12 @@ fn is_attach(ctx: &AppCtx) -> bool {
 
 fn may_attach(ctx: &AppCtx, id: &ThreadId) -> bool {
     match ctx {
-        AppCtx::OpenThread { thread, .. }
+        AppCtx::Opening {
+            thread,
+            attached_to: Some(_),
+            ..
+        }
+        | AppCtx::OpenThread { thread, .. }
         | AppCtx::OpenSession {
             action: screens::startup::Action::Resume,
             thread,

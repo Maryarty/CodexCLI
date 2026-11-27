@@ -19,6 +19,25 @@ use crate::screens::onboarding::consent::{self, Target};
 use crate::screens::{ScreenCommand, ScreenThreadIntent, agents, chat};
 use crate::threads::{ThreadAsk, ThreadEv, ThreadReply};
 
+impl super::AttachedHistory {
+    /// The wire request described by an attachment operation.
+    pub(crate) fn wire(&self, parent: &ThreadId, id: wire::RequestId) -> wire::ClientRequest {
+        match self {
+            Self::Discover => ThreadAsk::ListAttachedSide {
+                parent: parent.clone(),
+                cursor: None,
+            },
+            Self::Verify { child } => ThreadAsk::Read {
+                thread: child.to_string(),
+            },
+            Self::Archive { child } => ThreadAsk::Archive {
+                thread: child.clone(),
+            },
+        }
+        .wire(id)
+    }
+}
+
 /// What a thread a feature asked for (`AppCx::spawn`) is told when it is open: the feature's own
 /// context for `Feature::thread_opened`, and whether the thread is ephemeral (its history is the
 /// model's, not the screen's, so none is read).
@@ -58,6 +77,9 @@ pub(super) struct Preparation {
 pub(super) fn carry(app: &mut CodexApp, lifecycle: Lifecycle, fx: &mut AppFx) {
     match lifecycle {
         Lifecycle::Open { thread, ctx } => open(app, thread, ctx, fx),
+        Lifecycle::RestoreAttachment { parent, child, ctx } => {
+            restore_attachment(app, parent, child, ctx, fx)
+        }
         Lifecycle::Spawn { spawn, ctx } => spawn_thread(app, spawn, ctx, fx),
         Lifecycle::Structured { turn, ctx } => super::structured::begin(app, *turn, ctx, fx),
         Lifecycle::Discard { thread, rollback } => {
@@ -98,13 +120,48 @@ fn open(app: &mut CodexApp, thread: ThreadId, ctx: FeatureCtx, fx: &mut AppFx) {
     let ask = ThreadAsk::Read {
         thread: thread.to_string(),
     };
-    fx.ask(app, AppCtx::Opening { thread, ctx }, |_, ticket| {
-        Command::Screen {
+    fx.ask(
+        app,
+        AppCtx::Opening {
+            thread,
+            ctx,
+            attached_to: None,
+        },
+        |_, ticket| Command::Screen {
             ticket,
             thread: ThreadId::default(),
             command: ScreenCommand::Agents(agents::Command::Thread(ask)),
-        }
-    });
+        },
+    );
+}
+
+fn restore_attachment(
+    app: &mut CodexApp,
+    parent: ThreadId,
+    child: ThreadId,
+    ctx: FeatureCtx,
+    fx: &mut AppFx,
+) {
+    let backend = app.screens.agents.owner_of(parent.as_str());
+    if app.local_side_storage(backend).is_none() || child == parent {
+        return features::thread_opened(app, ctx, Err(Refusal::Busy), fx);
+    }
+    let ask = ThreadAsk::Resume {
+        thread: child.to_string(),
+    };
+    fx.ask(
+        app,
+        AppCtx::Opening {
+            thread: child,
+            ctx,
+            attached_to: Some(parent),
+        },
+        |_, ticket| Command::Screen {
+            ticket,
+            thread: ThreadId::default(),
+            command: ScreenCommand::Agents(agents::Command::Thread(ask)),
+        },
+    );
 }
 
 /// The read of a thread `open` did not know came back: the server has it (it is opened) or not.
@@ -112,12 +169,54 @@ pub(super) fn read(
     app: &mut CodexApp,
     thread: ThreadId,
     ctx: FeatureCtx,
+    attached_to: Option<ThreadId>,
+    request: (Address, Ticket),
     answer: Answer,
     fx: &mut AppFx,
 ) {
-    let result = match answer {
-        Answer::Thread(ThreadReply::Read { .. }) => opened(open_verified(app, &thread, fx), thread),
-        Answer::Failed(error) => Err(Refusal::Failed(error)),
+    let result = match (attached_to, answer) {
+        (None, Answer::Thread(ThreadReply::Read { .. })) => {
+            opened(open_verified(app, &thread, fx), thread)
+        }
+        (Some(parent), Answer::Thread(ThreadReply::Resumed(opened)))
+            if !opened.thread.ephemeral
+                && opened.thread.id == thread.as_str()
+                && opened.thread.attached_to_thread_id.as_deref() == Some(parent.as_str())
+                && opened.thread.history_mode == wire::ThreadHistoryMode::Paginated =>
+        {
+            let (address, ticket) = request;
+            app.preparing_forks.remove(&thread);
+            super::attach_thread_with_metadata(
+                app,
+                &thread,
+                address.backend,
+                super::Origin::Resumed,
+                Some(&opened.thread),
+                fx,
+            );
+            if let Some(snapshot) = opened.permissions {
+                super::select::record_permission_settings(
+                    app,
+                    &thread,
+                    crate::screens::select::permissions::Effective {
+                        address,
+                        at: ticket,
+                        snapshot,
+                    },
+                    fx,
+                );
+            }
+            apply_thread(
+                app,
+                &thread,
+                crate::threads::history_page_of(&opened.thread),
+                fx,
+            );
+            super::fetch_history(app, &thread, fx);
+            features::resumed(app, &thread, fx);
+            Ok(thread)
+        }
+        (_, Answer::Failed(error)) => Err(Refusal::Failed(error)),
         _ => Err(Refusal::Failed(crate::rpc::RpcError::Mismatch)),
     };
     features::thread_opened(app, ctx, result, fx);

@@ -20,6 +20,7 @@
 //! is data here (`Footer`) and words in the view.
 
 mod policy;
+mod saved;
 
 use std::collections::BTreeMap;
 
@@ -37,6 +38,7 @@ use crate::rpc::RpcError;
 use crate::threads::{Tone, UserMessage};
 
 pub use policy::developer_instructions;
+pub use saved::{SavedChat, SavedChats, SavedReply};
 
 /// The marker type of the feature.
 pub struct Side;
@@ -130,6 +132,7 @@ pub struct State {
     opening: Option<Activation>,
     preparing: BTreeMap<ThreadId, Preparation>,
     parked: BTreeMap<ThreadId, String>,
+    saved: saved::State,
 }
 
 /// What `/side` does in the thread it was typed in.
@@ -170,6 +173,11 @@ impl State {
         self.links.get(thread)
     }
 
+    /// The last discovery state for this parent, if discovery has been requested.
+    pub fn saved(&self, parent: &ThreadId) -> Option<&SavedChats> {
+        self.saved.get(parent)
+    }
+
     /// The children accepted for this parent, in creation order.
     pub fn children_of(&self, parent: &ThreadId) -> &[ThreadId] {
         self.children
@@ -208,6 +216,7 @@ impl State {
     }
 
     fn shown(&mut self, child: &ThreadId) {
+        self.saved.depart(child);
         for activation in self.opening.iter_mut().chain(
             self.preparing
                 .values_mut()
@@ -285,15 +294,34 @@ pub enum Intent {
         prompt: Option<String>,
     },
     /// Open a specific child of the shown conversation family.
-    Select { parent: ThreadId, child: ThreadId },
+    Select {
+        parent: ThreadId,
+        child: ThreadId,
+    },
     /// Close a workspace tab, moving from an active child to its most recently used sibling.
-    CloseTab { parent: ThreadId, child: ThreadId },
+    Unload {
+        parent: ThreadId,
+        child: ThreadId,
+    },
+    RefreshSaved {
+        parent: ThreadId,
+    },
+    OpenSaved {
+        parent: ThreadId,
+        child: ThreadId,
+    },
+    ArchiveSaved {
+        parent: ThreadId,
+        child: ThreadId,
+    },
     /// Return from `child` to its parent and drop it: the parent is shown, then the side
     /// conversation's turn is interrupted, the server stops holding it and the app forgets it
     /// (`select_agent_thread_and_discard_side`, `discard_side_thread`). A verb the view says for
     /// `Ctrl+C` and `Ctrl+D` over an empty composer in a side conversation. A `child` that is not
     /// shown (its parent is) is only dropped.
-    Return { child: ThreadId },
+    Return {
+        child: ThreadId,
+    },
 }
 
 /// What the stream says of a parent that has a side conversation (`SideParentStatusChange`): its
@@ -310,16 +338,22 @@ pub enum Event {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
     /// `thread/inject_items`: the policy and the boundary, before the first side turn.
-    Boundary { storage: Storage },
+    Boundary {
+        storage: Storage,
+    },
+    Saved(crate::app::AttachedHistory),
 }
 
-/// What `Command::Boundary` answered: nothing but that it went in.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Reply;
+pub enum Reply {
+    Boundary,
+    Saved(SavedReply),
+}
 
 /// What an ask was for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ctx {
+    Saved(saved::Ctx),
     /// The boundary of this fork.
     Boundary(ThreadId),
     Rollback {
@@ -340,7 +374,9 @@ pub enum Ctx {
         prompt: Option<String>,
     },
     /// The parent of `child` is shown again: `child` is dropped once it is.
-    Return { child: ThreadId },
+    Return {
+        child: ThreadId,
+    },
 }
 
 /// What the feature says in the transcript; all of them are errors in the oracle.
@@ -594,7 +630,10 @@ feature! {
                             cx.open_thread(&child, Ctx::Reuse { parent, prompt: None });
                         }
                     }
-                    Intent::CloseTab { parent, child } => close_side(state, &parent, child, true, cx),
+                    Intent::Unload { parent, child } => close_side(state, &parent, child, true, cx),
+                    Intent::RefreshSaved { parent } => saved::refresh(state, parent, cx),
+                    Intent::OpenSaved { parent, child } => saved::open(state, parent, child, cx),
+                    Intent::ArchiveSaved { parent, child } => saved::archive(state, parent, child, cx),
                     Intent::Return { child } => {
                         let Some(link) = state.links.get(&child) else {
                             return;
@@ -657,6 +696,7 @@ feature! {
                 cx: &mut AppCx<'_>,
             ) {
                 match (ctx, result) {
+                    (Ctx::Saved(ctx), result) => saved::opened(state, ctx, result, cx),
                     (Ctx::Fork { parent, prompt, retained }, Ok(child)) => {
                         // `child.parent_status`: the side conversation the parent already had.
                         let status = state
@@ -739,6 +779,9 @@ feature! {
             /// The boundary is in: the prompt that waited for it goes. It is not: the side conversation
             /// stays as it is, with the line saying so (it can be closed), and the prompt is not sent.
             fn answered(state: &mut State, ctx: Ctx, result: Result<Reply, RpcError>, cx: &mut AppCx<'_>) {
+                if let Ctx::Saved(ctx) = ctx {
+                    return saved::answered(state, ctx, result, cx);
+                }
                 let Ctx::Boundary(child) = ctx else {
                     return;
                 };
@@ -746,7 +789,7 @@ feature! {
                     return;
                 };
                 match result {
-                    Ok(Reply) => {
+                    Ok(Reply::Boundary) => {
                         if let Some(link) = preparation.pending_link {
                             cx.finish_preparation(&child);
                             state.remember(child.clone(), link);
@@ -772,8 +815,9 @@ feature! {
                             }
                         }
                     }
-                    Err(error) => {
+                    failed => {
                         cx.chat_facts(chat_facts(state, cx.view()));
+                        let error = failed.err().unwrap_or(RpcError::Mismatch);
                         let prepare_error = failure(&error);
                         if let Some(link) = preparation.pending_link {
                             if link.storage == Storage::Attached {
@@ -804,13 +848,16 @@ feature! {
                             items: policy::fork_items(*storage),
                         },
                     },
+                    Command::Saved(work) => work.wire(thread, id),
                 }
             }
 
-            fn decode(_command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-                serde_json::from_value::<ThreadInjectItemsResponse>(result)
-                    .map_err(|error| RpcError::Malformed(error.to_string()))?;
-                Ok(Reply)
+            fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
+                match command {
+                    Command::Boundary { .. } => serde_json::from_value::<ThreadInjectItemsResponse>(result)
+                        .map(|_| Reply::Boundary).map_err(|error| RpcError::Malformed(error.to_string())),
+                    Command::Saved(work) => saved::decode(work, result).map(Reply::Saved),
+                }
             }
         }
     }

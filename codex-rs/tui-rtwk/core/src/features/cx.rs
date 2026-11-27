@@ -375,6 +375,7 @@ pub enum Out {
         thread: ThreadId,
         command: FeatureCommand,
         ctx: FeatureCtx,
+        attached_history: Option<crate::app::AttachedHistory>,
     },
     /// An ask of the host (write a file, suggest a title, copy): its answer comes back to
     /// `Feature::effect_done` with `ctx`.
@@ -452,6 +453,23 @@ impl<'a> AppCx<'a> {
             thread: thread.cloned().unwrap_or_default(),
             command: command.into(),
             ctx: ctx.into(),
+            attached_history: None,
+        });
+    }
+
+    /// Perform an attached-history query on the exact local transport of `parent`.
+    pub fn ask_attachment(
+        &mut self,
+        parent: &ThreadId,
+        work: crate::app::AttachedHistory,
+        command: impl Into<FeatureCommand>,
+        ctx: impl Into<FeatureCtx>,
+    ) {
+        self.out.push(Out::Ask {
+            thread: parent.clone(),
+            command: command.into(),
+            ctx: ctx.into(),
+            attached_history: Some(work),
         });
     }
 
@@ -563,6 +581,20 @@ impl<'a> AppCx<'a> {
     pub fn open_thread(&mut self, thread: &ThreadId, ctx: impl Into<FeatureCtx>) {
         self.out.push(Out::Lifecycle(Lifecycle::Open {
             thread: thread.clone(),
+            ctx: ctx.into(),
+        }));
+    }
+
+    /// Hold a verified saved child without changing the user's current navigation.
+    pub fn restore_attachment(
+        &mut self,
+        parent: &ThreadId,
+        child: &ThreadId,
+        ctx: impl Into<FeatureCtx>,
+    ) {
+        self.out.push(Out::Lifecycle(Lifecycle::RestoreAttachment {
+            parent: parent.clone(),
+            child: child.clone(),
             ctx: ctx.into(),
         }));
     }
