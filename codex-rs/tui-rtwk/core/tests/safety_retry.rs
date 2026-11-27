@@ -5,7 +5,7 @@
 
 use codex_app_server_protocol::{RequestId, ServerNotification, Thread};
 use codex_tui_core::app::{
-    AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app, apply_app_from,
+    AppEv, AppFx, BackendEv, CodexApp, Command, Ingress, Intent, apply_app, apply_app_from,
 };
 use codex_tui_core::commands::{SessionIntent, SlashCommand};
 use codex_tui_core::fixtures::builders::{agent_delta, user_item_with_receipt};
@@ -51,7 +51,10 @@ fn start(app: &mut CodexApp, event: AppEv, expected: fn(&Command) -> bool) -> Ti
 }
 
 fn offered() -> (CodexApp, safety::RetryOffer) {
-    let mut app = CodexApp::new();
+    offered_with_app(CodexApp::new())
+}
+
+fn offered_with_app(mut app: CodexApp) -> (CodexApp, safety::RetryOffer) {
     let ticket = start(&mut app, AppEv::Connected, |cmd| {
         matches!(cmd, Command::StartThread { .. })
     });
@@ -243,6 +246,40 @@ fn revisiting_the_source_requires_a_fresh_confirmation() {
         Reply::thread(ThreadReply::RetryInterrupted),
     );
     assert_eq!(history_read(&apply(&mut app, old_ack)), 0);
+}
+
+#[test]
+fn only_the_retry_owners_transport_can_settle_its_live_interrupt() {
+    let a = BackendId::default();
+    let b = BackendId(1);
+    for replace in [false, true] {
+        let mut app = CodexApp::new();
+        let a_epoch = app.attach_backend(a);
+        let b_epoch = app.attach_backend(b);
+        let (mut app, offer) = offered_with_app(app);
+        let ticket = interrupt(&choose(&mut app, offer)).expect("source interrupt");
+        let ack = || Reply::thread(ThreadReply::RetryInterrupted);
+        assert!(
+            app.ingest(Ingress::transport_reply(b, b_epoch, b_epoch, ticket, ack()))
+                .is_none()
+        );
+        let foreign_loss = Ingress::transport_replaced(b, b_epoch, b_epoch.next());
+        assert!(app.ingest(foreign_loss).is_some());
+        assert!(app.active_thread().safety().retrying());
+
+        let own_loss = if replace {
+            Ingress::transport_replaced(a, a_epoch, a_epoch.next())
+        } else {
+            Ingress::of(a, a_epoch, AppEv::Disconnected)
+        };
+        let fx = app.ingest(own_loss).expect("source transport ended");
+        assert_eq!(history_read(&fx), 0);
+        assert!(!app.active_thread().safety().retrying());
+        assert!(
+            app.ingest(Ingress::transport_reply(a, a_epoch, a_epoch, ticket, ack()))
+                .is_none()
+        );
+    }
 }
 
 fn retry_ask(fx: &AppFx, predicate: impl Fn(&ThreadAsk) -> bool) -> (&Command, Ticket) {

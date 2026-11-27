@@ -137,6 +137,21 @@ impl Eq for ImagePreview {}
 pub struct ImageSnapshot {
     pub link: Option<String>,
     pub preview: Option<ImagePreview>,
+    pub revision: Option<ImageRevision>,
+}
+
+/// A file identity and modification stamp produced by the local image reader.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ImageRevision(pub u64);
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum ImageRead {
+    /// This workspace or host does not support the read.
+    #[default]
+    Unavailable,
+    Snapshot(ImageSnapshot),
+    /// The previous revision still identifies the file in this read.
+    Unchanged,
 }
 
 /// Whether the local IDE's successful read included a selection or tabs.
@@ -230,8 +245,12 @@ host_capability_list! {
     clipboard_text => ClipboardText -> new ClipboardText(Result<String, String>);
     /// Check whether a workspace image is a trustworthy local file, optionally reading a
     /// bounded preview. Paths from remote workspaces cannot be resolved on the client.
-    image_snapshot => ImageSnapshot { thread: ThreadId, path: String, preview: Option<ImageSize> }
-        by thread -> new ImageSnapshot(ImageSnapshot);
+    image_snapshot => ImageSnapshot {
+        thread: ThreadId,
+        path: String,
+        preview: Option<ImageSize>,
+        previous: Option<ImageRevision>,
+    } by thread -> new ImageSnapshot(ImageRead);
     /// Probe the extension for a local workspace. Only its availability and whether it has
     /// context cross this reply; the extension's selection stays in the host.
     ide_context => IdeContext { thread: ThreadId, cwd: String }

@@ -140,3 +140,27 @@ fn the_host_channel_ratchet_bites_on_legacy_commands() {
     );
     assert!(legacy_host_channels("    Effect { request: u64, ask: Ask },").is_empty());
 }
+
+#[test]
+fn queued_modal_results_keep_their_issued_types() {
+    use codex_tui_core::threads::queue::{
+        CopyChoice, ModalReceipt, ModalToken, QueueEvent, StatusLineChoice,
+    };
+
+    const _: fn(ModalReceipt) -> QueueEvent = QueueEvent::ModalFinished;
+    const _: fn(ModalToken<CopyChoice>, Option<CopyChoice>) -> ModalReceipt = ModalReceipt::Copy;
+    const _: fn(ModalToken<StatusLineChoice>, Option<StatusLineChoice>) -> ModalReceipt =
+        ModalReceipt::StatusLine;
+
+    let source = include_str!("../../core/src/threads/queue/modal.rs");
+    let Some((_, receipt)) = source.split_once("pub enum ModalReceipt {") else {
+        panic!("modal receipt declaration");
+    };
+    let Some((variants, _)) = receipt.split_once("\n}") else {
+        panic!("modal receipt variants");
+    };
+    assert!(
+        !variants.contains("FeatureIntent"),
+        "terminal modal results must carry only their domain choice"
+    );
+}

@@ -355,8 +355,8 @@ impl<C> Pending<C> {
 
     /// The context of `ticket` and what `reply` says, if the ticket is
     /// held; the ticket is spent. A stale ticket gives `None` (R1).
-    pub fn resolve(&mut self, ticket: Ticket, reply: Reply) -> Option<(C, Answer)> {
-        let (context, result) = self.resolve_reply(ticket, reply)?;
+    pub(crate) fn resolve(&mut self, ticket: Ticket, reply: Reply) -> Option<(C, Answer)> {
+        let (ctx, result) = self.resolve_reply(ticket, reply)?;
         let answer = match result {
             ReplyResult::Answer(answer) => answer,
             ReplyResult::SubmissionUnconfirmed(message) => {
@@ -364,7 +364,7 @@ impl<C> Pending<C> {
             }
             ReplyResult::CloudSubmission(_) => Answer::Failed(RpcError::Mismatch),
         };
-        Some((context, answer))
+        Some((ctx, answer))
     }
 
     /// Spend the request only if its owner recognizes the kind of RPC receipt.

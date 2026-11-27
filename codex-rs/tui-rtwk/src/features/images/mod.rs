@@ -10,7 +10,7 @@ use rtwk_core::graphics::GraphicsProtocol;
 use rtwk_rich::image::Image;
 
 use codex_tui_core::app::effects::{ImagePreview, ImageSize, ImageSnapshot};
-use codex_tui_core::features::images::{Images, Interest as Snapshot, Source};
+use codex_tui_core::features::images::{Images, Interest as Snapshot, Source, SourceKind};
 use codex_tui_core::features::{Feature, FeatureStates};
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::threads::ItemKey;
@@ -26,10 +26,14 @@ impl FeatureView for Images {
 }
 
 pub(crate) fn scope(thread: ThreadId, item: ItemKey, path: String, child: AnyWidget) -> AnyWidget {
-    Provider::value(Source { thread, item, path })
-        .update_should_notify(|old, new| old != new)
-        .child(child)
-        .into()
+    Provider::value(Source {
+        thread,
+        kind: SourceKind::Transcript(item),
+        path,
+    })
+    .update_should_notify(|old, new| old != new)
+    .child(child)
+    .into()
 }
 
 pub(crate) fn request<S>(cx: &mut Cx<'_, S>, preview: bool) -> Option<Snapshot> {
@@ -68,6 +72,27 @@ pub(crate) fn watch(read: Option<Snapshot>, child: AnyWidget) -> AnyWidget {
         Some(read) => Interest::new(read, child).into(),
         None => child,
     }
+}
+
+/// Read and watch one visible draft attachment through the same host snapshot door as artifacts.
+pub(crate) fn attachment<S>(
+    cx: &mut Cx<'_, S>,
+    thread: ThreadId,
+    sequence: u64,
+    path: String,
+    size: ImageSize,
+    child: impl FnOnce(Option<ImagePreview>) -> AnyWidget,
+) -> AnyWidget {
+    let read = Snapshot {
+        source: Source {
+            thread,
+            kind: SourceKind::Attachment(sequence),
+            path,
+        },
+        preview: Some(size),
+    };
+    let preview = snapshot(cx, &read).and_then(|snapshot| snapshot.preview);
+    Interest::new(read, child(preview)).into()
 }
 
 pub(crate) fn preview(snapshot: ImagePreview) -> AnyWidget {

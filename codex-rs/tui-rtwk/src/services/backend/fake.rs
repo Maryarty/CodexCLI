@@ -13,7 +13,7 @@ use codex_tui_core::app::AppEv;
 use codex_tui_core::app::BackendEv;
 use codex_tui_core::app::Command;
 use codex_tui_core::app::Ingress;
-use codex_tui_core::app::effects::{Done, HostDoors, ImageSize, run_ask};
+use codex_tui_core::app::effects::{Done, HostDoors, ImageRead, ImageRevision, ImageSize, run_ask};
 use codex_tui_core::app::worktree::Checkout as WorktreeCheckout;
 use codex_tui_core::fixtures::builders::turn_started;
 use codex_tui_core::fixtures::builders::user_item_with_receipt;
@@ -734,12 +734,13 @@ impl HostDoors for FakeDoors<'_> {
         _thread: ThreadId,
         path: String,
         preview: Option<ImageSize>,
+        previous: Option<ImageRevision>,
     ) -> Option<FakeWork> {
         let allowed = self.shared.lock().ok()?.image_paths.contains(&path);
         let snapshot = if allowed {
-            crate::services::images::local_snapshot(std::path::Path::new(&path), preview)
+            crate::services::images::local_snapshot(std::path::Path::new(&path), preview, previous)
         } else {
-            Default::default()
+            ImageRead::Unavailable
         };
         let request = self.request;
         Some(FakeWork::Spawn(Box::pin(async move {
