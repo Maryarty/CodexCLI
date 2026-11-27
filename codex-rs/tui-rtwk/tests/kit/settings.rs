@@ -299,6 +299,7 @@ impl Screen {
     /// `tui.rendering`: the Markdown renderers that are on (a table, list, mermaid or math
     /// renderer that is off keeps the source text).
     pub fn rendering(&mut self, rendering: Renderers) -> &mut Screen {
+        let settings = self.h.t.read_app(|app: &UiApp| app.core.tui());
         self.h.inject([AppEv::Tui(TuiSettings {
             rendering: Rendering {
                 mermaid: rendering.mermaid,
@@ -306,7 +307,7 @@ impl Screen {
                 tables: rendering.tables,
                 lists: rendering.lists,
             },
-            ..TuiSettings::default()
+            ..settings
         })]);
         self
     }

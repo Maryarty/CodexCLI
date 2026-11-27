@@ -277,18 +277,101 @@ fn user_code_blocks_preserve_original_line_endings() {
 // ORACLE transcript_view/copy_mode_tests.rs:521 copying_a_disabled_fenced_table_uses_the_original_body kind=ui owner=chat-live
 #[test]
 fn copying_a_disabled_fenced_table_uses_the_original_body() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript draws the fenced md block as text; the tables preference (preferences::init with tables off) is not a kit seed yet",
+    const BODY: &str = "| Name | Value |\r\n|---|---|\r\n| alpha | beta |  \r\n";
+    const MESSAGE: &str = "Intro\n\n```md\n| Name | Value |\n|---|---|\n| alpha | beta |  \n```\n\n```sh\necho done\n```\n";
+    let mut s = chat(
+        include_str!("fixtures/transcript_view_2/disabled_table.jsonl"),
+        50,
+        15,
     );
-    let s = Screen::build(Owner::ChatLive)
-        .size(50, 12)
-        .script(include_str!(
-            "fixtures/transcript_view_2/disabled_table.jsonl"
-        ))
+    s.rendering(kit::Renderers {
+        tables: false,
+        ..Default::default()
+    });
+    s.assert_in_order(&[
+        "| Name | Value |",
+        "|---|---|",
+        "| alpha | beta |",
+        "echo done",
+    ]);
+    let mut expected = Vec::new();
+    for (keys, payload) in [
+        ("enter", "echo done\r\n"),
+        ("up enter", BODY),
+        ("up up enter", MESSAGE),
+    ] {
+        begin_copy_mode(&mut s);
+        s.keys(keys);
+        expected.push(payload);
+        s.assert_copies_asked(&expected);
+        s.answer_copy(Ok(()));
+    }
+}
+
+#[test]
+fn a_loading_page_does_not_change_the_code_block_chosen_for_copy() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(64, 16)
+        .owned_transcript()
+        .replay(Vec::new())
         .open();
-    s.assert_contains("```md");
-    // the oracle: the copy payloads (`echo done`, the table body, the whole message) are clipboard text
+    let wanted = kit::agent_turn("recent", &["Latest reply\n\n```sh\nselected command\n```"]);
+    let middle = kit::turns_of("history row", 0..15);
+    s.history_page([vec![wanted], middle].concat(), Some("older-page"));
+    s.keys("ctrl+home");
+    s.assert_page_requests(2);
+
+    begin_copy_mode(&mut s);
+    s.keys("up");
+    s.assert_text_style("selected command", "reversed");
+    s.history_page(
+        vec![kit::agent_turn(
+            "older",
+            &["Older reply\n\n```sh\nunrelated command\n```"],
+        )],
+        None,
+    );
+    s.resize(44, 16);
+    s.keys("enter");
+    s.assert_copies_asked(&["selected command\n"]);
+    s.answer_copy(Ok(()));
+}
+
+#[test]
+fn canonical_replacement_does_not_change_the_frozen_copy_source() {
+    const ORIGINAL: &str = "A response\n\n```sh\nold command\n```\n\n```sh\nother command\n```\n";
+    const REPLACEMENT: &str = "A response\n\n```sh\nother command\n```\n";
+    let update = |source: &str| {
+        serde_json::json!({"step":"notify","message":{"method":"item/completed","params":{
+            "threadId":"thread-1","turnId":"turn-1","completedAtMs":1,
+            "item":{"type":"agentMessage","id":"same","text":source,"phase":null}
+        }}})
+        .to_string()
+    };
+    for (choose_block, expected) in [(true, "old command\n"), (false, ORIGINAL.trim_end())] {
+        let mut s = Screen::build(Owner::ChatLive)
+            .owned_transcript()
+            .size(65, 18)
+            .live()
+            .open();
+        s.feed(&update(ORIGINAL));
+        begin_copy_mode(&mut s);
+        if choose_block {
+            s.keys("up up");
+            s.assert_contains("Copy code block");
+        } else {
+            s.assert_contains("Copy whole response");
+        }
+        s.assert_text_style("old command", "reversed");
+
+        s.feed(&update(REPLACEMENT));
+        s.resize(44, 18);
+        s.assert_absent("old command");
+        s.assert_text_style("other command", "!reversed");
+        s.keys("enter");
+        s.assert_copies_asked(&[expected]);
+        s.answer_copy(Ok(()));
+    }
 }
 
 // ORACLE transcript_view/copy_mode_tests.rs:551 copying_the_whole_typed_prompt_preserves_markdown_source kind=ui owner=chat-live
@@ -876,6 +959,11 @@ fn patch_disclosure_preserves_manual_scrolling() {
         s.feed(APPROVAL);
         s.assert_in_order(&["approval-patch.txt", "+ Show details", PROMPT]);
         s.click_text("+ Show details");
+        // The approval takes the bottom rows, so the expanded control can sit just below
+        // the manually held viewport. Scroll one row to reach it in the ordinary list.
+        if s.grid().locate("Hide details").is_none() {
+            s.wheel_down(1, 1, 1);
+        }
         s.assert_in_order(&["approval-patch.txt", "patch line five", "Hide details"]);
         s.assert_contains(PROMPT);
         s.assert_no_resolved_requests();
