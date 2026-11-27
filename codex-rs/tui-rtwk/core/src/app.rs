@@ -1303,6 +1303,19 @@ impl CodexApp {
     }
 
     /// The model of a thread this process holds.
+    /// A native dialog can keep its keys while its original visit and connection are current.
+    pub fn queue_modal_visible(&self, operation: &crate::threads::queue::ModalOperation) -> bool {
+        let thread = operation.thread();
+        self.session.active.as_ref() == Some(thread)
+            && self.threads.get(thread).is_some_and(|model| {
+                crate::threads::queue::modal_is_visible(
+                    model,
+                    operation,
+                    features::modal_address(self, thread),
+                )
+            })
+    }
+
     pub fn thread(&self, id: &ThreadId) -> Option<&Rc<ThreadModel>> {
         self.threads.get(id)
     }
@@ -1368,6 +1381,7 @@ impl CodexApp {
         git_summary::retire(self, backend);
         detach_threads(self, backend, fx);
         self.fail_in_flight(backend);
+        select::retire_permission_writes(self, backend, fx);
         structured::lost(self, backend, fx);
     }
 
@@ -1957,6 +1971,10 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     // a user message of a thread with no name (`automatic_title_user_message`)
                     let unnamed = unnamed_request(app, &thread, &notification);
                     apply_thread(app, &thread, ev, fx);
+                    if let ServerNotification::ThreadSettingsUpdated(note) = &*notification {
+                        let address = app.address(origin);
+                        select::observe_permission_settings(app, address, note, fx);
+                    }
                     if let Some(text) = unnamed {
                         features::on_user_message(app, &thread, &text, fx);
                     }

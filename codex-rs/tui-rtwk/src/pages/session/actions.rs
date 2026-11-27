@@ -304,7 +304,12 @@ pub(super) fn run(
                 );
                 cx.emit(
                     &hs.screen,
-                    ScreenIntent::Select(queue::scope_select(intent, deferred, ran)),
+                    ScreenIntent::Select(queue::scope_select(
+                        intent,
+                        session.active.as_ref(),
+                        deferred,
+                        ran,
+                    )),
                 );
             }
             if opened.command == SlashCommand::Warnings {

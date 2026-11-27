@@ -18,12 +18,16 @@ use codex_app_server_protocol::PermissionProfileListParams;
 use codex_app_server_protocol::PermissionProfileListResponse;
 use codex_app_server_protocol::PermissionProfileSummary;
 use codex_app_server_protocol::RequestId;
+use codex_app_server_protocol::ThreadSettings;
 use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS;
 use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_READ_ONLY;
 use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_WORKSPACE;
 use serde::Deserialize;
 
 use super::models::Catalog as ModelCatalog;
+use crate::rpc::Address;
+use crate::threads::SettingsPatch;
+use crate::threads::queue::ModalToken;
 
 pub type Approval = AskForApproval;
 pub type Reviewer = ApprovalsReviewer;
@@ -162,7 +166,11 @@ impl Current {
         let matches = (approval == Some(preset.approval())).then_some(preset);
         Current {
             approval,
-            reviewer: if facts.auto_review { Reviewer::AutoReview } else { Reviewer::User },
+            reviewer: if facts.auto_review {
+                Reviewer::AutoReview
+            } else {
+                Reviewer::User
+            },
             matches,
             // the thread's active profile as the facts name it (a named profile too), else the
             // built-in one the preset stands for
@@ -242,7 +250,11 @@ fn yes() -> bool {
 
 impl Profile {
     fn from_wire(profile: PermissionProfileSummary) -> Profile {
-        Profile { id: profile.id, description: profile.description, allowed: profile.allowed }
+        Profile {
+            id: profile.id,
+            description: profile.description,
+            allowed: profile.allowed,
+        }
     }
 }
 
@@ -292,10 +304,16 @@ impl Discovery {
         requirements: Option<Requirements>,
     ) -> Result<Discovery, Failure> {
         let mut ids = std::collections::HashSet::new();
-        if !profiles.iter().all(|profile| ids.insert(profile.id.clone())) {
+        if !profiles
+            .iter()
+            .all(|profile| ids.insert(profile.id.clone()))
+        {
             return Err(Failure::Duplicate);
         }
-        Ok(Discovery { profiles, requirements })
+        Ok(Discovery {
+            profiles,
+            requirements,
+        })
     }
 
     /// `disabled_reason`: a profile the server does not list is not
@@ -394,13 +412,19 @@ impl Profiles {
     /// and is gone when the catalog took the pick (to apply it, to ask the confirmation, or to
     /// refuse it).
     pub fn inline_waits(&self) -> bool {
-        matches!(self.inline, Some(super::permission_args::Inline::Discovering { .. }))
+        matches!(
+            self.inline,
+            Some(super::permission_args::Inline::Discovering { .. })
+        )
     }
 }
 
 /// `configRequirements/read`.
 pub fn requirements_request(request_id: RequestId) -> ClientRequest {
-    ClientRequest::ConfigRequirementsRead { request_id, params: None }
+    ClientRequest::ConfigRequirementsRead {
+        request_id,
+        params: None,
+    }
 }
 
 /// One page of `permissionProfile/list` (100 per page, at most 10 pages).
@@ -411,7 +435,11 @@ pub fn profiles_request(
 ) -> ClientRequest {
     ClientRequest::PermissionProfileList {
         request_id,
-        params: PermissionProfileListParams { cursor, limit: Some(100), cwd },
+        params: PermissionProfileListParams {
+            cursor,
+            limit: Some(100),
+            cwd,
+        },
     }
 }
 
@@ -439,6 +467,37 @@ pub enum Label {
     Mode { preset: Preset, reviewer: Reviewer },
     /// A profile of the server, by its id.
     Profile(String),
+}
+
+/// A selected profile remains pending until the request and its effective facts agree.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Applying {
+    pub(crate) token: ModalToken<Selection>,
+    pub(crate) address: Address,
+    pub(crate) patch: SettingsPatch,
+    pub(crate) accepted: bool,
+    pub(crate) effective: bool,
+}
+
+impl Applying {
+    pub(crate) fn observe(&mut self, address: Address, settings: &ThreadSettings) {
+        if self.address != address {
+            return;
+        }
+        self.effective = self.patch.permissions.as_ref().is_none_or(|id| {
+            settings
+                .active_permission_profile
+                .as_ref()
+                .is_some_and(|profile| &profile.id == id)
+        }) && self
+            .patch
+            .approval_policy
+            .is_none_or(|policy| policy == settings.approval_policy)
+            && self
+                .patch
+                .approvals_reviewer
+                .is_none_or(|reviewer| reviewer == settings.approvals_reviewer);
+    }
 }
 
 /// What a final pick applies as.
@@ -499,9 +558,14 @@ pub enum Phase {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Kind {
     /// A built-in mode (label and description by preset and reviewer).
-    Mode { preset: Preset, reviewer: Reviewer },
+    Mode {
+        preset: Preset,
+        reviewer: Reviewer,
+    },
     /// A profile the server lists; its description is the server's.
-    Profile { description: Option<String> },
+    Profile {
+        description: Option<String>,
+    },
     /// The active profile the server does not list (`Current permission
     /// profile`).
     Unlisted,
@@ -631,7 +695,10 @@ impl PermissionsMenu {
     /// The menu as rows, over the catalog of profiles and the model catalog (a cyber model's
     /// warning, `model_catalog.try_list_models()`: unknown stays plain).
     pub fn page(&self, profiles: &Profiles, models: &ModelCatalog) -> Page {
-        Page { heading: self.heading(profiles, models), rows: self.rows(profiles) }
+        Page {
+            heading: self.heading(profiles, models),
+            rows: self.rows(profiles),
+        }
     }
 
     fn heading(&self, profiles: &Profiles, models: &ModelCatalog) -> Heading {
@@ -639,7 +706,10 @@ impl PermissionsMenu {
         match (self, self.phase(profiles)) {
             (PermissionsMenu::FullAccess { current, .. }, _) => {
                 let cyber = current.cyber
-                    || current.model.as_deref().is_some_and(|model| models.is_cyber(model));
+                    || current
+                        .model
+                        .as_deref()
+                        .is_some_and(|model| models.is_cyber(model));
                 let cyber = cyber.then_some(if current.auto_available {
                     Recommend::AutoReview
                 } else {
@@ -648,12 +718,13 @@ impl PermissionsMenu {
                 Heading::FullAccess { cyber }
             }
             (_, Phase::Listed) => {
-                let empty = profiles.found.as_ref().is_some_and(|found| found.profiles.is_empty());
+                let empty = profiles
+                    .found
+                    .as_ref()
+                    .is_some_and(|found| found.profiles.is_empty());
                 permissions(empty.then_some(Notice::NoProfiles))
             }
-            (_, Phase::Failed) => {
-                permissions(profiles.failure.clone().map(Notice::Failed))
-            }
+            (_, Phase::Failed) => permissions(profiles.failure.clone().map(Notice::Failed)),
             _ => permissions(None),
         }
     }
@@ -692,7 +763,10 @@ impl PermissionsMenu {
         }
         match (self, &row.kind) {
             (PermissionsMenu::Presets(current), Kind::Mode { preset, reviewer }) => {
-                let pick = Selection::Preset { preset: *preset, reviewer: *reviewer };
+                let pick = Selection::Preset {
+                    preset: *preset,
+                    reviewer: *reviewer,
+                };
                 Some(settle(current, pick))
             }
             (PermissionsMenu::Catalog(current), Kind::Mode { preset, reviewer }) => {
@@ -700,7 +774,10 @@ impl PermissionsMenu {
                     id: preset.profile().to_string(),
                     approval: Some(preset.approval()),
                     reviewer: Some(*reviewer),
-                    label: Label::Mode { preset: *preset, reviewer: *reviewer },
+                    label: Label::Mode {
+                        preset: *preset,
+                        reviewer: *reviewer,
+                    },
                     unchanged: false,
                 };
                 Some(settle(current, pick))
@@ -730,13 +807,23 @@ impl PermissionsMenu {
 /// A pick of the full-access preset asks first (`requires_confirmation`);
 /// the rest apply.
 pub fn settle(current: &Current, mut pick: Selection) -> Chosen {
-    if let Selection::Profile { id, approval, reviewer, unchanged, .. } = &mut pick {
+    if let Selection::Profile {
+        id,
+        approval,
+        reviewer,
+        unchanged,
+        ..
+    } = &mut pick
+    {
         *unchanged = current.profile.as_deref() == Some(id.as_str())
             && approval.is_none_or(|approval| current.approval == Some(approval))
             && reviewer.is_none_or(|reviewer| current.reviewer == reviewer);
     }
     if pick.full_access() {
-        Chosen::Menu(PermissionsMenu::FullAccess { current: current.clone(), pick })
+        Chosen::Menu(PermissionsMenu::FullAccess {
+            current: current.clone(),
+            pick,
+        })
     } else {
         Chosen::Done(pick)
     }
@@ -829,7 +916,9 @@ fn profile_rows(current: &Current, discovery: &Discovery) -> Vec<Row> {
                 .map(|profile| Row {
                     id: profile.id.clone(),
                     name: profile.id.clone(),
-                    kind: Kind::Profile { description: profile.description.clone() },
+                    kind: Kind::Profile {
+                        description: profile.description.clone(),
+                    },
                     current: active == Some(profile.id.as_str()),
                     disabled: discovery.disabled(&profile.id, None, None),
                 }),

@@ -14,7 +14,7 @@ use crate::ids::{BackendId, ThreadId, Ticket};
 use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ThreadFx;
-use crate::threads::queue::QueueOperation;
+use crate::threads::queue::{ModalOperation, ModalToken, QueueOperation};
 
 pub mod agent_picker;
 pub mod apps;
@@ -64,6 +64,7 @@ pub struct Show {
     pub opening: Opening,
     /// Only the queued model picker carries a continuation back to the thread owner.
     pub queued_model: Option<QueuedModelShow>,
+    pub queue_modal: Option<ModalOperation>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -120,15 +121,29 @@ pub struct Shows {
 
 impl Shows {
     fn push(&mut self, opening: Opening) {
-        self.push_owned(opening, None);
+        self.push_show(opening, None, None);
     }
 
     fn push_owned(&mut self, opening: Opening, operation: Option<QueueOperation>) {
+        self.push_show(opening, operation, None);
+    }
+
+    pub(crate) fn push_modal(&mut self, opening: Opening, modal: Option<ModalOperation>) {
+        self.push_show(opening, None, modal);
+    }
+
+    fn push_show(
+        &mut self,
+        opening: Opening,
+        operation: Option<QueueOperation>,
+        queue_modal: Option<ModalOperation>,
+    ) {
         self.seq += 1;
         self.queue.push_back(Show {
             seq: self.seq,
             opening,
             queued_model: operation.map(QueuedModelShow::Requested),
+            queue_modal,
         });
     }
 
@@ -335,6 +350,8 @@ pub struct Model {
     pub(crate) last_plan_write: BTreeMap<BackendId, Ticket>,
     /// The permission profiles the pickers list.
     pub profiles: Profiles,
+    /// Profile changes whose accepted write and effective facts must both be seen.
+    pub(crate) permissions_applying: BTreeMap<ThreadId, permissions::Applying>,
     /// The apps `/apps` lists.
     pub apps: apps::Apps,
     /// The `/review` menus' working directory and the git list asked for.
@@ -357,7 +374,7 @@ pub struct Model {
 impl Model {
     /// `/apps` (`add_connectors_output`): the directory is asked for again,
     /// and what it held before decides what the user sees: the sheet, or a note.
-    fn open_apps(&mut self, enabled: bool) {
+    fn open_apps(&mut self, enabled: bool, modal: Option<ModalOperation>) {
         if !enabled {
             self.notes.push(Note::AppsDisabled);
             return;
@@ -367,7 +384,7 @@ impl Model {
         match held {
             apps::Cache::Ready(apps) if apps.is_empty() => self.notes.push(Note::NoApps),
             apps::Cache::Failed(error) => self.notes.push(Note::AppsFailed(error)),
-            _ => self.shows.push(Opening::Apps),
+            _ => self.shows.push_modal(Opening::Apps, modal),
         }
     }
 
@@ -598,9 +615,26 @@ impl Model {
     /// explicit profile mode or a custom active profile) of the server's catalog: the menu on the
     /// one held, or `Loading…` and a request while there is none.
     fn open_permissions(&mut self, current: permissions::Current) {
+        self.open_permissions_modal(current, None);
+    }
+
+    fn open_permissions_modal(
+        &mut self,
+        current: permissions::Current,
+        modal: Option<ModalOperation>,
+    ) {
         let menu = permissions::PermissionsMenu::start(current);
         self.want_profiles();
-        self.shows.push(Opening::Permissions(menu));
+        self.shows.push_modal(Opening::Permissions(menu), modal);
+    }
+
+    pub(crate) fn open_queue_dialog(&mut self, dialog: QueueDialog, operation: ModalOperation) {
+        match dialog {
+            QueueDialog::Permissions(current) => {
+                self.open_permissions_modal(current, Some(operation))
+            }
+            QueueDialog::Apps { enabled } => self.open_apps(enabled, Some(operation)),
+        }
     }
 
     /// The answer of the `permissionProfile/list` request (`on_permission_profiles_loaded`): the
@@ -782,6 +816,20 @@ impl QueuedModelWrite {
     }
 }
 
+/// The slash command whose native dialog takes a queue hold.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum QueueDialog {
+    Permissions(permissions::Current),
+    Apps { enabled: bool },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QueueOpen {
+    pub thread: ThreadId,
+    pub issued: Option<QueueOperation>,
+    pub dialog: QueueDialog,
+}
+
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
@@ -825,6 +873,15 @@ pub enum Intent {
     /// `/apps` (`enabled`: the apps feature is on): the directory, asked for
     /// again (`Apps::pending` is the request).
     OpenApps { enabled: bool },
+    /// Opens a slash dialog under the source thread's original queue operation.
+    OpenQueueDialog(Box<QueueOpen>),
+    /// A still-open permissions dialog refreshes its own catalog.
+    RetryOwnedPermissions(ModalToken<permissions::Selection>),
+    /// A still-open Apps directory or link acts on its own connection.
+    ActInApps {
+        token: ModalToken<apps::ModalChoice>,
+        action: apps::ModalAction,
+    },
     /// `/review`: the presets menu; the git lists are asked in `cwd`.
     OpenReview { cwd: String },
     /// `/new` or `/fork` (`mode`) in `cwd`: where it runs is asked when a local repository
@@ -1063,7 +1120,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
             reasoning::Outcome::Say(note) => model.notes.push(note),
         },
-        Intent::OpenApps { enabled } => model.open_apps(enabled),
+        Intent::OpenApps { enabled } => model.open_apps(enabled, None),
         // `/review`: the presets, over the session's working directory.
         Intent::OpenReview { cwd } => {
             model.review.open(cwd);
@@ -1133,7 +1190,11 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::OpenAppPage(_) => {}
         Intent::AppUnlinked(id) => model.app_unlinked(&id),
         // The answer is acted on by the app (`app/select.rs`); the screen keeps no record of it.
-        Intent::PlanAnswer(_) | Intent::Settle(_) => {}
+        Intent::PlanAnswer(_)
+        | Intent::Settle(_)
+        | Intent::OpenQueueDialog(_)
+        | Intent::RetryOwnedPermissions(_)
+        | Intent::ActInApps { .. } => {}
     }
 }
 
@@ -1238,6 +1299,11 @@ pub enum Ctx {
         then: Option<Note>,
         operation: Option<QueueOperation>,
     },
+    /// The settings request of a typed permissions dialog.
+    OwnedPermissionWrite {
+        token: ModalToken<permissions::Selection>,
+        note: Note,
+    },
     /// A pick's write: the pick whose line follows a saved write.
     Write {
         setting: Setting,
@@ -1249,6 +1315,7 @@ pub enum Ctx {
     App {
         id: String,
         enabled: bool,
+        owner: Option<apps::ModalWriteOwner>,
     },
     /// The write of a preset: the slot follows once it is saved.
     Preset {

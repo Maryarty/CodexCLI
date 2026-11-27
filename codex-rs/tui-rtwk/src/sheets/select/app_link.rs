@@ -19,7 +19,7 @@ use rtwk::focus::{Focus, FocusNode, KeyBindings};
 use rtwk::layout::{
     BoxWidget, Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding, SizedBox,
 };
-use rtwk::overlay::{Dialog, close_dialog};
+use rtwk::overlay::Dialog;
 use rtwk::provider::read;
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextWrap};
@@ -31,8 +31,7 @@ use codex_tui_core::keymap::actions::{
 use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::approvals::{self, Decision};
-use codex_tui_core::screens::select::Intent;
-use codex_tui_core::screens::select::apps::Link;
+use codex_tui_core::screens::select::apps::{Link, ModalAction, ModalChoice};
 
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
@@ -97,12 +96,6 @@ impl StatefulWidget for AppLinkView {
 
 impl_widget!(stateful eq AppLinkView);
 
-/// Says a verb of `/apps` to the model.
-fn say(cx: &mut Cx<'_, AppLinkState>, intent: Intent) {
-    let hs = read::<Hs, _>(cx);
-    cx.emit(&hs.screen, ScreenIntent::Select(intent));
-}
-
 /// Says a verb of the request to the model.
 fn ask(cx: &mut Cx<'_, AppLinkState>, intent: approvals::Intent) {
     let hs = read::<Hs, _>(cx);
@@ -113,7 +106,7 @@ fn ask(cx: &mut Cx<'_, AppLinkState>, intent: approvals::Intent) {
 /// request dialog around the view closes with it.
 fn close(cx: &mut Cx<'_, AppLinkState>, target: &Target) {
     match target {
-        Target::Apps(_) => close_dialog::<_, ()>(cx, None),
+        Target::Apps(_) => super::apps::finish(cx, None),
         Target::Request(key, _) => ask(
             cx,
             approvals::Intent::Answer {
@@ -162,7 +155,7 @@ impl State for AppLinkState {
         match action {
             Action::Open => {
                 match &w.target {
-                    Target::Apps(link) => say(cx, Intent::OpenAppPage(link.id.clone())),
+                    Target::Apps(link) => super::apps::act(cx, ModalAction::Visit(link.id.clone())),
                     Target::Request(key, _) => {
                         ask(cx, approvals::Intent::OpenLink { key: key.clone() });
                     }
@@ -178,9 +171,9 @@ impl State for AppLinkState {
             Action::Switch => match &w.target {
                 Target::Apps(link) => {
                     self.enabled = !self.enabled;
-                    say(
+                    super::apps::act(
                         cx,
-                        Intent::SetApp {
+                        ModalAction::Enable {
                             id: link.id.clone(),
                             enabled: self.enabled,
                         },
@@ -202,8 +195,7 @@ impl State for AppLinkState {
             Action::Done => {
                 match &w.target {
                     Target::Apps(_) => {
-                        say(cx, Intent::RefreshApps);
-                        close_dialog::<_, ()>(cx, None);
+                        super::apps::finish(cx, Some(ModalChoice::RefreshAfterVisit));
                     }
                     Target::Request(key, _) => {
                         ask(cx, approvals::Intent::LinkDone { key: key.clone() })
