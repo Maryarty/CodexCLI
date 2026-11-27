@@ -1,5 +1,6 @@
 //! The workspace keeps each retained conversation's model and draft under its own pane.
 
+use codex_tui_core::app::effects::{Ask, Done};
 use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::app::{AppEv, Command};
 use codex_tui_core::fixtures::builders::{
@@ -7,11 +8,16 @@ use codex_tui_core::fixtures::builders::{
 };
 use codex_tui_core::keymap::{Keymap, KeymapSpec};
 use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
+use rtwk_core::input::{Mods, MouseKind};
 
 use crate::common::{Harness, start_driven};
 use crate::side_return::{SIDE, forked};
 
 fn workspace(enabled: bool, owned: bool) -> Harness {
+    workspace_with_width(enabled, owned, None)
+}
+
+fn workspace_with_width(enabled: bool, owned: bool, sidebar_width_percent: Option<u8>) -> Harness {
     let mut h = start_driven(false, 120, 24);
     h.connect();
     h.quiesce();
@@ -29,6 +35,7 @@ fn workspace(enabled: bool, owned: bool) -> Harness {
     h.inject([AppEv::Tui(TuiSettings {
         transcript_owned: owned,
         workspace_enabled: enabled,
+        sidebar_width_percent,
         ..TuiSettings::default()
     })]);
     h.fake.respond(|request| match request["method"].as_str()? {
@@ -58,6 +65,24 @@ fn divider(h: &Harness) -> usize {
         .find(|row| row.contains("Side chat"))
         .and_then(|row| row.chars().position(|ch| ch == '│'))
         .unwrap_or_else(|| panic!("missing side pane divider:\n{}", h.t.screen()))
+}
+
+fn width_writes(h: &Harness) -> Vec<(u64, u64)> {
+    h.fake
+        .commands()
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::Effect {
+                request,
+                ask: Ask::ConfigWrite { edits },
+                ..
+            } => edits
+                .iter()
+                .find(|edit| edit.key_path == "tui.sidebar_width_percent")
+                .map(|edit| (request, edit.value.as_u64().expect("an integer width"))),
+            _ => None,
+        })
+        .collect()
 }
 
 #[test]
@@ -192,6 +217,9 @@ fn narrowing_zoom_hide_and_close_preserve_the_retained_pair() {
 
     h.press("ctrl+u");
     h.press("f12 c");
+    assert!(h.t.screen().contains("lose this temporary chat’s history"));
+    h.press("tab");
+    h.press("enter");
     h.advance(300);
     assert!(!h.t.screen().contains("Side chat"));
     assert!(h.fake.requests().iter().any(|request| {
@@ -224,9 +252,64 @@ fn configured_nudge_changes_two_percent_and_only_from_the_child() {
     h.press("f12 h");
     h.press("f12 j");
     assert_eq!(divider(&h), 133);
+    assert!(width_writes(&h).is_empty());
     h.press("f12 s");
     h.press("f12 j");
     assert_eq!(divider(&h), 129);
+    let writes = width_writes(&h);
+    assert_eq!(writes.len(), 1);
+    assert_eq!(writes[0].1, 35);
+}
+
+#[test]
+fn width_is_written_on_keyboard_and_pointer_commit_and_used_on_restart() {
+    let mut h = workspace(true, true);
+    h.press("f12 r");
+    h.press("enter");
+    assert!(width_writes(&h).is_empty());
+    h.press("f12 r");
+    h.press("shift+left");
+    assert_eq!(divider(&h), 69);
+    assert!(width_writes(&h).is_empty());
+    h.press("esc");
+    let writes = width_writes(&h);
+    assert_eq!(writes.len(), 1);
+    assert_eq!(writes[0].1, 42);
+    let request = writes[0].0;
+
+    h.t.mouse(MouseKind::Down, 69, 10, 0, Mods::NONE);
+    h.t.mouse(MouseKind::Drag, 76, 10, 0, Mods::NONE);
+    h.advance(100);
+    assert_eq!(divider(&h), 76);
+    assert_eq!(width_writes(&h), writes);
+    h.t.mouse(MouseKind::Up, 76, 10, 0, Mods::NONE);
+    h.advance(100);
+    assert_eq!(width_writes(&h), writes, "the earlier write is pending");
+    h.inject([
+        AppEv::Tui(TuiSettings {
+            transcript_owned: true,
+            workspace_enabled: true,
+            sidebar_width_percent: Some(42),
+            ..TuiSettings::default()
+        }),
+        AppEv::Effect {
+            request,
+            done: Done::Config(Ok(())),
+        },
+    ]);
+    h.advance(100);
+    assert_eq!(
+        divider(&h),
+        76,
+        "an older reload preserves the current cells"
+    );
+    let writes = width_writes(&h);
+    assert_eq!(writes.len(), 2);
+    assert_eq!(writes[1].1, 36);
+
+    let restarted = workspace_with_width(true, true, Some(36));
+    assert_eq!(divider(&restarted), 76);
+    assert!(width_writes(&restarted).is_empty());
 }
 
 #[test]
@@ -274,4 +357,21 @@ fn closing_a_side_chat_asks_before_losing_either_draft_or_temporary_history() {
             request["method"] == "thread/unsubscribe" && request["params"]["threadId"] == SIDE
         }));
     }
+}
+
+#[test]
+fn closing_a_running_side_chat_names_the_interrupted_turn() {
+    let mut h = workspace(true, true);
+    h.inject([AppEv::Backend(turn_started(SIDE, "active"))]);
+    h.press("f12 c");
+    assert!(h.t.screen().contains("stop the running turn"));
+    assert!(h.t.screen().contains("lose this temporary chat’s history"));
+    h.press("esc");
+    assert!(h.t.screen().contains("Side chat"));
+    assert!(
+        !h.fake
+            .requests()
+            .iter()
+            .any(|request| request["method"] == "turn/interrupt")
+    );
 }

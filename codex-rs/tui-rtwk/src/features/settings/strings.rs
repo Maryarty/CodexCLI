@@ -559,6 +559,7 @@ pub fn note(note: &Note) -> String {
             Setting::Title => format!("Failed to save terminal title items: {error}"),
             Setting::Memories => format!("Failed to save memory settings: {error}"),
             Setting::TuiMode => format!("Failed to save TUI mode: {error}"),
+            Setting::SidebarWidth => format!("Could not save sidebar width: {error}"),
             Setting::Keymap => format!("Failed to save shortcut: {error}"),
             Setting::PetSelection => format!("Failed to save pet selection: {error}"),
             Setting::PetsDisabled => format!("Failed to disable pets: {error}"),

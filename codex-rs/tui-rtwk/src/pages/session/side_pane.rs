@@ -3,6 +3,7 @@
 
 use std::rc::Rc;
 
+use codex_tui_core::features::settings::{Edit, Intent as SettingsIntent};
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::keymap::actions::{
     GLOBAL_CLOSE_SIDEBAR_TAB, GLOBAL_EQUALIZE_PANE_WIDTHS, GLOBAL_FOCUS_MAIN_COMPOSER,
@@ -18,8 +19,8 @@ use rtwk::controls::Button;
 use rtwk::focus::{Focus, FocusNode, FocusScope, KeyBindings, KeyCombo, KeyEventResult, KeyPress};
 use rtwk::gestures::{AbsorbPointer, Listener, PointerEvent};
 use rtwk::layout::{
-    BoxWidget, Column, Expanded, MainAxisSize, Offstage, Positioned, Row, SizedBox,
-    SplitController, SplitPane, SplitView, Stack, StackFit,
+    BorderType, BoxWidget, Column, CrossAxisAlignment, Expanded, MainAxisSize, Offstage,
+    Positioned, Row, SizedBox, SplitController, SplitPane, SplitView, Stack, StackFit,
 };
 use rtwk::overlay::{Dialog, DialogOptions, close_dialog, show_dialog};
 use rtwk::prelude::HitTestBehavior;
@@ -114,11 +115,18 @@ impl Dock {
 pub(super) struct DockState {
     width: i32,
     split: SplitController,
+    initial_width: Option<u8>,
     hidden: bool,
     zoom: Option<ThreadId>,
-    resizing: bool,
+    resize: Option<Resize>,
     resize_focus: FocusNode,
     close_pending: bool,
+}
+
+#[derive(Clone, Copy)]
+enum Resize {
+    Keyboard(i32),
+    Pointer(i32),
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -135,6 +143,8 @@ pub enum Msg {
     Share(u8),
     Resize,
     FinishResize,
+    DividerDown(i32),
+    DividerUp,
     Ignore,
 }
 
@@ -143,6 +153,7 @@ pub struct CloseProof {
     thread: ThreadId,
     draft: UserMessage,
     shell: bool,
+    running: bool,
 }
 
 const ACTIONS: &[(ActionId, Msg)] = &[
@@ -197,23 +208,17 @@ pub(super) fn take<S>(cx: &mut Cx<'_, S>, message: Msg) {
     }
 }
 
-fn fractions(percent: u8) -> [f64; 2] {
-    [f64::from(100 - percent), f64::from(percent)]
-}
-
 impl StatefulWidget for Dock {
     type State = DockState;
 
     fn create_state(&self) -> DockState {
         DockState {
             width: 0,
-            split: SplitController::new().with_fractions(
-                self.preferred_width
-                    .map_or([2.0, 1.0], |width| fractions(width.min(100))),
-            ),
+            split: SplitController::new().with_fractions([2.0, 1.0]),
+            initial_width: self.preferred_width,
             hidden: false,
             zoom: None,
-            resizing: false,
+            resize: None,
             resize_focus: FocusNode::new(),
             close_pending: false,
         }
@@ -244,12 +249,35 @@ impl DockState {
         }
     }
 
-    fn step(&self, delta: i32) {
-        if let [left, right] = self.split.sizes().as_slice() {
-            let total = left + right;
-            let left = (left + delta).clamp(PARENT_MIN, (total - CHILD_MIN).max(PARENT_MIN));
-            self.split
-                .set_fractions(&[f64::from(left), f64::from(total - left)]);
+    fn keyboard_resize(&self) -> bool {
+        matches!(self.resize, Some(Resize::Keyboard(_)))
+    }
+
+    fn clamped_child_width(&self, cells: i32) -> i32 {
+        cells.clamp(CHILD_MIN, (self.width - 1 - PARENT_MIN).max(CHILD_MIN))
+    }
+
+    fn set_child_width(&self, cells: i32) {
+        let child = self.clamped_child_width(cells);
+        self.split
+            .set_fractions(&[f64::from(self.width - 1 - child), f64::from(child)]);
+    }
+
+    fn child_width(&self) -> i32 {
+        // SplitView updates its fractions before its next layout publishes the measured sizes.
+        let fractions = self.split.fractions();
+        let exact = f64::from(self.width - 1) * fractions[1];
+        #[allow(clippy::cast_possible_truncation)]
+        let cells = exact.round() as i32;
+        self.clamped_child_width(cells)
+    }
+
+    fn save_width(&self, before: i32, cx: &mut Cx<'_, Self>) {
+        let cells = self.child_width();
+        if before != cells {
+            let percent = ((cells * 100 + self.width / 2) / self.width).clamp(1, 99);
+            let percent = u8::try_from(percent).expect("sidebar width is between 1 and 99 percent");
+            features::verb(cx, SettingsIntent::Request(Edit::SidebarWidth(percent)));
         }
     }
 
@@ -319,11 +347,6 @@ impl State for DockState {
         if old.active != w.active {
             self.zoom = None;
         }
-        if old.preferred_width != w.preferred_width
-            && let Some(width) = w.preferred_width
-        {
-            self.split.set_fractions(&fractions(width.min(100)));
-        }
     }
 
     fn dispose(&mut self) {
@@ -335,8 +358,12 @@ impl State for DockState {
         match msg {
             Msg::Width(width) if width != self.width => {
                 self.width = width;
-                if width < SPLIT_AT && self.resizing {
-                    self.resizing = false;
+                if width >= SPLIT_AT
+                    && let Some(percent) = self.initial_width.take()
+                {
+                    self.set_child_width((width * i32::from(percent) + 50) / 100);
+                }
+                if let Some(Resize::Keyboard(_)) = self.resize.take() {
                     let pane = if w.on_child() { &w.child } else { &w.parent };
                     Self::focus(cx, pane, &w.active);
                 }
@@ -365,30 +392,25 @@ impl State for DockState {
                     || !draft.text.is_empty()
                     || !draft.images.is_empty()
                     || !draft.remote_images.is_empty();
-                // The current lifecycle uses temporary side conversations.
-                let history =
-                    !w.child.model.transcript().is_empty() || w.child.model.task_running();
-                let loss = match (unsent, history) {
-                    (true, true) => {
-                        "This will discard unsent input and lose this temporary chat’s history."
-                    }
-                    (true, false) => "This will discard unsent input.",
-                    (false, true) => "This will lose this temporary chat’s history.",
-                    (false, false) => {
-                        Self::close(cx, w.child.model.id());
-                        return Rebuild::No;
-                    }
-                };
+                let running = w.child.model.task_running();
+                let mut losses = Vec::new();
+                if running {
+                    losses.push("This will stop the running turn.");
+                }
+                if unsent {
+                    losses.push("This will discard unsent input.");
+                }
+                // All side conversations use temporary storage at this boundary.
+                losses.push("This will lose this temporary chat’s history.");
                 self.close_pending = true;
-                let result = show_dialog(
-                    cx,
-                    move |_| ConfirmClose { loss }.into(),
-                    DialogOptions::default(),
-                );
+                let dialog = ConfirmClose { losses };
+                let result =
+                    show_dialog(cx, move |_| dialog.clone().into(), DialogOptions::default());
                 let proof = Rc::new(CloseProof {
                     thread: w.child.model.id().clone(),
                     draft,
                     shell,
+                    running,
                 });
                 cx.spawn(async move {
                     Some(Msg::CloseDecision(
@@ -404,29 +426,55 @@ impl State for DockState {
                 if let Some(proof) = proof
                     && &proof.thread == w.child.model.id()
                     && !ui.draft.in_burst()
+                    && (proof.running || !w.child.model.task_running())
                     && proof.shell == ui.draft.shell()
                     && proof.draft == ui.draft.submission(&ui.composer, |n| words.image(n))
                 {
                     Self::close(cx, &proof.thread);
                 }
             }
-            Msg::Step(delta) if self.wide() => self.step(delta),
+            Msg::Step(delta) if self.keyboard_resize() => {
+                self.set_child_width(self.child_width() - delta);
+            }
             Msg::Nudge(direction) if self.wide() && w.on_child() => {
                 let step = (self.width.saturating_mul(2).saturating_add(50) / 100).max(1);
-                self.step(direction * step);
+                let before = self.child_width();
+                self.set_child_width(before - direction * step);
+                self.save_width(before, cx);
             }
             Msg::Share(percent) if self.wide() => {
                 let side = if w.on_child() { percent } else { 100 - percent };
-                self.split.set_fractions(&fractions(side));
+                let before = self.child_width();
+                self.set_child_width(((self.width - 1) * i32::from(side) + 99) / 100);
+                self.save_width(before, cx);
             }
-            Msg::Resize if self.wide() => {
-                self.resizing = true;
+            Msg::Resize if self.wide() && self.resize.is_none() => {
+                self.resize = Some(Resize::Keyboard(self.child_width()));
                 self.resize_focus.request_focus();
             }
-            Msg::FinishResize => {
-                self.resizing = false;
+            Msg::FinishResize if self.keyboard_resize() => {
+                if let Some(Resize::Keyboard(before)) = self.resize.take() {
+                    self.save_width(before, cx);
+                }
                 let pane = if w.on_child() { &w.child } else { &w.parent };
                 composer_node(&pane.ui).request_focus();
+            }
+            Msg::DividerDown(column) if self.wide() && self.resize.is_none() => {
+                if let [left, right] = self.split.sizes().as_slice()
+                    && left + right + 1 == self.width
+                    && column == *left
+                {
+                    self.resize = Some(Resize::Pointer(*right));
+                }
+                return Rebuild::No;
+            }
+            Msg::DividerUp if matches!(self.resize, Some(Resize::Pointer(_))) => {
+                if let Some(Resize::Pointer(before)) = self.resize.take()
+                    && self.wide()
+                {
+                    self.save_width(before, cx);
+                }
+                return Rebuild::No;
             }
             _ => return Rebuild::No,
         }
@@ -436,13 +484,14 @@ impl State for DockState {
     fn build(&self, w: &Dock, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let wide = self.wide();
         let on_child = w.on_child();
+        let resize = self.keyboard_resize();
         let parent = Self::pane(
             cx,
             &w.parent,
             !on_child,
             Msg::FocusParent,
             false,
-            self.resizing && !on_child,
+            resize && !on_child,
         );
         let child = Self::pane(
             cx,
@@ -450,15 +499,29 @@ impl State for DockState {
             on_child,
             Msg::FocusChild,
             wide,
-            self.resizing && on_child,
+            resize && on_child,
         );
         let shown: AnyWidget = if wide {
-            SplitView::new([
+            let mut split = SplitView::new([
                 SplitPane::new(parent).min_size(PARENT_MIN),
                 SplitPane::new(child).min_size(CHILD_MIN),
             ])
-            .controller(&self.split)
-            .into()
+            .controller(&self.split);
+            if self.close_pending {
+                // Keep the gutter but clear its line under the modal's text.
+                split = split.kind(BorderType::None);
+            }
+            Listener::new()
+                .on_pointer_down(cx.map(|event: PointerEvent| match event.button {
+                    0 => Msg::DividerDown(event.x),
+                    _ => Msg::Ignore,
+                }))
+                .on_pointer_up(cx.map(|event: PointerEvent| match event.button {
+                    0 => Msg::DividerUp,
+                    _ => Msg::Ignore,
+                }))
+                .child(split)
+                .into()
         } else {
             Stack::new()
                 .fit(StackFit::Expand)
@@ -486,7 +549,6 @@ impl State for DockState {
                 crate::keymap::bindings(&keymap, *action, &cx.send(msg.clone()))
             })
             .collect();
-        let resize = self.resizing;
         let key = tell.clone();
         let shown = Focus::new(AbsorbPointer::new().absorbing(resize).child(shown))
             .focus_node(self.resize_focus.clone())
@@ -519,9 +581,9 @@ impl State for DockState {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, PartialEq)]
 struct ConfirmClose {
-    loss: &'static str,
+    losses: Vec<&'static str>,
 }
 
 struct ConfirmCloseState;
@@ -554,11 +616,13 @@ impl State for ConfirmCloseState {
                     .on_pressed(cx.send(false)),
             )
             .child(Button::new("Close").on_pressed(cx.send(true)));
-        let body = Column::new()
+        let mut body = Column::new()
             .main_axis_size(MainAxisSize::Min)
-            .child(Text::new(w.loss))
-            .child(actions);
-        Focus::new(Dialog::new(body).title("Close side chat?"))
+            .cross_axis_alignment(CrossAxisAlignment::Start);
+        for loss in &w.losses {
+            body = body.child(Text::new(*loss));
+        }
+        Focus::new(Dialog::new(body.child(actions)).title("Close side chat?"))
             .can_request_focus(false)
             .on_key_event(|node, key| {
                 let moved = match (key.code, key.mods) {
