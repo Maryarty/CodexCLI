@@ -27,6 +27,8 @@ use serde::Deserialize;
 use super::{Model, StatusFacts, ThreadPart};
 use crate::commands::ServiceTierCommand;
 use crate::format::{format_goal_elapsed_seconds, format_tokens_compact};
+use crate::ids::{BackendId, ThreadId};
+use crate::rpc::Address;
 use crate::screens::ThreadSlots;
 use crate::screens::select::models::Catalog;
 use crate::threads::{Goal, GoalStatus, ThreadModel, TurnState};
@@ -193,6 +195,14 @@ pub enum Ev {
     Flash(Option<FlashLine>),
 }
 
+/// The conversation and the physical workspace connection for one status-line read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct GitWorkspace {
+    pub thread: ThreadId,
+    pub address: Address,
+    pub cwd: String,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 enum Lookup {
     /// Not asked yet (or the cwd changed since).
@@ -200,6 +210,8 @@ enum Lookup {
     Idle,
     Pending {
         request: u64,
+        cached: Option<GitSummary>,
+        refresh: bool,
     },
     Done(GitSummary),
 }
@@ -222,7 +234,9 @@ pub struct Facts {
     pub shutting_down: bool,
     flash: Option<Flashed>,
     flashed: u64,
+    // The cwd read by the older scripted status fixtures.
     cwd: Option<String>,
+    git_workspace: Option<GitWorkspace>,
     now: u64,
     issued: u64,
     git: Lookup,
@@ -241,6 +255,7 @@ impl Default for Facts {
             flash: None,
             flashed: 0,
             cwd: None,
+            git_workspace: None,
             now: 0,
             issued: 0,
             git: Lookup::Idle,
@@ -256,6 +271,10 @@ fn uses(status: &StatusFacts, ids: &[&str]) -> bool {
         .items
         .as_ref()
         .is_some_and(|items| items.iter().any(|item| ids.contains(&item.as_str())))
+}
+
+pub(crate) fn wants_git(status: &StatusFacts) -> bool {
+    uses(status, &["pull-request-number", "branch-changes"])
 }
 
 impl Facts {
@@ -276,12 +295,13 @@ impl Facts {
                 // `sync_status_line_git_summary_state`: another directory, another summary
                 if self.cwd.as_deref() != Some(cwd.as_str()) {
                     self.cwd = Some(cwd);
+                    self.git_workspace = None;
                     self.git = Lookup::Idle;
                 }
             }
             Ev::GitSummary { request, summary } => {
                 // an answer of an earlier request (an earlier cwd) is stale
-                if self.git == (Lookup::Pending { request }) {
+                if self.cwd.is_some() && self.is_git_pending(request) {
                     self.git = Lookup::Done(summary);
                 }
             }
@@ -325,14 +345,17 @@ impl Facts {
     /// `sync_status_surface_shared_state`: what the configured items need decides what is kept
     /// and what is asked. An item that left the line drops its fact.
     pub(super) fn sync(&mut self, status: &StatusFacts, signed_in: bool) {
-        if uses(status, &["pull-request-number", "branch-changes"]) {
+        if wants_git(status) {
             if self.git == Lookup::Idle && self.cwd.is_some() {
                 self.issued += 1;
                 self.git = Lookup::Pending {
                     request: self.issued,
+                    cached: None,
+                    refresh: false,
                 };
             }
         } else {
+            self.git_workspace = None;
             self.git = Lookup::Idle;
         }
 
@@ -362,10 +385,10 @@ impl Facts {
     /// The reads asked and not yet answered, oldest first.
     pub fn probes(&self) -> Vec<Probe> {
         let mut probes = Vec::new();
-        if let (Lookup::Pending { request }, Some(cwd)) = (&self.git, &self.cwd) {
+        if let (Lookup::Pending { request, .. }, Some(cwd)) = (&self.git, self.cwd()) {
             probes.push(Probe::GitSummary {
                 request: *request,
-                cwd: cwd.clone(),
+                cwd: cwd.to_owned(),
             });
         }
         if let Some(request) = self.headline.pending {
@@ -377,14 +400,84 @@ impl Facts {
 
     /// The directory the workspace is probed in.
     pub fn cwd(&self) -> Option<&str> {
-        self.cwd.as_deref()
+        self.git_workspace
+            .as_ref()
+            .map(|workspace| workspace.cwd.as_str())
+            .or(self.cwd.as_deref())
     }
 
     /// The summary of the current cwd, once its probe answered.
     pub fn git_summary(&self) -> Option<&GitSummary> {
         match &self.git {
             Lookup::Done(summary) => Some(summary),
-            _ => None,
+            Lookup::Pending { cached, .. } => cached.as_ref(),
+            Lookup::Idle => None,
+        }
+    }
+
+    pub(crate) fn git_workspace_changed(&self, next: Option<&GitWorkspace>, refresh: bool) -> bool {
+        self.cwd.is_none()
+            && (self.git_workspace.as_ref() != next
+                || (refresh && next.is_some() && !matches!(self.git, Lookup::Pending { .. })))
+    }
+
+    pub(crate) fn refresh_after_git(&mut self) {
+        if let Lookup::Pending { refresh, .. } = &mut self.git {
+            *refresh = true;
+        }
+    }
+
+    pub(crate) fn begin_git(&mut self, workspace: Option<GitWorkspace>, request: u64) {
+        let prior = std::mem::take(&mut self.git);
+        if workspace.is_some() {
+            let cached = match prior {
+                Lookup::Done(summary) if self.git_workspace == workspace => Some(summary),
+                _ => None,
+            };
+            self.git = Lookup::Pending {
+                request,
+                cached,
+                refresh: false,
+            };
+        }
+        self.git_workspace = workspace;
+    }
+
+    fn is_git_pending(&self, request: u64) -> bool {
+        matches!(self.git, Lookup::Pending { request: pending, .. } if pending == request)
+    }
+
+    pub(crate) fn pending_git(&self, request: u64) -> Option<&GitWorkspace> {
+        self.is_git_pending(request)
+            .then_some(self.git_workspace.as_ref())
+            .flatten()
+    }
+
+    /// A turn that finished during the probe calls for one fresh read. Its old result can
+    /// describe the branch before that turn, so keep displaying only the previously known value.
+    pub(crate) fn git_answered(&mut self, summary: GitSummary) -> bool {
+        if let Lookup::Pending {
+            cached,
+            refresh: true,
+            ..
+        } = std::mem::take(&mut self.git)
+        {
+            self.git = cached.map_or(Lookup::Idle, Lookup::Done);
+            true
+        } else {
+            self.git = Lookup::Done(summary);
+            false
+        }
+    }
+
+    pub(crate) fn retire_git(&mut self, backend: BackendId) {
+        if self
+            .git_workspace
+            .as_ref()
+            .is_some_and(|workspace| workspace.address.backend == backend)
+        {
+            self.git_workspace = None;
+            self.git = Lookup::Idle;
         }
     }
 

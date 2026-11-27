@@ -71,6 +71,18 @@ impl Screen {
             .collect()
     }
 
+    /// The remote workspace's one-off commands use this scripted response. The fake records the
+    /// wire params and runs the same workspace command adapter as the native connector.
+    pub fn answer_workspace_commands(
+        &mut self,
+        reply: impl Fn(&serde_json::Value) -> Result<serde_json::Value, String> + Send + Sync + 'static,
+    ) {
+        self.h.fake.respond(move |request| {
+            (request["method"] == "command/exec")
+                .then(|| reply(&request["params"]).map_err(codex_tui_core::rpc::ServerError::from))
+        });
+    }
+
     /// The turns started so far carry exactly `texts`, in order.
     pub fn assert_turn_texts(&self, texts: &[&str]) {
         let got = self.turn_texts();

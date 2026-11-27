@@ -679,3 +679,268 @@ fn invalid_surface_selection_warnings_wait_for_a_thread_and_are_once_per_app() {
     );
     assert!(warnings(&later).is_empty());
 }
+
+mod live_git_summary {
+    use super::*;
+    use codex_tui_core::app::effects::{Ask, Done};
+    use codex_tui_core::app::{AppEv, BackendEv, Command, Ingress};
+    use codex_tui_core::fixtures::builders::{turn_completed, turn_started};
+    use codex_tui_core::ids::{BackendId, ConnEpoch};
+    use codex_tui_core::rpc::{Address, Reply};
+    use codex_tui_core::screens::{ScreenEv, agents};
+
+    const LOCAL: BackendId = BackendId(0);
+    const REMOTE: BackendId = BackendId(1);
+
+    fn event(app: &mut CodexApp, backend: BackendId, ev: AppEv) -> AppFx {
+        let epoch = app.epoch_of(backend);
+        app.ingest(Ingress::of(backend, epoch, ev))
+            .expect("current connector")
+    }
+
+    fn open() -> CodexApp {
+        let mut app = CodexApp::new();
+        app.attach();
+        let started = event(&mut app, LOCAL, AppEv::Connected);
+        let ticket = started
+            .commands()
+            .iter()
+            .find_map(|command| match command {
+                Command::StartThread { ticket, .. } => Some(*ticket),
+                _ => None,
+            })
+            .expect("start thread");
+        event(
+            &mut app,
+            LOCAL,
+            AppEv::Reply(ticket, Reply::thread_started(ThreadId::new("a"))),
+        );
+        app
+    }
+
+    fn select(app: &mut CodexApp, ids: &[&str]) -> AppFx {
+        event(
+            app,
+            LOCAL,
+            AppEv::Screen(ScreenEv::Chat(chat::Ev::Status(Box::new(
+                chat::StatusFacts {
+                    items: Some(ids.iter().map(|id| (*id).to_owned()).collect()),
+                    ..Default::default()
+                },
+            )))),
+        )
+    }
+
+    fn workspace(thread: &str, cwd: &str) -> AppEv {
+        let message = json!({
+            "method": "thread/settings/updated", "params": {
+                "threadId": thread, "threadSettings": {
+                    "cwd": cwd, "approvalPolicy":"on-request", "approvalsReviewer":"user",
+                    "sandboxPolicy":{"type":"readOnly"}, "activePermissionProfile":null,
+                    "model":"gpt-5.4", "modelProvider":"openai", "serviceTier":null,
+                    "effort":null, "summary":null, "personality":null,
+                    "collaborationMode":{"mode":"default","settings":{
+                        "model":"gpt-5.4","reasoning_effort":null,"developer_instructions":null
+                    }}
+                }
+            }
+        });
+        notification(message)
+    }
+
+    fn notification(message: serde_json::Value) -> AppEv {
+        AppEv::Backend(BackendEv::Notification(Box::new(
+            serde_json::from_value(message).expect("server message"),
+        )))
+    }
+
+    fn git(fx: &AppFx) -> Option<(&Command, u64, &ThreadId, &str, Address)> {
+        fx.commands().iter().find_map(|command| match command {
+            Command::Effect {
+                request,
+                ask:
+                    Ask::GitSummary {
+                        thread,
+                        cwd,
+                        address,
+                    },
+                ..
+            } => Some((command, *request, thread, cwd.as_str(), *address)),
+            _ => None,
+        })
+    }
+
+    fn result(request: u64, pr: Option<u64>) -> AppEv {
+        AppEv::Effect {
+            request,
+            done: Done::GitSummary(GitSummary {
+                pull_request: pr.map(|number| PullRequest {
+                    number,
+                    url: format!("https://example.com/pr/{number}"),
+                }),
+                changes: None,
+            }),
+        }
+    }
+
+    fn finish(
+        app: &mut CodexApp,
+        connector: ConnEpoch,
+        address: Address,
+        request: u64,
+        pr: Option<u64>,
+    ) -> Option<AppFx> {
+        app.ingest(Ingress::transport_event(
+            address.backend,
+            connector,
+            address.epoch,
+            result(request, pr),
+        ))
+    }
+
+    fn shown(app: &CodexApp) -> Option<u64> {
+        app.screens()
+            .chat
+            .facts
+            .git_summary()?
+            .pull_request
+            .as_ref()
+            .map(|pr| pr.number)
+    }
+
+    #[test]
+    fn only_the_current_workspace_and_transport_can_install_a_summary() {
+        let mut app = open();
+        let local = app.epoch();
+        let remote = app.attach_backend(REMOTE);
+        event(&mut app, REMOTE, AppEv::Connected);
+        assert!(git(&event(&mut app, LOCAL, workspace("a", "/a"))).is_none());
+        let first = select(&mut app, &["branch-changes", "pull-request-number"]);
+        let (command, old, thread, cwd, source) =
+            git(&first).expect("attached workspace asks only when configured");
+        assert_eq!((thread.as_str(), cwd, source.backend), ("a", "/a", LOCAL));
+        assert_eq!(
+            app.dispatch_route(command, None),
+            Some((LOCAL, Some(source)))
+        );
+        assert!(git(&event(&mut app, LOCAL, workspace("a", "/a"))).is_none());
+        assert!(
+            app.ingest(Ingress::transport_event(
+                REMOTE,
+                remote,
+                remote,
+                result(old, Some(1))
+            ))
+            .is_none()
+        );
+
+        let next = event(&mut app, LOCAL, workspace("a", "/a-next"));
+        let (_, second, _, cwd, _) = git(&next).expect("different cwd is a different workspace");
+        assert_eq!(cwd, "/a-next");
+        assert!(app.dispatch_route(command, None).is_none());
+        assert!(finish(&mut app, local, source, old, Some(1)).is_none());
+        assert!(finish(&mut app, local, source, second, None).is_some());
+        assert!(shown(&app).is_none());
+        assert!(
+            git(&event(&mut app, LOCAL, workspace("a", "/a-next"))).is_none(),
+            "refusal settles that lookup"
+        );
+
+        // Observing another workspace never changes the displayed thread's result. When it is
+        // shown, the identical path on a different connector still needs its own request.
+        let last_local = event(&mut app, LOCAL, workspace("a", "/common"));
+        let (_, local_pending, _, _, local_address) = git(&last_local).expect("local lookup");
+        event(&mut app, REMOTE, workspace("b", "/common"));
+        event(
+            &mut app,
+            LOCAL,
+            AppEv::Screen(ScreenEv::Agents(agents::Ev::Current(Some(ThreadId::new(
+                "b",
+            ))))),
+        );
+        let next = event(&mut app, REMOTE, workspace("b", "/common"));
+        let (command, stale, thread, _, address) =
+            git(&next).expect("remote owner asks on its socket");
+        assert_eq!((thread.as_str(), address.backend), ("b", REMOTE));
+        assert_eq!(
+            app.dispatch_route(command, None),
+            Some((REMOTE, Some(address)))
+        );
+        assert!(
+            finish(&mut app, local, local_address, local_pending, Some(1)).is_none(),
+            "a result from the abandoned workspace cannot settle the remote lookup"
+        );
+        let next_stamp = address.epoch.next();
+        let after = app
+            .ingest(Ingress::transport_replaced(REMOTE, remote, next_stamp))
+            .expect("new socket");
+        let (_, fresh, _, _, new_address) =
+            git(&after).expect("replacement reissues current workspace");
+        assert_eq!(new_address.epoch, next_stamp);
+        assert!(finish(&mut app, remote, address, stale, Some(2)).is_none());
+        assert!(app.dispatch_route(command, None).is_none());
+        assert!(finish(&mut app, remote, new_address, fresh, Some(42)).is_some());
+        assert_eq!(shown(&app), Some(42));
+        assert!(
+            finish(&mut app, remote, new_address, fresh, Some(3)).is_none(),
+            "duplicate"
+        );
+        select(&mut app, &["model"]);
+        assert!(shown(&app).is_none());
+    }
+
+    #[test]
+    fn a_terminal_turn_refreshes_once_and_keeps_the_last_summary_in_view() {
+        let mut app = open();
+        let local = app.epoch();
+        event(&mut app, LOCAL, workspace("a", "/work"));
+        let started = select(&mut app, &["pull-request-number"]);
+        let (_, request, _, _, address) = git(&started).expect("initial workspace request");
+        assert!(finish(&mut app, local, address, request, Some(12)).is_some());
+        assert!(
+            git(&event(
+                &mut app,
+                LOCAL,
+                AppEv::Backend(turn_started("a", "turn-1"))
+            ))
+            .is_none()
+        );
+        let fail = |will_retry| {
+            notification(json!({
+                "method":"error", "params": {"error":{"message":"a fixture failure","codexErrorInfo":null,"additionalDetails":null},"willRetry":will_retry,"threadId":"a","turnId":"turn-1"}
+            }))
+        };
+        assert!(git(&event(&mut app, LOCAL, fail(true))).is_none());
+        let terminal = event(&mut app, LOCAL, fail(false));
+        let (_, request, _, _, address) = git(&terminal).expect("a real terminal error refreshes");
+        assert_eq!(shown(&app), Some(12));
+        assert!(
+            git(&event(
+                &mut app,
+                LOCAL,
+                AppEv::Backend(turn_completed("a", "turn-1"))
+            ))
+            .is_none()
+        );
+        for turn in ["turn-2", "turn-3"] {
+            event(&mut app, LOCAL, AppEv::Backend(turn_started("a", turn)));
+            let ended = event(&mut app, LOCAL, AppEv::Backend(turn_completed("a", turn)));
+            assert!(
+                git(&ended).is_none(),
+                "do not start a second concurrent lookup"
+            );
+        }
+        let superseded =
+            finish(&mut app, local, address, request, Some(28)).expect("pending result");
+        let (_, refresh, _, _, address) = git(&superseded).expect("follow-up after both turns");
+        assert_eq!(
+            shown(&app),
+            Some(12),
+            "keep the previously displayed result"
+        );
+        let final_result =
+            finish(&mut app, local, address, refresh, Some(42)).expect("fresh result");
+        assert!(git(&final_result).is_none());
+        assert_eq!(shown(&app), Some(42));
+    }
+}

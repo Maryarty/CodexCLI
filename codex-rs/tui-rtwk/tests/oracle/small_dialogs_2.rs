@@ -464,30 +464,92 @@ fn picker_previews_the_pr_link_and_preserves_the_color_preference() {
             .size(100, 24)
             .live()
             .open();
-        s.feed(r#"{"step":"screen","dir":"chat","ev":{"facts":{"cwd":"/w"}}}"#);
+        s.answer_workspace_commands(move |params| {
+            let argv: Vec<&str> = params["command"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(serde_json::Value::as_str)
+                .collect();
+            let output = match argv.as_slice() {
+                ["gh", "pr", "view", "--json", "number,url,state"] => {
+                    serde_json::json!({"number":42,"url":url,"state":"OPEN"}).to_string()
+                }
+                ["git", "-c", _, "rev-parse", "--git-dir"] => ".git\n".to_owned(),
+                ["git", "-c", _, "remote"] => String::new(),
+                [
+                    "git",
+                    "-c",
+                    _,
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    "refs/heads/main",
+                ] => "default".to_owned(),
+                ["git", "-c", _, "merge-base", "HEAD", "refs/heads/main"] => "base".to_owned(),
+                [
+                    "git",
+                    "-c",
+                    _,
+                    "diff",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    "--numstat",
+                    "base..HEAD",
+                ] => "3\t2\ttest.txt\n".to_owned(),
+                _ => return Err(format!("unexpected workspace command: {argv:?}")),
+            };
+            Ok(serde_json::json!({"exitCode":0,"stdout":output,"stderr":""}))
+        });
+        s.feed(r#"{"step":"notify","message":{"method":"thread/settings/updated","params":{"threadId":"thread-1","threadSettings":{"cwd":"/w","approvalPolicy":"on-request","approvalsReviewer":"user","sandboxPolicy":{"type":"dangerFullAccess"},"activePermissionProfile":null,"model":"gpt-5.4","modelProvider":"openai","serviceTier":null,"effort":null,"summary":null,"collaborationMode":{"mode":"default","settings":{"model":"gpt-5.4","reasoning_effort":null,"developer_instructions":null}},"personality":null}}}}"#);
+        kit::assert_same(
+            s.requests_of("command/exec"),
+            0,
+            "an unconfigured status bar has no probe",
+        );
+        let hold = s.hold_request("command/exec");
         s.feed(&serde_json::json!({
-            "step":"screen","dir":"chat","ev":{"status":{"items":["pull-request-number"],"colors":colors}}
+            "step":"screen","dir":"chat","ev":{"status":{"items":["pull-request-number","branch-changes"],"colors":colors}}
         }).to_string());
         s.type_text("/statusline").keys("enter");
-        s.feed(
-            &serde_json::json!({
-                "step":"screen","dir":"chat","ev":{"facts":{"git_summary":{
-                    "request":1,"summary":{"pull_request":{"number":42,"url":url}}
-                }}}
-            })
-            .to_string(),
+        let requests = s.request_params("command/exec");
+        kit::assert_same(
+            requests.len(),
+            2,
+            "one lookup starts one Git command and one PR command",
         );
-        s.assert_in_order(&["Configure Status Line", "PR #42", "enter save"]);
+        for request in requests {
+            kit::assert_same(
+                request["cwd"].as_str(),
+                Some("/w"),
+                "the attached workspace is used",
+            );
+            kit::assert_same(
+                request["timeoutMs"].as_i64(),
+                Some(5000),
+                "short workspace probe",
+            );
+        }
+        s.release(&hold);
+        s.wait_for("PR #42");
+        s.assert_in_order(&["Configure Status Line", "PR #42", "+3 -2", "enter save"]);
         s.assert_text_count("PR #42", 1);
         s.assert_link("PR #42", url);
         s.keys("enter");
         s.assert_config_write(&[
             (
                 "tui.status_line",
-                serde_json::json!(["pull-request-number"]),
+                serde_json::json!(["pull-request-number", "branch-changes"]),
             ),
             ("tui.status_line_use_colors", serde_json::json!(colors)),
         ]);
+        s.assert_link("PR #42", url);
+        s.assert_contains("+3 -2");
+        kit::assert_same(
+            s.requests_of("command/exec"),
+            6,
+            "a fresh result is reused in both surfaces",
+        );
     }
 }
 
