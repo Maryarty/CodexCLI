@@ -692,24 +692,23 @@ fn flush_answer_stream_requests_scrollback_reflow_for_tables() {
 
 const PLAN_TABLE: &str = "| Step | Owner |\n| --- | --- |\n| Verify | Codex |\n";
 
-fn stream_plan_table() -> Screen {
-    let mut s = Screen::build(Owner::UiPane)
-        .size(80, 24)
-        .script(RUNNING)
-        .open();
+fn plan_delta(s: &mut Screen, delta: &str) {
+    s.feed(
+        &serde_json::json!({
+            "step": "notify",
+            "message": {"method": "item/plan/delta", "params": {
+                "threadId": "thread-1", "turnId": "turn-1", "itemId": "plan-1", "delta": delta
+            }}
+        })
+        .to_string(),
+    );
+}
+
+fn stream_plan_table(s: &mut Screen) {
     for delta in PLAN_TABLE.split_inclusive('\n') {
-        s.feed(
-            &serde_json::json!({
-                "step": "notify",
-                "message": {"method": "item/plan/delta", "params": {
-                    "threadId": "thread-1", "turnId": "turn-1", "itemId": "plan-1", "delta": delta
-                }}
-            })
-            .to_string(),
-        );
+        plan_delta(s, delta);
     }
     s.assert_text_count("Verify", 1);
-    s
 }
 
 fn finish_plan_table(s: &mut Screen, text: &str) {
@@ -731,23 +730,46 @@ fn assert_one_plan_table(s: &Screen) {
     s.assert_text_count("Verify", 1);
 }
 
+fn finalize_streamed_plan(s: &mut Screen) {
+    stream_plan_table(s);
+    finish_plan_table(s, "");
+    finish_plan_table(s, "");
+    plan_delta(s, "Late row");
+    assert_one_plan_table(s);
+    s.assert_absent("Late row");
+}
+
 // ORACLE chatwidget/tests/status_and_layout.rs:688 completed_plan_table_tail_skips_provisional_history_insert kind=ui owner=ui-pane
 #[test]
 fn completed_plan_table_tail_skips_provisional_history_insert() {
-    let mut s = stream_plan_table();
-    finish_plan_table(&mut s, "");
-    kit::pending(
-        Owner::UiPane,
-        "the empty completion replaces the accumulated plan with an empty item. The oracle keeps the streamed source as the finalized plan and inserts it once",
-    );
-    assert_one_plan_table(&s);
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .inline(&[])
+        .script(RUNNING)
+        .open();
+    finalize_streamed_plan(&mut s);
+    let mut owned = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .script(RUNNING)
+        .open();
+    finalize_streamed_plan(&mut owned);
+    owned.feed(TURN_ENDED);
+    owned.keys("ctrl+t");
+    assert_one_plan_table(&owned);
 }
 
 #[test]
 fn completed_plan_table_with_full_payload_replaces_the_live_tail() {
-    let mut s = stream_plan_table();
-    finish_plan_table(&mut s, PLAN_TABLE);
-    assert_one_plan_table(&s);
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .script(RUNNING)
+        .open();
+    stream_plan_table(&mut s);
+    finish_plan_table(&mut s, &PLAN_TABLE.replace("Verify", "Publish"));
+    finish_plan_table(&mut s, "");
+    s.assert_row_of("Publish", &["Codex", "│"], &[]);
+    s.assert_text_count("Publish", 1);
+    s.assert_absent("Verify");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:839 rate_limit_usage_warnings_early_threshold_is_scoped_and_deduplicated kind=snap owner=ui-pane

@@ -191,6 +191,16 @@ pub enum Item {
 }
 
 impl Item {
+    /// An empty plan completion leaves the source already delivered for this item intact.
+    fn keep_previous_plan_text(&mut self, previous: Option<&Self>) {
+        if let Self::Plan { text } = self
+            && text.is_empty()
+            && let Some(Self::Plan { text: previous }) = previous
+        {
+            text.clone_from(previous);
+        }
+    }
+
     /// The Markdown body of a reasoning item (empty for another kind): the summary, and with
     /// `show_raw` (`show_raw_agent_reasoning`) the raw reasoning content after it.
     pub fn reasoning_text(&self, show_raw: bool) -> &str {
@@ -318,7 +328,8 @@ struct ItemEntry {
 }
 
 impl ItemEntry {
-    fn updated(before: Option<&Self>, item: Item, revision: &mut u64) -> Self {
+    fn updated(before: Option<&Self>, mut item: Item, revision: &mut u64) -> Self {
+        item.keep_previous_plan_text(before.map(|entry| entry.item.as_ref()));
         if let Some(before) = before
             && *before.item == item
         {
@@ -3324,7 +3335,12 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 send_next(model, fx);
             }
         }
-        ThreadEv::ItemUpsert { key, item, receipt } => {
+        ThreadEv::ItemUpsert {
+            key,
+            mut item,
+            receipt,
+        } => {
+            item.keep_previous_plan_text(model.transcript.item(&key));
             processes::track(model, &key, &item);
             note_review(model, &item);
             let (echo, released) = match receipt {
@@ -3360,7 +3376,14 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                         Item::Reasoning { .. } => {
                             model.completed_items.insert(key.clone());
                         }
-                        Item::Plan { text } => model.slots.chat.plan.plan_completed(text),
+                        Item::Plan { text } => {
+                            let first = model.completed_items.insert(key.clone());
+                            if first
+                                && matches!(&model.turn, TurnState::Running(run) if run.turn == key.turn)
+                            {
+                                model.slots.chat.plan.plan_completed(text);
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -3386,7 +3409,9 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         }
         ThreadEv::PlanDelta { key, delta } => {
             if !model.finished_turns.contains(&key.turn) && !model.completed_items.contains(&key) {
-                model.slots.chat.plan.plan_delta();
+                if matches!(&model.turn, TurnState::Running(run) if run.turn == key.turn) {
+                    model.slots.chat.plan.plan_delta();
+                }
                 processes::flush(model, Some(key.turn.clone()));
                 model.transcript.append_plan(key, &delta);
             }
