@@ -481,8 +481,8 @@ pub fn model_display_name(catalog: &Catalog, model: Option<&str>) -> String {
     }
 }
 
-/// The tier name the catalog gives the current model, with the fallback labels for an
-/// uncataloged tier. Flex needs the host's configured-provider fact.
+/// The name the catalog gives the current model's tier, or the conventional Flex name when
+/// the effective provider is in the host's configured Flex list.
 pub fn tier_display_name<'a>(
     catalog: &'a Catalog,
     model: Option<&str>,
@@ -496,7 +496,6 @@ pub fn tier_display_name<'a>(
     match (offered, id) {
         (Some(tier), _) => Some(tier.name.as_str()),
         (None, "flex") if flex_tier_fallback => Some("Flex"),
-        (None, "priority") => Some("Fast"),
         _ => None,
     }
 }

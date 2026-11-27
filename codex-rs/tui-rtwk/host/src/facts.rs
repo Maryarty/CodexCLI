@@ -129,10 +129,12 @@ pub async fn status(config: &Config) -> StatusFacts {
         hostname: codex_config::os_host_name(),
         profile_name,
         provider: Some(config.model_provider_id.clone()),
-        flex_tier_fallback: config
+        flex_tier_providers: config
             .model_providers
-            .get(&config.model_provider_id)
-            .is_some_and(|provider| !provider.is_amazon_bedrock()),
+            .iter()
+            .filter(|(_, provider)| !provider.is_amazon_bedrock())
+            .map(|(id, _)| id.clone())
+            .collect(),
         provider_names,
         version: Some(env!("CARGO_PKG_VERSION").to_string()),
         animations: config.animations,
@@ -554,26 +556,26 @@ mod tests {
     #[tokio::test]
     async fn flex_fallback_uses_the_host_provider_table() {
         let dir = tempfile::tempdir().expect("a directory");
-        let mut config = codex_core::config::ConfigBuilder::default()
+        let config = codex_core::config::ConfigBuilder::default()
             .codex_home(dir.path().to_path_buf())
             .fallback_cwd(Some(dir.path().to_path_buf()))
             .build()
             .await
             .expect("a config");
+        let facts = status(&config).await;
         for (provider, present, allowed) in [
             ("openai", true, true),
             ("amazon-bedrock", true, false),
             ("amazon-bedrock-runtime", true, false),
             ("remote-only-provider", false, false),
         ] {
-            config.model_provider_id = provider.to_owned();
             assert_eq!(
                 config.model_providers.contains_key(provider),
                 present,
                 "{provider}"
             );
             assert_eq!(
-                status(&config).await.flex_tier_fallback,
+                facts.flex_tier_providers.contains(provider),
                 allowed,
                 "{provider}"
             );

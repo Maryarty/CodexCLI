@@ -9,6 +9,7 @@ pub mod facts;
 mod mcp;
 pub mod plan_mode;
 pub mod reasoning;
+pub mod surface_items;
 
 use std::collections::BTreeSet;
 use std::rc::Rc;
@@ -28,7 +29,6 @@ use crate::commands::CommandFlags;
 use crate::commands::ServiceTierCommand;
 use crate::commands::SessionIntent;
 use crate::commands::SlashCommand;
-use crate::features::settings::items;
 use crate::ids::{ThreadId, TurnId};
 use crate::rpc::RpcError;
 use crate::screens::Kind;
@@ -127,8 +127,8 @@ pub struct StatusFacts {
     pub hostname: Option<String>,
     pub profile_name: Option<String>,
     pub provider: Option<String>,
-    /// The selected provider is configured and permits the conventional Flex label.
-    pub flex_tier_fallback: bool,
+    /// Configured providers that use the conventional Flex name if the catalog has no name.
+    pub flex_tier_providers: BTreeSet<String>,
     /// Configured display names for the providers a thread refusal can name.
     pub provider_names: Vec<ModelProviderName>,
     pub version: Option<String>,
@@ -172,7 +172,7 @@ impl Default for StatusFacts {
             hostname: None,
             profile_name: None,
             provider: None,
-            flex_tier_fallback: false,
+            flex_tier_providers: BTreeSet::new(),
             provider_names: Default::default(),
             version: None,
             animations: true,
@@ -323,13 +323,13 @@ impl Model {
         let status = take_invalid_items(
             &mut self.warned_status_items,
             self.status.items.as_deref(),
-            items::status_item,
+            surface_items::status_item,
         )
         .map(LocalWarning::InvalidStatusLineItems);
         let title = take_invalid_items(
             &mut self.warned_title_items,
             self.status.terminal_title.as_deref(),
-            items::title_item,
+            surface_items::title_item,
         )
         .map(LocalWarning::InvalidTitleItems);
         status.into_iter().chain(title)

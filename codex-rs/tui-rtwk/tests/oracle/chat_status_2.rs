@@ -506,45 +506,58 @@ fn completed_turn_clears_visible_running_hook() {
 // ORACLE chatwidget/tests/status_and_layout.rs:4264 status_line_processing_tier_updates_with_selection kind=snap owner=ui-pane
 #[test]
 fn status_line_processing_tier_updates_with_selection() {
-    let status = |model: &str, tier: Option<&str>, fast_mode: bool, provider: &str| {
-        let flex_tier_fallback = provider == "openai";
+    let status = |tier: &str, fast_mode: bool| {
         serde_json::json!({
             "step": "screen", "dir": "chat", "ev": {"status": {
-                "model": model, "service_tier": tier, "fast_mode": fast_mode, "provider": provider,
-                "flex_tier_fallback": flex_tier_fallback,
+                "model": "gpt-5.4", "service_tier": tier, "fast_mode": fast_mode,
+                "provider": "openai", "flex_tier_providers": ["openai"],
                 "items": ["fast-mode"], "terminal_title": ["fast-mode"],
             }}
         })
         .to_string()
     };
-    let line = |s: &Screen, text: &str| {
+    let settings = |model: &str, provider: &str, tier: &str| {
+        serde_json::json!({
+            "step": "notify", "message": { "method": "thread/settings/updated", "params": {
+                "threadId": "thread-1", "threadSettings": {
+                    "cwd": "/tmp/project", "approvalPolicy": "on-request", "approvalsReviewer": "user",
+                    "sandboxPolicy": {"type": "dangerFullAccess"}, "activePermissionProfile": null,
+                    "model": model, "modelProvider": provider, "serviceTier": tier,
+                    "effort": null, "summary": null, "personality": null,
+                    "collaborationMode": {"mode": "default", "settings": {
+                        "model": model, "reasoning_effort": null, "developer_instructions": null
+                    }}
+                }
+            }}
+        }).to_string()
+    };
+    let surfaces = |s: &Screen, text: &str| {
         s.assert_has_row_trimmed(text);
+        s.assert_title(text);
     };
     let mut s = Screen::build(Owner::UiPane)
         .size(100, 24)
         .script(include_str!("fixtures/chat_status_2/fast_tier.jsonl"))
         .open();
-    line(&s, "Standard");
-    s.feed(&status("gpt-5.4", Some("priority"), true, "openai"));
-    line(&s, "fast");
-    s.assert_title("fast");
-    s.feed(&status("gpt-5.4", Some("priority"), false, "openai"));
-    line(&s, "Standard");
-    s.assert_title("Standard");
-    s.feed(&status("gpt-5.2", Some("flex"), true, "openai"));
-    line(&s, "Flex");
-    s.assert_title("Flex");
-    s.feed(&status("gpt-5.2", Some("flex"), true, "amazon-bedrock"));
-    line(&s, "Standard");
-    // then the provider the oracle does not know: `Standard`
-    s.feed(&status(
-        "gpt-5.2",
-        Some("flex"),
-        true,
-        "remote-only-provider",
-    ));
-    line(&s, "Standard");
-    s.assert_title("Standard");
+    s.assert_has_row_trimmed("Standard");
+    s.feed(&status("priority", true));
+    surfaces(&s, "fast");
+    s.feed(&status("priority", false));
+    surfaces(&s, "Standard");
+    s.feed(&status("priority", true));
+    // Host config still selects OpenAI, as the attached thread changes its effective provider.
+    for (provider, name) in [
+        ("openai", "Flex"),
+        ("amazon-bedrock", "Standard"),
+        ("amazon-bedrock-runtime", "Standard"),
+        ("remote-only-provider", "Standard"),
+        ("openai", "Flex"),
+    ] {
+        s.feed(&settings("gpt-5.2", provider, "flex"));
+        surfaces(&s, name);
+    }
+    s.feed(&settings("uncatalogued-model", "openai", "priority"));
+    surfaces(&s, "Standard");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4319 status_line_fast_mode_footer_snapshot kind=snap owner=ui-pane snap=status_line_fast_mode_footer
@@ -608,7 +621,7 @@ fn renamed_thread_footer_title_snapshot() {
 fn status_line_model_with_reasoning_speed_footer_snapshots() {
     let status = |tier: &str, items: &str| {
         format!(
-            r#"{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"gpt-5.4","effort":"xhigh","service_tier":"{tier}","cwd":"/tmp/project","items":{items},"terminal_title":["model-with-reasoning"]}}}}}}"#
+            r#"{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"gpt-5.4","effort":"xhigh","service_tier":"{tier}","provider":"openai","flex_tier_providers":["openai"],"cwd":"/tmp/project","items":{items},"terminal_title":["model-with-reasoning"]}}}}}}"#
         )
     };
     let all = r#"["model-with-reasoning","context-used","current-dir"]"#;

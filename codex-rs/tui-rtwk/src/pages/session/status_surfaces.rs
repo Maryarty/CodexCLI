@@ -1,9 +1,9 @@
 //! Display values shared by the chat footer and the terminal title.
 
 use codex_protocol::account::PlanType;
-use codex_tui_core::features::settings::items::{DEFAULT_TITLE, status_item, title_item};
 use codex_tui_core::format::format_tokens_compact;
 use codex_tui_core::ids::ThreadId;
+use codex_tui_core::screens::chat::surface_items::{DEFAULT_TITLE, status_item, title_item};
 use codex_tui_core::screens::chat::{self, DEFAULT_STATUS_LINE_ITEMS, StatusFacts};
 use codex_tui_core::screens::status::{
     self, Figure, UsageInterest, format_credit_micros, format_estimated_usd_micros,
@@ -199,11 +199,14 @@ impl StatusContext<'_> {
             .and_then(|thread| thread.service_tier.as_ref())
             .map_or(facts.service_tier.as_deref(), |tier| tier.as_deref());
         let tier = chat::facts::effective_service_tier(facts, tier, slug, self.catalog);
+        let provider = thread
+            .and_then(|thread| thread.provider.as_deref())
+            .or(facts.provider.as_deref());
         let tier_name = chat::facts::tier_display_name(
             self.catalog,
             slug,
             tier.as_deref(),
-            facts.flex_tier_fallback,
+            provider.is_some_and(|id| facts.flex_tier_providers.contains(id)),
         );
         let usage = self.usage.filter(|usage| usage.received);
         let tokens = usage.map(|usage| usage.tokens);
@@ -246,10 +249,9 @@ impl StatusContext<'_> {
                 .profile_name
                 .as_ref()
                 .map(|name| format_label("profile", name)),
-            "provider" if self.thread_id.is_some() => thread
-                .and_then(|thread| thread.provider.as_deref())
-                .or(facts.provider.as_deref())
-                .map(|name| format_label("provider", name)),
+            "provider" if self.thread_id.is_some() => {
+                provider.map(|name| format_label("provider", name))
+            }
             "codex-version" => facts.version.clone(),
             "pull-request-number" => self.chat.git_summary()?.pull_request_text(),
             "branch-changes" => self.chat.git_summary()?.changes_text(),

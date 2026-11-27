@@ -560,6 +560,10 @@ mod names {
         let name =
             |id, fallback| facts::tier_display_name(&catalog, Some("gpt-5.1-codex"), id, fallback);
         assert_eq!(name(Some("priority"), false), Some("fast"));
+        assert_eq!(
+            facts::tier_display_name(&catalog, Some("unknown"), Some("priority"), true),
+            None
+        );
         assert_eq!(name(Some("flex"), true), Some("Flex"));
         assert_eq!(name(Some("flex"), false), None);
         assert_eq!(name(Some("other"), true), None);
