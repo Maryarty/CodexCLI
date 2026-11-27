@@ -22,10 +22,11 @@ use codex_app_server_protocol::{
 
 pub use recourse::{Domain, Source, Topic};
 
-use super::{Fault, Item, ThreadEv, ThreadFx, ThreadModel, TurnState, UserMessage};
+use super::{Fault, Item, ThreadCtx, ThreadEv, ThreadFx, ThreadModel, TurnState, UserMessage};
+use crate::app::Command;
 use crate::ids::{ThreadId, Ticket, TurnId};
 use crate::screens::cells::Daybreak;
-use crate::screens::{ScreenThreadEv, chat};
+use crate::screens::{ScreenCommand, ScreenThreadEv, agents, chat};
 
 /// A finding longer than this is not kept (oracle `on_misalignment_error`).
 const MAX_FINDINGS: usize = 64 * 1024;
@@ -310,8 +311,8 @@ pub enum RetryLifecycle {
         restore: Option<Box<UserMessage>>,
     },
     RetireOffer,
-    Started {
-        turn: TurnId,
+    Start {
+        request: Box<retry::StartRequest>,
         message: Box<UserMessage>,
     },
 }
@@ -428,10 +429,37 @@ fn retry_step(model: &mut ThreadModel, step: RetryLifecycle, fx: &mut ThreadFx<'
                 offer.generation = fx.mint();
             }
         }
-        RetryLifecycle::Started { turn, message } => {
-            super::start_turn(model, turn.clone(), fx.now());
-            model.core.safety.submitted(turn, *message);
+        RetryLifecycle::Start { request, message } => {
+            if request.thread() == model.id() && model.has_writer() && !model.busy() {
+                fx.start_retry(*request, *message);
+            } else {
+                super::give_back(model, vec![*message], false);
+            }
         }
+    }
+}
+
+impl ThreadFx<'_> {
+    /// Keep the ordinary start context, including its submission receipt for reconciliation.
+    fn start_retry(&mut self, request: retry::StartRequest, message: UserMessage) {
+        let ticket = self.mint.next();
+        let (_, client_id, _) = request.submission();
+        self.registered.push((
+            ticket,
+            ThreadCtx::StartTurn {
+                interrupt: false,
+                message,
+                client_id: Some(client_id.to_owned()),
+                acknowledged: false,
+            },
+        ));
+        self.out.commands.push(Command::Screen {
+            ticket,
+            thread: self.thread.clone(),
+            command: ScreenCommand::Agents(agents::Command::Thread(super::ThreadAsk::RetryStart(
+                request,
+            ))),
+        });
     }
 }
 

@@ -3,11 +3,9 @@
 //! conversation, before the new thread exists.
 
 use codex_app_server_protocol::{
-    SortDirection, Thread, ThreadForkParams, ThreadHistoryMode, ThreadItem, ThreadItemPayload,
-    ThreadItemsListParams, ThreadItemsListResponse, ThreadStatus, ThreadTurnsListParams,
-    ThreadTurnsListResponse, Turn, TurnItemsView, TurnStartParams, TurnStatus, UserInput,
+    Thread, ThreadHistoryMode, ThreadItem, ThreadItemPayload, ThreadItemsListResponse,
+    ThreadStatus, ThreadTurnsListResponse, Turn, TurnItemsView, TurnStatus, UserInput,
 };
-use codex_protocol::openai_models::ReasoningEffort;
 
 use crate::ids::{ThreadId, Ticket, TurnId};
 use crate::rpc::Address;
@@ -15,8 +13,8 @@ use crate::threads::UserMessage;
 
 use super::Retry;
 
-const TURN_LIMIT: u32 = 5;
-const ITEM_LIMIT: u32 = 100;
+pub(in crate::threads) const TURN_LIMIT: u32 = 5;
+pub(in crate::threads) const ITEM_LIMIT: u32 = 100;
 
 /// The source and connection selected when the confirmed operation started.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -167,17 +165,8 @@ impl TurnsRequest {
         &self.thread
     }
 
-    pub(crate) fn params(&self) -> ThreadTurnsListParams {
-        ThreadTurnsListParams {
-            thread_id: self.thread.to_string(),
-            cursor: None,
-            limit: Some(TURN_LIMIT),
-            sort_direction: Some(SortDirection::Desc),
-            items_view: Some(match self.mode {
-                ThreadHistoryMode::Legacy => TurnItemsView::Full,
-                ThreadHistoryMode::Paginated => TurnItemsView::NotLoaded,
-            }),
-        }
+    pub(in crate::threads) fn mode(&self) -> ThreadHistoryMode {
+        self.mode
     }
 }
 
@@ -237,15 +226,8 @@ impl ItemsRequest {
         &self.thread
     }
 
-    pub(crate) fn params(&self) -> ThreadItemsListParams {
-        ThreadItemsListParams {
-            thread_id: self.thread.to_string(),
-            turn_id: Some(self.turn.to_string()),
-            cursor: None,
-            limit: Some(ITEM_LIMIT),
-            sort_direction: Some(SortDirection::Asc),
-            defer_output: None,
-        }
+    pub(in crate::threads) fn turn(&self) -> &TurnId {
+        &self.turn
     }
 }
 
@@ -339,15 +321,8 @@ impl ForkRequest {
         &self.thread
     }
 
-    pub(crate) fn params(&self) -> ThreadForkParams {
-        // Leave permission parameters absent so the server inherits the source's settings.
-        ThreadForkParams {
-            thread_id: self.thread.to_string(),
-            before_turn_id: Some(self.turn.to_string()),
-            defer_goal_continuation: true,
-            exclude_turns: self.mode == ThreadHistoryMode::Paginated,
-            ..ThreadForkParams::default()
-        }
+    pub(in crate::threads) fn point(&self) -> (&TurnId, ThreadHistoryMode) {
+        (&self.turn, self.mode)
     }
 }
 
@@ -391,16 +366,8 @@ impl StartRequest {
         &self.thread
     }
 
-    /// The fork's effective permissions stay in force because the turn carries no overrides.
-    pub(crate) fn params(&self) -> TurnStartParams {
-        TurnStartParams {
-            thread_id: self.thread.to_string(),
-            input: self.input.clone(),
-            client_user_message_id: Some(self.client_user_message_id.clone()),
-            model: Some(self.model.clone()),
-            effort: Some(ReasoningEffort::Low),
-            ..TurnStartParams::default()
-        }
+    pub(in crate::threads) fn submission(&self) -> (&[UserInput], &str, &str) {
+        (&self.input, &self.client_user_message_id, &self.model)
     }
 }
 

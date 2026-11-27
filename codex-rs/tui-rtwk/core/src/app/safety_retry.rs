@@ -2,15 +2,13 @@
 //! The source keeps its input while the app owns the operation. Each step spends one addressed
 //! ticket. The interruption also needs the source turn's terminal notification.
 
-use codex_app_server_protocol::Thread;
-
 use super::{AppCtx, AppFx, CodexApp, Command, Now, TurnOperation, Wake, apply_thread};
 use crate::ids::{BackendId, ThreadId, Ticket};
 use crate::rpc::{Address, Answer, RpcError};
 use crate::screens::{ScreenCommand, ScreenThreadEv, agents, chat, select};
 use crate::threads::safety::retry::{
     AwaitingInterrupt, History, InterruptSignal, Interruption, Invalid, Origin, ReadItems,
-    ReadSource, ReadTurns, ReadyToFork,
+    ReadSource, ReadTurns, ReadyToFork, ReadyToStart,
 };
 use crate::threads::safety::{self, RetryLifecycle, RetryOffer, SafetyEv};
 use crate::threads::{Failure, Item, ThreadAsk, ThreadEv, ThreadReply, TurnEnd, UserMessage};
@@ -31,10 +29,6 @@ enum Phase {
     Turns(ReadTurns),
     Items(ReadItems),
     Fork(ReadyToFork),
-    Start {
-        child: Box<Thread>,
-        message: UserMessage,
-    },
 }
 
 impl Run {
@@ -61,10 +55,6 @@ impl Run {
                         | (Phase::Turns(_), Answer::Thread(ThreadReply::RetryTurns(_)))
                         | (Phase::Items(_), Answer::Thread(ThreadReply::RetryItems(_)))
                         | (Phase::Fork(_), Answer::Thread(ThreadReply::RetryForked(_)))
-                        | (
-                            Phase::Start { .. },
-                            Answer::Thread(ThreadReply::RetryStarted { .. })
-                        )
                 ))
     }
 }
@@ -170,7 +160,7 @@ fn issue(app: &mut CodexApp, mut run: Run, ask: ThreadAsk, fx: &mut AppFx) {
     let target = ask
         .thread()
         .map_or_else(|| run.origin.thread.clone(), ThreadId::new);
-    let attaching = matches!(run.phase, Phase::Fork(_) | Phase::Start { .. });
+    let attaching = matches!(run.phase, Phase::Fork(_));
     let ticket = fx.ask(
         app,
         AppCtx::TurnOperation(TurnOperation::SafetyRetry {
@@ -262,53 +252,14 @@ pub(super) fn answered(
             items.verify(*page).map(fork_request)
         }
         (Phase::Fork(fork), Answer::Thread(ThreadReply::RetryForked(child))) => {
-            if app.threads.contains(&ThreadId::new(&child.id)) {
+            let verified = if app.threads.contains(&ThreadId::new(&child.id)) {
                 Err(Invalid::WrongFork)
             } else {
-                fork.forked(child).map(|start| {
-                    let client_id = app.mint.submission_id(run.origin.generation);
-                    let (child, message, request) = start.start(client_id);
-                    (
-                        Phase::Start { child, message },
-                        ThreadAsk::RetryStart(request),
-                    )
-                })
-            }
-        }
-        (
-            Phase::Start { child, message },
-            Answer::Thread(ThreadReply::RetryStarted { thread, turn }),
-        ) => {
-            if child.id == thread.as_str() && !app.threads.contains(&thread) {
-                let backend = run.origin.address.backend;
-                super::attach_thread_with_metadata(
-                    app,
-                    &thread,
-                    backend,
-                    crate::threads::Origin::Started,
-                    Some(&child),
-                    fx,
-                );
-                lifecycle(
-                    app,
-                    &thread,
-                    RetryLifecycle::Started {
-                        turn,
-                        message: Box::new(message),
-                    },
-                    fx,
-                );
-                super::show_held_thread(app, thread.clone(), fx);
-                super::fetch_history(app, &thread, fx);
-                release_parts(app, run.origin, None, fx);
-            } else {
-                fail_parts(
-                    app,
-                    run.origin,
-                    run.original,
-                    Invalid::WrongFork.message(),
-                    fx,
-                );
+                fork.forked(child)
+            };
+            match verified {
+                Ok(start) => admit(app, run.origin, start, fx),
+                Err(error) => fail_parts(app, run.origin, run.original, error.message(), fx),
             }
             return;
         }
@@ -321,6 +272,34 @@ pub(super) fn answered(
         }
         Err(error) => fail_parts(app, run.origin, run.original, error.message(), fx),
     }
+}
+
+/// Attachment and admission are one app step. Once issued, the child's receipt belongs to
+/// its ordinary submission owner and still settles if the user leaves this conversation.
+fn admit(app: &mut CodexApp, origin: Origin, start: ReadyToStart, fx: &mut AppFx) {
+    let client_id = app.mint.submission_id(origin.generation);
+    let (child, message, request) = start.start(client_id);
+    let thread = request.thread().clone();
+    super::attach_thread_with_metadata(
+        app,
+        &thread,
+        origin.address.backend,
+        crate::threads::Origin::Started,
+        Some(&child),
+        fx,
+    );
+    lifecycle(
+        app,
+        &thread,
+        RetryLifecycle::Start {
+            request: Box::new(request),
+            message: Box::new(message),
+        },
+        fx,
+    );
+    super::show_held_thread(app, thread.clone(), fx);
+    super::fetch_history(app, &thread, fx);
+    release_parts(app, origin, None, fx);
 }
 
 fn fork_request(fork: ReadyToFork) -> (Phase, ThreadAsk) {
@@ -338,10 +317,10 @@ pub(super) fn observe(app: &mut CodexApp, thread: &ThreadId, event: &ThreadEv, f
     };
     let checked = &run.origin.turn;
     let cancelled = match event {
-        ThreadEv::StreamLost | ThreadEv::ConnectionLost => true,
+        ThreadEv::StreamLost | ThreadEv::ConnectionLost | ThreadEv::Reverted => true,
         ThreadEv::TurnStarted { turn, .. } => turn != checked,
         ThreadEv::TurnError { turn, .. } => turn == checked,
-        ThreadEv::TurnEnded { turn, end } | ThreadEv::TurnCompleted { turn, end, .. } => {
+        ThreadEv::TurnCompleted { turn, end, .. } => {
             if turn != checked {
                 return;
             }

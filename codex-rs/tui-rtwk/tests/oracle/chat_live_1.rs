@@ -4,6 +4,8 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
+use serde_json::{Value, json};
+
 use crate::kit::{self, Owner, Screen};
 
 /// The row a text is drawn on: the oracle's snapshot is one cell's rows, the port draws the cell
@@ -17,9 +19,6 @@ fn row_of(s: &Screen, text: &str) -> usize {
 
 // Expected rows, copied from the oracle (the header and safety notice texts of app_server.rs).
 const SAFETY_HEADER: &str = "Giving this request a little extra thought";
-
-// Reasons shared by several tests (what the chat screen does not have yet).
-const SAFETY_PENDING: &str = "the typed retry request has no backend consumer for the verified interrupt, history check, and fork before the checked turn";
 
 /// Frame size of an oracle snapshot: its width as the oracle test sets it, its rows as stored.
 fn oracle_size(name: &str, width: u16) -> (u16, u16) {
@@ -571,78 +570,191 @@ fn session_and_settings_sync_server_provider_id() {
     s.assert_snap("daybreak_hidden_after_provider_settings_change");
 }
 
+const RETRY_INPUT: &str = "Summarize this public example.";
+const RETRY_SOURCE_TURN: &str = "turn-1";
+
+fn waiting_with_retry(s: &mut Screen) {
+    s.type_text(RETRY_INPUT).keys("enter");
+    s.assert_turn_texts(&[RETRY_INPUT]);
+    retry_notice(s);
+    s.wait_for("Retry with a faster model");
+}
+
+fn retry_notice(s: &mut Screen) {
+    s.feed(&safety_buffering(
+        RETRY_SOURCE_TURN,
+        true,
+        Some("faster-model"),
+    ));
+}
+
+fn retry_thread(id: &str, forked_from: Option<&str>) -> Value {
+    json!({
+        "id": id, "sessionId": id, "forkedFromId": forked_from, "preview": "",
+        "ephemeral": false, "historyMode": "legacy", "modelProvider": "openai",
+        "createdAt": 0, "updatedAt": 0, "recencyAt": 0, "status": {"type": "idle"},
+        "cwd": "/tmp/project", "cliVersion": "0.0.0", "source": "cli",
+        "canAcceptDirectInput": true, "turns": []
+    })
+}
+
+fn retry_turn(id: &str, status: &str) -> Value {
+    json!({
+        "id": id, "itemsView": "full", "items": [], "status": status,
+        "error": null, "startedAt": null, "completedAt": null, "durationMs": null
+    })
+}
+
+fn script_retry(s: &mut Screen) {
+    s.server_answers("turn/interrupt", json!({}))
+        .server_answers(
+            "thread/read",
+            json!({"thread": retry_thread("thread-1", None)}),
+        )
+        .server_answers(
+            "thread/turns/list",
+            json!({
+                "data": [retry_turn(RETRY_SOURCE_TURN, "interrupted")], "nextCursor": null
+            }),
+        )
+        .server_answers(
+            "thread/fork",
+            json!({
+                "thread": retry_thread("retry-child", Some("thread-1")),
+                "model": "gpt-default", "modelProvider": "openai", "cwd": "/tmp/project",
+                "approvalPolicy": "on-request", "approvalsReviewer": "user",
+                "sandbox": {"type": "readOnly", "access": {"type": "fullAccess"}}
+            }),
+        )
+        .server_answers(
+            "turn/start",
+            json!({"turn": retry_turn("child-turn", "inProgress")}),
+        );
+}
+
 // ORACLE chatwidget/tests/app_server.rs:289 safety_buffering_offers_one_retry_with_app_wording kind=snap owner=chat-live snap=safety_buffering_retry_confirmation snap=safety_buffering_retry_confirmation_narrow snap=safety_buffering_retry_prompt
 #[test]
 fn safety_buffering_offers_one_retry_with_app_wording() {
-    kit::pending(Owner::ChatLive, SAFETY_PENDING);
-    let (w, h) = oracle_size("safety_buffering_retry_prompt", 80);
-    let mut s = Screen::build(Owner::ChatLive).size(w, h).live().open();
-    s.feed(&turn_started("turn-safety-buffering"));
-    s.feed(&safety_buffering(
-        "turn-safety-buffering",
-        true,
-        Some("faster-model"),
-    ));
-    s.feed(&safety_buffering(
-        "turn-safety-buffering",
-        true,
-        Some("faster-model"),
-    ));
-    s.assert_snap("safety_buffering_retry_prompt");
-    // oracle: down down enter opens the learn-more URL in the browser (not drawn), and the notice stays.
-    s.keys("down down enter");
+    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    waiting_with_retry(&mut s);
+    retry_notice(&mut s);
     s.assert_contains(SAFETY_HEADER);
-    // up up enter opens the retry confirmation, at 80 columns and at 40 columns.
+    s.assert_contains_unwrapped("If you'd rather not wait, retry with a faster model. It may be less capable of handling complex requests.");
+    kit::assert_same(
+        s.rows()
+            .iter()
+            .filter(|row| row.contains("1. Retry with a faster model"))
+            .count(),
+        1,
+        "duplicate notices preserve one offer",
+    );
+    s.keys("down down enter");
+    kit::assert_same(s.opened_urls().len(), 1, "the help action opens one URL");
+    s.assert_contains(SAFETY_HEADER);
     s.keys("up up enter");
-    let (cw, ch) = oracle_size("safety_buffering_retry_confirmation", 80);
-    s.resize(cw, ch);
-    s.assert_contains("Stop this attempt and retry?");
-    s.assert_snap("safety_buffering_retry_confirmation");
-    let (nw, nh) = oracle_size("safety_buffering_retry_confirmation_narrow", 40);
-    s.resize(nw, nh);
-    s.assert_snap("safety_buffering_retry_confirmation_narrow");
-    s.resize(cw, ch);
-    // oracle: down enter sends the retry (the retry event is not drawn); the confirmation is gone.
+    for name in [
+        "safety_buffering_retry_confirmation",
+        "safety_buffering_retry_confirmation_narrow",
+    ] {
+        let (width, rows) = oracle_size(name, if name.ends_with("_narrow") { 40 } else { 80 });
+        s.resize(width, rows + 5);
+        s.assert_contains("Stop this attempt and retry?");
+        s.assert_contains_unwrapped("This will stop the current attempt and retry in a new thread. Any file changes or other actions already taken will remain.");
+        s.assert_contains_unwrapped("Your message will be sent again using faster-model, which may be less capable on complex tasks.");
+        s.assert_contains("1. Keep waiting");
+        s.assert_contains("2. Stop and retry");
+    }
+    s.assert_requests_of("turn/interrupt", 0);
+    script_retry(&mut s);
     s.keys("down enter");
-    s.assert_absent("Press enter to confirm or esc to go back");
+    s.assert_requests_of("turn/interrupt", 1);
+    kit::assert_same(
+        s.request_params("turn/interrupt"),
+        vec![json!({
+            "threadId": "thread-1", "turnId": RETRY_SOURCE_TURN
+        })],
+        "interrupt targets the checked turn",
+    );
+    s.assert_requests_of("thread/fork", 0);
+    s.assert_active_thread("thread-1");
+    s.assert_absent("Stop this attempt and retry?");
+    s.feed(&turn_completed(RETRY_SOURCE_TURN, "interrupted", "[]"));
+    s.wait_for("Thread forked from thread-1");
+    s.assert_active_thread("retry-child");
+    s.assert_requests_of("thread/fork", 1);
+    for params in s.request_params("thread/fork") {
+        kit::assert_same(
+            params["threadId"].as_str(),
+            Some("thread-1"),
+            "source of the fork",
+        );
+        kit::assert_same(
+            params["beforeTurnId"].as_str(),
+            Some(RETRY_SOURCE_TURN),
+            "fork stops before the checked turn",
+        );
+        kit::assert_same(
+            params["deferGoalContinuation"].as_bool(),
+            Some(true),
+            "goal continuation stays deferred",
+        );
+        for field in ["permissions", "sandbox", "approvalPolicy"] {
+            kit::assert_same(&params[field], &Value::Null, field);
+        }
+    }
+    s.assert_requests_of("turn/start", 1);
+    for params in s.request_params("turn/start") {
+        kit::assert_same(
+            params["threadId"].as_str(),
+            Some("retry-child"),
+            "admission on the verified fork",
+        );
+        kit::assert_same(
+            params["model"].as_str(),
+            Some("faster-model"),
+            "offered model",
+        );
+        kit::assert_same(params["effort"].as_str(), Some("low"), "retry effort");
+        kit::assert_same(
+            params["input"][0]["text"].as_str(),
+            Some(RETRY_INPUT),
+            "original submitted input",
+        );
+        for field in ["permissions", "sandboxPolicy", "approvalPolicy"] {
+            kit::assert_same(&params[field], &Value::Null, field);
+        }
+    }
+    s.feed(&turn_completed(RETRY_SOURCE_TURN, "interrupted", "[]"));
+    s.assert_requests_of("turn/start", 1);
 }
 
 // ORACLE chatwidget/tests/app_server.rs:366 safety_buffering_retry_confirmation_can_keep_waiting kind=ui owner=chat-live
 #[test]
 fn safety_buffering_retry_confirmation_can_keep_waiting() {
-    kit::pending(Owner::ChatLive, SAFETY_PENDING);
     for key in ["enter", "esc"] {
         let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-        s.feed(&turn_started("turn-safety-buffering"));
-        s.feed(&safety_buffering(
-            "turn-safety-buffering",
-            true,
-            Some("faster-model"),
-        ));
+        waiting_with_retry(&mut s);
         s.keys("enter");
         s.assert_contains("Stop this attempt and retry?");
-        // oracle: enter or esc closes the confirmation and the turn keeps waiting; no retry is sent (not drawn).
         s.keys(key);
         s.assert_absent("Stop this attempt and retry?");
+        s.assert_requests_of("turn/interrupt", 0);
+        retry_notice(&mut s);
+        s.assert_absent("Retry with a faster model");
+        s.assert_turn_texts(&[RETRY_INPUT]);
     }
 }
 
 // ORACLE chatwidget/tests/app_server.rs:392 safety_buffering_retry_confirmation_closes_when_turn_completes kind=ui owner=chat-live
 #[test]
 fn safety_buffering_retry_confirmation_closes_when_turn_completes() {
-    kit::pending(Owner::ChatLive, SAFETY_PENDING);
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.feed(&turn_started("turn-safety-buffering"));
-    s.feed(&safety_buffering(
-        "turn-safety-buffering",
-        true,
-        Some("faster-model"),
-    ));
+    waiting_with_retry(&mut s);
     s.keys("enter");
     s.assert_contains("Stop this attempt and retry?");
-    s.feed(&turn_completed("turn-safety-buffering", "completed", "[]"));
-    // oracle: the completed turn closes the confirmation, and a queued request does not reopen it.
+    s.feed(&turn_completed(RETRY_SOURCE_TURN, "completed", "[]"));
     s.assert_absent("Stop this attempt and retry?");
+    s.assert_requests_of("turn/interrupt", 0);
 }
 
 // ORACLE chatwidget/tests/app_server.rs:420 safety_buffering_does_not_offer_retry_in_side_conversation kind=snap owner=chat-live snap=safety_buffering_side_conversation_without_retry
@@ -685,20 +797,16 @@ fn safety_buffering_does_not_offer_retry_in_side_conversation() {
 // ORACLE chatwidget/tests/app_server.rs:439 safety_buffering_retry_confirmation_closes_when_response_starts kind=ui owner=chat-live
 #[test]
 fn safety_buffering_retry_confirmation_closes_when_response_starts() {
-    kit::pending(Owner::ChatLive, SAFETY_PENDING);
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.feed(&turn_started("turn-safety-buffering"));
-    s.feed(&safety_buffering(
-        "turn-safety-buffering",
-        true,
-        Some("faster-model"),
-    ));
+    waiting_with_retry(&mut s);
     s.keys("enter");
     s.assert_contains("Stop this attempt and retry?");
-    s.feed(&agent_delta("turn-safety-buffering", "Visible response"));
+    s.feed(&agent_delta(RETRY_SOURCE_TURN, "Visible response"));
     // oracle: the first visible text closes the confirmation and the notice.
     s.assert_absent("Stop this attempt and retry?");
     s.assert_absent(SAFETY_HEADER);
+    s.assert_contains("Working");
+    let working = row_of(&s, "Working");
     let popup = s.shot();
     // oracle: later updates, with the buffering UI hidden or without a faster model, leave the view as it is.
     for (show_ui, faster) in [
@@ -707,11 +815,17 @@ fn safety_buffering_retry_confirmation_closes_when_response_starts() {
         (false, None),
         (true, Some("faster-model")),
     ] {
-        s.feed(&safety_buffering("turn-safety-buffering", show_ui, faster));
-        s.assert_same_rows(&popup);
+        s.feed(&safety_buffering(RETRY_SOURCE_TURN, show_ui, faster));
+        // The ordinary Working animation keeps ticking while the answer streams.
+        s.assert_same_rows_in(&popup, 0..working);
+        s.assert_same_rows_in(&popup, working + 1..s.rows().len());
+        s.assert_contains("Working");
+        s.assert_absent(SAFETY_HEADER);
+        s.assert_absent("Stop this attempt and retry?");
     }
-    s.feed(&turn_completed("turn-safety-buffering", "completed", "[]"));
+    s.feed(&turn_completed(RETRY_SOURCE_TURN, "completed", "[]"));
     s.assert_absent(SAFETY_HEADER);
+    s.assert_requests_of("turn/interrupt", 0);
 }
 
 // ORACLE chatwidget/tests/app_server.rs:482 safety_buffering_without_retry_shows_short_app_message kind=snap owner=chat-live snap=safety_buffering_status_without_retry

@@ -8,6 +8,8 @@ use serde_json::json;
 use super::*;
 use crate::ids::{BackendId, ConnEpoch};
 use crate::threads::LocalImage;
+use codex_app_server_protocol::SortDirection;
+use codex_protocol::openai_models::ReasoningEffort;
 
 fn thread(id: &str, mode: ThreadHistoryMode, parent: Option<&str>) -> Thread {
     serde_json::from_value(json!({

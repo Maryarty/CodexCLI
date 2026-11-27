@@ -3,16 +3,17 @@
 //! The app's safety retry owns one checked source turn and one connection across explicit
 //! confirmation, the interrupt receipt, history verification, and the fork.
 
-use codex_app_server_protocol::ServerNotification;
+use codex_app_server_protocol::{RequestId, ServerNotification, Thread};
 use codex_tui_core::app::{
     AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app, apply_app_from,
 };
 use codex_tui_core::commands::{SessionIntent, SlashCommand};
-use codex_tui_core::fixtures::builders::agent_delta;
+use codex_tui_core::fixtures::builders::{agent_delta, user_item_with_receipt};
 use codex_tui_core::ids::{BackendId, ThreadId, Ticket, TurnId};
+use codex_tui_core::protocol;
 use codex_tui_core::rpc::{CloudSubmission, Reply};
 use codex_tui_core::screens::{ScreenCommand, ScreenEv, ScreenIntent, agents, chat};
-use codex_tui_core::threads::{ThreadAsk, ThreadReply, UserMessage, safety};
+use codex_tui_core::threads::{Queued, ThreadAsk, ThreadReply, UserMessage, safety};
 use serde_json::json;
 
 const SOURCE: &str = "thread-1";
@@ -242,4 +243,135 @@ fn revisiting_the_source_requires_a_fresh_confirmation() {
         Reply::thread(ThreadReply::RetryInterrupted),
     );
     assert_eq!(history_read(&apply(&mut app, old_ack)), 0);
+}
+
+fn retry_ask(fx: &AppFx, predicate: impl Fn(&ThreadAsk) -> bool) -> (&Command, Ticket) {
+    fx.commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Screen {
+                ticket,
+                command: ScreenCommand::Agents(agents::Command::Thread(ask)),
+                ..
+            } if predicate(ask) => Some((command, *ticket)),
+            _ => None,
+        })
+        .expect("verified retry request")
+}
+
+fn saved_thread(id: &str, forked_from: Option<&str>) -> Box<Thread> {
+    Box::new(
+        serde_json::from_value(json!({
+            "id": id, "sessionId": id, "forkedFromId": forked_from, "preview": "",
+            "ephemeral": false, "historyMode": "legacy", "modelProvider": "openai",
+            "createdAt": 0, "updatedAt": 0, "recencyAt": 0, "status": {"type": "idle"},
+            "cwd": "/tmp/project", "cliVersion": "0.0.0", "source": "cli",
+            "canAcceptDirectInput": true, "turns": []
+        }))
+        .expect("thread metadata"),
+    )
+}
+
+#[test]
+fn ambiguous_child_admission_stays_owned_until_an_exact_live_echo() {
+    let child = ThreadId::new("child");
+    let source = ThreadId::new(SOURCE);
+    let (mut app, offer) = offered();
+    let interrupt = interrupt(&choose(&mut app, offer)).expect("source interrupt");
+    apply(
+        &mut app,
+        AppEv::Reply(interrupt, Reply::thread(ThreadReply::RetryInterrupted)),
+    );
+    let fx = ended(&mut app, "interrupted");
+    let (_, read) = retry_ask(&fx, |ask| matches!(ask, ThreadAsk::Read { .. }));
+    let fx = apply(
+        &mut app,
+        AppEv::Reply(
+            read,
+            Reply::thread(ThreadReply::Read {
+                thread: saved_thread(SOURCE, None),
+                unread: false,
+            }),
+        ),
+    );
+    let (_, turns) = retry_ask(&fx, |ask| matches!(ask, ThreadAsk::RetryTurns(_)));
+    let page = serde_json::from_value(json!({
+        "data": [{"id": TURN, "status": "interrupted", "itemsView": "full", "items": []}],
+        "nextCursor": null,
+    }))
+    .expect("terminal source history");
+    let fx = apply(
+        &mut app,
+        AppEv::Reply(
+            turns,
+            Reply::thread(ThreadReply::RetryTurns(Box::new(page))),
+        ),
+    );
+    let (_, fork) = retry_ask(&fx, |ask| matches!(ask, ThreadAsk::RetryFork(_)));
+    let fx = apply(
+        &mut app,
+        AppEv::Reply(
+            fork,
+            Reply::thread(ThreadReply::RetryForked(saved_thread(
+                child.as_str(),
+                Some(SOURCE),
+            ))),
+        ),
+    );
+    let (command, ticket) = retry_ask(&fx, |ask| matches!(ask, ThreadAsk::RetryStart(_)));
+    let request = serde_json::to_value(protocol::client_request(
+        command,
+        RequestId::Integer(1),
+        None,
+    ))
+    .expect("real wire request");
+    let client_id = request["params"]["clientUserMessageId"]
+        .as_str()
+        .expect("submission ID");
+    assert_eq!(request["params"]["threadId"], child.as_str());
+    assert_eq!(app.session().active.as_ref(), Some(&child));
+    assert!(app.thread(&child).is_some_and(|thread| thread.busy()));
+
+    apply(&mut app, AppEv::Intent(Intent::OpenThread(source.clone())));
+    assert_eq!(app.session().active.as_ref(), Some(&source));
+    let no_resend = |fx: &AppFx| {
+        assert!(!fx.commands().iter().any(|command| matches!(
+            command,
+            Command::StartTurn { .. }
+                | Command::Screen {
+                    command: ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::RetryStart(
+                        _
+                    ))),
+                    ..
+                }
+        )));
+    };
+    no_resend(&apply(
+        &mut app,
+        AppEv::Reply(ticket, Reply::submission_unconfirmed("connection dropped")),
+    ));
+    let held = |app: &CodexApp| {
+        app.thread(&child).is_some_and(|thread| matches!(
+            thread.queue(),
+            [Queued::Unconfirmed { client_id: id, message, .. }] if id == client_id && message.text == PROMPT
+        ))
+    };
+    assert!(held(&app));
+    let echo = |receipt: &str| {
+        user_item_with_receipt(
+            child.as_str(),
+            "child-turn",
+            "item",
+            PROMPT,
+            Some(receipt.to_owned()),
+        )
+    };
+    no_resend(&apply(&mut app, AppEv::Backend(echo("other-submission"))));
+    assert!(held(&app));
+    no_resend(&apply(&mut app, AppEv::Backend(echo(client_id))));
+    assert!(
+        app.thread(&child)
+            .is_some_and(|thread| thread.queue().is_empty())
+    );
+    assert_eq!(app.session().active.as_ref(), Some(&source));
 }
