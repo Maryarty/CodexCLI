@@ -662,10 +662,10 @@ impl Transcript {
             Entry::Occupied(entry) => entry,
             Entry::Vacant(entry) => {
                 let (value, committed) = match self.items.get(entry.key()) {
-                    Some(item) => match kind.text_of(&item.item) {
-                        Some(text) => (item.clone(), text.len()),
-                        None => return None,
-                    },
+                    Some(item) => {
+                        let text = kind.text_of(&item.item)?;
+                        (item.clone(), text.len())
+                    }
                     None => {
                         Rc::make_mut(&mut self.order).push(entry.key().clone());
                         self.layout_revision += 1;
