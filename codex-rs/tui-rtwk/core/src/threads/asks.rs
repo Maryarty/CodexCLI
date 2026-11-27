@@ -88,18 +88,18 @@ crate::rpc_list! {
     /// Resume with paged history. The initial response carries only the thread row.
     Resume { thread: String }, Self::Resume { thread }
         => ThreadResume(resume(thread, None))
-        -> wire::ThreadResumeResponse, |answer| ThreadReply::Resumed(Box::new(answer.thread));
+        -> wire::ThreadResumeResponse, |answer| resumed(answer);
     ResumeAt { thread: String, cwd: Option<String> }, Self::ResumeAt { thread, cwd }
         => ThreadResume(resume(thread, cwd.clone()))
-        -> wire::ThreadResumeResponse, |answer| ThreadReply::Resumed(Box::new(answer.thread));
+        -> wire::ThreadResumeResponse, |answer| resumed(answer);
     Fork { thread: String }, Self::Fork { thread }
         => ThreadFork(fork(thread, None, None))
-        -> wire::ThreadForkResponse, |answer| ThreadReply::Forked(Box::new(answer.thread));
+        -> wire::ThreadForkResponse, |answer| forked(answer);
     /// A side conversation may be ephemeral and start empty with developer instructions.
     ForkAt { thread: String, cwd: Option<String>, temporary: Option<String> },
         Self::ForkAt { thread, cwd, temporary }
         => ThreadFork(fork(thread, cwd.clone(), temporary.clone()))
-        -> wire::ThreadForkResponse, |answer| ThreadReply::Forked(Box::new(answer.thread));
+        -> wire::ThreadForkResponse, |answer| forked(answer);
     Read { thread: String }, Self::Read { thread }
         => ThreadRead(read(thread, false))
         -> wire::ThreadReadResponse, |answer| ThreadReply::Read {
@@ -269,6 +269,7 @@ struct StartedThread {
 pub enum ThreadReply {
     SessionStarted {
         thread: ThreadId,
+        details: Option<Box<wire::Thread>>,
         sources: Vec<AgentsSource>,
     },
     TurnStarted {
@@ -437,9 +438,41 @@ fn session_started(response: wire::ThreadStartResponse) -> ThreadReply {
         })
         .collect();
     ThreadReply::SessionStarted {
-        thread: ThreadId::new(response.thread.id),
+        thread: ThreadId::new(&response.thread.id),
+        details: Some(configured_model(
+            response.thread,
+            response.model,
+            response.reasoning_effort,
+        )),
         sources,
     }
+}
+
+fn resumed(response: wire::ThreadResumeResponse) -> ThreadReply {
+    ThreadReply::Resumed(configured_model(
+        response.thread,
+        response.model,
+        response.reasoning_effort,
+    ))
+}
+
+fn forked(response: wire::ThreadForkResponse) -> ThreadReply {
+    ThreadReply::Forked(configured_model(
+        response.thread,
+        response.model,
+        response.reasoning_effort,
+    ))
+}
+
+/// The opening response names the live configuration, while the embedded row can omit it.
+fn configured_model(
+    mut thread: wire::Thread,
+    model: String,
+    effort: Option<codex_protocol::openai_models::ReasoningEffort>,
+) -> Box<wire::Thread> {
+    thread.model = Some(model);
+    thread.reasoning_effort = effort;
+    Box::new(thread)
 }
 
 fn mcp_servers(mut response: wire::ConfigReadResponse) -> ThreadReply {

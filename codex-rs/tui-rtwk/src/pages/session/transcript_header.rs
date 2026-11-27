@@ -1,6 +1,6 @@
 //! The session heading scrolls with the transcript.
 
-use codex_tui_core::screens::chat::StatusFacts;
+use codex_tui_core::screens::chat::{SessionHeader, StatusFacts};
 use codex_tui_core::screens::status::Profile;
 use rtwk::AnyWidget;
 use rtwk::layout::{Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding};
@@ -34,17 +34,12 @@ pub(super) fn header(
     tokens: &Tokens,
     strings: &Strings,
 ) -> AnyWidget {
-    let version = facts
-        .version
-        .as_deref()
-        .filter(|version| *version != "0.0.0")
-        .or_else(|| cli_help::VERSION.split_whitespace().last());
     let dim = tokens.dim().attrs(Attrs::DIM);
     let mut title = vec![
         Span::styled(strings.header_prompt, tokens.accent()),
         Span::styled(strings.header_title, tokens.bold()),
     ];
-    if let Some(version) = version {
+    if let Some(version) = version(facts) {
         title.push(Span::styled(
             strings.transcript_label(strings.header_version, version),
             dim.clone(),
@@ -70,7 +65,7 @@ pub(super) fn header(
             .overflow(TextOverflow::EllipsisMiddle)
             .style(dim.clone()),
         ));
-    if facts.profile == Profile::Full && facts.approval_policy.as_deref() == Some("never") {
+    if yolo(facts) {
         column = column.child(Padding::new(
             EdgeInsets::only(2, 0, 0, 0),
             Text::rich([
@@ -82,4 +77,51 @@ pub(super) fn header(
         ));
     }
     column.into()
+}
+
+/// The transcript's raw session heading (oracle `SessionHeaderHistoryCell::raw_lines`).
+pub(super) fn raw_header(
+    session: &SessionHeader,
+    facts: &StatusFacts,
+    display_name: Option<&str>,
+    strings: &Strings,
+) -> AnyWidget {
+    let version = version(facts)
+        .map(|version| strings.transcript_label(strings.header_version, version))
+        .unwrap_or_default();
+    let mut column = Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(Text::line([strings.header_title, &version].concat()));
+    if let Some(model) = session.model.as_deref().filter(|model| !model.is_empty()) {
+        let label = display_name
+            .filter(|name| !name.is_empty())
+            .unwrap_or(model);
+        let mut line = [strings.header_model, label].concat();
+        if let Some(effort) = &session.effort {
+            line.push(' ');
+            line.push_str(effort);
+        }
+        column = column.child(Text::line(line));
+    }
+    let cwd = super::status_surfaces::display_dir(&session.cwd, facts.home_directory.as_deref());
+    column = column.child(Text::line([strings.header_directory, &cwd].concat()));
+    if yolo(facts) {
+        column = column.child(Text::line(
+            [strings.header_permissions, strings.header_yolo].concat(),
+        ));
+    }
+    column.into()
+}
+
+fn version(facts: &StatusFacts) -> Option<&str> {
+    facts
+        .version
+        .as_deref()
+        .filter(|version| *version != "0.0.0")
+        .or_else(|| cli_help::VERSION.split_whitespace().last())
+}
+
+fn yolo(facts: &StatusFacts) -> bool {
+    facts.profile == Profile::Full && facts.approval_policy.as_deref() == Some("never")
 }
