@@ -6,6 +6,7 @@ use codex_tui_core::app::{AppEv, Command, Ingress, LocalSideStorage};
 use codex_tui_core::fixtures::builders::{agent_completed, turn_completed, turn_started};
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::keymap::{Keymap, KeymapSpec, actions::GLOBAL_SIDEBAR_UP};
+use codex_tui_core::threads::TurnState;
 use codex_tui_rtwk::app::UiApp;
 use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
 use rtwk_core::input::{Mods, MouseKind};
@@ -105,6 +106,21 @@ fn completed_answer(h: &mut Harness, thread: &str, answer: &str) {
     h.advance(150);
 }
 
+fn finish_opening_turn(h: &mut Harness, thread: &str, answer: &str) {
+    let key = ThreadId::new(thread);
+    let turn =
+        h.t.read_app(move |app: &UiApp| match app.core.thread(&key)?.turn() {
+            TurnState::Running(turn) => Some(turn.turn.clone()),
+            TurnState::Idle => None,
+        })
+        .unwrap_or_else(|| panic!("no opening turn for {thread}"));
+    h.inject([
+        AppEv::Backend(agent_completed(thread, turn.as_str(), "answer", answer)),
+        AppEv::Backend(turn_completed(thread, turn.as_str())),
+    ]);
+    h.advance(150);
+}
+
 fn click_label(h: &mut Harness, label: &str) {
     let (x, y) =
         h.t.lines()
@@ -126,13 +142,13 @@ fn submitted(h: &Harness, thread_id: &str, text: &str) -> bool {
 #[test]
 fn native_tabs_select_open_children_by_keyboard_and_mouse_with_independent_drafts() {
     let mut h = open_workspace(false);
-    completed_answer(&mut h, SIDE, "FIRST HISTORY");
+    finish_opening_turn(&mut h, SIDE, "FIRST HISTORY");
     h.t.type_text("first-draft");
     h.press("left");
     h.press("f12 h");
     send_line(&mut h, "/side second-side");
     assert_active(&h, SECOND);
-    completed_answer(&mut h, SECOND, "SECOND HISTORY");
+    finish_opening_turn(&mut h, SECOND, "SECOND HISTORY");
     h.t.type_text("second-draft");
     h.advance(120);
     let bar = h.t.lines().first().cloned().unwrap_or_default();
@@ -223,10 +239,10 @@ fn side_tabs_restore_the_readers_position_and_enable_the_default_shift_tab_chord
 fn close_uses_storage_and_leaves_the_previous_child_alive() {
     for attached in [false, true] {
         let mut h = open_workspace(attached);
-        completed_answer(&mut h, SIDE, "FIRST HISTORY");
+        finish_opening_turn(&mut h, SIDE, "FIRST HISTORY");
         h.press("f12 h");
         send_line(&mut h, "/side second-side");
-        completed_answer(&mut h, SECOND, "SECOND HISTORY");
+        finish_opening_turn(&mut h, SECOND, "SECOND HISTORY");
         if attached {
             click_label(&mut h, "×");
         } else {
