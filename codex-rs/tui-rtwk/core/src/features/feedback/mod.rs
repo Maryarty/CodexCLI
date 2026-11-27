@@ -30,7 +30,7 @@ use serde::Deserialize;
 use super::{AppCx, Scope};
 use crate::app::Now;
 use crate::commands::SlashCommand;
-use crate::ids::ThreadId;
+use crate::ids::{ThreadId, TurnId};
 use crate::rpc::RpcError;
 use crate::screens::SeedError;
 use crate::screens::dialogs::FeedbackCategory;
@@ -52,6 +52,7 @@ pub enum Wish {
         /// The thread's last turn, tagged on the report (`ChatWidget::last_turn_id`).
         turn_id: Option<String>,
     },
+    SafetyConsent(SafetySubject),
 }
 
 /// Who the report is for: the copy of the success cell and its follow-up link follow it
@@ -215,12 +216,48 @@ pub enum Reply {
     },
 }
 
+/// The refused turn that owns a safety report.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SafetySubject {
+    pub thread: ThreadId,
+    pub turn: TurnId,
+}
+
+impl SafetySubject {
+    fn is_current(&self, cx: &AppCx<'_>) -> bool {
+        let view = cx.view();
+        view.active() == Some(&self.thread)
+            && !view.navigation_pending()
+            && !view.screens().chat.flags.side_conversation_active
+            && view.thread(&self.thread).is_some_and(|thread| {
+                thread.has_writer()
+                    && !thread.stream_lost()
+                    && !thread.busy()
+                    && !thread.slots().chat.parent_owned
+                    && thread.core().safety().offer().is_some_and(|offer| {
+                        offer.turn == self.turn
+                            && offer.domain == crate::threads::safety::Domain::Cyber
+                    })
+            })
+    }
+}
+
 /// What the user or a view asks of `/feedback`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
     /// `/feedback` was typed in `source`: says why nothing opens when the session cannot
     /// deliver a report (`State::unavailable`).
     Open { source: Option<ThreadId> },
+    /// The user explicitly requested feedback for the current refusal.
+    OpenForSafety(SafetySubject),
+    /// Submit after a user reviewed the disclosure and chose a destination.
+    SubmitForSafety {
+        subject: SafetySubject,
+        note: String,
+        rollout: Option<String>,
+        include_logs: bool,
+        destination: Destination,
+    },
     /// The note step was submitted (Enter, or `Ctrl+S` for a ZIP): the report goes out.
     Submit {
         category: FeedbackCategory,
@@ -359,7 +396,11 @@ fn file_name(now: Now) -> String {
     let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
     let month_index = (5 * day_of_year + 2) / 153;
     let day = day_of_year - (153 * month_index + 2) / 5 + 1;
-    let month = if month_index < 10 { month_index + 3 } else { month_index - 9 };
+    let month = if month_index < 10 {
+        month_index + 3
+    } else {
+        month_index - 9
+    };
     let year = year_of_era + era * 400 + i64::from(month <= 2);
     format!(
         "codex-diagnostics-{year:04}-{month:02}-{day:02}T{:02}-{:02}-{:02}Z-{:08x}.zip",
@@ -411,6 +452,33 @@ feature! {
                                 .and_then(|id| cx.view().thread(id))
                                 .and_then(|view| view.core().transcript().last_turn().map(|turn| turn.as_str().to_owned()));
                             cx.wish(Scope::Thread(thread.unwrap_or_default()), Wish::Flow { turn_id });
+                        }
+                    }
+                    Intent::OpenForSafety(subject) => {
+                        if state.can_upload() && subject.is_current(cx) {
+                            cx.wish(
+                                Scope::Thread(subject.thread.clone()),
+                                Wish::SafetyConsent(subject),
+                            );
+                        }
+                    }
+                    Intent::SubmitForSafety {
+                        subject,
+                        note,
+                        rollout,
+                        include_logs,
+                        destination,
+                    } => {
+                        if subject.is_current(cx) {
+                            submit(state, cx, Upload {
+                                category: FeedbackCategory::SafetyCheck,
+                                reason: reason_of(&note),
+                                thread: Some(subject.thread),
+                                turn_id: Some(subject.turn.to_string()),
+                                include_logs,
+                                rollout,
+                                destination,
+                            });
                         }
                     }
                     Intent::Submit {

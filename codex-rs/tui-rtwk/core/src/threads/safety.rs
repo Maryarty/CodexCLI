@@ -175,6 +175,7 @@ pub struct Safety {
     revisions: u32,
     recourse: Option<Pending>,
     offer: Option<Offer>,
+    daybreak_refusal: Option<TurnId>,
     violation: Option<Violation>,
     reviews: u64,
     retrying: Option<Ticket>,
@@ -201,6 +202,15 @@ impl Safety {
     /// The alternatives of the last refused turn.
     pub fn offer(&self) -> Option<&Offer> {
         self.offer.as_ref()
+    }
+
+    /// A live, completed refusal that offered to enable Daybreak for a future turn.
+    pub fn daybreak_refusal(&self) -> Option<&TurnId> {
+        self.offer
+            .as_ref()
+            .filter(|offer| offer.domain == Domain::Cyber && offer.daybreak == Daybreak::Disabled)
+            .map(|offer| &offer.turn)
+            .or(self.daybreak_refusal.as_ref())
     }
 
     /// The misalignment failure that blocks input.
@@ -253,6 +263,7 @@ impl Safety {
         self.buffering = None;
         self.recourse = None;
         self.offer = None;
+        self.daybreak_refusal = None;
         self.rewrite = None;
         if self
             .violation
@@ -570,6 +581,25 @@ pub(super) fn defer(model: &mut ThreadModel, turn: &TurnId, fault: &Fault) -> bo
     }
 }
 
+/// A live refusal with no recourse payload can offer the future-turn preference on its own.
+pub(super) fn offer_daybreak(
+    model: &mut ThreadModel,
+    turn: &TurnId,
+    fault: &Fault,
+    daybreak: Daybreak,
+) {
+    if matches!(fault, Fault::CyberPolicy)
+        && daybreak == Daybreak::Disabled
+        && last_turn(model).as_ref() == Some(turn)
+        && model.has_writer()
+        && !model.slots.chat.parent_owned
+        && !has_follow_ups(model)
+        && model.core.safety.offer.is_none()
+    {
+        model.core.safety.daybreak_refusal = Some(turn.clone());
+    }
+}
+
 /// The end of a failed turn: the fault the turn carries or the one held for it, and what the
 /// state makes of it. `Some(fault)` is the fault to show as a row; none when it was a
 /// misalignment failure (the precaution is the only thing shown).
@@ -594,6 +624,7 @@ pub(super) fn on_completed(
     }
     if failed {
         render_failure(model, pending, turn, &fault, fx.daybreak());
+        offer_daybreak(model, turn, &fault, fx.daybreak());
     }
     Some(fault)
 }

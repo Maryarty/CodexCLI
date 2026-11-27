@@ -10,11 +10,11 @@ use std::rc::Rc;
 use rtwk::editing::TextEditingController;
 use rtwk::focus::FocusNode;
 use rtwk::overlay::close_dialog;
-use rtwk::provider::select;
+use rtwk::provider::{Provider, select};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::features::FeatureStates;
-use codex_tui_core::features::feedback::{Audience, Destination, Intent};
+use codex_tui_core::features::feedback::{Audience, Destination, Intent, SafetySubject};
 use codex_tui_core::kit::paste_burst::PasteBurst;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::dialogs::Attachments;
@@ -91,17 +91,25 @@ impl SheetState {
         let rollout = select::<ScreenStates, Option<String>, _>(cx, |states| {
             states.dialogs.attachments.rollout.clone()
         });
-        verb(
-            cx,
-            Intent::Submit {
+        let note = self.text.value().text().to_string();
+        let intent = match Provider::<SafetySubject>::maybe_of(cx, false) {
+            Some(subject) => Intent::SubmitForSafety {
+                subject: subject.as_ref().clone(),
+                note,
+                rollout,
+                include_logs,
+                destination,
+            },
+            None => Intent::Submit {
                 category,
-                note: self.text.value().text().to_string(),
+                note,
                 turn_id: w.turn_id.clone(),
                 rollout,
                 include_logs,
                 destination,
             },
-        );
+        };
+        verb(cx, intent);
         close_dialog::<_, ()>(cx, None);
     }
 }
@@ -155,9 +163,7 @@ impl State for SheetState {
         let (audience, can_save) = select::<FeatureStates, (Option<Audience>, bool), _>(cx, |f| {
             let state = &f.feedback;
             (
-                state
-                    .can_upload()
-                    .then_some(state.environment.audience),
+                state.can_upload().then_some(state.environment.audience),
                 state.can_save(),
             )
         });

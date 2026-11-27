@@ -1,5 +1,6 @@
 //! Session-owned menus for a live safety check and a stopped conversation.
 
+use std::borrow::Cow;
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -14,12 +15,13 @@ use rtwk::{AnyWidget, Cx, Handler, Key, Rebuild, State, StatefulWidget, impl_wid
 
 use codex_tui_core::app::SessionSlice;
 use codex_tui_core::commands::{SessionIntent, SlashCommand, Target};
+use codex_tui_core::features::{FeatureStates, daybreak_of, feedback, small_cmds};
 use codex_tui_core::ids::{ThreadId, TurnId};
 use codex_tui_core::keymap::{actions, fixed};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, transcript::PagerDoc};
 use codex_tui_core::threads::ThreadModel;
 use codex_tui_core::threads::composer::composer_state;
-use codex_tui_core::threads::safety::{RetryOffer, Review, ReviewId, Verb};
+use codex_tui_core::threads::safety::{Domain, Offer, RetryOffer, Review, ReviewId, Verb};
 
 use crate::app::{theme::Tokens, view::Hs};
 use crate::pages::session::{open::open, transcript::pager};
@@ -49,6 +51,12 @@ enum Surface {
         offer: RetryOffer,
     },
     Retrying,
+    EnableDaybreak(TurnId),
+    Recourse {
+        offer: Offer,
+        can_enable: bool,
+        can_give_feedback: bool,
+    },
     Precaution(Option<ReviewId>),
     Findings {
         review: ReviewId,
@@ -69,10 +77,14 @@ enum Action {
     New,
     Agents,
     Resume,
+    EnableDaybreak,
+    CloseRefusal,
+    ReviewRewrite(usize),
+    GiveFeedback,
 }
 
 impl Action {
-    fn label(self) -> &'static str {
+    fn label(self, surface: &Surface) -> &str {
         match self {
             Self::OfferRetry => strings::RETRY,
             Self::KeepWaiting => strings::KEEP_WAITING,
@@ -85,21 +97,53 @@ impl Action {
             Self::New => strings::NEW,
             Self::Agents => strings::AGENTS,
             Self::Resume => strings::RESUME,
+            Self::EnableDaybreak => strings::ENABLE_DAYBREAK,
+            Self::CloseRefusal => strings::NOT_NOW,
+            Self::ReviewRewrite(index) => match surface {
+                Surface::Recourse { offer, .. } => offer
+                    .suggestions
+                    .get(index)
+                    .map_or("", |(label, _)| label.as_str()),
+                _ => "",
+            },
+            Self::GiveFeedback => strings::GIVE_FEEDBACK,
         }
     }
 }
 
 impl Surface {
-    fn actions(&self) -> &'static [Action] {
+    fn actions(&self) -> Cow<'static, [Action]> {
         use Action::*;
-        match self {
+        let actions: &'static [Action] = match self {
             Self::Waiting { retry: Some(_), .. } => &[OfferRetry, Dismiss, Learn],
             Self::Waiting { .. } => &[Dismiss, Learn],
             Self::ConfirmRetry { .. } => &[KeepWaiting, StopAndRetry],
             Self::Retrying => &[],
+            Self::EnableDaybreak(_) => &[EnableDaybreak, CloseRefusal],
+            Self::Recourse {
+                offer,
+                can_enable,
+                can_give_feedback,
+            } => {
+                return (0..offer.suggestions.len())
+                    .map(ReviewRewrite)
+                    .chain(can_enable.then_some(EnableDaybreak))
+                    .chain(can_give_feedback.then_some(GiveFeedback))
+                    .collect::<Vec<_>>()
+                    .into();
+            }
             Self::Precaution(Some(_)) => &[Review, Agents, New, Resume],
             Self::Precaution(_) => &[New, Agents, Resume],
             Self::Findings { .. } => &[Acknowledge, Back],
+        };
+        actions.into()
+    }
+
+    fn refusal_turn(&self) -> Option<&TurnId> {
+        match self {
+            Self::EnableDaybreak(turn) => Some(turn),
+            Self::Recourse { offer, .. } => Some(&offer.turn),
+            _ => None,
         }
     }
 }
@@ -136,6 +180,7 @@ struct Slot {
 #[derive(Default)]
 struct SlotState {
     dismissed: Option<Check>,
+    dismissed_refusal: Option<TurnId>,
     confirming: Option<RetryOffer>,
     viewed: Option<ReviewId>,
     stopped: Cell<bool>,
@@ -158,6 +203,8 @@ struct Facts {
     check: Option<Check>,
     retry: Option<RetryOffer>,
     retrying: bool,
+    daybreak: Option<TurnId>,
+    recourse: Option<Offer>,
     // Outer Option: this chat is stopped. Inner Option: it can show live findings.
     precaution: Option<Option<ReviewId>>,
     can_continue: bool,
@@ -171,6 +218,12 @@ impl Facts {
             .filter(|held| held.waiting() && thread.is_running() && !thread.stream_lost());
         let violation = safety.violation();
         let review = violation.and_then(|violation| violation.review.as_ref());
+        let view = thread.view();
+        let eligible = view.has_writer()
+            && !view.busy()
+            && !view.stream_lost()
+            && !view.slots().chat.parent_owned;
+        let is_current = |turn| eligible && thread.last_ended() == Some(turn);
         Self {
             thread: thread.id().clone(),
             check: waiting.map(|held| Check {
@@ -179,6 +232,14 @@ impl Facts {
             }),
             retry: waiting.and_then(|held| held.retry_offer()).cloned(),
             retrying: safety.retrying(),
+            daybreak: safety
+                .daybreak_refusal()
+                .filter(|turn| is_current(*turn) && !daybreak_of(view).unwrap_or(false))
+                .cloned(),
+            recourse: safety
+                .offer()
+                .filter(|offer| offer.domain == Domain::Cyber && is_current(&offer.turn))
+                .cloned(),
             precaution: violation.map(|_| review.map(|review| review.id().clone())),
             can_continue: review.and_then(Review::continuation).is_some()
                 && composer_state(thread, false).takes_text(),
@@ -186,7 +247,7 @@ impl Facts {
     }
 }
 
-fn can_offer_retry(states: &ScreenStates, thread: &ThreadId) -> bool {
+fn can_offer_in_chat(states: &ScreenStates, thread: &ThreadId) -> bool {
     !states.chat.flags.side_conversation_active
         && !states
             .agents
@@ -194,7 +255,7 @@ fn can_offer_retry(states: &ScreenStates, thread: &ThreadId) -> bool {
 }
 
 impl SlotState {
-    fn surface(&self, facts: Facts, can_retry: bool) -> Option<Surface> {
+    fn surface(&self, facts: Facts, can_offer: bool, can_give_feedback: bool) -> Option<Surface> {
         if let Some(review) = facts.precaution {
             return Some(match review {
                 Some(review) if self.viewed.as_ref() == Some(&review) => Surface::Findings {
@@ -207,11 +268,30 @@ impl SlotState {
         if facts.retrying {
             return Some(Surface::Retrying);
         }
+        if can_offer {
+            if let Some(offer) = facts.recourse
+                && self.dismissed_refusal.as_ref() != Some(&offer.turn)
+            {
+                let can_enable = facts.daybreak.as_ref() == Some(&offer.turn);
+                if can_enable || can_give_feedback || !offer.suggestions.is_empty() {
+                    return Some(Surface::Recourse {
+                        can_enable,
+                        can_give_feedback,
+                        offer,
+                    });
+                }
+            }
+            if let Some(turn) = facts.daybreak
+                && self.dismissed_refusal.as_ref() != Some(&turn)
+            {
+                return Some(Surface::EnableDaybreak(turn));
+            }
+        }
         let check = facts.check?;
         if self.dismissed.as_ref() == Some(&check) {
             return None;
         }
-        let retry = facts.retry.filter(|_| can_retry);
+        let retry = facts.retry.filter(|_| can_offer);
         match retry {
             Some(offer) if self.confirming.as_ref() == Some(&offer) => {
                 Some(Surface::ConfirmRetry { check, offer })
@@ -244,17 +324,54 @@ impl State for SlotState {
         let thread = read::<ThreadModel, _>(cx);
         let session = read::<SessionSlice, _>(cx);
         let states = read::<ScreenStates, _>(cx);
+        let can_give_feedback = matches!(surface, Surface::Recourse { .. })
+            && read::<FeatureStates, _>(cx).feedback.can_upload();
         if thread.id() != &owner
             || session.active.as_ref() != Some(&owner)
             || self
-                .surface(Facts::of(&thread), can_offer_retry(&states, &owner))
+                .surface(
+                    Facts::of(&thread),
+                    can_offer_in_chat(&states, &owner),
+                    can_give_feedback,
+                )
                 .as_ref()
                 != Some(&surface)
         {
             return Rebuild::No;
         }
         let hs = read::<Hs, _>(cx);
+        let refusal = surface.refusal_turn().cloned();
         match (surface, action) {
+            (_, Action::CloseRefusal) if refusal.is_some() => self.dismissed_refusal = refusal,
+            (_, Action::EnableDaybreak) if refusal.is_some() => {
+                let turn = refusal.expect("a live refusal owns the choice");
+                self.dismissed_refusal = Some(turn.clone());
+                crate::features::verb_by(
+                    cx,
+                    &hs,
+                    small_cmds::Intent::EnableDaybreakForRefusal {
+                        thread: owner,
+                        turn,
+                    },
+                );
+            }
+            (Surface::Recourse { offer, .. }, Action::GiveFeedback) => {
+                crate::features::verb_by(
+                    cx,
+                    &hs,
+                    feedback::Intent::OpenForSafety(feedback::SafetySubject {
+                        thread: owner,
+                        turn: offer.turn,
+                    }),
+                );
+                return Rebuild::No;
+            }
+            (Surface::Recourse { offer, .. }, Action::ReviewRewrite(index)) => {
+                if let Some((label, prompt)) = offer.suggestions.get(index) {
+                    show_safety_text(cx, label.clone(), prompt.clone());
+                }
+                return Rebuild::No;
+            }
             (Surface::Waiting { retry, .. }, Action::OfferRetry) => self.confirming = retry,
             (Surface::ConfirmRetry { check, .. }, Action::KeepWaiting) => {
                 self.dismissed = Some(check);
@@ -322,12 +439,15 @@ impl State for SlotState {
         let current = select::<ThreadModel, _, _>(cx, Facts::of);
         let owner = current.thread.clone();
         let stopped = current.precaution.is_some();
-        let can_retry = current.retry.is_some()
-            && select::<ScreenStates, _, _>(cx, {
-                let owner = owner.clone();
-                move |states| can_offer_retry(states, &owner)
-            });
-        let surface = self.surface(current, can_retry);
+        let can_offer =
+            (current.retry.is_some() || current.recourse.is_some() || current.daybreak.is_some())
+                && select::<ScreenStates, _, _>(cx, {
+                    let owner = owner.clone();
+                    move |states| can_offer_in_chat(states, &owner)
+                });
+        let can_give_feedback = current.recourse.is_some()
+            && select::<FeatureStates, _, _>(cx, |features| features.feedback.can_upload());
+        let surface = self.surface(current, can_offer, can_give_feedback);
         // Edit controllers and focus only after the old editor has left the tree.
         let first_stop = !self.stopped.replace(stopped) && stopped;
         if first_stop && let Some(binding) = AppBinding::maybe_of(cx) {
@@ -363,19 +483,22 @@ impl State for SlotState {
 }
 
 fn show_findings(cx: &mut Cx<'_, SlotState>, review: &Review) {
-    // The pager can display ANSI, so server-provided findings are supplied as plain text.
-    let findings: String = review
-        .findings()
+    let text = if let Some(message) = review.continuation() {
+        strings::quoted(message, review.findings())
+    } else {
+        review.findings().to_owned()
+    };
+    show_safety_text(cx, strings::FINDINGS.to_owned(), text);
+}
+
+fn show_safety_text(cx: &mut Cx<'_, SlotState>, title: String, text: String) {
+    // The pager can display ANSI. Treat all server-provided text as plain text.
+    let text = text
         .chars()
         .filter(|ch| !ch.is_control() || matches!(ch, '\n' | '\t'))
         .collect();
-    let text = if let Some(message) = review.continuation() {
-        strings::quoted(message, &findings)
-    } else {
-        findings
-    };
     let doc = PagerDoc {
-        title: strings::FINDINGS.to_owned(),
+        title,
         text,
         action: None,
     };
@@ -455,6 +578,7 @@ impl State for OptionsState {
             KeyMsg::Escape if matches!(w.surface, Surface::ConfirmRetry { .. }) => {
                 Some(Action::KeepWaiting)
             }
+            KeyMsg::Escape if w.surface.refusal_turn().is_some() => Some(Action::CloseRefusal),
             KeyMsg::Escape => None,
         };
         if let Some(action) = action {
@@ -471,6 +595,8 @@ impl State for OptionsState {
             }
             Surface::ConfirmRetry { .. } => (strings::RETRY_TITLE, Some(strings::RETRY_DETAIL)),
             Surface::Retrying => (strings::RETRYING, None),
+            Surface::EnableDaybreak(_) => (strings::OFFER_DAYBREAK, None),
+            Surface::Recourse { .. } => (strings::REVIEW_RECOURSE, None),
             Surface::Precaution(Some(_)) => (strings::PAUSED, Some(strings::PAUSED_DETAIL)),
             Surface::Precaution(_) => (strings::STOPPED, Some(strings::STOPPED_DETAIL)),
             Surface::Findings { .. } => (strings::PAUSED, None),
@@ -509,15 +635,14 @@ impl State for OptionsState {
         if matches!(w.surface, Surface::Retrying) {
             return pane.into();
         }
-        let rows: Vec<_> = w
-            .surface
-            .actions()
+        let actions = w.surface.actions();
+        let rows: Vec<_> = actions
             .iter()
             .enumerate()
             .map(|(index, action)| RichRow {
                 prefix: format!("{}. ", index + 1),
                 label: vec![Span::styled(
-                    action.label(),
+                    action.label(&w.surface).to_owned(),
                     if *action == Action::Acknowledge
                         && matches!(
                             w.surface,
@@ -565,9 +690,9 @@ impl State for OptionsState {
                 focus = focus.bind(key, cx.send(msg));
             }
         }
-        for (index, digit) in ['1', '2', '3', '4']
+        for (index, digit) in ['1', '2', '3', '4', '5', '6', '7', '8', '9']
             .into_iter()
-            .take(w.surface.actions().len())
+            .take(actions.len())
             .enumerate()
         {
             focus = focus.bind(digit, cx.send(KeyMsg::Pick(index)));

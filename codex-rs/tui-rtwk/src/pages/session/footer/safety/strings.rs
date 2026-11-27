@@ -21,6 +21,12 @@ pub(super) use crate::oracle_strings::cells::{
     SAFETY_BUFFERING_YOUR_MESSAGE_WILL_BE_SENT_AGAIN,
 };
 
+pub(super) use crate::oracle_strings::cells::SAFETY_RECOURSE_GIVE_FEEDBACK as GIVE_FEEDBACK;
+
+pub(super) const OFFER_DAYBREAK: &str = "Turn on Daybreak for your next request?";
+pub(super) const ENABLE_DAYBREAK: &str = "Enable Daybreak";
+pub(super) const NOT_NOW: &str = "Not now";
+pub(super) const REVIEW_RECOURSE: &str = "You can review a suggested rewrite for a new chat:";
 pub(super) const LEARN: &str = "Learn more";
 pub(super) const LEARN_MORE_URL: &str = "https://help.openai.com/en/articles/20001326";
 pub(super) const RETRYING: &str = "Retrying with a faster model…";

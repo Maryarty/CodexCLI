@@ -28,7 +28,7 @@ use codex_app_server_protocol::{ClientRequest, RequestId};
 use super::{AppCx, Connection, Feature, Never, Slash, ThreadCx, ThreadView};
 use crate::app::effects::Done;
 use crate::commands::SlashCommand;
-use crate::ids::ThreadId;
+use crate::ids::{ThreadId, TurnId};
 use crate::rpc::RpcError;
 use crate::threads::Tone;
 
@@ -61,6 +61,8 @@ pub enum Intent {
     Logout,
     /// `/daybreak`, typed in the thread `source`.
     Daybreak { source: Option<ThreadId> },
+    /// Enable for subsequent requests after an explicit choice on a live refusal.
+    EnableDaybreakForRefusal { thread: ThreadId, turn: TurnId },
     /// `/ide`, `/ide on`, `/ide off`, `/ide status`: `args` as typed after the command.
     Ide {
         args: Option<String>,
@@ -232,18 +234,44 @@ fn daybreak(source: Option<ThreadId>, cx: &mut AppCx<'_>) {
     let Some(thread) = thread else {
         return cx.note(None, Note::DaybreakNoThread);
     };
-    // an ephemeral thread has no metadata to save the choice in (`thread.ephemeral`)
-    if view.thread(&thread).is_some_and(ephemeral) {
-        return daybreak_saved(thread, !enabled, cx);
+    save_daybreak_choice(thread, !enabled, cx);
+}
+
+fn enable_daybreak_for_refusal(thread: ThreadId, turn: TurnId, cx: &mut AppCx<'_>) {
+    let view = cx.view();
+    let flags = &view.screens().chat.flags;
+    if view.active() != Some(&thread) || view.navigation_pending() || flags.side_conversation_active
+    {
+        return;
+    }
+    let Some(current) = view.thread(&thread) else {
+        return;
+    };
+    let chat = &current.slots().chat;
+    if current.busy()
+        || !current.has_writer()
+        || current.stream_lost()
+        || chat.parent_owned
+        || daybreak_of(current).unwrap_or(false)
+        || current.core().safety().daybreak_refusal() != Some(&turn)
+        || view.facts().access().notice(chat.model.as_deref(), false)
+            != crate::screens::cells::Daybreak::Disabled
+    {
+        return;
+    }
+    save_daybreak_choice(thread, true, cx);
+}
+
+fn save_daybreak_choice(thread: ThreadId, enabled: bool, cx: &mut AppCx<'_>) {
+    // An ephemeral thread has no metadata in which to save a preference.
+    if cx.view().thread(&thread).is_some_and(ephemeral) {
+        return daybreak_saved(thread, enabled, cx);
     }
     let at = thread.clone();
     cx.ask(
         Some(&at),
-        Command::SetDaybreak(!enabled),
-        Ctx::DaybreakSave {
-            thread,
-            enabled: !enabled,
-        },
+        Command::SetDaybreak(enabled),
+        Ctx::DaybreakSave { thread, enabled },
     );
 }
 
@@ -303,6 +331,9 @@ impl Feature for SmallCmds {
         match intent {
             Intent::Logout => cx.ask(None, Command::Logout, Ctx::Logout),
             Intent::Daybreak { source } => daybreak(source, cx),
+            Intent::EnableDaybreakForRefusal { thread, turn } => {
+                enable_daybreak_for_refusal(thread, turn, cx);
+            }
             Intent::Ide { args, source } => state.ide.command(args, source, cx),
             Intent::DebugConfig => {
                 let rows = state.debug_config.clone();

@@ -180,6 +180,7 @@ fn thread_shape(cx: &mut Cx<'_, ChatState>) {
             thread.last_error().cloned(),
             thread.screen_slots().chat.clone(),
             thread.screen_slots().status.clone(),
+            codex_tui_core::features::daybreak_of(thread.view()),
         )
     });
 }

@@ -14,12 +14,13 @@ pub mod strings;
 
 use std::rc::Rc;
 
+use rtwk::provider::Provider;
 use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::features::Scope;
 use codex_tui_core::features::feedback::{Feedback, Intent, Note, Sheet, Wish};
 use codex_tui_core::ids::{Cwd, ThreadId};
-use codex_tui_core::screens::{Kind, dialogs};
+use codex_tui_core::screens::{Kind, dialogs, dialogs::FeedbackCategory};
 
 use self::sheet::FeedbackSheet;
 use super::{FeatureSheet, FeatureView, Shown};
@@ -33,17 +34,25 @@ const KIND: Kind = Kind::Dialog;
 impl FeatureView for Feedback {
     /// The flow opens once for the wish, over the chat: each step is the sheet's own.
     fn shown(wish: &Wish, _scope: &Scope) -> Option<Shown> {
-        let Wish::Flow { turn_id } = wish;
-        let turn_id = turn_id.clone();
+        let wish = wish.clone();
         Some(Shown {
             held_by: None,
             open: Rc::new(move || -> AnyWidget {
-                FeedbackSheet {
-                    start: steps::Step::Category,
-                    text: "",
-                    turn_id: turn_id.clone(),
+                match &wish {
+                    Wish::Flow { turn_id } => FeedbackSheet {
+                        start: steps::Step::Category,
+                        text: "",
+                        turn_id: turn_id.clone(),
+                    }
+                    .into(),
+                    Wish::SafetyConsent(subject) => Provider::value(subject.clone())
+                        .child(FeedbackSheet {
+                            start: steps::Step::Consent(FeedbackCategory::SafetyCheck),
+                            text: "",
+                            turn_id: Some(subject.turn.to_string()),
+                        })
+                        .into(),
                 }
-                .into()
             }),
             options: crate::sheets::sheet_options(),
         })
@@ -78,7 +87,12 @@ impl FeatureSheet for Feedback {
 
     /// The verb checks the session can deliver a report; the flow opens as the feature's wish.
     fn open<S: 'static>(cx: &mut Cx<'_, S>, args: Args) {
-        super::verb(cx, Intent::Open { source: args.thread });
+        super::verb(
+            cx,
+            Intent::Open {
+                source: args.thread,
+            },
+        );
     }
 }
 
