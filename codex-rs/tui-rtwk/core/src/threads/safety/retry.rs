@@ -4,7 +4,7 @@
 
 use codex_app_server_protocol::{
     SortDirection, Thread, ThreadForkParams, ThreadHistoryMode, ThreadItem, ThreadItemPayload,
-    ThreadItemsListParams, ThreadItemsListResponse, ThreadTurnsListParams, ThreadTurnsListResponse,
+    ThreadItemsListParams, ThreadItemsListResponse, ThreadStatus, ThreadTurnsListParams, ThreadTurnsListResponse,
     Turn, TurnItemsView, TurnStartParams, TurnStatus, UserInput,
 };
 use codex_protocol::openai_models::ReasoningEffort;
@@ -48,6 +48,10 @@ impl AwaitingInterrupt {
             message: confirmed.message,
             observed: None,
         }
+    }
+
+    pub(crate) fn message(&self) -> &UserMessage {
+        &self.message
     }
 
     /// The RPC reply and its matching terminal event can arrive in either order.
@@ -284,6 +288,7 @@ impl ReadyToFork {
             || child.ephemeral
             || child.attached_to_thread_id.is_some()
             || child.can_accept_direct_input == Some(false)
+            || child.status != ThreadStatus::Idle
         {
             return Err(Invalid::WrongFork);
         }
@@ -306,11 +311,13 @@ impl ReadyToStart {
     }
 
     /// The fork's effective permissions stay in force because the turn carries no overrides.
-    pub(crate) fn start(self, client_user_message_id: String) -> (UserMessage, TurnStartParams) {
+    pub(crate) fn start(self, client_user_message_id: String) -> (Box<Thread>, UserMessage, TurnStartParams) {
+        let thread_id = self.child.id.clone();
         (
+            self.child,
             self.fork.message,
             TurnStartParams {
-                thread_id: self.child.id,
+                thread_id,
                 input: self.fork.input,
                 client_user_message_id: Some(client_user_message_id),
                 model: Some(self.fork.model),

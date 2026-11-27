@@ -232,7 +232,7 @@ fn verified_fork_and_start_preserve_input_and_inherit_permissions() {
     let start = fork.forked(child).expect("fork from source");
     assert_eq!(start.origin().turn.as_str(), "checked");
     assert_eq!(start.child().id, "child");
-    let (saved, params) = start.start("start-receipt".to_owned());
+    let (_, saved, params) = start.start("start-receipt".to_owned());
     assert_eq!(params.thread_id, "child");
     assert_eq!(
         params.client_user_message_id.as_deref(),

@@ -191,6 +191,7 @@ pub struct Safety {
     violation: Option<Violation>,
     reviews: u64,
     retry: Option<Retry>,
+    retrying: Option<Ticket>,
     rewrite: Option<Rewrite>,
 }
 
@@ -243,6 +244,15 @@ impl Safety {
     /// The retry the app has to carry out.
     pub fn retry(&self) -> Option<&Retry> {
         self.retry.as_ref()
+    }
+
+    /// A confirmed operation still owns the source queue.
+    pub fn retrying(&self) -> bool {
+        self.retrying.is_some()
+    }
+
+    pub(crate) fn holds_retry(&self, generation: Ticket) -> bool {
+        self.retrying == Some(generation)
     }
 
     /// The rewrite the app has to carry out.
@@ -307,6 +317,15 @@ pub enum SafetyEv {
         metadata: serde_json::Value,
     },
     Verb(Verb),
+    RetryLifecycle(RetryLifecycle),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RetryLifecycle {
+    Hold { generation: Ticket, offer: RetryOffer },
+    Release { generation: Ticket, restore: Option<Box<UserMessage>> },
+    RetireOffer,
+    Started { turn: TurnId, message: Box<UserMessage> },
 }
 
 fn wrap(ev: SafetyEv) -> ThreadEv {
@@ -388,6 +407,34 @@ pub(super) fn apply(model: &mut ThreadModel, ev: SafetyEv, fx: &mut ThreadFx<'_>
         } => buffering(model, turn, show, faster_model, fx),
         SafetyEv::Moderation { turn, metadata } => moderation(model, turn, metadata),
         SafetyEv::Verb(verb) => verb_applied(model, verb, fx),
+        SafetyEv::RetryLifecycle(step) => retry_step(model, step, fx),
+    }
+}
+
+fn retry_step(model: &mut ThreadModel, step: RetryLifecycle, fx: &mut ThreadFx<'_>) {
+    match step {
+        RetryLifecycle::Hold { generation, offer } => {
+            if confirmed_retry(model, &offer).is_some() {
+                model.core.safety.retrying = Some(generation);
+            }
+        }
+        RetryLifecycle::Release { generation, restore } => {
+            if model.core.safety.holds_retry(generation) {
+                model.core.safety.retrying = None;
+                if let Some(message) = restore {
+                    super::give_back(model, vec![*message], false);
+                }
+            }
+        }
+        RetryLifecycle::RetireOffer => {
+            if let Some(offer) = model.core.safety.buffering.as_mut().and_then(|held| held.retry.as_mut()) {
+                offer.generation = fx.mint();
+            }
+        }
+        RetryLifecycle::Started { turn, message } => {
+            super::start_turn(model, turn.clone(), fx.now());
+            model.core.safety.submitted(turn, *message);
+        }
     }
 }
 
@@ -621,7 +668,8 @@ fn stop(model: &mut ThreadModel, turn: Option<TurnId>, details: Option<Misalignm
 /// The owner checks the same offer at dispatch before any interrupt can be emitted.
 pub(crate) fn confirmed_retry(model: &ThreadModel, offer: &RetryOffer) -> Option<Retry> {
     let safety = &model.core.safety;
-    if !model.is_running()
+    if safety.retrying()
+        || !model.is_running()
         || !model.has_writer()
         || model.slots.chat.ephemeral
         || model.slots.chat.parent_owned
