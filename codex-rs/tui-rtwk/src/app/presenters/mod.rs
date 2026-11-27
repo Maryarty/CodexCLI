@@ -12,13 +12,15 @@
 //! closes leaves nothing behind. (Two wishes for a scope made in one flush, before its sheet is
 //! mounted, open two sheets; the sheets then show the same page twice, which is harmless.)
 
-use rtwk::app::{AppCx, AppDialog};
+use rtwk::AnyWidget;
+use rtwk::app::{AppCx, AppDialog, ViewRoot};
+use rtwk::overlay::DialogOptions;
 
 use codex_tui_core::app::{AppEv, Intent};
 use codex_tui_core::features::Scope;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::select::{
-    Intent as SelectIntent, ModelCompletion, ModelResult, QueuedModelShow,
+    Intent as SelectIntent, ModelCompletion, ModelResult, QueuedModelShow, apps, permissions,
 };
 use codex_tui_core::screens::transcript::Intent as TranscriptIntent;
 use codex_tui_core::screens::{ScreenIntent, ScreenThreadIntent, chat};
@@ -39,13 +41,15 @@ pub struct Presenters {
     taken_select: u64,
     /// The same for the static pager's documents (`transcript::Directive`).
     taken_pager: u64,
-    queue_dialogs: Vec<(ThreadId, QueueDialog)>,
+    queue_dialogs: Vec<(ModalOperation, QueueDialog)>,
 }
 
 /// The result type of each native dialog is the one its issued token accepts.
 enum QueueDialog {
     Copy(AppDialog<CopyChoice>),
     StatusLine(AppDialog<StatusLineChoice>),
+    Permissions(AppDialog<permissions::Selection>),
+    Apps(AppDialog<apps::ModalChoice>),
 }
 
 impl QueueDialog {
@@ -60,6 +64,8 @@ impl QueueDialog {
         match self {
             Self::Copy(dialog) => open(dialog, active),
             Self::StatusLine(dialog) => open(dialog, active),
+            Self::Permissions(dialog) => open(dialog, active),
+            Self::Apps(dialog) => open(dialog, active),
         }
     }
 }
@@ -67,11 +73,11 @@ impl QueueDialog {
 /// Shows the wishes of the features and the sheets the select screen asked for that are waiting
 /// and can be shown now.
 pub fn present(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
-    let active = app.core.session().active.as_ref();
+    let core = &app.core;
     app.ui
         .presenters
         .queue_dialogs
-        .retain(|(owner, dialog)| dialog.retain(Some(owner) == active));
+        .retain(|(operation, dialog)| dialog.retain(core.queue_modal_visible(operation)));
     present_wishes(app, cx);
     present_shows(app, cx);
     present_pagers(app, cx);
@@ -121,6 +127,25 @@ fn present_shows(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
         .cloned()
         .collect();
     for show in shows {
+        if let Some(operation) = show.queue_modal {
+            if !app.core.queue_modal_visible(&operation) {
+                finish_queue_modal(app, operation.cancelled());
+            } else if let Some((sheet, options)) =
+                crate::sheets::select::owned(&show.opening, &operation)
+            {
+                let Some(place) = app.ui.presenter.place().get() else {
+                    return;
+                };
+                show_queue_modal(app, cx, place, operation, move || sheet.clone(), options);
+            } else {
+                finish_queue_modal(app, operation.cancelled());
+            }
+            app.ui.presenters.taken_select = show.seq;
+            app.send(AppEv::Intent(Intent::Screen(ScreenIntent::Select(
+                SelectIntent::Shown(show.seq),
+            ))));
+            continue;
+        }
         let operation = show
             .queued_model
             .as_ref()
@@ -224,7 +249,7 @@ fn present_wishes(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
         .collect();
     for (seq, wish, scope, operation, shown) in wishes {
         if let Some(operation) = &operation
-            && app.core.session().active.as_ref() != Some(operation.thread())
+            && !app.core.queue_modal_visible(operation)
         {
             finish_queue_modal(app, operation.clone().cancelled());
             app.ui.presenters.taken = seq;
@@ -262,34 +287,7 @@ fn present_wishes(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
             };
             let open = shown.open.clone();
             if let Some(operation) = operation {
-                let owner = operation.thread().clone();
-                let dialog = match operation.clone() {
-                    ModalOperation::Copy(token) => QueueDialog::Copy(cx.show_dialog_from(
-                        place,
-                        move |_| open(),
-                        shown.options,
-                        move |app, answer, _| {
-                            finish_queue_modal(app, ModalReceipt::Copy(token, answer));
-                        },
-                    )),
-                    ModalOperation::StatusLine(token) => {
-                        QueueDialog::StatusLine(cx.show_dialog_from(
-                            place,
-                            move |_| open(),
-                            shown.options,
-                            move |app, answer, _| {
-                                finish_queue_modal(app, ModalReceipt::StatusLine(token, answer));
-                            },
-                        ))
-                    }
-                };
-                if dialog.retain(true) {
-                    app.ui
-                        .presenters
-                        .queue_dialogs
-                        .push((owner.clone(), dialog));
-                    thread_queue_event(app, owner, QueueEvent::ModalOpened(operation));
-                }
+                show_queue_modal(app, cx, place, operation, move || open(), shown.options);
             } else {
                 let dialog = cx.show_dialog_from::<()>(
                     place,
@@ -306,6 +304,50 @@ fn present_wishes(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
         }
         app.ui.presenters.taken = seq;
         app.send(AppEv::Intent(Intent::WishShown(seq)));
+    }
+}
+
+fn show_queue_modal(
+    app: &mut UiApp,
+    cx: &mut AppCx<'_, '_, UiApp>,
+    place: ViewRoot<UiApp>,
+    operation: ModalOperation,
+    open: impl Fn() -> AnyWidget + 'static,
+    options: DialogOptions,
+) {
+    let owner = operation.thread().clone();
+    let dialog = match operation.clone() {
+        ModalOperation::Copy(token) => QueueDialog::Copy(cx.show_dialog_from(
+            place,
+            move |_| open(),
+            options,
+            move |app, answer, _| finish_queue_modal(app, ModalReceipt::Copy(token, answer)),
+        )),
+        ModalOperation::StatusLine(token) => QueueDialog::StatusLine(cx.show_dialog_from(
+            place,
+            move |_| open(),
+            options,
+            move |app, answer, _| finish_queue_modal(app, ModalReceipt::StatusLine(token, answer)),
+        )),
+        ModalOperation::Permissions(token) => QueueDialog::Permissions(cx.show_dialog_from(
+            place,
+            move |_| open(),
+            options,
+            move |app, answer, _| finish_queue_modal(app, ModalReceipt::Permissions(token, answer)),
+        )),
+        ModalOperation::Apps(token) => QueueDialog::Apps(cx.show_dialog_from(
+            place,
+            move |_| open(),
+            options,
+            move |app, answer, _| finish_queue_modal(app, ModalReceipt::Apps(token, answer)),
+        )),
+    };
+    if dialog.retain(true) {
+        app.ui
+            .presenters
+            .queue_dialogs
+            .push((operation.clone(), dialog));
+        thread_queue_event(app, owner, QueueEvent::ModalOpened(operation));
     }
 }
 

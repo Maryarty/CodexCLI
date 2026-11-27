@@ -1217,6 +1217,7 @@ pub(crate) fn apply_modal_choice(
                 states.settings.save_status_line(choice, cx);
             }
         }
+        ModalReceipt::Permissions(..) | ModalReceipt::Apps(..) => {}
     }
 }
 

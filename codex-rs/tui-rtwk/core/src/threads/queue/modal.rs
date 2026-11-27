@@ -7,6 +7,7 @@ use super::QueueOperation;
 use crate::app::effects::CopyFormat;
 use crate::ids::ThreadId;
 use crate::screens::chat::surface_items::STATUS_LINE;
+use crate::screens::select::{apps, permissions};
 
 /// A picker can choose a clipboard value. The thread and destination belong to its owner.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -58,6 +59,8 @@ impl StatusLineChoice {
 pub(crate) enum ModalKind {
     Copy,
     StatusLine,
+    Permissions,
+    Apps,
 }
 
 /// An operation issued by the queue owner. `C` fixes the result type of the native dialog.
@@ -68,6 +71,10 @@ pub struct ModalToken<C> {
 }
 
 impl<C> ModalToken<C> {
+    pub fn thread(&self) -> &ThreadId {
+        self.operation.thread()
+    }
+
     fn new(operation: QueueOperation) -> Self {
         Self {
             operation,
@@ -81,6 +88,8 @@ impl<C> ModalToken<C> {
 pub enum ModalOperation {
     Copy(ModalToken<CopyChoice>),
     StatusLine(ModalToken<StatusLineChoice>),
+    Permissions(ModalToken<permissions::Selection>),
+    Apps(ModalToken<apps::ModalChoice>),
 }
 
 impl ModalOperation {
@@ -88,6 +97,8 @@ impl ModalOperation {
         match kind {
             ModalKind::Copy => Self::Copy(ModalToken::new(operation)),
             ModalKind::StatusLine => Self::StatusLine(ModalToken::new(operation)),
+            ModalKind::Permissions => Self::Permissions(ModalToken::new(operation)),
+            ModalKind::Apps => Self::Apps(ModalToken::new(operation)),
         }
     }
 
@@ -99,6 +110,8 @@ impl ModalOperation {
         match self {
             Self::Copy(token) => ModalReceipt::Copy(token, None),
             Self::StatusLine(token) => ModalReceipt::StatusLine(token, None),
+            Self::Permissions(token) => ModalReceipt::Permissions(token, None),
+            Self::Apps(token) => ModalReceipt::Apps(token, None),
         }
     }
 
@@ -106,6 +119,8 @@ impl ModalOperation {
         match self {
             Self::Copy(token) => &token.operation,
             Self::StatusLine(token) => &token.operation,
+            Self::Permissions(token) => &token.operation,
+            Self::Apps(token) => &token.operation,
         }
     }
 
@@ -113,6 +128,8 @@ impl ModalOperation {
         match self {
             Self::Copy(_) => ModalKind::Copy,
             Self::StatusLine(_) => ModalKind::StatusLine,
+            Self::Permissions(_) => ModalKind::Permissions,
+            Self::Apps(_) => ModalKind::Apps,
         }
     }
 }
@@ -122,9 +139,23 @@ impl ModalOperation {
 pub enum ModalReceipt {
     Copy(ModalToken<CopyChoice>, Option<CopyChoice>),
     StatusLine(ModalToken<StatusLineChoice>, Option<StatusLineChoice>),
+    Permissions(
+        ModalToken<permissions::Selection>,
+        Option<permissions::Selection>,
+    ),
+    Apps(ModalToken<apps::ModalChoice>, Option<apps::ModalChoice>),
 }
 
 impl ModalReceipt {
+    pub(crate) fn modal(&self) -> ModalOperation {
+        match self {
+            Self::Copy(token, _) => ModalOperation::Copy(token.clone()),
+            Self::StatusLine(token, _) => ModalOperation::StatusLine(token.clone()),
+            Self::Permissions(token, _) => ModalOperation::Permissions(token.clone()),
+            Self::Apps(token, _) => ModalOperation::Apps(token.clone()),
+        }
+    }
+
     pub fn thread(&self) -> &ThreadId {
         self.operation().thread()
     }
@@ -133,6 +164,8 @@ impl ModalReceipt {
         match self {
             Self::Copy(token, _) => &token.operation,
             Self::StatusLine(token, _) => &token.operation,
+            Self::Permissions(token, _) => &token.operation,
+            Self::Apps(token, _) => &token.operation,
         }
     }
 
@@ -140,6 +173,8 @@ impl ModalReceipt {
         match self {
             Self::Copy(..) => ModalKind::Copy,
             Self::StatusLine(..) => ModalKind::StatusLine,
+            Self::Permissions(..) => ModalKind::Permissions,
+            Self::Apps(..) => ModalKind::Apps,
         }
     }
 }

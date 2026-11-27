@@ -31,6 +31,7 @@ use codex_tui_core::screens::select::permissions::{
 };
 use codex_tui_core::screens::select::{Intent, Opening};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates};
+use codex_tui_core::threads::queue::ModalToken;
 
 use super::centered;
 use super::strings::{self, Strings};
@@ -44,17 +45,38 @@ use crate::widgets::sheet::bottom;
 /// sheet's cap whose home is the page of the menu, each page at the bottom edge of it (where the
 /// oracle's pane is; `features/plugins/sheet.rs`).
 pub fn sheet(menu: PermissionsMenu) -> AnyWidget {
-    Navigator::new().home(placed(menu)).back_key(None).into()
+    navigator(menu, None)
+}
+
+pub(crate) fn owned_sheet(
+    menu: PermissionsMenu,
+    token: ModalToken<permissions::Selection>,
+) -> AnyWidget {
+    navigator(menu, Some(token))
+}
+
+fn navigator(
+    menu: PermissionsMenu,
+    operation: Option<ModalToken<permissions::Selection>>,
+) -> AnyWidget {
+    Navigator::new()
+        .home(placed(menu, operation))
+        .back_key(None)
+        .into()
 }
 
 /// A page where the oracle shows its view: the confirmation (`SelectionViewParams::confirmation()`,
 /// `ViewPresentation::Centered`) floats in the middle over the composer, the menus sit at the
 /// bottom edge.
-fn placed(menu: PermissionsMenu) -> AnyWidget {
-    if matches!(menu, PermissionsMenu::FullAccess { .. }) {
-        centered(Step { menu })
+fn placed(
+    menu: PermissionsMenu,
+    operation: Option<ModalToken<permissions::Selection>>,
+) -> AnyWidget {
+    let step = Step { menu, operation };
+    if matches!(step.menu, PermissionsMenu::FullAccess { .. }) {
+        centered(step)
     } else {
-        bottom(Step { menu })
+        bottom(step)
     }
 }
 
@@ -82,14 +104,18 @@ pub fn seeded(seeded: &Seeded<'_>) -> AnyWidget {
         .unwrap_or_default()
 }
 
-fn route(menu: PermissionsMenu) -> PageRoute<()> {
-    PageRoute::new(move |_| placed(menu.clone()))
+fn route(
+    menu: PermissionsMenu,
+    operation: Option<ModalToken<permissions::Selection>>,
+) -> PageRoute<()> {
+    PageRoute::new(move |_| placed(menu.clone(), operation.clone()))
 }
 
 /// One page of the sheet: the menu it shows.
 #[derive(Clone, Debug, PartialEq)]
 struct Step {
     menu: PermissionsMenu,
+    operation: Option<ModalToken<permissions::Selection>>,
 }
 
 struct StepState {
@@ -209,20 +235,35 @@ impl State for StepState {
                 let profiles = read::<ScreenStates, _>(cx).select.profiles.clone();
                 match w.menu.choose(&profiles, &id) {
                     Some(Chosen::Done(selection)) => {
-                        say(cx, Intent::SetPermissions(selection));
-                        self.close(cx);
+                        if w.operation.is_some() {
+                            self.closed = true;
+                            close_dialog::<_, permissions::Selection>(cx, Some(selection));
+                        } else {
+                            say(cx, Intent::SetPermissions(selection));
+                            self.close(cx);
+                        }
                     }
                     // The page that replaces this one begins under the scope of now.
                     Some(Chosen::Menu(next)) => {
-                        drop(Navigator::of(cx).push_replacement::<()>(route(next)));
+                        drop(
+                            Navigator::of(cx)
+                                .push_replacement::<()>(route(next, w.operation.clone())),
+                        );
                     }
-                    Some(Chosen::Retry) => say(cx, Intent::LoadProfiles),
+                    Some(Chosen::Retry) => say(
+                        cx,
+                        w.operation
+                            .clone()
+                            .map_or(Intent::LoadProfiles, Intent::RetryOwnedPermissions),
+                    ),
                     None => {}
                 }
             }
             // Esc leaves the sheet; an inline pick that waited on it is given up.
             Event::Cancel => {
-                say(cx, Intent::AbandonPermissions);
+                if w.operation.is_none() {
+                    say(cx, Intent::AbandonPermissions);
+                }
                 self.close(cx);
             }
             // The permission lists have no secondary action, toggles, order or tabs.

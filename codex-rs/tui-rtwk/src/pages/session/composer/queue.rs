@@ -10,6 +10,7 @@ use codex_tui_core::screens::{
     ScreenIntent, ScreenStates, ScreenThreadIntent, chat, popovers, select,
 };
 use codex_tui_core::threads::queue::Dispatched;
+use codex_tui_core::threads::queue::QueueOperation;
 use codex_tui_core::threads::{DueCommand, Queued, Ran, UserMessage};
 
 use crate::app::view::Hs;
@@ -110,18 +111,37 @@ impl<'a> DeferredLine<'a> {
 }
 
 pub(in crate::pages::session) fn scope_select(
-    mut intent: select::Intent,
+    intent: select::Intent,
+    active: Option<&ThreadId>,
     deferred: Option<DeferredLine<'_>>,
     ran: &mut Option<Ran>,
 ) -> select::Intent {
-    if let (Some(DeferredLine::Due(due)), select::Intent::OpenModels(request)) =
-        (deferred, &mut intent)
-    {
-        request.operation = Some(due.operation().clone());
-        // The select reducer acknowledges this exact request. A second report could release it.
-        *ran = None;
-    }
-    intent
+    let issued = deferred.and_then(|line| match line {
+        DeferredLine::Due(due) => Some(due.operation()),
+        DeferredLine::Preset(_) => None,
+    });
+    let Some(thread) = issued.map(QueueOperation::thread).or(active) else {
+        return intent;
+    };
+    let dialog = match intent {
+        select::Intent::OpenModels(mut request) if issued.is_some() => {
+            request.operation = issued.cloned();
+            *ran = None;
+            return select::Intent::OpenModels(request);
+        }
+        select::Intent::OpenPermissions(current) => select::QueueDialog::Permissions(current),
+        select::Intent::OpenApps { enabled } if issued.is_some() => {
+            select::QueueDialog::Apps { enabled }
+        }
+        other => return other,
+    };
+    // The owner consumes the issued command before asking the presenter to mount its dialog.
+    *ran = None;
+    select::Intent::OpenQueueDialog(Box::new(select::QueueOpen {
+        thread: thread.clone(),
+        issued: issued.cloned(),
+        dialog,
+    }))
 }
 
 /// The queued status editor takes the issued operation before mounting its dialog.

@@ -96,6 +96,28 @@ impl App {
     }
 }
 
+/// The last action of an owned Apps dialog. A bare dismissal has no choice.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModalChoice {
+    Unlinked(String),
+    RefreshAfterVisit,
+}
+
+/// An action taken while the directory or its link page remains open.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModalAction {
+    Retry,
+    Visit(String),
+    Enable { id: String, enabled: bool },
+}
+
+/// The directory and thread whose config the switch update was sent to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModalWriteOwner {
+    pub thread: crate::ids::ThreadId,
+    pub scope: u64,
+}
+
 /// What the directory holds (`ConnectorsCacheState`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Cache {
