@@ -38,6 +38,12 @@ pub fn note(note: &Note) -> String {
         Note::IdeOn { has_context: false } => "IDE context is on.\nConnected to your IDE.".to_owned(),
         Note::IdeCouldNotEnable { hint } => format!("IDE context could not be enabled.\n{hint}"),
         Note::IdeNoLocalWorkspace => "IDE context could not be enabled.\nOpen a local workspace to connect to your IDE.".to_owned(),
+        Note::IdeSkipped { hint } => format!(
+            "IDE context was skipped for this message.\n{}",
+            hint.as_deref().unwrap_or(
+                "Codex timed out waiting for IDE context. It will keep trying on future messages."
+            )
+        ),
         Note::IdeUsage => "Usage: /ide [on|off|status]".to_owned(),
         Note::DebugConfig(rows) => rows
             .iter()

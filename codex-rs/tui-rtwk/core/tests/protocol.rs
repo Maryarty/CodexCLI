@@ -144,6 +144,7 @@ fn thread_catalog_keeps_turn_input_client_id_and_safety_metadata() {
         message: &message,
         client_id: "client message a".to_owned(),
         misalignment_override: Some(173),
+        ide_prompt: None,
     };
     let ClientRequest::TurnStart {
         request_id: actual,

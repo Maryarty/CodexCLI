@@ -367,6 +367,25 @@ impl<C> Pending<C> {
         Some((ctx, answer))
     }
 
+    /// Spend the request only if its owner recognizes the kind of RPC receipt.
+    pub(crate) fn resolve_if(
+        &mut self,
+        ticket: Ticket,
+        reply: Reply,
+        accepts: impl FnOnce(&C, &Answer) -> bool,
+    ) -> Option<(C, Answer)> {
+        let entry = self.entries.get(&ticket)?;
+        let ReplyResult::Answer(answer) = reply.0 else {
+            return None;
+        };
+        if !accepts(&entry.context, &answer) {
+            return None;
+        }
+        self.entries
+            .remove(&ticket)
+            .map(|entry| (entry.context, answer))
+    }
+
     pub(crate) fn resolve_reply(
         &mut self,
         ticket: Ticket,

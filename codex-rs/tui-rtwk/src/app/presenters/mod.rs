@@ -21,6 +21,7 @@ use codex_tui_core::features::Scope;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::select::{
     Intent as SelectIntent, ModelCompletion, ModelResult, QueuedModelShow, apps, permissions,
+    quick_dials,
 };
 use codex_tui_core::screens::transcript::Intent as TranscriptIntent;
 use codex_tui_core::screens::{ScreenIntent, ScreenThreadIntent, chat};
@@ -50,6 +51,7 @@ enum QueueDialog {
     StatusLine(AppDialog<StatusLineChoice>),
     Permissions(AppDialog<permissions::Selection>),
     Apps(AppDialog<apps::ModalChoice>),
+    Preset(AppDialog<quick_dials::Write>),
 }
 
 impl QueueDialog {
@@ -66,6 +68,7 @@ impl QueueDialog {
             Self::StatusLine(dialog) => open(dialog, active),
             Self::Permissions(dialog) => open(dialog, active),
             Self::Apps(dialog) => open(dialog, active),
+            Self::Preset(dialog) => open(dialog, active),
         }
     }
 }
@@ -340,6 +343,12 @@ fn show_queue_modal(
             move |_| open(),
             options,
             move |app, answer, _| finish_queue_modal(app, ModalReceipt::Apps(token, answer)),
+        )),
+        ModalOperation::Preset(token) => QueueDialog::Preset(cx.show_dialog_from(
+            place,
+            move |_| open(),
+            options,
+            move |app, answer, _| finish_queue_modal(app, ModalReceipt::Preset(token, answer)),
         )),
     };
     if dialog.retain(true) {

@@ -248,6 +248,7 @@ fn lifecycle_ask(command: &Command) -> Option<(Ticket, &'static str, ThreadRpc<&
             message,
             client_id,
             misalignment_override,
+            ide_prompt,
         } => (
             *ticket,
             "turn/start",
@@ -256,6 +257,7 @@ fn lifecycle_ask(command: &Command) -> Option<(Ticket, &'static str, ThreadRpc<&
                 message,
                 client_id: client_id.clone(),
                 misalignment_override: *misalignment_override,
+                ide_prompt: ide_prompt.clone(),
             },
         ),
         Command::InterruptTurn {

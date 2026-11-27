@@ -107,10 +107,13 @@ mod buffering_during_a_check {
     use super::*;
 
     fn state(app: &CodexApp) -> Option<(bool, Option<String>, u32)> {
-        app.active_thread()
-            .safety()
-            .buffering()
-            .map(|held| (held.waiting(), held.retry.clone(), held.revision))
+        app.active_thread().safety().buffering().map(|held| {
+            (
+                held.waiting(),
+                held.retry_offer().map(|offer| offer.model().to_owned()),
+                held.revision,
+            )
+        })
     }
 
     /// The check of a turn submitted here holds the output and offers the retry with the faster
@@ -164,41 +167,39 @@ mod buffering_during_a_check {
         assert_eq!(state(&app), None);
     }
 
-    /// The retry is a verb: valid while the output is held, for the model offered; core records
-    /// the request (the turn, the model and the message sent again) for the app and the receipt
-    /// clears it.
     #[test]
-    fn the_retry_verb_is_checked_and_recorded_for_the_app() {
+    fn a_buffering_offer_can_only_be_confirmed_once_in_its_own_lifetime() {
+        use codex_tui_core::screens::{ScreenCommand, agents};
+        use codex_tui_core::threads::ThreadAsk;
+
         let mut app = ready();
         submitted_turn(&mut app, "hello", "turn-1");
         notify(&mut app, buffering("turn-1", true, Some("gpt-fast")));
-        verb(
-            &mut app,
-            Verb::Retry {
-                turn: TurnId::new("turn-1"),
-                model: "gpt-other".into(),
-            },
-        );
-        assert_eq!(app.active_thread().safety().retry(), None);
-        verb(
-            &mut app,
-            Verb::Retry {
-                turn: TurnId::new("turn-1"),
-                model: "gpt-fast".into(),
-            },
-        );
-        let thread = app.active_thread();
-        let retry = thread.safety().retry().expect("a retry request");
-        assert_eq!(
-            (
-                retry.turn.to_string(),
-                retry.model.as_str(),
-                retry.message.text.as_str()
-            ),
-            ("turn-1".to_owned(), "gpt-fast", "hello")
-        );
-        verb(&mut app, Verb::Taken);
-        assert_eq!(app.active_thread().safety().retry(), None);
+        let current_offer = |app: &CodexApp| {
+            app.active_thread()
+                .safety()
+                .buffering()
+                .and_then(|held| held.retry_offer())
+                .expect("an exact retry offer")
+                .clone()
+        };
+        let stale = current_offer(&app);
+        notify(&mut app, buffering("turn-1", true, Some("gpt-fast")));
+        assert_eq!(current_offer(&app), stale);
+
+        notify(&mut app, buffering("turn-1", false, None));
+        notify(&mut app, buffering("turn-1", true, Some("gpt-fast")));
+        let current = current_offer(&app);
+        assert_ne!(current, stale);
+        assert!(verb(&mut app, Verb::Retry(stale)).commands().is_empty());
+        let fx = verb(&mut app, Verb::Retry(current.clone()));
+        assert!(matches!(fx.commands(), [
+            Command::Screen { command: ScreenCommand::Agents(agents::Command::Thread(
+                ThreadAsk::RetryInterrupt { thread, turn },
+            )), .. }
+        ] if thread.as_str() == T && turn.as_str() == "turn-1"));
+        assert!(app.active_thread().safety().retrying());
+        assert!(verb(&mut app, Verb::Retry(current)).commands().is_empty());
     }
 }
 

@@ -7,7 +7,7 @@
 //! why there is none (`Feature::structured_done`), whatever happened.
 //!
 //! A run is a request record by its own key (the run's number); the ticket of the RPC in flight
-//! says which run it answers (`AppCtx::Structured`). What the stream said of the thread before
+//! says which run it answers (`TurnOperation::Structured`). What the stream said of the thread before
 //! `turn/start` answered with the turn's id is kept and read once the id is known. A phase that
 //! takes longer than 30 seconds (the oracle's `STRUCTURED_TURN_TIMEOUT`) ends the run, by the
 //! clock the shell tells (`wake_at`, `expire`).
@@ -17,7 +17,7 @@ use std::rc::Rc;
 
 use codex_app_server_protocol::{ServerNotification, ThreadItemPayload, TurnStatus};
 
-use super::{AppCtx, AppFx, CodexApp, Command, Now, features};
+use super::{AppCtx, AppFx, CodexApp, Command, Now, TurnOperation, features};
 use crate::features::FeatureCtx;
 use crate::ids::{BackendId, ThreadId};
 use crate::rpc::{Answer, RpcError};
@@ -139,13 +139,15 @@ fn ask(app: &mut CodexApp, id: u64, ask: ThreadAsk, fx: &mut AppFx) {
         return;
     };
     let backend = run.backend;
-    fx.ask(app, AppCtx::Structured { run: id, backend }, |_, ticket| {
-        Command::Screen {
+    fx.ask(
+        app,
+        AppCtx::TurnOperation(TurnOperation::Structured { run: id, backend }),
+        |_, ticket| Command::Screen {
             ticket,
             thread: ThreadId::default(),
             command: ScreenCommand::Agents(agents::Command::Thread(ask)),
-        }
-    });
+        },
+    );
 }
 
 /// An RPC nobody waits for (`thread/unsubscribe`, `turn/interrupt`): the answer is dropped.
@@ -373,7 +375,7 @@ pub(super) fn expire(app: &mut CodexApp, now: Now, fx: &mut AppFx) {
     for id in late {
         // a request in flight is let go: its answer finds no run
         app.outgoing
-            .retain(|ctx| !matches!(ctx, AppCtx::Structured { run, .. } if *run == id));
+            .retain(|ctx| !matches!(ctx, AppCtx::TurnOperation(TurnOperation::Structured { run, .. }) if *run == id));
         finish(app, id, Err(Why::TimedOut), fx);
     }
 }

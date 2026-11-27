@@ -414,7 +414,12 @@ impl Model {
     }
 
     /// `/presets`: the sheet of the presets on the page asked for, or a preset recalled.
-    fn open_quick(&mut self, gate: quick_dials::Gate, open: quick_dials::Open) {
+    fn open_quick(
+        &mut self,
+        gate: quick_dials::Gate,
+        open: quick_dials::Open,
+        modal: Option<ModalOperation>,
+    ) {
         use quick_dials::{Menu as Quick, Open, PickerMode};
         if !self.quick_available(gate) {
             return;
@@ -468,33 +473,26 @@ impl Model {
                 return;
             }
         };
-        self.shows.push(Opening::Quick(Box::new(page)));
+        self.shows.push_modal(Opening::Quick(Box::new(page)), modal);
     }
 
     /// `save_quick_dial`: a refused write says why and shows the editor again; an allowed one is
     /// left for the app to ask of the config.
-    fn quick_write(&mut self, slot: u8, dial: Option<quick_dials::Dial>) {
-        match self.quick.check(slot, dial.as_ref()) {
-            Ok(()) => self.quick.want(quick_dials::Write { slot, dial }),
-            Err(refused) => {
-                self.notes.push(match refused {
-                    quick_dials::Refused::Outside(slot) => Note::PresetOutside(slot),
-                    quick_dials::Refused::Invalid(reason) => Note::PresetInvalid(reason),
-                });
-                self.restore_editor(slot, dial);
+    fn quick_write(&mut self, write: quick_dials::Write) {
+        match write.check_against(&self.quick) {
+            Ok(()) => self.quick.want(write),
+            Err(note) => {
+                self.notes.push(note);
+                self.restore_editor(write);
             }
         }
     }
 
     /// `restore_quick_dial_editor`: what was being saved is not lost; the sheet that asked for the
     /// write is gone, a new one opens on the editor.
-    fn restore_editor(&mut self, slot: u8, dial: Option<quick_dials::Dial>) {
-        if let Some(dial) = dial {
-            self.shows
-                .push(Opening::Quick(Box::new(quick_dials::Menu::Editor {
-                    target: quick_dials::Target::Slot(slot),
-                    dial,
-                })));
+    fn restore_editor(&mut self, write: quick_dials::Write) {
+        if let Some(menu) = write.retry_editor() {
+            self.shows.push(Opening::Quick(Box::new(menu)));
         }
     }
 
@@ -635,6 +633,7 @@ impl Model {
                 self.open_permissions_modal(current, Some(operation))
             }
             QueueDialog::Apps { enabled } => self.open_apps(enabled, Some(operation)),
+            QueueDialog::Preset { gate, open } => self.open_quick(gate, open, Some(operation)),
         }
     }
 
@@ -821,7 +820,13 @@ impl QueuedModelWrite {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum QueueDialog {
     Permissions(permissions::Current),
-    Apps { enabled: bool },
+    Apps {
+        enabled: bool,
+    },
+    Preset {
+        gate: quick_dials::Gate,
+        open: quick_dials::Open,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -992,23 +997,14 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             }
         }
         Ev::Dials(slots) => model.quick.set(slots),
-        Ev::PresetWritten { slot, dial, result } => match result {
-            Ok(()) => {
-                model.quick.written(quick_dials::Write {
-                    slot,
-                    dial: dial.clone(),
-                });
-                model.notes.push(if dial.is_some() {
-                    Note::PresetSaved(slot)
-                } else {
-                    Note::PresetDeleted(slot)
-                });
+        Ev::PresetWritten { slot, dial, result } => {
+            let write = quick_dials::Write { slot, dial };
+            let failed = result.is_err();
+            model.notes.push(model.quick.write_result(&write, result));
+            if failed {
+                model.restore_editor(write);
             }
-            Err(error) => {
-                model.notes.push(Note::PresetFailed { slot, error });
-                model.restore_editor(slot, dial);
-            }
-        },
+        }
         Ev::Provider(provider) => {
             model.catalog.provider = provider;
             if provider != Provider::Settled {
@@ -1174,12 +1170,10 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::RefreshApps => {
             model.apps.refresh(true);
         }
-        Intent::Quick { gate, open } => model.open_quick(gate, open),
+        Intent::Quick { gate, open } => model.open_quick(gate, open, None),
         // What a page of the presets asked: the write (the sheet closed), or why the text is no preset.
         Intent::Preset(ask) => match ask {
-            quick_dials::Ask::Write(quick_dials::Write { slot, dial }) => {
-                model.quick_write(slot, dial);
-            }
+            quick_dials::Ask::Write(write) => model.quick_write(write),
             quick_dials::Ask::Invalid(reason) => model.notes.push(Note::PresetInvalid(reason)),
         },
         // The app writes the config (`app/select.rs`); the directory follows the saved write. The
@@ -1316,6 +1310,11 @@ pub enum Ctx {
     Preset {
         slot: u8,
         dial: Option<quick_dials::Dial>,
+    },
+    /// Configuration write issued by the confirmed native preset dialog.
+    OwnedPreset {
+        token: ModalToken<quick_dials::Write>,
+        write: quick_dials::Write,
     },
     /// `model/list` for an automatic model switch of a usage banner that finds no catalog
     /// (`app/banners.rs`).

@@ -1465,6 +1465,24 @@ impl ThreadSet {
             .find_map(|(id, model)| model.outgoing.address(ticket).map(|address| (id, address)))
     }
 
+    /// An IDE-gated steer has not left the app. Once the turn has restored or
+    /// merged its input, discard the unused request without recovering it again.
+    pub(crate) fn retain_preparing_steer(
+        &mut self,
+        thread: &ThreadId,
+        ticket: Ticket,
+        client_id: &str,
+    ) -> bool {
+        let Some(model) = self.held.get_mut(thread) else {
+            return false;
+        };
+        if pending_steer(model, client_id).is_some() {
+            return true;
+        }
+        Rc::make_mut(model).outgoing.drop_ticket(ticket);
+        false
+    }
+
     /// The thread is gone (archived or deleted): the app holds no model of it
     /// any more (`discard_thread_local_state`).
     pub(crate) fn forget(&mut self, id: &ThreadId) {
@@ -1755,7 +1773,7 @@ impl ThreadCore {
 
     /// A turn runs or its start is in flight.
     pub fn busy(&self) -> bool {
-        self.is_running() || self.outgoing.any(is_start_turn)
+        self.is_running() || self.outgoing.any(is_start_turn) || self.safety.retrying()
     }
 
     /// The thread's event stream was lost and has not come back.
@@ -1943,6 +1961,7 @@ impl<'a> ThreadFx<'a> {
             message,
             client_id,
             misalignment_override: None,
+            ide_prompt: None,
         });
         Ok(ticket)
     }
@@ -1974,6 +1993,7 @@ impl<'a> ThreadFx<'a> {
             message,
             client_id,
             misalignment_override: Some(stamp),
+            ide_prompt: None,
         });
         Ok(ticket)
     }
@@ -2535,6 +2555,11 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     }
     safety::observe(model, &ev);
     if matches!(ev, ThreadEv::ConnectionLost | ThreadEv::StreamLost) {
+        safety::apply(
+            model,
+            safety::SafetyEv::RetryLifecycle(safety::RetryLifecycle::RetireOffer),
+            fx,
+        );
         model.features.rename.connection_lost();
     }
     match ev {
@@ -2762,7 +2787,8 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             let starting = model.outgoing.any(is_start_turn);
             // During recovery or ambiguous admission, later input stays queued. After a Cloud
             // turn ends, its in-flight steers can still decide whether the next input may start.
-            if model.stream_lost
+            if model.safety.retrying()
+                || model.stream_lost
                 || model.reconciling_submissions
                 || (fx.cloud && matches!(model.queue.first(), Some(Queued::Unconfirmed { .. })))
                 || (!model.is_running() && cloud_admission_pending(model, fx))
@@ -3586,6 +3612,7 @@ fn steer(
             turn,
             message,
             client_id,
+            ide_prompt: None,
         }
         .into(),
     );

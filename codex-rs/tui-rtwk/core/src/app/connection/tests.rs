@@ -2,9 +2,9 @@
 //! feature, so the rules let this file name one (`ROOT_TESTS`).
 
 use super::*;
-use crate::app::{AppCtx, AppEv, Ingress, apply_app, worktree};
+use crate::app::{AppCtx, AppEv, Ingress, TurnOperation, apply_app, worktree};
 use crate::features::FeatureCtx;
-use crate::ids::{Cwd, ThreadId};
+use crate::ids::{Cwd, ThreadId, Ticket};
 use crate::rpc::Reply;
 use crate::screens::{ScreenEv, agents, chat, resume, select, startup, status};
 use std::collections::BTreeSet;
@@ -27,12 +27,15 @@ fn kind(ctx: &AppCtx) -> &'static str {
         AppCtx::Worktree { .. } => "Worktree",
         AppCtx::SessionRead => "SessionRead",
         AppCtx::OpenSession { .. } => "OpenSession",
-        AppCtx::Structured { .. } => "Structured",
         AppCtx::Feature(_) => "Feature",
+        AppCtx::TurnOperation(operation) => match operation {
+            TurnOperation::Structured { .. } => "Structured",
+            TurnOperation::SafetyRetry { .. } => "SafetyRetry",
+        },
     }
 }
 
-const KINDS: usize = 16;
+const KINDS: usize = 17;
 
 /// One pending context of each kind. The registrar owns its address separately.
 fn samples(backend: BackendId) -> Vec<AppCtx> {
@@ -94,7 +97,12 @@ fn samples(backend: BackendId) -> Vec<AppCtx> {
             action: startup::Action::Resume,
             thread,
         },
-        AppCtx::Structured { run: 1, backend },
+        AppCtx::TurnOperation(TurnOperation::Structured { run: 1, backend }),
+        AppCtx::TurnOperation(TurnOperation::SafetyRetry {
+            generation: Ticket::new(1),
+            backend,
+            attaching: true,
+        }),
         AppCtx::Feature(FeatureCtx::Plugins(crate::features::plugins::Ctx::List {
             cwd: Cwd::new("/work"),
             request: 1,
@@ -157,6 +165,14 @@ fn a_background_transport_ends_only_its_registered_operations() {
     for replaces_transport in [false, true] {
         for b_answers_first in [false, true] {
             for (a_context, b_context) in samples(a).into_iter().zip(samples(b)) {
+                // A retry has one live owner. Its real addressed transport test drives that
+                // operation through the confirmation and interrupt in tests/safety_retry.rs.
+                if matches!(
+                    a_context,
+                    AppCtx::TurnOperation(TurnOperation::SafetyRetry { .. })
+                ) {
+                    continue;
+                }
                 let case = kind(&a_context);
                 let mut app = CodexApp::new();
                 let a_epoch = app.attach_backend(a);

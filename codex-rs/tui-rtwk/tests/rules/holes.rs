@@ -454,6 +454,7 @@ const THREAD_RPCS: &[(&str, &[&str])] = &[
     ("ThreadStart", CORE_THREAD),
     ("ThreadRead", CORE_THREAD),
     ("ThreadTurnsList", CORE_THREAD),
+    ("ThreadItemsList", CORE_THREAD),
     ("ThreadUnsubscribe", CORE_THREAD),
     ("TurnStart", CORE_THREAD),
     ("TurnInterrupt", CORE_THREAD),

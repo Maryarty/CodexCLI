@@ -15,10 +15,12 @@ pub mod facts;
 pub(crate) mod features;
 mod git_summary;
 mod host_asks;
+mod ide_submit;
 mod lifecycle;
 mod mentions;
 mod notices;
 mod reset;
+mod safety_retry;
 mod select;
 mod session;
 mod structured;
@@ -485,6 +487,8 @@ pub enum Command {
         /// The acknowledgement of a misalignment failure, epoch milliseconds: the request
         /// carries the `misalignment_override` metadata (`threads/safety.rs`).
         misalignment_override: Option<i64>,
+        /// Fresh opt-in IDE data for wire serialization.
+        ide_prompt: Option<effects::IdePrompt>,
     },
     #[non_exhaustive]
     RejectRequest { key: RequestKey },
@@ -596,12 +600,15 @@ impl AppFx {
         let backend = match &context {
             AppCtx::Worktree { backend, .. }
             | AppCtx::OpenThread { backend, .. }
-            | AppCtx::Structured { backend, .. }
             | AppCtx::NewConversation { backend, .. }
             | AppCtx::Redemption { backend, .. }
             | AppCtx::Select(
                 screens::select::Ctx::Fallback { backend }
                 | screens::select::Ctx::Switch { backend, .. },
+            ) => *backend,
+            AppCtx::TurnOperation(
+                TurnOperation::Structured { backend, .. }
+                | TurnOperation::SafetyRetry { backend, .. },
             ) => *backend,
             AppCtx::Resume(context) => context.backend(),
             AppCtx::SessionRead | AppCtx::OpenSession { .. } => BackendId::default(),
@@ -740,11 +747,23 @@ enum AppCtx {
         action: crate::screens::startup::Action,
         thread: ThreadId,
     },
-    /// An RPC of a structured turn a feature asked for (`app/structured.rs`): `run` is its
-    /// number, `backend` the one it goes to.
-    Structured { run: u64, backend: BackendId },
+    /// An RPC owned by an app-scoped operation on a turn.
+    TurnOperation(TurnOperation),
     /// An RPC of a feature slice about the app.
     Feature(crate::features::FeatureCtx),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TurnOperation {
+    Structured {
+        run: u64,
+        backend: BackendId,
+    },
+    SafetyRetry {
+        generation: Ticket,
+        backend: BackendId,
+        attaching: bool,
+    },
 }
 
 /// An ask made before the first thread exists.
@@ -823,6 +842,7 @@ pub struct CodexApp {
     host_transport_lost: bool,
     /// The structured turns the features asked for and have no answer to yet.
     structured: structured::Runs,
+    safety_retry: Option<safety_retry::Run>,
     /// What was asked before the first thread exists, in order: it goes out
     /// when the thread starts (oracle: input queued until the session is
     /// configured).
@@ -845,6 +865,7 @@ pub struct CodexApp {
     tui: facts::TuiSettings,
     /// The answers of the host's asks and the user-verification controller.
     effects: effects::Effects,
+    ide_submissions: ide_submit::State,
     /// Notices announced before any conversation exists.
     pending_notices: Vec<threads::Notice>,
     /// The Daybreak facts (`AppEv::Daybreak`).
@@ -928,6 +949,7 @@ impl CodexApp {
             host_outgoing: Pending::default(),
             host_transport_lost: false,
             structured: structured::Runs::default(),
+            safety_retry: None,
             queued_submits: Vec::new(),
             attaching_events: VecDeque::new(),
             spawn_requests: std::collections::HashMap::new(),
@@ -937,6 +959,7 @@ impl CodexApp {
             keymap: Rc::new(Keymap::defaults()),
             tui: facts::TuiSettings::default(),
             effects: effects::Effects::default(),
+            ide_submissions: ide_submit::State::default(),
             pending_notices: Vec::new(),
             daybreak: threads::daybreak::Access::default(),
             now: Now::default(),
@@ -1122,7 +1145,7 @@ impl CodexApp {
         for run in self.structured.asking() {
             let asked = self
                 .outgoing
-                .any(|ctx| matches!(ctx, AppCtx::Structured { run: asked, .. } if *asked == run));
+                .any(|ctx| matches!(ctx, AppCtx::TurnOperation(TurnOperation::Structured { run: asked, .. }) if *asked == run));
             assert!(
                 asked,
                 "structured turn {run} is waiting for an answer nobody owes"
@@ -1374,6 +1397,8 @@ impl CodexApp {
     }
 
     fn retire_outgoing(&mut self, backend: BackendId, fx: &mut AppFx) {
+        ide_submit::retire(self, backend, fx);
+        safety_retry::lost(self, backend, fx);
         self.attaching_events
             .retain(|(source, ..)| *source != backend);
         features::retire_rate_offer(self, backend);
@@ -1545,6 +1570,7 @@ pub fn apply_app_from(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut
 }
 
 fn apply_at(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
+    let emitted_from = fx.commands.len();
     // Only events that can bring tasks of other directories into the center.
     let lists = matches!(ev, AppEv::Reply(..) | AppEv::Screen(_));
     let ancestry = matches!(ev, AppEv::Reply(..) | AppEv::Screen(ScreenEv::Agents(_)))
@@ -1570,6 +1596,7 @@ fn apply_at(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
         select::retire_model_picker(app);
         features::retire_ide(app);
         if let Some(thread) = &previous.active {
+            safety_retry::left(app, thread, fx);
             features::retire_queue_modal_choices(app, thread, fx);
         }
     }
@@ -1585,6 +1612,7 @@ fn apply_at(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
     if ancestry || active_changed {
         sync_picker_root(app);
     }
+    ide_submit::prepare(app, fx, emitted_from);
 }
 
 fn sync_picker_root(app: &mut CodexApp) {
@@ -1617,7 +1645,8 @@ fn finish_apply(app: &mut CodexApp, lists: bool, fx: &mut AppFx) {
             fx.host(effects::Ask::Directories { cwds });
         }
     }
-    fx.wake = features::wake(app);
+    safety_retry::tick(app, fx);
+    fx.wake = safety_retry::wake(app, features::wake(app));
 }
 
 /// `SessionSlice::cloud_switch` follows the tickets: connecting while a start asked of a Cloud
@@ -1723,6 +1752,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             }
         }
         AppEv::ShuttingDown => {
+            ide_submit::shutdown(app, fx);
             features::connection(app, crate::features::Connection::ShuttingDown, fx);
         }
         AppEv::Backend(BackendEv::Notification(notification)) => {
@@ -2135,6 +2165,10 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         } => {
             git_summary::answer(app, summary, fx);
         }
+        AppEv::Effect {
+            request,
+            done: effects::Done::IdePrompt(reading),
+        } => ide_submit::answered(app, request, reading),
         AppEv::Effect { request, done } if effects::is_feature_request(request) => {
             features::effect_done(app, request, done, fx);
         }
@@ -2460,7 +2494,19 @@ fn invalidate_image_restrictions(app: &mut CodexApp, backend: BackendId) {
 
 fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx) {
     if let Some(address) = app.outgoing.address(ticket) {
-        let Some((ctx, answer)) = app.outgoing.resolve(ticket, reply) else {
+        let resolved = if matches!(
+            app.outgoing.context(ticket),
+            Some(AppCtx::TurnOperation(TurnOperation::SafetyRetry { .. }))
+        ) {
+            let retry = app.safety_retry.as_ref();
+            app.outgoing.resolve_if(ticket, reply, |ctx, answer| {
+                matches!(ctx, AppCtx::TurnOperation(TurnOperation::SafetyRetry { generation, .. })
+                    if retry.is_some_and(|run| run.accepts(ticket, *generation, answer)))
+            })
+        } else {
+            app.outgoing.resolve(ticket, reply)
+        };
+        let Some((ctx, answer)) = resolved else {
             return;
         };
         match ctx {
@@ -2773,7 +2819,12 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 session_opened(app, action, thread, answer, fx);
             }
             AppCtx::Opening { thread, ctx } => lifecycle::read(app, thread, ctx, answer, fx),
-            AppCtx::Structured { run, .. } => structured::answered(app, run, answer, fx),
+            AppCtx::TurnOperation(TurnOperation::Structured { run, .. }) => {
+                structured::answered(app, run, answer, fx);
+            }
+            AppCtx::TurnOperation(TurnOperation::SafetyRetry { generation, .. }) => {
+                safety_retry::answered(app, ticket, generation, address, answer, fx);
+            }
             AppCtx::Feature(ctx) => features::answer(app, ctx, answer, fx),
         }
         return;
@@ -3043,6 +3094,10 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             }
         }
         // a verb of the thread's safety state: the thread's own, not the screen's
+        Intent::Screen(ScreenIntent::Chat(chat::Intent::Safety {
+            thread,
+            verb: crate::threads::safety::Verb::Retry(offer),
+        })) => safety_retry::begin(app, thread, offer, fx),
         Intent::Screen(ScreenIntent::Chat(chat::Intent::Safety { thread, verb })) => {
             if matches!(&verb, crate::threads::safety::Verb::Continue { .. })
                 && app.session.active.as_ref() != Some(&thread)
@@ -4054,6 +4109,7 @@ fn stream_lost(
         && let Some(model) = app.threads.get(&thread)
     {
         let idle = !model.user_turn_in_flight();
+        ide_submit::retire_thread(app, &thread, fx);
         apply_thread(app, &thread, ThreadEv::StreamLost, fx);
         if app
             .threads
@@ -4128,6 +4184,10 @@ fn is_attach(ctx: &AppCtx) -> bool {
             | AppCtx::NewConversation { .. }
             | AppCtx::OpenThread { .. }
             | AppCtx::OpenSession { .. }
+            | AppCtx::TurnOperation(TurnOperation::SafetyRetry {
+                attaching: true,
+                ..
+            })
             | AppCtx::Agents(agents::Ctx::Start | agents::Ctx::Fork { .. })
     )
 }
@@ -4262,6 +4322,7 @@ fn dismiss_banner_for_new_turn(app: &mut CodexApp, thread: &ThreadId) {
 
 /// A thread event routed to its thread. Used by `apply_app` and by tests.
 pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mut AppFx) {
+    safety_retry::observe(app, thread, &ev, fx);
     // A cyber refusal is worded by the setting of the moment (a delta carries none).
     let daybreak = if ev.may_fail_a_turn() {
         notices::daybreak_of(app, thread)
