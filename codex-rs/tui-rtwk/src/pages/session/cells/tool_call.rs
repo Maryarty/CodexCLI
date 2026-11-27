@@ -1,7 +1,7 @@
 //! MCP and dynamic tool calls (oracle `history_cell/{mcp,mcp_preview,
-//! mcp_result,dynamic}.rs`): the collapsed form is the header and the last
-//! three result rows (`compact_hyperlink_lines`), the expanded one the whole
-//! invocation and result (`transcript_hyperlink_lines`). Flutter: an
+//! mcp_result,dynamic}.rs`): the collapsed form is the header and a bounded
+//! preview, the expanded one the whole invocation and result
+//! (`transcript_hyperlink_lines`). Flutter: an
 //! `ExpansionTile` whose title is the header and whose children are the rows;
 //! the bullet, the control and the flag are the row's.
 
@@ -37,46 +37,34 @@ pub fn mcp(call: &McpCall, env: &Env<'_>) -> Parts {
         expanded,
         ..
     } = *env;
-    let success = call.success();
     let mark = mcp_mark(call, tokens);
-    let verb = match success {
-        Some(true) => strings.called_tool,
-        Some(false) => strings.failed_tool,
-        None => strings.calling_tool,
-    };
-    let disclosure = Some(
-        if expanded {
-            strings.hide_details
-        } else {
-            strings.show_details
-        }
-        .to_owned(),
-    );
     if expanded {
         return Parts::Rows(Rows {
             mark,
             header: transcript(call.clone(), strings, tokens.clone()),
             body: Vec::new(),
-            disclosure,
+            disclosure: Some(strings.hide_details.to_owned()),
         });
     }
-    let header = Text::rich(vec![
-        Span::styled(verb, tokens.bold()),
-        Span::new(INLINE_GAP),
-        Span::styled(call.title(), tokens.accent()),
-    ])
-    .max_lines(Some(1))
-    .overflow(TextOverflow::Ellipsis)
-    .into();
+    let preview = mcp_preview(call, strings);
+    let mut spans = Vec::new();
+    if let Some(verb) = preview.verb {
+        spans.extend([Span::styled(verb, tokens.bold()), Span::new(INLINE_GAP)]);
+    }
+    spans.push(Span::styled(call.title(), tokens.accent()));
     Parts::Rows(Rows {
         mark,
-        header,
-        body: preview(call, strings)
+        header: Text::rich(spans)
+            .max_lines(Some(1))
+            .overflow(TextOverflow::Ellipsis)
+            .into(),
+        body: preview
+            .rows
             .into_iter()
             .enumerate()
             .map(|(index, text)| result_row(index, text, tokens))
             .collect(),
-        disclosure,
+        disclosure: Some(preview.disclosure),
     })
 }
 
@@ -90,18 +78,108 @@ pub fn mcp_mark(call: &McpCall, tokens: &Tokens) -> Style {
     .attrs(Attrs::BOLD)
 }
 
+struct McpPreview {
+    verb: Option<&'static str>,
+    rows: Vec<String>,
+    disclosure: String,
+}
+
+fn mcp_preview(call: &McpCall, strings: &Strings) -> McpPreview {
+    if call.result_kind() == McpResultKind::NodeRepl
+        && let Some(Ok(result)) = &call.result
+        && result.is_error
+    {
+        let mut rows = Vec::new();
+        let mut omitted: usize = 0;
+        for block in &result.content {
+            if block.is_image && block.text().is_some() {
+                if rows.len() < PREVIEW_LINES {
+                    rows.push(strings.tool_result_image.to_owned());
+                } else {
+                    omitted += 1;
+                }
+            }
+            let text = body_text(&block.render_full(), strings);
+            let formatted = if rows.len() < PREVIEW_LINES {
+                compact_json(&text)
+            } else {
+                None
+            };
+            let mut lines = formatted.as_deref().unwrap_or(&text).lines();
+            rows.extend(
+                lines
+                    .by_ref()
+                    .take(PREVIEW_LINES - rows.len())
+                    .map(bounded_preview_line),
+            );
+            omitted += lines.count();
+        }
+        if !rows.is_empty() {
+            return McpPreview {
+                verb: None,
+                rows,
+                disclosure: match omitted {
+                    0 => strings.show_details.to_owned(),
+                    1 => strings.repl_hidden_line.to_owned(),
+                    count => strings.label(strings.repl_hidden_lines, &count.to_string()),
+                },
+            };
+        }
+    }
+    McpPreview {
+        verb: Some(match call.success() {
+            Some(true) => strings.called_tool,
+            Some(false) => strings.failed_tool,
+            None => strings.calling_tool,
+        }),
+        rows: tail_preview(call, strings),
+        disclosure: strings.show_details.to_owned(),
+    }
+}
+
+/// Format bounded JSON for the failure preview while retaining the wire text
+/// for the detailed transcript. The formatter leaves strings and escapes alone.
+fn compact_json(text: &str) -> Option<String> {
+    if text.len() > PREVIEW_LINE_BYTES {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(text).ok()?;
+    let compact = value.to_string();
+    let mut formatted = String::with_capacity(compact.len());
+    let mut in_string = false;
+    let mut escaped = false;
+    for ch in compact.chars() {
+        formatted.push(ch);
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '"' => in_string = !in_string,
+            '\\' if in_string => escaped = true,
+            ':' | ',' if !in_string => formatted.push(' '),
+            _ => {}
+        }
+    }
+    Some(formatted)
+}
+
+fn bounded_preview_line(line: &str) -> String {
+    let bounded = &line[..line.floor_char_boundary(PREVIEW_LINE_BYTES)];
+    let mut detail = bounded.to_owned();
+    if bounded.len() < line.len() {
+        detail.push('…');
+    }
+    detail
+}
+
 /// The result rows of the collapsed form, from the end (oracle
 /// `compact_mcp_lines`): at most three, a long line cut with `…`.
-fn preview(call: &McpCall, strings: &Strings) -> Vec<String> {
+fn tail_preview(call: &McpCall, strings: &Strings) -> Vec<String> {
     let mut details: std::collections::VecDeque<String> = std::collections::VecDeque::new();
     let push_tail = |details: &mut std::collections::VecDeque<String>, text: &str| {
         for line in text.lines().rev().take(PREVIEW_LINES - details.len()) {
-            let bounded = &line[..line.floor_char_boundary(PREVIEW_LINE_BYTES)];
-            let mut detail = bounded.to_owned();
-            if bounded.len() < line.len() {
-                detail.push('…');
-            }
-            details.push_front(detail);
+            details.push_front(bounded_preview_line(line));
         }
     };
     match &call.result {
@@ -357,23 +435,20 @@ pub(super) fn mcp_texts(call: &McpCall, env: &TextEnv<'_>, room: Room) -> Vec<Pa
     let mut parts = vec![Part::gutter(BULLET)];
     if expanded {
         parts.extend(transcript_parts(call, s, room));
+        if !env.detailed {
+            parts.push(Part::gutter(s.hide_details));
+        }
     } else {
-        let verb = match call.success() {
-            Some(true) => s.called_tool,
-            Some(false) => s.failed_tool,
-            None => s.calling_tool,
-        };
-        parts.push(Part::text(format!("{verb}{INLINE_GAP}{}", call.title())));
-        for (index, row) in preview(call, s).into_iter().enumerate() {
+        let preview = mcp_preview(call, s);
+        let title = call.title();
+        parts.push(Part::text(match preview.verb {
+            Some(verb) => format!("{verb}{INLINE_GAP}{title}"),
+            None => title,
+        }));
+        for (index, row) in preview.rows.into_iter().enumerate() {
             result_parts(index, row, Some(room), &mut parts);
         }
-    }
-    if !env.detailed {
-        parts.push(Part::gutter(if expanded {
-            s.hide_details
-        } else {
-            s.show_details
-        }));
+        parts.push(Part::gutter(preview.disclosure));
     }
     parts
 }
