@@ -28,7 +28,8 @@ use rtwk::semantics::{Semantics, SemanticsRole};
 use rtwk::style::Theme;
 use rtwk::widgets::Text;
 use rtwk::{
-    AnyWidget, Cx, GlobalKey, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget,
+    AnyWidget, Cx, GlobalKey, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, Str,
+    impl_widget,
 };
 use rtwk_core::input::InputEvent;
 
@@ -40,7 +41,7 @@ use crate::keymap::press::{
 use crate::widgets::thread_scope::thread_scope;
 use crate::widgets::thread_ui::ThreadUi;
 
-use super::side_tabs::Tabs;
+use super::side_tabs::{Tabs, tab_name};
 use super::{Presentation, session_page::Chat};
 
 const SPLIT_AT: i32 = 100;
@@ -71,7 +72,7 @@ pub(super) struct Dock {
     parent: Pane,
     child: Pane,
     children: Rc<[ThreadId]>,
-    tab_names: Rc<[Option<String>]>,
+    tab_names: Rc<[Option<Str>]>,
     active: ThreadId,
     preferred_width: Option<u8>,
     temporary: bool,
@@ -100,16 +101,12 @@ impl Dock {
         if !children.contains(child) {
             return None;
         }
-        let previews = app.core.agents_threads();
         let tab_names = children
             .iter()
             .map(|id| {
                 app.core
                     .thread(id)
-                    .and_then(|thread| thread.screen_slots().chat.name.as_deref())
-                    .or_else(|| previews.preview(id.as_str())?.latest_prompt.as_deref())
-                    .and_then(|label| label.lines().map(str::trim).find(|line| !line.is_empty()))
-                    .map(str::to_owned)
+                    .and_then(|thread| tab_name(thread, &app.ui.thread_ui.get(Some(id))))
             })
             .collect();
         Some(Self {

@@ -45,7 +45,7 @@ fn open_workspace(attached: bool) -> Harness {
             }
             "thread/fork" => {
                 let (id, name) = match forks.fetch_add(1, Ordering::Relaxed) {
-                    0 => (SIDE, "First side"),
+                    0 => (SIDE, ""),
                     1 => (SECOND, "Second side"),
                     2 => (THIRD, "Third side"),
                     _ => panic!("unexpected fourth fork"),
@@ -135,7 +135,11 @@ fn native_tabs_select_open_children_by_keyboard_and_mouse_with_independent_draft
     completed_answer(&mut h, SECOND, "SECOND HISTORY");
     h.t.type_text("second-draft");
     h.advance(120);
-    assert!(h.t.screen().contains("First side") && h.t.screen().contains("Second side"));
+    let bar = h.t.lines().first().cloned().unwrap_or_default();
+    assert!(
+        bar.contains("first-side") && bar.contains("Second side"),
+        "{bar}"
+    );
 
     h.press("f12 t");
     h.press("left");
@@ -205,7 +209,7 @@ fn side_tabs_restore_the_readers_position_and_enable_the_default_shift_tab_chord
     h.press("f12 h");
     send_line(&mut h, "/side second-side");
     assert_active(&h, SECOND);
-    click_label(&mut h, "First side");
+    click_label(&mut h, "first-side");
     assert_active(&h, SIDE);
     assert!(
         h.t.screen().contains("first reader line 00"),

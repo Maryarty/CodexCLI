@@ -4,14 +4,43 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use codex_tui_core::ids::ThreadId;
+use codex_tui_core::threads::{Item, ThreadModel};
 use rtwk::controls::{Button, TabBar, TabController};
 use rtwk::focus::{FocusNode, KeyBindings};
 use rtwk::foundation::{Listenable, VoidCallback};
 use rtwk::l10n::{Arg, Fmt};
 use rtwk::layout::{Expanded, Row};
-use rtwk::{AnyWidget, Cx};
+use rtwk::{AnyWidget, Cx, Str};
+
+use crate::widgets::thread_ui::ThreadUi;
 
 use super::side_pane::{DockState, Msg};
+
+/// The first displayed prompt remains the unnamed tab's label when later turns are sent.
+#[derive(Clone, Default)]
+struct FirstPrompt(Rc<RefCell<Option<Str>>>);
+
+pub(super) fn tab_name(thread: &ThreadModel, ui: &ThreadUi) -> Option<Str> {
+    let line = |text: &str| {
+        text.lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .map(Str::copy)
+    };
+    if let Some(name) = thread.screen_slots().chat.name.as_deref().and_then(line) {
+        return Some(name);
+    }
+    let cached = ui.held(FirstPrompt::default);
+    if let Some(name) = cached.0.borrow().as_ref() {
+        return Some(name.clone());
+    }
+    let name = thread.transcript().iter().find_map(|(_, item)| match item {
+        Item::User(prompt) => line(&prompt.shown().text),
+        _ => None,
+    });
+    *cached.0.borrow_mut() = name.clone();
+    name
+}
 
 pub(super) struct Tabs {
     children: Rc<RefCell<Rc<[ThreadId]>>>,
@@ -71,7 +100,7 @@ impl Tabs {
         &self,
         cx: &mut Cx<'_, DockState>,
         selected: &ThreadId,
-        names: &[Option<String>],
+        names: &[Option<Str>],
     ) -> AnyWidget {
         let words = super::strings::of(cx);
         let count = self.controller.length();
@@ -79,9 +108,11 @@ impl Tabs {
             if let Some(name) = name {
                 name.clone()
             } else if count == 1 {
-                words.side_chat.trim().to_owned()
+                Str::Static(words.side_chat.trim())
             } else {
-                Fmt::new(words.side_tab, [Arg::Int(index as u64 + 1)], &words.num).to_string()
+                Fmt::new(words.side_tab, [Arg::Int(index as u64 + 1)], &words.num)
+                    .to_string()
+                    .into()
             }
         });
         let tabs = TabBar::strip(&self.controller, labels).focus_node(Some(self.focus.clone()));
