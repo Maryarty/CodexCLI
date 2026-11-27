@@ -383,14 +383,14 @@ fn captions(app: &CodexApp, thread: &str) -> Vec<String> {
 }
 
 /// Attach a listed app-server thread and answer its resume on the registered transport.
-fn open_thread(app: &mut CodexApp, id: &str, backend: BackendId) -> AppFx {
+fn open_thread(app: &mut CodexApp, id: &str, backend: BackendId, paginated: bool) -> AppFx {
     use codex_tui_core::screens::agents::{Ev, Page, Reply as AgentsReply};
     use codex_tui_core::screens::{ScreenEv, ScreenReply};
     let thread: wire::Thread = serde_json::from_value(serde_json::json!({
         "id": id, "environments": null, "extra": null, "sessionId": id,
         "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
         "preview": "", "ephemeral": false, "section": null, "sectionEnteredAt": null,
-        "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
+        "projectId": null, "historyMode": if paginated {"paginated"} else {"legacy"}, "modelProvider": "openai",
         "model": null, "reasoningEffort": null, "createdAt": 0, "updatedAt": 0,
         "recencyAt": 0, "status": {"type":"idle"}, "path": null, "cwd": "/tmp/project",
         "cliVersion": "0.0.0", "originator": null, "source": "cli", "canAcceptDirectInput": true,
@@ -450,7 +450,7 @@ fn caption_uses_the_exact_thread_call_and_physical_address() {
         app.ingest(Ingress::transport_event(backend, epoch, physical, event))
     };
 
-    open_thread(&mut app, "thread-2", BackendId(1));
+    open_thread(&mut app, "thread-2", BackendId(1), true);
     receive(
         &mut app,
         epoch,
@@ -473,7 +473,7 @@ fn caption_uses_the_exact_thread_call_and_physical_address() {
 
     app.ingest(Ingress::transport_replaced(backend, epoch, epoch.next()))
         .expect("new physical transport");
-    open_thread(&mut app, "thread-1", backend);
+    open_thread(&mut app, "thread-1", backend, true);
     let prepared = preparing(&mut app);
     let (_, current_session) = offered(&mut app, &prepared);
     assert_ne!(current_session, session);
@@ -521,8 +521,8 @@ fn timeline_answer(command: &Command, data: serde_json::Value, next: Option<&str
     AppEv::Reply(ticket, reply)
 }
 
-fn read_replay(app: &mut CodexApp, backend: BackendId) -> AppFx {
-    let resumed = open_thread(app, "thread-2", backend);
+fn read_replay(app: &mut CodexApp, backend: BackendId, paginated: bool) -> AppFx {
+    let resumed = open_thread(app, "thread-2", backend, paginated);
     let turns = resumed
         .commands()
         .iter()
@@ -545,7 +545,7 @@ fn read_replay(app: &mut CodexApp, backend: BackendId) -> AppFx {
 fn timeline_replay_stays_on_local_or_remote_thread_owner_and_skips_cloud() {
     for owner in [BackendId::default(), BackendId(1)] {
         let mut app = ready();
-        let read = read_replay(&mut app, owner);
+        let read = read_replay(&mut app, owner, true);
         let (command, params) = timeline(&read).expect("typed timeline read");
         assert_eq!(params.thread_id, "thread-2");
         let (backend, address) = app
@@ -583,14 +583,16 @@ fn timeline_replay_stays_on_local_or_remote_thread_owner_and_skips_cloud() {
             codex_tui_core::screens::agents::Ev::CloudBackend(cloud),
         )),
     );
-    assert!(timeline(&read_replay(&mut app, cloud)).is_none());
+    assert!(timeline(&read_replay(&mut app, cloud, true)).is_none());
+    let mut legacy = ready();
+    assert!(timeline(&read_replay(&mut legacy, BackendId::default(), false)).is_none());
 }
 
 #[test]
 fn timeline_stops_automatic_pages_and_keeps_explicit_older_history_available() {
     use codex_tui_core::threads::HistoryState;
     let mut app = ready();
-    let mut read = read_replay(&mut app, BackendId::default());
+    let mut read = read_replay(&mut app, BackendId::default(), true);
     let mut seen = 0;
     while let Some((command, _)) = timeline(&read) {
         seen += 1;

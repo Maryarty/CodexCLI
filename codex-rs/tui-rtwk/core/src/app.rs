@@ -4033,6 +4033,10 @@ fn screen_answer(
             apply_thread(app, &thread, threads::history_page(turns, next.clone()), fx);
             if !app.screens.agents.is_cloud(backend)
                 && app.screens.agents.owner_of(thread.as_str()) == backend
+                && app
+                    .threads
+                    .get(&thread)
+                    .is_some_and(|thread| thread.voice_history_supported())
             {
                 apply_thread(
                     app,
@@ -4404,6 +4408,15 @@ fn attach_thread_with_metadata(
 ) {
     app.threads.open(thread, origin);
     if let Some(details) = details {
+        let voice_history = details.history_mode
+            == codex_app_server_protocol::ThreadHistoryMode::Paginated
+            && !details.ephemeral;
+        apply_thread(
+            app,
+            thread,
+            ThreadEv::VoiceHistorySupported(voice_history),
+            fx,
+        );
         apply_thread(
             app,
             thread,

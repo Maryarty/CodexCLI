@@ -27,7 +27,7 @@ fn live_and_final_voice_captions_can_share_wide_and_narrow_chat_with_a_stream() 
         s.voice_caption(true, &session, "speech-2", "assistant", "spoken answer");
         s.voice_delta("speech-2", "stale delta");
         s.wait_for("› pick a number");
-        s.assert_drawn(1, "spoken answer");
+        assert_eq!(s.text().matches("spoken answer").count(), 1, "{}", s.text());
         s.assert_contains("Agent answer arriving");
         s.assert_absent("thinking aloud");
         s.assert_absent("stale delta");
@@ -42,6 +42,7 @@ fn replay_positions_captions_around_ordinary_rows_and_deduplicates_by_id() {
     let mut s = Screen::build(Owner::UiPane)
         .size(80, 24)
         .replay(vec![turn.clone()])
+        .replay_paginated()
         .open();
     s.history_page(vec![turn], None);
     let caption = json!({
@@ -72,5 +73,5 @@ fn replay_positions_captions_around_ordinary_rows_and_deduplicates_by_id() {
         "› remember this",
         "Later ordinary answer",
     ]);
-    s.assert_drawn(1, "remember this");
+    assert_eq!(s.text().matches("remember this").count(), 1, "{}", s.text());
 }

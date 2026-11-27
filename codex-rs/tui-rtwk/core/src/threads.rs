@@ -1075,6 +1075,7 @@ pub enum ThreadEv {
         event: voice_transcript::Event,
         show_user_preview: bool,
     },
+    VoiceHistorySupported(bool),
     ReadVoiceHistory {
         oldest: Option<TurnId>,
         more_history: bool,
@@ -1340,6 +1341,7 @@ pub struct ThreadCore {
     /// The cursor of the next older page of history; none once the oldest
     /// page was read.
     history_next: Option<String>,
+    voice_history_supported: bool,
     /// The user messages the replayed turns seed the composer's history with.
     submissions: replay::Submissions,
     /// What became of the last ask for an older page.
@@ -1558,6 +1560,7 @@ impl ThreadModel {
                 completed_items: HashSet::new(),
                 legacy_user_completions: HashMap::new(),
                 history_next: None,
+                voice_history_supported: false,
                 history_ask: HistoryAsk::Idle,
                 submissions: replay::Submissions::default(),
                 writer: Writer::Detached,
@@ -1598,6 +1601,10 @@ impl ThreadModel {
         } else {
             Vec::new()
         }
+    }
+
+    pub(crate) fn voice_history_supported(&self) -> bool {
+        self.voice_history_supported
     }
 
     pub(crate) fn can_load_voice_history(&self) -> bool {
@@ -3222,6 +3229,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 .map(|text| Queued::Message(UserMessage::text(text)))
                 .collect();
         }
+        ThreadEv::VoiceHistorySupported(supported) => model.voice_history_supported = supported,
         ThreadEv::LoadOlderVoiceHistory => model.core.transcript.load_older_voice_history(fx),
         ThreadEv::ReadVoiceHistory {
             oldest,

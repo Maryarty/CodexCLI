@@ -134,6 +134,7 @@ pub(super) struct Env {
     replay: Option<Vec<serde_json::Value>>,
     /// The resumed thread's own status is `active` (a thread that is really running).
     replay_active: bool,
+    replay_paginated: bool,
     /// The goal the server holds for the resumed thread (`thread/goal/get`).
     goal: Option<serde_json::Value>,
     /// What the host announces to the first conversation.
@@ -289,10 +290,17 @@ impl Env {
             // recorded turns: the chat replays them as history
             let turns = turns.clone();
             let active = self.replay_active;
+            let paginated = self.replay_paginated;
             let goal = self.goal.clone();
             h.fake
                 .respond(move |request| match request["method"].as_str() {
-                    Some("thread/resume") => Some(Ok(resume_response(REPLAYED, &turns, active))),
+                    Some("thread/resume") => {
+                        let mut response = resume_response(REPLAYED, &turns, active);
+                        if paginated {
+                            response["thread"]["historyMode"] = serde_json::json!("paginated");
+                        }
+                        Some(Ok(response))
+                    }
                     Some("thread/goal/get") => goal
                         .clone()
                         .map(|goal| Ok(serde_json::json!({ "goal": goal }))),
@@ -405,6 +413,12 @@ impl Open {
     /// `replay_thread_turns` / `initial_messages`.
     pub fn replay(mut self, turns: Vec<serde_json::Value>) -> Open {
         self.env.replay = Some(turns);
+        self
+    }
+
+    /// The pinned server's indexed history exposes a canonical realtime timeline.
+    pub fn replay_paginated(mut self) -> Open {
+        self.env.replay_paginated = true;
         self
     }
 
