@@ -13,11 +13,11 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use rtwk::ansi::parse_ansi;
-use rtwk::focus::{Focus, KeyPress};
+use rtwk::focus::{Focus, KeyBindings, KeyPress};
 use rtwk::foundation::ListenableBuilder;
 use rtwk::layout::{
-    BorderType, BoxWidget, Column, CrossAxisAlignment, Divider, EdgeInsets, Expanded, MainAxisSize, Padding,
-    Row, SizedBox, Stack,
+    BorderType, BoxWidget, Column, CrossAxisAlignment, Divider, EdgeInsets, Expanded, MainAxisSize,
+    Padding, Row, SizedBox, Stack,
 };
 use rtwk::navigation::Navigator;
 use rtwk::overlay::{DialogOptions, close_dialog};
@@ -30,7 +30,7 @@ use codex_tui_core::keymap::actions::{
     PAGER_CLOSE, PAGER_HALF_PAGE_DOWN, PAGER_HALF_PAGE_UP, PAGER_JUMP_BOTTOM, PAGER_JUMP_TOP,
     PAGER_PAGE_DOWN, PAGER_PAGE_UP, PAGER_SCROLL_DOWN, PAGER_SCROLL_UP,
 };
-use codex_tui_core::keymap::{Keymap, fixed};
+use codex_tui_core::keymap::{ActionId, Keymap, fixed};
 use codex_tui_core::screens::transcript::{PagerAction, PagerDoc};
 
 use super::TranscriptMode;
@@ -181,6 +181,7 @@ impl State for PagerState {
         let dim = crate::app::theme::Tokens::of(cx).dim();
         let doc = w.doc.clone();
         let action = doc.action;
+        let keymap = crate::keymap::keymap(cx);
         let column = Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .child(header(&doc.title, table, dim.clone()))
@@ -189,14 +190,40 @@ impl State for PagerState {
                 body(&doc.text, self.scroll.clone(), table),
             ))
             .child(rule(self.scroll.clone(), table, dim.clone()))
-            .child(hints(action, table, dim));
+            .child(hints(&keymap, action, table, dim));
         let mut focus = Focus::new(column).autofocus();
-        let keymap = crate::keymap::keymap(cx);
         for (key, msg) in bindings(&keymap, action.is_some()) {
             focus = focus.bind(key, cx.send(msg));
         }
-        focus.into()
+        let keys = chords(&keymap)
+            .map(|(name, msg)| (name, cx.send(msg)))
+            .collect();
+        KeyBindings::new(crate::keymap::first_of_each(keys), focus).into()
     }
+}
+
+fn actions(has_action: bool) -> impl Iterator<Item = (ActionId, Msg)> {
+    [
+        (PAGER_SCROLL_UP, Msg::Rows(-1)),
+        (PAGER_SCROLL_DOWN, Msg::Rows(1)),
+        (PAGER_PAGE_UP, Msg::Pages(-1)),
+        (PAGER_PAGE_DOWN, Msg::Pages(1)),
+        (PAGER_HALF_PAGE_UP, Msg::HalfPages(-1)),
+        (PAGER_HALF_PAGE_DOWN, Msg::HalfPages(1)),
+        (PAGER_JUMP_TOP, Msg::Top),
+        (PAGER_JUMP_BOTTOM, Msg::Bottom),
+        (PAGER_CLOSE, Msg::Close),
+    ]
+    .into_iter()
+    .chain(has_action.then_some((fixed::ENTER, Msg::Action)))
+}
+
+pub(super) fn chords(keymap: &Keymap) -> impl Iterator<Item = (String, Msg)> + '_ {
+    actions(false).flat_map(move |(id, msg)| {
+        crate::keymap::bindings(keymap, id, &msg)
+            .into_iter()
+            .filter(|(name, _)| name.contains(' '))
+    })
 }
 
 /// The pager's keys (`PagerKeymap`: the keymap's `pager` actions, the oracle's defaults unless
@@ -206,24 +233,12 @@ pub(in crate::pages::session) fn bindings(
     has_action: bool,
 ) -> Vec<(KeyPress, Msg)> {
     let mut keys: Vec<(KeyPress, Msg)> = Vec::new();
-    let mut add = |id, msg: Msg| {
+    for (id, msg) in actions(has_action) {
         for key in crate::keymap::presses(keymap, id) {
             if keys.iter().all(|(taken, _)| *taken != key) {
                 keys.push((key, msg.clone()));
             }
         }
-    };
-    add(PAGER_SCROLL_UP, Msg::Rows(-1));
-    add(PAGER_SCROLL_DOWN, Msg::Rows(1));
-    add(PAGER_PAGE_UP, Msg::Pages(-1));
-    add(PAGER_PAGE_DOWN, Msg::Pages(1));
-    add(PAGER_HALF_PAGE_UP, Msg::HalfPages(-1));
-    add(PAGER_HALF_PAGE_DOWN, Msg::HalfPages(1));
-    add(PAGER_JUMP_TOP, Msg::Top);
-    add(PAGER_JUMP_BOTTOM, Msg::Bottom);
-    add(PAGER_CLOSE, Msg::Close);
-    if has_action {
-        add(fixed::ENTER, Msg::Action);
     }
     keys
 }
@@ -311,18 +326,50 @@ fn rule(scroll: ScrollController, table: &'static Strings, style: Style) -> AnyW
 }
 
 /// The keys of a pair and what they do (`render_key_hints`).
-pub(super) type Pair = (Vec<&'static str>, &'static str);
+pub(super) type Pair = (Vec<String>, &'static str);
+
+pub(super) fn hint(keymap: &Keymap, action: ActionId, default: &str) -> Option<String> {
+    if keymap.is_configured(action) {
+        crate::keymap::primary_label(keymap, action)
+    } else {
+        Some(default.to_owned())
+    }
+}
 
 /// The navigation pairs (`render_navigation_hints`): scroll, page, jump.
-pub(super) fn navigation(table: &'static Strings) -> Vec<Pair> {
-    vec![
-        (vec![table.key_up, table.key_down], table.hint_scroll),
+pub(super) fn navigation(keymap: &Keymap, table: &'static Strings) -> Vec<Pair> {
+    [
         (
-            vec![table.key_page_up, table.key_page_down],
+            [
+                (PAGER_SCROLL_UP, table.key_up),
+                (PAGER_SCROLL_DOWN, table.key_down),
+            ],
+            table.hint_scroll,
+        ),
+        (
+            [
+                (PAGER_PAGE_UP, table.key_page_up),
+                (PAGER_PAGE_DOWN, table.key_page_down),
+            ],
             table.hint_page,
         ),
-        (vec![table.key_home, table.key_end], table.hint_jump),
+        (
+            [
+                (PAGER_JUMP_TOP, table.key_home),
+                (PAGER_JUMP_BOTTOM, table.key_end),
+            ],
+            table.hint_jump,
+        ),
     ]
+    .into_iter()
+    .map(|(keys, action)| {
+        let keys = keys
+            .into_iter()
+            .filter_map(|(id, default)| hint(keymap, id, default))
+            .collect();
+        (keys, action)
+    })
+    .collect()
 }
 
 /// One row of key hints: a blank, then the pairs joined by `hint_joiner`
@@ -337,7 +384,7 @@ pub(super) fn hint_row(pairs: &[Pair], table: &'static Strings, style: Style) ->
             if k > 0 {
                 spans.push(Span::styled(table.hint_slash, style.clone()));
             }
-            spans.push(Span::styled(*key, style.clone().attrs(Attrs::BOLD)));
+            spans.push(Span::styled(key.clone(), style.clone().attrs(Attrs::BOLD)));
         }
         spans.push(Span::new(table.hint_gap));
         spans.push(Span::new(*what));
@@ -349,15 +396,28 @@ pub(super) fn hint_row(pairs: &[Pair], table: &'static Strings, style: Style) ->
 }
 
 /// The two hint rows and a blank one (`HINTS_HEIGHT` 3).
-fn hints(action: Option<PagerAction>, table: &'static Strings, style: Style) -> AnyWidget {
-    let mut second = vec![(vec![table.key_close], table.hint_close)];
+fn hints(
+    keymap: &Keymap,
+    action: Option<PagerAction>,
+    table: &'static Strings,
+    style: Style,
+) -> AnyWidget {
+    let mut second = vec![(
+        hint(keymap, PAGER_CLOSE, table.key_close)
+            .into_iter()
+            .collect(),
+        table.hint_close,
+    )];
     if let Some(PagerAction::EditConfiguration) = action {
-        second.push((vec![table.key_enter], table.action_edit_configuration));
+        second.push((
+            vec![table.key_enter.to_owned()],
+            table.action_edit_configuration,
+        ));
     }
     Column::new()
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
-        .child(hint_row(&navigation(table), table, style.clone()))
+        .child(hint_row(&navigation(keymap, table), table, style.clone()))
         .child(hint_row(&second, table, style))
         .child(Padding::new(
             EdgeInsets::ZERO,
