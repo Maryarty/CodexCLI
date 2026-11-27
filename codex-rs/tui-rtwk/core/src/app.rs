@@ -80,6 +80,7 @@ use crate::screens::status;
 use crate::threads;
 use crate::threads::Failure;
 use crate::threads::Origin;
+use crate::threads::SubmitReceipt;
 use crate::threads::ThreadEv;
 use crate::threads::ThreadFx;
 use crate::threads::ThreadModel;
@@ -2140,7 +2141,28 @@ fn apply_event(
                     fx,
                 );
             }
-            features::observe(app, &notification, fx);
+            let archived = match notification.as_ref() {
+                ServerNotification::ThreadArchived(event) => Some(event.thread_id.as_str()),
+                _ => None,
+            };
+            let attachment_change = archived.is_some()
+                || matches!(
+                    notification.as_ref(),
+                    ServerNotification::ThreadUnarchived(_)
+                );
+            if !attachment_change {
+                features::observe(app, &notification, fx);
+            } else if app.local_side_storage(origin).is_some() {
+                let owner = targets::notification_thread(&notification)
+                    .and_then(|thread| app.screens.agents.owners.get(thread));
+                if owner.is_none_or(|owner| *owner == origin) {
+                    if let Some(child) = archived {
+                        app.outgoing.retain(|ctx| !matches!(ctx,
+                            AppCtx::Opening { thread, attached_to: Some(_), .. } if thread.as_str() == child));
+                    }
+                    features::observe(app, &notification, fx);
+                }
+            }
             structured::observe(app, &notification, fx);
             // `serverRequest/resolved`: the server answered or withdrew a
             // request first; it leaves the queue and nothing is rejected.
@@ -4723,6 +4745,16 @@ fn show_held_thread(app: &mut CodexApp, id: ThreadId, fx: &mut AppFx) {
 }
 
 fn submit(app: &mut CodexApp, thread: &ThreadId, message: UserMessage, fx: &mut AppFx) {
+    submit_with_receipt(app, thread, message, fx, SubmitReceipt::Composer);
+}
+
+fn submit_with_receipt(
+    app: &mut CodexApp,
+    thread: &ThreadId,
+    message: UserMessage,
+    fx: &mut AppFx,
+    receipt: SubmitReceipt,
+) {
     let message = message.trimmed();
     if message.is_empty()
         || !app.threads.contains(thread)
@@ -4731,7 +4763,7 @@ fn submit(app: &mut CodexApp, thread: &ThreadId, message: UserMessage, fx: &mut 
         return;
     }
     dismiss_banner_for_new_turn(app, thread);
-    apply_thread(app, thread, ThreadEv::Submit { message }, fx);
+    apply_thread_with_receipt(app, thread, ThreadEv::Submit { message }, fx, receipt);
 }
 
 /// The model the thread runs on: its own settings, else the config's.
@@ -4757,6 +4789,16 @@ fn dismiss_banner_for_new_turn(app: &mut CodexApp, thread: &ThreadId) {
 
 /// A thread event routed to its thread. Used by `apply_app` and by tests.
 pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mut AppFx) {
+    apply_thread_with_receipt(app, thread, ev, fx, SubmitReceipt::Composer);
+}
+
+fn apply_thread_with_receipt(
+    app: &mut CodexApp,
+    thread: &ThreadId,
+    ev: ThreadEv,
+    fx: &mut AppFx,
+    receipt: SubmitReceipt,
+) {
     safety_retry::observe(app, thread, &ev, fx);
     // A cyber refusal is worded by the setting of the moment (a delta carries none).
     let daybreak = if ev.may_fail_a_turn() {
@@ -4775,7 +4817,7 @@ pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mu
         .filter(|restricted| restricted.address == address)
         .map(|restricted| &restricted.models);
     if let Some(model) = app.threads.get_mut(thread) {
-        threads::apply(
+        threads::apply_with_receipt(
             model,
             ev,
             &mut ThreadFx::new(thread, fx, &mut app.mint)
@@ -4793,6 +4835,7 @@ pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mu
                     &app.daybreak,
                     &app.keymap,
                 )),
+            receipt,
         );
         crate::features::revalidate_rate_offer(&mut app.features, model.view());
     }

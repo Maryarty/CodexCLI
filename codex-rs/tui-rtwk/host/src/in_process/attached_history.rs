@@ -289,6 +289,7 @@ mod tests {
     use std::cell::RefCell;
     use std::collections::VecDeque;
     use std::future::ready;
+    use std::io::Write as _;
     use std::path::Path;
 
     use codex_protocol::protocol::SessionMeta;
@@ -353,7 +354,7 @@ mod tests {
         .iter()
         .map(ToString::to_string)
         .collect::<Vec<_>>();
-        std::fs::write(path, lines.join("\n"))?;
+        std::fs::File::create(path)?.write_all(lines.join("\n").as_bytes())?;
         Ok(())
     }
 

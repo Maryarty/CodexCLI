@@ -9,7 +9,7 @@ use codex_app_server_protocol as wire;
 
 use super::{
     AppCtx, AppFx, CodexApp, Command, PreparationCheckpoint, apply_thread, features, is_listed,
-    open_verified, submit,
+    open_verified, submit_with_receipt,
 };
 use crate::features::{FeatureCtx, Lifecycle, Refusal, ThreadSpawn};
 use crate::ids::{BackendId, ThreadId, Ticket};
@@ -17,7 +17,7 @@ use crate::rpc::{Address, Answer, RpcError};
 use crate::screens::onboarding::TrustCancel;
 use crate::screens::onboarding::consent::{self, Target};
 use crate::screens::{ScreenCommand, ScreenThreadIntent, agents, chat};
-use crate::threads::{ThreadAsk, ThreadEv, ThreadReply};
+use crate::threads::{SubmitReceipt, ThreadAsk, ThreadEv, ThreadReply};
 
 impl super::AttachedHistory {
     /// The wire request described by an attachment operation.
@@ -89,6 +89,11 @@ pub(super) fn carry(app: &mut CodexApp, lifecycle: Lifecycle, fx: &mut AppFx) {
                 discard(app, &thread, fx);
             }
         }
+        Lifecycle::Forget { thread } => {
+            if app.session.active.as_ref() != Some(&thread) {
+                super::forget_thread(app, &thread, fx);
+            }
+        }
         Lifecycle::FinishPreparation { thread } => {
             if app
                 .preparing_forks
@@ -98,7 +103,9 @@ pub(super) fn carry(app: &mut CodexApp, lifecycle: Lifecycle, fx: &mut AppFx) {
                 app.preparing_forks.remove(&thread);
             }
         }
-        Lifecycle::Submit { thread, message } => submit(app, &thread, message, fx),
+        Lifecycle::Submit { thread, message } => {
+            submit_with_receipt(app, &thread, message, fx, SubmitReceipt::Feature);
+        }
         Lifecycle::GiveBack { thread, text } => {
             let draft = ScreenThreadIntent::Chat(chat::ThreadIntent::Draft(text));
             apply_thread(app, &thread, ThreadEv::ScreenIntent(draft), fx);

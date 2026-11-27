@@ -1746,6 +1746,7 @@ mod tests {
     {
         use codex_protocol::protocol::SessionMeta;
         use serde_json::json;
+        use std::io::Write as _;
 
         let parent = codex_protocol::ThreadId::from_u128(1);
         let child = codex_protocol::ThreadId::from_u128(2);
@@ -1791,7 +1792,7 @@ mod tests {
         };
         let write = |records: &[&serde_json::Value]| {
             let lines = records.iter().map(ToString::to_string).collect::<Vec<_>>();
-            std::fs::write(&rollout, lines.join("\n"))
+            std::fs::File::create(&rollout)?.write_all(lines.join("\n").as_bytes())
         };
         let child_meta = meta(child, parent, true)?;
         let unrelated_meta = meta(parent, child, true)?;

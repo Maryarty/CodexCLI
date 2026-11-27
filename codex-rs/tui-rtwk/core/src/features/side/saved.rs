@@ -1,7 +1,7 @@
 //! Saved side histories. The local host attests each result against the child's own rollout;
 //! this state owns the parent, launch thread, and revision at which each operation was requested.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
@@ -10,7 +10,7 @@ use crate::features::{AppCx, Refusal};
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 
-use super::{Command, Link, Reply, State as SideState, Storage, drop_side, failure};
+use super::{Command, Link, Reply, State as SideState, Storage, failure, unlink};
 
 pub use crate::app::SavedAttachment as SavedChat;
 
@@ -35,6 +35,7 @@ pub enum Ctx {
     Work { parent: ThreadId, revision: u64 },
     Restored { parent: ThreadId, revision: u64 },
     Returned { parent: ThreadId, revision: u64 },
+    ArchiveSettled { child: ThreadId },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,6 +63,7 @@ pub(super) struct State {
     sequence: u64,
     inventories: BTreeMap<ThreadId, Inventory>,
     actions: BTreeMap<ThreadId, Action>,
+    archived: BTreeSet<ThreadId>,
 }
 
 impl State {
@@ -77,6 +79,18 @@ impl State {
                 action.anchor = None;
             }
         }
+    }
+
+    pub(super) fn unavailable_child(&self, parent: &ThreadId, child: &ThreadId) -> bool {
+        self.archived.contains(child)
+            || self
+                .actions
+                .get(parent)
+                .is_some_and(|action| action.kind == Operation::Archive && &action.child == child)
+    }
+
+    pub(super) fn unarchived(&mut self, child: &ThreadId) {
+        self.archived.remove(child);
     }
 
     fn issue(&mut self) -> u64 {
@@ -95,6 +109,53 @@ impl State {
         {
             inventory.phase = SavedChats::Failed(error);
         }
+    }
+}
+
+/// Archive acknowledgements and authoritative notifications reconcile through the same door.
+pub(super) fn archived(state: &mut SideState, child: ThreadId, cx: &mut AppCx<'_>) {
+    let parent = state.link(&child).map(|link| link.parent.clone());
+    if parent.is_none() && state.saved.inventories.is_empty() {
+        return;
+    }
+    state.saved.archived.insert(child.clone());
+    state
+        .saved
+        .actions
+        .retain(|_, action| action.child != child);
+    for inventory in state.saved.inventories.values_mut() {
+        if let SavedChats::Ready(rows) = &mut inventory.phase {
+            rows.retain(|row| row.id != child);
+        }
+    }
+    if let Some(parent) = parent {
+        if cx.view().active() == Some(&child) {
+            cx.open_thread(&parent, super::Ctx::Saved(Ctx::ArchiveSettled { child }));
+        } else {
+            forget_archived(state, &child, cx);
+        }
+    }
+}
+
+pub(super) fn discard_archived_background(
+    state: &mut SideState,
+    shown: &ThreadId,
+    cx: &mut AppCx<'_>,
+) {
+    let obsolete = state
+        .links
+        .keys()
+        .filter(|id| *id != shown && state.saved.archived.contains(*id))
+        .cloned()
+        .collect::<Vec<_>>();
+    for child in obsolete {
+        forget_archived(state, &child, cx);
+    }
+}
+
+fn forget_archived(state: &mut SideState, child: &ThreadId, cx: &mut AppCx<'_>) {
+    if unlink(state, child, cx) {
+        cx.forget_thread(child);
     }
 }
 
@@ -162,6 +223,7 @@ fn begin(
         || !family(state, &parent, cx)
         || !available
         || state.saved.actions.contains_key(&parent)
+        || state.saved.archived.contains(&child)
     {
         return;
     }
@@ -222,7 +284,10 @@ pub(super) fn answered(
                 return;
             };
             inventory.phase = match reply {
-                Ok(Reply::Saved(SavedReply::List(Some(rows)))) => SavedChats::Ready(rows),
+                Ok(Reply::Saved(SavedReply::List(Some(mut rows)))) => {
+                    rows.retain(|row| !state.saved.archived.contains(&row.id));
+                    SavedChats::Ready(rows)
+                }
                 Ok(Reply::Saved(SavedReply::List(None))) => SavedChats::Unavailable,
                 Err(error) => SavedChats::Failed(failure(&error)),
                 _ => SavedChats::Failed(failure(&RpcError::Mismatch)),
@@ -260,15 +325,7 @@ pub(super) fn answered(
                     }
                 }
                 (Operation::Archive, Ok(Reply::Saved(SavedReply::Archived(true)))) => {
-                    state.saved.complete(&parent, None);
-                    if let Some(Inventory {
-                        phase: SavedChats::Ready(rows),
-                        ..
-                    }) = state.saved.inventories.get_mut(&parent)
-                    {
-                        rows.retain(|row| row.id != action.child);
-                    }
-                    drop_side(state, &action.child, cx);
+                    archived(state, action.child, cx);
                 }
                 (_, result) => {
                     let error = result.err().unwrap_or(RpcError::Mismatch);
@@ -276,7 +333,7 @@ pub(super) fn answered(
                 }
             }
         }
-        Ctx::Restored { .. } | Ctx::Returned { .. } => {}
+        Ctx::Restored { .. } | Ctx::Returned { .. } | Ctx::ArchiveSettled { .. } => {}
     }
 }
 
@@ -287,6 +344,12 @@ pub(super) fn opened(
     cx: &mut AppCx<'_>,
 ) {
     let (parent, revision, restored_child) = match ctx {
+        Ctx::ArchiveSettled { child } => {
+            if result.is_ok() {
+                forget_archived(state, &child, cx);
+            }
+            return;
+        }
         Ctx::Restored { parent, revision } => (parent, revision, true),
         Ctx::Returned { parent, revision } => (parent, revision, false),
         _ => return,

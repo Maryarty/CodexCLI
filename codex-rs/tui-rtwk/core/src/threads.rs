@@ -1325,9 +1325,10 @@ pub struct ThreadCore {
     /// Our RPCs of this thread, keyed `(ThreadId, Ticket)` by being in the
     /// thread's model (R3).
     outgoing: Pending<ThreadCtx>,
-    /// The ticket of the last submit `apply` accepted: the composer clears
-    /// when it changes, never before.
+    /// The ticket of the last accepted submission, including feature-owned messages.
     last_submit: Option<Ticket>,
+    /// The last acceptance that consumes text owned by this thread's composer.
+    composer_submit: Option<Ticket>,
     /// A message the composer did not type that went out for the user (the launch's prompt): its
     /// number and the message, for the composer's recall (`Edge::Recorded`).
     recorded: Option<(u64, UserMessage)>,
@@ -1567,6 +1568,7 @@ impl ThreadModel {
                 turn: TurnState::Idle,
                 outgoing: Pending::default(),
                 last_submit: None,
+                composer_submit: None,
                 recorded: None,
                 queue: Vec::new(),
                 due: None,
@@ -1716,11 +1718,9 @@ impl ThreadModel {
         self.last_submit
     }
 
-    /// The number of the last submit `apply` accepted: it grows with each, so a page that sees it
-    /// change in the same thread knows the model took the line (the composer clears then). The
-    /// ticket itself is core's.
+    /// The receipt for input owned by this thread's composer. Feature-owned sends leave it intact.
     pub fn submit_seq(&self) -> Option<u64> {
-        self.last_submit.map(Ticket::seq)
+        self.composer_submit.map(Ticket::seq)
     }
 
     /// The newest message that went out for the user without the composer: its number (it grows
@@ -2654,7 +2654,26 @@ fn reset_history(model: &mut ThreadModel) {
 /// Applies one event to one thread's model. Events are tolerant of order
 /// (R9): a delta may come before its item, a started turn twice.
 pub fn apply(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
+    apply_with_receipt(model, ev, fx, SubmitReceipt::Composer);
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SubmitReceipt {
+    Composer,
+    Feature,
+}
+
+pub(crate) fn apply_with_receipt(
+    model: &mut ThreadModel,
+    ev: ThreadEv,
+    fx: &mut ThreadFx<'_>,
+    receipt: SubmitReceipt,
+) {
+    let before = model.last_submit;
     apply_ev(model, ev, fx);
+    if receipt == SubmitReceipt::Composer && before != model.last_submit {
+        model.composer_submit = model.last_submit;
+    }
     if !model.slots.voice.captions_open() {
         model.core.transcript.clear_live_voice();
     }
