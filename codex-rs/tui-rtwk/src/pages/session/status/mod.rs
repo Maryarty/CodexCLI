@@ -59,6 +59,8 @@ pub fn setup_values<S: 'static>(
     let context = super::status_surfaces::StatusContext {
         thread_id: session.active.as_ref(),
         thread: Some(&slots.chat),
+        daybreak_enabled: !states.chat.flags.side_conversation_active
+            && codex_tui_core::features::daybreak_of(thread.view()).unwrap_or(false),
         usage: Some(&slots.status),
         rate_limits: session.rate_limits.get(&owner),
         run_state: Some(run.word(&session, reconnecting)),
