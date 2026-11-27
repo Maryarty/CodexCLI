@@ -1330,11 +1330,19 @@ fn effort_transition_keeps_the_full_footer_row() {
         .script(PLAN_STATUS)
         .open();
     s.feed(&facts(
-        r#"{"effort":"high","branch":"feature-branch","items":["model-with-reasoning","git-branch"]}"#,
+        r#"{"branch":"feature-branch","items":["model-with-reasoning","git-branch"]}"#,
     ));
-    s.feed(&facts(
-        r#"{"effort":"ultra","branch":"feature-branch","items":["model-with-reasoning","git-branch"]}"#,
-    ));
+    let mut plan_settings: serde_json::Value = PLAN_STATUS
+        .lines()
+        .find(|line| line.contains(r#""method":"thread/settings/updated""#))
+        .and_then(|line| serde_json::from_str(line).ok())
+        .unwrap_or_else(|| panic!("the Plan fixture contains a server settings update"));
+    for effort in ["high", "ultra"] {
+        let settings = &mut plan_settings["message"]["params"]["threadSettings"];
+        settings["effort"] = effort.into();
+        settings["collaborationMode"]["settings"]["reasoning_effort"] = effort.into();
+        s.feed(&plan_settings.to_string());
+    }
     s.assert_row(5, "          Plan mode (⇧tab to cycle)");
     // (the sweep of the transition may shift the line by a column)
     s.assert_has_row_trimmed("MODEL high · feature-branch");
