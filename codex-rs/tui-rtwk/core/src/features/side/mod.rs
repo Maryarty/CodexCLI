@@ -86,18 +86,33 @@ impl StatusChange {
     }
 }
 
+/// Whether a side conversation is held only for this client or persists on the server.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Storage {
+    Temporary,
+    Attached,
+}
+
 /// A side conversation and the thread it came from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Link {
     pub parent: ThreadId,
+    pub storage: Storage,
     /// Parent-thread condition that changed while this side thread was visible.
     pub status: Option<ParentStatus>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Children {
+    ordered: Vec<ThreadId>,
+    selected: ThreadId,
 }
 
 /// The app-scoped state: the side conversations this process holds.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct State {
     links: BTreeMap<ThreadId, Link>,
+    children: BTreeMap<ThreadId, Children>,
     /// The forks whose boundary is going in, with the prompt (`/btw`) that waits for it.
     preparing: BTreeMap<ThreadId, Option<String>>,
 }
@@ -116,16 +131,17 @@ pub enum Start {
 impl State {
     /// `side_start_block_message`, then the reuse of the parent's own side conversation
     /// (`handle_start_side`): `source` is the thread `/side` was typed in.
-    pub fn start(&self, source: Option<&ThreadId>) -> Start {
+    pub fn start(&self, source: Option<&ThreadId>, fresh: bool) -> Start {
         let Some(source) = source else {
             return Start::Block(Note::MainUnavailable);
         };
         if self.is_side(source) {
             return Start::Block(Note::AlreadyOpen);
         }
-        match self.side_of(source) {
-            Some(child) => Start::Reuse(child.clone()),
-            None => Start::Fork,
+        if let Some(child) = self.side_of(source).filter(|_| !fresh) {
+            Start::Reuse(child.clone())
+        } else {
+            Start::Fork
         }
     }
 
@@ -139,11 +155,56 @@ impl State {
         self.links.get(thread)
     }
 
-    /// The side conversation `parent` has (`side_thread_for_parent`).
+    /// The children accepted for this parent, in creation order.
+    pub fn children_of(&self, parent: &ThreadId) -> &[ThreadId] {
+        self.children
+            .get(parent)
+            .map_or(&[], |children| children.ordered.as_slice())
+    }
+
+    /// The last shown child of this parent, or the first available one.
     pub fn side_of(&self, parent: &ThreadId) -> Option<&ThreadId> {
-        self.links
-            .iter()
-            .find_map(|(child, link)| (link.parent == *parent).then_some(child))
+        self.children.get(parent).map(|children| &children.selected)
+    }
+
+    fn remember(&mut self, child: ThreadId, link: Link) {
+        if self.links.contains_key(&child) {
+            return;
+        }
+        self.children
+            .entry(link.parent.clone())
+            .or_insert_with(|| Children {
+                ordered: Vec::new(),
+                selected: child.clone(),
+            })
+            .ordered
+            .push(child.clone());
+        self.links.insert(child, link);
+    }
+
+    fn shown(&mut self, child: &ThreadId) {
+        if let Some(link) = self.links.get(child)
+            && let Some(children) = self.children.get_mut(&link.parent)
+        {
+            children.selected = child.clone();
+        }
+    }
+
+    fn forget(&mut self, child: &ThreadId) {
+        let Some(link) = self.links.remove(child) else {
+            return;
+        };
+        let Some(children) = self.children.get_mut(&link.parent) else {
+            return;
+        };
+        children.ordered.retain(|id| id != child);
+        match children.ordered.last() {
+            None => {
+                self.children.remove(&link.parent);
+            }
+            Some(last) if children.selected == *child => children.selected = last.clone(),
+            Some(_) => {}
+        }
     }
 
     /// The thread `Ctrl+/` switches to from `shown`: the parent of a side conversation, the side
@@ -191,6 +252,8 @@ pub enum Intent {
         source: Option<ThreadId>,
         prompt: Option<String>,
     },
+    /// Open a specific child of the shown conversation family.
+    Select { parent: ThreadId, child: ThreadId },
     /// Return from `child` to its parent and drop it: the parent is shown, then the side
     /// conversation's turn is interrupted, the server stops holding it and the app forgets it
     /// (`select_agent_thread_and_discard_side`, `discard_side_thread`). A verb the view says for
@@ -297,16 +360,22 @@ fn drop_side(state: &mut State, child: &ThreadId, cx: &mut AppCx<'_>) {
     if cx.view().active() == Some(child) || !state.is_side(child) {
         return;
     }
-    state.links.remove(child);
+    state.forget(child);
     state.preparing.remove(child);
     cx.discard(child);
     cx.chat_facts(chat_facts(state, cx.view()));
 }
 
 /// `/side` and `/btw` (`handle_start_side`), typed in `source`.
-fn start(state: &State, source: Option<ThreadId>, prompt: Option<String>, cx: &mut AppCx<'_>) {
+fn start(
+    state: &State,
+    source: Option<ThreadId>,
+    prompt: Option<String>,
+    fresh: bool,
+    cx: &mut AppCx<'_>,
+) {
     let prompt = prompt.filter(|prompt| !prompt.trim().is_empty());
-    match (state.start(source.as_ref()), source) {
+    match (state.start(source.as_ref(), fresh), source) {
         (Start::Block(note), source) => {
             if let Some(thread) = &source {
                 restore(cx, thread, prompt);
@@ -392,14 +461,27 @@ feature! {
                 if slash.source.is_none() {
                     return cx.note(None, Note::BeforeSession(slash.command.command()));
                 }
+                let tui = cx.view().facts().tui();
+                let fresh = slash.command == SlashCommand::Side
+                    && tui.workspace_enabled
+                    && tui.transcript_owned;
                 let source = slash.source.clone();
-                let prompt = slash.into_args();
-                Self::intent(state, Intent::Start { source, prompt }, cx);
+                start(state, source, slash.into_args(), fresh, cx);
             }
 
             fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
                 match intent {
-                    Intent::Start { source, prompt } => start(state, source, prompt, cx),
+                    Intent::Start { source, prompt } => start(state, source, prompt, false, cx),
+                    Intent::Select { parent, child } => {
+                        let view = cx.view();
+                        let shown = view.active();
+                        let family_shown = shown == Some(&parent)
+                            || shown.and_then(|id| state.link(id))
+                                .is_some_and(|link| link.parent == parent);
+                        if family_shown && state.link(&child).is_some_and(|link| link.parent == parent) {
+                            cx.open_thread(&child, Ctx::Reuse { parent, prompt: None });
+                        }
+                    }
                     Intent::Return { child } => {
                         let Some(link) = state.links.get(&child) else {
                             return;
@@ -474,7 +556,7 @@ feature! {
                             .side_of(&parent)
                             .and_then(|other| state.links.get(other))
                             .and_then(|link| link.status);
-                        state.links.insert(child.clone(), Link { parent, status });
+                        state.remember(child.clone(), Link { parent, status, storage: Storage::Temporary });
                         state.preparing.insert(child.clone(), prompt);
                         // a turn interrupted here is no news (`should_suppress_interrupted_turn_notice`)
                         cx.quiet_interrupts(&child, true);
@@ -510,7 +592,8 @@ feature! {
             }
 
             /// What the chat reads of the thread shown (`sync_side_thread_ui`).
-            fn on_shown(state: &mut State, _thread: &ThreadId, cx: &mut AppCx<'_>) {
+            fn on_shown(state: &mut State, thread: &ThreadId, cx: &mut AppCx<'_>) {
+                state.shown(thread);
                 cx.chat_facts(chat_facts(state, cx.view()));
             }
 
@@ -573,18 +656,25 @@ mod tests {
     #[test]
     fn start_asks_the_state_of_the_thread() {
         let mut state = State::default();
-        assert_eq!(state.start(None), Start::Block(Note::MainUnavailable));
-        assert_eq!(state.start(Some(&id("main"))), Start::Fork);
-        state.links.insert(
+        assert_eq!(
+            state.start(None, false),
+            Start::Block(Note::MainUnavailable)
+        );
+        assert_eq!(state.start(Some(&id("main")), false), Start::Fork);
+        state.remember(
             id("side"),
             Link {
                 parent: id("main"),
+                storage: Storage::Temporary,
                 status: None,
             },
         );
-        assert_eq!(state.start(Some(&id("main"))), Start::Reuse(id("side")));
         assert_eq!(
-            state.start(Some(&id("side"))),
+            state.start(Some(&id("main")), false),
+            Start::Reuse(id("side"))
+        );
+        assert_eq!(
+            state.start(Some(&id("side")), false),
             Start::Block(Note::AlreadyOpen)
         );
     }
@@ -592,10 +682,11 @@ mod tests {
     #[test]
     fn the_footer_follows_the_thread_shown() {
         let mut state = State::default();
-        state.links.insert(
+        state.remember(
             id("side"),
             Link {
                 parent: id("main"),
+                storage: Storage::Temporary,
                 status: Some(ParentStatus::Finished),
             },
         );

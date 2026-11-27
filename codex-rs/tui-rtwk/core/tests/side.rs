@@ -5,14 +5,16 @@
 //! boundary, sends the `/btw` prompt once they are in, shows a label while it is shown, refuses a
 //! second one, reuses the parent's own, and drops the side conversation the user returned from.
 
+use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
+use codex_tui_core::commands::{SessionIntent, SlashCommand};
 use codex_tui_core::features::side::{
     Footer, Intent as SideIntent, Note as SideNote, Reply as SideReply,
 };
 use codex_tui_core::features::{FeatureCommand, FeatureIntent, FeatureNote, FeatureReply};
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
-use codex_tui_core::screens::{ScreenCommand, ScreenReply, agents};
+use codex_tui_core::screens::{ScreenCommand, ScreenIntent, ScreenReply, agents, chat};
 use codex_tui_core::threads::{Item as Entry, Note, NoteKey, ThreadAsk};
 use pretty_assertions::assert_eq;
 
@@ -58,6 +60,19 @@ fn start(app: &mut CodexApp, source: &str, prompt: Option<&str>) -> AppFx {
             source: Some(ThreadId::new(source)),
             prompt: prompt.map(str::to_owned),
         },
+    )
+}
+
+fn slash(app: &mut CodexApp, command: SlashCommand, args: &str) -> AppFx {
+    run(
+        app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
+            thread: Some(ThreadId::new(MAIN)),
+            command,
+            intent: SessionIntent::Feature {
+                args: args.to_owned(),
+            },
+        }))),
     )
 }
 
@@ -327,6 +342,94 @@ fn side_in_the_parent_shows_its_own_side_conversation_again() {
     let fx = start(&mut app, MAIN, None);
     assert!(forks(&fx).is_empty(), "no second fork");
     assert_eq!(app.session().active, Some(ThreadId::new(SIDE)));
+}
+
+#[test]
+fn workspace_side_is_fresh_and_btw_uses_the_child_selected_for_its_parent() {
+    let mut app = ready();
+    let parent = ThreadId::new(MAIN);
+    let first = ThreadId::new("side-z");
+    let second = ThreadId::new("side-a");
+    run(
+        &mut app,
+        AppEv::Tui(TuiSettings {
+            workspace_enabled: true,
+            transcript_owned: true,
+            ..TuiSettings::default()
+        }),
+    );
+    for child in [&first, &second] {
+        let fx = slash(&mut app, SlashCommand::Side, "");
+        let [(ticket, _)] = forks(&fx).try_into().expect("one distinct fork for /side");
+        let fx = run(
+            &mut app,
+            AppEv::Reply(
+                ticket,
+                Reply::screen(ScreenReply::Agents(agents::Reply::Forked(Box::new(
+                    forked_thread(child.as_str()),
+                )))),
+            ),
+        );
+        let prepared = fx
+            .commands()
+            .iter()
+            .find_map(|command| match command {
+                Command::Feature {
+                    ticket,
+                    thread,
+                    command: FeatureCommand::Side(_),
+                    ..
+                } if thread == child => Some(*ticket),
+                _ => None,
+            })
+            .expect("boundary for this child");
+        run(
+            &mut app,
+            AppEv::Reply(prepared, Reply::feature(FeatureReply::Side(SideReply))),
+        );
+        assert_eq!(app.session().active.as_ref(), Some(child));
+        run(&mut app, AppEv::Intent(Intent::OpenThread(parent.clone())));
+    }
+    assert_eq!(
+        app.features().side.children_of(&parent),
+        &[first.clone(), second.clone()]
+    );
+    assert_eq!(app.features().side.side_of(&parent), Some(&second));
+
+    feature(
+        &mut app,
+        SideIntent::Select {
+            parent: ThreadId::new("wrong-parent"),
+            child: first.clone(),
+        },
+    );
+    assert_eq!(app.session().active.as_ref(), Some(&parent));
+    feature(
+        &mut app,
+        SideIntent::Select {
+            parent: parent.clone(),
+            child: first.clone(),
+        },
+    );
+    assert_eq!(app.session().active.as_ref(), Some(&first));
+    run(&mut app, AppEv::Intent(Intent::OpenThread(parent.clone())));
+    let fx = slash(&mut app, SlashCommand::Btw, "selected child?");
+    assert!(forks(&fx).is_empty());
+    assert!(fx.commands().iter().any(|command| matches!(command, Command::StartTurn { thread, message, .. } if thread == &first && message.text == "selected child?")));
+    feature(
+        &mut app,
+        SideIntent::Return {
+            child: first.clone(),
+        },
+    );
+    assert_eq!(app.session().active.as_ref(), Some(&parent));
+    assert_eq!(
+        app.features().side.children_of(&parent),
+        std::slice::from_ref(&second)
+    );
+    assert_eq!(app.features().side.side_of(&parent), Some(&second));
+    assert!(app.thread(&first).is_none());
+    assert!(app.thread(&second).is_some());
 }
 
 #[test]
