@@ -228,6 +228,15 @@ Codex does the same, on top of the plain model of ADR-003:
   resolved it. So the model's queue stays the only source, and the
   rtwk overlay holds only the id (the oracle bug bc969b651 was an overlay
   that kept its own queue).
+  A patch approval for the active conversation on the visible session home
+  uses a non-opaque `Navigator` route with a bottom-aligned panel. The
+  navigator owns keyboard focus and its return. The panel takes pointer
+  input in its own bounds, the transcript above it retains wheel and
+  disclosure, and the covered composer and footer ignore pointer input.
+  The presenter and the route use the full `RequestKey` for the answer
+  and close receipt. A queued patch elsewhere and every other request
+  family still use the standard modal route. At the rtwk pin
+  `show_dialog` installs a full-window pointer barrier at zero opacity.
 - **Navigation state is rtwk's.** It is widget state (ADR-002) and is not
   mirrored into the model. Where a rule needs to know the open screen, a
   `NavigatorObserver` reports route changes as events.

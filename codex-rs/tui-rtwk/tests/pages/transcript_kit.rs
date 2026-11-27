@@ -266,14 +266,15 @@ fn the_mermaid_code_fallback_copies_the_complete_fenced_source() {
     s.assert_copies_asked(&["graph LR\nA --> B\n"]);
 }
 
+const PATCH: &str = include_str!("../oracle/fixtures/transcript_view_2/patch_disclosure.jsonl");
+const APPROVAL: &str =
+    include_str!("../oracle/fixtures/transcript_view_2/patch_disclosure_approval.jsonl");
+const RESOLVED: &str =
+    include_str!("../oracle/fixtures/transcript_view_2/patch_disclosure_resolved.jsonl");
+const PATCH_PROMPT: &str = "Would you like to make the following edits?";
+
 #[test]
 fn resolving_a_patch_approval_keeps_the_disclosed_manual_viewport() {
-    const PATCH: &str = include_str!("../oracle/fixtures/transcript_view_2/patch_disclosure.jsonl");
-    const APPROVAL: &str =
-        include_str!("../oracle/fixtures/transcript_view_2/patch_disclosure_approval.jsonl");
-    const RESOLVED: &str =
-        include_str!("../oracle/fixtures/transcript_view_2/patch_disclosure_resolved.jsonl");
-    const PROMPT: &str = "Would you like to make the following edits?";
     for scroll_before_click in [false, true] {
         let mut s = Screen::build(Owner::ChatLive).size(48, 29).live().open();
         s.mouse_scroll_speed(Some(1.0));
@@ -293,11 +294,59 @@ fn resolving_a_patch_approval_keeps_the_disclosed_manual_viewport() {
         let end = s.row_of("Hide details") + 1;
         let before = s.shot();
         s.feed(APPROVAL);
-        s.assert_contains(PROMPT);
+        s.assert_contains(PATCH_PROMPT);
         s.feed(RESOLVED);
-        s.assert_absent(PROMPT);
+        s.assert_absent(PATCH_PROMPT);
         s.assert_no_resolved_requests();
         s.assert_contains("Back to bottom");
         s.assert_same_rows_in(&before, 0..end);
     }
+}
+
+#[test]
+fn patch_disclosure_keeps_the_active_approval_and_its_keyboard_focus() {
+    use codex_tui_core::app::Command;
+
+    let mut s = Screen::build(Owner::ChatLive).size(48, 29).live().open();
+    s.feed(PATCH);
+    s.type_text("carried draft");
+    s.feed(APPROVAL).wait_for(PATCH_PROMPT);
+
+    let second = APPROVAL.replace("\"id\":73", "\"id\":74").replace(
+        "Inspect the patch before applying it",
+        "Second patch confirmation",
+    );
+    s.feed(&second);
+    s.assert_contains(PATCH_PROMPT);
+    s.assert_absent("Second patch confirmation");
+
+    s.click_text("+ Show details");
+    s.assert_in_order(&["approval-patch.txt", "patch line five", "Hide details"]);
+    s.assert_contains(PATCH_PROMPT);
+    s.assert_no_resolved_requests();
+
+    s.keys("down");
+    s.assert_contains("› 2. Yes, and don't ask again");
+    s.keys("up y").wait_for("Second patch confirmation");
+    let answers: Vec<_> = s
+        .commands()
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::ResolveRequest { key, .. } => Some(key),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(answers.len(), 1);
+    assert_eq!(answers[0].thread.as_str(), "thread-1");
+    assert_eq!(answers[0].id.as_str(), "73");
+    s.assert_contains(PATCH_PROMPT);
+
+    s.feed(RESOLVED);
+    s.assert_contains("Second patch confirmation");
+    let second_resolved = RESOLVED.replace("\"requestId\":73", "\"requestId\":74");
+    s.feed(&second_resolved);
+    s.assert_absent(PATCH_PROMPT);
+    assert_eq!(s.resolved_requests().len(), 1);
+    s.type_text(" after");
+    s.assert_contains("carried draft after");
 }

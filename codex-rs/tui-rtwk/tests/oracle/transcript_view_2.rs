@@ -858,10 +858,6 @@ fn narrow_selection_and_search_keep_complete_exit_hints() {
 // ORACLE transcript_view/footer_tests.rs:439 patch_disclosure_preserves_manual_scrolling kind=ui owner=chat-live
 #[test]
 fn patch_disclosure_preserves_manual_scrolling() {
-    kit::pending(
-        Owner::ChatLive,
-        "The pinned transparent rtwk ModalBarrier of a live patch approval blocks the visible transcript's disclosure above the pane. Resolution with a pre-existing manual viewport is covered separately by transcript_kit::resolving_a_patch_approval_keeps_the_disclosed_manual_viewport.",
-    );
     const PATCH: &str = include_str!("fixtures/transcript_view_2/patch_disclosure.jsonl");
     const APPROVAL: &str =
         include_str!("fixtures/transcript_view_2/patch_disclosure_approval.jsonl");
@@ -1247,7 +1243,7 @@ fn fullscreen_image_previews_follow_layout_without_entering_text_surfaces() {
         if graphics {
             s.keys("alt+r");
             s.assert_image_rows(&[], 100);
-            std::fs::remove_file(&path).unwrap();
+            kit::remove_artifact_file(&path);
             s.keys("alt+r");
             s.click_text("+ Show details");
             s.assert_contains(path.to_str().unwrap());
