@@ -7,7 +7,7 @@ use super::QueueOperation;
 use crate::app::effects::CopyFormat;
 use crate::ids::ThreadId;
 use crate::screens::chat::surface_items::STATUS_LINE;
-use crate::screens::select::{apps, permissions};
+use crate::screens::select::{apps, permissions, quick_dials};
 
 /// A picker can choose a clipboard value. The thread and destination belong to its owner.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -61,6 +61,7 @@ pub(crate) enum ModalKind {
     StatusLine,
     Permissions,
     Apps,
+    Preset,
 }
 
 /// An operation issued by the queue owner. `C` fixes the result type of the native dialog.
@@ -90,6 +91,7 @@ pub enum ModalOperation {
     StatusLine(ModalToken<StatusLineChoice>),
     Permissions(ModalToken<permissions::Selection>),
     Apps(ModalToken<apps::ModalChoice>),
+    Preset(ModalToken<quick_dials::Write>),
 }
 
 impl ModalOperation {
@@ -99,6 +101,7 @@ impl ModalOperation {
             ModalKind::StatusLine => Self::StatusLine(ModalToken::new(operation)),
             ModalKind::Permissions => Self::Permissions(ModalToken::new(operation)),
             ModalKind::Apps => Self::Apps(ModalToken::new(operation)),
+            ModalKind::Preset => Self::Preset(ModalToken::new(operation)),
         }
     }
 
@@ -112,6 +115,7 @@ impl ModalOperation {
             Self::StatusLine(token) => ModalReceipt::StatusLine(token, None),
             Self::Permissions(token) => ModalReceipt::Permissions(token, None),
             Self::Apps(token) => ModalReceipt::Apps(token, None),
+            Self::Preset(token) => ModalReceipt::Preset(token, None),
         }
     }
 
@@ -121,6 +125,7 @@ impl ModalOperation {
             Self::StatusLine(token) => &token.operation,
             Self::Permissions(token) => &token.operation,
             Self::Apps(token) => &token.operation,
+            Self::Preset(token) => &token.operation,
         }
     }
 
@@ -130,6 +135,7 @@ impl ModalOperation {
             Self::StatusLine(_) => ModalKind::StatusLine,
             Self::Permissions(_) => ModalKind::Permissions,
             Self::Apps(_) => ModalKind::Apps,
+            Self::Preset(_) => ModalKind::Preset,
         }
     }
 }
@@ -144,6 +150,7 @@ pub enum ModalReceipt {
         Option<permissions::Selection>,
     ),
     Apps(ModalToken<apps::ModalChoice>, Option<apps::ModalChoice>),
+    Preset(ModalToken<quick_dials::Write>, Option<quick_dials::Write>),
 }
 
 impl ModalReceipt {
@@ -153,6 +160,7 @@ impl ModalReceipt {
             Self::StatusLine(token, _) => ModalOperation::StatusLine(token.clone()),
             Self::Permissions(token, _) => ModalOperation::Permissions(token.clone()),
             Self::Apps(token, _) => ModalOperation::Apps(token.clone()),
+            Self::Preset(token, _) => ModalOperation::Preset(token.clone()),
         }
     }
 
@@ -166,6 +174,7 @@ impl ModalReceipt {
             Self::StatusLine(token, _) => &token.operation,
             Self::Permissions(token, _) => &token.operation,
             Self::Apps(token, _) => &token.operation,
+            Self::Preset(token, _) => &token.operation,
         }
     }
 
@@ -175,6 +184,7 @@ impl ModalReceipt {
             Self::StatusLine(..) => ModalKind::StatusLine,
             Self::Permissions(..) => ModalKind::Permissions,
             Self::Apps(..) => ModalKind::Apps,
+            Self::Preset(..) => ModalKind::Preset,
         }
     }
 }

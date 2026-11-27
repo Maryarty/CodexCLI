@@ -3,7 +3,7 @@
 //! saved presets in columns and the keys that work on them (`n` new, `s` from settings, `e` edit,
 //! `d` delete, a digit recalls its preset or starts one, Esc closes). Whether it is open is the
 //! page's drawn state (ADR-013), what it lists is the model's `Quick`, and a key that leads on says
-//! one `Intent::Quick`. In Flutter this is a `Material` banner built by a `LayoutBuilder` into a
+//! a typed preset action. In Flutter this is a `Material` banner built by a `LayoutBuilder` into a
 //! grid of `Expanded` columns over a `Wrap` of key hints.
 
 use rtwk::focus::KeyPress;
@@ -15,9 +15,8 @@ use rtwk::{AnyWidget, Cx, LayoutBuilder};
 
 use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::ScreenStates;
-use codex_tui_core::screens::select::Intent;
 use codex_tui_core::screens::select::quick_dials::{
-    Composer, Gate, Open, PickerMode, Quick, Settings, Target,
+    Composer, Open, PickerMode, Quick, Settings, Target,
 };
 
 use super::strings;
@@ -99,13 +98,12 @@ impl Step {
 /// current settings are given when the key wants them (`wants_composer`, `wants_settings`). A digit
 /// with a valid preset runs it (`recalled`) and says nothing here; one with a broken preset says
 /// so (`Open::Recall`).
-pub fn intent(
+pub fn opening(
     key: Step,
-    gate: Gate,
     quick: &Quick,
     settings: Option<Settings>,
     composer: Option<Composer>,
-) -> Option<Intent> {
+) -> Option<Open> {
     let composer = composer.unwrap_or_default();
     let open = match key {
         Step::New => Open::Editor {
@@ -127,7 +125,7 @@ pub fn intent(
         },
         Step::Open | Step::Close | Step::Hold | Step::Other => return None,
     };
-    Some(Intent::Quick { gate, open })
+    Some(open)
 }
 
 /// The input of the preset a digit recalls, when it is a valid one (`recall_quick_dial`).

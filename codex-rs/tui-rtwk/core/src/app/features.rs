@@ -362,12 +362,7 @@ pub(super) fn finish_queue_modal(
         match &mut receipt {
             ModalReceipt::Permissions(token, choice) => {
                 if let Some(selection) = choice.take() {
-                    queue_event(
-                        app,
-                        thread,
-                        QueueEvent::applying_modal(operation.clone()),
-                        fx,
-                    );
+                    queue_event(app, thread, QueueEvent::applying_modal(operation), fx);
                     super::select::apply_owned_permissions(app, token.clone(), selection, fx);
                     return Ok(());
                 }
@@ -375,6 +370,13 @@ pub(super) fn finish_queue_modal(
             ModalReceipt::Apps(_, choice) => {
                 if let Some(choice) = choice.take() {
                     super::select::finish_owned_apps(app, choice, fx);
+                }
+            }
+            ModalReceipt::Preset(token, choice) => {
+                if let Some(write) = choice.take() {
+                    queue_event(app, thread, QueueEvent::applying_modal(operation), fx);
+                    super::select::presets::apply(app, token.clone(), write, fx);
+                    return Ok(());
                 }
             }
             ModalReceipt::Copy(..) | ModalReceipt::StatusLine(..) => {

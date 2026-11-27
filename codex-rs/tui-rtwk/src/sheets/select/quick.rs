@@ -39,8 +39,20 @@ use crate::widgets::sheet::bottom;
 /// The sheet: a navigator as tall as the sheet's cap whose home is `menu`, each page at the bottom
 /// edge of it (where the oracle's pane is; `review_sheet.rs`).
 pub fn sheet(menu: &Menu) -> AnyWidget {
+    sheet_with(menu, Completion::Intent)
+}
+
+/// The owned sheet returns its confirmed write to the native dialog owner.
+pub(super) fn queued_sheet(menu: &Menu) -> AnyWidget {
+    sheet_with(menu, Completion::Dialog)
+}
+
+fn sheet_with(menu: &Menu, completion: Completion) -> AnyWidget {
     Navigator::new()
-        .home(bottom(Page { menu: menu.clone() }))
+        .home(bottom(Page {
+            menu: menu.clone(),
+            completion,
+        }))
         .back_key(None)
         .into()
 }
@@ -54,14 +66,26 @@ pub fn options() -> DialogOptions {
     }
 }
 
-fn route(menu: Menu) -> PageRoute<()> {
-    PageRoute::new(move |_| bottom(Page { menu: menu.clone() }))
+fn route(menu: Menu, completion: Completion) -> PageRoute<()> {
+    PageRoute::new(move |_| {
+        bottom(Page {
+            menu: menu.clone(),
+            completion,
+        })
+    })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Completion {
+    Intent,
+    Dialog,
 }
 
 /// One page of the sheet.
 #[derive(Clone, Debug, PartialEq)]
 struct Page {
     menu: Menu,
+    completion: Completion,
 }
 
 struct PageState;
@@ -89,17 +113,20 @@ fn slots(cx: &mut Cx<'_, PageState>) -> Quick {
 
 /// Where a pick or the text led: a page opens over this one, or the model is told (and a write
 /// closes the sheet: the whole chain is dismissed once a change is settled).
-fn go(cx: &mut Cx<'_, PageState>, chosen: Option<Chosen>) {
+fn go(cx: &mut Cx<'_, PageState>, completion: Completion, chosen: Option<Chosen>) {
     match chosen {
-        Some(Chosen::Push(next)) => drop(Navigator::of(cx).push::<()>(route(next))),
-        Some(Chosen::Ask(ask)) => {
-            let settled = matches!(ask, Ask::Write(_));
-            let hs = read::<Hs, _>(cx);
-            cx.emit(&hs.screen, ScreenIntent::Select(Intent::Preset(ask)));
-            if settled {
-                close_dialog::<_, ()>(cx, None);
+        Some(Chosen::Push(next)) => drop(Navigator::of(cx).push::<()>(route(next, completion))),
+        Some(Chosen::Ask(ask)) => match (completion, ask) {
+            (Completion::Dialog, Ask::Write(write)) => close_dialog(cx, Some(write)),
+            (_, ask) => {
+                let settled = matches!(ask, Ask::Write(_));
+                let hs = read::<Hs, _>(cx);
+                cx.emit(&hs.screen, ScreenIntent::Select(Intent::Preset(ask)));
+                if settled {
+                    close_dialog::<_, ()>(cx, None);
+                }
             }
-        }
+        },
         None => {}
     }
 }
@@ -121,14 +148,14 @@ impl State for PageState {
         match msg {
             Msg::Picked(Event::Choose(id)) => {
                 let chosen = w.menu.choose(&id, &slots(cx));
-                go(cx, chosen);
+                go(cx, w.completion, chosen);
             }
             Msg::Picked(Event::Cancel) | Msg::Typed(Answer::Back) => back(cx),
             // The slot lists and the sources have no secondary action, toggles, order or tabs.
             Msg::Picked(_) => {}
             Msg::Typed(Answer::Submit(text)) => {
                 let chosen = w.menu.submit(&text, &slots(cx));
-                go(cx, chosen);
+                go(cx, w.completion, chosen);
             }
         }
         Rebuild::No

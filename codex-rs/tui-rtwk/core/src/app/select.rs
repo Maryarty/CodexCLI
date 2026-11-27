@@ -24,6 +24,8 @@ use super::features::{
     queue_modal_is_current, register_queue_modal,
 };
 
+pub(super) mod presets;
+
 /// An intent of the select screen, and the asks it left open.
 pub(super) fn intent(app: &mut CodexApp, mut intent: select::Intent, fx: &mut AppFx) {
     if let select::Intent::ActInApps { token, action } = intent {
@@ -128,6 +130,7 @@ pub(super) fn intent(app: &mut CodexApp, mut intent: select::Intent, fx: &mut Ap
         let kind = match open.dialog {
             select::QueueDialog::Permissions(_) => ModalKind::Permissions,
             select::QueueDialog::Apps { .. } => ModalKind::Apps,
+            select::QueueDialog::Preset { .. } => ModalKind::Preset,
         };
         let Some(operation) =
             register_queue_modal(app, &open.thread, open.issued.clone(), kind, fx)
@@ -638,11 +641,18 @@ fn write_notes(
         notes(app, said);
         return;
     };
-    let thread = operation.thread();
+    write_notes_on(app, operation.thread(), said, fx);
+}
+
+fn write_notes_on(
+    app: &mut CodexApp,
+    thread: &ThreadId,
+    said: impl IntoIterator<Item = select::Note>,
+    fx: &mut AppFx,
+) {
     if app.threads.contains(thread) {
         for note in said.into_iter().filter(select::Note::in_transcript) {
-            let note = crate::threads::Note::from(crate::threads::NoteKey::Select(note));
-            super::session_note(app, Some(thread.clone()), note, fx);
+            show_owned_note(app, thread.clone(), note, fx);
         }
     }
 }
@@ -1250,6 +1260,7 @@ pub(in crate::app) fn ask(
         } => queued.operation().thread().clone(),
         select::Ctx::PlanWrite(write) => write.thread.clone(),
         select::Ctx::OwnedPermissionWrite { token, .. } => token.thread().clone(),
+        select::Ctx::OwnedPreset { token, .. } => token.thread().clone(),
         select::Ctx::App {
             owner: Some(owner), ..
         } => owner.thread.clone(),
@@ -1384,6 +1395,9 @@ fn answered(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx
         (select::Ctx::App { .. }, Ok(_)) => {}
         // `save_quick_dial`: the slot follows a saved write; a refused one is said, with the
         // editor shown again.
+        (select::Ctx::OwnedPreset { token, write }, result) => {
+            presets::answered(app, token, write, result, fx);
+        }
         (select::Ctx::Preset { slot, dial }, result) => {
             let result = match result {
                 Ok(_) => Ok(()),
