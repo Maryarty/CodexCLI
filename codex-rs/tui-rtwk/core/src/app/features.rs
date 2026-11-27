@@ -17,7 +17,7 @@ use crate::screens::chat::{facts, plan_mode::PromptPriority};
 use crate::screens::status::RateRead;
 use crate::screens::{ScreenThreadIntent, chat};
 use crate::threads::{Note, NoteKey, ThreadEv};
-use codex_app_server_protocol::{ServerNotification, ServerRequest};
+use codex_app_server_protocol::{ErrorNotification, ServerNotification, ServerRequest};
 
 /// The app as a read-only view, for the code of the app that asks what a feature would read.
 pub(super) fn view(app: &CodexApp) -> AppView<'_> {
@@ -322,9 +322,78 @@ pub(super) fn rolling_limits(
     }
 }
 
+pub(super) fn rolling_remedy(
+    app: &mut CodexApp,
+    backend: BackendId,
+    snapshot: &codex_app_server_protocol::RateLimitSnapshot,
+) {
+    if let Some(reached) = snapshot.rate_limit_reached_type
+        && features::change_rate_remedy(
+            &mut app.features,
+            backend,
+            features::RateRemedy::Rolling(reached),
+        )
+    {
+        super::supersede_rate_banner(app, backend);
+    }
+}
+
+/// The thread has passed the app's server ownership gate. Its terminal error can change only
+/// that backend's remedy before the limit feature decides whether a fallback is needed.
+pub(super) fn rate_failure(
+    app: &mut CodexApp,
+    backend: BackendId,
+    error: &ErrorNotification,
+    fx: &mut AppFx,
+) {
+    let kind = features::rate_failure_of(error);
+    if kind == Some(features::RateFailure::UsageLimit)
+        && features::change_rate_remedy(
+            &mut app.features,
+            backend,
+            features::RateRemedy::UsageLimitError,
+        )
+    {
+        super::supersede_rate_banner(app, backend);
+        if app.screens.chat.status.account_usage {
+            super::session::refresh_rates(
+                app,
+                backend,
+                crate::screens::status::RateLimitOrigin::Startup,
+                fx,
+            );
+        }
+    }
+    let address = app.address(backend);
+    let thread = ThreadId::new(&error.thread_id);
+    let can_nudge = !super::owner_nudge_in_flight(app);
+    run(app, fx, |states, cx| {
+        features::rate_failed(states, thread, address, kind, can_nudge, cx);
+    });
+}
+
+/// A workspace fallback belongs to one routed failure. Close its authority when the shown
+/// thread changes or a banner becomes applicable to it, including after a model change.
+pub(super) fn sync_rate_nudge(app: &mut CodexApp) {
+    let Some((thread, address)) = features::rate_nudge_origin(&app.features) else {
+        return;
+    };
+    if app.session.active.as_ref() != Some(thread)
+        || super::session::active_backend(app) != address.backend
+        || app.address(address.backend) != address
+        || (shown_banner(app).is_some() && features::rate_banner_shows(view(app)))
+    {
+        features::dismiss_rate_nudge(&mut app.features);
+    }
+}
+
 /// Retire the offer of the connection or account that ended.
 pub(super) fn retire_rate_offer(app: &mut CodexApp, backend: BackendId) {
     features::retire_rate_offer(&mut app.features, backend);
+}
+
+pub(super) fn forget_rate_remedy(app: &mut CodexApp, backend: BackendId) {
+    features::forget_rate_remedy(&mut app.features, backend);
 }
 
 /// Resolve which completion prompt may be published before the routed event reaches the model.

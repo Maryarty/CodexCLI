@@ -11,7 +11,7 @@ use rtwk::provider::select;
 use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::features::FeatureStates;
-use codex_tui_core::features::rate_limit_prompt::{Candidate, Intent, OfferId, Standing};
+use codex_tui_core::features::rate_limit_prompt::{Candidate, Intent, NudgeId, OfferId, Standing};
 use codex_tui_core::screens::chat::Nudge;
 
 use super::strings;
@@ -27,7 +27,7 @@ pub enum Kind {
         candidate: Candidate,
     },
     /// The workspace owner is asked for credits or a higher limit.
-    Nudge(Nudge),
+    Nudge { id: NudgeId, kind: Nudge },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -61,6 +61,13 @@ impl PromptState {
             features.rate_limit_prompt.standing(&offer)
         })
     }
+
+    fn nudge_pending(cx: &mut Cx<'_, Self>, id: &NudgeId) -> bool {
+        let id = id.clone();
+        select::<FeatureStates, bool, _>(cx, move |features| {
+            features.rate_limit_prompt.nudge_pending(&id)
+        })
+    }
 }
 
 impl State for PromptState {
@@ -68,9 +75,11 @@ impl State for PromptState {
     type Msg = Msg;
 
     fn did_change_dependencies(&mut self, w: &Prompt, cx: &mut Cx<'_, Self>) {
-        if let Kind::Switch { offer, .. } = &w.kind
-            && Self::standing(cx, offer) == Standing::Gone
-        {
+        let gone = match &w.kind {
+            Kind::Switch { offer, .. } => Self::standing(cx, offer) == Standing::Gone,
+            Kind::Nudge { id, .. } => !Self::nudge_pending(cx, id),
+        };
+        if gone {
             close_dialog::<_, ()>(cx, None);
         }
     }
@@ -98,12 +107,13 @@ impl State for PromptState {
             (Kind::Switch { offer, .. }, Event::Cancel) => {
                 verb(cx, Intent::Closed(offer.clone()));
             }
-            (Kind::Nudge(nudge), Event::Choose(id)) => match id.as_str() {
-                strings::YES => verb(cx, Intent::Nudge(*nudge)),
-                strings::NO => {}
+            (Kind::Nudge { id, .. }, _) if !Self::nudge_pending(cx, id) => {}
+            (Kind::Nudge { id, .. }, Event::Choose(row)) => match row.as_str() {
+                strings::YES => verb(cx, Intent::Nudge(id.clone())),
+                strings::NO => verb(cx, Intent::DeclineNudge(id.clone())),
                 _ => return Rebuild::No,
             },
-            (Kind::Nudge(_), Event::Cancel) => {}
+            (Kind::Nudge { id, .. }, Event::Cancel) => verb(cx, Intent::DeclineNudge(id.clone())),
             _ => return Rebuild::No,
         }
         close_dialog::<_, ()>(cx, None);
@@ -117,7 +127,10 @@ impl State for PromptState {
                 Standing::Recovery(seconds) => strings::recovery_menu(seconds),
                 Standing::Offer | Standing::Gone => strings::switch_menu(candidate),
             },
-            Kind::Nudge(nudge) => strings::nudge_menu(*nudge),
+            Kind::Nudge { id, kind } => {
+                Self::nudge_pending(cx, id);
+                strings::nudge_menu(*kind)
+            }
         };
         Picker::new(Rc::new(list), on).into()
     }

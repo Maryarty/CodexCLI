@@ -5,14 +5,17 @@
 //! banner's first usable fallback (asking the catalog first when the app has none), Luna Reserve
 //! is entered and left the same way, and each answer settles the note and the banner's notice.
 
-use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, apply_app};
+use codex_tui_core::app::{
+    AppEv, AppFx, BackendEv, CodexApp, Command, Ingress, Intent, apply_app, apply_app_from,
+};
+use codex_tui_core::features::{FeatureWish, rate_limit_prompt};
 use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
 use codex_tui_core::protocol;
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::screens::agents::Ev as AgentsEv;
 use codex_tui_core::screens::chat::{AutomaticSwitch, SwitchReason};
 use codex_tui_core::screens::select::{self, Ev as SelectEv};
-use codex_tui_core::screens::{ScreenCommand, ScreenEv, ScreenReply, chat};
+use codex_tui_core::screens::{ScreenCommand, ScreenEv, ScreenIntent, ScreenReply, chat, usage};
 use codex_tui_core::threads::{Item, ModeNote, NoteKey};
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -119,6 +122,152 @@ fn read_answered(app: &mut CodexApp, fx: &AppFx, response: serde_json::Value) ->
 
 fn banner_read(banner: serde_json::Value) -> serde_json::Value {
     json!({"accountId": "workspace-a", "rateLimits": {}, "rateLimitUpsell": banner})
+}
+
+fn workspace_read(reached: &str, action: &str) -> serde_json::Value {
+    let mut read = banner_read(json!({
+        "banner_type": "selected_model_limit", "model_slug": "test-model-a",
+        "title": "Workspace limit", "description": "Workspace remedy",
+        "ctas": [{"action": action, "label": action}],
+    }));
+    read["rateLimits"] = json!({"limitId": "codex", "rateLimitReachedType": reached});
+    read
+}
+
+fn refresh(app: &mut CodexApp) -> AppFx {
+    run(
+        app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Usage(
+            usage::Intent::RefreshRateLimits,
+        ))),
+    )
+}
+
+fn notice(method: &str, params: serde_json::Value) -> AppEv {
+    AppEv::Backend(BackendEv::Notification(Box::new(
+        serde_json::from_value(json!({"method": method, "params": params})).expect("notification"),
+    )))
+}
+
+fn usage_failure() -> AppEv {
+    notice(
+        "error",
+        json!({
+            "threadId": T, "turnId": "turn-1", "willRetry": false,
+            "error": {"message": "Usage was blocked.", "codexErrorInfo": "usageLimitExceeded"},
+        }),
+    )
+}
+
+#[test]
+fn a_new_remedy_retires_only_its_backend_banner_and_old_reads() {
+    let local = BackendId::default();
+    let remote = BackendId(1);
+    let mut app = ready();
+    let credits = workspace_read("workspace_member_credits_depleted", "notify_owner");
+    let cap = workspace_read("workspace_member_usage_limit_reached", "request_increase");
+    let local_start = model_facts(&mut app, "test-model-a", None, true);
+    read_answered(&mut app, &local_start, credits.clone());
+
+    let mut remote_start = AppFx::default();
+    apply_app_from(&mut app, remote, AppEv::Connected, &mut remote_start);
+    read_answered(&mut app, &remote_start, credits.clone());
+    let late_local = refresh(&mut app);
+    assert_eq!(app.session().backend_banners.len(), 2);
+
+    // The other backend cannot report the displayed thread's failure.
+    apply_app_from(&mut app, remote, usage_failure(), &mut AppFx::default());
+    assert_eq!(app.session().backend_banners.len(), 2);
+    assert!(
+        !app.wishes()
+            .pending()
+            .any(|wish| matches!(wish.wish, FeatureWish::RateLimitPrompt(_)))
+    );
+
+    let mut remote_refresh = AppFx::default();
+    apply_app_from(
+        &mut app,
+        remote,
+        notice(
+            "account/rateLimits/updated",
+            json!({"rateLimits": cap["rateLimits"]}),
+        ),
+        &mut remote_refresh,
+    );
+    assert!(app.session().backend_banners.contains_key(&local));
+    assert!(!app.session().backend_banners.contains_key(&remote));
+    read_answered(&mut app, &remote_refresh, cap.clone());
+
+    run(&mut app, usage_failure());
+    assert!(!app.session().backend_banners.contains_key(&local));
+    let shown = app
+        .wishes()
+        .pending()
+        .find_map(|entry| match &entry.wish {
+            FeatureWish::RateLimitPrompt(rate_limit_prompt::Wish::Nudge {
+                id,
+                kind: chat::Nudge::UsageLimit,
+            }) => Some(id.clone()),
+            _ => None,
+        })
+        .expect("local usage-limit fallback");
+    read_answered(&mut app, &late_local, credits);
+    assert!(!app.session().backend_banners.contains_key(&local));
+    assert!(app.session().backend_banners.contains_key(&remote));
+    assert!(app.features().rate_limit_prompt.nudge_pending(&shown));
+
+    let current = refresh(&mut app);
+    read_answered(&mut app, &current, cap);
+    assert!(!app.features().rate_limit_prompt.nudge_pending(&shown));
+    let late_yes = run(
+        &mut app,
+        AppEv::Intent(Intent::Feature(
+            rate_limit_prompt::Intent::Nudge(shown).into(),
+        )),
+    );
+    assert!(
+        !late_yes
+            .commands()
+            .iter()
+            .any(|cmd| matches!(cmd, Command::SendAddCreditsNudge { .. }))
+    );
+}
+
+#[test]
+fn a_newer_successful_read_keeps_its_banner_when_an_older_one_returns() {
+    let mut app = ready();
+    let older = refresh(&mut app);
+    let newer = refresh(&mut app);
+    let cap = workspace_read("workspace_member_usage_limit_reached", "request_increase");
+    read_answered(&mut app, &newer, cap);
+    let bank = backend(&app);
+    let current = app.session().backend_banners[&bank].clone();
+    let old = workspace_read("workspace_member_credits_depleted", "notify_owner");
+    read_answered(&mut app, &older, old);
+    assert_eq!(app.session().backend_banners[&bank], current);
+}
+
+#[test]
+fn rolling_limit_contradicts_cached_banner_after_physical_replacement() {
+    let mut app = ready();
+    let local = BackendId::default();
+    let start = model_facts(&mut app, "test-model-a", None, true);
+    let credits = workspace_read("workspace_member_credits_depleted", "notify_owner");
+    read_answered(&mut app, &start, credits);
+    let epoch = app.epoch_of(local);
+    app.ingest(Ingress::transport_replaced(local, epoch, epoch.next()))
+        .expect("physical transport replaced");
+    assert!(app.session().backend_banners.contains_key(&local));
+
+    let cap = workspace_read("workspace_member_usage_limit_reached", "request_increase");
+    run(
+        &mut app,
+        notice(
+            "account/rateLimits/updated",
+            json!({"rateLimits": cap["rateLimits"]}),
+        ),
+    );
+    assert!(!app.session().backend_banners.contains_key(&local));
 }
 
 /// The one `model/list` in `fx`: the ticket to answer it.

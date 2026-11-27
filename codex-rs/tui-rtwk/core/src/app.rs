@@ -686,6 +686,7 @@ enum AppCtx {
     RateLimits {
         backend: BackendId,
         origin: status::RateLimitOrigin,
+        superseded: bool,
     },
     /// A reset redemption, correlated by its account's idempotency key.
     Redemption { key: String, backend: BackendId },
@@ -1391,6 +1392,7 @@ impl CodexApp {
 
     /// What the lost connection of `backend` told the session: its banner and its reserve.
     fn forget_reads_of(&mut self, backend: BackendId) {
+        features::forget_rate_remedy(self, backend);
         let session = Rc::make_mut(&mut self.session);
         session.backend_banners.remove(&backend);
         session.reserve.remove(&backend);
@@ -1572,6 +1574,7 @@ fn finish_apply(app: &mut CodexApp, lists: bool, fx: &mut AppFx) {
     sync_cloud_switch(app);
     mentions::sync(app, fx);
     drain_popover_asks(app, fx);
+    features::sync_rate_nudge(app);
     if lists && !app.outgoing.any(is_attach) {
         app.attaching_events.clear();
     }
@@ -1692,17 +1695,19 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         AppEv::Backend(BackendEv::Notification(notification)) => {
             match &*notification {
                 ServerNotification::AccountRateLimitsUpdated(note) => {
+                    features::rolling_remedy(app, origin, &note.rate_limits);
                     // The notification is newer than a refresh nobody waits for; a
                     // read a card or a menu waits for still answers it.
                     app.outgoing.retain(|ctx| {
-                        !matches!(ctx, AppCtx::RateLimits { backend, origin: read }
+                        !matches!(ctx, AppCtx::RateLimits { backend, origin: read, .. }
                             if *backend == origin && read.folds_into_a_read_in_flight())
                     });
                     install_rates(app, origin, note.rate_limits.clone().into());
                     // a rolling update warns like a read does, but never writes the buckets
                     let sample = crate::screens::status::Sample::of(&note.rate_limits);
                     let read_out = app.outgoing.any(|ctx| {
-                        matches!(ctx, AppCtx::RateLimits { backend, .. } if *backend == origin)
+                        matches!(ctx, AppCtx::RateLimits { backend, superseded: false, .. }
+                            if *backend == origin)
                     });
                     let warnings = Rc::make_mut(&mut app.session)
                         .rate_snapshots
@@ -1754,6 +1759,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     // (`invalidate_connector_scope`, `invalidate_permission_discovery`)
                     select::event(app, screens::select::Ev::ScopeChanged, fx);
                     features::retire_rate_offer(app, origin);
+                    features::forget_rate_remedy(app, origin);
                     invalidate_image_restrictions(app, origin);
                     Rc::make_mut(&mut app.session)
                         .backend_banners
@@ -1864,6 +1870,11 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                             .observe(origin, thread);
                     }
                 }
+            }
+            if let ServerNotification::Error(error) = &*notification
+                && !error.will_retry
+            {
+                features::rate_failure(app, origin, error, fx);
             }
             if let ServerNotification::TurnCompleted(note) = &*notification
                 && note.turn.status == codex_app_server_protocol::TurnStatus::Completed
@@ -2467,7 +2478,11 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 }
                 select::answer(app, ctx, answer, fx);
             }
-            AppCtx::RateLimits { backend, origin } => {
+            AppCtx::RateLimits {
+                backend,
+                origin,
+                superseded,
+            } => {
                 let credits = match &answer {
                     Answer::RateLimits { read, .. } => Ok(read.reset_credits.clone()),
                     _ => Err(()),
@@ -2479,7 +2494,9 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                     reserve,
                     read,
                 } = answer
+                    && !superseded
                 {
+                    supersede_rate_reads(app, backend, Some(ticket));
                     Rc::make_mut(&mut app.session)
                         .reserve
                         .insert(backend, reserve);
@@ -2509,9 +2526,10 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                     install_banner(app, backend, banner.map(|banner| *banner));
                     banners::fallback(app, backend, fx);
                     features::on_rate_limits_read(app, backend, &told, fx);
-                } else if let Some(store) = Rc::make_mut(&mut app.session)
-                    .rate_snapshots
-                    .get_mut(&backend)
+                } else if !superseded
+                    && let Some(store) = Rc::make_mut(&mut app.session)
+                        .rate_snapshots
+                        .get_mut(&backend)
                 {
                     store.limits_mut().read_failed();
                 }
@@ -2726,7 +2744,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
 /// banner's notify-owner action and of a feature's `PublicVerb::NotifyOwner`. One e-mail at a
 /// time, as the oracle keeps one request in flight; the notice goes to the thread that was open.
 fn notify_owner(app: &mut CodexApp, backend: BackendId, nudge: chat::Nudge, fx: &mut AppFx) {
-    if app.outgoing.any(|ctx| matches!(ctx, AppCtx::Nudge { .. })) {
+    if owner_nudge_in_flight(app) {
         return;
     }
     let thread = app.session.active.clone();
@@ -2743,6 +2761,10 @@ fn notify_owner(app: &mut CodexApp, backend: BackendId, nudge: chat::Nudge, fx: 
             nudge,
         },
     );
+}
+
+fn owner_nudge_in_flight(app: &CodexApp) -> bool {
+    app.outgoing.any(|ctx| matches!(ctx, AppCtx::Nudge { .. }))
 }
 
 fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
@@ -3121,6 +3143,28 @@ fn install_rates(app: &mut CodexApp, backend: BackendId, limits: status::RateLim
     Rc::make_mut(&mut app.session)
         .rate_limits
         .insert(backend, limits);
+}
+
+/// Already-issued reads cannot publish an old remedy after a limit transition, or overwrite
+/// what a newer successful read published. A visible card or picker still settles its own ask.
+fn supersede_rate_reads(app: &mut CodexApp, backend: BackendId, before: Option<Ticket>) {
+    for (ticket, ctx) in app.outgoing.iter_mut() {
+        if let AppCtx::RateLimits {
+            backend: read,
+            superseded,
+            ..
+        } = ctx
+            && *read == backend
+            && before.is_none_or(|newer| ticket < newer)
+        {
+            *superseded = true;
+        }
+    }
+}
+
+fn supersede_rate_banner(app: &mut CodexApp, backend: BackendId) {
+    install_banner(app, backend, None);
+    supersede_rate_reads(app, backend, None);
 }
 
 fn install_banner(app: &mut CodexApp, backend: BackendId, banner: Option<chat::Banner>) {
