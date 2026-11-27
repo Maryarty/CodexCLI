@@ -216,10 +216,12 @@ impl Screen {
             chat::ModelProviderName {
                 id: "custom-gateway".to_owned(),
                 name: "Team Gateway".to_owned(),
+                flex_fallback: false,
             },
             chat::ModelProviderName {
                 id: "old-provider".to_owned(),
                 name: "  ".to_owned(),
+                flex_fallback: false,
             },
         ]);
         self.h.inject([

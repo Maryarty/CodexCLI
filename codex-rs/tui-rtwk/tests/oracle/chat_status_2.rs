@@ -510,7 +510,7 @@ fn status_line_processing_tier_updates_with_selection() {
         serde_json::json!({
             "step": "screen", "dir": "chat", "ev": {"status": {
                 "model": "gpt-5.4", "service_tier": tier, "fast_mode": fast_mode,
-                "provider": "openai", "flex_tier_providers": ["openai"],
+                "provider": "openai", "provider_names": [{"id": "openai", "name": "OpenAI", "flex_fallback": true}],
                 "items": ["fast-mode"], "terminal_title": ["fast-mode"],
             }}
         })
@@ -621,7 +621,7 @@ fn renamed_thread_footer_title_snapshot() {
 fn status_line_model_with_reasoning_speed_footer_snapshots() {
     let status = |tier: &str, items: &str| {
         format!(
-            r#"{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"gpt-5.4","effort":"xhigh","service_tier":"{tier}","provider":"openai","flex_tier_providers":["openai"],"cwd":"/tmp/project","items":{items},"terminal_title":["model-with-reasoning"]}}}}}}"#
+            r#"{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"gpt-5.4","effort":"xhigh","service_tier":"{tier}","provider":"openai","provider_names":[{{"id":"openai","name":"OpenAI","flex_fallback":true}}],"cwd":"/tmp/project","items":{items},"terminal_title":["model-with-reasoning"]}}}}}}"#
         )
     };
     let all = r#"["model-with-reasoning","context-used","current-dir"]"#;

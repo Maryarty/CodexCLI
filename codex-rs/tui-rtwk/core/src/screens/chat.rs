@@ -78,11 +78,14 @@ pub const DEFAULT_STATUS_LINE_ITEMS: [&str; 3] =
 /// `LUNA_RESERVE_MODEL` (`model_catalog.rs`).
 const LUNA_RESERVE_MODEL: &str = "gpt-reserve";
 
-/// The display name supplied by the configuration for a model provider.
+/// The configuration's display name and tier information for a model provider.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 pub struct ModelProviderName {
     pub id: String,
     pub name: String,
+    /// Whether Flex has a conventional name when the model catalog has no entry for it.
+    #[serde(default)]
+    pub flex_fallback: bool,
 }
 
 /// The facts of the status line that need no session: the loaded config
@@ -127,9 +130,7 @@ pub struct StatusFacts {
     pub hostname: Option<String>,
     pub profile_name: Option<String>,
     pub provider: Option<String>,
-    /// Configured providers that use the conventional Flex name if the catalog has no name.
-    pub flex_tier_providers: BTreeSet<String>,
-    /// Configured display names for the providers a thread refusal can name.
+    /// Configured providers, with display names for a thread refusal and the Flex fallback.
     pub provider_names: Vec<ModelProviderName>,
     pub version: Option<String>,
     pub animations: bool,
@@ -172,7 +173,6 @@ impl Default for StatusFacts {
             hostname: None,
             profile_name: None,
             provider: None,
-            flex_tier_providers: BTreeSet::new(),
             provider_names: Default::default(),
             version: None,
             animations: true,
@@ -234,6 +234,12 @@ impl NoticeKind {
 }
 
 impl StatusFacts {
+    pub fn flex_fallback_for(&self, id: &str) -> bool {
+        self.provider_names
+            .iter()
+            .any(|provider| provider.id == id && provider.flex_fallback)
+    }
+
     /// Configured status items in their original order.
     pub fn items(&self) -> Vec<(String, String)> {
         match &self.items {

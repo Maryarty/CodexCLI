@@ -206,7 +206,7 @@ impl StatusContext<'_> {
             self.catalog,
             slug,
             tier.as_deref(),
-            provider.is_some_and(|id| facts.flex_tier_providers.contains(id)),
+            provider.is_some_and(|id| facts.flex_fallback_for(id)),
         );
         let usage = self.usage.filter(|usage| usage.received);
         let tokens = usage.map(|usage| usage.tokens);

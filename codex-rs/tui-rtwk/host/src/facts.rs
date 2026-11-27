@@ -84,6 +84,7 @@ pub async fn status(config: &Config) -> StatusFacts {
             |(id, provider)| codex_tui_core::screens::chat::ModelProviderName {
                 id: id.clone(),
                 name: provider.name.clone(),
+                flex_fallback: !provider.is_amazon_bedrock(),
             },
         )
         .collect::<Vec<_>>();
@@ -129,12 +130,6 @@ pub async fn status(config: &Config) -> StatusFacts {
         hostname: codex_config::os_host_name(),
         profile_name,
         provider: Some(config.model_provider_id.clone()),
-        flex_tier_providers: config
-            .model_providers
-            .iter()
-            .filter(|(_, provider)| !provider.is_amazon_bedrock())
-            .map(|(id, _)| id.clone())
-            .collect(),
         provider_names,
         version: Some(env!("CARGO_PKG_VERSION").to_string()),
         animations: config.animations,
@@ -574,11 +569,7 @@ mod tests {
                 present,
                 "{provider}"
             );
-            assert_eq!(
-                facts.flex_tier_providers.contains(provider),
-                allowed,
-                "{provider}"
-            );
+            assert_eq!(facts.flex_fallback_for(provider), allowed, "{provider}");
         }
     }
 
