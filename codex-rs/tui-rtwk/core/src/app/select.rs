@@ -20,8 +20,8 @@ use crate::threads::queue::{
 };
 
 use super::features::{
-    acknowledge_queue_modal, cancel_queue_modal, modal_address, queue_modal_is_current,
-    register_queue_modal,
+    acknowledge_queue_modal, cancel_queue_modal, modal_address, queue_modal_can_reopen,
+    queue_modal_is_current, register_queue_modal,
 };
 
 /// An intent of the select screen, and the asks it left open.
@@ -1014,10 +1014,7 @@ pub(super) fn apply_owned_permissions(
         },
         permissions::Selection::Profile { label, .. } => label.clone(),
     };
-    if !app
-        .threads
-        .get(&thread)
-        .is_some_and(|model| model.has_writer() && !model.stream_lost())
+    if !queue_modal_can_reopen(app, &ModalOperation::Permissions(token.clone()))
         || app
             .screens
             .select

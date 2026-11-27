@@ -257,6 +257,20 @@ pub(crate) fn modal_is_open(
             == Some(&ModalPhase::Open(address, operation.kind()))
 }
 
+pub(crate) fn modal_is_applying(
+    model: &ThreadModel,
+    operation: &ModalOperation,
+    address: Address,
+) -> bool {
+    model.id() == operation.thread()
+        && model.queue_modals.get(&operation.operation().seq)
+            == Some(&ModalPhase::Applying {
+                address,
+                kind: operation.kind(),
+                owner_left: false,
+            })
+}
+
 fn holds_picker(due: &DueCommand, operation: &QueueOperation) -> bool {
     due.operation == *operation
         && matches!(
