@@ -37,6 +37,13 @@ impl std::borrow::Borrow<str> for ThreadId {
     }
 }
 
+/// One host clipboard read, identified by its draft's thread and request number.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClipboardRead {
+    pub thread: ThreadId,
+    pub number: u64,
+}
+
 string_id!(
     /// A working directory as the app-server and a feature's data name it (the key a feature's
     /// per-directory answers are cached under, ADR-013 З).

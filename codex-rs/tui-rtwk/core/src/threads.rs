@@ -60,7 +60,7 @@ use queue::{enqueue, send_next};
 pub(crate) use user_prompt::without_controls;
 pub use user_prompt::{Shown, UserPrompt, request_text};
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -1838,6 +1838,7 @@ pub struct ThreadFx<'a> {
     /// or completion time, and what a feature's thread step reads through `ThreadCx::facts`.
     /// None where the caller stamped none (a thread's own test): the defaults.
     facts: Option<features::AppFacts<'a>>,
+    image_restrictions: Option<&'a BTreeSet<String>>,
 }
 
 impl<'a> ThreadFx<'a> {
@@ -1853,6 +1854,7 @@ impl<'a> ThreadFx<'a> {
             modes: &[],
             cloud: false,
             facts: None,
+            image_restrictions: None,
         }
     }
 
@@ -1871,6 +1873,14 @@ impl<'a> ThreadFx<'a> {
         priority: screens::chat::plan_mode::PromptPriority,
     ) -> Self {
         self.prompt_priority = priority;
+        self
+    }
+
+    pub(crate) fn with_image_restrictions(
+        mut self,
+        restricted: Option<&'a BTreeSet<String>>,
+    ) -> Self {
+        self.image_restrictions = restricted;
         self
     }
 
@@ -2754,6 +2764,9 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             )
         }
         ThreadEv::Submit { message } if model.has_writer() => {
+            if reject_image_input(model, fx, &message) {
+                return;
+            }
             // The decision is here (R10). Enter during a running turn steers
             // it (`turn/steer`); while the turn is only starting (no turn id
             // yet) the message waits in the queue; with none running it starts
@@ -3513,7 +3526,9 @@ fn interrupted(model: &mut ThreadModel, turn: &TurnId, fx: &mut ThreadFx<'_>) {
     }
     if submit && !mine.is_empty() {
         let merged = merge_messages(mine.into_iter().map(|steer| steer.message).collect());
-        if let Err(merged) = fx.start_turn(merged) {
+        if reject_image_input(model, fx, &merged) {
+            recover(model, merged);
+        } else if let Err(merged) = fx.start_turn(merged) {
             // refused (a start was said in this step): the next `send_next` sends it first
             model.rejected_steers.push(merged);
         }
@@ -3556,6 +3571,24 @@ fn steer(
         }
         .into(),
     );
+}
+
+/// Reject an image message only when this connection listed the selected model as text-only.
+fn reject_image_input(model: &mut ThreadModel, fx: &ThreadFx<'_>, message: &UserMessage) -> bool {
+    if message.images.is_empty() && message.remote_images.is_empty() {
+        return false;
+    }
+    let Some(rejected_model) = model.slots.chat.model.as_deref().filter(|name| {
+        fx.image_restrictions
+            .is_some_and(|models| models.contains(*name))
+    }) else {
+        return false;
+    };
+    let note = Note::from(crate::commands::Notice::ImageInputsUnsupported(
+        rejected_model.to_owned(),
+    ));
+    apply_appended(model, None, Item::Note(note));
+    true
 }
 
 /// A message that never left goes back to the composer whole; what waits in
@@ -4002,7 +4035,11 @@ fn steer_reply(
             if let Some(index) = position {
                 model.pending_steers.remove(index);
             }
-            if let Err(message) = fx.start_turn(message) {
+            if reject_image_input(model, fx, &message) {
+                if position.is_some() {
+                    recover(model, message);
+                }
+            } else if let Err(message) = fx.start_turn(message) {
                 // refused (a start was said in this step): the next `send_next` sends it first
                 model.rejected_steers.push(message);
             }
@@ -4014,8 +4051,15 @@ fn steer_reply(
             {
                 running.turn = actual.clone();
             }
-            let ticket = fx.mint();
-            steer(fx, ticket, actual, true, message, client_id);
+            if reject_image_input(model, fx, &message) {
+                if let Some(index) = position {
+                    model.pending_steers.remove(index);
+                    recover(model, message);
+                }
+            } else {
+                let ticket = fx.mint();
+                steer(fx, ticket, actual, true, message, client_id);
+            }
         }
         Refusal::Changed(_) | Refusal::Other => {
             if let Some(index) = position {

@@ -86,6 +86,8 @@ pub struct Strings {
     /// `PARENT_OWNED_INPUT_MESSAGE`.
     pub parent_owned: &'static str,
     pub mode_busy: &'static str,
+    pub image_inputs_unsupported: Msg<1>,
+    pub clipboard_read_failed: Msg<1>,
     /// `plan_implementation.rs`: the question after a proposed plan.
     pub plan_title: &'static str,
     pub plan_yes: &'static str,
@@ -305,6 +307,10 @@ pub const EN: Strings = Strings {
     stub_memory_maintenance: "Memory maintenance",
     parent_owned: "This sub-agent is controlled by its parent. Direct input is disabled.",
     mode_busy: "Cannot switch collaboration mode while a turn is running.",
+    image_inputs_unsupported: msg!(
+        "Model {0} does not support image inputs. Remove images or switch models."
+    ),
+    clipboard_read_failed: msg!("Failed to paste image: {0}"),
     plan_title: "Implement this plan?",
     plan_yes: "Yes, implement this plan",
     plan_yes_note: "Switch to Default and start coding",
@@ -963,6 +969,8 @@ impl Strings {
             Notice::ModelStartup => self.model_startup.to_string(),
             Notice::ShellHelp => self.shell_help.to_string(),
             Notice::ThreadModelUnavailable => self.thread_model_unavailable.to_string(),
+            Notice::ImageInputsUnsupported(model) => text(self.image_inputs_unsupported, model),
+            Notice::ClipboardReadFailed(error) => text(self.clipboard_read_failed, error),
             Notice::InputTooLarge { provided } => Fmt::new(
                 self.input_too_large,
                 [

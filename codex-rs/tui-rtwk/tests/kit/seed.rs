@@ -20,6 +20,7 @@
 use codex_tui_core::app::{AppEv, BackendEv};
 use codex_tui_core::fixtures::script::{self, Step};
 use codex_tui_core::screens::onboarding::session::Start;
+use codex_tui_core::screens::popovers::ClipboardRead;
 use codex_tui_core::screens::seed_ev;
 use codex_tui_core::screens::startup::Action;
 use codex_tui_rtwk::app::UiApp;
@@ -51,6 +52,7 @@ pub struct Open {
     pub(super) quittable: bool,
     pub(super) first_frame: bool,
     pub(super) held_start: bool,
+    model_catalog: Option<serde_json::Value>,
     /// The fake mints `fake-turn-{n}` for the turns the app starts (`Open::fake_turn_ids`).
     pub(super) fake_turns: bool,
     /// The chat starts inside a `/side` conversation (`Open::side`).
@@ -89,6 +91,7 @@ impl Screen {
             quittable: false,
             first_frame: false,
             held_start: false,
+            model_catalog: None,
             fake_turns: false,
             side: false,
             gutter: 0,
@@ -107,6 +110,12 @@ impl Screen {
 }
 
 impl Open {
+    /// The server's answer to the model list requested at connect.
+    pub fn model_catalog(mut self, catalog: serde_json::Value) -> Open {
+        self.model_catalog = Some(catalog);
+        self
+    }
+
     /// The command line is `codex resume <id>`: the session is read and opened once the
     /// connection is up (the backend leaves its `thread/read` unanswered), the startup draft
     /// says `Resuming session…`.
@@ -386,6 +395,13 @@ impl Open {
                 script::Answer::Result(response.clone()),
             );
         }
+        if let Some(catalog) = &self.model_catalog {
+            answer(
+                &mut h,
+                "model/list".to_string(),
+                script::Answer::Result(catalog.clone()),
+            );
+        }
         // The server's mode catalog (`collaborationMode/list`, read at connect): the Default and
         // Plan presets with no model or effort of their own, so `/plan` and Shift+Tab have a Plan
         // to switch to (the oracle's chat widget enables the collaboration modes the same way).
@@ -467,40 +483,45 @@ impl Screen {
         self
     }
 
-    /// The host answers the clipboard-image ask (`Ask::ClipboardImage`, asked by Ctrl+V or Alt+V)
-    /// with the PNG file at `path`: the composer attaches it where the caret is. The system
-    /// clipboard itself is the host's, so a test hands over the answer.
+    /// Answer the last clipboard read that actually reached the fake host.
     pub fn clipboard_image(&mut self, path: &std::path::Path) -> &mut Screen {
-        self.answer_clipboard_image(path);
+        let read = clipboard_reads(&self.h)
+            .pop()
+            .expect("a host clipboard read");
+        self.answer_clipboard_read(read, Ok(path.to_path_buf()));
         self.h.advance(100);
         self
     }
 
-    /// `key` (Ctrl+V or Alt+V) pressed and the host's answer with the PNG at `path` at once, a
-    /// millisecond apart and with nothing waited after: what the paste detector holds is still
-    /// held (the oracle's `handle_key_event` then `attach_image`, no time between).
-    pub fn paste_clipboard_image_at_once(
-        &mut self,
-        key: &str,
-        path: &std::path::Path,
-    ) -> &mut Screen {
+    /// Press the image shortcut without settling the draft's paste detector first.
+    pub fn ask_clipboard_image(&mut self, key: &str) -> ClipboardRead {
+        let before = clipboard_reads(&self.h).len();
         self.press_key(key);
-        self.h.t.pump_for(crate::common::ms(1));
-        self.answer_clipboard_image(path);
-        self.h.t.pump_for(crate::common::ms(1));
-        self
+        self.h.t.pump_for(ms(1));
+        self.h
+            .wait_until("a new clipboard read reaches the host", |h| {
+                clipboard_reads(h).len() > before
+            });
+        clipboard_reads(&self.h).remove(before)
     }
 
-    fn answer_clipboard_image(&mut self, path: &std::path::Path) {
-        use codex_tui_core::app::AppEv;
+    /// Return the result of a recorded clipboard read. The caller chooses when it arrives.
+    pub fn answer_clipboard_read(
+        &mut self,
+        read: ClipboardRead,
+        result: Result<std::path::PathBuf, String>,
+    ) -> &mut Screen {
         use codex_tui_core::screens::{ScreenEv, popovers};
         let epoch = self.h.fake.epoch().expect("attached");
         self.h.fake.inject(
             epoch,
-            AppEv::Screen(ScreenEv::Popovers(popovers::Ev::ImagePasted(
-                path.to_path_buf(),
-            ))),
+            AppEv::Screen(ScreenEv::Popovers(popovers::Ev::ClipboardResult {
+                read,
+                result,
+            })),
         );
+        self.h.t.pump_for(ms(1));
+        self
     }
 
     /// The chat's draft is `text` now, the caret at its end (`Open::draft`): UI state of the open
@@ -568,6 +589,33 @@ impl Screen {
         self.h.advance(100);
         self
     }
+}
+
+fn clipboard_reads(h: &Harness) -> Vec<ClipboardRead> {
+    use codex_tui_core::app::{Command, effects::Ask};
+    use codex_tui_core::screens::popovers;
+    h.fake
+        .commands()
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::Effect {
+                ask:
+                    Ask::Popovers {
+                        ask: popovers::Ask::ClipboardImage(read),
+                        thread,
+                    },
+                ..
+            } => {
+                assert_eq!(
+                    thread.as_ref(),
+                    Some(&read.thread),
+                    "host route follows the draft"
+                );
+                Some(read)
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 fn feed(h: &mut Harness, text: &str) {

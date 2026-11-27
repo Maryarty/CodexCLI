@@ -159,13 +159,15 @@ impl Services {
                 let _ = self.mentions.record(identity).await;
                 None
             }
-            popovers::Ask::ClipboardImage => Some(match paste_image().await {
-                Ok((path, _)) => popover_ev(popovers::Ev::ImagePasted(path)),
-                // Oracle: `Failed to paste image: {error}` as an error line.
-                Err(error) => AppEv::ErrorLine {
-                    message: format!("Failed to paste image: {error}"),
-                },
-            }),
+            popovers::Ask::ClipboardImage(read) => {
+                Some(popover_ev(popovers::Ev::ClipboardResult {
+                    read,
+                    result: paste_image()
+                        .await
+                        .map(|(path, _)| path)
+                        .map_err(|error| error.to_string()),
+                }))
+            }
             popovers::Ask::FileSearch(ask) => {
                 if let Some(search) = &self.search {
                     search.ask(ask);

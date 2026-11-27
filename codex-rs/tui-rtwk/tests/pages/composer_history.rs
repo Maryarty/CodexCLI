@@ -82,9 +82,10 @@ fn lookups(h: &Harness) -> Vec<Lookup> {
         .into_iter()
         .filter_map(|ask| match ask {
             Ask::Lookup(lookup) => Some(lookup),
-            Ask::Append(_) | Ask::FileSearch(_) | Ask::RecordMention(_) | Ask::ClipboardImage => {
-                None
-            }
+            Ask::Append(_)
+            | Ask::FileSearch(_)
+            | Ask::RecordMention(_)
+            | Ask::ClipboardImage(_) => None,
         })
         .collect()
 }
@@ -101,9 +102,10 @@ fn appended(h: &Harness) -> Vec<String> {
         .into_iter()
         .filter_map(|ask| match ask {
             Ask::Append(text) => Some(text),
-            Ask::Lookup(_) | Ask::FileSearch(_) | Ask::RecordMention(_) | Ask::ClipboardImage => {
-                None
-            }
+            Ask::Lookup(_)
+            | Ask::FileSearch(_)
+            | Ask::RecordMention(_)
+            | Ask::ClipboardImage(_) => None,
         })
         .collect()
 }
@@ -391,7 +393,9 @@ fn global_vim_and_clipboard_keys_precede_the_focused_query() {
     h.wait_for("the Vim toggle note", |s| s.contains("Vim mode enabled."));
     h.press("ctrl+v");
     h.wait_until("the clipboard ask", |h| {
-        asks(h).contains(&Ask::ClipboardImage)
+        asks(h)
+            .iter()
+            .any(|ask| matches!(ask, Ask::ClipboardImage(_)))
     });
     assert!(h.t.screen().contains("reverse-i-search: needle"));
     h.press("esc");

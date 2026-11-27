@@ -44,7 +44,9 @@ impl ChatState {
                 |n| table.image(n),
                 states.popovers.sources().mentions,
             );
-            put_back(&w.ui, &restore.onto(draft), |n| table.image(n));
+            put_back(&w.ui, &restore.onto(draft), restore.replaces(), |n| {
+                table.image(n)
+            });
         });
     }
 
@@ -113,7 +115,7 @@ impl ChatState {
             Edge::Draft(message) => {
                 let table = crate::pages::session::composer::strings::of(cx);
                 w.ui.draft.edit_stored(&w.ui.composer, || {
-                    put_back(&w.ui, &message, |n| table.image(n))
+                    put_back(&w.ui, &message, true, |n| table.image(n))
                 });
                 self.sync_draft(w);
                 Rebuild::Yes

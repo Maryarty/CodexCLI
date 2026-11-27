@@ -554,8 +554,11 @@ fn apply_before_search<S>(cx: &mut Cx<'_, S>, action: BeforeSearch) -> rtwk::Reb
             cx.emit(&hs.screen, ScreenIntent::from(intent));
             rtwk::Rebuild::Yes
         }
-        BeforeSearch::PasteImage => {
-            cx.emit(&hs.screen, ScreenIntent::from(popovers::Intent::PasteImage));
+        BeforeSearch::PasteImage(read) => {
+            cx.emit(
+                &hs.screen,
+                ScreenIntent::from(popovers::Intent::PasteImage(read)),
+            );
             rtwk::Rebuild::No
         }
     }
@@ -934,17 +937,59 @@ impl State for ComposerState {
             ComposerMsg::ImageArrived => {
                 let states = read::<ScreenStates, _>(cx);
                 let table = strings::of(cx);
+                let thread = read::<ThreadModel, _>(cx).id().clone();
                 let (draft, c) = (&w.ui.draft, &w.ui.composer);
-                let took = draft.vim_direct(c, || {
-                    draft.take_pasted_image(
-                        c,
-                        |n| states.popovers.pasted.after(n).map(Into::into),
-                        |n| table.image(n),
-                    )
-                });
-                if !took {
+                let Some(request) = draft.pending_image_read() else {
                     return rtwk::Rebuild::No;
-                }
+                };
+                let Some(result) = states
+                    .popovers
+                    .pasted
+                    .result(&request.thread, request.number)
+                else {
+                    return rtwk::Rebuild::No;
+                };
+                let prefix = draft.complete_image_read();
+                let hs = read::<Hs, _>(cx);
+                cx.emit(
+                    &hs.screen,
+                    ScreenIntent::from(popovers::Intent::ClipboardReadFinished(request)),
+                );
+                draft.edit_stored(c, || match result {
+                    Ok(path) => {
+                        draft.vim_direct(c, || {
+                            draft.attach_image(c, path.clone(), |n| table.image(n));
+                            if let Some(prefix) = prefix {
+                                draft.insert_text(c, &prefix);
+                                if let Some(binding) = AppBinding::maybe_of(cx) {
+                                    draft.burst(|b| b.extend_window(binding.clock().now()));
+                                }
+                            }
+                        });
+                    }
+                    Err(error) => {
+                        let intent = chat::Intent::Note {
+                            thread: Some(thread),
+                            note: Note::from(
+                                codex_tui_core::commands::Notice::ClipboardReadFailed(
+                                    error.clone(),
+                                ),
+                            ),
+                        };
+                        cx.emit(&hs.screen, ScreenIntent::from(intent));
+                        if let Some(prefix) = prefix {
+                            let tell = cx.local_sender();
+                            if !editing::typed_char(draft, &*tell, c, '!', None) {
+                                draft.insert_text(c, "!");
+                            }
+                            if let Some(rest) =
+                                prefix.strip_prefix('!').filter(|rest| !rest.is_empty())
+                            {
+                                draft.insert_text(c, rest);
+                            }
+                        }
+                    }
+                });
                 // the page's footer and the app hear of the new draft
                 if let Some(h) = &w.on_changed {
                     cx.emit(h, w.ui.composer.text());
@@ -1039,20 +1084,21 @@ impl State for ComposerState {
             // the mentions or the file matches may have changed under it
             cx.local_sender()(ComposerMsg::SyncMentions);
         }
+        let thread = read::<ThreadModel, _>(cx).id().clone();
         if w.ui
             .draft
-            .image_arrived(|n| popovers.pasted.after(n).is_some())
+            .pending_image_read()
+            .is_some_and(|read| popovers.pasted.result(&read.thread, read.number).is_some())
         {
             // the clipboard's image this draft asked for is in
             cx.local_sender()(ComposerMsg::ImageArrived);
         }
-        if !w.bare && w.plain.is_none() {
-            let thread = read::<ThreadModel, _>(cx).id().clone();
-            if let Some((number, text)) = crate::features::handed(&thread, cx)
-                && self.edited.replace(Some(number)) != Some(number)
-            {
-                cx.local_sender()(ComposerMsg::Edited { number, text });
-            }
+        if !w.bare
+            && w.plain.is_none()
+            && let Some((number, text)) = crate::features::handed(&thread, cx)
+            && self.edited.replace(Some(number)) != Some(number)
+        {
+            cx.local_sender()(ComposerMsg::Edited { number, text });
         }
         if !w.bare
             && w.plain.is_none()
@@ -1068,6 +1114,7 @@ impl State for ComposerState {
             cx.local_sender()(ComposerMsg::Restrict);
         }
         let data = KeyData {
+            thread,
             restricted,
             draft: w.ui.draft.clone(),
             history: popovers.history.clone(),
