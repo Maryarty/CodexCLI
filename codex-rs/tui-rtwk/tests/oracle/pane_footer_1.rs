@@ -1023,15 +1023,13 @@ fn footer_layout_in_fullscreen_and_scrollback() {
 #[test]
 fn ide_status_uses_fresh_receipts_in_fullscreen_and_scrollback() {
     for inline in [false, true] {
-        let open = Screen::build(Owner::UiPane)
-            .size(120, 24)
-            .script(PLAN_STATUS)
-            .live();
+        let open = Screen::build(Owner::UiPane).size(120, 24).live();
         let mut s = if inline {
             open.inline(&["previous shell output"]).open()
         } else {
             open.open()
         };
+        s.feed(&facts(r#"{"cwd":"/workspace"}"#));
         s.type_text("/ide on").keys("enter");
         s.assert_absent("IDE context is on.");
         s.answer_ide_context(Ok(true));
