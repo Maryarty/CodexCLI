@@ -1346,7 +1346,11 @@ fn transcript_rows(s: &Screen) -> std::ops::Range<usize> {
         .rows()
         .iter()
         .rposition(|row| row.trim_start().starts_with("› "))
-        .expect("the live composer is visible");
+        .unwrap_or(0);
+    s.assert_drawn(
+        first_composer_row,
+        "transcript rows above the live composer",
+    );
     0..first_composer_row
 }
 
