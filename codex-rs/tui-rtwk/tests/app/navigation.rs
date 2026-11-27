@@ -128,27 +128,82 @@ fn the_menu_says_how_to_go_back_and_the_home_menu_says_q_quits() {
 /// while they are up, and Escape returns to exactly the chat before.
 #[test]
 fn pets_is_a_sheet_over_the_session_page() {
-    let mut h = start();
-    crate::chat::chat_with_history(&mut h);
+    use codex_tui_core::screens::pets::{AssetAsk, AssetDone, Pet, Picker};
+    use rtwk_core::graphics::GraphicsProtocol;
+    use rtwk_test::Options;
+
+    let terminal = Options::new()
+        .size(80, 40)
+        .graphics(GraphicsProtocol::Kitty)
+        .cell_pixels(8, 16);
+    let mut h = crate::common::start_driven_with(false, terminal);
+    h.wait_idle();
+    // Leave some transcript above the bottom-mounted picker.
+    let reply = (1..=9).fold("Hello".to_owned(), |mut text, n| {
+        use std::fmt::Write as _;
+        let _ = write!(text, "\n\nParagraph {n}");
+        text
+    });
+    h.fake.script_turn(vec![
+        agent_delta(FAKE_THREAD, "turn-1", "msg-1", &reply),
+        agent_completed(FAKE_THREAD, "turn-1", "msg-1", &reply),
+        turn_completed(FAKE_THREAD, "turn-1"),
+    ]);
+    h.t.type_text("hi");
+    h.press("enter");
+    h.wait_for("the transcript", |s| {
+        s.contains("• Hello") && s.contains("Paragraph 9")
+    });
+    h.wait_idle();
     let before = h.t.screen();
     h.t.type_text("/pets");
     h.press("enter");
-    h.wait_for("the sheet", |s| s.contains("empty slot"));
-    h.t.pump_for(crate::common::ms(800));
+    let mut request = None;
+    h.wait_until("the local catalog request", |h| {
+        request = h
+            .fake
+            .commands()
+            .into_iter()
+            .find_map(|command| match command {
+                Command::Effect {
+                    request,
+                    ask: Ask::Pet(AssetAsk::Catalog { graphics: true }),
+                    ..
+                } => Some(request),
+                _ => None,
+            });
+        request.is_some()
+    });
+    let Some(request) = request else {
+        panic!("the pet catalog was never requested")
+    };
+    h.inject([AppEv::Effect {
+        request,
+        done: Done::Pet(AssetDone::Catalog(Ok(Picker::build(
+            None,
+            vec![Pet {
+                selector: "codex".to_owned(),
+                name: "Codex".to_owned(),
+                description: None,
+                legacy_selector: None,
+            }],
+        )))),
+    }]);
+    h.wait_for("the live pet picker", |s| {
+        s.contains("Select Pet") && s.contains("Disable terminal pets")
+    });
     let open = h.t.screen();
     assert!(
         open.contains("• Hello"),
-        "the sheet covers the session page:\n{open}"
+        "the sheet covers the transcript:\n{open}"
     );
-    assert!(open.contains("empty slot"), "the sheet is not up:\n{open}");
+    assert!(
+        open.contains("› Codex"),
+        "the catalog is not shown:\n{open}"
+    );
     h.press("escape");
-    h.t.pump_for(crate::common::ms(600));
-    assert!(h.t.screen().contains("• Hello"));
-    assert_eq!(
-        h.t.screen().lines().count(),
-        before.lines().count(),
-        "back on the session page"
-    );
+    h.wait_for("the picker to close", |s| !s.contains("Select Pet"));
+    crate::chat::assert_chat_back(&h, None, &before);
 }
 
 /// Import is a step of the startup page (architecture §1, amendment
