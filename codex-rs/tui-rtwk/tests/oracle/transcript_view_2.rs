@@ -1243,7 +1243,7 @@ fn fullscreen_image_previews_follow_layout_without_entering_text_surfaces() {
         if graphics {
             s.keys("alt+r");
             s.assert_image_rows(&[], 100);
-            std::fs::remove_file(&path).unwrap();
+            kit::remove_artifact_file(&path);
             s.keys("alt+r");
             s.click_text("+ Show details");
             s.assert_contains(path.to_str().unwrap());
