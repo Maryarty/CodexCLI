@@ -95,11 +95,9 @@ pub(super) fn prepare(app: &mut CodexApp, fx: &mut AppFx, emitted_from: usize) {
             continue;
         }
         if permitted {
-            let reading = if expired {
-                None
-            } else {
-                pending.reading.take()
-            };
+            // A result received while this send waited behind an earlier one
+            // remains usable when the earlier read times out.
+            let reading = pending.reading.take();
             features::run(app, fx, |states, cx| {
                 states
                     .small_cmds

@@ -293,23 +293,51 @@ fn pending_steers_keep_send_order_and_only_attach_their_own_results() {
         .into_iter()
         .zip([("first", FIRST_SELECTION), ("second", NEW_SELECTION)])
     {
-        let Command::Screen {
-            command: ScreenCommand::Chat(chat::Command::Steer { message, .. }),
-            ..
-        } = command
-        else {
-            panic!("expected a steer, got {command:?}");
-        };
-        assert_eq!(message, &UserMessage::text(original));
-        let Some(ClientRequest::TurnSteer { params, .. }) =
-            client_request(command, RequestId::Integer(1), None)
-        else {
-            panic!("expected turn/steer on wire");
-        };
-        assert_eq!(params.expected_turn_id, "turn-1");
-        assert!(text(&params.input).contains(selection));
-        assert!(text(&params.input).ends_with(original));
+        let input = steer_input(command, original);
+        assert!(text(&input).contains(selection));
+        assert!(text(&input).ends_with(original));
     }
+}
+
+fn steer_input(command: &Command, original: &str) -> Vec<UserInput> {
+    let Command::Screen {
+        command: ScreenCommand::Chat(chat::Command::Steer { message, .. }),
+        ..
+    } = command
+    else {
+        panic!("expected a steer, got {command:?}");
+    };
+    assert_eq!(message, &UserMessage::text(original));
+    let Some(ClientRequest::TurnSteer { params, .. }) =
+        client_request(command, RequestId::Integer(1), None)
+    else {
+        panic!("expected turn/steer on wire");
+    };
+    assert_eq!(params.expected_turn_id, "turn-1");
+    params.input
+}
+
+#[test]
+fn a_received_selection_survives_an_earlier_steers_timed_out_read() {
+    let mut app = ready();
+    enable(&mut app);
+    run(&mut app, AppEv::Backend(turn_started(T, "turn-1")));
+    let first = submit(&mut app, "first");
+    fresh_read(&app, &first);
+    let wake = first.wake().expect("a deadline").at();
+    let second = submit(&mut app, "second");
+    let second = fresh_read(&app, &second);
+    let fx = run(&mut app, result(second, NEW_SELECTION));
+    assert!(submissions(&fx).is_empty());
+    let fx = run(&mut app, AppEv::Clock(wake));
+    let sends = submissions(&fx);
+    let [first, second] = sends.as_slice() else {
+        panic!("expected both steers, got {sends:?}");
+    };
+    assert_eq!(text(&steer_input(first, "first")), "first");
+    let input = steer_input(second, "second");
+    assert!(text(&input).contains(NEW_SELECTION));
+    assert!(text(&input).ends_with("second"));
 }
 
 #[test]
