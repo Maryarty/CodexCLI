@@ -107,10 +107,13 @@ mod buffering_during_a_check {
     use super::*;
 
     fn state(app: &CodexApp) -> Option<(bool, Option<String>, u32)> {
-        app.active_thread()
-            .safety()
-            .buffering()
-            .map(|held| (held.waiting(), held.retry.clone(), held.revision))
+        app.active_thread().safety().buffering().map(|held| {
+            (
+                held.waiting(),
+                held.retry_offer().map(|offer| offer.model().to_owned()),
+                held.revision,
+            )
+        })
     }
 
     /// The check of a turn submitted here holds the output and offers the retry with the faster
@@ -172,28 +175,32 @@ mod buffering_during_a_check {
         let mut app = ready();
         submitted_turn(&mut app, "hello", "turn-1");
         notify(&mut app, buffering("turn-1", true, Some("gpt-fast")));
-        verb(
-            &mut app,
-            Verb::Retry {
-                turn: TurnId::new("turn-1"),
-                model: "gpt-other".into(),
-            },
-        );
+        let current_offer = |app: &CodexApp| {
+            app.active_thread()
+                .safety()
+                .buffering()
+                .and_then(|held| held.retry_offer())
+                .expect("an exact retry offer")
+                .clone()
+        };
+        let stale = current_offer(&app);
+        notify(&mut app, buffering("turn-1", true, Some("gpt-fast")));
+        assert_eq!(current_offer(&app), stale);
+
+        notify(&mut app, buffering("turn-1", false, None));
+        notify(&mut app, buffering("turn-1", true, Some("gpt-fast")));
+        let current = current_offer(&app);
+        assert_ne!(current, stale);
+        verb(&mut app, Verb::Retry(stale));
         assert_eq!(app.active_thread().safety().retry(), None);
-        verb(
-            &mut app,
-            Verb::Retry {
-                turn: TurnId::new("turn-1"),
-                model: "gpt-fast".into(),
-            },
-        );
+        verb(&mut app, Verb::Retry(current));
         let thread = app.active_thread();
         let retry = thread.safety().retry().expect("a retry request");
         assert_eq!(
             (
-                retry.turn.to_string(),
-                retry.model.as_str(),
-                retry.message.text.as_str()
+                retry.turn().to_string(),
+                retry.model(),
+                retry.message().text.as_str()
             ),
             ("turn-1".to_owned(), "gpt-fast", "hello")
         );

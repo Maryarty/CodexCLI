@@ -13,6 +13,7 @@
 //! `ThreadEv` and `Intent` stay as they are; the verbs come as `chat::Intent::Safety`).
 
 pub mod recourse;
+pub(crate) mod retry;
 
 use codex_app_server_protocol::{
     MisalignmentErrorDetails, ModelSafetyBufferingUpdatedNotification, ServerNotification,
@@ -22,7 +23,7 @@ use codex_app_server_protocol::{
 pub use recourse::{Domain, Source, Topic};
 
 use super::{Fault, Item, ThreadEv, ThreadFx, ThreadModel, TurnState, UserMessage};
-use crate::ids::{ThreadId, TurnId};
+use crate::ids::{ThreadId, Ticket, TurnId};
 use crate::screens::cells::Daybreak;
 use crate::screens::{ScreenThreadEv, chat};
 
@@ -37,7 +38,7 @@ pub struct Buffering {
     pub turn: TurnId,
     /// The faster model the retry is offered with; none when it cannot be offered (the turn was
     /// not submitted here, a model was not named).
-    pub retry: Option<String>,
+    retry: Option<RetryOffer>,
     /// Counts the prompts: a new number is a prompt to show (the first one, or the same check
     /// whose offer of a retry changed), the same number the prompt already shown.
     pub revision: u32,
@@ -48,6 +49,25 @@ impl Buffering {
     /// Nothing of the answer has come yet (the header and the prompt stay).
     pub fn waiting(&self) -> bool {
         !self.message_started
+    }
+
+    /// Exactly the offer the user can explicitly confirm while this check waits.
+    pub fn retry_offer(&self) -> Option<&RetryOffer> {
+        self.retry.as_ref().filter(|_| self.waiting())
+    }
+}
+
+/// Identifies the offered model and the lifetime of one buffering check.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RetryOffer {
+    generation: Ticket,
+    turn: TurnId,
+    model: String,
+}
+
+impl RetryOffer {
+    pub fn model(&self) -> &str {
+        &self.model
     }
 }
 
@@ -87,9 +107,24 @@ struct Pending {
 /// the turn and sends `message` again (`retry_safety_buffered_turn`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Retry {
-    pub turn: TurnId,
-    pub model: String,
-    pub message: UserMessage,
+    thread: ThreadId,
+    turn: TurnId,
+    model: String,
+    message: UserMessage,
+}
+
+impl Retry {
+    pub fn turn(&self) -> &TurnId {
+        &self.turn
+    }
+
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    pub fn message(&self) -> &UserMessage {
+        &self.message
+    }
 }
 
 /// The request to continue with a rewrite on a new chat forked before the blocked turn.
@@ -247,8 +282,8 @@ impl Safety {
 /// What a surface asks of the thread's safety state.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Verb {
-    /// Stop the buffered `turn` and retry on `model` (the confirmed row of the sheet).
-    Retry { turn: TurnId, model: String },
+    /// Stop the buffered turn and retry according to this exact confirmed offer.
+    Retry(RetryOffer),
     /// Start a new chat from the rewrite `prompt` offered for the blocked `turn`.
     Rewrite { turn: TurnId, prompt: String },
     /// Acknowledge the findings of `review` and continue with the server's instruction.
@@ -350,16 +385,23 @@ pub(super) fn apply(model: &mut ThreadModel, ev: SafetyEv, fx: &mut ThreadFx<'_>
             turn,
             show,
             faster_model,
-        } => buffering(model, turn, show, faster_model),
+        } => buffering(model, turn, show, faster_model, fx),
         SafetyEv::Moderation { turn, metadata } => moderation(model, turn, metadata),
         SafetyEv::Verb(verb) => verb_applied(model, verb, fx),
     }
 }
 
-fn buffering(model: &mut ThreadModel, turn: TurnId, show: bool, faster_model: Option<String>) {
+fn buffering(
+    model: &mut ThreadModel,
+    turn: TurnId,
+    show: bool,
+    faster_model: Option<String>,
+    fx: &mut ThreadFx<'_>,
+) {
     let running = model.is_running();
     let last = last_turn(model);
-    let writer = model.has_writer();
+    let writer =
+        model.has_writer() && !model.slots.chat.ephemeral && !model.slots.chat.parent_owned;
     let safety = &mut model.core.safety;
     if !running
         || safety.recourse.is_some()
@@ -389,22 +431,21 @@ fn buffering(model: &mut ThreadModel, turn: TurnId, show: bool, faster_model: Op
                 .as_ref()
                 .is_some_and(|submitted| submitted.turn == turn)
     });
-    let previous = safety
-        .buffering
-        .as_ref()
-        .filter(|held| held.turn == turn)
-        .map(|held| (held.revision, held.retry.is_some()));
-    let revision = match previous {
-        Some((revision, offered)) if offered == retry.is_some() => revision,
-        _ => {
-            safety.revisions += 1;
-            safety.revisions
-        }
-    };
+    let previous = safety.buffering.as_ref().filter(|held| held.turn == turn);
+    let previous_model = previous.and_then(|held| held.retry.as_ref().map(RetryOffer::model));
+    if previous.is_some() && previous_model == retry.as_deref() {
+        return;
+    }
+    safety.revisions += 1;
+    let retry = retry.map(|model| RetryOffer {
+        generation: fx.mint(),
+        turn: turn.clone(),
+        model,
+    });
     safety.buffering = Some(Buffering {
         turn,
         retry,
-        revision,
+        revision: safety.revisions,
         message_started: false,
     });
 }
@@ -577,30 +618,34 @@ fn stop(model: &mut ThreadModel, turn: Option<TurnId>, details: Option<Misalignm
     safety.rewrite = None;
 }
 
+/// The owner checks the same offer at dispatch before any interrupt can be emitted.
+pub(crate) fn confirmed_retry(model: &ThreadModel, offer: &RetryOffer) -> Option<Retry> {
+    let safety = &model.core.safety;
+    if !model.is_running()
+        || !model.has_writer()
+        || model.slots.chat.ephemeral
+        || model.slots.chat.parent_owned
+        || safety.buffering()?.retry_offer() != Some(offer)
+    {
+        return None;
+    }
+    let submitted = safety
+        .submitted
+        .as_ref()
+        .filter(|submitted| submitted.turn == offer.turn)?;
+    Some(Retry {
+        thread: model.id().clone(),
+        turn: offer.turn.clone(),
+        model: offer.model.clone(),
+        message: submitted.message.clone(),
+    })
+}
+
 fn verb_applied(model: &mut ThreadModel, verb: Verb, fx: &mut ThreadFx<'_>) {
     match verb {
-        Verb::Retry {
-            turn,
-            model: faster,
-        } => {
-            let waiting = model.is_running()
-                && model.has_writer()
-                && model.core.safety.buffering.as_ref().is_some_and(|held| {
-                    held.turn == turn && held.waiting() && held.retry.as_deref() == Some(&faster)
-                });
-            let message = model
-                .core
-                .safety
-                .submitted
-                .as_ref()
-                .filter(|submitted| submitted.turn == turn)
-                .map(|submitted| submitted.message.clone());
-            if let (true, Some(message)) = (waiting, message) {
-                model.core.safety.retry = Some(Retry {
-                    turn,
-                    model: faster,
-                    message,
-                });
+        Verb::Retry(offer) => {
+            if model.core.safety.retry.is_none() {
+                model.core.safety.retry = confirmed_retry(model, &offer);
             }
         }
         Verb::Rewrite { turn, prompt } => {
