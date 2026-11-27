@@ -195,7 +195,7 @@ fn whole_user_turn_highlight_includes_bottom_padding() {
 fn rendered_mermaid_copies_source() {
     kit::pending(
         Owner::ChatLive,
-        "G62: the chat draws the mermaid fence as code (`• graph LR` / `A --> B`) where the oracle draws the diagram, so `graph LR` is on screen; the copy half works (`up`, `enter` copy `graph LR\\nA --> B\\n`)",
+        "G62: the pinned rtwk has a Mermaid parser but no diagram widget. The mounted code fallback and exact source copy are covered by transcript_kit::the_mermaid_code_fallback_copies_the_complete_fenced_source.",
     );
     let mut s = chat(
         include_str!("fixtures/transcript_view_2/mermaid.jsonl"),

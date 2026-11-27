@@ -226,3 +226,42 @@ fn middle_click_does_not_make_a_find_match_copyable() {
         s.assert_absent("Find ·");
     }
 }
+
+#[test]
+fn a_startup_tip_opens_its_web_link_from_both_cells_of_each_glyph() {
+    const DOCS: &str = "https://example.com/docs";
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(72, 24)
+        .live()
+        .startup(false, Some("[文档](https://example.com/docs)"))
+        .open();
+    let row = s.row_of("Tip: 文档");
+    s.assert_row_starts_with(row, "  Tip: 文档");
+    s.assert_span_linked("Tip:", 5, 4, DOCS, true);
+    let y = u16::try_from(row).expect("a tip row");
+    let mut opened = Vec::new();
+    for x in 7..11 {
+        s.mouse_down(x, y);
+        s.assert_opened_urls(&opened);
+        s.mouse_up(x, y);
+        opened.push(DOCS);
+        s.assert_opened_urls(&opened);
+    }
+}
+
+#[test]
+fn the_mermaid_code_fallback_copies_the_complete_fenced_source() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(50, 15)
+        .owned_transcript()
+        .script(include_str!(
+            "../oracle/fixtures/transcript_view_2/mermaid.jsonl"
+        ))
+        .open();
+    s.assert_in_order(&["graph LR", "A --> B"]);
+    s.type_text("/copy").keys("enter");
+    s.keys("up");
+    s.assert_contains("Copy code block");
+    s.keys("enter");
+    s.assert_copies_asked(&["graph LR\nA --> B\n"]);
+}

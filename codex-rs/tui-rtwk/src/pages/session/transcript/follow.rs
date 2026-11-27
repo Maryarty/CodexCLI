@@ -11,17 +11,22 @@
 //! composer keeps its caret.
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use rtwk::editing::TextEditingController;
 use rtwk::focus::KeyPress;
 use rtwk::foundation::{Listenable, ListenableBuilder};
-use rtwk::gestures::{GestureDetector, MouseRegion, PointerEvent};
+use rtwk::gestures::{GestureDetector, Listener, MouseRegion, PointerEvent};
 use rtwk::layout::{Center, Column, Expanded, MainAxisSize, Row, SizedBox};
-use rtwk::provider::{select, watch};
+use rtwk::navigation::Route;
+use rtwk::provider::{read, select, watch};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextOverflow, segmenter_of};
-use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget, map_static};
+use rtwk_core::input::Mods;
 
+use codex_tui_core::data::links::web_destination;
+use codex_tui_core::ids::ThreadId;
 use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::composer::trigger;
 use codex_tui_core::threads::{HistoryState, ThreadModel};
@@ -112,6 +117,119 @@ pub fn gap<S>(
         }
     })
     .into()
+}
+
+/// A composer-gap hint fits on one line with a cell free at each edge. Native
+/// text owns the linked cells and reports the destination on a complete tap.
+pub fn gap_hint(cx: &mut Cx<'_>, width: i32, mut spans: Vec<Span>) -> AnyWidget {
+    for span in &mut spans {
+        if let Some(url) = span.style.link.take() {
+            span.style.link = web_destination(&url).map(Arc::from);
+        }
+    }
+    let segmenter = segmenter_of(cx);
+    let cells: usize = spans.iter().map(|span| segmenter.width(&span.text)).sum();
+    let room = usize::try_from(width.saturating_sub(2)).unwrap_or_default();
+    if cells == 0 || cells > room {
+        return SizedBox::shrink().into();
+    }
+    let linked = spans.iter().any(|span| span.style.link.is_some());
+    let text = Text::rich_line(spans);
+    let hint = if linked {
+        AnyWidget::from(LinkedGapHint {
+            text,
+            thread: read::<ThreadModel, _>(cx).id().clone(),
+        })
+    } else {
+        text.into()
+    };
+    SizedBox::new(
+        Some(width),
+        Some(1),
+        Some(
+            Row::new()
+                .child(Expanded::new(1, SizedBox::shrink()))
+                .child(hint)
+                .child(SizedBox::new(Some(1), None, None))
+                .into(),
+        ),
+    )
+    .into()
+}
+
+#[derive(Clone, PartialEq)]
+struct LinkedGapHint {
+    text: Text,
+    thread: ThreadId,
+}
+
+#[derive(Default)]
+struct GapHintState {
+    press: Option<(i32, i32)>,
+    released: bool,
+}
+
+enum GapHintMsg {
+    Press(PointerEvent),
+    Release(PointerEvent),
+    Cancel,
+    Link(Arc<str>),
+}
+
+impl StatefulWidget for LinkedGapHint {
+    type State = GapHintState;
+
+    fn create_state(&self) -> GapHintState {
+        GapHintState::default()
+    }
+}
+
+impl_widget!(stateful eq LinkedGapHint);
+
+impl State for GapHintState {
+    type Widget = LinkedGapHint;
+    type Msg = GapHintMsg;
+
+    fn did_update_widget(&mut self, old: &LinkedGapHint, w: &LinkedGapHint, _: &mut Cx<'_, Self>) {
+        if old != w {
+            *self = Self::default();
+        }
+    }
+
+    fn update(&mut self, msg: GapHintMsg, w: &LinkedGapHint, cx: &mut Cx<'_, Self>) -> Rebuild {
+        match msg {
+            GapHintMsg::Press(event) => {
+                let modified = event.ctrl() || event.modifiers.contains(Mods::SUPER);
+                self.press =
+                    (event.button == 0 && modified).then_some((event.screen_x, event.screen_y));
+                self.released = false;
+            }
+            GapHintMsg::Release(event) => {
+                let origin = self.press.take();
+                self.released =
+                    event.button == 0 && origin == Some((event.screen_x, event.screen_y));
+            }
+            GapHintMsg::Cancel => *self = Self::default(),
+            GapHintMsg::Link(url) => {
+                if std::mem::take(&mut self.released) && Route::is_current_of(cx) {
+                    crate::features::open_transcript_link(cx, w.thread.clone(), url.to_string());
+                }
+            }
+        }
+        Rebuild::No
+    }
+
+    fn build(&self, w: &LinkedGapHint, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        let text = w.text.clone().on_link_tap(cx.map(GapHintMsg::Link));
+        let cancel = map_static!(cx, PointerEvent => GapHintMsg, |_| GapHintMsg::Cancel);
+        let listener = Listener::new()
+            .on_pointer_down(map_static!(cx, PointerEvent => GapHintMsg, GapHintMsg::Press))
+            .on_pointer_up(map_static!(cx, PointerEvent => GapHintMsg, GapHintMsg::Release))
+            .on_pointer_hover(cancel.clone())
+            .on_pointer_move(cancel.clone())
+            .child(text);
+        MouseRegion::new().on_exit(cancel).child(listener).into()
+    }
 }
 
 /// The control: a label in the surface of the user's messages, the widest

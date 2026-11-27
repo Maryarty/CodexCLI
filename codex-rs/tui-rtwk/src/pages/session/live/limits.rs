@@ -8,11 +8,9 @@
 //! a banner or a limit that stops the account takes its place (`usage_notice`).
 
 use rtwk::l10n::{Arg, Fmt};
-use rtwk::layout::{Expanded, Row, SizedBox};
 use rtwk::provider::select;
-use rtwk::style::Attrs;
+use rtwk::style::{Attrs, Span};
 use rtwk::text::segmenter_of;
-use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, LayoutBuilder, StatelessWidget, impl_widget};
 
 use codex_tui_core::app::SessionSlice;
@@ -23,14 +21,13 @@ use codex_tui_core::screens::status::{Used, reset_time};
 
 use crate::app::theme;
 use crate::pages::session::cells::status::strings as status_strings;
+use crate::pages::session::transcript::follow;
 
 /// The percent used from which the notice is bold.
 const BOLD_FROM: i32 = 90;
 /// The percent used from which it says `only`.
 const ONLY_FROM: i32 = 95;
-/// The notice's margin from the right edge, and the cells the row keeps free on the left
-/// (`composer_hint`: the width less 2, the line one cell from the edge).
-const MARGIN: i32 = 1;
+/// The cells the composer hint keeps free at its edges.
 const KEPT: i32 = 2;
 
 /// The notice the row above the composer shows for `backend`'s account, if any: not while a
@@ -86,21 +83,11 @@ impl StatelessWidget for UsageNotice {
             let width = |text: &str| i32::try_from(segmenter.width(text)).unwrap_or(i32::MAX);
             let room = constraints.max_width - KEPT;
             let line = notice.line(words, room, now, offset, hour24, &width);
-            if room <= 0 || line.is_empty() {
-                return SizedBox::new(Some(0), Some(0), None).into();
-            }
-            SizedBox::new(
-                Some(constraints.max_width),
-                Some(1),
-                Some(
-                    Row::new()
-                        .child(Expanded::new(1, SizedBox::new(Some(0), Some(0), None)))
-                        .child(Text::line(line).style(style.clone()))
-                        .child(SizedBox::new(Some(MARGIN), None, None))
-                        .into(),
-                ),
+            follow::gap_hint(
+                cx,
+                constraints.max_width,
+                vec![Span::styled(line, style.clone())],
             )
-            .into()
         })
         .into()
     }

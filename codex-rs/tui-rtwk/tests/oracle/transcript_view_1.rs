@@ -1156,13 +1156,78 @@ fn feedback_releases_navigation_targets_and_expiry_restores_them() {
 // ORACLE transcript_view/composer_gap_tests.rs:149 tip_links_follow_alignment_and_release_stale_targets kind=ui owner=chat-live
 #[test]
 fn tip_links_follow_alignment_and_release_stale_targets() {
-    kit::pending(
-        Owner::ChatLive,
-        "no tip line with a hyperlink (Tip: plus the link text 文档 to https://example.com/docs) in the composer gap, and no ctrl-click (the kit's click has no modifiers): the link cell, the link target and the stale-target release after a feedback expiry are not built",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(30, 4)
+    const DOCS: &str = "https://example.com/docs";
+    const TIP: (&str, &str, &str) = ("Tip: ", "文档", DOCS);
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(30, 14)
         .script(include_str!("fixtures/transcript_view_1/select.jsonl"))
         .open();
-    s.assert_link("文档", "https://example.com/docs");
+    s.selection_copy_policy(false, false);
+    let set_tip = s.composer_gap_hint(TIP);
+    let row = s.row_of("Tip:");
+    let y = u16::try_from(row).unwrap();
+    s.assert_row(row, "                    Tip: 文档");
+    s.assert_span_linked("Tip:", 5, 4, DOCS, true);
+    let mut opened = Vec::new();
+    for x in 25..29 {
+        s.ctrl_down(x, y);
+        s.assert_opened_urls(&opened);
+        s.ctrl_up(x, y);
+        opened.push(DOCS);
+        s.assert_opened_urls(&opened);
+        s.super_click(x, y);
+        opened.push(DOCS);
+        s.assert_opened_urls(&opened);
+    }
+    s.click(26, y);
+    s.ctrl_up(26, y);
+    s.ctrl_click(24, y);
+    s.ctrl_click(29, y);
+    s.ctrl_click(26, y - 1);
+    s.ctrl_down(26, y).mouse_drag(24, y).mouse_drag(26, y);
+    s.ctrl_up(26, y);
+    for moved_to in [26, 2] {
+        s.ctrl_down(26, y).pointer_move(moved_to, y);
+        s.ctrl_up(26, y);
+    }
+    s.assert_opened_urls(&opened);
+    s.assert_copies_asked(&[]);
+
+    for tip in [None, Some(("Other tip", "", ""))] {
+        s.ctrl_down(26, y);
+        set_tip(tip);
+        s.wait(1);
+        s.assert_link_targets(&[]);
+        s.ctrl_up(26, y);
+        s.ctrl_click(26, y);
+        s.assert_opened_urls(&opened);
+        set_tip(Some(TIP));
+        s.wait(1);
+        s.assert_link("文档", DOCS);
+    }
+    s.resize(8, 14);
+    s.assert_link_targets(&[]);
+    s.resize(40, 14);
+    s.assert_row(s.row_of("Tip:"), "                              Tip: 文档");
+    s.ctrl_click(26, y);
+    s.assert_opened_urls(&opened);
+    s.resize(30, 14);
+
+    s.double_click_text("select this transcript");
+    s.keys("ctrl+c");
+    s.assert_copy_asked("select");
+    s.keys("esc");
+    s.assert_link("文档", DOCS);
+    let y = u16::try_from(s.row_of("Tip:")).unwrap();
+    s.ctrl_down(26, y);
+    s.answer_copy(Ok(()));
+    s.assert_contains("Copied 6 chars");
+    s.assert_link_targets(&[]);
+    s.wait(5_500);
+    s.assert_link("文档", DOCS);
+    s.ctrl_up(26, y);
+    s.assert_opened_urls(&opened);
+    s.ctrl_click(26, y);
+    opened.push(DOCS);
+    s.assert_opened_urls(&opened);
 }
