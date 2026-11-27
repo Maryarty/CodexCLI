@@ -1256,6 +1256,7 @@ pub(crate) fn clear_copy_status(parts: &mut FeatureThreadParts) {
 }
 
 pub(crate) use images::retire as retire_image_snapshots;
+pub(crate) use small_cmds::{ide_opted_in, ide_permit, settle_ide_submit};
 
 pub(crate) fn has_copy_status(parts: &FeatureThreadParts) -> bool {
     parts.copy.has_status()

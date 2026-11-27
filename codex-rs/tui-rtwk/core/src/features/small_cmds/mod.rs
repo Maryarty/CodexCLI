@@ -21,6 +21,8 @@ mod ide;
 mod rpcs;
 mod seed;
 
+pub(crate) use ide::{ide_opted_in, ide_permit, settle_ide_submit};
+
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
 use super::{AppCx, Connection, Feature, Never, Slash, ThreadCx, ThreadView};

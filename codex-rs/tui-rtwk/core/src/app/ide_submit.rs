@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use super::effects::{self, Ask, IdeFailure, IdePermit, IdePrompt};
 use super::{AppFx, CodexApp, Command, Now, Wake, apply_thread, features};
+use crate::features::{ide_opted_in, ide_permit, settle_ide_submit};
 use crate::ids::{BackendId, ThreadId, Ticket};
 use crate::rpc::Reply;
 use crate::screens::{ScreenCommand, chat};
@@ -31,19 +32,13 @@ struct Pending {
 /// Called after the normal reducer registered the StartTurn or Steer. It sees
 /// actual wire sends, including queue drain and steer retries.
 pub(super) fn prepare(app: &mut CodexApp, fx: &mut AppFx, emitted_from: usize) {
-    if app.features.small_cmds.ide.has_consent()
-        && fx.commands[emitted_from..].iter().any(is_submission)
-    {
+    if ide_opted_in(&app.features) && fx.commands[emitted_from..].iter().any(is_submission) {
         for command in fx.commands.split_off(emitted_from) {
             let Some((ticket, thread)) = submission(&command) else {
                 fx.commands.push(command);
                 continue;
             };
-            let permit = app
-                .features
-                .small_cmds
-                .ide
-                .permit(features::view(app), thread);
+            let permit = ide_permit(&app.features, features::view(app), thread);
             let (Some(permit), Some(address)) = (permit, app.request_address(ticket)) else {
                 fx.commands.push(command);
                 continue;
@@ -99,10 +94,7 @@ pub(super) fn prepare(app: &mut CodexApp, fx: &mut AppFx, emitted_from: usize) {
             // remains usable when the earlier read times out.
             let reading = pending.reading.take();
             features::run(app, fx, |states, cx| {
-                states
-                    .small_cmds
-                    .ide
-                    .settled(&pending.permit, reading.as_ref(), cx);
+                settle_ide_submit(states, &pending.permit, reading.as_ref(), cx);
             });
             if let Some(Ok(Some(prompt))) = reading {
                 attach(&mut pending.command, prompt);
@@ -158,12 +150,7 @@ fn retire_matching(
 }
 
 fn still_permitted(app: &CodexApp, permit: &IdePermit) -> bool {
-    app.features
-        .small_cmds
-        .ide
-        .permit(features::view(app), &permit.thread)
-        .as_ref()
-        == Some(permit)
+    ide_permit(&app.features, features::view(app), &permit.thread).as_ref() == Some(permit)
 }
 
 fn restore(app: &mut CodexApp, pending: Pending, fx: &mut AppFx) {

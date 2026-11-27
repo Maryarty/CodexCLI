@@ -1,7 +1,7 @@
 //! Ownership of the IDE read requested by `/ide`.
 
 use crate::app::effects::{Ask, IdePermit, IdePrompt};
-use crate::features::{AppCx, AppView};
+use crate::features::{AppCx, AppView, FeatureStates};
 use crate::ids::{BackendId, ThreadId};
 
 use super::{Ctx, IdeFailure, IdeReading, Note};
@@ -130,7 +130,7 @@ impl Ide {
         }
     }
 
-    pub(crate) fn permit(&self, view: AppView<'_>, thread: &ThreadId) -> Option<IdePermit> {
+    fn permit(&self, view: AppView<'_>, thread: &ThreadId) -> Option<IdePermit> {
         let owner = self
             .owner
             .as_ref()
@@ -138,12 +138,12 @@ impl Ide {
         (workspace(view, thread).as_deref() == Some(owner.cwd.as_str())).then(|| owner.clone())
     }
 
-    pub(crate) fn has_consent(&self) -> bool {
+    fn has_consent(&self) -> bool {
         self.confirmed
     }
 
     /// Keep consent for retrying a skipped message. Availability describes only the last read.
-    pub(crate) fn settled(
+    fn settled(
         &mut self,
         owner: &IdePermit,
         reading: Option<&Result<Option<IdePrompt>, IdeFailure>>,
@@ -169,6 +169,30 @@ impl Ide {
             }
         }
     }
+}
+
+/// Whether there is an opted-in visit that could lend context to a send.
+pub(crate) fn ide_opted_in(states: &FeatureStates) -> bool {
+    states.small_cmds.ide.has_consent()
+}
+
+/// The current visit's opt-in belongs to this thread and workspace only.
+pub(crate) fn ide_permit(
+    states: &FeatureStates,
+    view: AppView<'_>,
+    thread: &ThreadId,
+) -> Option<IdePermit> {
+    states.small_cmds.ide.permit(view, thread)
+}
+
+/// Keeps the scope's availability and skip notice in the IDE slice.
+pub(crate) fn settle_ide_submit(
+    states: &mut FeatureStates,
+    permit: &IdePermit,
+    reading: Option<&Result<Option<IdePrompt>, IdeFailure>>,
+    cx: &mut AppCx<'_>,
+) {
+    states.small_cmds.ide.settled(permit, reading, cx);
 }
 
 fn workspace(view: AppView<'_>, thread: &ThreadId) -> Option<String> {
