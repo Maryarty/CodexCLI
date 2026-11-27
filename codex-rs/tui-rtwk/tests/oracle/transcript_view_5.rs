@@ -1147,7 +1147,7 @@ fn scrolling_out_of_held_live_content_releases_its_revision() {
 fn repeated_resize_preserves_plain_and_markdown_passages_before_the_next_draw() {
     kit::pending(
         Owner::ChatLive,
-        "a paused production Markdown paragraph loses the reading passage on 18 → 34 → 12 columns: café28 is visible after widening and the narrow view returns to café38 and the tail. The reader needs a source anchor through native reflow",
+        "G-new-reader-reflow-anchor: a paused production Markdown paragraph loses café28 on 18 → 34 → 12 columns and returns to café38 at the tail",
     );
     let passage = (0..40)
         .map(|index| format!("café{index:02}"))

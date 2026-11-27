@@ -289,3 +289,9 @@ therefore cannot preserve it across virtualization.
 The rtwk source at e57d5213c still makes the same edge decisions in
 `gestures/selection.rs:2560–2756`. This comparison is source-only. The
 terminal probes used c953f062.
+
+### Transcript reading position during resize
+
+| id | gap on rtwk c953f062 | native and port probes | required native capability | status |
+|---|---|---|---|---|
+| G-new-reader-reflow-anchor | A reverse `ListView` keeps a physical scroll position as a tall item rewraps. `ListController::jump_to_index_rows` accepts only an item index and physical rows (`rtwk-scroll/src/list_view.rs:261–280`). `Selectable::selectable_range_in` maps laid-out cells to source bytes. The bounded `ComposedMarkdownView` uses a private `ListWindow` to capture that source position and lay out its own list again before paint (`rtwk-rich/src/markdown/composed.rs:2382–2478`). The transcript owns a list of mixed row types and uses inline Markdown cells in it. The generic `ListView` API has the same limitation in local rtwk main a235d85e3. | Native `WidgetTree` with a single word-wrapped `Text` in a reverse `ListView`, height 3, 40 words `café00` through `café39`, initial scroll 5: width 18→34→12→18 moves the first visible source byte 192→200→296→272. Port `transcript_view_5::repeated_resize_preserves_plain_and_markdown_passages_before_the_next_draw` with `KIT_PROBE_PENDING=1`: the paused passage `café28` vanishes on narrowing and the viewport lands on `café38` at the tail. | Apply the document viewport's native source anchoring to the enclosing `ListView`. Resolve the same keyed item and selectable occurrence after wrapping and settle the position before input or paint. Preserve tail following and native clamping. | open |
