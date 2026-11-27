@@ -1815,6 +1815,21 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 }
                 return;
             }
+            if let Some((thread, event)) = threads::voice_transcript::project(&notification) {
+                if app.screens.agents.owner_of(thread.as_str()) == origin {
+                    apply_thread(
+                        app,
+                        &thread,
+                        threads::voice_transcript::ThreadEvent::Caption {
+                            event,
+                            show_user_preview: app.screens.chat.status.animations,
+                        }
+                        .into(),
+                        fx,
+                    );
+                }
+                return;
+            }
             match &*notification {
                 ServerNotification::AccountRateLimitsUpdated(note) => {
                     features::rolling_remedy(app, origin, &note.rate_limits);
@@ -3191,6 +3206,17 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                     agents::HistoryRead::Older,
                     fx,
                 );
+            } else if app
+                .threads
+                .get(&id)
+                .is_some_and(|thread| thread.can_load_voice_history())
+            {
+                apply_thread(
+                    app,
+                    &id,
+                    threads::voice_transcript::ThreadEvent::LoadOlder.into(),
+                    fx,
+                );
             }
         }
         Intent::OpenThread(id) => {
@@ -4011,6 +4037,24 @@ fn screen_answer(
         let thread = ThreadId::new(thread);
         let read = if let Ok(agents::Reply::History { turns, next }) = &result {
             apply_thread(app, &thread, threads::history_page(turns, next.clone()), fx);
+            if !app.screens.agents.is_cloud(backend)
+                && app.screens.agents.owner_of(thread.as_str()) == backend
+                && app
+                    .threads
+                    .get(&thread)
+                    .is_some_and(|thread| thread.voice_history_supported())
+            {
+                apply_thread(
+                    app,
+                    &thread,
+                    threads::voice_transcript::ThreadEvent::Read {
+                        oldest: turns.last().map(|turn| TurnId::new(&turn.id)),
+                        more_history: next.is_some(),
+                    }
+                    .into(),
+                    fx,
+                );
+            }
             true
         } else {
             apply_thread(app, &thread, ThreadEv::HistoryFailed, fx);
@@ -4371,6 +4415,15 @@ fn attach_thread_with_metadata(
 ) {
     app.threads.open(thread, origin);
     if let Some(details) = details {
+        let voice_history = details.history_mode
+            == codex_app_server_protocol::ThreadHistoryMode::Paginated
+            && !details.ephemeral;
+        apply_thread(
+            app,
+            thread,
+            threads::voice_transcript::ThreadEvent::Supported(voice_history).into(),
+            fx,
+        );
         apply_thread(
             app,
             thread,

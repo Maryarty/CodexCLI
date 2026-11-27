@@ -9,7 +9,10 @@ use crate::commands::VoiceControl;
 use crate::ids::{ThreadId, Ticket};
 use crate::rpc::{Address, RpcError};
 use crate::screens::Kind;
-use crate::threads::{Failure, ThreadFx};
+use crate::threads::{
+    Failure, ThreadFx,
+    voice_transcript::{Page, ThreadEvent},
+};
 
 pub const NAME: &str = "voice";
 pub const ID: &str = "S25";
@@ -57,12 +60,6 @@ pub struct Owner {
     pub thread: ThreadId,
     pub address: Address,
     pub call: Ticket,
-}
-
-impl Owner {
-    fn session_id(&self) -> String {
-        format!("{}:{}", self.thread.as_str(), self.call.seq())
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -117,6 +114,7 @@ pub enum ThreadIntent {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadEv {
+    Transcript(ThreadEvent),
     Started { session: Option<String> },
     Answer(Sdp),
     Error(String),
@@ -130,18 +128,21 @@ pub enum ThreadEv {
 pub enum Command {
     Start { session: String, offer: Sdp },
     Stop,
+    ReadTimeline { cursor: Option<String> },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Reply {
     Started,
     Stopped,
+    Timeline(Page),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ctx {
     Start(Owner),
     Stop(Owner),
+    ReadTimeline,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -168,6 +169,7 @@ enum Phase {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Call {
     owner: Owner,
+    session: String,
     phase: Phase,
     muted: bool,
     pending_mute: Option<bool>,
@@ -223,6 +225,14 @@ impl ThreadPart {
         }
     }
 
+    pub(crate) fn caption_session(&self, address: Address) -> Option<&str> {
+        let call = self
+            .call
+            .as_ref()
+            .filter(|call| call.owner.address == address)?;
+        (!matches!(call.phase, Phase::Preparing)).then_some(call.session.as_str())
+    }
+
     pub(crate) fn has_call(&self) -> bool {
         self.call.is_some()
     }
@@ -249,8 +259,10 @@ pub(crate) fn apply_intent_on_thread(
 ) {
     match intent {
         ThreadIntent::Start if part.call.is_none() => {
+            let (owner, session) = fx.voice_owner();
             let call = Call {
-                owner: fx.voice_owner(),
+                owner,
+                session,
                 phase: Phase::Preparing,
                 muted: false,
                 pending_mute: None,
@@ -334,7 +346,7 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
     match ev {
         ThreadEv::Started { session } => {
             if let Phase::Negotiating(ref mut setup) = call.phase
-                && session.as_deref() == Some(call.owner.session_id().as_str())
+                && session.as_deref() == Some(call.session.as_str())
             {
                 setup.started = true;
             }
@@ -382,6 +394,7 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
         }
         ThreadEv::Sample => {}
         ThreadEv::Retired => part.retire(fx),
+        ThreadEv::Transcript(_) => {} // Applied by the thread transcript.
     }
     activate(part, fx.facts().now());
 }
@@ -396,7 +409,7 @@ fn answer_audio(part: &mut ThreadPart, result: AudioResult, fx: &mut ThreadFx<'_
             fx.request(
                 Ctx::Start(call.owner.clone()),
                 Command::Start {
-                    session: call.owner.session_id(),
+                    session: call.session.clone(),
                     offer,
                 },
             );
@@ -542,9 +555,9 @@ pub fn apply_reply(
     activate(part, fx.facts().now());
 }
 
-pub fn wire(command: &Command, thread: &ThreadId, id: wire::RequestId) -> wire::ClientRequest {
+fn ask(command: &Command, thread: &ThreadId) -> crate::threads::ThreadAsk {
     use crate::threads::ThreadAsk;
-    let request = match command {
+    match command {
         Command::Start { session, offer } => ThreadAsk::RealtimeStart {
             thread: thread.clone(),
             session: session.clone(),
@@ -553,25 +566,25 @@ pub fn wire(command: &Command, thread: &ThreadId, id: wire::RequestId) -> wire::
         Command::Stop => ThreadAsk::RealtimeStop {
             thread: thread.clone(),
         },
-    };
-    request.wire(id)
+        Command::ReadTimeline { cursor } => ThreadAsk::RealtimeTimeline {
+            thread: thread.clone(),
+            cursor: cursor.clone(),
+        },
+    }
+}
+
+pub fn wire(command: &Command, thread: &ThreadId, id: wire::RequestId) -> wire::ClientRequest {
+    ask(command, thread).wire(id)
 }
 
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-    use crate::threads::{ThreadAsk, ThreadReply};
-    let request = match command {
-        Command::Start { session, offer } => ThreadAsk::RealtimeStart {
-            thread: ThreadId::default(),
-            session: session.clone(),
-            offer: offer.clone(),
-        },
-        Command::Stop => ThreadAsk::RealtimeStop {
-            thread: ThreadId::default(),
-        },
-    };
-    match (command, request.decode(result)?) {
+    use crate::threads::ThreadReply;
+    match (command, ask(command, &ThreadId::default()).decode(result)?) {
         (Command::Start { .. }, ThreadReply::Done) => Ok(Reply::Started),
         (Command::Stop, ThreadReply::Done) => Ok(Reply::Stopped),
+        (Command::ReadTimeline { .. }, ThreadReply::RealtimeTimeline(page)) => {
+            Ok(Reply::Timeline(page))
+        }
         _ => Err(RpcError::Mismatch),
     }
 }

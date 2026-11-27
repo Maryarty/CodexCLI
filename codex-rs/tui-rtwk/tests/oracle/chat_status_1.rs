@@ -547,16 +547,26 @@ fn completed_reasoning_stays_in_expanded_transcript_for_live_and_replay() {
 // ORACLE chatwidget/tests/status_and_layout.rs:16 finalized_voice_transcript_renders_beside_the_streamed_cell kind=snap owner=ui-pane snap=voice_live_transcript_and_stream snap=voice_partial_transcript_hidden
 #[test]
 fn finalized_voice_transcript_renders_beside_the_streamed_cell() {
-    kit::pending(
-        Owner::UiPane,
-        "no realtime voice transcript row beside the streamed cell on the chat screen",
-    );
-    // oracle: width 60; the partial user transcript "pick a number" is hidden, the finalized one shows beside the
-    // streamed answer "Agent answer arriving". Two states of one screen.
-    let s = Screen::build(Owner::UiPane).size(60, 24).live().open();
-    // needs feed: voice on, realtime transcript delta "pick a number" (partial), then transcript done (finalized)
-    s.assert_snap("voice_partial_transcript_hidden");
-    s.assert_snap("voice_live_transcript_and_stream");
+    let mut s = Screen::build(Owner::UiPane).size(60, 24).live().open();
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"animations":false}}}"#);
+    s.voice_available().type_text("/voice").keys("enter");
+    let session = s.connect_voice();
+    s.feed(r#"{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"answer","delta":"Agent answer arriving"}}}"#);
+    s.voice_caption(false, &session, "speech", "user", "");
+    s.voice_delta("speech", "pick a number");
+
+    let partial = kit::snap_rows("voice_partial_transcript_hidden", "");
+    let finalized = kit::snap_rows("voice_live_transcript_and_stream", "");
+    s.wait_for("Agent answer arriving");
+    s.assert_has_row(partial[1].trim_end());
+    s.assert_absent(finalized[4].trim());
+    s.assert_contains("voice ● listen");
+
+    s.voice_caption(true, &session, "speech", "user", "pick a number");
+    s.wait_for("pick a number");
+    s.assert_has_row(finalized[1].trim_end());
+    s.assert_has_row(finalized[4].trim_end());
+    s.assert_in_order(&[finalized[1].trim(), finalized[4].trim(), "voice ● listen"]);
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:78 resumed_session_hides_unknown_token_usage_until_an_update_arrives kind=snap owner=ui-pane

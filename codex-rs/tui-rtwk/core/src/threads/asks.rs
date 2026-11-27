@@ -193,6 +193,16 @@ crate::rpc_list! {
         => ThreadRealtimeStop(wire::ThreadRealtimeStopParams { thread_id: thread.to_string() })
         -> wire::ThreadRealtimeStopResponse, |_| ThreadReply::Done;
 
+    /// Read the canonical rollout page that contains durable voice captions.
+    RealtimeTimeline { thread: ThreadId, cursor: Option<String> },
+        Self::RealtimeTimeline { thread, cursor }
+        => ThreadTimelineList(wire::ThreadTimelineListParams {
+            thread_id: thread.to_string(),
+            cursor: cursor.clone(),
+            limit: Some(super::voice_transcript::PAGE_LIMIT),
+        })
+        -> wire::ThreadTimelineListResponse, |answer| ThreadReply::RealtimeTimeline(answer.into());
+
     /// Launch the chat with its configured model and working directory.
     StartSession { model: Option<String>, cwd: Option<String> }, Self::StartSession { model, cwd }
         => ThreadStart(wire::ThreadStartParams {
@@ -461,6 +471,7 @@ pub enum ThreadReply {
     ActiveTurn(Option<String>),
     ReadTurns(Vec<wire::Turn>),
     LatestTurn(Option<Box<wire::Turn>>),
+    RealtimeTimeline(super::voice_transcript::Page),
     History {
         turns: Vec<wire::Turn>,
         next: Option<String>,
@@ -538,6 +549,7 @@ impl<M: Borrow<UserMessage>> ThreadRpc<M> {
             Self::RetryStart(params) => Some(params.thread().as_str()),
             Self::RealtimeStart { thread, .. }
             | Self::RealtimeStop { thread }
+            | Self::RealtimeTimeline { thread, .. }
             | Self::RetryInterrupt { thread, .. }
             | Self::StartUserTurn { thread, .. }
             | Self::ListTerminals { thread, .. }

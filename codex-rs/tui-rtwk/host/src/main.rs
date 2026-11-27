@@ -41,6 +41,7 @@ use codex_tui_rtwk::services::startup::UpdateAction;
 const SHUTDOWN_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
 fn main() -> anyhow::Result<()> {
+    codex_build_info::initialize!();
     // The command line is parsed inside the closure: `arg0_dispatch_or_else`
     // first lets the helper re-runs of this binary (`--codex-run-as-fs-helper`,
     // the exec helper, apply_patch) take their arguments and exit.

@@ -35,6 +35,7 @@ pub mod status;
 pub mod stream_preview;
 pub mod structured;
 mod user_prompt;
+pub mod voice_transcript;
 
 pub use activity::{
     BlockBody, DynamicCall, DynamicOutput, ExplorationAction, McpBlock, McpCall, McpResult,
@@ -105,6 +106,10 @@ pub struct ItemKey {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Item {
     User(UserPrompt),
+    VoiceTranscript {
+        role: voice_transcript::Role,
+        text: String,
+    },
     /// An assistant message. `phase` is what the server said about it (oracle
     /// `AgentMarkdownCell::phase`): none for a streamed message or a legacy model, so
     /// callers treat none as "unknown".
@@ -237,11 +242,16 @@ pub enum ItemGroup {
 enum Text {
     Agent,
     Plan,
+    Voice(voice_transcript::Role),
 }
 
 impl Text {
     fn empty(self) -> Item {
         match self {
+            Text::Voice(role) => Item::VoiceTranscript {
+                role,
+                text: String::new(),
+            },
             Text::Agent => Item::Agent {
                 text: String::new(),
                 phase: None,
@@ -255,18 +265,18 @@ impl Text {
 
     fn text_of(self, item: &Item) -> Option<&String> {
         match (self, item) {
-            (Text::Agent, Item::Agent { text, .. }) | (Text::Plan, Item::Plan { text }) => {
-                Some(text)
-            }
+            (Text::Agent, Item::Agent { text, .. })
+            | (Text::Plan, Item::Plan { text })
+            | (Text::Voice(_), Item::VoiceTranscript { text, .. }) => Some(text),
             _ => None,
         }
     }
 
     fn text_mut(self, item: &mut Item) -> Option<&mut String> {
         match (self, item) {
-            (Text::Agent, Item::Agent { text, .. }) | (Text::Plan, Item::Plan { text }) => {
-                Some(text)
-            }
+            (Text::Agent, Item::Agent { text, .. })
+            | (Text::Plan, Item::Plan { text })
+            | (Text::Voice(_), Item::VoiceTranscript { text, .. }) => Some(text),
             _ => None,
         }
     }
@@ -289,6 +299,8 @@ pub struct Transcript {
     // Keep streaming rows separate so updating a preview never copies history
     // held by the provider. There is still one ordered index for the transcript.
     streaming: HashMap<ItemKey, StreamingItem>,
+    live_voice_items: HashMap<ItemId, voice_transcript::LiveCaption>,
+    voice_replay: Rc<voice_transcript::Replay>,
     /// Entries the transcript keyed itself (`mint`): the server sent no item.
     minted: u64,
 }
@@ -1162,6 +1174,12 @@ pub enum ThreadEv {
     McpLagged,
 }
 
+impl From<voice_transcript::ThreadEvent> for ThreadEv {
+    fn from(event: voice_transcript::ThreadEvent) -> Self {
+        Self::Screen(screens::voice::ThreadEv::Transcript(event).into())
+    }
+}
+
 impl ThreadEv {
     /// Whether the event can put a turn's error in the transcript (so its wording needs the
     /// Daybreak facts): a failed turn, a restored page. Not a delta.
@@ -1177,6 +1195,7 @@ impl ThreadEv {
     fn is_notification(&self) -> bool {
         match self {
             Self::Screen(ScreenThreadEv::Chat(screens::chat::ThreadEv::Retry { .. })) => false,
+            Self::Screen(ScreenThreadEv::Voice(screens::voice::ThreadEv::Transcript(_))) => false,
             // what the user says to the safety state is no news of the server
             Self::Screen(ScreenThreadEv::Chat(screens::chat::ThreadEv::Safety(
                 safety::SafetyEv::Verb(_),
@@ -1319,6 +1338,7 @@ pub struct ThreadCore {
     /// The cursor of the next older page of history; none once the oldest
     /// page was read.
     history_next: Option<String>,
+    voice_history_supported: bool,
     /// The user messages the replayed turns seed the composer's history with.
     submissions: replay::Submissions,
     /// What became of the last ask for an older page.
@@ -1537,6 +1557,7 @@ impl ThreadModel {
                 completed_items: HashSet::new(),
                 legacy_user_completions: HashMap::new(),
                 history_next: None,
+                voice_history_supported: false,
                 history_ask: HistoryAsk::Idle,
                 submissions: replay::Submissions::default(),
                 writer: Writer::Detached,
@@ -1579,6 +1600,14 @@ impl ThreadModel {
         }
     }
 
+    pub(crate) fn voice_history_supported(&self) -> bool {
+        self.voice_history_supported
+    }
+
+    pub(crate) fn can_load_voice_history(&self) -> bool {
+        self.history_next.is_none() && self.transcript.voice_replay.paused()
+    }
+
     pub(crate) fn history_cursor(&self) -> Option<&str> {
         self.history_next.as_deref()
     }
@@ -1597,7 +1626,7 @@ impl ThreadModel {
     }
 
     pub fn can_load_history(&self) -> bool {
-        self.history_next.is_some()
+        self.history_next.is_some() || self.transcript.voice_replay.paused()
     }
 
     /// How much of the thread's history the transcript holds (oracle `TranscriptHistoryState`;
@@ -1607,7 +1636,7 @@ impl ThreadModel {
             HistoryAsk::Loading => HistoryState::Loading,
             HistoryAsk::Failed => HistoryState::Failed,
             HistoryAsk::Idle if self.history_next.is_some() => HistoryState::Partial,
-            HistoryAsk::Idle => HistoryState::Complete,
+            HistoryAsk::Idle => self.transcript.voice_replay.history_state(),
         }
     }
 
@@ -2042,12 +2071,17 @@ impl<'a> ThreadFx<'a> {
         });
     }
 
-    pub(crate) fn voice_owner(&mut self) -> screens::voice::Owner {
-        screens::voice::Owner {
-            thread: self.thread.clone(),
-            address: self.address,
-            call: self.mint.next(),
-        }
+    pub(crate) fn voice_owner(&mut self) -> (screens::voice::Owner, String) {
+        let call = self.mint.next();
+        let session = format!("{}:{}", self.thread.as_str(), self.mint.submission_id(call));
+        (
+            screens::voice::Owner {
+                thread: self.thread.clone(),
+                address: self.address,
+                call,
+            },
+            session,
+        )
     }
 
     pub(crate) fn voice_audio(&mut self, command: screens::voice::AudioCommand) {
@@ -2553,6 +2587,9 @@ fn reset_history(model: &mut ThreadModel) {
 /// (R9): a delta may come before its item, a started turn twice.
 pub fn apply(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     apply_ev(model, ev, fx);
+    if !model.slots.voice.has_call() {
+        model.core.transcript.clear_live_voice();
+    }
     if let Some(failure) = fx.voice_failure.take() {
         model.last_error = Some(failure);
     }
@@ -2583,6 +2620,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         );
         model.features.rename.connection_lost();
         model.slots.voice.retire(fx);
+        model.core.transcript.voice_replay = Rc::default();
     }
     match ev {
         // the thread's own facts ride the chat's events (`threads/compaction.rs`, `safety.rs`)
@@ -2750,6 +2788,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 .map(|entry| (entry.turn.clone(), entry.timing))
                 .collect();
             model.transcript.prepend_snapshots(turns, fx.daybreak());
+            model.transcript.position_voice_history();
             model.submissions.prepend(submissions);
             model.transcript.remember_timings(timings);
             model.history_next = next.filter(|cursor| Some(cursor) != model.history_next.as_ref());
@@ -3025,6 +3064,21 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                         model.last_error = Some(Failure::from(error));
                     }
                 }
+                (
+                    ThreadCtx::Screen(ScreenCtx::Voice(screens::voice::Ctx::ReadTimeline)),
+                    answer,
+                ) => {
+                    let page = match answer {
+                        Answer::Screen(crate::screens::ScreenReply::Voice(
+                            screens::voice::Reply::Timeline(page),
+                        )) => Some(page),
+                        _ => None,
+                    };
+                    model
+                        .core
+                        .transcript
+                        .receive_voice_history(ticket, page, fx);
+                }
                 (ThreadCtx::Screen(ctx), answer @ (Answer::Screen(_) | Answer::Failed(_))) => {
                     let operation = match &ctx {
                         ScreenCtx::Chat(screens::chat::Ctx::PlanEffort { operation, .. }) => {
@@ -3171,6 +3225,9 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 .into_iter()
                 .map(|text| Queued::Message(UserMessage::text(text)))
                 .collect();
+        }
+        ThreadEv::Screen(ScreenThreadEv::Voice(screens::voice::ThreadEv::Transcript(event))) => {
+            voice_transcript::apply(model, event, fx);
         }
         ThreadEv::Screen(ev) => {
             if let ScreenThreadEv::Chat(ref ev) = ev

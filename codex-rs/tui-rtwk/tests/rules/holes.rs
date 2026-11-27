@@ -465,6 +465,7 @@ const THREAD_RPCS: &[(&str, &[&str])] = &[
     ("ThreadPrepareApprovedPlan", CORE_THREAD),
     ("ThreadRealtimeStart", CORE_THREAD),
     ("ThreadRealtimeStop", CORE_THREAD),
+    ("ThreadTimelineList", CORE_THREAD),
     (
         "ThreadSettingsUpdate",
         &[THREAD_CATALOG, "core/src/threads/goal.rs"],
