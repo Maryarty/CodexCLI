@@ -45,6 +45,8 @@ pub(crate) enum Event<'a> {
 pub(crate) struct FeedCx<'a> {
     pub config: &'a Arc<Config>,
     pub target: Target,
+    /// The terminal buffer chosen before startup for this launch.
+    pub alternate_screen: bool,
     /// The workspace is a remote machine's (not the daemon's).
     pub remote_workspace: bool,
     pub ids: &'a Ids,

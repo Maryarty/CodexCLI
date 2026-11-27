@@ -610,6 +610,7 @@ async fn run(
             &crate::feeds::FeedCx {
                 config: &config,
                 target: startup.target,
+                alternate_screen: startup.alternate_screen,
                 remote_workspace,
                 ids: &ids,
                 handle: &handle,
@@ -628,6 +629,7 @@ async fn run(
                 &crate::feeds::FeedCx {
                     config: &config,
                     target: startup.target,
+                    alternate_screen: startup.alternate_screen,
                     remote_workspace,
                     ids: &ids,
                     handle: &handle,
@@ -679,6 +681,7 @@ async fn run(
                             &crate::feeds::FeedCx {
                                 config: &config,
                                 target: startup.target,
+                                alternate_screen: startup.alternate_screen,
                                 remote_workspace,
                                 ids: &ids,
                                 handle: &handle,
@@ -937,6 +940,7 @@ async fn run(
                 &crate::feeds::FeedCx {
                     config: &config,
                     target: startup.target,
+                    alternate_screen: startup.alternate_screen,
                     remote_workspace,
                     ids: &ids,
                     handle: &handle,
@@ -954,6 +958,7 @@ async fn run(
                 &crate::feeds::FeedCx {
                     config: &config,
                     target: startup.target,
+                    alternate_screen: startup.alternate_screen,
                     remote_workspace,
                     ids: &ids,
                     handle: &handle,
@@ -1051,6 +1056,7 @@ pub(crate) async fn config_write(
                 &crate::feeds::FeedCx {
                     config,
                     target: startup.target,
+                    alternate_screen: startup.alternate_screen,
                     remote_workspace: false,
                     ids,
                     handle,

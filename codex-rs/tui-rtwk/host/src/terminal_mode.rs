@@ -71,9 +71,13 @@ fn terminal_app_over_ssh() -> bool {
 
 /// A reloaded setting cannot switch the terminal's buffer. Copy mode only owns its transcript
 /// when the launch actually drew on the alternate screen.
+pub(super) fn owns_transcript(config: &Config, alternate_screen: bool) -> bool {
+    config.tui_fullscreen_transcript && alternate_screen
+}
+
 pub(super) fn tui_settings(config: &Config, alternate_screen: bool) -> TuiSettings {
     TuiSettings {
-        transcript_owned: config.tui_fullscreen_transcript && alternate_screen,
+        transcript_owned: owns_transcript(config, alternate_screen),
         ..crate::effects::tui_settings(config)
     }
 }
