@@ -216,10 +216,7 @@ pub fn reply_from_server(
     if let (Command::StartTurn { ticket, .. }, Err(error)) = (command, &result)
         && error.refused()
     {
-        return Some((
-            *ticket,
-            Reply::start_rejected(format!("turn/start: {error}")),
-        ));
+        return Some((*ticket, Reply::start_rejected(error.message.clone())));
     }
     // A refusal that is an answer of a feature's ask (the feature says which).
     if let (
