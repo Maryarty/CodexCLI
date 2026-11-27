@@ -745,11 +745,11 @@ impl ViewportState {
             {
                 continue;
             }
-            let Some((_, item)) = transcript.get(row.range.start) else {
+            let Some((key, item)) = transcript.get(row.range.start) else {
                 continue;
             };
             if let Some(parts) = mounted_parts(item, reading) {
-                targets.add(lead + at, item, &parts, reading, table, cutter);
+                targets.add(lead + at, (key, item), &parts, reading, table, cutter);
             }
         }
         let targets = Rc::new(targets);

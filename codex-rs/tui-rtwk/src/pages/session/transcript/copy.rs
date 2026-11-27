@@ -29,7 +29,7 @@ use codex_tui_core::app::effects::{
     Ask, CopyDestination, CopyFormat, CopyStatus, Done, PrimaryOwner,
 };
 use codex_tui_core::app::facts::TuiSettings;
-use codex_tui_core::threads::Item;
+use codex_tui_core::threads::{Item, ItemKey};
 
 use super::TranscriptMode;
 use super::find::{Finder, RowTexts};
@@ -343,11 +343,18 @@ pub struct Target {
     pub payload: Option<String>,
 }
 
+/// The originating transcript item and the piece's order within that item.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PieceId {
+    item: ItemKey,
+    ordinal: usize,
+}
+
 /// What the pane read of the transcript for the mode.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Targets {
     /// The pieces in the order of the transcript.
-    pub list: Vec<Target>,
+    list: Vec<(PieceId, Target)>,
     /// The last response as a whole: its payload is the Markdown the copy answers with.
     pub response: Option<Target>,
 }
@@ -359,12 +366,13 @@ impl Targets {
     pub fn add(
         &mut self,
         row: usize,
-        item: &Item,
+        entry: (&ItemKey, &Item),
         parts: &[Part],
         reading: &Reading<'_>,
         table: &'static Strings,
         cutter: &Cutter,
     ) {
+        let (key, item) = entry;
         let text = parts
             .iter()
             .map(|part| part.text.as_str())
@@ -421,7 +429,20 @@ impl Targets {
             _ => return,
         }
         found.sort_by_key(|target| (target.range.start, std::cmp::Reverse(target.range.end)));
-        self.list.extend(found);
+        self.list
+            .extend(found.into_iter().enumerate().map(|(ordinal, target)| {
+                (
+                    PieceId {
+                        item: key.clone(),
+                        ordinal,
+                    },
+                    target,
+                )
+            }));
+    }
+
+    fn position_of(&self, piece: &PieceId) -> Option<usize> {
+        self.list.iter().position(|(id, _)| id == piece)
     }
 }
 
@@ -716,12 +737,19 @@ pub struct Payload {
     pub format: CopyFormat,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Cursor {
+    Response,
+    Piece(usize),
+    Unavailable,
+}
+
 struct Data {
     active: bool,
     /// The first target is chosen with the first targets the pane reads.
     placed: bool,
-    /// The target held: an index of the list, or the whole response (`None`).
-    at: Option<usize>,
+    /// The target held. A disappeared piece must never copy its replacement.
+    at: Cursor,
     targets: Rc<Targets>,
     follow: Option<Follow>,
     /// What the feature reads of a source, handed in when it began the mode.
@@ -765,7 +793,7 @@ pub fn mode_of(finder: &Finder) -> CopyMode {
             data: RefCell::new(Data {
                 active: false,
                 placed: false,
-                at: None,
+                at: Cursor::Response,
                 targets: Rc::default(),
                 follow: None,
                 cutter: None,
@@ -812,7 +840,7 @@ impl CopyMode {
             follow.jump_to_latest();
             data.active = true;
             data.placed = false;
-            data.at = None;
+            data.at = Cursor::Response;
             data.shown = None;
             data.pending = None;
             data.follow = Some(follow.clone());
@@ -852,8 +880,9 @@ impl CopyMode {
     fn current(&self) -> Option<Target> {
         let data = self.0.data.borrow();
         match data.at {
-            None => data.targets.response.clone(),
-            Some(at) => data.targets.list.get(at).cloned(),
+            Cursor::Response => data.targets.response.clone(),
+            Cursor::Piece(at) => data.targets.list.get(at).map(|(_, target)| target.clone()),
+            Cursor::Unavailable => None,
         }
     }
 
@@ -892,23 +921,26 @@ impl CopyMode {
             }
             let before = (data.at, data.targets.clone());
             if !Rc::ptr_eq(&data.targets, targets) && *data.targets != **targets {
+                if let Cursor::Piece(at) = data.at {
+                    data.at = data
+                        .targets
+                        .list
+                        .get(at)
+                        .and_then(|(piece, _)| targets.position_of(piece))
+                        .map_or(Cursor::Unavailable, Cursor::Piece);
+                }
                 data.targets = targets.clone();
             }
             // a read with no target yet (the rows are not drawn) places nothing: the next one does
             let anything = data.targets.response.is_some() || !data.targets.list.is_empty();
             if !data.placed && anything {
                 data.placed = true;
-                data.at = match data.targets.response {
-                    Some(_) => None,
-                    None => data.targets.list.len().checked_sub(1),
+                data.at = if data.targets.response.is_some() {
+                    Cursor::Response
+                } else {
+                    Cursor::Piece(data.targets.list.len() - 1)
                 };
                 data.reveal = true;
-                data.shown = None;
-            }
-            if let Some(at) = data.at
-                && at >= data.targets.list.len()
-            {
-                data.at = data.targets.list.len().checked_sub(1);
                 data.shown = None;
             }
             // what the footer names follows the targets: it is told when they or the cursor moved
@@ -943,6 +975,7 @@ impl CopyMode {
                     n.checked_sub(1).map(Some)
                 }
             }),
+            Do::Copy if self.0.data.borrow().at == Cursor::Unavailable => Step::Moved,
             Do::Copy => Step::Copy,
             Do::Exit => Step::Exit,
             Do::Page(pages) => Step::Page(pages),
@@ -957,12 +990,17 @@ impl CopyMode {
         {
             let mut data = self.0.data.borrow_mut();
             let (n, response) = (data.targets.list.len(), data.targets.response.is_some());
-            if let Some(next) = to(data.at, n, response)
-                && next != data.at
-            {
-                data.at = next;
-                data.shown = None;
-                data.reveal = true;
+            let at = match data.at {
+                Cursor::Piece(at) => Some(at),
+                Cursor::Response | Cursor::Unavailable => None,
+            };
+            if let Some(next) = to(at, n, response) {
+                let next = next.map_or(Cursor::Response, Cursor::Piece);
+                if next != data.at {
+                    data.at = next;
+                    data.shown = None;
+                    data.reveal = true;
+                }
             }
         }
         self.notify();
@@ -1010,7 +1048,7 @@ impl CopyMode {
     /// [`shape`]: CopyMode::shape
     pub fn copying(&self) {
         let target = self.current();
-        let whole = self.0.data.borrow().at.is_none();
+        let whole = self.0.data.borrow().at == Cursor::Response;
         let drawn = self.0.data.borrow().drawn.clone();
         self.0.data.borrow_mut().pending = target.and_then(|target| {
             target.payload.or(drawn).map(|text| Payload {

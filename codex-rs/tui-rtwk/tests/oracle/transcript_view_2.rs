@@ -291,6 +291,35 @@ fn copying_a_disabled_fenced_table_uses_the_original_body() {
     // the oracle: the copy payloads (`echo done`, the table body, the whole message) are clipboard text
 }
 
+#[test]
+fn a_loading_page_does_not_change_the_code_block_chosen_for_copy() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(64, 16)
+        .owned_transcript()
+        .replay(Vec::new())
+        .open();
+    let wanted = kit::agent_turn("recent", &["Latest reply\n\n```sh\nselected command\n```"]);
+    let middle = kit::turns_of("history row", 0..15);
+    s.history_page([vec![wanted], middle].concat(), Some("older-page"));
+    s.keys("ctrl+home");
+    s.assert_page_requests(2);
+
+    begin_copy_mode(&mut s);
+    s.keys("up");
+    s.assert_text_style("selected command", "reversed");
+    s.history_page(
+        vec![kit::agent_turn(
+            "older",
+            &["Older reply\n\n```sh\nunrelated command\n```"],
+        )],
+        None,
+    );
+    s.resize(44, 16);
+    s.keys("enter");
+    s.assert_copies_asked(&["selected command\n"]);
+    s.answer_copy(Ok(()));
+}
+
 // ORACLE transcript_view/copy_mode_tests.rs:551 copying_the_whole_typed_prompt_preserves_markdown_source kind=ui owner=chat-live
 #[test]
 fn copying_the_whole_typed_prompt_preserves_markdown_source() {
