@@ -187,11 +187,6 @@ fn cold_permission_snapshot_settles_an_unchanged_write_on_its_ack() {
             .live()
             .held_start()
             .open();
-        let start = s
-            .commands()
-            .into_iter()
-            .find(|command| matches!(command, codex_tui_core::app::Command::StartThread { .. }))
-            .expect("cold open requested thread/start");
         let mut opening: serde_json::Value = serde_json::from_str(include_str!(
             "fixtures/chat_commands_3/export_thread_start.json"
         ))
@@ -201,7 +196,7 @@ fn cold_permission_snapshot_settles_an_unchanged_write_on_its_ack() {
         if newer_settings {
             effective_permissions(&mut s, ":read-only", "on-request", "user");
         }
-        s.answer_request(&start, opening);
+        s.start_thread_with(opening);
         s.server_answers("thread/settings/update", json!({}));
         s.feed(&turn_note("turn/started", "inProgress"));
         s.type_text("/permissions").keys("tab");

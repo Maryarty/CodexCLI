@@ -13,16 +13,9 @@ impl Screen {
     /// The server answers the held `thread/start`: the session starts, what waited for it goes
     /// out (`handle_thread_session`, `maybe_send_next_queued_input`).
     pub fn start_thread(&mut self) -> &mut Screen {
-        let ticket = self
-            .h
-            .fake
-            .commands()
-            .into_iter()
-            .find_map(|c| match c {
-                Command::StartThread { ticket, .. } => Some(ticket),
-                _ => None,
-            })
-            .expect("the app asked for a thread: open the screen with `held_start()`");
+        let Command::StartThread { ticket, .. } = self.thread_start_request() else {
+            unreachable!("expected thread/start");
+        };
         let epoch = self.h.fake.epoch().expect("attached");
         self.h.fake.inject(
             epoch,
@@ -30,6 +23,21 @@ impl Screen {
         );
         self.h.advance(100);
         self
+    }
+
+    /// The server answers the held `thread/start` with its full JSON response.
+    pub fn start_thread_with(&mut self, response: serde_json::Value) -> &mut Screen {
+        self.answer_request(&self.thread_start_request(), response);
+        self
+    }
+
+    fn thread_start_request(&self) -> Command {
+        self.h
+            .fake
+            .commands()
+            .into_iter()
+            .find(|command| matches!(command, Command::StartThread { .. }))
+            .expect("the app asked for a thread: open the screen with `held_start()`")
     }
 
     /// The thread's settings name `model` (`thread/settings/updated`): the empty name is the
