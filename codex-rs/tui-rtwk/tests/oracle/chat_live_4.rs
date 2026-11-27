@@ -141,17 +141,72 @@ fn advanced_reasoning_selection_in_plan_mode_uses_expected_scope() {
     );
 }
 
+/// Default-mode settings and the live settings the backend echoes after changing mode or effort.
+fn reasoning_settings(mode: &str, effort: &str) -> String {
+    serde_json::json!({"step":"notify","message":{"method":"thread/settings/updated","params":{
+        "threadId":"thread-1",
+        "threadSettings":{"cwd":"/tmp/project","approvalPolicy":"on-request","approvalsReviewer":"user",
+            "sandboxPolicy":{"type":"dangerFullAccess"},"activePermissionProfile":null,
+            "model":"gpt-5.5","modelProvider":"openai","serviceTier":null,"effort":effort,"summary":null,
+            "collaborationMode":{"mode":mode,"settings":{"model":"gpt-5.5","reasoning_effort":effort,"developer_instructions":null}},
+            "personality":null}}}})
+    .to_string()
+}
+
+fn plan_reasoning_picker(low_override: bool) -> Screen {
+    let catalog: serde_json::Value = serde_json::from_str(include_str!(
+        "fixtures/chat_live_4/plan_reasoning_catalog.json"
+    ))
+    .unwrap_or_else(|error| panic!("plan reasoning catalog fixture: {error}"));
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .live()
+        .model_catalog(catalog["models"].clone())
+        .collaboration_catalog(catalog["collaboration"].clone())
+        .open();
+    // The host's configured global High and the live Plan mode's effort can differ.
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.5","effort":"high","items":["model-with-reasoning"]}}}"#);
+    s.feed(&reasoning_settings("default", "high"));
+    s.assert_contains("GPT-5.5 high");
+    s.type_text("/plan").keys("enter");
+    s.assert_last_request_has("thread/settings/update", r#""medium""#);
+    s.feed(&reasoning_settings("plan", "medium"));
+    s.assert_contains("Plan mode");
+    s.assert_contains("GPT-5.5 medium");
+    if low_override {
+        // The user chooses Low through the Plan shortcut and the server echoes it.
+        let updates = s.requests_of("thread/settings/update");
+        s.keys("alt+,");
+        s.assert_requests_of("thread/settings/update", updates + 1);
+        s.assert_last_request_has("thread/settings/update", r#""low""#);
+        s.assert_last_request_has("thread/settings/update", r#""plan""#);
+        s.feed(&reasoning_settings("plan", "low"));
+        s.assert_contains("GPT-5.5 low");
+    }
+    s.type_text("/model").keys("enter");
+    s.assert_contains("Select Model and Effort");
+    s.keys("enter");
+    s.assert_contains("Select Reasoning Level for GPT-5.5");
+    s
+}
+
+fn choose_medium_reasoning(s: &mut Screen) {
+    let writes = s.requests_of("config/batchWrite");
+    let updates = s.requests_of("thread/settings/update");
+    s.click_text("Medium (default)");
+    s.assert_requests_of("config/batchWrite", writes);
+    s.assert_requests_of("thread/settings/update", updates);
+    s.assert_contains("Choose where to apply medium reasoning.");
+}
+
 // ORACLE chatwidget/tests/plan_mode.rs:412 plan_mode_reasoning_override_is_marked_current_in_reasoning_popup kind=ui owner=chat-live
 #[test]
 fn plan_mode_reasoning_override_is_marked_current_in_reasoning_popup() {
     kit::pending(
         Owner::ChatLive,
-        "Plan-mode reasoning override and its popup belong to chunk-popups (the mode picker and reasoning popups are not part of plan mode's prompt)",
+        "The live Plan shortcut sets Low and the footer shows it, but /model reads the global High and marks that row current. The live opener does not supply the picker with Plan context.",
     );
-    let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
-    // The oracle opens the popup from the preset directly; the port reaches it
-    // through the model picker (chat-popups), keys to confirm with the plan state.
-    s.type_text("/model").keys("enter");
+    let s = plan_reasoning_picker(true);
     s.assert_contains("Low (current)");
     s.assert_absent("High (current)");
 }
@@ -179,17 +234,14 @@ fn plan_reasoning_scope_popup_all_modes_persists_global_and_plan_override() {
 fn plan_reasoning_scope_popup_mentions_selected_reasoning() {
     kit::pending(
         Owner::ChatLive,
-        "the reasoning-scope prompt belongs to chunk-popups (the Plan reasoning override)",
+        "After choosing Low in Plan, selecting Medium in /model closes the picker and sends config/batchWrite before any scope choice. The live picker does not receive the user-chosen Plan override.",
     );
-    let s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
-    s.assert_contains("Choose where to apply medium reasoning.");
+    let mut s = plan_reasoning_picker(true);
+    choose_medium_reasoning(&mut s);
     s.assert_contains("Always use medium reasoning in Plan mode");
     s.assert_contains("Apply to Plan mode override");
     s.assert_contains("Apply to global default and Plan mode override");
-    // Kit gap: the oracle matches the whitespace-collapsed text
-    // `user-chosenPlanoverride(low)`, and the kit has no collapsed match; the words
-    // are checked in their order instead (reported in the handover).
-    s.assert_in_order(&["user-chosen", "Plan", "override", "(low)"]);
+    s.assert_contains_unwrapped("user-chosen Plan override (low)");
 }
 
 // ORACLE chatwidget/tests/plan_mode.rs:640 plan_reasoning_scope_popup_mentions_built_in_plan_default_when_no_override kind=ui owner=chat-live
@@ -197,12 +249,11 @@ fn plan_reasoning_scope_popup_mentions_selected_reasoning() {
 fn plan_reasoning_scope_popup_mentions_built_in_plan_default_when_no_override() {
     kit::pending(
         Owner::ChatLive,
-        "the reasoning-scope prompt belongs to chunk-popups (the Plan reasoning override)",
+        "With the real Plan catalog default Medium and global High, reselecting Medium sends config/batchWrite instead of opening the scope picker. The live picker does not receive the built-in Plan default.",
     );
-    let s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
-    // Kit gap: the oracle matches the whitespace-collapsed text
-    // `built-inPlandefault(medium)`; the words are checked in order instead (reported).
-    s.assert_in_order(&["built-in", "Plan", "default", "(medium)"]);
+    let mut s = plan_reasoning_picker(false);
+    choose_medium_reasoning(&mut s);
+    s.assert_contains_unwrapped("built-in Plan default (medium)");
 }
 
 // ORACLE chatwidget/tests/plan_mode.rs:657 plan_reasoning_scope_popup_plan_only_does_not_update_all_modes_reasoning kind=ui owner=chat-live

@@ -1,0 +1,57 @@
+{
+  "models": {
+    "data": [
+      {
+        "additionalSpeedTiers": [],
+        "availabilityNux": null,
+        "defaultReasoningEffort": "medium",
+        "defaultServiceTier": null,
+        "description": "Test reasoning model",
+        "displayName": "GPT-5.5",
+        "hidden": false,
+        "id": "gpt-5.5",
+        "inputModalities": [
+          "text"
+        ],
+        "isDefault": true,
+        "model": "gpt-5.5",
+        "modelSpecialty": null,
+        "serviceTiers": [],
+        "supportedReasoningEfforts": [
+          {
+            "reasoningEffort": "low",
+            "description": "Fast reasoning"
+          },
+          {
+            "reasoningEffort": "medium",
+            "description": "Balanced reasoning"
+          },
+          {
+            "reasoningEffort": "high",
+            "description": "Deeper reasoning"
+          }
+        ],
+        "supportsPersonality": false,
+        "upgrade": null,
+        "upgradeInfo": null
+      }
+    ],
+    "nextCursor": null
+  },
+  "collaboration": {
+    "data": [
+      {
+        "name": "Plan",
+        "mode": "plan",
+        "model": "gpt-5.5",
+        "reasoning_effort": "medium"
+      },
+      {
+        "name": "Default",
+        "mode": "default",
+        "model": null,
+        "reasoning_effort": null
+      }
+    ]
+  }
+}
