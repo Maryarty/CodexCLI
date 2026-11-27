@@ -153,12 +153,11 @@ fn a_replaced_home_closes_the_dialog_and_the_next_event_shows_it_again_from_the_
 fn a_dead_origin_shows_nothing_and_its_none_is_not_retried() {
     let mut h = start();
     h.wait_idle();
-    let stale =
-        h.t.read_app::<UiApp, _>(|app| app.ui.presenter.place().get());
+    let stale = h.t.read_app::<UiApp, _>(|app| app.ui.presenter.place().get());
     assert!(stale.is_some(), "the home left its handle");
     h.t.update_app::<UiApp>(|app, _| app.ui.nav_key = GlobalKey::with_label("navigator-2"));
     h.t.pump_for(ms(200));
-    h.t.update_app::<UiApp>(move |app, _| app.ui.presenter.place().set(stale));
+    h.t.update_app::<UiApp>(move |app, _| app.ui.presenter.place().set_root(stale));
     h.t.pump_for(ms(50));
     inject(&h, 7);
     h.settle();

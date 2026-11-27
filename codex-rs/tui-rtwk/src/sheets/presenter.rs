@@ -51,6 +51,11 @@ impl Place {
         self.0.root.get()
     }
 
+    /// Records the home memo node used to open dialogs.
+    pub fn set_root(&self, root: Option<ViewRoot<UiApp>>) {
+        self.0.root.set(root);
+    }
+
     fn visible_navigator(&self) -> Option<NavigatorState> {
         self.0
             .navigator
@@ -292,7 +297,7 @@ pub fn present(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
         // The handle's memo node is gone (rtwk showed nothing and `closed`
         // follows with `None`): drop the handle, requests wait for the next
         // home, which leaves its own.
-        app.ui.presenter.place.0.root.set(None);
+        app.ui.presenter.place.set_root(None);
     }
 }
 
@@ -303,7 +308,7 @@ pub fn home_node(
     deps: &(Place, DelayHandle, AnyWidget),
     cx: &mut MemoCx<'_, '_, UiApp>,
 ) -> AnyWidget {
-    deps.0.0.root.set(Some(cx.root()));
+    deps.0.set_root(Some(cx.root()));
     *deps.1.0.due.borrow_mut() = Some(cx.on(present));
     Home {
         place: deps.0.clone(),
