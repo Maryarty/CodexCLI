@@ -17,7 +17,7 @@ use crate::rpc::{Address, Answer, RpcError};
 use crate::screens::chat::{facts, plan_mode::PromptPriority};
 use crate::screens::status::RateRead;
 use crate::screens::{ScreenThreadIntent, chat};
-use crate::threads::queue::{self, QueueEvent, QueueOperation};
+use crate::threads::queue::{self, ModalOperation, QueueEvent, QueueOperation};
 use crate::threads::{Note, NoteKey, ThreadEv};
 use codex_app_server_protocol::{ErrorNotification, ServerNotification, ServerRequest};
 
@@ -223,6 +223,7 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
                     }
                     None => return,
                 };
+                let operation = ModalOperation::new(modal.kind, operation);
                 let address = modal_address(app, thread);
                 queue_event(
                     app,
@@ -234,10 +235,7 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
                     queue_event(
                         app,
                         thread,
-                        QueueEvent::ModalFinished {
-                            operation,
-                            accepted: None,
-                        },
+                        QueueEvent::ModalFinished(operation.cancelled()),
                         fx,
                     );
                     return;
@@ -298,33 +296,26 @@ pub(super) fn finish_queue_modal(
     message: ScreenThreadIntent,
     fx: &mut AppFx,
 ) -> Result<(), ScreenThreadIntent> {
-    let ScreenThreadIntent::Chat(chat::ThreadIntent::QueueEvent(QueueEvent::ModalFinished {
-        operation,
-        accepted,
-    })) = message
+    let ScreenThreadIntent::Chat(chat::ThreadIntent::QueueEvent(QueueEvent::ModalFinished(
+        mut receipt,
+    ))) = message
     else {
         return Err(message);
     };
-    if operation.thread() != thread {
+    if receipt.thread() != thread {
         return Ok(());
     }
     if app.session.active.as_ref() == Some(thread)
-        && app.threads.get(thread).is_some_and(|model| {
-            queue::modal_is_open(model, &operation, modal_address(app, thread))
-        })
-        && let Some(action) = accepted
+        && app
+            .threads
+            .get(thread)
+            .is_some_and(|model| queue::modal_is_open(model, &receipt, modal_address(app, thread)))
     {
-        intent(app, *action, fx);
+        run(app, fx, |states, cx| {
+            features::apply_modal_choice(states, thread, &mut receipt, cx);
+        });
     }
-    queue_event(
-        app,
-        thread,
-        QueueEvent::ModalFinished {
-            operation,
-            accepted: None,
-        },
-        fx,
-    );
+    queue_event(app, thread, QueueEvent::ModalFinished(receipt), fx);
     Ok(())
 }
 

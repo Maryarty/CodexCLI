@@ -15,14 +15,16 @@
 use rtwk::app::{AppCx, AppDialog};
 
 use codex_tui_core::app::{AppEv, Intent};
-use codex_tui_core::features::{FeatureIntent, Scope};
+use codex_tui_core::features::Scope;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::select::{
     Intent as SelectIntent, ModelCompletion, ModelResult, QueuedModelShow,
 };
 use codex_tui_core::screens::transcript::Intent as TranscriptIntent;
 use codex_tui_core::screens::{ScreenIntent, ScreenThreadIntent, chat};
-use codex_tui_core::threads::queue::{QueueEvent, QueueOperation};
+use codex_tui_core::threads::queue::{
+    CopyChoice, ModalOperation, ModalReceipt, QueueEvent, QueueOperation, StatusLineChoice,
+};
 
 use crate::app::UiApp;
 use crate::features::InPlace;
@@ -37,19 +39,39 @@ pub struct Presenters {
     taken_select: u64,
     /// The same for the static pager's documents (`transcript::Directive`).
     taken_pager: u64,
-    queue_dialogs: Vec<(ThreadId, AppDialog<FeatureIntent>)>,
+    queue_dialogs: Vec<(ThreadId, QueueDialog)>,
+}
+
+/// The result type of each native dialog is the one its issued token accepts.
+enum QueueDialog {
+    Copy(AppDialog<CopyChoice>),
+    StatusLine(AppDialog<StatusLineChoice>),
+}
+
+impl QueueDialog {
+    fn retain(&self, active: bool) -> bool {
+        fn open<T: 'static>(dialog: &AppDialog<T>, active: bool) -> bool {
+            if !active {
+                dialog.close(None);
+            }
+            !dialog.is_closed()
+        }
+
+        match self {
+            Self::Copy(dialog) => open(dialog, active),
+            Self::StatusLine(dialog) => open(dialog, active),
+        }
+    }
 }
 
 /// Shows the wishes of the features and the sheets the select screen asked for that are waiting
 /// and can be shown now.
 pub fn present(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
     let active = app.core.session().active.as_ref();
-    app.ui.presenters.queue_dialogs.retain(|(owner, dialog)| {
-        if Some(owner) != active {
-            dialog.close(None);
-        }
-        !dialog.is_closed()
-    });
+    app.ui
+        .presenters
+        .queue_dialogs
+        .retain(|(owner, dialog)| dialog.retain(Some(owner) == active));
     present_wishes(app, cx);
     present_shows(app, cx);
     present_pagers(app, cx);
@@ -174,9 +196,13 @@ fn queue_receipt(
     receipt: impl FnOnce(QueueOperation) -> QueueEvent,
 ) {
     let thread = operation.thread().clone();
+    thread_queue_event(app, thread, receipt(operation));
+}
+
+fn thread_queue_event(app: &mut UiApp, thread: ThreadId, event: QueueEvent) {
     app.send(AppEv::Intent(Intent::ThreadScreen {
         thread,
-        intent: ScreenThreadIntent::Chat(chat::ThreadIntent::QueueEvent(receipt(operation))),
+        intent: ScreenThreadIntent::Chat(chat::ThreadIntent::QueueEvent(event)),
     }));
 }
 
@@ -200,7 +226,7 @@ fn present_wishes(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
         if let Some(operation) = &operation
             && app.core.session().active.as_ref() != Some(operation.thread())
         {
-            finish_queue_modal(app, operation.clone(), None);
+            finish_queue_modal(app, operation.clone().cancelled());
             app.ui.presenters.taken = seq;
             app.send(AppEv::Intent(Intent::WishShown(seq)));
             continue;
@@ -236,19 +262,33 @@ fn present_wishes(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
             };
             let open = shown.open.clone();
             if let Some(operation) = operation {
-                let opened = operation.clone();
-                let dialog = cx.show_dialog_from::<FeatureIntent>(
-                    place,
-                    move |_| open(),
-                    shown.options,
-                    move |app, answer, _| finish_queue_modal(app, operation, answer),
-                );
-                if !dialog.is_closed() {
+                let owner = operation.thread().clone();
+                let dialog = match operation.clone() {
+                    ModalOperation::Copy(token) => QueueDialog::Copy(cx.show_dialog_from(
+                        place,
+                        move |_| open(),
+                        shown.options,
+                        move |app, answer, _| {
+                            finish_queue_modal(app, ModalReceipt::Copy(token, answer));
+                        },
+                    )),
+                    ModalOperation::StatusLine(token) => {
+                        QueueDialog::StatusLine(cx.show_dialog_from(
+                            place,
+                            move |_| open(),
+                            shown.options,
+                            move |app, answer, _| {
+                                finish_queue_modal(app, ModalReceipt::StatusLine(token, answer));
+                            },
+                        ))
+                    }
+                };
+                if dialog.retain(true) {
                     app.ui
                         .presenters
                         .queue_dialogs
-                        .push((opened.thread().clone(), dialog));
-                    queue_receipt(app, opened, QueueEvent::ModalOpened);
+                        .push((owner.clone(), dialog));
+                    thread_queue_event(app, owner, QueueEvent::ModalOpened(operation));
                 }
             } else {
                 let dialog = cx.show_dialog_from::<()>(
@@ -262,16 +302,14 @@ fn present_wishes(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
                 }
             }
         } else if let Some(operation) = operation {
-            finish_queue_modal(app, operation, None);
+            finish_queue_modal(app, operation.cancelled());
         }
         app.ui.presenters.taken = seq;
         app.send(AppEv::Intent(Intent::WishShown(seq)));
     }
 }
 
-fn finish_queue_modal(app: &mut UiApp, operation: QueueOperation, answer: Option<FeatureIntent>) {
-    queue_receipt(app, operation, |operation| QueueEvent::ModalFinished {
-        operation,
-        accepted: answer.map(Box::new),
-    });
+fn finish_queue_modal(app: &mut UiApp, receipt: ModalReceipt) {
+    let thread = receipt.thread().clone();
+    thread_queue_event(app, thread, QueueEvent::ModalFinished(receipt));
 }
