@@ -68,7 +68,7 @@ pub use side::SIDE_THREAD;
 #[allow(unused_imports)]
 pub use sparkle::{Dots, split_frames};
 #[allow(unused_imports)]
-pub use states::{SubmissionReceipt, image_file_sized};
+pub use states::{SubmissionReceipt, image_file_sized, rewrite_image_file};
 
 #[allow(unused_imports)]
 pub use labels::{normalize as normalize_rows, normalize_key_names, normalize_labels};
@@ -189,9 +189,16 @@ impl Screen {
     /// path.
     pub fn attach_image(&mut self, name: &str) -> std::path::PathBuf {
         let path = image_file(name);
-        self.paste(&path.to_string_lossy());
-        self.keys("backspace");
+        self.attach_image_path(&path);
         path
+    }
+
+    /// Drops an existing local file into the field at the caret, also authorizing the fake
+    /// host to read the file if the composer asks for a preview.
+    pub fn attach_image_path(&mut self, path: &std::path::Path) -> &mut Screen {
+        self.local_image(path);
+        self.paste(&path.to_string_lossy());
+        self.keys("backspace")
     }
 
     /// The messages the app has started turns with (what the backend was
@@ -691,6 +698,38 @@ impl Screen {
                 "{image:?}"
             );
         }
+    }
+
+    /// The native images, left to right, must fit in their thumbnail tiles.
+    pub fn assert_thumbnails(&self, width: usize, shapes: &[(usize, usize)]) {
+        let images = self.thumbnails();
+        let placed: Vec<_> = images
+            .iter()
+            .map(|image| (image.cols, image.rows))
+            .collect();
+        assert_eq!(placed, shapes, "placements: {images:?}\n{}", self.text());
+        for image in images {
+            assert!(image.x + image.cols <= width, "{image:?}");
+        }
+    }
+
+    /// Get the size of the bytes sent for a fixed-size thumbnail, to see a same-geometry edit.
+    pub fn thumbnail_bytes(&self, index: usize) -> usize {
+        self.thumbnails()[index].bytes
+    }
+
+    pub fn assert_thumbnail_changed(&self, index: usize, earlier_bytes: usize) {
+        assert_ne!(
+            self.thumbnail_bytes(index),
+            earlier_bytes,
+            "thumbnail did not update"
+        );
+    }
+
+    fn thumbnails(&self) -> Vec<rtwk_test::Image> {
+        let mut images = self.h.t.images();
+        images.sort_by_key(|image| image.x);
+        images
     }
 
     /// The oracle asserts the window title (OSC 0/2) the app last wrote.

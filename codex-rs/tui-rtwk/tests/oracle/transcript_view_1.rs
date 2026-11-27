@@ -940,15 +940,50 @@ fn fullscreen_composer_scrolls_without_moving_caret_or_transcript() {
 // ORACLE app/owned_transcript_tests.rs:2055 composer_thumbnails_follow_draft_deletion_and_resize kind=snap owner=chat-live snap=composer_thumbnail_strip
 #[test]
 fn composer_thumbnails_follow_draft_deletion_and_resize() {
-    kit::pending(
-        Owner::ChatLive,
-        "no image attachment seed (attach_image of a portrait and a banner, Home/End/Delete over the draft) and no kitty image placements in the kit: the thumbnail strip at 20x24 and 60x24, the '+1' count and the '[Image #1][Image #2]' text fallback at insufficient height or without terminal support are not built; the 6-row strip snapshot composer_thumbnail_strip needs the placement row, so it is not compared yet",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(20, 24)
-        .script(include_str!("fixtures/transcript_view_1/select.jsonl"))
-        .open();
-    s.assert_contains("+1");
+    for owned in [false, true] {
+        let portrait = kit::image_file_sized("composer-portrait.png", 4, 400);
+        let panorama = kit::image_file_sized("composer-panorama.png", 400, 1);
+        let open = Screen::build(Owner::ChatLive).size(20, 24).kitty();
+        let mut s = if owned { open.owned_transcript() } else { open }.open();
+        s.attach_image_path(&portrait)
+            .keys("home")
+            .attach_image_path(&panorama)
+            .keys("end")
+            .attach_image_path(&panorama);
+        s.assert_thumbnails(20, &[(6, 1), (1, 3)]);
+        s.assert_contains("+1");
+
+        s.resize(60, 24);
+        s.assert_thumbnails(60, &[(6, 1), (1, 3), (6, 1)]);
+        s.assert_absent("+1");
+        s.keys("home delete");
+        s.assert_thumbnails(60, &[(1, 3), (6, 1)]);
+
+        let earlier = s.thumbnail_bytes(0);
+        kit::rewrite_image_file(&portrait, 4, 400);
+        s.wait(2000);
+        s.assert_thumbnails(60, &[(1, 3), (6, 1)]);
+        s.assert_thumbnail_changed(0, earlier);
+
+        s.resize(60, 5);
+        s.assert_thumbnails(60, &[]);
+        s.assert_contains("[Image #1][Image #2]");
+        s.keys("home delete");
+        s.assert_contains("[Image #1]");
+        s.assert_absent("[Image #2]");
+        s.resize(60, 24);
+        s.assert_thumbnails(60, &[(6, 1)]);
+
+        let open = Screen::build(Owner::ChatLive).size(60, 24);
+        let mut s = if owned { open.owned_transcript() } else { open }.open();
+        s.attach_image_path(&portrait).attach_image_path(&panorama);
+        s.assert_thumbnails(60, &[]);
+        s.assert_contains("[Image #1][Image #2]");
+        s.keys("home delete");
+        s.assert_absent("[Image #2]");
+        kit::remove_artifact_file(&portrait);
+        kit::remove_artifact_file(&panorama);
+    }
 }
 
 // ORACLE app/owned_transcript_tests.rs:2158 fullscreen_composer_remote_images_leave_an_editable_prompt_row kind=snap owner=chat-live snap=fullscreen_prompt_remote_images
