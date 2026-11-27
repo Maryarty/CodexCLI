@@ -578,6 +578,9 @@ pub(crate) fn owned(
         (Opening::Apps, ModalOperation::Apps(token)) => {
             Some((apps::owned_sheet(token.clone()), apps::options()))
         }
+        (Opening::Quick(menu), ModalOperation::Preset(_)) => {
+            Some((quick::queued_sheet(menu), quick::options()))
+        }
         _ => None,
     }
 }
