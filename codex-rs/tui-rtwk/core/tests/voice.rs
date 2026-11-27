@@ -938,6 +938,6 @@ fn ordered_close_seals_both_partial_speakers_without_repeating_a_done_item() {
     );
     assert_eq!(
         captions(&app, thread),
-        ["already completed", "first answer", "a correction"]
+        ["already completed", "a correction", "first answer"]
     );
 }

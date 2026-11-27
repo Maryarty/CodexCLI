@@ -1872,20 +1872,23 @@ fn apply_event(
             }
             if ordered_legacy_publisher
                 && let Some((thread, caption)) =
-                    threads::voice_transcript::project_legacy(&notification)
+                    threads::voice_transcript::project_legacy(&notification, |thread| {
+                        app.screens.agents.owner_of(thread.as_str()) == origin
+                            && app.threads.get(thread).is_some_and(|model| {
+                                model.screen_slots().voice.uses_legacy_captions()
+                            })
+                    })
             {
-                if app.screens.agents.owner_of(thread.as_str()) == origin {
-                    apply_thread(
-                        app,
-                        &thread,
-                        threads::voice_transcript::ThreadEvent::LegacyCaption {
-                            caption,
-                            show_user_preview: app.screens.chat.status.animations,
-                        }
-                        .into(),
-                        fx,
-                    );
-                }
+                apply_thread(
+                    app,
+                    &thread,
+                    threads::voice_transcript::ThreadEvent::LegacyCaption {
+                        caption,
+                        show_user_preview: app.screens.chat.status.animations,
+                    }
+                    .into(),
+                    fx,
+                );
                 return;
             }
             if let Some((thread, event)) = threads::voice_transcript::project(&notification) {

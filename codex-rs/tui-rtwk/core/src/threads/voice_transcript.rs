@@ -46,6 +46,7 @@ pub(crate) struct Legacy {
     ordered: bool,
     user: Option<FlatSegment>,
     assistant: Option<FlatSegment>,
+    current: Option<Role>,
     next: u64,
 }
 
@@ -55,6 +56,7 @@ impl Legacy {
             ordered: true,
             user: None,
             assistant: None,
+            current: None,
             next: 0,
         }
     }
@@ -82,6 +84,7 @@ impl Legacy {
     }
 
     fn append(&mut self, role: Role, text: &str) -> &FlatSegment {
+        self.current = Some(role);
         let slot = match role {
             Role::User => &mut self.user,
             Role::Assistant => &mut self.assistant,
@@ -207,6 +210,7 @@ pub(crate) fn project(notification: &wire::ServerNotification) -> Option<(Thread
 
 pub(crate) fn project_legacy(
     notification: &wire::ServerNotification,
+    accepts: impl FnOnce(&ThreadId) -> bool,
 ) -> Option<(ThreadId, FlatCaption)> {
     use wire::ServerNotification as Note;
     let (thread, role, text, completed) = match notification {
@@ -221,8 +225,12 @@ pub(crate) fn project_legacy(
         "assistant" => Role::Assistant,
         _ => return None,
     };
+    let thread = ThreadId::new(thread);
+    if !accepts(&thread) {
+        return None;
+    }
     Some((
-        ThreadId::new(thread),
+        thread,
         FlatCaption {
             role,
             text: text.clone(),
@@ -234,7 +242,7 @@ pub(crate) fn project_legacy(
 fn key(session: &str, item: ItemId) -> ItemKey {
     // The server's turn IDs form a separate namespace from realtime sessions.
     ItemKey {
-        turn: TurnId::new(format!("#/{}", session)),
+        turn: TurnId::new(format!("#/{session}")),
         item,
     }
 }
@@ -310,9 +318,17 @@ impl Transcript {
     }
 
     fn seal_legacy_captions(&mut self, session: &str, legacy: &mut Legacy) {
-        for role in [Role::Assistant, Role::User] {
+        // The oracle flushes the interleaved speaker before the current speaker.
+        let order = if legacy.current == Some(Role::User) {
+            [Role::Assistant, Role::User]
+        } else {
+            [Role::User, Role::Assistant]
+        };
+        for role in order {
             if let Some(segment) = legacy.take(role) {
-                self.finish_voice_caption(key(session, segment.item), role, segment.text);
+                let key = key(session, segment.item);
+                self.drop_voice_preview(&key);
+                self.finish_voice_caption(key, role, segment.text);
             }
         }
     }
