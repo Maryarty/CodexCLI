@@ -100,6 +100,36 @@ pub enum CopyStatus {
     Busy,
 }
 
+/// A bound on the decoded preview displayed by the caller, in pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ImageSize {
+    pub width: u16,
+    pub height: u16,
+}
+
+/// A small validated PNG. An Arc is the revision of this snapshot: keep it while displaying
+/// the same read, and use a new one when the file is read again, even at the same path.
+#[derive(Clone, Debug)]
+pub struct ImagePreview {
+    pub png: Arc<[u8]>,
+    pub size: ImageSize,
+}
+
+impl PartialEq for ImagePreview {
+    fn eq(&self, other: &Self) -> bool {
+        self.size == other.size && Arc::ptr_eq(&self.png, &other.png)
+    }
+}
+
+impl Eq for ImagePreview {}
+
+/// A host-authorized hyperlink and, when requested and decodable, the preview of a local file.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ImageSnapshot {
+    pub link: Option<String>,
+    pub preview: Option<ImagePreview>,
+}
+
 /// One edit of the user's config file (`config/batchWrite`: a dotted key path and its new value,
 /// the value replaces).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -176,6 +206,10 @@ host_capability_list! {
     /// The text the system clipboard holds (Ctrl+Shift+V, the right-click paste), or why it could
     /// not be read.
     clipboard_text => ClipboardText -> new ClipboardText(Result<String, String>);
+    /// Check whether a workspace image is a trustworthy local file, optionally reading a
+    /// bounded preview. Paths from remote workspaces cannot be resolved on the client.
+    image_snapshot => ImageSnapshot { thread: ThreadId, path: String, preview: Option<ImageSize> }
+        by thread -> new ImageSnapshot(ImageSnapshot);
     /// Opens `thread` in the Desktop app (`codex://threads/{id}`, `/app`). Answered by nothing,
     /// or the launch's own failure text.
     open_desktop => OpenDesktop { thread: ThreadId } -> new Opened(Result<(), String>);

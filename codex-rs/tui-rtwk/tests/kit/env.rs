@@ -56,6 +56,7 @@ use codex_tui_core::threads::Notice;
 use codex_tui_core::threads::daybreak::{Access, ModelAccess, Programs};
 use codex_tui_rtwk::services::startup::UpdateAction;
 use rtwk::binding::ScreenMode;
+use rtwk_core::graphics::GraphicsProtocol;
 use rtwk_core::style::ColorMode;
 use rtwk_core::terminal::NotificationProtocol;
 use rtwk_core::unicode::TextMode;
@@ -123,6 +124,7 @@ pub(super) struct Env {
     depth: Option<ColorDepth>,
     legacy_text: bool,
     notifications: bool,
+    kitty: bool,
     vars: Vec<(&'static str, &'static str)>,
     syntax_theme: Option<&'static str>,
     foreign_writer: Option<&'static str>,
@@ -158,6 +160,9 @@ impl Env {
     /// The terminal as `rtwk_test` makes it for these seeds.
     pub(super) fn options(&self, width: u16, height: u16) -> Options {
         let mut options = Options::new().size(width, height);
+        if self.kitty {
+            options = options.graphics(GraphicsProtocol::Kitty).cell_pixels(8, 16);
+        }
         if let Some(history) = &self.inline {
             options = options
                 .mode(ScreenMode::Inline)
@@ -315,6 +320,12 @@ impl Env {
 pub const REPLAYED: &str = "replayed-1";
 
 impl Open {
+    /// A native Kitty graphics terminal with the oracle's 8×16 pixel cells.
+    pub fn kitty(mut self) -> Open {
+        self.env.kitty = true;
+        self
+    }
+
     /// The terminal's default colours (`0xRRGGBB`), as its answer to the
     /// colour queries gives them: the oracle's `set_default_colors`.
     pub fn terminal_colors(mut self, foreground: u32, background: u32) -> Open {

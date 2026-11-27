@@ -3,20 +3,20 @@
 //! Compact it is one row with the file's name; it discloses
 //! (transcript_view/layout.rs `activity_layout`) the transcript lines, the
 //! full path under a two-column hanging indent, and the detailed transcript
-//! shows those at once. The oracle also links the name to a local image file
-//! and previews the image there: both read the file system, which a view does
-//! not (a services effect, left in the handover).
+//! shows those at once. The host validates the local hyperlink and reads a
+//! bounded preview for an expanded cell in a graphics-capable transcript.
 //!
 //! Flutter: a `StatefulWidget` holding `expanded` (as an `ExpansionTile`), the
 //! control from `disclosure.rs`.
 
 use rtwk::gestures::ExcludeSelection;
-use rtwk::layout::{CrossAxisAlignment, Expanded, Row, SizedBox};
+use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
 use rtwk::style::{Attrs, Span};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use crate::app::theme::Tokens;
+use crate::features::images;
 
 use super::dispatch::{CellEnv, Place, below};
 use super::one_row::one_row;
@@ -67,6 +67,8 @@ pub struct ViewedImageCell {
     pub path: String,
     /// The detailed transcript shows the full path and no control.
     pub detailed: bool,
+    pub source: Option<codex_tui_core::features::images::Source>,
+    pub raw: bool,
 }
 
 #[derive(Default)]
@@ -96,7 +98,14 @@ impl State for ViewedImageCellState {
     fn build(&self, widget: &ViewedImageCell, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let tokens = Tokens::of(cx);
         let strings = super::strings::of(cx);
-        let expanded = widget.detailed || self.expanded;
+        let expanded = widget.detailed || super::disclosure::expanded(cx, self.expanded);
+        let read = widget
+            .source
+            .as_ref()
+            .map(|source| images::request(cx, source, expanded && !widget.raw));
+        let snapshot = read.as_ref().and_then(|read| images::snapshot(cx, read));
+        let link = snapshot.as_ref().and_then(|image| image.link.as_deref());
+        let path_style = link.map_or_else(|| tokens.dim(), |url| tokens.dim().link(url));
         let summary: AnyWidget = if expanded {
             // transcript_hyperlink_lines: the bullet, then the label and the
             // path wrapped under two blanks.
@@ -111,7 +120,7 @@ impl State for ViewedImageCellState {
                     1,
                     Text::rich(vec![
                         Span::styled(strings.viewed_image, tokens.bold()),
-                        Span::styled(blank(&widget.path, strings), tokens.dim()),
+                        Span::styled(blank(&widget.path, strings), path_style),
                     ]),
                 ))
                 .into()
@@ -119,18 +128,35 @@ impl State for ViewedImageCellState {
             one_row(vec![
                 Span::styled(strings.bullet, tokens.dim()),
                 Span::styled(strings.viewed_image, tokens.bold()),
-                Span::styled(blank(&widget.name, strings), tokens.dim()),
+                Span::styled(blank(&widget.name, strings), path_style),
             ])
         };
-        if widget.detailed {
-            return summary;
-        }
-        let label = if expanded {
-            strings.hide_details
+        let text = if widget.detailed {
+            summary
         } else {
-            strings.show_details
+            let label = if expanded {
+                strings.hide_details
+            } else {
+                strings.show_details
+            };
+            super::disclosure::disclosing(
+                cx,
+                summary,
+                label,
+                tokens.dim().attrs(Attrs::DIM),
+                expanded,
+            )
         };
-        super::disclosure::disclosing(cx, summary, label, tokens.dim().attrs(Attrs::DIM), expanded)
+        let child = match snapshot.and_then(|image| image.preview) {
+            Some(preview) => Column::new()
+                .main_axis_size(MainAxisSize::Min)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(text)
+                .child(images::preview(preview))
+                .into(),
+            None => text,
+        };
+        images::watch(read, child)
     }
 }
 
@@ -146,6 +172,8 @@ pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
             name: name.clone(),
             path: path.clone(),
             detailed: env.detailed,
+            source: place.image.clone(),
+            raw: env.raw,
         }
         .into(),
     )
