@@ -6,9 +6,11 @@
 
 use codex_tui_rtwk::pages::session::open;
 
-use crate::chat::{assert_chat_back, chat_with_history, shows};
+use crate::chat::{assert_chat_back, assert_transcript_kept, chat_with_history, shows};
 use crate::common::{Harness, ms, start};
+use codex_tui_core::app::effects::Ask;
 use codex_tui_core::commands::Target;
+use codex_tui_core::screens::voice::{AudioAction, AudioCommand};
 
 fn chat() -> Harness {
     open::reset_last_opened();
@@ -473,14 +475,43 @@ fn esc_with_a_draft_does_not_start_backtrack() {
 }
 
 #[test]
-fn f8_toggles_voice_which_opens_the_voice_strip() {
+fn f8_starts_and_stops_the_pending_voice_call() {
     let mut h = chat();
+    let draft = "a voice draft";
+    h.t.type_text(draft);
+    h.wait_for("the draft", |screen| screen.contains(draft));
     let before = h.t.screen();
     h.press("f8");
-    wait_shows(&mut h, "f8", "voice");
-    assert!(shows(&h, "voice"), "{}", h.t.screen());
-    escape_closes(&mut h, &before);
-    assert_chat_back(&h, None, &before);
+    let prepared_owner = |h: &Harness| {
+        h.fake
+            .commands()
+            .iter()
+            .find_map(|command| match command.host_ask() {
+                Some(Ask::Audio(audio)) if audio.action == AudioAction::Prepare => {
+                    Some(audio.owner.clone())
+                }
+                _ => None,
+            })
+    };
+    h.wait_until("the connecting voice strip and audio preparation", |h| {
+        h.t.screen().contains("voice ◌ connecting") && prepared_owner(h).is_some()
+    });
+    assert_transcript_kept(&h, Some(draft));
+    let owner = prepared_owner(&h).expect("F8 prepared audio for the pending call");
+
+    h.press("f8");
+    let close = Ask::Audio(AudioCommand {
+        owner,
+        action: AudioAction::Close,
+    });
+    h.wait_until("F8 to close the pending call", |h| {
+        h.t.screen() == before
+            && h.fake
+                .commands()
+                .iter()
+                .any(|command| command.host_ask() == Some(&close))
+    });
+    assert_chat_back(&h, Some(draft), &before);
 }
 
 #[test]
