@@ -75,3 +75,34 @@ fn replay_positions_captions_around_ordinary_rows_and_deduplicates_by_id() {
     ]);
     assert_eq!(s.text().matches("remember this").count(), 1, "{}", s.text());
 }
+
+#[test]
+fn an_older_page_with_only_ordinary_anchors_repositions_a_newer_caption() {
+    let ordinary =
+        json!({"type": "agentMessage", "id": "previous", "text": "Previous ordinary answer"});
+    let turn = kit::replay_turn("turn-1", json!([ordinary]));
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .replay(vec![turn.clone()])
+        .replay_paginated()
+        .open();
+    s.history_page(vec![turn], None);
+    s.voice_timeline_page(
+        None,
+        json!([{
+            "type": "realtime", "position": 3,
+            "item": {"id": "speech", "realtimeSessionId": "call", "type": "transcriptSegment",
+                     "role": "assistant", "text": "Newer spoken answer"}
+        }]),
+        Some("older-anchor"),
+    );
+    s.voice_timeline_page(
+        Some("older-anchor"),
+        json!([
+            {"type":"turnStarted","position":1,"turnId":"turn-1","startedAt":null},
+            {"type":"item","position":2,"turnId":"turn-1","item":ordinary},
+        ]),
+        None,
+    );
+    s.assert_in_order(&["Previous ordinary answer", "Newer spoken answer"]);
+}

@@ -286,16 +286,16 @@ impl Transcript {
             page.entries
                 .into_iter()
                 .rev()
-                .fold(false, |caption_seen, entry| match entry {
+                .fold(false, |layout_changed, entry| match entry {
                     Entry::TurnStarted(turn) => {
                         Rc::make_mut(&mut self.voice_replay).seen_turns.insert(turn);
-                        caption_seen
+                        layout_changed
                     }
                     Entry::Ordinary(key) => {
                         Rc::make_mut(&mut self.voice_replay)
                             .order
                             .push_front(Anchor::Ordinary(key));
-                        caption_seen
+                        true
                     }
                     Entry::Caption(key, role, text) => {
                         self.live_voice_items.remove(&key.item);
