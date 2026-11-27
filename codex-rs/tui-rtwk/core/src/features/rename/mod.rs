@@ -95,10 +95,8 @@ pub enum ThreadIntent {
 /// What an ask was for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ctx {
-    /// `thread/name/set`.
-    SetName,
-    /// The result belongs to this submission of the prompt.
-    Submitted(Gen),
+    /// The result of one rename, with the prompt generation if it held queued input.
+    SetName { rename: Gen, prompt: Option<Gen> },
     /// The title the model was asked to suggest for this thread's prompt, by the request's
     /// generation: the answer of a prompt that was closed and opened again belongs to the
     /// earlier request and is dropped (`State::titles`).
@@ -147,11 +145,32 @@ pub struct State {
 pub struct ThreadPart {
     prompt: Option<Gen>,
     awaiting: Option<(Gen, String)>,
+    /// Only the latest rename can publish a name when its RPC succeeds.
+    rename_generation: Gen,
+    pending_name: Option<String>,
 }
 
 impl ThreadPart {
     pub(crate) fn holds_queue(&self) -> bool {
         self.prompt.is_some() || self.awaiting.is_some()
+    }
+
+    fn request_name(&mut self, name: String, prompt: Option<Gen>, cx: &mut ThreadCx<'_, '_>) {
+        let rename = self.rename_generation + 1;
+        if cx
+            .request(
+                Ctx::SetName { rename, prompt },
+                Command::SetName(name.clone()),
+            )
+            .is_none()
+        {
+            return;
+        }
+        self.rename_generation = rename;
+        if let Some(prompt) = prompt {
+            self.awaiting = Some((prompt, name.clone()));
+        }
+        self.pending_name = Some(name);
     }
 
     /// A matching notification confirms the server already stored the requested name.
@@ -171,6 +190,7 @@ impl ThreadPart {
     pub(crate) fn connection_lost(&mut self) {
         // Only the submitted RPC depends on this transport.
         self.awaiting = None;
+        self.pending_name = None;
     }
 }
 
@@ -425,15 +445,10 @@ impl Feature for Rename {
     fn thread_intent(part: &mut ThreadPart, intent: ThreadIntent, cx: &mut ThreadCx<'_, '_>) {
         match intent {
             ThreadIntent::Set(name) if !name.trim().is_empty() => {
-                cx.request(Ctx::SetName, Command::SetName(name));
+                part.request_name(name, None, cx);
             }
             ThreadIntent::Submit { generation, name } => {
-                if cx
-                    .request(Ctx::Submitted(generation), Command::SetName(name.clone()))
-                    .is_some()
-                {
-                    part.awaiting = Some((generation, name));
-                }
+                part.request_name(name, Some(generation), cx);
             }
             ThreadIntent::Set(_) | ThreadIntent::AwaitName(_) | ThreadIntent::CancelName(_) => {}
         }
@@ -442,16 +457,26 @@ impl Feature for Rename {
     fn thread_answered(
         part: &mut ThreadPart,
         ctx: Ctx,
-        _result: Result<Reply, RpcError>,
-        _cx: &mut ThreadCx<'_, '_>,
+        result: Result<Reply, RpcError>,
+        cx: &mut ThreadCx<'_, '_>,
     ) {
-        if let Ctx::Submitted(generation) = ctx
-            && part
-                .awaiting
-                .as_ref()
-                .is_some_and(|(current, _)| *current == generation)
+        let Ctx::SetName { rename, prompt } = ctx else {
+            return;
+        };
+        if part
+            .awaiting
+            .as_ref()
+            .is_some_and(|(generation, _)| Some(*generation) == prompt)
         {
             part.awaiting = None;
+        }
+        if rename == part.rename_generation {
+            let name = part.pending_name.take();
+            if matches!(result, Ok(Reply::Ack))
+                && let Some(name) = name
+            {
+                cx.publish_name(name);
+            }
         }
     }
 

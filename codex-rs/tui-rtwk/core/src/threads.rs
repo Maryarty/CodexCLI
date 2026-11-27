@@ -1790,6 +1790,7 @@ pub struct ThreadFx<'a> {
     out: &'a mut AppFx,
     mint: &'a mut TicketMint,
     registered: Vec<(Ticket, ThreadCtx)>,
+    published_name: Option<String>,
     address: Address,
     /// The app's arbitration for the completed turn carried by this event.
     prompt_priority: screens::chat::plan_mode::PromptPriority,
@@ -1816,6 +1817,7 @@ impl<'a> ThreadFx<'a> {
             out,
             mint,
             registered: Vec::new(),
+            published_name: None,
             address: Address::default(),
             prompt_priority: screens::chat::plan_mode::PromptPriority::Ordinary,
             daybreak: Daybreak::Apply,
@@ -2002,6 +2004,10 @@ impl<'a> ThreadFx<'a> {
             thread: self.thread.clone(),
             command,
         });
+    }
+
+    pub(crate) fn publish_name(&mut self, name: String) {
+        self.published_name = Some(name);
     }
 
     /// An RPC of a feature slice: `ctx` is kept with the ticket and comes back with the
@@ -3356,6 +3362,13 @@ fn with_features(
 ) {
     let (parts, view) = model.split_features();
     step(parts, &mut ThreadCx::new(view, fx));
+    if let Some(name) = fx.published_name.take() {
+        screens::apply_thread_ev(
+            &mut model.slots,
+            ScreenThreadEv::Chat(screens::chat::ThreadEv::Name(Some(name))),
+            fx,
+        );
+    }
 }
 
 /// A live completion the server timed only in part (oracle `FinalMessageSeparator::from_turn_once`):

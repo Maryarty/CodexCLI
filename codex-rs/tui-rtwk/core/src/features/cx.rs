@@ -626,6 +626,13 @@ impl<'a, 'b> ThreadCx<'a, 'b> {
         Some(self.fx.request_feature(ctx, command))
     }
 
+    /// Publish the current thread's acknowledged name to its chat surfaces.
+    pub(crate) fn publish_name(&mut self, name: String) {
+        if self.view.has_writer() && self.view.slots().chat.name.as_ref() != Some(&name) {
+            self.fx.publish_name(name);
+        }
+    }
+
     /// Starts a turn of this thread with `message` (Retry, Rewrite): the thread must be idle,
     /// which the feature asks (`view.busy()`); the message comes back when a start was already
     /// said in this step or this process does not write the thread. The next feature in the

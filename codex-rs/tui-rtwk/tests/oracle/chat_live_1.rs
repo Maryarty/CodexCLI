@@ -1301,9 +1301,7 @@ fn live_app_server_model_verification_renders_warning() {
 // ORACLE chatwidget/tests/app_server.rs:2173 live_app_server_manual_thread_name_updates_status_surfaces kind=snap owner=chat-live snap=manual_thread_name_status_surfaces
 #[test]
 fn live_app_server_manual_thread_name_updates_status_surfaces() {
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.feed(&thread_settings_updated("GPT-5.6-Sol", "openai"));
-    s.feed(THREAD_NAME_SURFACES);
+    let mut s = live_name_screen();
     s.assert_title("project");
     s.assert_has_row_trimmed("GPT-5.6-Sol default · /tmp/project");
     let transcript = transcript_rows(&s);
@@ -1325,6 +1323,42 @@ fn live_app_server_manual_thread_name_updates_status_surfaces() {
     assert_name_surfaces(&s, "review-fix");
     // The oracle's composite snapshot has an empty transcript section.
     s.assert_same_rows_in(&before, transcript);
+}
+
+// ORACLE chatwidget/tests/app_server.rs:2243 live_app_server_manual_thread_name_is_visible_before_notification kind=ui owner=chat-live
+#[test]
+fn live_app_server_manual_thread_name_is_visible_before_notification() {
+    let mut s = live_name_screen();
+    let transcript = transcript_rows(&s);
+    let before = s.shot();
+
+    s.server_answers("thread/name/set", serde_json::json!({}));
+    let rename = s.hold_request("thread/name/set");
+    s.type_text("/rename Manual title").keys("enter");
+    s.assert_set_names(&["Manual title"]);
+    kit::assert_same(
+        s.requests_of("thread/name/set"),
+        1,
+        "the wire rename is pending",
+    );
+    s.assert_title("project");
+    s.assert_absent("Manual title");
+    s.assert_same_rows_in(&before, transcript.clone());
+
+    s.release(&rename);
+    assert_name_surfaces(&s, "Manual title");
+    s.assert_same_rows_in(&before, transcript.clone());
+
+    s.feed(&thread_name_updated("thread-1", "Manual title"));
+    assert_name_surfaces(&s, "Manual title");
+    s.assert_same_rows_in(&before, transcript);
+}
+
+fn live_name_screen() -> Screen {
+    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    s.feed(&thread_settings_updated("GPT-5.6-Sol", "openai"));
+    s.feed(THREAD_NAME_SURFACES);
+    s
 }
 
 const THREAD_NAME_SURFACES: &str = r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"GPT-5.6-Sol","cwd":"/tmp/project","project_root":"project","animations":false,"items":["model-with-reasoning","current-dir","thread-name"],"terminal_title":["thread-name","project-name"]}}}"#;

@@ -9,7 +9,7 @@
 
 use codex_app_server_protocol::{ServerNotification, ThreadNameUpdatedNotification};
 use codex_tui_core::app::{
-    AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app, apply_app_from,
+    AppEv, AppFx, BackendEv, CodexApp, Command, Ingress, Intent, apply_app, apply_app_from,
 };
 use codex_tui_core::commands::{CommandFlags, SessionIntent, SlashCommand};
 use codex_tui_core::features::rename::{self, Interest, Note as RenameNote};
@@ -18,10 +18,11 @@ use codex_tui_core::features::{
     InterestStep, Remote,
 };
 use codex_tui_core::ids::{ThreadId, Ticket};
-use codex_tui_core::rpc::Reply;
-use codex_tui_core::screens::{ScreenEv, ScreenIntent, chat};
+use codex_tui_core::protocol::reply_from_server;
+use codex_tui_core::rpc::{Address, Reply};
+use codex_tui_core::screens::{ScreenEv, ScreenIntent, ScreenThreadIntent, chat};
 use codex_tui_core::threads::structured::Kind;
-use codex_tui_core::threads::{Failure, Item, Note, NoteKey, ThreadAsk};
+use codex_tui_core::threads::{Failure, Item, Note, NoteKey, ThreadAsk, UserMessage};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
@@ -571,16 +572,14 @@ fn rename_ticket(fx: &AppFx, thread: &str) -> Ticket {
         .expect("a thread/name/set")
 }
 
-#[test]
-fn a_new_conversation_with_a_name_is_named_once_it_has_started() {
-    let mut app = ready();
+fn new_conversation(app: &mut CodexApp, thread: &str, name: Option<&str>) -> AppFx {
     let fx = run(
-        &mut app,
+        app,
         AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
             thread: Some(ThreadId::new(T)),
             command: SlashCommand::New,
             intent: SessionIntent::New {
-                name: Some("Topic".to_owned()),
+                name: name.map(str::to_owned),
             },
         }))),
     );
@@ -593,16 +592,25 @@ fn a_new_conversation_with_a_name_is_named_once_it_has_started() {
             _ => None,
         })
         .expect("a StartThread");
-    let fx = run(
-        &mut app,
-        AppEv::Reply(ticket, Reply::thread_started(ThreadId::new("thread-2"))),
-    );
+    run(
+        app,
+        AppEv::Reply(ticket, Reply::thread_started(ThreadId::new(thread))),
+    )
+}
+
+#[test]
+fn a_new_conversation_with_a_name_is_named_once_it_has_started() {
+    let mut app = ready();
+    let fx = new_conversation(&mut app, "thread-2", Some("Topic"));
     rename_ticket(&fx, "thread-2");
 }
 
 #[test]
 fn a_rename_the_server_refused_is_the_threads_failure() {
     let mut app = ready();
+    named(&mut app, "Kept name");
+    let earlier = rename(&mut app, Some("Earlier"));
+    let (earlier, address) = dispatched_rename(&app, &earlier);
     let fx = rename(&mut app, Some("Direct"));
     let ticket = rename_ticket(&fx, T);
     assert_eq!(app.active_thread().last_error(), None);
@@ -614,6 +622,9 @@ fn a_rename_the_server_refused_is_the_threads_failure() {
         app.active_thread().last_error(),
         Some(&Failure::Message("no such thread".to_owned()))
     );
+    let earlier_ack = wire_ack(&app, earlier, address);
+    assert!(app.ingest(earlier_ack).is_some());
+    assert_eq!(thread_name(&app, T), Some("Kept name"));
 }
 
 #[test]
@@ -624,4 +635,137 @@ fn an_accepted_rename_leaves_no_failure() {
     let ack = Reply::feature(FeatureReply::Rename(rename::Reply::Ack));
     run(&mut app, AppEv::Reply(ticket, ack));
     assert_eq!(app.active_thread().last_error(), None);
+    assert_eq!(thread_name(&app, T), Some("Direct"));
+}
+
+fn thread_name<'a>(app: &'a CodexApp, id: &str) -> Option<&'a str> {
+    app.thread(&ThreadId::new(id))?
+        .screen_slots()
+        .chat
+        .name
+        .as_deref()
+}
+
+fn dispatched_rename<'a>(app: &CodexApp, fx: &'a AppFx) -> (&'a Command, Address) {
+    let command = fx
+        .commands()
+        .iter()
+        .find(|command| {
+            matches!(
+                command,
+                Command::Feature {
+                    command: FeatureCommand::Rename(rename::Command::SetName(_)),
+                    ..
+                }
+            )
+        })
+        .expect("a typed rename command");
+    let (_, Some(address)) = app
+        .dispatch_route(command, None)
+        .expect("rename is registered")
+    else {
+        panic!("a rename is stamped with its transport");
+    };
+    (command, address)
+}
+
+fn wire_ack(app: &CodexApp, command: &Command, address: Address) -> Ingress {
+    let (ticket, reply) = reply_from_server(command, Ok(json!({}))).expect("decode wire ACK");
+    Ingress::transport_event(
+        address.backend,
+        app.epoch_of(address.backend),
+        address.epoch,
+        AppEv::Reply(ticket, reply),
+    )
+}
+
+#[test]
+fn only_the_latest_ack_names_its_original_thread() {
+    let mut app = ready();
+    named(&mut app, "Initial");
+    let earlier = rename(&mut app, Some("Earlier"));
+    let latest = rename(&mut app, Some("Latest"));
+    let (earlier, earlier_address) = dispatched_rename(&app, &earlier);
+    let (latest, address) = dispatched_rename(&app, &latest);
+    assert_eq!(thread_name(&app, T), Some("Initial"));
+
+    let stale = Address {
+        epoch: address.epoch.next(),
+        ..address
+    };
+    assert!(app.ingest(wire_ack(&app, latest, stale)).is_none());
+    assert_eq!(thread_name(&app, T), Some("Initial"));
+
+    new_conversation(&mut app, "thread-2", None);
+    assert_eq!(app.session().active, Some(ThreadId::new("thread-2")));
+    let latest_ack = wire_ack(&app, latest, address);
+    assert!(app.ingest(latest_ack).is_some());
+    assert_eq!(thread_name(&app, "thread-2"), None);
+    assert_eq!(thread_name(&app, T), Some("Latest"));
+
+    let earlier_ack = wire_ack(&app, earlier, earlier_address);
+    assert!(app.ingest(earlier_ack).is_some());
+    assert_eq!(thread_name(&app, T), Some("Latest"));
+    assert_eq!(thread_name(&app, "thread-2"), None);
+    let duplicate = wire_ack(&app, latest, address);
+    assert!(app.ingest(duplicate).is_none());
+    app.assert_consistent();
+}
+
+#[test]
+fn a_matching_notification_does_not_retire_the_pending_rename() {
+    let mut app = ready();
+    let latest = rename(&mut app, Some("Confirmed"));
+    let (command, address) = dispatched_rename(&app, &latest);
+    named(&mut app, "Confirmed");
+    named(&mut app, "External");
+    assert_eq!(thread_name(&app, T), Some("External"));
+
+    let ack = wire_ack(&app, command, address);
+    assert!(app.ingest(ack).is_some());
+    assert_eq!(thread_name(&app, T), Some("Confirmed"));
+}
+
+#[test]
+fn a_direct_ack_preserves_a_prompts_queue_hold() {
+    let mut app = ready();
+    named(&mut app, "Initial");
+    rename(&mut app, None);
+    let prompted = submit(&mut app, "From prompt");
+    let direct = rename(&mut app, Some("Direct"));
+    let (prompted, prompt_address) = dispatched_rename(&app, &prompted);
+    let (direct, direct_address) = dispatched_rename(&app, &direct);
+
+    let queued = run(
+        &mut app,
+        AppEv::Intent(Intent::ThreadScreen {
+            thread: ThreadId::new(T),
+            intent: ScreenThreadIntent::Chat(chat::ThreadIntent::Queue(
+                UserMessage::text("Queued while renaming").into(),
+            )),
+        }),
+    );
+    assert!(!queued.commands().iter().any(is_start_turn));
+
+    let direct_ack = wire_ack(&app, direct, direct_address);
+    let settled = app.ingest(direct_ack).expect("direct reply");
+    assert!(!settled.commands().iter().any(is_start_turn));
+    assert_eq!(thread_name(&app, T), Some("Direct"));
+
+    let prompt_ack = wire_ack(&app, prompted, prompt_address);
+    let settled = app.ingest(prompt_ack).expect("prompt reply");
+    assert_eq!(
+        settled
+            .commands()
+            .iter()
+            .filter(|command| is_start_turn(command))
+            .count(),
+        1
+    );
+    assert_eq!(thread_name(&app, T), Some("Direct"));
+    app.assert_consistent();
+}
+
+fn is_start_turn(command: &Command) -> bool {
+    matches!(command, Command::StartTurn { .. })
 }
