@@ -246,21 +246,7 @@ pub(super) fn run(
             // The settings dialog is opened by the kind the command names (`open_settings`):
             // the feature builds its catalogue from its facts.
             if opened.target == Target::Settings {
-                if opened.command == SlashCommand::Statusline
-                    && let Some(DeferredLine::Due(due)) = deferred
-                {
-                    // The status editor takes this operation before mounting its dialog.
-                    *ran = None;
-                    features::verb_by(
-                        cx,
-                        hs,
-                        codex_tui_core::features::settings::Intent::OpenQueuedStatusLine(
-                            due.operation().clone(),
-                        ),
-                    );
-                } else {
-                    features::open_settings(cx, opened.command, &opened.args);
-                }
+                queue::open_settings(cx, hs, &opened, deferred, ran);
             }
             // The confirmation of `/archive` and `/delete` is the model's
             // question (is a turn running?), then the select sheet shows it.

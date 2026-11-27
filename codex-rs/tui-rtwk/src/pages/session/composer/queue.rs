@@ -3,7 +3,8 @@
 
 use rtwk::Cx;
 
-use codex_tui_core::commands::SlashCommand;
+use codex_tui_core::commands::{Open, SlashCommand};
+use codex_tui_core::features::settings;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::question_reply::Intent as QuestionIntent;
 use codex_tui_core::screens::{
@@ -122,6 +123,28 @@ pub(in crate::pages::session) fn scope_select(
         *ran = None;
     }
     intent
+}
+
+/// The queued status editor takes the issued operation before mounting its dialog.
+pub(in crate::pages::session) fn open_settings(
+    cx: &mut Cx<'_, ChatState>,
+    hs: &Hs,
+    opened: &Open,
+    deferred: Option<DeferredLine<'_>>,
+    ran: &mut Option<Ran>,
+) {
+    if opened.command == SlashCommand::Statusline
+        && let Some(DeferredLine::Due(due)) = deferred
+    {
+        *ran = None;
+        features::verb_by(
+            cx,
+            hs,
+            settings::Intent::OpenQueuedStatusLine(due.operation().clone()),
+        );
+    } else {
+        features::open_settings(cx, opened.command, &opened.args);
+    }
 }
 
 /// The queued command that is due runs through the dispatch a typed line does

@@ -789,24 +789,30 @@ fn status_line_editor_releases_queued_input_after_save_or_cancel() {
 
 #[test]
 fn copy_status_fields_hold_the_queue_until_the_picker_closes() {
-    let mut s = Screen::build(Owner::ChatNavPane)
-        .size(96, 26)
-        .owned_transcript()
-        .script(PREVIOUS)
-        .open();
-    status_settings(&mut s, "gpt-5.5", "/workspace");
-    s.feed(ACTIVE);
-    s.type_text("after copying status").keys("tab");
-    s.type_text("/status").keys("enter");
-    s.type_text("/copy").keys("enter");
-    s.assert_contains("1. Whole status");
-    s.feed(ACTIVE_DONE);
-    s.assert_no_turn();
-    s.assert_copies_asked(&[]);
+    for close in ["2", "esc"] {
+        let mut s = Screen::build(Owner::ChatNavPane)
+            .size(96, 26)
+            .owned_transcript()
+            .script(PREVIOUS)
+            .open();
+        status_settings(&mut s, "gpt-5.5", "/workspace");
+        s.feed(ACTIVE);
+        s.type_text("after copying status").keys("tab");
+        s.type_text("/status").keys("enter");
+        s.type_text("/copy").keys("enter");
+        s.assert_contains("1. Whole status");
+        s.feed(ACTIVE_DONE);
+        s.assert_no_turn();
+        s.assert_copies_asked(&[]);
 
-    s.keys("2");
-    s.assert_copies_asked(&["gpt-5.5"]);
-    s.assert_turn_texts(&["after copying status"]);
+        s.keys(close);
+        if close == "2" {
+            s.assert_copies_asked(&["gpt-5.5"]);
+        } else {
+            s.assert_copies_asked(&[]);
+        }
+        s.assert_turn_texts(&["after copying status"]);
+    }
 }
 
 #[test]
