@@ -54,6 +54,7 @@ pub struct Place {
     /// The agent message is still being written.
     pub streaming: bool,
     pub streamed_shell_output_lines: Option<usize>,
+    pub image: Option<codex_tui_core::features::images::Source>,
     /// Calls after the first in a shared exploration or computer row.
     pub rest: Vec<Arc<ToolActivity>>,
 }

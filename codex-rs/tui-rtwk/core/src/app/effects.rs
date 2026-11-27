@@ -100,6 +100,45 @@ pub enum CopyStatus {
     Busy,
 }
 
+/// The raster's dimensions or the caller's preview bounds, in pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ImageSize {
+    pub width: u16,
+    pub height: u16,
+}
+
+/// A small validated PNG. An Arc is the revision of this snapshot: keep it while displaying
+/// the same read, and use a new one when the file is read again, even at the same path.
+#[derive(Clone)]
+pub struct ImagePreview {
+    pub png: Arc<[u8]>,
+    pub size: ImageSize,
+}
+
+impl std::fmt::Debug for ImagePreview {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        out.debug_struct("ImagePreview")
+            .field("size", &self.size)
+            .field("encoded_bytes", &self.png.len())
+            .finish()
+    }
+}
+
+impl PartialEq for ImagePreview {
+    fn eq(&self, other: &Self) -> bool {
+        self.size == other.size && Arc::ptr_eq(&self.png, &other.png)
+    }
+}
+
+impl Eq for ImagePreview {}
+
+/// A host-authorized hyperlink and, when requested and decodable, the preview of a local file.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ImageSnapshot {
+    pub link: Option<String>,
+    pub preview: Option<ImagePreview>,
+}
+
 /// One edit of the user's config file (`config/batchWrite`: a dotted key path and its new value,
 /// the value replaces).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -176,6 +215,10 @@ host_capability_list! {
     /// The text the system clipboard holds (Ctrl+Shift+V, the right-click paste), or why it could
     /// not be read.
     clipboard_text => ClipboardText -> new ClipboardText(Result<String, String>);
+    /// Check whether a workspace image is a trustworthy local file, optionally reading a
+    /// bounded preview. Paths from remote workspaces cannot be resolved on the client.
+    image_snapshot => ImageSnapshot { thread: ThreadId, path: String, preview: Option<ImageSize> }
+        by thread -> new ImageSnapshot(ImageSnapshot);
     /// Opens `thread` in the Desktop app (`codex://threads/{id}`, `/app`). Answered by nothing,
     /// or the launch's own failure text.
     open_desktop => OpenDesktop { thread: ThreadId } -> new Opened(Result<(), String>);
@@ -339,9 +382,16 @@ pub struct Effects {
     /// the approvals strings' `verification_failure`).
     failures: VecDeque<(RequestKey, Cause)>,
     /// What each ask a feature made is for, until its last answer comes (`AppCx::effect`).
-    features: BTreeMap<u64, FeatureCtx>,
+    features: BTreeMap<u64, FeatureRequest>,
     /// The count of the asks features made: the low bits of their request numbers.
     feature_asks: u64,
+}
+
+#[derive(Debug)]
+struct FeatureRequest {
+    ctx: FeatureCtx,
+    /// Some host capabilities depend on the physical connection's locality.
+    image_address: Option<Address>,
 }
 
 impl Effects {
@@ -376,20 +426,36 @@ impl Effects {
     }
 
     /// A feature's ask: its request number, with `ctx` kept until the last answer.
-    pub(super) fn ask_for_feature(&mut self, ctx: FeatureCtx) -> u64 {
+    pub(super) fn ask_for_feature(
+        &mut self,
+        ctx: FeatureCtx,
+        image_address: Option<Address>,
+    ) -> u64 {
         self.feature_asks += 1;
         let request = FEATURE_REQUEST_BIT | self.feature_asks;
-        self.features.insert(request, ctx);
+        self.features
+            .insert(request, FeatureRequest { ctx, image_address });
         request
+    }
+
+    pub(super) fn image_address(&self, request: u64) -> Option<Address> {
+        self.features.get(&request)?.image_address
+    }
+
+    pub(super) fn retire_images(&mut self, backend: crate::ids::BackendId) {
+        self.features.retain(|_, ask| {
+            ask.image_address
+                .is_none_or(|address| address.backend != backend)
+        });
     }
 
     /// What the answer `done` to the feature ask `request` is for: none for a number no feature
     /// waits for (a late answer of an ask that has ended). The last answer ends the ask.
     pub(super) fn feature_answered(&mut self, request: u64, done: &Done) -> Option<FeatureCtx> {
         if done.is_final() {
-            self.features.remove(&request)
+            self.features.remove(&request).map(|ask| ask.ctx)
         } else {
-            self.features.get(&request).cloned()
+            self.features.get(&request).map(|ask| ask.ctx.clone())
         }
     }
 

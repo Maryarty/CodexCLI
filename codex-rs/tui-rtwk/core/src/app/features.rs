@@ -178,7 +178,13 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
             });
         }
         Out::Effect { ask, ctx } => {
-            let request = app.effects.ask_for_feature(ctx);
+            let address = match &ask {
+                effects::Ask::ImageSnapshot { thread, .. } => {
+                    Some(app.address(app.screens.agents.owner_of(thread.as_str())))
+                }
+                _ => None,
+            };
+            let request = app.effects.ask_for_feature(ctx, address);
             fx.commands.push(effects::command(request, ask));
         }
         Out::Note { thread, note } => {
@@ -374,6 +380,7 @@ pub(super) fn reconnected(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx
         let owner = match &interest {
             FeatureInterest::Providers(_) => BackendId::default(),
             FeatureInterest::Rename(interest) => agents.owner_of(interest.thread().as_str()),
+            FeatureInterest::Images(interest) => agents.owner_of(interest.source.thread.as_str()),
             _ => agents.displayed,
         };
         if owner != backend {
@@ -382,6 +389,29 @@ pub(super) fn reconnected(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx
         run(app, fx, |states, cx| {
             features::on_interest(states, &interest, true, cx)
         });
+    }
+}
+
+/// Artifact replies depend on the connection's locality. Forget the old handle's requests
+/// and snapshots, retaining the mounted surfaces' interests for the next handle.
+pub(super) fn retire_images(app: &mut CodexApp, backend: BackendId) {
+    app.effects.retire_images(backend);
+    let agents = &app.screens.agents;
+    features::images::retire(&mut app.features, |thread| {
+        agents.owner_of(thread.as_str()) == backend
+    });
+}
+
+/// The replacement already has its new request address, even when it did not emit Up/Lost.
+pub(super) fn reconnect_images(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx) {
+    for interest in app.interests.all() {
+        if let features::FeatureInterest::Images(read) = &interest
+            && app.screens.agents.owner_of(read.source.thread.as_str()) == backend
+        {
+            run(app, fx, |states, cx| {
+                features::on_interest(states, &interest, true, cx)
+            });
+        }
     }
 }
 

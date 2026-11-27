@@ -1202,6 +1202,10 @@ impl CodexApp {
                 ask: effects::Ask::ReconnectIdleThread { address, .. },
                 ..
             } => *address,
+            Command::Effect {
+                request,
+                ask: effects::Ask::ImageSnapshot { .. },
+            } => self.effects.image_address(*request)?,
             _ => match command.ticket() {
                 Some(ticket) => self.request_address(ticket).or(tell)?,
                 None => return Some((self.choose_backend(command), None)),
@@ -1361,6 +1365,7 @@ impl CodexApp {
         self.attaching_events
             .retain(|(source, ..)| *source != backend);
         features::retire_rate_offer(self, backend);
+        features::retire_images(self, backend);
         git_summary::retire(self, backend);
         detach_threads(self, backend, fx);
         self.fail_in_flight(backend);
@@ -1451,6 +1456,7 @@ impl CodexApp {
                 .insert(ingress.backend, transport_epoch);
             host_asks::transport_lost(self, ingress.backend);
             self.retire_outgoing(ingress.backend, &mut fx);
+            features::reconnect_images(self, ingress.backend, &mut fx);
             host_asks::transport_replaced(self, ingress.backend, &mut fx);
             if ingress.backend == BackendId::default() {
                 read_session(self, &mut fx);
@@ -1491,6 +1497,12 @@ impl CodexApp {
                 request,
                 done: effects::Done::GitSummary(_),
             } => git_summary::accepts(self, origin, *request),
+            AppEv::Effect { request, done } => match self.effects.image_address(*request) {
+                Some(address) => {
+                    address == origin && matches!(done, effects::Done::ImageSnapshot(_))
+                }
+                None => !matches!(done, effects::Done::ImageSnapshot(_)),
+            },
             _ => true,
         }
     }
@@ -1503,6 +1515,10 @@ pub fn apply_app(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
     // always enters through `ingest` (or `apply_app_from` with its current connection).
     let origin = match &ev {
         AppEv::Reply(ticket, _) => app.request_address(*ticket).map(|address| address.backend),
+        AppEv::Effect { request, .. } => app
+            .effects
+            .image_address(*request)
+            .map(|address| address.backend),
         _ => None,
     };
     apply_app_from(app, origin.unwrap_or_default(), ev, fx);
