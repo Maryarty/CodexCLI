@@ -3,7 +3,7 @@
 //! `event_dispatch.rs` `CopySelection`): the last assistant response, copied as Markdown, or one
 //! piece of it (a code block, a quote) the picker offered. The picker is the UI half's
 //! (`src/features/copy/`): the targets are cut out of the Markdown it reads from the wish
-//! (`Wish::Picker`), and what the user picked comes back as `Intent::Text`. Ctrl+O is
+//! (`Wish::Picker`), and what the user picked comes back in the dialog's `CopyChoice`. Ctrl+O is
 //! `Intent::Last` and copies the whole response without the picker.
 //!
 //! What a copy holds is the visible Markdown of the last message (`visible`): the directives
@@ -20,6 +20,7 @@ use crate::app::effects::{Ask, CopyDestination, CopyFormat, CopyStatus, Done};
 use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::screens::status::StatusCard;
+use crate::threads::queue::{CopyChoice, ModalKind};
 use crate::threads::{Item, ItemKey, Tone};
 
 pub use visible::{copy_markdown, strip_line_directives, visible_markdown};
@@ -76,21 +77,8 @@ pub enum Intent {
     },
     /// Ctrl+O: the whole last response, copied as Markdown (label `last message`).
     Last,
-    /// A row of the picker (oracle `AppEvent::CopySelection`): `text` goes to the clipboard in
-    /// `format`, and the note says `label` was copied.
-    Text {
-        text: String,
-        label: String,
-        format: CopyFormat,
-    },
     StatusSuperseded {
         thread: ThreadId,
-    },
-    /// A row of the Status picker, copied as plain text for its originating thread.
-    StatusText {
-        thread: ThreadId,
-        text: String,
-        label: String,
     },
 }
 
@@ -102,7 +90,7 @@ pub struct Ctx {
 }
 
 /// What the surface is asked to show once (`Scope::Thread`): the copy picker (`Copy to
-/// clipboard`), answered by `Intent::Text`.
+/// clipboard`), answered by the dialog's `CopyChoice`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Wish {
     Picker {
@@ -181,6 +169,10 @@ fn copy(
     cx.effect(ask, Ctx { label, thread });
 }
 
+pub(super) fn choose(thread: ThreadId, choice: CopyChoice, cx: &mut AppCx<'_>) {
+    copy(cx, Some(thread), choice.text, choice.label, choice.format);
+}
+
 fn status_source(view: ThreadView<'_>) -> Option<Arc<StatusCard>> {
     let key = view.parts()?.copy.status.as_ref()?;
     view.core().transcript().status_at(key).cloned()
@@ -217,13 +209,13 @@ feature! {
                             return cx.note(None, Note::NoResponse);
                         };
                         if let Some(card) = status_source(view) {
-                            return cx.wish_for_queue(thread.clone(), Wish::Status { thread, card });
+                            return cx.wish_for_queue(thread.clone(), ModalKind::Copy, Wish::Status { thread, card });
                         }
                         if cx.view().facts().tui().transcript_owned {
                             return cx.wish(thread.clone(), Wish::Mode { thread });
                         }
                         match last_response(&cx.view(), &thread) {
-                            Some(response) => cx.wish_for_queue(thread.clone(), Wish::Picker { thread, response }),
+                            Some(response) => cx.wish_for_queue(thread.clone(), ModalKind::Copy, Wish::Picker { thread, response }),
                             None => cx.note(Some(thread), Note::NoResponse),
                         }
                     }
@@ -244,16 +236,8 @@ feature! {
                             None => cx.note(thread, Note::NoResponse),
                         }
                     }
-                    Intent::Text {
-                        text,
-                        label,
-                        format,
-                    } => copy(cx, cx.view().active().cloned(), text, label, format),
                     Intent::StatusSuperseded { thread } => {
                         cx.thread(&thread, ThreadIntent::StatusSuperseded);
-                    }
-                    Intent::StatusText { thread, text, label } => {
-                        copy(cx, Some(thread), text, label, CopyFormat::PlainText);
                     }
                 }
             }

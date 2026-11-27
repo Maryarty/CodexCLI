@@ -1,7 +1,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 //! `/copy` and Ctrl+O (oracle `chatwidget/copy_picker.rs`, `interaction.rs`
-//! `prepare_last_response_copy`, `show_copy_result`): the verbs `Command`, `Last` and `Text`,
+//! `prepare_last_response_copy`, `show_copy_result`): the verbs `Command`, `Last` and picker results,
 //! what a copy holds of the last response, the picker's wish and the host's answers as notes. The
 //! picker's rows and the words are the UI's: these tests read data.
 
@@ -13,7 +13,8 @@ use codex_tui_core::features::copy::{Intent as CopyIntent, Note as CopyNote, Res
 use codex_tui_core::features::{FeatureIntent, FeatureNote, FeatureWish};
 use codex_tui_core::fixtures::script::build;
 use codex_tui_core::ids::ThreadId;
-use codex_tui_core::screens::{ScreenIntent, chat};
+use codex_tui_core::screens::{ScreenIntent, ScreenThreadIntent, chat};
+use codex_tui_core::threads::queue::{CopyChoice, ModalOperation, ModalReceipt, QueueEvent};
 use codex_tui_core::threads::{Item as Entry, Note, NoteKey};
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -69,6 +70,43 @@ fn command(app: &mut CodexApp) -> AppFx {
             },
         }))),
     )
+}
+
+fn status(app: &mut CodexApp) -> AppFx {
+    run(
+        app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
+            thread: Some(ThreadId::new(T)),
+            command: SlashCommand::Status,
+            intent: SessionIntent::Status,
+        }))),
+    )
+}
+
+fn modal_event(app: &mut CodexApp, event: QueueEvent) -> AppFx {
+    run(
+        app,
+        AppEv::Intent(Intent::ThreadScreen {
+            thread: ThreadId::new(T),
+            intent: ScreenThreadIntent::Chat(chat::ThreadIntent::QueueEvent(event)),
+        }),
+    )
+}
+
+fn choose(app: &mut CodexApp, choice: CopyChoice) -> AppFx {
+    command(app);
+    let wish = app.wishes().pending().last().expect("the copy picker wish");
+    let seq = wish.seq;
+    let operation = wish.queue_operation.clone().expect("the copy picker token");
+    modal_event(app, QueueEvent::ModalOpened(operation.clone()));
+    run(app, AppEv::Intent(Intent::WishShown(seq)));
+    let ModalOperation::Copy(token) = operation else {
+        panic!("a Copy token belongs to the copy picker");
+    };
+    let receipt = ModalReceipt::Copy(token, Some(choice));
+    let fx = modal_event(app, QueueEvent::ModalFinished(receipt.clone()));
+    assert!(asks(&modal_event(app, QueueEvent::ModalFinished(receipt))).is_empty());
+    fx
 }
 
 fn asks(fx: &AppFx) -> Vec<(u64, Ask)> {
@@ -162,14 +200,10 @@ fn a_copy_holds_the_visible_markdown_and_the_picker_the_source_too() {
 
 #[test]
 fn a_picker_row_copies_its_text_in_its_format_under_its_label() {
-    let mut app = app(&["x"]);
-    let fx = verb(
+    let mut app = app(&["```rust\nfn main() {}\n```"]);
+    let fx = choose(
         &mut app,
-        CopyIntent::Text {
-            text: "fn main() {}".to_owned(),
-            label: "rust code".to_owned(),
-            format: CopyFormat::PlainText,
-        },
+        CopyChoice::plain_text("fn main() {}".to_owned(), "rust code".to_owned()),
     );
     let asks = asks(&fx);
     assert_eq!(asks.len(), 1);
@@ -186,13 +220,10 @@ fn a_picker_row_copies_its_text_in_its_format_under_its_label() {
 #[test]
 fn status_picker_rows_ask_for_plain_text_clipboard() {
     let mut app = app(&[]);
-    let fx = verb(
+    status(&mut app);
+    let fx = choose(
         &mut app,
-        CopyIntent::StatusText {
-            thread: ThreadId::new(T),
-            text: "/work/a*b".to_owned(),
-            label: "Directory".to_owned(),
-        },
+        CopyChoice::plain_text("/work/a*b".to_owned(), "Directory".to_owned()),
     );
     let asks = asks(&fx);
     assert_eq!(asks.len(), 1);
@@ -212,14 +243,7 @@ fn a_new_picker_reads_the_refreshed_status_while_the_old_wish_keeps_its_snapshot
 {"step":"screen","dir":"status","ev":{"kind":"account","account":{"chat_gpt":{"email":"user@example.com","plan":"plus"}}}}
 {"step":"screen","dir":"chat","ev":{"status":{"account_usage":true}}}"#;
     let mut app = build(fixture).expect("plays").app;
-    let fx = run(
-        &mut app,
-        AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
-            thread: Some(ThreadId::new(T)),
-            command: SlashCommand::Status,
-            intent: SessionIntent::Status,
-        }))),
-    );
+    let fx = status(&mut app);
     let read = fx
         .commands()
         .iter()
@@ -257,13 +281,9 @@ fn the_hosts_answers_are_notes_under_the_label_that_was_asked() {
         (Done::Copy(Ok(CopyStatus::Confirmed)), "last message"),
         (Done::Copy(Err("no clipboard".to_owned())), "Blockquote"),
     ] {
-        let fx = verb(
+        let fx = choose(
             &mut app,
-            CopyIntent::Text {
-                text: "t".to_owned(),
-                label: label.to_owned(),
-                format: CopyFormat::PlainText,
-            },
+            CopyChoice::plain_text("t".to_owned(), label.to_owned()),
         );
         let request = asks(&fx)[0].0;
         run(&mut app, AppEv::Effect { request, done });

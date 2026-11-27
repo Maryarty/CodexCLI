@@ -33,11 +33,12 @@ use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use crate::widgets::picker::list::normalize_paste;
+use codex_tui_core::features::FeatureStates;
 use codex_tui_core::features::settings::{
-    Intent, Offer, Setup, SetupItem, SetupKind, USE_THEME_COLORS, Which,
+    Offer, Setup, SetupItem, SetupKind, USE_THEME_COLORS, Which,
 };
-use codex_tui_core::features::{FeatureIntent, FeatureStates};
 use codex_tui_core::keymap::Keymap;
+use codex_tui_core::threads::queue::StatusLineChoice;
 
 use super::draft::SetupDraft;
 use super::keys::{Keys, ListKey, is_space, list_key};
@@ -244,18 +245,23 @@ impl SetupState {
             // Enter saves the order and the checks; on the skills it flips
             // the row under the cursor like Space (each flip is saved).
             Act::Save if setup.kind == SetupKind::Skills => self.toggle(offered, id, cx),
+            Act::Save | Act::Close if queued => {
+                let choice = if act == Act::Save {
+                    let (items, use_theme_colors) = self.draft.selected(offered);
+                    StatusLineChoice::new(items, use_theme_colors)
+                } else {
+                    None
+                };
+                close_dialog::<_, StatusLineChoice>(cx, choice);
+            }
             Act::Save | Act::Close => {
                 let edit = if act == Act::Save {
                     self.draft.save(offered)
                 } else {
                     SetupDraft::cancel(offered)
                 };
-                if queued {
-                    close_dialog::<_, FeatureIntent>(cx, Some(Intent::Request(edit).into()));
-                } else {
-                    super::request(cx, edit);
-                    close_dialog::<_, ()>(cx, None);
-                }
+                super::request(cx, edit);
+                close_dialog::<_, ()>(cx, None);
             }
         }
     }
