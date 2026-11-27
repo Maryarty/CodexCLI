@@ -1365,6 +1365,8 @@ pub struct ThreadCore {
     /// The hook runs the server reported started and not yet completed.
     hooks: hooks::Hooks,
     last_error: Option<Failure>,
+    /// The server reported at least one turn for this conversation.
+    has_turn_history: bool,
     /// The last turn that ended: a late start of it must not revive it.
     last_ended: Option<TurnId>,
     finished_turns: Rc<HashSet<TurnId>>,
@@ -1589,6 +1591,7 @@ impl ThreadModel {
                 stream_lost: false,
                 history_may_be_incomplete: false,
                 reconciling_submissions: false,
+                has_turn_history: false,
                 last_ended: None,
                 finished_turns: Rc::default(),
                 authoritative_turns: Rc::default(),
@@ -1814,6 +1817,11 @@ impl ThreadModel {
 }
 
 impl ThreadCore {
+    /// Whether the thread has ever started or replayed a server turn.
+    pub fn has_turn_history(&self) -> bool {
+        self.has_turn_history
+    }
+
     pub fn last_ended(&self) -> Option<&TurnId> {
         self.last_ended.as_ref()
     }
@@ -2832,6 +2840,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             if replace {
                 reset_history(model);
             }
+            model.has_turn_history |= !turns.is_empty();
             // The latest turn of a thread read for the first time stopped as a precaution: the
             // thread blocks input, with nothing to continue from (`replay_thread_turns`).
             if model.transcript.is_empty()
@@ -3696,6 +3705,7 @@ fn end_live_turn(model: &mut ThreadModel, turn: TurnId, end: TurnEnd, fx: &mut T
 }
 
 fn end_turn(model: &mut ThreadModel, turn: TurnId, end: TurnEnd, fx: &mut ThreadFx<'_>) {
+    model.has_turn_history = true;
     // The reviews of the turn are over with it (oracle `on_task_complete`).
     let over = ScreenThreadEv::Approvals(screens::approvals::ThreadEv::TurnEnded);
     screens::apply_thread_ev(&mut model.slots, over, fx);
@@ -4519,6 +4529,7 @@ fn add_startup_warnings(
 }
 
 fn start_turn(model: &mut ThreadModel, turn: TurnId, now: i64) {
+    model.has_turn_history = true;
     // A turn that already ended is never revived by a late start.
     if model.finished_turns.contains(&turn) {
         return;
@@ -4545,6 +4556,28 @@ fn start_turn(model: &mut ThreadModel, turn: TurnId, now: i64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn live_turn_history_survives_transcript_replacement_and_ignores_bootstrap_notices() {
+        let mut model = ThreadModel::new(ThreadId::new("parent"));
+        let bootstrap = crate::screens::cells::SessionInfo {
+            tip: Some("A startup tip".into()),
+            ..crate::screens::cells::SessionInfo::default()
+        };
+        apply_appended(
+            &mut model,
+            None,
+            Item::Notice(Notice::SessionInfo(bootstrap)),
+        );
+        assert!(model.transcript().last_turn().is_some());
+        assert!(!model.has_turn_history());
+
+        start_turn(&mut model, TurnId::new("server-turn"), 1);
+        assert!(model.has_turn_history());
+        reset_history(&mut model);
+        assert!(model.has_turn_history());
+        assert!(!ThreadModel::new(ThreadId::new("another")).has_turn_history());
+    }
 
     /// Messages merged into one keep every remote image in order, and the
     /// local images' placeholders count on after them (`merge_user_messages`).

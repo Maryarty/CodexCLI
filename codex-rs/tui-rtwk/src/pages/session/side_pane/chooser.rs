@@ -11,7 +11,7 @@ use rtwk::prelude::HitTestBehavior;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Handler, Str};
 
-use crate::features::{SavedChats, can_create_side};
+use crate::features::SavedChats;
 use crate::keymap::press::{PaneActivationGuard, PaneActivationKey};
 
 use super::{Dock, DockState, Msg};
@@ -63,7 +63,7 @@ impl ChooserControls {
 
     pub(super) fn view(&self, w: &Dock, cx: &mut Cx<'_, DockState>) -> AnyWidget {
         let words = crate::pages::session::strings::of(cx);
-        if !can_create_side(&w.parent.model) {
+        if !w.parent.model.has_turn_history() {
             let tell = cx.local_sender();
             let guard = rtwk::provider::read::<PaneActivationGuard, _>(cx);
             let cancel =

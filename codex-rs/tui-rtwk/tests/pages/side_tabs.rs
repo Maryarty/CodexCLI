@@ -6,7 +6,8 @@ use codex_tui_core::app::{AppEv, Command, Ingress, LocalSideStorage};
 use codex_tui_core::fixtures::builders::{agent_completed, turn_completed, turn_started};
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::keymap::{Keymap, KeymapSpec, actions::GLOBAL_SIDEBAR_UP};
-use codex_tui_core::threads::TurnState;
+use codex_tui_core::screens::cells::SessionInfo;
+use codex_tui_core::threads::{Notice, TurnState};
 use codex_tui_rtwk::app::UiApp;
 use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
 use rtwk_core::input::{Mods, MouseKind};
@@ -320,6 +321,11 @@ fn close_tab(h: &mut Harness, label: &str, button: u8) {
 fn the_empty_workspace_chooser_creates_and_plus_can_open_a_fresh_child() {
     let mut h = workspace(false);
     assert_active(&h, FAKE_THREAD);
+    h.inject([AppEv::Announce(Notice::SessionInfo(SessionInfo {
+        tip: Some("Wait for your first real turn".into()),
+        ..SessionInfo::default()
+    }))]);
+    assert!(h.t.screen().contains("Wait for your first real turn"));
     h.press("f12 t");
     h.advance(150);
     let cold = h.t.screen();

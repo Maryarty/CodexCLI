@@ -439,7 +439,7 @@ impl DockState {
         // own focus while the chooser and its parent are being mounted.
         Self::focus_after_frame(cx, chooser.focus.clone());
         self.chooser = Some(chooser);
-        if features::can_create_side(&w.parent.model) {
+        if w.parent.model.has_turn_history() {
             features::refresh_saved_side(cx, w.parent.model.id().clone());
         }
     }
@@ -549,8 +549,8 @@ impl State for DockState {
             Self::focus_after_frame(cx, composer_node(&w.active_pane().ui));
         }
         if self.chooser.is_some()
-            && !features::can_create_side(&old.parent.model)
-            && features::can_create_side(&w.parent.model)
+            && !old.parent.model.has_turn_history()
+            && w.parent.model.has_turn_history()
         {
             features::refresh_saved_side(cx, w.parent.model.id().clone());
         }
@@ -623,9 +623,7 @@ impl State for DockState {
                 Self::focus(cx, w.child.as_ref().unwrap_or(&w.parent), &w.active);
             }
             Msg::Choose(choice, keyboard)
-                if self.chooser.is_some()
-                    && !w.on_child()
-                    && features::can_create_side(&w.parent.model) =>
+                if self.chooser.is_some() && !w.on_child() && w.parent.model.has_turn_history() =>
             {
                 if keyboard {
                     read::<PaneActivationGuard, _>(cx).arm(PaneActivationKey::Enter);
