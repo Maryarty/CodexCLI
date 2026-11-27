@@ -132,6 +132,10 @@ pub(super) fn retire(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx) {
     });
 }
 
+pub(super) fn shutdown(app: &mut CodexApp, fx: &mut AppFx) {
+    retire_matching(app, fx, |_, _| true);
+}
+
 pub(super) fn retire_thread(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx) {
     retire_matching(app, fx, |_, pending| &pending.permit.thread == thread);
 }

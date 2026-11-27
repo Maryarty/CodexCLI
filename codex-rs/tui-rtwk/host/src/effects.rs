@@ -701,6 +701,12 @@ mod tests {
             reply,
             Done::IdeContext(Err(crate::small::ide_unavailable()))
         );
+        let ask = Ask::IdePrompt {
+            thread: ThreadId::new("thread-1"),
+            cwd: "/work".to_owned(),
+        };
+        let reply = done(answer(&rig, effect(ask)).await);
+        assert_eq!(reply, Done::IdePrompt(Err(crate::small::ide_unavailable())));
         assert!(rig.written.lock().unwrap().is_empty());
         assert!(rig.terminal.lock().unwrap().is_empty());
         assert!(rig.opened.lock().unwrap().is_empty());

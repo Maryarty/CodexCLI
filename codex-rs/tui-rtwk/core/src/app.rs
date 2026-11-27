@@ -15,6 +15,7 @@ pub mod facts;
 pub(crate) mod features;
 mod git_summary;
 mod host_asks;
+mod ide_submit;
 mod lifecycle;
 mod mentions;
 mod notices;
@@ -486,6 +487,8 @@ pub enum Command {
         /// The acknowledgement of a misalignment failure, epoch milliseconds: the request
         /// carries the `misalignment_override` metadata (`threads/safety.rs`).
         misalignment_override: Option<i64>,
+        /// Fresh opt-in IDE data for wire serialization.
+        ide_prompt: Option<effects::IdePrompt>,
     },
     #[non_exhaustive]
     RejectRequest { key: RequestKey },
@@ -862,6 +865,7 @@ pub struct CodexApp {
     tui: facts::TuiSettings,
     /// The answers of the host's asks and the user-verification controller.
     effects: effects::Effects,
+    ide_submissions: ide_submit::State,
     /// Notices announced before any conversation exists.
     pending_notices: Vec<threads::Notice>,
     /// The Daybreak facts (`AppEv::Daybreak`).
@@ -955,6 +959,7 @@ impl CodexApp {
             keymap: Rc::new(Keymap::defaults()),
             tui: facts::TuiSettings::default(),
             effects: effects::Effects::default(),
+            ide_submissions: ide_submit::State::default(),
             pending_notices: Vec::new(),
             daybreak: threads::daybreak::Access::default(),
             now: Now::default(),
@@ -1392,6 +1397,7 @@ impl CodexApp {
     }
 
     fn retire_outgoing(&mut self, backend: BackendId, fx: &mut AppFx) {
+        ide_submit::retire(self, backend, fx);
         safety_retry::lost(self, backend, fx);
         self.attaching_events
             .retain(|(source, ..)| *source != backend);
@@ -1564,6 +1570,7 @@ pub fn apply_app_from(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut
 }
 
 fn apply_at(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
+    let emitted_from = fx.commands.len();
     // Only events that can bring tasks of other directories into the center.
     let lists = matches!(ev, AppEv::Reply(..) | AppEv::Screen(_));
     let ancestry = matches!(ev, AppEv::Reply(..) | AppEv::Screen(ScreenEv::Agents(_)))
@@ -1605,6 +1612,7 @@ fn apply_at(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
     if ancestry || active_changed {
         sync_picker_root(app);
     }
+    ide_submit::prepare(app, fx, emitted_from);
 }
 
 fn sync_picker_root(app: &mut CodexApp) {
@@ -1744,6 +1752,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             }
         }
         AppEv::ShuttingDown => {
+            ide_submit::shutdown(app, fx);
             features::connection(app, crate::features::Connection::ShuttingDown, fx);
         }
         AppEv::Backend(BackendEv::Notification(notification)) => {
@@ -2156,6 +2165,10 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         } => {
             git_summary::answer(app, summary, fx);
         }
+        AppEv::Effect {
+            request,
+            done: effects::Done::IdePrompt(reading),
+        } => ide_submit::answered(app, request, reading),
         AppEv::Effect { request, done } if effects::is_feature_request(request) => {
             features::effect_done(app, request, done, fx);
         }
@@ -4094,6 +4107,7 @@ fn stream_lost(
         && let Some(model) = app.threads.get(&thread)
     {
         let idle = !model.user_turn_in_flight();
+        ide_submit::retire_thread(app, &thread, fx);
         apply_thread(app, &thread, ThreadEv::StreamLost, fx);
         if app
             .threads
