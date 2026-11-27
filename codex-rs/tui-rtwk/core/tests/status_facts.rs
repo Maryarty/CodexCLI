@@ -640,3 +640,49 @@ mod agent_label {
         );
     }
 }
+
+#[test]
+fn invalid_surface_selection_warnings_wait_for_a_thread_and_are_once_per_app() {
+    use codex_tui_core::app::AppEv;
+    use codex_tui_core::screens::{ScreenEv, agents};
+    use codex_tui_core::threads::{Item, LocalWarning};
+
+    let first = ThreadId::new("first");
+    let later = ThreadId::new("later");
+    let lines = [
+        screen(
+            json!({"status": {"items": ["model-name", "spinner", "model_name", "spinner"],
+                                  "terminal_title": ["project", "spinner", "thread", "project-root"]}}),
+        ),
+        r#"{"step":"seed","seed":"session","thread":"first"}"#.to_owned(),
+        screen(json!({"status": {"items": ["elsewhere"], "terminal_title": ["other-title"]}})),
+    ];
+    let mut sandbox = play(&lines);
+    sandbox.send(AppEv::Screen(ScreenEv::Agents(agents::Ev::Current(Some(
+        later.clone(),
+    )))));
+    let warnings = |id| {
+        sandbox
+            .app()
+            .thread(id)
+            .expect("attached thread")
+            .transcript()
+            .iter()
+            .filter_map(|(_, item)| {
+                if let Item::LocalWarning(warning) = item {
+                    Some(warning.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        warnings(&first),
+        [
+            LocalWarning::InvalidStatusLineItems(vec!["spinner".into(), "model_name".into()]),
+            LocalWarning::InvalidTitleItems(vec!["project-root".into()]),
+        ]
+    );
+    assert!(warnings(&later).is_empty());
+}

@@ -1494,6 +1494,7 @@ fn apply_at(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
                 | ServerNotification::ThreadArchived(_)
                 | ServerNotification::ThreadDeleted(_)
         ));
+    let status = matches!(ev, AppEv::Screen(ScreenEv::Chat(chat::Ev::Status(_))));
     let previous = Rc::clone(&app.session);
     // the refusal the last apply heard has been on screen for its frame
     if app.session.cloud_switch == Some(CloudSwitch::Failed) {
@@ -1501,7 +1502,12 @@ fn apply_at(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
     }
     apply_event(app, origin, ev, fx);
     finish_apply(app, lists, fx);
-    if ancestry || (!Rc::ptr_eq(&previous, &app.session) && previous.active != app.session.active) {
+    let active_changed =
+        !Rc::ptr_eq(&previous, &app.session) && previous.active != app.session.active;
+    if status || active_changed {
+        notices::invalid_status_items(app, fx);
+    }
+    if ancestry || active_changed {
         sync_picker_root(app);
     }
 }

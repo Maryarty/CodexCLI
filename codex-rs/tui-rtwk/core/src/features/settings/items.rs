@@ -93,6 +93,23 @@ fn canonical(id: &str) -> &str {
     }
 }
 
+/// A configured status-line id that the oracle recognizes, in its canonical spelling.
+pub fn status_item(id: &str) -> Option<&str> {
+    let id = canonical(id);
+    STATUS_LINE.contains(&id).then_some(id)
+}
+
+/// A configured terminal-title id that the oracle recognizes, in its canonical spelling.
+pub fn title_item(id: &str) -> Option<&str> {
+    let id = match id {
+        "spinner" => "activity",
+        "thread" => "thread-title",
+        "project-root" => return None,
+        other => canonical(other),
+    };
+    TERMINAL_TITLE.contains(&id).then_some(id)
+}
+
 fn catalogue(ids: &[&str]) -> Vec<CatalogueItem> {
     ids.iter()
         .map(|id| CatalogueItem {
@@ -109,7 +126,7 @@ pub fn status_line(facts: &StatusFacts) -> Setup {
     let selected: Vec<String> = match &facts.items {
         Some(items) => items
             .iter()
-            .map(|item| canonical(item).to_owned())
+            .filter_map(|item| status_item(item).map(str::to_owned))
             .collect(),
         None => DEFAULT_STATUS_LINE_ITEMS
             .iter()
@@ -130,11 +147,7 @@ pub fn title(facts: &StatusFacts) -> Setup {
     let selected: Vec<String> = match &facts.terminal_title {
         Some(items) => items
             .iter()
-            .map(|item| match item.as_str() {
-                "spinner" => "activity".to_owned(),
-                "thread" => "thread-title".to_owned(),
-                other => canonical(other).to_owned(),
-            })
+            .filter_map(|item| title_item(item).map(str::to_owned))
             .collect(),
         None => DEFAULT_TITLE.iter().map(ToString::to_string).collect(),
     };

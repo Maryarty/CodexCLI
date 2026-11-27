@@ -219,6 +219,9 @@ pub struct Strings {
     pub high_load: &'static str,
     /// `REVIEW_STEER_UNAVAILABLE_MESSAGE` (`interaction.rs`).
     pub review_steer_unavailable: &'static str,
+    invalid_status_line_items: [Msg<1>; 2],
+    invalid_title_items: [Msg<1>; 2],
+    invalid_items_join: Msg<2>,
     /// The words of the picker sheets (the effort and mode names the notes
     /// repeat).
     pub picker: &'static crate::sheets::select::strings::Strings,
@@ -420,6 +423,15 @@ pub const EN: Strings = Strings {
     retry_busy: msg!("Server is busy, reconnecting {0}"),
     high_load: "Codex is currently experiencing high load.",
     review_steer_unavailable: "Steer messages aren't supported during /review. Press Ctrl+C now to cancel the review.",
+    invalid_status_line_items: [
+        msg!("Ignored invalid status line item: {0}."),
+        msg!("Ignored invalid status line items: {0}."),
+    ],
+    invalid_title_items: [
+        msg!("Ignored invalid terminal title item: {0}."),
+        msg!("Ignored invalid terminal title items: {0}."),
+    ],
+    invalid_items_join: msg!("{0} and {1}"),
     picker: &crate::sheets::select::strings::EN,
     note_no_models: "No additional models are available right now.",
     note_models_not_loaded: "Could not load models. Try /model again.",
@@ -649,9 +661,31 @@ impl Strings {
     }
 
     /// The words of a warning the client raised itself.
-    pub fn local_warning(&self, warning: LocalWarning) -> &'static str {
+    pub fn local_warning(&self, warning: &LocalWarning) -> String {
         match warning {
-            LocalWarning::ReviewSteerUnavailable => self.review_steer_unavailable,
+            LocalWarning::ReviewSteerUnavailable => self.review_steer_unavailable.to_owned(),
+            LocalWarning::InvalidStatusLineItems(items) => {
+                self.invalid_items(self.invalid_status_line_items, items)
+            }
+            LocalWarning::InvalidTitleItems(items) => {
+                self.invalid_items(self.invalid_title_items, items)
+            }
+        }
+    }
+
+    fn invalid_items(&self, words: [Msg<1>; 2], items: &[String]) -> String {
+        let ids: Vec<_> = items.iter().map(|id| format!(r#""{id}""#)).collect();
+        if let Some((last, rest)) = ids.split_last().filter(|(_, rest)| !rest.is_empty()) {
+            let front = rest.join(LIST_SEPARATOR);
+            let joined = Fmt::new(
+                self.invalid_items_join,
+                [Arg::Text(&front), Arg::Text(last)],
+                &self.num,
+            )
+            .to_string();
+            self.one(words[1], &joined)
+        } else {
+            self.one(words[0], ids.first().map_or("", String::as_str))
         }
     }
 

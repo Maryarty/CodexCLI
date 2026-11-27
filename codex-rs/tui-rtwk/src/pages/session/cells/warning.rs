@@ -74,7 +74,7 @@ impl StatelessWidget for WarningCell {
 pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
     let message = match item {
         Item::Warning { message } => message.clone(),
-        Item::LocalWarning(warning) => env.chat.local_warning(*warning).to_string(),
+        Item::LocalWarning(warning) => env.chat.local_warning(warning),
         Item::StartupWarning(warning) => env.chat.mcp_warning(warning),
         _ => return AnyWidget::default(),
     };

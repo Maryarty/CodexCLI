@@ -10,6 +10,7 @@ mod mcp;
 pub mod plan_mode;
 pub mod reasoning;
 
+use std::collections::BTreeSet;
 use std::rc::Rc;
 
 pub use banner::{
@@ -27,13 +28,14 @@ use crate::commands::CommandFlags;
 use crate::commands::ServiceTierCommand;
 use crate::commands::SessionIntent;
 use crate::commands::SlashCommand;
+use crate::features::settings::items;
 use crate::ids::{ThreadId, TurnId};
 use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::screens::select::collaboration::{self, ModelChange};
 use crate::threads::ThreadReply;
 use crate::threads::asks::ThreadRpc;
-use crate::threads::{Note, ThreadFx, UserMessage};
+use crate::threads::{LocalWarning, Note, ThreadFx, UserMessage};
 
 pub const NAME: &str = "chat";
 pub const ID: &str = "S10";
@@ -61,6 +63,8 @@ pub struct Model {
     pub status_override: StatusOverride,
     /// What the status line shows, read by the host (config, cwd, git).
     pub status: Rc<StatusFacts>,
+    warned_status_items: bool,
+    warned_title_items: bool,
     /// The footer's and the status line's other facts: the workspace probes, the side and
     /// agent labels (`facts`).
     pub facts: Facts,
@@ -301,9 +305,50 @@ impl Default for Model {
             raw_output: false,
             status_override: StatusOverride::default(),
             status: Rc::default(),
+            warned_status_items: false,
+            warned_title_items: false,
             facts: Facts::default(),
         }
     }
+}
+
+impl Model {
+    /// The first warning for each surface in this app's lifetime, once a thread can carry it.
+    pub(crate) fn take_invalid_surface_items(
+        &mut self,
+    ) -> impl Iterator<Item = LocalWarning> + use<> {
+        let status = take_invalid_items(
+            &mut self.warned_status_items,
+            self.status.items.as_deref(),
+            items::status_item,
+        )
+        .map(LocalWarning::InvalidStatusLineItems);
+        let title = take_invalid_items(
+            &mut self.warned_title_items,
+            self.status.terminal_title.as_deref(),
+            items::title_item,
+        )
+        .map(LocalWarning::InvalidTitleItems);
+        status.into_iter().chain(title)
+    }
+}
+
+fn take_invalid_items(
+    warned: &mut bool,
+    configured: Option<&[String]>,
+    known: impl Fn(&str) -> Option<&str>,
+) -> Option<Vec<String>> {
+    if *warned {
+        return None;
+    }
+    let mut seen = BTreeSet::new();
+    let invalid: Vec<_> = configured?
+        .iter()
+        .filter(|id| known(id).is_none() && seen.insert(id.as_str()))
+        .cloned()
+        .collect();
+    *warned = !invalid.is_empty();
+    warned.then_some(invalid)
 }
 
 /// The events of this screen (backend results, tickets); a variant of the

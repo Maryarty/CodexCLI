@@ -323,14 +323,20 @@ fn repeated_model_metadata_warning_is_hidden_for_same_slug() {
 // ORACLE chatwidget/tests/status_and_layout.rs:3215 status_line_invalid_items_warn_once kind=ui owner=ui-pane
 #[test]
 fn status_line_invalid_items_warn_once() {
-    kit::pending(
-        Owner::UiPane,
-        "an unknown id in `status_line` / `terminal_title` is dropped silently: the once-only warning cell needs the chat `apply` of the status event (core/src/screens/chat.rs, chunk-live's) to push one notice cell per distinct invalid list",
+    let mut s = Screen::build(Owner::UiPane).size(110, 24).live().open();
+    let invalid = r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.4","items":["model-name","model_name","bogus_item","lines_changed","bogus_item"],"project_root":"workspace","terminal_title":["project","unknown-title","unknown-title"]}}}"#;
+    s.feed(invalid);
+    s.assert_title("workspace");
+    s.feed(invalid);
+    s.keys("f2");
+    s.assert_text_count(
+        r#"Ignored invalid status line items: "model_name", "bogus_item" and "lines_changed"."#,
+        1,
     );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: status_line = model_name, bogus_item, lines_changed, bogus_item; refresh twice
-    s.assert_contains("bogus_item");
-    // the second refresh adds no warning cell: the transcript keeps one
+    s.assert_text_count(
+        r#"Ignored invalid terminal title item: "unknown-title"."#,
+        1,
+    );
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:3243 status_line_hostname_renders_current_machine_hostname kind=ui owner=ui-pane

@@ -1,6 +1,7 @@
 //! Display values shared by the chat footer and the terminal title.
 
 use codex_protocol::account::PlanType;
+use codex_tui_core::features::settings::items::{DEFAULT_TITLE, status_item, title_item};
 use codex_tui_core::format::format_tokens_compact;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::chat::{self, DEFAULT_STATUS_LINE_ITEMS, StatusFacts};
@@ -44,6 +45,7 @@ impl StatusContext<'_> {
             None => DEFAULT_STATUS_LINE_ITEMS.to_vec(),
         }
         .into_iter()
+        .filter_map(status_item)
         .filter_map(|id| self.value_for(id, facts).map(|text| (id.to_string(), text)))
         .collect()
     }
@@ -355,45 +357,6 @@ impl Title {
     }
 }
 
-/// The ids `TerminalTitleItem` knows, with its aliases; others are no item.
-fn is_title_item(id: &str) -> bool {
-    matches!(
-        id,
-        "app-name"
-            | "project-name"
-            | "project"
-            | "current-dir"
-            | "activity"
-            | "spinner"
-            | "run-state"
-            | "status"
-            | "thread-name"
-            | "thread-title"
-            | "thread"
-            | "git-branch"
-            | "context-remaining"
-            | "context-used"
-            | "context-usage"
-            | "five-hour-limit"
-            | "weekly-limit"
-            | "codex-version"
-            | "used-tokens"
-            | "total-input-tokens"
-            | "total-output-tokens"
-            | "thread-credits"
-            | "estimated-thread-cost"
-            | "thread-id"
-            | "session-id"
-            | "fast-mode"
-            | "daybreak"
-            | "model"
-            | "model-name"
-            | "model-with-reasoning"
-            | "reasoning"
-            | "task-progress"
-    )
-}
-
 /// What the items of the status line ask of the thread's usage: a figure that is configured is
 /// wanted whether or not it shows yet (`thread_usage_selected`).
 pub(super) fn line_interests(facts: &StatusFacts) -> Vec<UsageInterest> {
@@ -436,14 +399,10 @@ fn is_spinner(id: &str) -> bool {
 
 /// `configured_terminal_title_items` that parse (`DEFAULT_TERMINAL_TITLE_ITEMS` when unset).
 fn title_items(facts: &StatusFacts) -> Vec<&str> {
-    const DEFAULT: [&str; 3] = ["activity", "thread-name", "project-name"];
     match &facts.terminal_title {
-        Some(items) => items.iter().map(String::as_str).collect::<Vec<_>>(),
-        None => DEFAULT.to_vec(),
+        Some(items) => items.iter().filter_map(|id| title_item(id)).collect(),
+        None => DEFAULT_TITLE.to_vec(),
     }
-    .into_iter()
-    .filter(|id| is_title_item(id))
-    .collect()
 }
 
 /// The most graphemes the title takes of an item (`terminal_title_value_for_item`).

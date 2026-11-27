@@ -20,6 +20,32 @@ pub(super) fn announce(app: &mut CodexApp, notice: Notice, fx: &mut AppFx) {
     }
 }
 
+/// Invalid status and title selections are reported to the first conversation that sees them.
+pub(super) fn invalid_status_items(app: &mut CodexApp, fx: &mut AppFx) {
+    let Some(thread) = app
+        .session
+        .active
+        .clone()
+        .filter(|id| app.threads.contains(id))
+    else {
+        return;
+    };
+    let warnings = Rc::make_mut(&mut app.screens)
+        .chat
+        .take_invalid_surface_items();
+    for warning in warnings {
+        apply_thread(
+            app,
+            &thread,
+            ThreadEv::Appended {
+                turn: None,
+                item: Item::LocalWarning(warning),
+            },
+            fx,
+        );
+    }
+}
+
 /// An error the host worded: the shown conversation keeps it as an error line (oracle
 /// `add_error_message`); with none shown there is no line to add it to.
 pub(super) fn error_line(app: &mut CodexApp, message: String, fx: &mut AppFx) {
