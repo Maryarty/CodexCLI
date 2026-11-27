@@ -1,6 +1,5 @@
-//! The status line under the composer (oracle `chat_composer/status_surface.rs`,
-//! `composer_layout.rs` `FooterLayout`): the configured items wrapped over the
-//! rows the frame leaves it, above the hint row.
+//! The status and hint rows share the space below the draft (oracle
+//! `chat_composer/composer_layout.rs` `FooterLayout`).
 //!
 //! Flutter writes it as a `Text(maxLines: n)` where `n` comes from a
 //! `LayoutBuilder` over the room the page gives its bottom pane: the composer
@@ -11,9 +10,11 @@
 //! from the footer's own fit; this widget cuts nothing, `Text` wraps and puts
 //! the ellipsis on the last row.
 
+use rtwk::binding::{AppBinding, ScreenMode};
 use rtwk::editing::TextEditingController;
 use rtwk::foundation::ListenableBuilder;
-use rtwk::layout::{Expanded, Row, SizedBox};
+use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
+use rtwk::provider::Provider;
 use rtwk::style::Span;
 use rtwk::text::segmenter_of;
 use rtwk::{AnyWidget, Cx, LayoutBuilder, StatelessWidget, impl_widget};
@@ -38,24 +39,37 @@ pub struct StatusRows {
     pub composer: TextEditingController,
     /// The footer under the line: its rows are kept before the line's.
     pub hints: Option<Footer>,
+    pub footer: Option<AnyWidget>,
 }
 
 impl_widget!(stateless eq StatusRows);
 
-/// The rows the line may take of a frame `frame` rows high (`FooterLayout`):
-/// `input` rows of draft under the surface, `hints` rows wanted below.
-pub fn rows_for(frame: usize, input: usize, hints: usize) -> usize {
-    // the composer's room in a frame (`composer_height_limit`), and the quarter of it the
-    // footer may take, two to four rows (`FooterLayout::new`)
+/// The number of rows the passive hints may use to select their layout.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) struct HintRows(pub usize);
+
+fn allocate(
+    frame: usize,
+    input: usize,
+    wanted_hints: usize,
+    has_status: bool,
+    inline: bool,
+) -> (usize, usize) {
     let room = (frame * 2 / 3).max(8).min(frame);
-    let cap = ((room + 2) / 4).clamp(2, 4);
+    let cap = if inline {
+        2
+    } else if frame <= 8 {
+        // A short fullscreen pane still has room for a status and two compact hints.
+        3
+    } else {
+        ((room + 2) / 4).clamp(2, 4)
+    };
     let available = room.saturating_sub(input + SURFACE_ROWS);
     let limit = cap.min(available);
-    // one row of the line is kept before the hints are placed (`allocate`)
-    let budget = limit.saturating_sub(hints.min(1));
-    let kept = budget.min(1);
-    let hints = hints.min(limit - kept);
-    limit - hints
+    let reserve_status = usize::from(has_status && limit > wanted_hints.min(1));
+    let hints = wanted_hints.min(limit - reserve_status);
+    let status = if has_status { limit - hints } else { 0 };
+    (status, hints)
 }
 
 impl StatelessWidget for StatusRows {
@@ -66,10 +80,14 @@ impl StatelessWidget for StatusRows {
             .as_ref()
             .filter(|footer| footer.line == Line::Passive)
             .map(|footer| footer.spec(cx));
+        let inline =
+            AppBinding::maybe_of(cx).is_some_and(|binding| binding.mode() == ScreenMode::Inline);
+        let footer = self.footer.clone();
         let spans = self.spans.clone();
         let composer = self.composer.clone();
         let draft = composer.clone();
         ListenableBuilder::new(draft.listenable(), move |_, _| {
+            let footer = footer.clone();
             let spec = spec.clone();
             let spans = spans.clone();
             let composer = composer.clone();
@@ -85,20 +103,31 @@ impl StatelessWidget for StatusRows {
                     Some(spec) => spec.wanted_rows(&|text: &str| seg.width(text), width),
                     None => 1,
                 };
-                let rows = rows_for(frame, input, wanted);
-                if rows == 0 {
-                    return SizedBox::shrink().into();
+                let (rows, hints) = allocate(frame, input, wanted, !spans.is_empty(), inline);
+                let mut layout = Column::new()
+                    .main_axis_size(MainAxisSize::Min)
+                    .cross_axis_alignment(CrossAxisAlignment::Start);
+                if rows > 0 {
+                    layout = layout.child(
+                        Row::new()
+                            .child(SizedBox::new(Some(INDENT), None, None))
+                            .child(Expanded::new(
+                                1,
+                                StatusLine {
+                                    spans: spans.clone(),
+                                    rows,
+                                },
+                            )),
+                    );
                 }
-                Row::new()
-                    .child(SizedBox::new(Some(INDENT), None, None))
-                    .child(Expanded::new(
-                        1,
-                        StatusLine {
-                            spans: spans.clone(),
-                            rows,
-                        },
-                    ))
-                    .into()
+                if let Some(footer) = &footer {
+                    layout = layout.child(
+                        Provider::value(HintRows(hints))
+                            .update_should_notify(|old, new| old != new)
+                            .child(footer.clone()),
+                    );
+                }
+                layout.into()
             })
             .into()
         })
@@ -108,7 +137,19 @@ impl StatelessWidget for StatusRows {
 
 #[cfg(test)]
 mod tests {
-    use super::rows_for;
+    use super::allocate;
+
+    fn rows_for(frame: usize, input: usize, hints: usize) -> usize {
+        allocate(frame, input, hints, true, false).0
+    }
+
+    #[test]
+    fn a_running_draft_keeps_queue_hints_when_the_viewport_shrinks() {
+        assert_eq!(allocate(6, 1, 2, true, false), (1, 2));
+        assert_eq!(allocate(5, 1, 2, true, false), (1, 1));
+        assert_eq!(allocate(7, 1, 2, true, true), (1, 1));
+        assert_eq!(allocate(4, 1, 2, true, true), (0, 1));
+    }
 
     // oracle status_surface_tests.rs `status_rows_respect_host_budget_and_yield_to_the_draft`:
     // the host's rows go to the draft first (3 rows of draft, no hint row)

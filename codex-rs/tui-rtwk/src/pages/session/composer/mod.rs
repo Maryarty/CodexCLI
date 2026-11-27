@@ -1000,7 +1000,17 @@ impl State for ComposerState {
             ComposerMsg::Remote => return rtwk::Rebuild::Yes,
             ComposerMsg::Edited { number, text } => {
                 let table = strings::of(cx);
+                let searching = w.ui.draft.searching();
                 w.ui.draft.edited(&w.ui.composer, &text, |n| table.image(n));
+                if searching
+                    && !w.ui.find.active()
+                    && let Some(node) = &w.node
+                    && node
+                        .enclosing_scope()
+                        .is_some_and(|scope| scope.node().has_focus())
+                {
+                    node.request_focus();
+                }
                 w.ui.sparkle.replaced(&text);
                 self.suggest.hide(w.ui.composer.text());
                 if let Some(h) = &w.on_changed {

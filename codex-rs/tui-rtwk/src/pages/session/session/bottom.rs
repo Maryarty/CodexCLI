@@ -199,7 +199,7 @@ pub(super) fn body(
         };
         // The composer keeps its rows. The banner uses whatever the reader's
         // one- or two-row control has left, without splitting it in fixed shares.
-        let body = body.child(Flexible::new(
+        let upper = body.child(Flexible::new(
             1,
             Column::new()
                 .main_axis_size(MainAxisSize::Min)
@@ -208,6 +208,12 @@ pub(super) fn body(
                 .child(Flexible::new(1, banners))
                 .child(gap),
         ));
+        // Above-draft status and notices get the room left by the input and footer.
+        let body = Column::new()
+            .main_axis_size(MainAxisSize::Min)
+            .cross_axis_alignment(CrossAxisAlignment::Start)
+            .overflow_intended(true)
+            .child(Flexible::new(1, upper));
         // the editor of the model's questions stands in the composer's place
         if editing {
             body.child(composer)
@@ -243,34 +249,23 @@ pub(super) fn body(
     // a status line that names the credits or the cost wants them, whether or not it shows them
     // yet (`thread_usage_selected`): without a figure the line is empty
     let wanted = line_interests(facts);
-    let rows = (!line.is_empty()
-        && !startup
-        && !thread.read_only()
-        && frame.provider.is_none()
-        && !editing)
-        .then(|| {
-            AnyWidget::from(StatusRows {
-                spans: line,
-                composer: w.ui.composer.clone(),
-                hints,
-            })
-        });
-    body = match (rows, wanted.is_empty()) {
-        (Some(rows), true) => body.child(rows),
-        (rows, false) => body.child(raise(
-            wanted,
-            rows.unwrap_or_else(|| SizedBox::new(Some(0), Some(0), None).into()),
-        )),
-        (None, true) => body,
+    // Find owns the footer slot while its query is open.
+    let footer = transcript::find_footer::slot(cx, &w.ui.find, &w.ui.selection, footer);
+    let pane = if !startup && !thread.read_only() && frame.provider.is_none() && !editing {
+        AnyWidget::from(StatusRows {
+            spans: line,
+            composer: w.ui.composer.clone(),
+            hints,
+            footer: Some(footer),
+        })
+    } else {
+        footer
     };
-    // The find bar's slot (`find_footer::slot`): while Find is open its query row and status row
-    // stand where the footer does, below the composer; closed, the footer the page would draw.
-    body = body.child(transcript::find_footer::slot(
-        cx,
-        &w.ui.find,
-        &w.ui.selection,
-        footer,
-    ));
+    body = if wanted.is_empty() {
+        body.child(pane)
+    } else {
+        body.child(raise(wanted, pane))
+    };
     Column::new()
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Start)

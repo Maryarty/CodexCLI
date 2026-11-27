@@ -174,6 +174,9 @@ impl ComposerDraft {
     /// only while its placeholder is in the text (as many times as it was attached) and is an
     /// atom again; a leading `!` is shell mode; the caret goes to the end.
     pub fn edited(&self, c: &TextEditingController, text: &str, image: impl Fn(usize) -> String) {
+        // Keep the original draft's attachments, even when the search shows a preview.
+        self.search_cancel(c);
+        self.0.borrow_mut().clipboard.retire();
         self.sync(c);
         let mut kept: Vec<Element> = self
             .0

@@ -693,14 +693,35 @@ fn flush_answer_stream_requests_scrollback_reflow_for_tables() {
 // ORACLE chatwidget/tests/status_and_layout.rs:688 completed_plan_table_tail_skips_provisional_history_insert kind=ui owner=ui-pane
 #[test]
 fn completed_plan_table_tail_skips_provisional_history_insert() {
-    kit::pending(
-        Owner::UiPane,
-        "no proposed-plan table cell (the completed plan table with separators) on the chat screen",
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .script(RUNNING)
+        .open();
+    let source = "| Step | Owner |\n| --- | --- |\n| Verify | Codex |\n";
+    for delta in source.split_inclusive('\n') {
+        s.feed(
+            &serde_json::json!({
+                "step": "notify",
+                "message": {"method": "item/plan/delta", "params": {
+                    "threadId": "thread-1", "turnId": "turn-1", "itemId": "plan-1", "delta": delta
+                }}
+            })
+            .to_string(),
+        );
+    }
+    s.feed(
+        &serde_json::json!({
+            "step": "notify",
+            "message": {"method": "item/completed", "params": {
+                "threadId": "thread-1", "turnId": "turn-1", "completedAtMs": 0,
+                "item": {"type": "plan", "id": "plan-1", "text": source}
+            }}
+        })
+        .to_string(),
     );
-    // oracle: the completed plan table renders with the separator glyph; the live table tail is not inserted provisionally.
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: plan delta "| Step | Owner |", "| --- | --- |", "| Verify | Codex |", then plan item completed
-    s.assert_contains("━");
+    // MarkdownView uses box-drawing rules (G73). The live tail must leave one completed table.
+    s.assert_row_of("Verify", &["Codex", "│"], &[]);
+    s.assert_text_count("Verify", 1);
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:839 rate_limit_usage_warnings_early_threshold_is_scoped_and_deduplicated kind=snap owner=ui-pane

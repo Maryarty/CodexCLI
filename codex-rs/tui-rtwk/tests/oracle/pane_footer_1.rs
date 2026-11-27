@@ -74,7 +74,6 @@ const FOCUS_REASON: &str = "the terminal losing and regaining focus (`set_sparkl
 const HELP_STATUS: &str = include_str!("fixtures/pane_footer_1/help_status.jsonl");
 const EXTENSION_NA: &str = "no live producer: the oracle's app never builds a ui_tree status row (only its tests); native wrap/row budget covered by native_wrap_tracks_agent_label_and_content_changes_at_the_same_width and status_survives_hints_feedback_and_queue";
 const ACTIVITY_REASON: &str = "the hint is the footer of the transcript view (`TranscriptFooter`: `ctrl+o t/f4 inspect activity`, interactive or not, with the shortcut key unbound) that the composer shows under the transcript pager: the pager has no such footer yet (the pager task's), the Working row and the activity rows of chunk-status do not draw it";
-const MODE_REASON: &str = "the combined Plan, IDE, Vim and warning snapshot needs the composer-only height budget and separated status line across seven fullscreen and scrollback configurations";
 const POPUP_REASON: &str = "the status stays under the composer while the popup is open (page test), but the popup's own rows (`/model` descriptions, the selection marker) are the popups chunk's widget and differ from the oracle's Buffer snapshot";
 
 /// The chat screen's status facts (`ScreenEv::Chat(Ev::Status)`), as the host sends them.
@@ -604,19 +603,20 @@ fn cancelling_history_search_preserves_a_typed_command_despite_attachment_previe
 // ORACLE bottom_pane/chat_composer/sparkle_tests.rs:791 fresh_draft_replacement_ends_search_and_dismisses_sparkles kind=ui owner=ui-pane
 #[test]
 fn fresh_draft_replacement_ends_search_and_dismisses_sparkles() {
-    kit::pending(
-        Owner::UiPane,
-        "a live external draft replacement updates the composer but leaves reverse-i-search open. The history search can then restore its pre-replacement draft on Esc.",
-    );
-    // the history search is open when the draft is replaced from outside (`set_text_content`): the
-    // search ends, the sparkle is dismissed, and Esc leaves the replacement in the composer
     let mut s = plain(80, 24);
-    s.keys("ctrl+r");
+    s.keys("ctrl+g ctrl+r");
     s.assert_contains("reverse-i-search");
-    s.draft("external draft");
+    s.answer_editor("", "external draft");
     s.assert_absent("reverse-i-search");
+    s.assert_composer("external draft");
     s.keys("esc");
     s.assert_composer("external draft");
+    s.keys("ctrl+r");
+    s.assert_contains("reverse-i-search");
+    s.keys("esc");
+    s.assert_composer("external draft");
+    s.type_text(" still editable");
+    s.assert_composer("external draft still editable");
     s.feed(&model_is("astra"));
     s.assert_no_dots();
 }
@@ -1010,14 +1010,73 @@ fn fullscreen_plan_indicator_keeps_the_cycle_hint_when_it_fits() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:771 footer_layout_in_fullscreen_and_scrollback kind=snap owner=ui-pane snap=empty snap=footer_layout_in_fullscreen_and_scrollback
 #[test]
 fn footer_layout_in_fullscreen_and_scrollback() {
-    kit::pending(Owner::UiPane, MODE_REASON);
-    // the footer rows at 120x2, 60x2 and 31x3 in fullscreen, and in scrollback at 31x4 and 31x1,
-    // with Plan mode, the ide context, the vim mode and 2 warnings; a draft (`draft`) shifts them
-    let mut s = Screen::build(Owner::UiPane).size(120, 5).live().open();
-    s.assert_snap("footer_layout_in_fullscreen_and_scrollback");
-    s.resize(31, 6);
-    s.type_text("draft");
-    s.assert_contains("Plan mode");
+    for inline in [false, true] {
+        let open = Screen::build(Owner::UiPane)
+            .size(120, 24)
+            .script(PLAN_STATUS)
+            .vim_mode();
+        let mut s = if inline {
+            open.inline(&["previous shell output"]).open()
+        } else {
+            open.open()
+        };
+        s.feed(&facts(r#"{"cwd":"/workspace","items":["thread-name"]}"#));
+        s.feed(named("Build ready").as_str());
+        s.type_text("/ide on").keys("enter");
+        s.answer_ide_context(Ok(true));
+        s.wait_for("IDE context is on.");
+        s.feed(&warning(1));
+        s.feed(&warning(2));
+        s.keys("esc");
+
+        s.resize(120, 5);
+        s.assert_row_of(
+            "Vim: Normal",
+            &["Plan mode (⇧tab to cycle)", "IDE context", "⚠ 2 warnings"],
+            &[],
+        );
+        s.resize(60, 5);
+        s.assert_row_of(
+            "Vim: Normal",
+            &["Plan mode", "IDE", "⚠ 2"],
+            &["⇧tab", "warnings"],
+        );
+        s.resize(31, 6);
+        s.assert_in_order(&["Build ready", "Vim: Normal"]);
+        s.assert_row_of("Vim: Normal", &["Plan mode"], &["warnings"]);
+
+        s.keys("i").type_text("draft").keys("esc");
+        s.feed(RUNNING);
+        s.assert_composer("draft");
+        if inline {
+            s.assert_row_of("tab to queue", &["Vim: Normal"], &["Plan mode"]);
+        } else {
+            s.assert_in_order(&[
+                "Build ready",
+                "Vim: Normal · Plan mode",
+                "tab to queue message",
+            ]);
+            s.assert_row_of("tab to queue", &["IDE"], &["Vim: Normal"]);
+        }
+        s.resize(31, if inline { 7 } else { 5 });
+        s.assert_composer("draft");
+        s.assert_row_of("tab to queue", &["Vim: Normal"], &[]);
+        if inline {
+            s.resize(31, 4);
+            s.assert_composer("draft");
+            s.assert_row_of("tab to queue", &["Vim: Normal"], &[]);
+        }
+        s.keys("a").type_text(" survives");
+        s.assert_composer("draft survives");
+        s.resize(31, 8);
+        s.paste("\nsecond line\nthird line");
+        s.assert_in_order(&[
+            "draft survives",
+            "second line",
+            "third line",
+            "tab to queue",
+        ]);
+    }
 }
 
 #[test]
