@@ -3018,6 +3018,11 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
         }
         // a verb of the thread's safety state: the thread's own, not the screen's
         Intent::Screen(ScreenIntent::Chat(chat::Intent::Safety { thread, verb })) => {
+            if matches!(&verb, crate::threads::safety::Verb::Continue { .. })
+                && app.session.active.as_ref() != Some(&thread)
+            {
+                return;
+            }
             let ev = ThreadEv::Screen(ScreenThreadEv::Chat(chat::ThreadEv::Safety(
                 crate::threads::safety::SafetyEv::Verb(verb),
             )));
