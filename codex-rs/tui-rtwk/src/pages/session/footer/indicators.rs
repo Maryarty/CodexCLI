@@ -74,11 +74,11 @@ pub(super) fn voice(spec: &Spec, width: &dyn Fn(&str) -> usize) -> Option<Vec<Fo
         return Some(vec![form(status, width)]);
     }
     let mut controls = status.clone();
-    controls.push(Span::styled("   ", spec.tokens.dim()));
+    controls.push(Span::styled(own.control_gap, spec.tokens.dim()));
     if let Some(key) = spec.voice_key.as_ref() {
         controls.push(Span::styled(key.clone(), spec.tokens.bold()));
         let action = if display.muted { own.unmute } else { own.mute };
-        controls.push(Span::styled(format!(" {action}"), spec.tokens.dim()));
+        controls.push(Span::styled(action, spec.tokens.dim()));
     } else {
         controls.push(Span::styled(own.mute_command, spec.tokens.dim()));
     }

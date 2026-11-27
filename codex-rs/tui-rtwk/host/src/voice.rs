@@ -10,6 +10,7 @@ use codex_tui_core::ids::Ticket;
 use codex_tui_core::screens::voice::{
     AudioAction, AudioCommand, AudioReport, AudioResult, Owner, Peaks, Sdp,
 };
+use codex_tui_rtwk::services::agents::workspace::blocking;
 use futures::future::AbortHandle;
 
 #[derive(Default)]
@@ -110,12 +111,10 @@ impl Audio {
                     .map(|channels| channels.as_slice().to_vec()),
             })
             .unwrap_or_default();
-        let offer = tokio::task::spawn_blocking(move || {
-            RealtimeWebrtcSession::start(registration, selection)
-        })
-        .await
-        .map_err(|error| error.to_string())
-        .and_then(|result| result.map_err(|error| error.to_string()));
+        let offer = blocking(move || RealtimeWebrtcSession::start(registration, selection))
+            .await
+            .ok_or_else(|| "The audio helper failed to prepare.".to_owned())
+            .and_then(|result| result.map_err(|error| error.to_string()));
         match offer {
             Ok(offer) => {
                 let mut slot = self.lock();
@@ -136,9 +135,9 @@ impl Audio {
 
     async fn connect(&self, owner: &Owner, answer: Sdp) -> Result<(), String> {
         let handle = self.handle(owner)?;
-        tokio::task::spawn_blocking(move || handle.apply_answer_sdp(answer.into_inner()))
+        blocking(move || handle.apply_answer_sdp(answer.into_inner()))
             .await
-            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "The audio helper failed to connect.".to_owned())?
             .map_err(|error| error.to_string())
     }
 

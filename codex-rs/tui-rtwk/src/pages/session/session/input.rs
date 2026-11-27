@@ -2,6 +2,7 @@
 //! field: browsing the prompts, the selection's keys, the `change_host` chord, the banner's
 //! numbers, `?` and `←`) and the bindings the page's focus and its footer's hints carry.
 
+use std::cell::Cell;
 use std::rc::Rc;
 
 use rtwk::binding::AppBinding;
@@ -33,6 +34,13 @@ use crate::widgets::thread_ui::Input;
 use super::frame::Frame;
 use super::{ChatMsg, ChatState};
 
+#[derive(Clone, Default)]
+struct VoiceKeys(Rc<Cell<bool>>);
+
+fn voice_keys(state: &ChatState) -> Rc<Cell<bool>> {
+    state.find.borrow().held(VoiceKeys::default).0
+}
+
 /// `?` (the shortcut overlay, `footer_shortcuts_default`) and `←` (the agents page,
 /// `handle_agents_navigation`) on an EMPTY composer belong to the page; with text they go to
 /// the field.
@@ -44,7 +52,7 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
     let selection = state.selection.clone();
     let finder = state.find.clone();
     let control = state.control.clone();
-    let voice_controls = state.voice_controls.clone();
+    let voice_controls = voice_keys(state);
     let clock = AppBinding::maybe_of(cx).map(|binding| binding.clock());
     let (banner, blocked) = (state.banner.clone(), state.banner_blocked.clone());
     let keymap = state.keymap.clone();
@@ -433,7 +441,11 @@ pub(super) fn focus(
             focus = focus.bind(key, cx.send(msg));
         }
     }
-    let voice_controls = state.voice_controls.get();
+    let voice_controls =
+        rtwk::provider::select::<codex_tui_core::threads::ThreadModel, bool, _>(cx, |thread| {
+            thread.screen_slots().voice.can_mute()
+        });
+    voice_keys(state).set(voice_controls);
     for (action, key) in keys::presses(keymap) {
         if action.id() == VOICE_TOGGLE_VOICE_MUTE {
             if !voice_controls {

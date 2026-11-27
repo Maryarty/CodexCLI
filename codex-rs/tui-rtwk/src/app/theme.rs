@@ -21,6 +21,7 @@ use rtwk_rich::style::{Style as MarkdownStyle, Theme as RichTheme};
 pub(crate) mod effort;
 mod literal;
 mod syntax;
+pub(crate) mod voice;
 
 pub(crate) use literal::{bold, color, fg, rgb_of};
 pub use syntax::SyntaxPalette;

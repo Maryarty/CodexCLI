@@ -16,8 +16,10 @@ use crate::ids::{ThreadId, TurnId};
 use crate::rpc::{RpcError, ServerError};
 use crate::screens::select::permissions::Snapshot as PermissionSnapshot;
 use crate::screens::status::AgentsSource;
+use crate::screens::voice::Sdp;
 use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_READ_ONLY;
 use codex_protocol::openai_models::ReasoningEffort;
+use codex_protocol::protocol::{RealtimeConversationVersion, RealtimeOutputModality};
 
 /// An ask owned by an app or screen command. Transport can borrow a pending
 /// turn's existing input through `ThreadRpc` while it builds the request.
@@ -145,18 +147,50 @@ impl ListQuery {
     }
 }
 
+fn voice_start_params(
+    thread: &ThreadId,
+    session: &str,
+    offer: &Sdp,
+) -> wire::ThreadRealtimeStartParams {
+    wire::ThreadRealtimeStartParams {
+        thread_id: thread.to_string(),
+        client_managed_handoffs: None,
+        delegation_ack_filler: None,
+        flush_transcript_tail_on_session_end: None,
+        codex_responses_as_items: None,
+        codex_response_item_prefix: None,
+        codex_response_handoff_mode: None,
+        backend_reasoning_status: false,
+        codex_response_handoff_channel_prefixes: None,
+        model: None,
+        output_modality: RealtimeOutputModality::Audio,
+        include_startup_context: Some(false),
+        initial_items: None,
+        realtime_start_instructions: None,
+        realtime_end_instructions: None,
+        prompt: None,
+        realtime_session_id: Some(session.to_string()),
+        voice_session_id: None,
+        transport: Some(wire::ThreadRealtimeStartTransport::Webrtc {
+            sdp: offer.clone().into_inner(),
+        }),
+        version: Some(RealtimeConversationVersion::V3),
+        voice: None,
+    }
+}
+
 crate::rpc_list! {
     /// The wire operations for thread lifecycle, input and discovery.
     pub enum ThreadRpc<M: Borrow<UserMessage>> => ThreadReply, request model_override: Option<&str>;
 
     /// Open the backend side of a call once local WebRTC has prepared an offer.
-    RealtimeStart { thread: String, session: String, offer: crate::screens::voice::Sdp },
+    RealtimeStart { thread: ThreadId, session: String, offer: Sdp },
         Self::RealtimeStart { thread, session, offer }
-        => ThreadRealtimeStart(crate::screens::voice::start_params(thread, session, offer))
+        => ThreadRealtimeStart(voice_start_params(thread, session, offer))
         -> wire::ThreadRealtimeStartResponse, |_| ThreadReply::Done;
     /// Stop the backend side of a voice call after closing the local peer.
-    RealtimeStop { thread: String }, Self::RealtimeStop { thread }
-        => ThreadRealtimeStop(wire::ThreadRealtimeStopParams { thread_id: thread.clone() })
+    RealtimeStop { thread: ThreadId }, Self::RealtimeStop { thread }
+        => ThreadRealtimeStop(wire::ThreadRealtimeStopParams { thread_id: thread.to_string() })
         -> wire::ThreadRealtimeStopResponse, |_| ThreadReply::Done;
 
     /// Launch the chat with its configured model and working directory.
@@ -477,9 +511,7 @@ impl<M: Borrow<UserMessage>> ThreadRpc<M> {
     /// The thread this asks about, when it targets one.
     pub fn thread(&self) -> Option<&str> {
         match self {
-            Self::RealtimeStart { thread, .. }
-            | Self::RealtimeStop { thread }
-            | Self::Resume { thread }
+            Self::Resume { thread }
             | Self::ResumeAt { thread, .. }
             | Self::Fork { thread }
             | Self::ForkAt { thread, .. }
@@ -504,7 +536,9 @@ impl<M: Borrow<UserMessage>> ThreadRpc<M> {
             Self::RetryItems(params) => Some(params.thread().as_str()),
             Self::RetryFork(params) => Some(params.thread().as_str()),
             Self::RetryStart(params) => Some(params.thread().as_str()),
-            Self::RetryInterrupt { thread, .. }
+            Self::RealtimeStart { thread, .. }
+            | Self::RealtimeStop { thread }
+            | Self::RetryInterrupt { thread, .. }
             | Self::StartUserTurn { thread, .. }
             | Self::ListTerminals { thread, .. }
             | Self::Archive { thread }

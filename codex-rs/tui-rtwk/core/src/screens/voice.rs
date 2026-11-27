@@ -3,7 +3,6 @@
 use std::fmt;
 
 use codex_app_server_protocol as wire;
-use codex_protocol::protocol::{RealtimeConversationVersion, RealtimeOutputModality};
 
 use crate::app::{AppFx, Now};
 use crate::commands::VoiceControl;
@@ -49,7 +48,7 @@ impl Sdp {
 
 impl fmt::Debug for Sdp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Sdp([redacted])")
+        f.debug_tuple("Sdp").field(&"[redacted]").finish()
     }
 }
 
@@ -62,7 +61,7 @@ pub struct Owner {
 
 impl Owner {
     fn session_id(&self) -> String {
-        format!("{}-voice-{}", self.thread.as_str(), self.call.seq())
+        format!("{}:{}", self.thread.as_str(), self.call.seq())
     }
 }
 
@@ -105,7 +104,7 @@ pub struct Peaks(pub [u16; 2]);
 
 impl fmt::Debug for Peaks {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Peaks([redacted])")
+        f.debug_tuple("Peaks").field(&"[redacted]").finish()
     }
 }
 
@@ -547,59 +546,27 @@ pub fn wire(command: &Command, thread: &ThreadId, id: wire::RequestId) -> wire::
     use crate::threads::ThreadAsk;
     let request = match command {
         Command::Start { session, offer } => ThreadAsk::RealtimeStart {
-            thread: thread.to_string(),
+            thread: thread.clone(),
             session: session.clone(),
             offer: offer.clone(),
         },
         Command::Stop => ThreadAsk::RealtimeStop {
-            thread: thread.to_string(),
+            thread: thread.clone(),
         },
     };
     request.wire(id)
-}
-
-pub(crate) fn start_params(
-    thread: &str,
-    session: &str,
-    offer: &Sdp,
-) -> wire::ThreadRealtimeStartParams {
-    wire::ThreadRealtimeStartParams {
-        thread_id: thread.to_string(),
-        client_managed_handoffs: None,
-        delegation_ack_filler: None,
-        flush_transcript_tail_on_session_end: None,
-        codex_responses_as_items: None,
-        codex_response_item_prefix: None,
-        codex_response_handoff_mode: None,
-        backend_reasoning_status: false,
-        codex_response_handoff_channel_prefixes: None,
-        model: None,
-        output_modality: RealtimeOutputModality::Audio,
-        include_startup_context: Some(false),
-        initial_items: None,
-        realtime_start_instructions: None,
-        realtime_end_instructions: None,
-        prompt: None,
-        realtime_session_id: Some(session.to_string()),
-        voice_session_id: None,
-        transport: Some(wire::ThreadRealtimeStartTransport::Webrtc {
-            sdp: offer.0.clone(),
-        }),
-        version: Some(RealtimeConversationVersion::V3),
-        voice: None,
-    }
 }
 
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
     use crate::threads::{ThreadAsk, ThreadReply};
     let request = match command {
         Command::Start { session, offer } => ThreadAsk::RealtimeStart {
-            thread: String::new(),
+            thread: ThreadId::default(),
             session: session.clone(),
             offer: offer.clone(),
         },
         Command::Stop => ThreadAsk::RealtimeStop {
-            thread: String::new(),
+            thread: ThreadId::default(),
         },
     };
     match (command, request.decode(result)?) {

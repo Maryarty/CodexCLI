@@ -7,12 +7,12 @@ use rtwk::layout::{
     BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Row, SizedBox,
 };
 use rtwk::provider::select;
-use rtwk::style::{Attrs, Color, Span, Style};
+use rtwk::style::{Span, Style};
 use rtwk::text::{TextOverflow, segmenter_of};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, LayoutBuilder, StatelessWidget, impl_widget};
 
-use crate::app::theme::Tokens;
+use crate::app::theme::{Tokens, voice};
 
 use super::strings::{self, Strings};
 
@@ -71,13 +71,13 @@ impl StatelessWidget for Strip {
                 let mut spans = vec![Span::styled(own.microphone, tokens.dim())];
                 meter(
                     &mut spans,
-                    &display.microphone,
+                    display.microphone,
                     width,
-                    Color::CYAN,
+                    &voice::mic(),
                     display.muted,
                 );
                 spans.push(Span::styled(own.speaker, tokens.dim()));
-                meter(&mut spans, &display.speaker, width, Color::MAGENTA, false);
+                meter(&mut spans, display.speaker, width, &voice::speaker(), false);
                 pane = pane.child(Text::rich_line(spans).overflow(TextOverflow::Clip));
             }
             BoxWidget::new()
@@ -90,17 +90,21 @@ impl StatelessWidget for Strip {
 }
 
 pub(crate) fn status_spans(display: Display, strings: &Strings, tokens: &Tokens) -> Vec<Span> {
-    let (mark, color, activity) = if display.connecting {
-        ("◌", Color::CYAN, strings.connecting)
+    let (mark, style, activity) = if display.connecting {
+        (
+            strings.quiet_marker,
+            voice::connecting(),
+            strings.connecting,
+        )
     } else if display.muted {
-        ("◌", Color::BRIGHT_BLACK, strings.muted)
+        (strings.quiet_marker, voice::quiet(), strings.muted)
     } else {
-        ("●", Color::RED, strings.listening)
+        (strings.active_marker, voice::recording(), strings.listening)
     };
     vec![
-        Span::styled(format!("{} ", strings.voice), tokens.dim()),
-        Span::styled(mark, Style::new().fg(color).attrs(Attrs::BOLD)),
-        Span::styled(format!(" {activity}"), tokens.dim()),
+        Span::styled(strings.voice_prefix, tokens.dim()),
+        Span::styled(mark, style),
+        Span::styled(activity, tokens.dim()),
     ]
 }
 
@@ -121,18 +125,16 @@ fn control_spans(
             strings.mute
         };
         spans.push(Span::styled(key.to_owned(), tokens.bold()));
-        spans.push(Span::styled(format!(" {action}   "), tokens.dim()));
+        spans.push(Span::styled(action, tokens.dim()));
     } else {
-        spans.push(Span::styled(
-            format!("{}   ", strings.mute_command),
-            tokens.dim(),
-        ));
+        spans.push(Span::styled(strings.mute_command, tokens.dim()));
     }
+    spans.push(Span::styled(strings.control_gap, tokens.dim()));
     spans.push(Span::styled(strings.stop_command, tokens.dim()));
     spans
 }
 
-fn meter(spans: &mut Vec<Span>, samples: &[u8; 6], width: usize, color: Color, muted: bool) {
+fn meter(spans: &mut Vec<Span>, samples: [u8; 6], width: usize, active: &Style, muted: bool) {
     const BARS: [&str; 8] = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
     for sample in &samples[samples.len() - width..] {
         let level = if muted {
@@ -140,11 +142,11 @@ fn meter(spans: &mut Vec<Span>, samples: &[u8; 6], width: usize, color: Color, m
         } else {
             (usize::from(*sample) * 7).div_ceil(255)
         };
-        let foreground = if level == 0 {
-            Color::BRIGHT_BLACK
+        let style = if level == 0 {
+            voice::quiet()
         } else {
-            color
+            active.clone()
         };
-        spans.push(Span::styled(BARS[level], Style::new().fg(foreground)));
+        spans.push(Span::styled(BARS[level], style));
     }
 }
