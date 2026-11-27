@@ -6,8 +6,10 @@
 //! Oracle: `pets/picker.rs` (`build_pet_picker_params`), `pets/preview.rs`.
 
 use std::rc::Rc;
+use std::time::Duration;
 
 use rtwk::NotificationListener;
+use rtwk::binding::AppBinding;
 use rtwk::controls::SelectionController;
 use rtwk::editing::{TextEditingController, TextField};
 use rtwk::focus::Focus;
@@ -80,7 +82,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             name,
             description,
             script,
-            open: EntryOpen::Dialog(|_| Screen { visit: None }.into()),
+            open: EntryOpen::Dialog(|_| Screen::debug().into()),
         })
         .collect()
 }
@@ -89,11 +91,11 @@ pub fn debug_entries() -> Vec<DebugEntry> {
 /// dimming, at the bottom edge, as the oracle draws it in place of the
 /// composer (architecture §1, amendment 2026-11-19b).
 pub fn open<S: 'static>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
-    open_visit(cx, None)
+    open_visit(cx, None, None)
 }
 
 /// The slash command keeps its argument all the way to the local pet feature.
-pub fn command<S: 'static>(cx: &mut Cx<'_, S>, args: &str) {
+pub fn command<S: State + 'static>(cx: &mut Cx<'_, S>, args: &str) {
     let args = args.trim();
     if is_disable(args) {
         verb(
@@ -105,11 +107,28 @@ pub fn command<S: 'static>(cx: &mut Cx<'_, S>, args: &str) {
             },
         );
     } else {
-        drop(open_visit(cx, (!args.is_empty()).then(|| args.to_owned())));
+        let return_focus = Focus::maybe_of(cx, false)
+            .and_then(|node| node.manager())
+            .and_then(|manager| manager.primary_focus())
+            .map(|focus| {
+                cx.callback_with(move |_, _: Duration, _| {
+                    focus.request_focus();
+                    Rebuild::No
+                })
+            });
+        drop(open_visit(
+            cx,
+            (!args.is_empty()).then(|| args.to_owned()),
+            return_focus,
+        ));
     }
 }
 
-fn open_visit<S: 'static>(cx: &mut Cx<'_, S>, selector: Option<String>) -> DialogResult<()> {
+fn open_visit<S: 'static>(
+    cx: &mut Cx<'_, S>,
+    selector: Option<String>,
+    return_focus: Option<Handler<Duration>>,
+) -> DialogResult<()> {
     let visit = Visit::fresh();
     let graphics =
         GraphicsScope::of(cx).is_some_and(|caps| caps.protocol != GraphicsProtocol::None);
@@ -123,20 +142,36 @@ fn open_visit<S: 'static>(cx: &mut Cx<'_, S>, selector: Option<String>) -> Dialo
     );
     show_dialog(
         cx,
-        move |_| Screen { visit: Some(visit) }.into(),
+        move |_| {
+            Screen {
+                visit: Some(visit),
+                return_focus: return_focus.clone(),
+            }
+            .into()
+        },
         crate::sheets::sheet_options(),
     )
 }
 
 /// Opens the sheet with no seeded model (debug menu): nothing to pick from.
 pub fn open_empty() -> DebugOpen {
-    DebugOpen::Dialog(|_| Screen { visit: None }.into())
+    DebugOpen::Dialog(|_| Screen::debug().into())
 }
 
 /// The picker sheet.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Screen {
     visit: Option<Visit>,
+    return_focus: Option<Handler<Duration>>,
+}
+
+impl Screen {
+    fn debug() -> Self {
+        Self {
+            visit: None,
+            return_focus: None,
+        }
+    }
 }
 
 /// Widget state: rtwk's controllers (R14): the cursor row (a key into the
@@ -162,6 +197,7 @@ pub enum Msg {
     Pick,
     Close,
     Finished,
+    Retired,
 }
 
 impl StatefulWidget for Screen {
@@ -217,6 +253,7 @@ impl ScreenState {
 
     /// Leaves the picker: its preview is not wanted any more.
     fn leave(w: &Screen, cx: &mut Cx<'_, Self>) {
+        let restore = w.return_focus.clone().zip(AppBinding::maybe_of(cx));
         if let Some(visit) = w.visit {
             verb(cx, LiveIntent::RetirePreview(visit));
         } else {
@@ -224,6 +261,10 @@ impl ScreenState {
             cx.emit(&hs.screen, ScreenIntent::Pets(Intent::ReleasePreview));
         }
         close_dialog::<_, ()>(cx, None);
+        // The opener's callback is still mounted after the dialog route pops.
+        if let Some((focus, binding)) = restore {
+            binding.add_post_frame_callback(focus);
+        }
     }
 
     fn apply(w: &Screen, selector: String, cx: &mut Cx<'_, Self>) {
@@ -267,8 +308,10 @@ impl State for ScreenState {
                 self.live = Some((read::<Hs, _>(cx), visit));
             }
             let phase = phase(w, cx);
-            if matches!(phase, Some(Phase::Finished)) || (self.live_seen && phase.is_none()) {
+            if matches!(phase, Some(Phase::Finished)) {
                 cx.local_sender()(Msg::Finished);
+            } else if self.live_seen && phase.is_none() {
+                cx.local_sender()(Msg::Retired);
             }
             self.live_seen |= phase.is_some();
         }
@@ -287,6 +330,10 @@ impl State for ScreenState {
     fn update(&mut self, msg: Msg, w: &Screen, cx: &mut Cx<'_, Self>) -> Rebuild {
         if matches!(msg, Msg::Finished) {
             Self::leave(w, cx);
+            return Rebuild::No;
+        }
+        if matches!(msg, Msg::Retired) {
+            close_dialog::<_, ()>(cx, None);
             return Rebuild::No;
         }
         let Some(picker) = picker(w, cx) else {
@@ -355,7 +402,7 @@ impl State for ScreenState {
                     }
                 }
             }
-            Msg::Finished => {}
+            Msg::Finished | Msg::Retired => {}
         }
         Rebuild::Yes
     }
@@ -548,8 +595,7 @@ fn live_status(
 ) -> AnyWidget {
     let (title, detail, unavailable) = match phase(w, cx) {
         Some(Phase::Unavailable(reason)) => (s.unavailable_title, s.unavailable(reason), true),
-        Some(Phase::Applying) => (s.apply_title, s.apply_detail, false),
-        Some(Phase::Finished) => return AnyWidget::default(),
+        Some(Phase::Applying | Phase::Finished) => (s.apply_title, s.apply_detail, false),
         _ => (s.picker_title, s.catalog_loading, false),
     };
     let mut column = Column::new()
