@@ -880,19 +880,24 @@ fn scrolling_to_latest_cancels_beginning_and_keeps_selection_when_the_final_page
 // ORACLE transcript_view_tests.rs:708 single_row_scrolling_crosses_an_entry_separator_in_both_directions kind=ui owner=chat-live
 #[test]
 fn single_row_scrolling_crosses_an_entry_separator_in_both_directions() {
-    kit::pending(
-        Owner::ChatLive,
-        "no two-entry transcript ('first', 'second') at one row, and no wheel scroll that crosses the separator yet",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(20, 1).live().open();
+    let entries = r#"{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"entry","kind":"agent","text":"first","thread":"thread-1","turn":"t","item":"i","start":true,"end":false}
+{"step":"entry","kind":"agent","text":"second","thread":"thread-1","turn":"t","item":"j","start":false,"end":false}"#;
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(20, 1)
+        .script(entries)
+        .view_only()
+        .open();
+    s.mouse_scroll_speed(Some(1.0));
+    s.assert_row(0, "• second");
     s.wheel_up(0, 0, 1);
     s.assert_row(0, "");
     s.wheel_up(0, 0, 1);
-    s.assert_row(0, "first");
+    s.assert_row(0, "• first");
     s.wheel_down(0, 0, 1);
     s.assert_row(0, "");
     s.wheel_down(0, 0, 1);
-    s.assert_row(0, "second");
+    s.assert_row(0, "• second");
 }
 
 // ORACLE transcript_view_tests.rs:723 selecting_within_an_edge_row_does_not_start_selection_autoscroll kind=snap owner=chat-live snap=horizontal_selection_at_edge_0
@@ -1098,16 +1103,43 @@ fn live_reader_survives_commit_new_tail_resize_and_selection_then_rejoins_latest
 // ORACLE transcript_view_tests.rs:1109 scrolling_out_of_held_live_content_releases_its_revision kind=ui owner=chat-live
 #[test]
 fn scrolling_out_of_held_live_content_releases_its_revision() {
-    kit::pending(
-        Owner::ChatLive,
-        "no live tail held while the reader is up, and no commit of the live rows into history in the chat yet",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(20, 2).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(20, 2)
+        .view_only()
+        .live()
+        .open();
+    s.mouse_scroll_speed(Some(1.0));
+    s.live_tail("before").commit_live_tail();
+    let prefix = "zero  \none  \ntwo  \nthree  \nfour  \n";
+    s.live_tail(&format!("{prefix}five"));
+    s.assert_contains("five");
+
     s.wheel_up(0, 0, 2);
-    // The live tail is committed to history: no script shape yet.
+    s.assert_absent("five");
+    let held = s.shot();
+    // The live item leaves the stream for the committed transcript while the reader is parked.
+    let complete = |last: &str| {
+        notify_line(
+            "item/completed",
+            serde_json::json!({
+                "threadId": "thread-1", "turnId": "live-tail-1", "completedAtMs": 1,
+                "item": {"type": "agentMessage", "id": "live-tail-1-answer",
+                    "text": format!("{prefix}{last}"), "phase": null}
+            }),
+        )
+    };
+    s.feed(&complete("five"));
+    s.assert_same_rows(&held);
     s.wheel_up(0, 0, 100);
+    s.assert_contains("before");
+    s.assert_absent("five");
+
     s.wheel_down(0, 0, 100);
     s.assert_contains("five");
+    // The reader follows the next revision as soon as it arrives, without another wheel event.
+    s.feed(&complete("new end"));
+    s.assert_contains("new end");
+    s.assert_absent("five");
 }
 
 // ORACLE transcript_view_tests.rs:1134 repeated_resize_preserves_plain_and_markdown_passages_before_the_next_draw kind=ui owner=chat-live
