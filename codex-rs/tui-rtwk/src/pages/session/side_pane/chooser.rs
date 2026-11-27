@@ -12,7 +12,7 @@ use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Handler, Str};
 
 use crate::features::SavedChats;
-use crate::keymap::press::{PaneActivationGuard, PaneActivationKey, horizontal_focus, is_ctrl_c};
+use crate::keymap::press::{PaneActivationGuard, PaneActivationKey, is_ctrl_c};
 
 use super::{Dock, DockState, Msg};
 
@@ -131,17 +131,23 @@ impl ChooserControls {
         Focus::new(content)
             .can_request_focus(false)
             .on_key_event(move |_, key| {
-                if PaneActivationKey::of_press(&key) == Some(PaneActivationKey::Escape) {
-                    guard.arm(PaneActivationKey::Escape);
-                    tell(Msg::DismissChooser);
-                } else if has_live && horizontal_focus(&key).is_some() {
-                    tell(Msg::DismissChooser);
-                } else if is_ctrl_c(&key) {
-                    if let Some(SideChoice::Open(child)) = selection.cursor() {
-                        tell(Msg::Archive(child));
+                match PaneActivationKey::of_press(&key) {
+                    Some(activation @ PaneActivationKey::Escape) => {
+                        guard.arm(activation);
+                        tell(Msg::DismissChooser);
                     }
-                } else {
-                    return KeyEventResult::Ignored;
+                    Some(activation @ (PaneActivationKey::Left | PaneActivationKey::Right))
+                        if has_live =>
+                    {
+                        guard.arm(activation);
+                        tell(Msg::DismissChooser);
+                    }
+                    _ if is_ctrl_c(&key) => {
+                        if let Some(SideChoice::Open(child)) = selection.cursor() {
+                            tell(Msg::Archive(child));
+                        }
+                    }
+                    _ => return KeyEventResult::Ignored,
                 }
                 KeyEventResult::Handled
             })

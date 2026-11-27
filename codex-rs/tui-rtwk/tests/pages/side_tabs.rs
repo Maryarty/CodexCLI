@@ -297,7 +297,7 @@ fn close_tab(h: &mut Harness, label: &str, button: u8) {
             .unwrap_or_else(|| panic!("missing close: {bar}"));
         bar[..index + close].chars().count()
     };
-    let x = u16::try_from(x).expect("visible tab column");
+    let x = u16::try_from(x).unwrap_or_else(|_| panic!("visible tab column: {x}"));
     h.t.mouse(MouseKind::Down, x, 0, button, Mods::NONE);
     h.t.mouse(MouseKind::Up, x, 0, button, Mods::NONE);
     h.advance(150);
@@ -375,4 +375,52 @@ fn closing_an_inactive_attached_child_uses_its_own_loss_and_keeps_the_composer()
                 .any(|r| r["method"] == "thread/unsubscribe" && r["params"]["threadId"] == SIDE)
         );
     }
+}
+
+#[test]
+fn dismissing_the_chooser_with_an_arrow_does_not_move_the_restored_draft_caret() {
+    for (press, repeat, release) in [
+        (b"\x1b[1;1:1D", b"\x1b[1;1:2D", b"\x1b[1;1:3D"),
+        (b"\x1b[1;1:1C", b"\x1b[1;1:2C", b"\x1b[1;1:3C"),
+    ] {
+        let mut h = open_workspace(false);
+        finish_opening_turn(&mut h, SIDE, "FIRST HISTORY");
+        h.t.type_text("abcd");
+        h.press("left left");
+        h.press("f12 t");
+        h.advance(120);
+        assert_active(&h, FAKE_THREAD);
+        assert!(h.t.screen().contains("New side chat"));
+        h.t.input(press);
+        h.advance(160);
+        assert_active(&h, SIDE);
+        h.t.input(repeat);
+        h.t.input(release);
+        h.t.type_text("!");
+        h.advance(120);
+        assert!(h.t.screen().contains("ab!cd"), "{}", h.t.screen());
+        h.press("left");
+        h.t.type_text("?");
+        h.advance(120);
+        assert!(h.t.screen().contains("ab?!cd"), "{}", h.t.screen());
+    }
+}
+
+#[test]
+fn the_vertical_wheel_over_the_tab_header_selects_the_adjacent_child() {
+    let mut h = open_workspace(false);
+    finish_opening_turn(&mut h, SIDE, "FIRST HISTORY");
+    h.press("f12 h");
+    send_line(&mut h, "/side second-side");
+    finish_opening_turn(&mut h, SECOND, "SECOND HISTORY");
+    assert_active(&h, SECOND);
+
+    h.t.mouse(MouseKind::WheelUp, 109, 0, 0, Mods::NONE);
+    h.advance(150);
+    assert_active(&h, SIDE);
+    assert!(h.t.screen().contains("FIRST HISTORY"));
+    h.t.mouse(MouseKind::WheelDown, 109, 0, 0, Mods::NONE);
+    h.advance(150);
+    assert_active(&h, SECOND);
+    assert!(h.t.screen().contains("SECOND HISTORY"));
 }

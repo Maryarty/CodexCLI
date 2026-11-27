@@ -202,6 +202,7 @@ pub enum Msg {
     Archive(ThreadId),
     SelectTab(ThreadId),
     StepTab(i32),
+    StepFocusedTab(i32),
     CloseSelected,
     CloseTab(ThreadId),
     CloseDecision(Rc<CloseProof>, bool),
@@ -311,8 +312,8 @@ const ACTIONS: &[(ActionId, Msg)] = &[
     (GLOBAL_FOCUS_PANE_LEFT, Msg::FocusParent),
     (GLOBAL_FOCUS_SIDEBAR_CONTENT, Msg::FocusChild),
     (GLOBAL_FOCUS_SIDEBAR_TABS, Msg::FocusTabs),
-    (GLOBAL_SIDEBAR_UP, Msg::StepTab(-1)),
-    (GLOBAL_SIDEBAR_DOWN, Msg::StepTab(1)),
+    (GLOBAL_SIDEBAR_UP, Msg::StepFocusedTab(-1)),
+    (GLOBAL_SIDEBAR_DOWN, Msg::StepFocusedTab(1)),
     (GLOBAL_FOCUS_PANE_RIGHT, Msg::FocusChild),
     (GLOBAL_HIDE_PANE, Msg::Hide),
     (GLOBAL_TOGGLE_PANE_ZOOM, Msg::Zoom),
@@ -558,6 +559,9 @@ impl State for DockState {
     fn update(&mut self, msg: Msg, w: &Dock, cx: &mut Cx<'_, Self>) -> Rebuild {
         let msg = match msg {
             Msg::CloseSelected if w.on_child() => Msg::CloseTab(w.active.clone()),
+            Msg::StepFocusedTab(step) if w.on_child() || self.tabs_focus.has_primary_focus() => {
+                Msg::StepTab(step)
+            }
             other => other,
         };
         match msg {
@@ -633,7 +637,7 @@ impl State for DockState {
                     Self::focus(cx, w.active_pane(), &w.active);
                 }
             }
-            Msg::StepTab(step) if w.on_child() || self.tabs_focus.has_primary_focus() => {
+            Msg::StepTab(step) => {
                 let Some(index) = w
                     .child
                     .as_ref()

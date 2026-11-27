@@ -109,7 +109,9 @@ pub enum ResizeKey {
 }
 
 pub fn resize_key(key: &KeyPress) -> Option<ResizeKey> {
-    if let Some(activation) = PaneActivationKey::of_press(key) {
+    if let Some(activation @ (PaneActivationKey::Enter | PaneActivationKey::Escape)) =
+        PaneActivationKey::of_press(key)
+    {
         return Some(ResizeKey::Finish(activation));
     }
     Some(match (key.code, key.mods, key.ch) {
@@ -126,6 +128,8 @@ pub fn resize_key(key: &KeyPress) -> Option<ResizeKey> {
 pub enum PaneActivationKey {
     Enter,
     Escape,
+    Left,
+    Right,
 }
 
 impl PaneActivationKey {
@@ -133,6 +137,8 @@ impl PaneActivationKey {
         match (code, mods) {
             (KeyCode::Enter, Mods::NONE) => Some(Self::Enter),
             (KeyCode::Escape, Mods::NONE) => Some(Self::Escape),
+            (KeyCode::Left, Mods::NONE) => Some(Self::Left),
+            (KeyCode::Right, Mods::NONE) => Some(Self::Right),
             _ => None,
         }
     }
@@ -142,7 +148,11 @@ impl PaneActivationKey {
     }
 
     pub fn repeats(event: &KeyEvent<'_>) -> bool {
-        event.kind == KeyKind::Repeat && Self::of(event.code, event.modifiers).is_some()
+        event.kind == KeyKind::Repeat
+            && matches!(
+                Self::of(event.code, event.modifiers),
+                Some(Self::Enter | Self::Escape)
+            )
     }
 }
 

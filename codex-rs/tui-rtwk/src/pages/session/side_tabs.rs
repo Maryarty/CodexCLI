@@ -8,6 +8,7 @@ use codex_tui_core::threads::{Item, ThreadModel};
 use rtwk::controls::{Button, Pressable};
 use rtwk::focus::{Focus, FocusNode, KeyEventResult};
 use rtwk::gestures::{Listener, PointerEvent};
+use rtwk::input::MouseKind;
 use rtwk::l10n::{Arg, Fmt};
 use rtwk::layout::{Axis, BoxWidget, EdgeInsets, Expanded, MainAxisSize, Row};
 use rtwk::prelude::HitTestBehavior;
@@ -133,5 +134,14 @@ pub(super) fn view(
             KeyEventResult::Handled
         });
     let add = Button::new(words.side_add_tab_symbol).on_pressed(cx.map(|()| Msg::FocusTabs));
-    Row::new().child(Expanded::new(1, list)).child(add).into()
+    Listener::new()
+        .behavior(HitTestBehavior::Opaque)
+        .scroll_axis(Axis::Vertical)
+        .on_scroll(cx.map(|event: PointerEvent| match event.kind {
+            MouseKind::WheelUp => Msg::StepTab(-1),
+            MouseKind::WheelDown => Msg::StepTab(1),
+            _ => Msg::Ignore,
+        }))
+        .child(Row::new().child(Expanded::new(1, list)).child(add))
+        .into()
 }
