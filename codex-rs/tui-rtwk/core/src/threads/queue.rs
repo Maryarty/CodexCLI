@@ -14,6 +14,7 @@ use super::{Item, Note, ThreadFx, ThreadModel, apply_appended, give_back, merge_
 use crate::commands::{QueueDrain, SlashCommand, queued_command_drain_result};
 use crate::features::FeatureIntent;
 use crate::ids::ThreadId;
+use crate::rpc::Address;
 use crate::screens::{self, ScreenThreadIntent};
 use crate::threads::UserMessage;
 
@@ -161,6 +162,7 @@ pub enum QueueEvent {
     PickerAccepted(QueueOperation),
     ModelApplied(QueueOperation),
     ModalOpening(ModalOpening),
+    ModalOwnerLeft(ModalOwnerLeft),
     ModalOpened(QueueOperation),
     ModalFinished {
         operation: QueueOperation,
@@ -170,23 +172,47 @@ pub enum QueueEvent {
 
 /// Issued only by the queue owner before asking the UI to show a modal.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ModalOpening(QueueOperation);
+pub struct ModalOpening {
+    operation: QueueOperation,
+    address: Address,
+}
+
+/// The app observed the displayed conversation change.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModalOwnerLeft(());
 
 impl QueueEvent {
-    pub(crate) fn opening_modal(operation: QueueOperation) -> Self {
-        Self::ModalOpening(ModalOpening(operation))
+    pub(crate) fn opening_modal(operation: QueueOperation, address: Address) -> Self {
+        Self::ModalOpening(ModalOpening { operation, address })
+    }
+
+    pub(crate) fn modal_owner_left() -> Self {
+        Self::ModalOwnerLeft(ModalOwnerLeft(()))
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ModalPhase {
-    Opening,
-    Open,
+    Opening(Address),
+    Open(Address),
+    /// Its dialog may still close the original hold.
+    OwnerLeft,
 }
 
-pub(crate) fn modal_is_open(model: &ThreadModel, operation: &QueueOperation) -> bool {
+pub(crate) fn has_live_modal(model: &ThreadModel) -> bool {
+    model
+        .queue_modals
+        .values()
+        .any(|phase| *phase != ModalPhase::OwnerLeft)
+}
+
+pub(crate) fn modal_is_open(
+    model: &ThreadModel,
+    operation: &QueueOperation,
+    address: Address,
+) -> bool {
     model.id() == operation.thread()
-        && model.queue_modals.get(&operation.seq) == Some(&ModalPhase::Open)
+        && model.queue_modals.get(&operation.seq) == Some(&ModalPhase::Open(address))
 }
 
 fn holds_picker(due: &DueCommand, operation: &QueueOperation) -> bool {
@@ -318,6 +344,7 @@ pub(super) fn is_queue_settlement(intent: &ScreenThreadIntent) -> bool {
                 | QueueEvent::PickerClosed(_)
                 | QueueEvent::ModelApplied(_)
                 | QueueEvent::ModalOpening(_)
+                | QueueEvent::ModalOwnerLeft(_)
                 | QueueEvent::ModalOpened(_)
                 | QueueEvent::ModalFinished { .. }
         ))
@@ -354,12 +381,12 @@ pub(super) fn apply(
         // The screen ran the queued command it was handed: the rule of the next item reads what
         // it opened (`submit_queued_slash_prompt`).
         Chat::QueueEvent(event) => match event {
-            QueueEvent::ModalOpening(ModalOpening(operation)) => {
+            QueueEvent::ModalOpening(ModalOpening { operation, address }) => {
                 if model.id() == operation.thread() {
                     model
                         .queue_modals
                         .entry(operation.seq)
-                        .or_insert(ModalPhase::Opening);
+                        .or_insert(ModalPhase::Opening(address));
                     if model
                         .due
                         .as_ref()
@@ -372,8 +399,14 @@ pub(super) fn apply(
             QueueEvent::ModalOpened(operation) => {
                 if model.id() == operation.thread()
                     && let Some(phase) = model.queue_modals.get_mut(&operation.seq)
+                    && let ModalPhase::Opening(address) = *phase
                 {
-                    *phase = ModalPhase::Open;
+                    *phase = ModalPhase::Open(address);
+                }
+            }
+            QueueEvent::ModalOwnerLeft(_) => {
+                for phase in model.queue_modals.values_mut() {
+                    *phase = ModalPhase::OwnerLeft;
                 }
             }
             QueueEvent::ModalFinished { operation, .. } => {

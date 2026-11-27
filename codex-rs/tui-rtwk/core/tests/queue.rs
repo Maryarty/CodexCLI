@@ -580,8 +580,7 @@ fn drain_to_status_line(app: &mut CodexApp, receiver: &str, turn: &str) -> Queue
         app.wishes()
             .pending()
             .last()
-            .and_then(|wish| wish.queue_modal.as_ref())
-            .and_then(|modal| modal.operation.as_ref()),
+            .and_then(|wish| wish.queue_operation.as_ref()),
         Some(&operation),
     );
     assert!(
@@ -699,6 +698,36 @@ fn a_modal_result_only_settles_the_queue_of_its_original_thread() {
     }));
     assert!(
         modal_receipt(&mut app, B, saved_status(second))
+            .commands()
+            .is_empty()
+    );
+}
+
+#[test]
+fn returning_to_a_thread_does_not_revive_its_old_modal_choice() {
+    let mut app = running();
+    tab(&mut app, "/statusline", false);
+    tab(&mut app, "after returning", false);
+    let operation = drain_to_status_line(&mut app, T, "turn-1");
+    modal_receipt(&mut app, T, QueueEvent::ModalOpened(operation.clone()));
+
+    open_listed_thread(&mut app, "thread-2");
+    run(
+        &mut app,
+        AppEv::Intent(Intent::OpenThread(ThreadId::new(T))),
+    );
+    assert_eq!(app.session().active, Some(ThreadId::new(T)));
+    assert!(
+        modal_receipt(&mut app, T, QueueEvent::ModalOpened(operation.clone()))
+            .commands()
+            .is_empty()
+    );
+
+    let closed = modal_receipt(&mut app, T, saved_status(operation.clone()));
+    assert_eq!(config_writes(&closed), 0);
+    assert_eq!(started_texts(&closed), ["after returning"]);
+    assert!(
+        modal_receipt(&mut app, T, saved_status(operation))
             .commands()
             .is_empty()
     );

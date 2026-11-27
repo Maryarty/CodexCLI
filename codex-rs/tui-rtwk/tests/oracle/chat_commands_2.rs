@@ -817,9 +817,10 @@ fn copy_picker_cannot_choose_after_its_thread_visit_has_ended() {
     s.server_resumes("other-thread")
         .visit_thread("other-thread");
     s.assert_active_thread("other-thread");
+    s.assert_absent("1. Whole response");
     s.visit_thread("thread-1");
     s.assert_active_thread("thread-1");
-    s.assert_contains("1. Whole response");
+    s.assert_absent("1. Whole response");
 
     s.keys("enter");
     s.assert_copies_asked(&[]);

@@ -197,13 +197,14 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
         Out::Wish {
             scope,
             wish,
-            mut queue_modal,
+            queue_modal,
         } => {
-            if let Some(modal) = &mut queue_modal
-                && let Scope::Thread(thread) = &scope
-            {
+            let queue_operation = if let Some(modal) = queue_modal {
+                let Scope::Thread(thread) = &scope else {
+                    return;
+                };
                 let active = app.session.active.as_ref() == Some(thread);
-                let operation = match modal.operation.take() {
+                let operation = match modal.operation {
                     Some(operation) => {
                         let issued = app
                             .threads
@@ -220,10 +221,11 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
                     }
                     None => return,
                 };
+                let address = modal_address(app, thread);
                 queue_event(
                     app,
                     thread,
-                    QueueEvent::opening_modal(operation.clone()),
+                    QueueEvent::opening_modal(operation.clone(), address),
                     fx,
                 );
                 if !active {
@@ -238,9 +240,11 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
                     );
                     return;
                 }
-                modal.operation = Some(operation);
-            }
-            Rc::make_mut(&mut app.wishes).push(scope, wish, queue_modal);
+                Some(operation)
+            } else {
+                None
+            };
+            Rc::make_mut(&mut app.wishes).push(scope, wish, queue_operation);
         }
         Out::Lifecycle(lifecycle) => super::lifecycle::carry(app, lifecycle, fx),
         Out::Chat(facts) => chat_facts(app, facts, fx),
@@ -270,6 +274,20 @@ fn queue_event(app: &mut CodexApp, thread: &ThreadId, event: QueueEvent, fx: &mu
     );
 }
 
+fn modal_address(app: &CodexApp, thread: &ThreadId) -> Address {
+    app.address(app.screens.agents.owner_of(thread.as_str()))
+}
+
+pub(super) fn retire_queue_modal_choices(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx) {
+    if app
+        .threads
+        .get(thread)
+        .is_some_and(|model| queue::has_live_modal(model))
+    {
+        queue_event(app, thread, QueueEvent::modal_owner_left(), fx);
+    }
+}
+
 /// Apply a native dialog result before releasing its original queue. A late result may
 /// release its own hold, but cannot select on behalf of another conversation.
 pub(super) fn finish_queue_modal(
@@ -289,10 +307,9 @@ pub(super) fn finish_queue_modal(
         return Ok(());
     }
     if app.session.active.as_ref() == Some(thread)
-        && app
-            .threads
-            .get(thread)
-            .is_some_and(|model| queue::modal_is_open(model, &operation))
+        && app.threads.get(thread).is_some_and(|model| {
+            queue::modal_is_open(model, &operation, modal_address(app, thread))
+        })
         && let Some(action) = accepted
     {
         intent(app, *action, fx);

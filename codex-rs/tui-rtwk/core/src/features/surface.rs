@@ -41,10 +41,11 @@ pub struct SurfaceWish {
     /// What the wish is about: the surface that shows it is the one open for this scope.
     pub scope: Scope,
     pub wish: FeatureWish,
-    pub queue_modal: Option<QueueModal>,
+    /// An already registered hold, closed by this dialog's native result.
+    pub queue_operation: Option<QueueOperation>,
 }
 
-/// A modal may have a result even before the first thread exists to hold a queue.
+/// A feature's request to hold the queue, with an issued operation if its command was queued.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QueueModal {
     pub operation: Option<QueueOperation>,
@@ -62,14 +63,14 @@ impl Wishes {
         &mut self,
         scope: Scope,
         wish: FeatureWish,
-        queue_modal: Option<QueueModal>,
+        queue_operation: Option<QueueOperation>,
     ) {
         self.seq += 1;
         self.queue.push_back(SurfaceWish {
             seq: self.seq,
             scope,
             wish,
-            queue_modal,
+            queue_operation,
         });
     }
 
