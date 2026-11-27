@@ -283,6 +283,10 @@ pub fn open_security_page<S: 'static>(cx: &mut Cx<'_, S>, hs: &Hs) {
 
 /// The browser action of a clicked link in a particular transcript.
 pub fn open_transcript_link<S: 'static>(cx: &mut Cx<'_, S>, thread: ThreadId, url: String) {
+    if url.starts_with("file://") {
+        verb(cx, codex_tui_core::features::images::Open { thread, url });
+        return;
+    }
     verb(
         cx,
         codex_tui_core::features::transcript_links::Intent { thread, url },

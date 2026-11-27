@@ -3,8 +3,8 @@
 //! future the shell runs on the tokio runtime and talks to the app only
 //! through the ingress, as the real one does.
 
-use std::collections::BTreeMap;
 use std::collections::VecDeque;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -13,7 +13,7 @@ use codex_tui_core::app::AppEv;
 use codex_tui_core::app::BackendEv;
 use codex_tui_core::app::Command;
 use codex_tui_core::app::Ingress;
-use codex_tui_core::app::effects::{Done, HostDoors, run_ask};
+use codex_tui_core::app::effects::{Done, HostDoors, ImageSize, run_ask};
 use codex_tui_core::app::worktree::Checkout as WorktreeCheckout;
 use codex_tui_core::fixtures::builders::turn_started;
 use codex_tui_core::fixtures::builders::user_item_with_receipt;
@@ -87,6 +87,8 @@ pub(crate) struct Shared {
     turn_prefix: Option<String>,
     /// What the `/usage` page's host answers (`FakeHandle::usage_accounts`, `usage_report`).
     usage: UsageHost,
+    /// Files the test made available to the local image executor.
+    image_paths: BTreeSet<String>,
 }
 
 /// The account lookups and reports the usage page asks of its host, answered from what a test
@@ -318,6 +320,12 @@ impl FakeServer {
 }
 
 impl FakeHandle {
+    pub fn allow_image_snapshot(&self, path: String) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.image_paths.insert(path);
+        }
+    }
+
     /// The scripted machine (git and the file system).
     pub fn workspace(&self) -> &Arc<FakeWorkspace> {
         &self.workspace
@@ -720,6 +728,24 @@ impl FakeDoors<'_> {
 
 impl HostDoors for FakeDoors<'_> {
     type Out = FakeWork;
+
+    async fn image_snapshot(
+        &self,
+        _thread: ThreadId,
+        path: String,
+        preview: Option<ImageSize>,
+    ) -> Option<FakeWork> {
+        let allowed = self.shared.lock().ok()?.image_paths.contains(&path);
+        let snapshot = if allowed {
+            crate::services::images::local_snapshot(std::path::Path::new(&path), preview)
+        } else {
+            Default::default()
+        };
+        Some(FakeWork::Ready(Box::new(AppEv::Effect {
+            request: self.request,
+            done: Done::ImageSnapshot(snapshot),
+        })))
+    }
 
     async fn import(&self, ask: codex_tui_core::screens::import::Request) -> Option<FakeWork> {
         let responder = self.responder()?;
