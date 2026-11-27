@@ -1,0 +1,1 @@
+{"step":"request","message":{"method":"item/fileChange/requestApproval","id":73,"params":{"itemId":"patch-disclosure","threadId":"thread-1","turnId":"patch-turn","reason":"Inspect the patch before applying it","startedAtMs":0}}}

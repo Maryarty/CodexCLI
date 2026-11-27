@@ -265,3 +265,39 @@ fn the_mermaid_code_fallback_copies_the_complete_fenced_source() {
     s.keys("enter");
     s.assert_copies_asked(&["graph LR\nA --> B\n"]);
 }
+
+#[test]
+fn resolving_a_patch_approval_keeps_the_disclosed_manual_viewport() {
+    const PATCH: &str = include_str!("../oracle/fixtures/transcript_view_2/patch_disclosure.jsonl");
+    const APPROVAL: &str =
+        include_str!("../oracle/fixtures/transcript_view_2/patch_disclosure_approval.jsonl");
+    const RESOLVED: &str =
+        include_str!("../oracle/fixtures/transcript_view_2/patch_disclosure_resolved.jsonl");
+    const PROMPT: &str = "Would you like to make the following edits?";
+    for scroll_before_click in [false, true] {
+        let mut s = Screen::build(Owner::ChatLive).size(48, 29).live().open();
+        s.mouse_scroll_speed(Some(1.0));
+        s.feed(PATCH);
+        s.assert_in_order(&["approval-patch.txt", "+ Show details", "tail output 10"]);
+        s.assert_absent("Back to bottom");
+        s.assert_absent("patch line five");
+        if scroll_before_click {
+            s.wheel_up(1, 1, 1);
+        }
+        s.click_text("+ Show details");
+        s.assert_in_order(&["approval-patch.txt", "patch line five", "Hide details"]);
+        if !scroll_before_click {
+            s.wheel_up(1, 1, 1);
+        }
+        s.assert_contains("Back to bottom");
+        let end = s.row_of("Hide details") + 1;
+        let before = s.shot();
+        s.feed(APPROVAL);
+        s.assert_contains(PROMPT);
+        s.feed(RESOLVED);
+        s.assert_absent(PROMPT);
+        s.assert_no_resolved_requests();
+        s.assert_contains("Back to bottom");
+        s.assert_same_rows_in(&before, 0..end);
+    }
+}
