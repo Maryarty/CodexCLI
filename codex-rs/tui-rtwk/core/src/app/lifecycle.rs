@@ -5,12 +5,14 @@
 //! `apply_thread`, `submit`), as the oracle's `app/session_lifecycle.rs` and `thread_routing.rs`
 //! do. The slice decides *what*; the lifecycle RPCs (`ThreadAsk`) stay in `threads.rs`.
 
+use codex_app_server_protocol as wire;
+
 use super::{
     AppCtx, AppFx, CodexApp, Command, apply_thread, features, is_listed, open_verified, submit,
 };
 use crate::features::{FeatureCtx, Lifecycle, Refusal, ThreadSpawn};
-use crate::ids::{BackendId, ThreadId};
-use crate::rpc::Answer;
+use crate::ids::{BackendId, ThreadId, Ticket};
+use crate::rpc::{Address, Answer, RpcError};
 use crate::screens::onboarding::TrustCancel;
 use crate::screens::onboarding::consent::{self, Target};
 use crate::screens::{ScreenCommand, ScreenThreadIntent, agents, chat};
@@ -20,9 +22,34 @@ use crate::threads::{ThreadAsk, ThreadEv, ThreadReply};
 /// context for `Feature::thread_opened`, and whether the thread is ephemeral (its history is the
 /// model's, not the screen's, so none is read).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Spawned {
-    pub ctx: FeatureCtx,
-    pub ephemeral: bool,
+pub(super) enum Spawned {
+    Plain { ctx: FeatureCtx, ephemeral: bool },
+    PreparedFork(SideFork),
+    Rollback { thread: ThreadId, ctx: FeatureCtx },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SidePhase {
+    Probe,
+    Parent,
+    Attached,
+    Temporary,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct SideFork {
+    parent: ThreadId,
+    pub backend: BackendId,
+    pub phase: SidePhase,
+    ctx: FeatureCtx,
+    temporary_policy: String,
+    attached_policy: String,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct Preparation {
+    pub address: Address,
+    attached: bool,
 }
 
 /// One lifecycle step a feature asked for.
@@ -31,7 +58,16 @@ pub(super) fn carry(app: &mut CodexApp, lifecycle: Lifecycle, fx: &mut AppFx) {
         Lifecycle::Open { thread, ctx } => open(app, thread, ctx, fx),
         Lifecycle::Spawn { spawn, ctx } => spawn_thread(app, spawn, ctx, fx),
         Lifecycle::Structured { turn, ctx } => super::structured::begin(app, *turn, ctx, fx),
-        Lifecycle::Discard { thread } => discard(app, &thread, fx),
+        Lifecycle::Discard { thread, rollback } => {
+            if let Some(ctx) = rollback {
+                remove_unprepared(app, thread, ctx, fx);
+            } else {
+                discard(app, &thread, fx);
+            }
+        }
+        Lifecycle::FinishPreparation { thread } => {
+            app.preparing_forks.remove(&thread);
+        }
         Lifecycle::Submit { thread, message } => submit(app, &thread, message, fx),
         Lifecycle::GiveBack { thread, text } => {
             let draft = ScreenThreadIntent::Chat(chat::ThreadIntent::Draft(text));
@@ -142,6 +178,30 @@ fn start_spawn(app: &mut CodexApp, spawn: ThreadSpawn, ctx: FeatureCtx, fx: &mut
             };
             (Some(parent), backend, quiet, Some(ask))
         }
+        ThreadSpawn::SideFork {
+            parent,
+            temporary_policy,
+            attached_policy,
+        } => {
+            let backend = app.screens.agents.owner_of(parent.as_str());
+            let phase = match app.local_side_storage(backend) {
+                Some(super::LocalSideStorage::Embedded) => SidePhase::Parent,
+                Some(super::LocalSideStorage::Daemon) => SidePhase::Probe,
+                None => SidePhase::Temporary,
+            };
+            return ask_side(
+                app,
+                SideFork {
+                    parent,
+                    backend,
+                    phase,
+                    ctx,
+                    temporary_policy,
+                    attached_policy,
+                },
+                fx,
+            );
+        }
     };
     fx.ask(
         app,
@@ -151,7 +211,7 @@ fn start_spawn(app: &mut CodexApp, spawn: ThreadSpawn, ctx: FeatureCtx, fx: &mut
             name: None,
             plan: None,
             draft: None,
-            spawned: Some(Spawned { ctx, ephemeral }),
+            spawned: Some(Spawned::Plain { ctx, ephemeral }),
         },
         |app, ticket| match fork {
             Some(ask) => Command::Screen {
@@ -162,6 +222,177 @@ fn start_spawn(app: &mut CodexApp, spawn: ThreadSpawn, ctx: FeatureCtx, fx: &mut
             None => super::start_thread(app, ticket, backend),
         },
     );
+}
+
+fn ask_side(app: &mut CodexApp, side: SideFork, fx: &mut AppFx) {
+    let ask = match side.phase {
+        SidePhase::Probe => ThreadAsk::ProbeAttachedSide {
+            thread: side.parent.clone(),
+        },
+        SidePhase::Parent => ThreadAsk::Read {
+            thread: side.parent.to_string(),
+        },
+        SidePhase::Attached => ThreadAsk::ForkAttachedSide {
+            thread: side.parent.clone(),
+            instructions: side.attached_policy.clone(),
+        },
+        SidePhase::Temporary => ThreadAsk::ForkAt {
+            thread: side.parent.to_string(),
+            cwd: None,
+            temporary: Some(side.temporary_policy.clone()),
+        },
+    };
+    fx.ask(
+        app,
+        AppCtx::NewConversation {
+            source: Some(side.parent.clone()),
+            backend: side.backend,
+            name: None,
+            plan: None,
+            draft: None,
+            spawned: Some(Spawned::PreparedFork(side)),
+        },
+        |_, ticket| Command::Screen {
+            ticket,
+            thread: ThreadId::default(),
+            command: ScreenCommand::Agents(agents::Command::Thread(ask)),
+        },
+    );
+}
+
+pub(super) fn side_reply(
+    app: &mut CodexApp,
+    mut side: SideFork,
+    address: Address,
+    ticket: Ticket,
+    answer: Answer,
+    fx: &mut AppFx,
+) {
+    let result = match (side.phase, answer) {
+        (SidePhase::Probe, Answer::Thread(ThreadReply::AttachedSideSupported(supported))) => {
+            side.phase = if supported {
+                SidePhase::Parent
+            } else {
+                SidePhase::Temporary
+            };
+            return ask_side(app, side, fx);
+        }
+        (SidePhase::Parent, Answer::Thread(ThreadReply::Read { thread, .. }))
+            if thread.id == side.parent.as_str() =>
+        {
+            side.phase =
+                if !thread.ephemeral && thread.history_mode == wire::ThreadHistoryMode::Paginated {
+                    SidePhase::Attached
+                } else {
+                    SidePhase::Temporary
+                };
+            return ask_side(app, side, fx);
+        }
+        (SidePhase::Attached, Answer::Thread(ThreadReply::AttachedSideStoreUnavailable)) => {
+            side.phase = SidePhase::Temporary;
+            return ask_side(app, side, fx);
+        }
+        (
+            SidePhase::Attached | SidePhase::Temporary,
+            Answer::Thread(ThreadReply::Forked(opened)),
+        ) => {
+            use super::Origin;
+            let thread = &opened.thread;
+            let matches_storage = match side.phase {
+                SidePhase::Attached => {
+                    !thread.ephemeral
+                        && thread.history_mode == wire::ThreadHistoryMode::Paginated
+                        && thread.attached_to_thread_id.as_deref() == Some(side.parent.as_str())
+                }
+                SidePhase::Temporary => thread.ephemeral && thread.attached_to_thread_id.is_none(),
+                _ => false,
+            };
+            let child = ThreadId::new(&thread.id);
+            if child == side.parent || app.threads.contains(&child) || !matches_storage {
+                Err(RpcError::Mismatch)
+            } else {
+                app.preparing_forks.insert(
+                    child.clone(),
+                    Preparation {
+                        address,
+                        attached: side.phase == SidePhase::Attached,
+                    },
+                );
+                super::attach_thread_with_metadata(
+                    app,
+                    &child,
+                    side.backend,
+                    Origin::Started,
+                    Some(thread),
+                    fx,
+                );
+                if let Some(snapshot) = opened.permissions {
+                    super::select::record_permission_settings(
+                        app,
+                        &child,
+                        crate::screens::select::permissions::Effective {
+                            address,
+                            at: ticket,
+                            snapshot,
+                        },
+                        fx,
+                    );
+                }
+                Ok(child)
+            }
+        }
+        (_, Answer::Failed(error)) => Err(error),
+        _ => Err(RpcError::Mismatch),
+    };
+    features::thread_opened(app, side.ctx, result.map_err(Refusal::Failed), fx);
+}
+
+fn remove_unprepared(app: &mut CodexApp, thread: ThreadId, ctx: FeatureCtx, fx: &mut AppFx) {
+    let backend = app.screens.agents.owner_of(thread.as_str());
+    if app.session.active.as_ref() == Some(&thread)
+        || !app.preparing_forks.get(&thread).is_some_and(|preparation| {
+            preparation.attached && preparation.address == app.address(backend)
+        })
+    {
+        return features::thread_opened(app, ctx, Err(Refusal::Busy), fx);
+    }
+    let ask = ThreadAsk::Delete {
+        thread: thread.clone(),
+    };
+    fx.ask(
+        app,
+        AppCtx::NewConversation {
+            source: None,
+            backend,
+            name: None,
+            plan: None,
+            draft: None,
+            spawned: Some(Spawned::Rollback { thread, ctx }),
+        },
+        |_, ticket| Command::Screen {
+            ticket,
+            thread: ThreadId::default(),
+            command: ScreenCommand::Agents(agents::Command::Thread(ask)),
+        },
+    );
+}
+
+pub(super) fn rolled_back(
+    app: &mut CodexApp,
+    thread: ThreadId,
+    ctx: FeatureCtx,
+    answer: Answer,
+    fx: &mut AppFx,
+) {
+    let result = match answer {
+        Answer::Thread(ThreadReply::Done) => {
+            super::forget_thread(app, &thread, fx);
+            Ok(thread)
+        }
+        Answer::Failed(error) => Err(Refusal::Failed(error)),
+        _ => Err(Refusal::Failed(RpcError::Mismatch)),
+    };
+    features::thread_opened(app, ctx, result, fx);
 }
 
 /// `AppCx::discard` (`discard_side_thread_in_background`): the thread's turn is interrupted, the

@@ -25,7 +25,7 @@ use std::collections::BTreeMap;
 
 use codex_app_server_protocol::{
     ClientRequest, RequestId, ServerNotification, ServerRequest, ThreadInjectItemsParams,
-    TurnStatus,
+    ThreadInjectItemsResponse, TurnStatus,
 };
 
 use super::{AppCx, AppView, ChatFacts, Refusal, Slash, ThreadSpawn};
@@ -105,7 +105,20 @@ pub struct Link {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Children {
     ordered: Vec<ThreadId>,
-    selected: ThreadId,
+    recent_child: ThreadId,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Activation {
+    parent: ThreadId,
+    enter: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Preparation {
+    prompt: Option<String>,
+    activation: Option<Activation>,
+    pending_link: Option<Link>,
 }
 
 /// The app-scoped state: the side conversations this process holds.
@@ -113,8 +126,10 @@ struct Children {
 pub struct State {
     links: BTreeMap<ThreadId, Link>,
     children: BTreeMap<ThreadId, Children>,
-    /// The forks whose boundary is going in, with the prompt (`/btw`) that waits for it.
-    preparing: BTreeMap<ThreadId, Option<String>>,
+    /// Navigation is disarmed permanently on the first departure from the initiating parent.
+    opening: Option<Activation>,
+    preparing: BTreeMap<ThreadId, Preparation>,
+    parked: BTreeMap<ThreadId, String>,
 }
 
 /// What `/side` does in the thread it was typed in.
@@ -164,7 +179,9 @@ impl State {
 
     /// The last shown child of this parent, or the first available one.
     pub fn side_of(&self, parent: &ThreadId) -> Option<&ThreadId> {
-        self.children.get(parent).map(|children| &children.selected)
+        self.children
+            .get(parent)
+            .map(|children| &children.recent_child)
     }
 
     fn remember(&mut self, child: ThreadId, link: Link) {
@@ -175,7 +192,7 @@ impl State {
             .entry(link.parent.clone())
             .or_insert_with(|| Children {
                 ordered: Vec::new(),
-                selected: child.clone(),
+                recent_child: child.clone(),
             })
             .ordered
             .push(child.clone());
@@ -183,10 +200,19 @@ impl State {
     }
 
     fn shown(&mut self, child: &ThreadId) {
+        for activation in self.opening.iter_mut().chain(
+            self.preparing
+                .values_mut()
+                .filter_map(|preparing| preparing.activation.as_mut()),
+        ) {
+            if activation.parent != *child {
+                activation.enter = false;
+            }
+        }
         if let Some(link) = self.links.get(child)
             && let Some(children) = self.children.get_mut(&link.parent)
         {
-            children.selected = child.clone();
+            children.recent_child = child.clone();
         }
     }
 
@@ -202,7 +228,7 @@ impl State {
             None => {
                 self.children.remove(&link.parent);
             }
-            Some(last) if children.selected == *child => children.selected = last.clone(),
+            Some(last) if children.recent_child == *child => children.recent_child = last.clone(),
             Some(_) => {}
         }
     }
@@ -276,7 +302,7 @@ pub enum Event {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
     /// `thread/inject_items`: the policy and the boundary, before the first side turn.
-    Boundary,
+    Boundary { storage: Storage },
 }
 
 /// What `Command::Boundary` answered: nothing but that it went in.
@@ -288,10 +314,16 @@ pub struct Reply;
 pub enum Ctx {
     /// The boundary of this fork.
     Boundary(ThreadId),
+    Rollback {
+        child: ThreadId,
+        parent: ThreadId,
+        prepare_error: String,
+    },
     /// The fork of `parent` that `/side` or `/btw` asked for, with the prompt that waits for it.
     Fork {
         parent: ThreadId,
         prompt: Option<String>,
+        retained: bool,
     },
     /// The side conversation `parent` already has is shown again, with the prompt that waits
     /// for it.
@@ -362,16 +394,18 @@ fn drop_side(state: &mut State, child: &ThreadId, cx: &mut AppCx<'_>) {
     }
     state.forget(child);
     state.preparing.remove(child);
+    state.parked.remove(child);
     cx.discard(child);
     cx.chat_facts(chat_facts(state, cx.view()));
 }
 
 /// `/side` and `/btw` (`handle_start_side`), typed in `source`.
 fn start(
-    state: &State,
+    state: &mut State,
     source: Option<ThreadId>,
     prompt: Option<String>,
     fresh: bool,
+    retained: bool,
     cx: &mut AppCx<'_>,
 ) {
     let prompt = prompt.filter(|prompt| !prompt.trim().is_empty());
@@ -383,17 +417,40 @@ fn start(
             cx.note(source, note);
         }
         (Start::Reuse(child), Some(parent)) => {
+            if prompt.is_some() && state.preparing.contains_key(&child) {
+                return restore(cx, &parent, prompt);
+            }
             starting(cx);
             cx.open_thread(&child, Ctx::Reuse { parent, prompt });
         }
         (Start::Fork, Some(parent)) => {
+            if retained && state.opening.is_some() {
+                return restore(cx, &parent, prompt);
+            }
             starting(cx);
-            cx.spawn_thread(
+            let spawn = if retained {
+                state.opening = Some(Activation {
+                    parent: parent.clone(),
+                    enter: true,
+                });
+                ThreadSpawn::SideFork {
+                    parent: parent.clone(),
+                    temporary_policy: developer_instructions(),
+                    attached_policy: policy::instructions(Storage::Attached),
+                }
+            } else {
                 ThreadSpawn::Fork {
                     parent: parent.clone(),
                     ephemeral: Some(developer_instructions()),
+                }
+            };
+            cx.spawn_thread(
+                spawn,
+                Ctx::Fork {
+                    parent,
+                    prompt,
+                    retained,
                 },
-                Ctx::Fork { parent, prompt },
             );
         }
         _ => {}
@@ -462,23 +519,25 @@ feature! {
                     return cx.note(None, Note::BeforeSession(slash.command.command()));
                 }
                 let tui = cx.view().facts().tui();
-                let fresh = slash.command == SlashCommand::Side
-                    && tui.workspace_enabled
-                    && tui.transcript_owned;
+                let retained = tui.workspace_enabled && tui.transcript_owned;
+                let fresh = slash.command == SlashCommand::Side && retained;
                 let source = slash.source.clone();
-                start(state, source, slash.into_args(), fresh, cx);
+                start(state, source, slash.into_args(), fresh, retained, cx);
             }
 
             fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
                 match intent {
-                    Intent::Start { source, prompt } => start(state, source, prompt, false, cx),
+                    Intent::Start { source, prompt } => start(state, source, prompt, false, false, cx),
                     Intent::Select { parent, child } => {
                         let view = cx.view();
                         let shown = view.active();
                         let family_shown = shown == Some(&parent)
                             || shown.and_then(|id| state.link(id))
                                 .is_some_and(|link| link.parent == parent);
-                        if family_shown && state.link(&child).is_some_and(|link| link.parent == parent) {
+                        if family_shown
+                            && state.link(&child).is_some_and(|link| link.parent == parent)
+                            && !state.preparing.contains_key(&child)
+                        {
                             cx.open_thread(&child, Ctx::Reuse { parent, prompt: None });
                         }
                     }
@@ -486,11 +545,15 @@ feature! {
                         let Some(link) = state.links.get(&child) else {
                             return;
                         };
-                        if cx.view().active() == Some(&child) {
+                        let shown = cx.view().active();
+                        if shown == Some(&child) {
                             // The parent first; the side conversation goes once it is shown.
                             let parent = link.parent.clone();
                             cx.open_thread(&parent, Ctx::Return { child });
-                        } else {
+                        } else if shown == Some(&link.parent)
+                            || shown.and_then(|thread| state.link(thread))
+                                .is_some_and(|shown| shown.parent == link.parent)
+                        {
                             drop_side(state, &child, cx);
                         }
                     }
@@ -550,28 +613,47 @@ feature! {
                 cx: &mut AppCx<'_>,
             ) {
                 match (ctx, result) {
-                    (Ctx::Fork { parent, prompt }, Ok(child)) => {
+                    (Ctx::Fork { parent, prompt, retained }, Ok(child)) => {
                         // `child.parent_status`: the side conversation the parent already had.
                         let status = state
                             .side_of(&parent)
                             .and_then(|other| state.links.get(other))
                             .and_then(|link| link.status);
-                        state.remember(child.clone(), Link { parent, status, storage: Storage::Temporary });
-                        state.preparing.insert(child.clone(), prompt);
+                        let storage = if retained && cx.view().thread(&child)
+                            .is_some_and(|thread| !thread.slots().chat.ephemeral)
+                        {
+                            Storage::Attached
+                        } else {
+                            Storage::Temporary
+                        };
+                        let link = Link { parent, status, storage };
+                        let (activation, pending_link) = if retained {
+                            (state.opening.take(), Some(link))
+                        } else {
+                            state.remember(child.clone(), link);
+                            (None, None)
+                        };
+                        state.preparing.insert(child.clone(), Preparation { prompt, activation, pending_link });
                         // a turn interrupted here is no news (`should_suppress_interrupted_turn_notice`)
                         cx.quiet_interrupts(&child, true);
                         cx.ask(
                             Some(&child),
-                            Command::Boundary,
+                            Command::Boundary { storage },
                             Ctx::Boundary(child.clone()),
                         );
                     }
                     // `side_start_error_message`: what a fork that failed says.
-                    (Ctx::Fork { parent, .. }, Err(Refusal::Failed(error))) => {
+                    (Ctx::Fork { parent, retained, .. }, Err(Refusal::Failed(error))) => {
+                        if retained {
+                            state.opening = None;
+                        }
                         cx.chat_facts(chat_facts(state, cx.view()));
                         cx.note(Some(parent), start_failure(&failure(&error)));
                     }
-                    (Ctx::Fork { parent, prompt }, Err(Refusal::Busy)) => {
+                    (Ctx::Fork { parent, prompt, retained }, Err(Refusal::Busy)) => {
+                        if retained {
+                            state.opening = None;
+                        }
                         cx.chat_facts(chat_facts(state, cx.view()));
                         restore(cx, &parent, prompt);
                     }
@@ -587,6 +669,16 @@ feature! {
                     (Ctx::Return { child }, Ok(_)) => drop_side(state, &child, cx),
                     // The parent cannot be shown: the side conversation stays as it is.
                     (Ctx::Return { .. }, Err(_)) => {}
+                    (Ctx::Rollback { child, parent, prepare_error }, result) => {
+                        if let Err(refusal) = result {
+                            let error = match refusal {
+                                Refusal::Failed(error) => failure(&error),
+                                Refusal::Busy => format!("{refusal:?}"),
+                            };
+                            cx.note(Some(parent.clone()), Note::CloseFailed { thread: child.clone(), error });
+                        }
+                        cx.note(Some(parent), Note::PrepareFailed { thread: child, error: prepare_error });
+                    }
                     (Ctx::Boundary(_), _) => {}
                 }
             }
@@ -595,6 +687,9 @@ feature! {
             fn on_shown(state: &mut State, thread: &ThreadId, cx: &mut AppCx<'_>) {
                 state.shown(thread);
                 cx.chat_facts(chat_facts(state, cx.view()));
+                if let Some(prompt) = state.parked.remove(thread) {
+                    cx.submit(thread, UserMessage::text(prompt));
+                }
             }
 
             /// The boundary is in: the prompt that waited for it goes. It is not: the side conversation
@@ -603,22 +698,52 @@ feature! {
                 let Ctx::Boundary(child) = ctx else {
                     return;
                 };
-                let Some(prompt) = state.preparing.remove(&child) else {
+                let Some(preparation) = state.preparing.remove(&child) else {
                     return;
                 };
                 match result {
                     Ok(Reply) => {
-                        if let Some(prompt) = prompt {
-                            cx.submit(&child, UserMessage::text(prompt));
+                        if let Some(link) = preparation.pending_link {
+                            cx.finish_preparation(&child);
+                            state.remember(child.clone(), link);
+                        }
+                        match preparation.activation {
+                            Some(activation) if cx.view().active() != Some(&child) => {
+                                if let Some(prompt) = preparation.prompt {
+                                    state.parked.insert(child.clone(), prompt);
+                                }
+                                if activation.enter
+                                    && cx.view().active() == Some(&activation.parent)
+                                    && !cx.view().navigation_pending()
+                                {
+                                    cx.open_thread(&child, Ctx::Reuse { parent: activation.parent, prompt: None });
+                                } else {
+                                    cx.chat_facts(chat_facts(state, cx.view()));
+                                }
+                            }
+                            _ => {
+                                if let Some(prompt) = preparation.prompt {
+                                    cx.submit(&child, UserMessage::text(prompt));
+                                }
+                            }
                         }
                     }
-                    Err(error) => cx.note(
-                        Some(child.clone()),
-                        Note::PrepareFailed {
-                            thread: child,
-                            error: failure(&error),
-                        },
-                    ),
+                    Err(error) => {
+                        cx.chat_facts(chat_facts(state, cx.view()));
+                        let prepare_error = failure(&error);
+                        if let Some(link) = preparation.pending_link {
+                            if link.storage == Storage::Attached {
+                                cx.rollback_thread(&child, Ctx::Rollback {
+                                    child: child.clone(), parent: link.parent, prepare_error,
+                                });
+                            } else {
+                                cx.discard(&child);
+                                cx.note(Some(link.parent), Note::PrepareFailed { thread: child, error: prepare_error });
+                            }
+                        } else {
+                            cx.note(Some(child.clone()), Note::PrepareFailed { thread: child, error: prepare_error });
+                        }
+                    }
                 }
             }
 
@@ -628,17 +753,19 @@ feature! {
 
             fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
                 match command {
-                    Command::Boundary => ClientRequest::ThreadInjectItems {
+                    Command::Boundary { storage } => ClientRequest::ThreadInjectItems {
                         request_id: id,
                         params: ThreadInjectItemsParams {
                             thread_id: thread.to_string(),
-                            items: policy::fork_items(),
+                            items: policy::fork_items(*storage),
                         },
                     },
                 }
             }
 
-            fn decode(_command: &Command, _result: serde_json::Value) -> Result<Reply, RpcError> {
+            fn decode(_command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
+                serde_json::from_value::<ThreadInjectItemsResponse>(result)
+                    .map_err(|error| RpcError::Malformed(error.to_string()))?;
                 Ok(Reply)
             }
         }

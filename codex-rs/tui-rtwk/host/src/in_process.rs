@@ -35,6 +35,7 @@ use codex_tui_core::app::AppEv;
 use codex_tui_core::app::BackendEv;
 use codex_tui_core::app::Command;
 use codex_tui_core::app::Ingress;
+use codex_tui_core::app::LocalSideStorage;
 use codex_tui_core::app::effects::ConfigEdit;
 use codex_tui_core::app::effects::{
     Ask as HostAsk, Done, HostDoors, ImageRevision, ImageSize, run_ask,
@@ -52,7 +53,7 @@ use codex_tui_core::screens::dialogs::Warning;
 use codex_tui_core::screens::onboarding::auth::provider::wire;
 use codex_tui_core::screens::status::Ev as StatusEv;
 use codex_tui_core::screens::{ScreenCommand, ScreenEv, agents, chat};
-use codex_tui_core::threads::ThreadAsk;
+use codex_tui_core::threads::{ThreadAsk, ThreadReply};
 use codex_tui_rtwk::services::agents::search::Latest;
 use codex_tui_rtwk::services::agents::version;
 use codex_tui_rtwk::services::agents::workspace::Boxed;
@@ -524,6 +525,7 @@ async fn run(
         },
     ));
     emit_voice_publisher(&ingress, epoch, epoch, &client);
+    emit_side_storage(&ingress, epoch, epoch, &client, &mode);
     let mut held = HandBack::new(client, done);
     emit(&ingress, epoch, AppEv::Connected);
     emit(&ingress, epoch, backend_ev(facts));
@@ -848,6 +850,7 @@ async fn run(
                     announce_replacement(&ingress, epoch, &mut transport_epoch);
                     if let Some(client) = held.get() {
                         emit_voice_publisher(&ingress, epoch, transport_epoch, client);
+                        emit_side_storage(&ingress, epoch, transport_epoch, client, &next);
                     }
                     // The commands after this one talk to the new server.
                     if let Some(done) = done {
@@ -923,6 +926,7 @@ async fn run(
         if !moved {
             announce_replacement(&ingress, epoch, &mut transport_epoch);
             emit_voice_publisher(&ingress, epoch, transport_epoch, client);
+            emit_side_storage(&ingress, epoch, transport_epoch, client, &mode);
             emit(
                 &ingress,
                 epoch,
@@ -986,6 +990,23 @@ fn emit_voice_publisher(
     if matches!(client, AppServerClient::InProcess(_)) {
         let _ = ingress.send(Ingress::legacy_voice_publisher(epoch, transport_epoch));
     }
+}
+
+fn emit_side_storage(
+    ingress: &IngressTx,
+    epoch: ConnEpoch,
+    transport_epoch: ConnEpoch,
+    client: &AppServerClient,
+    mode: &Mode,
+) {
+    let storage = match (client, mode) {
+        (AppServerClient::InProcess(_), _) => LocalSideStorage::Embedded,
+        (AppServerClient::Remote(_), Mode::Daemon | Mode::Remote { daemon: true, .. }) => {
+            LocalSideStorage::Daemon
+        }
+        _ => return,
+    };
+    let _ = ingress.send(Ingress::local_side_storage(epoch, transport_epoch, storage));
 }
 
 fn announce_replacement(ingress: &IngressTx, epoch: ConnEpoch, transport_epoch: &mut ConnEpoch) {
@@ -1485,6 +1506,50 @@ pub(crate) fn work(
                 result => protocol::reply_from_server(
                     &command,
                     result.map_err(|error| server_error(own_message, &error)),
+                )?,
+            };
+            Some(AppEv::Reply(ticket, reply))
+        }),
+        command @ Command::Screen {
+            ticket,
+            command:
+                ScreenCommand::Agents(agents::Command::Thread(
+                    ThreadAsk::ProbeAttachedSide { .. } | ThreadAsk::ForkAttachedSide { .. },
+                )),
+            ..
+        } => Box::pin(async move {
+            let probe = matches!(
+                &command,
+                Command::Screen {
+                    command: ScreenCommand::Agents(agents::Command::Thread(
+                        ThreadAsk::ProbeAttachedSide { .. }
+                    )),
+                    ..
+                }
+            );
+            let request = protocol::client_request(&command, ids.next(), model.as_deref())?;
+            let response = handle.request_typed::<serde_json::Value>(request).await;
+            let (ticket, reply) = match response {
+                Err(TypedRequestError::Server { source, .. }) if probe => (
+                    ticket,
+                    Reply::thread(ThreadReply::AttachedSideSupported(
+                        source.code == -32600
+                            && source.message
+                                == "attachedToThreadId cannot be combined with parentThreadId or ancestorThreadId",
+                    )),
+                ),
+                Err(TypedRequestError::Server { source, .. })
+                    if source.code == -32601
+                        && source.message == "attached threads is not supported yet" =>
+                {
+                    (
+                        ticket,
+                        Reply::thread(ThreadReply::AttachedSideStoreUnavailable),
+                    )
+                }
+                result => protocol::reply_from_server(
+                    &command,
+                    result.map_err(|error| server_error(false, &error)),
                 )?,
             };
             Some(AppEv::Reply(ticket, reply))

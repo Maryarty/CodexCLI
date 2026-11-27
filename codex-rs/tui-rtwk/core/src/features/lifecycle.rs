@@ -27,6 +27,12 @@ pub enum ThreadSpawn {
         parent: ThreadId,
         ephemeral: Option<String>,
     },
+    /// Hold a side fork offscreen until the feature confirms its context is ready.
+    SideFork {
+        parent: ThreadId,
+        temporary_policy: String,
+        attached_policy: String,
+    },
 }
 
 /// Why a thread a feature asked for did not come (`Feature::thread_opened`).
@@ -67,7 +73,12 @@ pub enum Lifecycle {
     },
     /// Drop `thread`: its turn is interrupted, the server stops holding it and the app forgets it.
     /// Never the thread in use.
-    Discard { thread: ThreadId },
+    Discard {
+        thread: ThreadId,
+        rollback: Option<FeatureCtx>,
+    },
+    /// Make a fork available after the feature's prerequisite RPC has succeeded.
+    FinishPreparation { thread: ThreadId },
     /// The user sent `message` in `thread`: the thread's own input pipeline takes it (a running
     /// turn is steered, a busy thread queues it).
     Submit {

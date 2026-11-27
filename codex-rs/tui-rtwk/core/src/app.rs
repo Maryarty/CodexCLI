@@ -362,6 +362,12 @@ pub enum AppEv {
     },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LocalSideStorage {
+    Embedded,
+    Daemon,
+}
+
 /// An event with the connection epoch it was attached under, and the
 /// backend it came from (each backend has its own epoch).
 #[derive(Clone, Debug)]
@@ -370,7 +376,8 @@ pub struct Ingress {
     pub epoch: ConnEpoch,
     transport_epoch: Option<ConnEpoch>,
     host_failure: Option<Ticket>,
-    /// An empty event announces a replacement handle at `transport_epoch`.
+    local_side_storage: Option<LocalSideStorage>,
+    /// Without a host fact an empty event announces a replacement handle at `transport_epoch`.
     ev: Option<AppEv>,
 }
 
@@ -387,6 +394,7 @@ impl Ingress {
             epoch,
             transport_epoch: None,
             host_failure: None,
+            local_side_storage: None,
             ev: Some(ev),
         }
     }
@@ -414,6 +422,7 @@ impl Ingress {
             epoch,
             transport_epoch: Some(transport_epoch),
             host_failure: None,
+            local_side_storage: None,
             ev: Some(ev),
         }
     }
@@ -433,6 +442,22 @@ impl Ingress {
         )
     }
 
+    /// The live request handle can potentially store attached side conversations locally.
+    pub fn local_side_storage(
+        epoch: ConnEpoch,
+        transport_epoch: ConnEpoch,
+        storage: LocalSideStorage,
+    ) -> Self {
+        Self {
+            backend: BackendId::default(),
+            epoch,
+            transport_epoch: Some(transport_epoch),
+            host_failure: None,
+            local_side_storage: Some(storage),
+            ev: None,
+        }
+    }
+
     /// A startup ask ended fatally. Its owner must still hold the request before it can end the app.
     pub fn host_failure(
         epoch: ConnEpoch,
@@ -445,6 +470,7 @@ impl Ingress {
             epoch,
             transport_epoch,
             host_failure: Some(ticket),
+            local_side_storage: None,
             ev: Some(AppEv::StartFailed(message)),
         }
     }
@@ -460,6 +486,7 @@ impl Ingress {
             epoch,
             transport_epoch: Some(transport_epoch),
             host_failure: None,
+            local_side_storage: None,
             ev: None,
         }
     }
@@ -857,6 +884,8 @@ pub struct CodexApp {
     request_epochs: BTreeMap<BackendId, ConnEpoch>,
     /// Request handles replaced in-place, independent of the connector and approval epochs.
     transport_epochs: BTreeMap<BackendId, ConnEpoch>,
+    local_side_storage: Option<(Address, LocalSideStorage)>,
+    preparing_forks: BTreeMap<ThreadId, lifecycle::Preparation>,
     screens: Rc<ScreenStates>,
     /// The app-scoped state of the feature slices (ADR-012), read through `features()`,
     /// changed only by the features' own steps (`app/features.rs`).
@@ -970,6 +999,8 @@ impl CodexApp {
             requests: Rc::new(RequestQueue::default()),
             request_epochs: BTreeMap::new(),
             transport_epochs: BTreeMap::new(),
+            local_side_storage: None,
+            preparing_forks: BTreeMap::new(),
             screens: Rc::new(ScreenStates::default()),
             features: Rc::new(crate::features::FeatureStates::default()),
             interests: Rc::new(crate::features::Interests::default()),
@@ -1279,6 +1310,12 @@ impl CodexApp {
         }
     }
 
+    fn local_side_storage(&self, backend: BackendId) -> Option<LocalSideStorage> {
+        self.local_side_storage
+            .filter(|(address, _)| *address == self.address(backend))
+            .map(|(_, storage)| storage)
+    }
+
     fn transport_epoch_of(&self, backend: BackendId) -> ConnEpoch {
         self.transport_epochs
             .get(&backend)
@@ -1427,6 +1464,8 @@ impl CodexApp {
     }
 
     fn retire_outgoing(&mut self, backend: BackendId, fx: &mut AppFx) {
+        self.preparing_forks
+            .retain(|_, preparation| preparation.address.backend != backend);
         ide_submit::retire(self, backend, fx);
         safety_retry::lost(self, backend, fx);
         self.attaching_events
@@ -1516,6 +1555,17 @@ impl CodexApp {
         }
         let mut fx = AppFx::default();
         let transport_epoch = ingress.transport_epoch.unwrap_or(ingress.epoch);
+        let address = Address {
+            backend: ingress.backend,
+            epoch: transport_epoch,
+        };
+        if let Some(storage) = ingress.local_side_storage {
+            if self.address(ingress.backend) != address {
+                return None;
+            }
+            self.local_side_storage = Some((address, storage));
+            return Some(fx);
+        }
         let Some(event) = ingress.ev else {
             if transport_epoch != self.transport_epoch_of(ingress.backend).next() {
                 return None;
@@ -1533,10 +1583,6 @@ impl CodexApp {
             git_summary::sync(self, false, &mut fx);
             sync_picker_root(self);
             return Some(fx);
-        };
-        let address = Address {
-            backend: ingress.backend,
-            epoch: transport_epoch,
         };
         if ingress.transport_epoch.is_some() && self.address(ingress.backend) != address {
             return None;
@@ -2882,6 +2928,18 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 }
             }
             AppCtx::NewConversation {
+                spawned: Some(lifecycle::Spawned::PreparedFork(side)),
+                ..
+            } => {
+                lifecycle::side_reply(app, side, address, ticket, answer, fx);
+            }
+            AppCtx::NewConversation {
+                spawned: Some(lifecycle::Spawned::Rollback { thread, ctx }),
+                ..
+            } => {
+                lifecycle::rolled_back(app, thread, ctx, answer, fx);
+            }
+            AppCtx::NewConversation {
                 source,
                 backend,
                 name,
@@ -2923,9 +2981,15 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                         // The feature that asked for the thread is told before it is shown; an
                         // ephemeral fork starts empty: its history is the model's, not the
                         // screen's.
-                        let ephemeral = spawned.as_ref().is_some_and(|spawned| spawned.ephemeral);
-                        if let Some(spawned) = spawned {
-                            features::thread_opened(app, spawned.ctx, Ok(thread.clone()), fx);
+                        let ephemeral = matches!(
+                            spawned,
+                            Some(lifecycle::Spawned::Plain {
+                                ephemeral: true,
+                                ..
+                            })
+                        );
+                        if let Some(lifecycle::Spawned::Plain { ctx, .. }) = spawned {
+                            features::thread_opened(app, ctx, Ok(thread.clone()), fx);
                         }
                         if app.session.active == source {
                             show_held_thread(app, thread.clone(), fx);
@@ -2955,9 +3019,9 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                         }
                     }
                     Err(error) => {
-                        if let Some(spawned) = spawned {
+                        if let Some(lifecycle::Spawned::Plain { ctx, .. }) = spawned {
                             let refusal = crate::features::Refusal::Failed(error);
-                            features::thread_opened(app, spawned.ctx, Err(refusal), fx);
+                            features::thread_opened(app, ctx, Err(refusal), fx);
                         } else if let Some(source) = source {
                             apply_thread(app, &source, ThreadEv::Failure(error.into()), fx);
                         }
@@ -3828,7 +3892,7 @@ fn open_verified_at(
     fx: &mut AppFx,
 ) -> bool {
     let model = &app.screens.agents;
-    if model.held() || model.failure.is_some() {
+    if model.held() || model.failure.is_some() || app.preparing_forks.contains_key(id) {
         return false;
     }
     let held = thread_held(app, id);
@@ -4452,7 +4516,18 @@ fn is_attach(ctx: &AppCtx) -> bool {
     matches!(
         ctx,
         AppCtx::StartThread { .. }
-            | AppCtx::NewConversation { .. }
+            | AppCtx::NewConversation {
+                spawned: None
+                    | Some(
+                        lifecycle::Spawned::Plain { .. }
+                            | lifecycle::Spawned::PreparedFork(lifecycle::SideFork {
+                                phase: lifecycle::SidePhase::Attached
+                                    | lifecycle::SidePhase::Temporary,
+                                ..
+                            })
+                    ),
+                ..
+            }
             | AppCtx::OpenThread { .. }
             | AppCtx::OpenSession { .. }
             | AppCtx::TurnOperation(TurnOperation::SafetyRetry {
@@ -4476,6 +4551,7 @@ fn may_attach(ctx: &AppCtx, id: &ThreadId) -> bool {
 }
 
 fn forget_thread(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx) {
+    app.preparing_forks.remove(thread);
     if app
         .threads
         .get(thread)
@@ -4596,7 +4672,10 @@ fn show_held_thread(app: &mut CodexApp, id: ThreadId, fx: &mut AppFx) {
 
 fn submit(app: &mut CodexApp, thread: &ThreadId, message: UserMessage, fx: &mut AppFx) {
     let message = message.trimmed();
-    if message.is_empty() || !app.threads.contains(thread) {
+    if message.is_empty()
+        || !app.threads.contains(thread)
+        || app.preparing_forks.contains_key(thread)
+    {
         return;
     }
     dismiss_banner_for_new_turn(app, thread);

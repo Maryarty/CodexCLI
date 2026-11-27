@@ -5,17 +5,21 @@
 //! boundary, sends the `/btw` prompt once they are in, shows a label while it is shown, refuses a
 //! second one, reuses the parent's own, and drops the side conversation the user returned from.
 
+use codex_app_server_protocol::{ClientRequest, RequestId, Thread, ThreadHistoryMode};
 use codex_tui_core::app::facts::TuiSettings;
-use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
+use codex_tui_core::app::{
+    AppEv, AppFx, CodexApp, Command, Ingress, Intent, LocalSideStorage, apply_app,
+};
 use codex_tui_core::commands::{SessionIntent, SlashCommand};
 use codex_tui_core::features::side::{
-    Footer, Intent as SideIntent, Note as SideNote, Reply as SideReply,
+    Footer, Intent as SideIntent, Note as SideNote, Reply as SideReply, Storage,
 };
 use codex_tui_core::features::{FeatureCommand, FeatureIntent, FeatureNote, FeatureReply};
-use codex_tui_core::ids::{ThreadId, Ticket};
+use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
+use codex_tui_core::protocol::client_request;
 use codex_tui_core::rpc::Reply;
-use codex_tui_core::screens::{ScreenCommand, ScreenIntent, ScreenReply, agents, chat};
-use codex_tui_core::threads::{Item as Entry, Note, NoteKey, ThreadAsk};
+use codex_tui_core::screens::{ScreenCommand, ScreenEv, ScreenIntent, ScreenReply, agents, chat};
+use codex_tui_core::threads::{Item as Entry, Note, NoteKey, ThreadAsk, ThreadReply};
 use pretty_assertions::assert_eq;
 
 const MAIN: &str = "thread-1";
@@ -74,6 +78,62 @@ fn slash(app: &mut CodexApp, command: SlashCommand, args: &str) -> AppFx {
             },
         }))),
     )
+}
+
+fn enable_workspace(app: &mut CodexApp, local: Option<LocalSideStorage>) {
+    run(
+        app,
+        AppEv::Tui(TuiSettings {
+            workspace_enabled: true,
+            transcript_owned: true,
+            ..TuiSettings::default()
+        }),
+    );
+    if let Some(local) = local {
+        app.ingest(Ingress::local_side_storage(app.epoch(), app.epoch(), local))
+            .expect("current local transport");
+    }
+}
+
+fn thread_ask(fx: &AppFx, expected: impl Fn(&ThreadAsk) -> bool) -> Ticket {
+    fx.commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Screen {
+                ticket,
+                command: ScreenCommand::Agents(agents::Command::Thread(ask)),
+                ..
+            } if expected(ask) => Some(*ticket),
+            _ => None,
+        })
+        .expect("expected thread ask")
+}
+
+fn reply_fork(app: &mut CodexApp, ticket: Ticket, thread: Thread) -> AppFx {
+    run(
+        app,
+        AppEv::Reply(
+            ticket,
+            Reply::screen(ScreenReply::Agents(agents::Reply::Forked(Box::new(thread)))),
+        ),
+    )
+}
+
+fn wire(fx: &AppFx, ticket: Ticket) -> ClientRequest {
+    fx.commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Screen {
+                ticket: command_ticket,
+                ..
+            }
+            | Command::Feature {
+                ticket: command_ticket,
+                ..
+            } if *command_ticket == ticket => client_request(command, RequestId::Integer(1), None),
+            _ => None,
+        })
+        .expect("request wire")
 }
 
 fn forks(fx: &AppFx) -> Vec<(Ticket, ThreadAsk)> {
@@ -350,14 +410,7 @@ fn workspace_side_is_fresh_and_btw_uses_the_child_selected_for_its_parent() {
     let parent = ThreadId::new(MAIN);
     let first = ThreadId::new("side-z");
     let second = ThreadId::new("side-a");
-    run(
-        &mut app,
-        AppEv::Tui(TuiSettings {
-            workspace_enabled: true,
-            transcript_owned: true,
-            ..TuiSettings::default()
-        }),
-    );
+    enable_workspace(&mut app, None);
     for child in [&first, &second] {
         let fx = slash(&mut app, SlashCommand::Side, "");
         let [(ticket, _)] = forks(&fx).try_into().expect("one distinct fork for /side");
@@ -430,6 +483,337 @@ fn workspace_side_is_fresh_and_btw_uses_the_child_selected_for_its_parent() {
     assert_eq!(app.features().side.side_of(&parent), Some(&second));
     assert!(app.thread(&first).is_none());
     assert!(app.thread(&second).is_some());
+}
+
+#[test]
+fn navigating_away_and_back_parks_the_late_opening_prompt_for_the_exact_child() {
+    let (mut app, legacy_boundary) = opened(None);
+    run(
+        &mut app,
+        AppEv::Reply(
+            boundary_ticket(&legacy_boundary).unwrap(),
+            Reply::feature(FeatureReply::Side(SideReply)),
+        ),
+    );
+    let parent = ThreadId::new(MAIN);
+    let away = ThreadId::new("other-parent");
+    let child = ThreadId::new("new-side");
+    let mut other = forked_thread(away.as_str());
+    other.ephemeral = false;
+    other.forked_from_id = None;
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Agents(agents::Ev::Listed(agents::Page {
+            threads: vec![other.clone()],
+            unread: Vec::new(),
+            next_cursor: None,
+            append: false,
+            pins: None,
+        }))),
+    );
+    let opened = run(&mut app, AppEv::Intent(Intent::OpenThread(away.clone())));
+    let resume = thread_ask(
+        &opened,
+        |ask| matches!(ask, ThreadAsk::Resume { thread } if thread == away.as_str()),
+    );
+    run(
+        &mut app,
+        AppEv::Reply(
+            resume,
+            Reply::screen(ScreenReply::Agents(agents::Reply::Resumed(Box::new(other)))),
+        ),
+    );
+    assert_eq!(app.session().active.as_ref(), Some(&away));
+    run(&mut app, AppEv::Intent(Intent::OpenThread(parent.clone())));
+    enable_workspace(&mut app, None);
+    let request = slash(&mut app, SlashCommand::Side, "park this question");
+    let fork = thread_ask(&request, |ask| matches!(ask, ThreadAsk::ForkAt { .. }));
+    run(&mut app, AppEv::Intent(Intent::OpenThread(away.clone())));
+    assert_eq!(app.session().active.as_ref(), Some(&away));
+    let ignored = feature(
+        &mut app,
+        SideIntent::Return {
+            child: ThreadId::new(SIDE),
+        },
+    );
+    assert!(ignored.commands().is_empty());
+    assert!(app.features().side.link(&ThreadId::new(SIDE)).is_some());
+    run(&mut app, AppEv::Intent(Intent::OpenThread(parent.clone())));
+    let preparing = reply_fork(&mut app, fork, forked_thread(child.as_str()));
+    assert_eq!(app.session().active.as_ref(), Some(&parent));
+    assert!(app.features().side.link(&child).is_none());
+    let boundary = preparing
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Feature { ticket, thread, .. } if thread == &child => Some(*ticket),
+            _ => None,
+        })
+        .expect("boundary requested for fork");
+    let explicit_early = run(&mut app, AppEv::Intent(Intent::OpenThread(child.clone())));
+    assert_eq!(app.session().active.as_ref(), Some(&parent));
+    assert!(
+        !explicit_early
+            .commands()
+            .iter()
+            .any(|command| matches!(command, Command::StartTurn { .. }))
+    );
+    let prepared = run(
+        &mut app,
+        AppEv::Reply(boundary, Reply::feature(FeatureReply::Side(SideReply))),
+    );
+    assert_eq!(app.session().active.as_ref(), Some(&parent));
+    assert!(
+        !prepared
+            .commands()
+            .iter()
+            .any(|command| matches!(command, Command::StartTurn { .. }))
+    );
+    let opened = feature(
+        &mut app,
+        SideIntent::Select {
+            parent,
+            child: child.clone(),
+        },
+    );
+    assert_eq!(app.session().active.as_ref(), Some(&child));
+    assert!(opened.commands().iter().any(|command| matches!(command,
+        Command::StartTurn { thread, message, .. } if thread == &child && message.text == "park this question")));
+    let reopened = run(&mut app, AppEv::Intent(Intent::OpenThread(child)));
+    assert!(
+        !reopened
+            .commands()
+            .iter()
+            .any(|command| matches!(command, Command::StartTurn { .. }))
+    );
+}
+
+#[test]
+fn attached_fork_requires_its_original_backend_and_an_attested_parent() {
+    let mut app = ready();
+    let (_, ticket) = attached_fork_ask(&mut app);
+    let incorrect = Reply::screen(ScreenReply::Agents(agents::Reply::Forked(Box::new(
+        attached_child(),
+    ))));
+    let epoch = app.epoch();
+    assert!(
+        app.ingest(Ingress::transport_reply(
+            BackendId(9),
+            epoch,
+            epoch,
+            ticket,
+            incorrect
+        ))
+        .is_none()
+    );
+    let mut child = attached_child();
+    child.attached_to_thread_id = Some("unrelated-parent".to_owned());
+    let rejected = reply_fork(&mut app, ticket, child);
+    assert!(boundary_ticket(&rejected).is_none());
+    assert!(app.thread(&ThreadId::new(SIDE)).is_none());
+    assert_eq!(app.session().active, Some(ThreadId::new(MAIN)));
+}
+
+fn attached_fork_ask(app: &mut CodexApp) -> (AppFx, Ticket) {
+    enable_workspace(app, Some(LocalSideStorage::Embedded));
+    let start = slash(app, SlashCommand::Side, "first side turn");
+    let parent_read = thread_ask(
+        &start,
+        |ask| matches!(ask, ThreadAsk::Read { thread } if thread == MAIN),
+    );
+    let mut parent = forked_thread(MAIN);
+    parent.history_mode = ThreadHistoryMode::Paginated;
+    parent.ephemeral = false;
+    parent.forked_from_id = None;
+    let fork = run(
+        app,
+        AppEv::Reply(
+            parent_read,
+            Reply::thread(ThreadReply::Read {
+                thread: Box::new(parent),
+                unread: false,
+            }),
+        ),
+    );
+    let ticket = thread_ask(
+        &fork,
+        |ask| matches!(ask, ThreadAsk::ForkAttachedSide { thread, .. } if thread.as_str() == MAIN),
+    );
+    (fork, ticket)
+}
+
+fn attached_child() -> Thread {
+    let mut attached = forked_thread(SIDE);
+    attached.ephemeral = false;
+    attached.history_mode = ThreadHistoryMode::Paginated;
+    attached.attached_to_thread_id = Some(MAIN.to_owned());
+    attached
+}
+
+#[test]
+fn attached_storage_waits_for_the_durable_boundary_and_close_only_unsubscribes() {
+    let mut app = ready();
+    let (fork, ticket) = attached_fork_ask(&mut app);
+    let ClientRequest::ThreadFork { params, .. } = wire(&fork, ticket) else {
+        panic!("expected fork")
+    };
+    assert!(
+        params.attach_to_source
+            && params.exclude_turns
+            && !params.ephemeral
+            && !params.defer_goal_continuation
+    );
+    assert_eq!(params.thread_id, MAIN);
+    assert_eq!(
+        params.thread_source,
+        Some(codex_app_server_protocol::ThreadSource::Feature(
+            "tui_side_chat".to_owned()
+        ))
+    );
+    assert!(
+        !params
+            .developer_instructions
+            .unwrap()
+            .contains("cannot retain a worktree")
+    );
+    let preparing = reply_fork(&mut app, ticket, attached_child());
+    let child = ThreadId::new(SIDE);
+    assert!(app.features().side.link(&child).is_none());
+    assert_eq!(app.session().active, Some(ThreadId::new(MAIN)));
+    assert!(
+        preparing
+            .commands()
+            .iter()
+            .all(|command| !matches!(command, Command::StartTurn { .. }))
+    );
+    let boundary = boundary_ticket(&preparing).expect("attached boundary");
+    let ClientRequest::ThreadInjectItems { params, .. } = wire(&preparing, boundary) else {
+        panic!("expected preparation")
+    };
+    assert_eq!(params.thread_id, SIDE);
+    assert_eq!(params.items.len(), 2);
+    assert!(
+        !params.items[0]
+            .to_string()
+            .contains("cannot retain a worktree")
+    );
+    let prepared = run(
+        &mut app,
+        AppEv::Reply(boundary, Reply::feature(FeatureReply::Side(SideReply))),
+    );
+    assert_eq!(
+        app.features().side.link(&child).unwrap().storage,
+        Storage::Attached
+    );
+    assert_eq!(app.session().active.as_ref(), Some(&child));
+    assert!(prepared.commands().iter().any(|command| matches!(command,
+        Command::StartTurn { thread, message, .. } if thread == &child && message.text == "first side turn")));
+    let closed = feature(&mut app, SideIntent::Return { child });
+    let _ = thread_ask(
+        &closed,
+        |ask| matches!(ask, ThreadAsk::Unsubscribe { thread } if thread == SIDE),
+    );
+    assert!(closed.commands().iter().all(|command| !matches!(
+        command,
+        Command::Screen {
+            command: ScreenCommand::Agents(agents::Command::Thread(
+                ThreadAsk::Delete { .. } | ThreadAsk::Archive { .. }
+            )),
+            ..
+        }
+    )));
+}
+
+#[test]
+fn attached_prepare_failure_rolls_back_only_the_attested_child() {
+    let mut app = ready();
+    let (_, fork) = attached_fork_ask(&mut app);
+    let preparing = reply_fork(&mut app, fork, attached_child());
+    let boundary = boundary_ticket(&preparing).unwrap();
+    let failed = run(
+        &mut app,
+        AppEv::Reply(boundary, Reply::failed("disk write failed")),
+    );
+    let child = ThreadId::new(SIDE);
+    let rollback = thread_ask(
+        &failed,
+        |ask| matches!(ask, ThreadAsk::Delete { thread } if thread == &child),
+    );
+    assert_eq!(app.session().active, Some(ThreadId::new(MAIN)));
+    assert!(app.features().side.link(&child).is_none());
+    run(
+        &mut app,
+        AppEv::Reply(rollback, Reply::thread(ThreadReply::Done)),
+    );
+    assert!(app.thread(&child).is_none());
+    assert!(notes(&app, MAIN).contains(&SideNote::PrepareFailed {
+        thread: child,
+        error: "disk write failed".to_owned()
+    }));
+}
+
+#[test]
+fn stale_transport_capability_cannot_authorize_persistent_forks() {
+    let mut app = ready();
+    enable_workspace(&mut app, Some(LocalSideStorage::Embedded));
+    let connector = app.epoch();
+    let current = connector.next();
+    app.ingest(Ingress::transport_replaced(
+        BackendId::default(),
+        connector,
+        current,
+    ))
+    .unwrap();
+    assert!(
+        app.ingest(Ingress::local_side_storage(
+            connector,
+            connector,
+            LocalSideStorage::Embedded
+        ))
+        .is_none()
+    );
+    let spawned = slash(&mut app, SlashCommand::Side, "");
+    let _ = thread_ask(&spawned, |ask| {
+        matches!(
+            ask,
+            ThreadAsk::ForkAt {
+                temporary: Some(_),
+                ..
+            }
+        )
+    });
+}
+
+#[test]
+fn an_older_local_daemon_without_the_filter_uses_a_temporary_fork() {
+    let mut app = ready();
+    enable_workspace(&mut app, Some(LocalSideStorage::Daemon));
+    let start = slash(&mut app, SlashCommand::Side, "");
+    let probe = thread_ask(
+        &start,
+        |ask| matches!(ask, ThreadAsk::ProbeAttachedSide { thread } if thread.as_str() == MAIN),
+    );
+    let ClientRequest::ThreadList { params, .. } = wire(&start, probe) else {
+        panic!("expected filter probe")
+    };
+    assert_eq!(params.attached_to_thread_id.as_deref(), Some(MAIN));
+    assert_eq!(params.parent_thread_id.as_deref(), Some(MAIN));
+    let fallback = run(
+        &mut app,
+        AppEv::Reply(
+            probe,
+            Reply::thread(ThreadReply::AttachedSideSupported(false)),
+        ),
+    );
+    let _ = thread_ask(&fallback, |ask| {
+        matches!(
+            ask,
+            ThreadAsk::ForkAt {
+                temporary: Some(_),
+                ..
+            }
+        )
+    });
 }
 
 #[test]

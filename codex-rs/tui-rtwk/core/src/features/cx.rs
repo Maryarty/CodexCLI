@@ -594,6 +594,22 @@ impl<'a> AppCx<'a> {
     pub fn discard(&mut self, thread: &ThreadId) {
         self.out.push(Out::Lifecycle(Lifecycle::Discard {
             thread: thread.clone(),
+            rollback: None,
+        }));
+    }
+
+    /// Delete an offscreen conversation created by a feature whose required preparation failed.
+    pub fn rollback_thread(&mut self, thread: &ThreadId, ctx: impl Into<FeatureCtx>) {
+        self.out.push(Out::Lifecycle(Lifecycle::Discard {
+            thread: thread.clone(),
+            rollback: Some(ctx.into()),
+        }));
+    }
+
+    /// Release a fork that was held offscreen until its context became ready.
+    pub fn finish_preparation(&mut self, thread: &ThreadId) {
+        self.out.push(Out::Lifecycle(Lifecycle::FinishPreparation {
+            thread: thread.clone(),
         }));
     }
 

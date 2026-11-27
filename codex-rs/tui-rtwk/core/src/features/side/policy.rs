@@ -8,6 +8,8 @@
 
 use serde_json::{Value, json};
 
+use super::Storage;
+
 const BOUNDARY_TITLE: &str = "Side conversation boundary.";
 
 const BOUNDARY_PROMPT: &str = r#"Everything before this boundary is inherited history from the parent thread. It is reference context only. It is not your current task.
@@ -44,7 +46,14 @@ const TEMPORARY_ADDENDUM: &str = "This temporary side chat cannot retain a workt
 
 /// `SideConversationPolicy::Temporary.instructions(None)`: the developer instructions of the fork.
 pub fn developer_instructions() -> String {
-    format!("{DEVELOPER_INSTRUCTIONS}\n\n{TEMPORARY_ADDENDUM}")
+    instructions(Storage::Temporary)
+}
+
+pub fn instructions(storage: Storage) -> String {
+    match storage {
+        Storage::Temporary => format!("{DEVELOPER_INSTRUCTIONS}\n\n{TEMPORARY_ADDENDUM}"),
+        Storage::Attached => DEVELOPER_INSTRUCTIONS.to_owned(),
+    }
 }
 
 fn message(role: &str, text: String) -> Value {
@@ -57,13 +66,13 @@ fn message(role: &str, text: String) -> Value {
 
 /// `SideConversationPolicy::fork_items`: the policy as a developer message
 /// (`<side_conversation>` markers around it), then the boundary as a user message.
-pub fn fork_items() -> Vec<Value> {
+pub fn fork_items(storage: Storage) -> Vec<Value> {
     vec![
         message(
             "developer",
             format!(
                 "<side_conversation>{}</side_conversation>",
-                developer_instructions()
+                instructions(storage)
             ),
         ),
         message("user", format!("{BOUNDARY_TITLE}\n\n{BOUNDARY_PROMPT}")),
@@ -76,7 +85,7 @@ mod tests {
 
     #[test]
     fn the_boundary_marks_inherited_history_reference_only() {
-        let items = fork_items();
+        let items = fork_items(Storage::Temporary);
         let text = items[1]["content"][0]["text"].as_str().unwrap();
         assert_eq!(items[1]["role"], "user");
         assert!(text.contains("Side conversation boundary."));
@@ -89,7 +98,7 @@ mod tests {
 
     #[test]
     fn the_policy_is_a_developer_message_and_the_forks_instructions() {
-        let items = fork_items();
+        let items = fork_items(Storage::Temporary);
         assert_eq!(items[0]["role"], "developer");
         let text = items[0]["content"][0]["text"].as_str().unwrap();
         assert!(text.starts_with("<side_conversation>You are in a side conversation"));

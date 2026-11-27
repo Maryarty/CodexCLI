@@ -230,6 +230,26 @@ crate::rpc_list! {
         Self::ForkAt { thread, cwd, temporary }
         => ThreadFork(fork(thread, cwd.clone(), temporary.clone()))
         -> wire::ThreadForkResponse, |answer| forked(answer);
+    /// Prove that a local daemon recognizes the attached-side filter.
+    ProbeAttachedSide { thread: ThreadId }, Self::ProbeAttachedSide { thread }
+        => ThreadList(wire::ThreadListParams {
+            parent_thread_id: Some(thread.to_string()),
+            attached_to_thread_id: Some(thread.to_string()),
+            ..ListQuery { limit: Some(1), use_state_db_only: true, ..ListQuery::default() }.params()
+        })
+        -> wire::ThreadListResponse, |_| ThreadReply::AttachedSideSupported(false);
+    /// Persist a side fork linked to this paginated parent, without replaying its turns.
+    ForkAttachedSide { thread: ThreadId, instructions: String },
+        Self::ForkAttachedSide { thread, instructions }
+        => ThreadFork(wire::ThreadForkParams {
+            thread_id: thread.to_string(),
+            exclude_turns: true,
+            developer_instructions: Some(instructions.clone()),
+            attach_to_source: true,
+            thread_source: Some(wire::ThreadSource::Feature("tui_side_chat".to_owned())),
+            ..Default::default()
+        })
+        -> wire::ThreadForkResponse, |answer| forked(answer);
     Read { thread: String }, Self::Read { thread }
         => ThreadRead(read(thread, false))
         -> wire::ThreadReadResponse, |answer| ThreadReply::Read {
@@ -464,6 +484,8 @@ pub enum ThreadReply {
     Started(OpenedThread),
     Resumed(OpenedThread),
     Forked(OpenedThread),
+    AttachedSideSupported(bool),
+    AttachedSideStoreUnavailable,
     Read {
         thread: Box<wire::Thread>,
         unread: bool,
@@ -549,6 +571,8 @@ impl<M: Borrow<UserMessage>> ThreadRpc<M> {
             Self::RetryStart(params) => Some(params.thread().as_str()),
             Self::RealtimeStart { thread, .. }
             | Self::RealtimeStop { thread }
+            | Self::ProbeAttachedSide { thread }
+            | Self::ForkAttachedSide { thread, .. }
             | Self::RealtimeTimeline { thread, .. }
             | Self::RetryInterrupt { thread, .. }
             | Self::StartUserTurn { thread, .. }
