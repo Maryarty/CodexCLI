@@ -72,36 +72,19 @@ pub(super) fn reasoning_shortcut(
     hs: &Hs,
     direction: codex_tui_core::screens::select::reasoning::Direction,
 ) {
-    use codex_tui_core::screens::select::{Intent, models::Current, models::Effort};
+    use codex_tui_core::screens::select::{Intent, models::Current};
     let thread = read::<ThreadModel, _>(cx);
     if thread.read_only() || refuses_parent_owned(cx, hs) {
         return;
     }
-    let states = read::<ScreenStates, _>(cx);
-    let slots = thread.screen_slots();
-    let model = slots
-        .chat
-        .model
-        .clone()
-        .or_else(|| states.chat.status.model.clone());
-    let effort = slots
-        .chat
-        .effort
-        .as_deref()
-        .or(states.chat.status.effort.as_deref());
-    let current = Current {
-        effort: effort.and_then(|name| name.parse::<Effort>().ok()),
-        ..Current::new(model.unwrap_or_default())
-    };
-    let plan = states.chat.flags.collaboration_modes_enabled
-        && slots.chat.mode() == codex_protocol::config_types::ModeKind::Plan;
+    let current = Current::for_thread(thread.id().clone());
     let started = matches!(read::<SessionSlice, _>(cx).status, Session::Ready);
     cx.emit(
         &hs.screen,
         ScreenIntent::Select(Intent::Reasoning {
             direction,
             current,
-            plan,
+            plan: false,
             started,
         }),
     );
@@ -263,7 +246,7 @@ pub(super) fn run(
             // The settings dialog is opened by the kind the command names (`open_settings`):
             // the feature builds its catalogue from its facts.
             if opened.target == Target::Settings {
-                features::open_settings(cx, opened.command, &opened.args);
+                queue::open_settings(cx, hs, &opened, deferred, ran);
             }
             // The confirmation of `/archive` and `/delete` is the model's
             // question (is a turn running?), then the select sheet shows it.
@@ -306,6 +289,7 @@ pub(super) fn run(
             let mut shown_by_presenter = false;
             if let Some(intent) = select_intent(
                 opened.command,
+                thread.id(),
                 &states.chat.status,
                 states.chat.flags.connectors_enabled,
                 reserve_only(&session, &states, &thread),
@@ -450,6 +434,7 @@ pub(super) fn reserve_only(
 /// thread's facts and whether the apps feature is on (the others open their slot empty until they land).
 fn select_intent(
     command: SlashCommand,
+    thread: &codex_tui_core::ids::ThreadId,
     facts: &chat::StatusFacts,
     apps: bool,
     reserve: Option<codex_tui_core::screens::select::models::ReserveOnly>,
@@ -457,10 +442,14 @@ fn select_intent(
 ) -> Option<codex_tui_core::screens::select::Intent> {
     use codex_tui_core::screens::select::{Intent, models, permissions};
     match command {
-        SlashCommand::Model => Some(Intent::open_models(models::Current {
-            reserve,
-            ..models::Current::from_facts(facts)
-        })),
+        SlashCommand::Model => {
+            let current = if thread.as_str().is_empty() {
+                models::Current::from_facts(facts)
+            } else {
+                models::Current::for_thread(thread.clone())
+            };
+            Some(Intent::open_models(models::Current { reserve, ..current }))
+        }
         SlashCommand::Permissions => Some(Intent::OpenPermissions(
             permissions::Current::from_facts(facts),
         )),

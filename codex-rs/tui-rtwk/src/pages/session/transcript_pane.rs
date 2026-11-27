@@ -1364,6 +1364,11 @@ impl State for ViewportState {
                         item.group() == Some(codex_tui_core::threads::ItemGroup::Computer)
                     });
             let separator = (previous.is_some() || lead != 0) && !joins_computer;
+            let image_path = match item {
+                Item::ImageView { path, .. } => Some(path.as_str()),
+                Item::Generated(image) if !image.failed => image.saved_path.as_deref(),
+                _ => None,
+            };
             let place = Place {
                 separator,
                 // only the detailed transcript (oracle `TranscriptView`) draws prompts with no
@@ -1443,9 +1448,22 @@ impl State for ViewportState {
                         },
                         &place,
                     );
+                    let drawn = if let Some(path) = image_path {
+                        crate::features::artifact_scope(
+                            thread.id().clone(),
+                            key.clone(),
+                            path.to_owned(),
+                            drawn,
+                        )
+                    } else {
+                        drawn
+                    };
                     // a cell with a control is the thread's controller's: a tap, a key and Find
                     // open and shut it the same way
-                    if matches!(item, Item::Tool(_) | Item::Patch(_)) {
+                    if matches!(
+                        item,
+                        Item::Tool(_) | Item::Patch(_) | Item::ImageView { .. }
+                    ) {
                         tile(&activity, key.clone(), drawn)
                     } else {
                         drawn

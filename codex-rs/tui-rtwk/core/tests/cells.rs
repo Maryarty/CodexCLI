@@ -891,6 +891,7 @@ fn a_finished_image_generation_shows_its_prompt_and_where_it_was_saved_as_a_url(
             failed: false,
             detail: "A tiny blue square".into(),
             saved_to: Some("file:///tmp/my%20images/generated%20%231.png".into()),
+            saved_path: Some("/tmp/my images/generated #1.png".into()),
         }
     );
 }
@@ -905,7 +906,8 @@ fn a_failed_generation_without_a_prompt_names_the_call() {
         GeneratedImage {
             failed: true,
             detail: "call-image-generation".into(),
-            saved_to: None
+            saved_to: None,
+            saved_path: None,
         }
     );
 }

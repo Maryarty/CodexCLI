@@ -10,10 +10,14 @@ use codex_app_server_protocol::{
     ClientRequest, ErrorNotification, ItemCompletedNotification, RequestId, ServerNotification,
     ThreadItem, ThreadItemPayload, TurnError, TurnStatus, UserInput,
 };
-use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app, apply_app_from};
+use codex_tui_core::app::effects::Ask;
+use codex_tui_core::app::{
+    AppEv, AppFx, CodexApp, Command, Ingress, Intent, apply_app, apply_app_from,
+};
 use codex_tui_core::commands::{
     DispatchCx, Outcome, QueueDrain, SlashCommand, Target, dispatch_queued,
 };
+use codex_tui_core::features::{FeatureIntent, settings};
 use codex_tui_core::fixtures::builders::{
     history_turn, turn_completed, turn_started, user_item_with_receipt,
 };
@@ -470,43 +474,7 @@ fn a_picker_close_is_addressed_to_its_original_thread() {
         chat::ThreadIntent::QueueEvent(QueueEvent::PickerOpened(original.clone())),
     );
 
-    run(
-        &mut app,
-        AppEv::Screen(ScreenEv::Agents(agents::Ev::Listed(agents::Page {
-            threads: vec![listed(B)],
-            unread: Vec::new(),
-            next_cursor: None,
-            append: false,
-            pins: None,
-        }))),
-    );
-    let fx = run(
-        &mut app,
-        AppEv::Intent(Intent::OpenThread(ThreadId::new(B))),
-    );
-    let ticket = fx
-        .commands()
-        .iter()
-        .find_map(|command| match command {
-            Command::Screen {
-                ticket,
-                command:
-                    ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Resume { thread })),
-                ..
-            } if thread == B => Some(*ticket),
-            _ => None,
-        })
-        .expect("the second thread is resumed");
-    run(
-        &mut app,
-        AppEv::Reply(
-            ticket,
-            Reply::screen(ScreenReply::Agents(agents::Reply::Resumed(Box::new(
-                listed(B),
-            )))),
-        ),
-    );
-    assert_eq!(thread(&app).id().as_str(), B);
+    open_listed_thread(&mut app, B);
     let on_second = |app: &mut CodexApp, intent: chat::ThreadIntent| {
         run(
             app,
@@ -554,6 +522,245 @@ fn a_picker_close_is_addressed_to_its_original_thread() {
         fx.commands()
             .iter()
             .any(|c| matches!(c, Command::StartTurn { thread, .. } if thread.as_str() == B))
+    );
+}
+
+fn open_listed_thread(app: &mut CodexApp, name: &str) {
+    run(
+        app,
+        AppEv::Screen(ScreenEv::Agents(agents::Ev::Listed(agents::Page {
+            threads: vec![listed(name)],
+            unread: Vec::new(),
+            next_cursor: None,
+            append: false,
+            pins: None,
+        }))),
+    );
+    let fx = run(app, AppEv::Intent(Intent::OpenThread(ThreadId::new(name))));
+    let ticket = fx
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Screen {
+                ticket,
+                command:
+                    ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Resume { thread })),
+                ..
+            } if thread == name => Some(*ticket),
+            _ => None,
+        })
+        .expect("the second thread is resumed");
+    run(
+        app,
+        AppEv::Reply(
+            ticket,
+            Reply::screen(ScreenReply::Agents(agents::Reply::Resumed(Box::new(
+                listed(name),
+            )))),
+        ),
+    );
+    assert_eq!(thread(&app).id().as_str(), name);
+}
+
+fn drain_to_status_line(app: &mut CodexApp, receiver: &str, turn: &str) -> QueueOperation {
+    assert!(started_texts(&notify(app, turn_completed(receiver, turn))).is_empty());
+    let due = app
+        .thread(&ThreadId::new(receiver))
+        .and_then(|model| model.due_command())
+        .cloned()
+        .expect("queued status editor");
+    let operation = due.operation().clone();
+    run(
+        app,
+        AppEv::Intent(Intent::Feature(
+            settings::Intent::OpenQueuedStatusLine(operation.clone()).into(),
+        )),
+    );
+    assert_eq!(
+        app.wishes()
+            .pending()
+            .last()
+            .and_then(|wish| wish.queue_operation.as_ref()),
+        Some(&operation),
+    );
+    assert!(
+        app.thread(&ThreadId::new(receiver))
+            .unwrap()
+            .due_command()
+            .is_none()
+    );
+    operation
+}
+
+fn modal_receipt(app: &mut CodexApp, receiver: &str, event: QueueEvent) -> AppFx {
+    run(
+        app,
+        AppEv::Intent(Intent::ThreadScreen {
+            thread: ThreadId::new(receiver),
+            intent: ScreenThreadIntent::Chat(chat::ThreadIntent::QueueEvent(event)),
+        }),
+    )
+}
+
+fn saved_status(operation: QueueOperation) -> QueueEvent {
+    QueueEvent::ModalFinished {
+        operation,
+        accepted: Some(Box::new(FeatureIntent::from(settings::Intent::Request(
+            settings::Edit::SetupSaved {
+                kind: settings::SetupKind::StatusLine,
+                items: vec!["model".to_owned()],
+                use_theme_colors: false,
+            },
+        )))),
+    }
+}
+
+fn config_writes(fx: &AppFx) -> usize {
+    fx.commands()
+        .iter()
+        .filter(|command| {
+            matches!(
+                command,
+                Command::Effect {
+                    ask: Ask::ConfigWrite { .. },
+                    ..
+                }
+            )
+        })
+        .count()
+}
+
+#[test]
+fn an_unopened_modal_releases_its_queue_without_applying_a_selection() {
+    let mut app = running();
+    tab(&mut app, "/statusline", false);
+    tab(&mut app, "after the failed opening", false);
+    let operation = drain_to_status_line(&mut app, T, "turn-1");
+    assert!(started_texts(&intent(&mut app, chat::ThreadIntent::QueueResume)).is_empty());
+
+    let closed = modal_receipt(&mut app, T, saved_status(operation.clone()));
+    assert_eq!(config_writes(&closed), 0);
+    assert_eq!(started_texts(&closed), ["after the failed opening"]);
+    assert!(
+        modal_receipt(&mut app, T, saved_status(operation))
+            .commands()
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_modal_result_only_settles_the_queue_of_its_original_thread() {
+    const B: &str = "thread-2";
+    let mut app = running();
+    tab(&mut app, "/statusline", false);
+    tab(&mut app, "for the original thread", false);
+    let original = drain_to_status_line(&mut app, T, "turn-1");
+    modal_receipt(&mut app, T, QueueEvent::ModalOpened(original.clone()));
+    assert!(started_texts(&notify(&mut app, lost(T))).is_empty());
+    assert!(started_texts(&notify(&mut app, restored(T))).is_empty());
+
+    open_listed_thread(&mut app, B);
+    notify(&mut app, turn_started(B, "second-turn"));
+    for text in ["/statusline", "for the second thread"] {
+        run(
+            &mut app,
+            AppEv::Intent(Intent::ThreadScreen {
+                thread: ThreadId::new(B),
+                intent: ScreenThreadIntent::Chat(chat::ThreadIntent::Queue(Queued::of(
+                    UserMessage::text(text),
+                    false,
+                ))),
+            }),
+        );
+    }
+    let second = drain_to_status_line(&mut app, B, "second-turn");
+    modal_receipt(&mut app, B, QueueEvent::ModalOpened(second.clone()));
+
+    let wrong_owner = modal_receipt(&mut app, B, saved_status(original.clone()));
+    assert!(wrong_owner.commands().is_empty());
+    let closed = modal_receipt(&mut app, T, saved_status(original.clone()));
+    assert_eq!(config_writes(&closed), 0);
+    assert_eq!(started_texts(&closed), ["for the original thread"]);
+    assert!(closed.commands().iter().any(|command| {
+        matches!(command, Command::StartTurn {thread, ..} if thread.as_str() == T)
+    }));
+    assert!(
+        modal_receipt(&mut app, T, saved_status(original))
+            .commands()
+            .is_empty()
+    );
+
+    let accepted = modal_receipt(&mut app, B, saved_status(second.clone()));
+    assert_eq!(config_writes(&accepted), 1);
+    assert_eq!(started_texts(&accepted), ["for the second thread"]);
+    assert!(accepted.commands().iter().any(|command| {
+        matches!(command, Command::StartTurn {thread, ..} if thread.as_str() == B)
+    }));
+    assert!(
+        modal_receipt(&mut app, B, saved_status(second))
+            .commands()
+            .is_empty()
+    );
+}
+
+#[test]
+fn returning_to_a_thread_does_not_revive_its_old_modal_choice() {
+    let mut app = running();
+    tab(&mut app, "/statusline", false);
+    tab(&mut app, "after returning", false);
+    let operation = drain_to_status_line(&mut app, T, "turn-1");
+    modal_receipt(&mut app, T, QueueEvent::ModalOpened(operation.clone()));
+
+    open_listed_thread(&mut app, "thread-2");
+    run(
+        &mut app,
+        AppEv::Intent(Intent::OpenThread(ThreadId::new(T))),
+    );
+    assert_eq!(app.session().active, Some(ThreadId::new(T)));
+    assert!(
+        modal_receipt(&mut app, T, QueueEvent::ModalOpened(operation.clone()))
+            .commands()
+            .is_empty()
+    );
+
+    let closed = modal_receipt(&mut app, T, saved_status(operation.clone()));
+    assert_eq!(config_writes(&closed), 0);
+    assert_eq!(started_texts(&closed), ["after returning"]);
+    assert!(
+        modal_receipt(&mut app, T, saved_status(operation))
+            .commands()
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_modal_result_cannot_apply_its_choice_after_transport_replacement() {
+    let mut app = running();
+    tab(&mut app, "/statusline", false);
+    tab(&mut app, "after reattach", false);
+    let operation = drain_to_status_line(&mut app, T, "turn-1");
+    modal_receipt(&mut app, T, QueueEvent::ModalOpened(operation.clone()));
+    let epoch = app.epoch();
+    app.ingest(Ingress::transport_replaced(
+        BackendId::default(),
+        epoch,
+        epoch.next(),
+    ))
+    .expect("the replacement transport");
+    assert_eq!(app.session().active, Some(ThreadId::new(T)));
+
+    let closed = modal_receipt(&mut app, T, saved_status(operation.clone()));
+    assert_eq!(config_writes(&closed), 0);
+    assert!(started_texts(&closed).is_empty());
+    let history = reattach(&mut app);
+    assert_eq!(
+        started_texts(&reply_history(&mut app, history, None)),
+        ["after reattach"]
+    );
+    assert!(
+        modal_receipt(&mut app, T, saved_status(operation))
+            .commands()
+            .is_empty()
     );
 }
 

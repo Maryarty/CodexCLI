@@ -347,6 +347,27 @@ impl ComposerDraft {
         self.0.borrow_mut().clipboard.retire();
     }
 
+    /// Discard a stopped conversation's unsent draft, including the one kept by an open
+    /// search and any attachment or edit that could bring that draft back.
+    pub fn discard(&self, c: &TextEditingController) {
+        {
+            let mut inner = self.0.borrow_mut();
+            inner.elements.clear();
+            inner.seen = None;
+            inner.search = None;
+            inner.search_rev += 1;
+            inner.shell = false;
+            inner.remote = remote::Remote::default();
+            inner.clipboard.retire();
+            inner.prompts.reset_navigation();
+            inner.burst = PasteBurst::default();
+            inner.vim.history.reset();
+        }
+        self.vim_reset_mode(c);
+        self.set_chord(None);
+        c.reset("");
+    }
+
     fn clear_elements(&self) {
         let mut inner = self.0.borrow_mut();
         inner.elements.clear();

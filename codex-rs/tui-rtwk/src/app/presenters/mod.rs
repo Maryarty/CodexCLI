@@ -12,10 +12,11 @@
 //! closes leaves nothing behind. (Two wishes for a scope made in one flush, before its sheet is
 //! mounted, open two sheets; the sheets then show the same page twice, which is harmless.)
 
-use rtwk::app::AppCx;
+use rtwk::app::{AppCx, AppDialog};
 
 use codex_tui_core::app::{AppEv, Intent};
-use codex_tui_core::features::Scope;
+use codex_tui_core::features::{FeatureIntent, Scope};
+use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::select::{
     Intent as SelectIntent, ModelCompletion, ModelResult, QueuedModelShow,
 };
@@ -36,11 +37,19 @@ pub struct Presenters {
     taken_select: u64,
     /// The same for the static pager's documents (`transcript::Directive`).
     taken_pager: u64,
+    queue_dialogs: Vec<(ThreadId, AppDialog<FeatureIntent>)>,
 }
 
 /// Shows the wishes of the features and the sheets the select screen asked for that are waiting
 /// and can be shown now.
 pub fn present(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
+    let active = app.core.session().active.as_ref();
+    app.ui.presenters.queue_dialogs.retain(|(owner, dialog)| {
+        if Some(owner) != active {
+            dialog.close(None);
+        }
+        !dialog.is_closed()
+    });
     present_wishes(app, cx);
     present_shows(app, cx);
     present_pagers(app, cx);
@@ -121,7 +130,7 @@ fn present_shows(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
                                     }),
                                 ))));
                             }
-                            None => queue_model_picker(app, operation, QueueEvent::PickerClosed),
+                            None => queue_receipt(app, operation, QueueEvent::PickerClosed),
                         },
                     );
                     !dialog.is_closed()
@@ -151,15 +160,15 @@ fn present_shows(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
         ))));
         if let Some(operation) = operation {
             if opened {
-                queue_model_picker(app, operation, QueueEvent::PickerOpened);
+                queue_receipt(app, operation, QueueEvent::PickerOpened);
             } else {
-                queue_model_picker(app, operation, QueueEvent::PickerClosed);
+                queue_receipt(app, operation, QueueEvent::PickerClosed);
             }
         }
     }
 }
 
-fn queue_model_picker(
+fn queue_receipt(
     app: &mut UiApp,
     operation: QueueOperation,
     receipt: impl FnOnce(QueueOperation) -> QueueEvent,
@@ -182,15 +191,25 @@ fn present_wishes(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
                 wish.seq,
                 wish.wish.clone(),
                 wish.scope.clone(),
+                wish.queue_operation.clone(),
                 crate::features::shown(&wish.wish, &wish.scope),
             )
         })
         .collect();
-    for (seq, wish, scope, shown) in wishes {
+    for (seq, wish, scope, operation, shown) in wishes {
+        if let Some(operation) = &operation
+            && app.core.session().active.as_ref() != Some(operation.thread())
+        {
+            finish_queue_modal(app, operation.clone(), None);
+            app.ui.presenters.taken = seq;
+            app.send(AppEv::Intent(Intent::WishShown(seq)));
+            continue;
+        }
         // `/copy` on the chat's own transcript is copy mode, not a sheet (`show_copy_picker`):
         // the picker is for a transcript the chat does not own, or where Find or another mode
         // holds the keys (`FeatureView::in_place`)
-        if app.core.tui().transcript_owned
+        if operation.is_none()
+            && app.core.tui().transcript_owned
             && let Scope::Thread(thread) = &scope
         {
             match crate::features::in_place(&wish, &app.ui.thread_ui.get(Some(thread))) {
@@ -216,17 +235,43 @@ fn present_wishes(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
                 return;
             };
             let open = shown.open.clone();
-            let dialog = cx.show_dialog_from::<()>(
-                place,
-                move |_| open(),
-                shown.options,
-                |_app, _answer, _cx| {},
-            );
-            if dialog.is_closed() {
-                return;
+            if let Some(operation) = operation {
+                let opened = operation.clone();
+                let dialog = cx.show_dialog_from::<FeatureIntent>(
+                    place,
+                    move |_| open(),
+                    shown.options,
+                    move |app, answer, _| finish_queue_modal(app, operation, answer),
+                );
+                if !dialog.is_closed() {
+                    app.ui
+                        .presenters
+                        .queue_dialogs
+                        .push((opened.thread().clone(), dialog));
+                    queue_receipt(app, opened, QueueEvent::ModalOpened);
+                }
+            } else {
+                let dialog = cx.show_dialog_from::<()>(
+                    place,
+                    move |_| open(),
+                    shown.options,
+                    |_app, _answer, _cx| {},
+                );
+                if dialog.is_closed() {
+                    return;
+                }
             }
+        } else if let Some(operation) = operation {
+            finish_queue_modal(app, operation, None);
         }
         app.ui.presenters.taken = seq;
         app.send(AppEv::Intent(Intent::WishShown(seq)));
     }
+}
+
+fn finish_queue_modal(app: &mut UiApp, operation: QueueOperation, answer: Option<FeatureIntent>) {
+    queue_receipt(app, operation, |operation| QueueEvent::ModalFinished {
+        operation,
+        accepted: answer.map(Box::new),
+    });
 }

@@ -101,6 +101,7 @@ mod viewed_image_disclosure {
             name: "example.png".into(),
             path: PATH.into(),
             detailed,
+            raw: false,
         }
     }
 
@@ -1520,7 +1521,9 @@ mod delegated_and_generated {
                 failed,
                 detail: detail.into(),
                 saved_to: saved.map(str::to_owned),
+                saved_path: None,
             }),
+            raw: false,
         });
         t
     }
@@ -3195,6 +3198,7 @@ mod text_contract {
             Item::Note(note) => note::NoteCell { note: note.clone() }.into(),
             Item::Generated(image) => generated_image::GeneratedImageCell {
                 image: image.clone(),
+                raw: false,
             }
             .into(),
             Item::Web(activity) => web::WebCell {
@@ -3206,6 +3210,7 @@ mod text_contract {
                 name: name.clone(),
                 path: path.clone(),
                 detailed,
+                raw: false,
             }
             .into(),
             other => panic!("no widget in this test for {other:?}"),
@@ -3947,11 +3952,13 @@ mod text_contract {
             failed: false,
             detail: "a red fox".into(),
             saved_to: Some("file:///tmp/fox.png".into()),
+            saved_path: Some("/tmp/fox.png".into()),
         })));
         agrees(Item::Generated(Arc::new(GeneratedImage {
             failed: true,
             detail: "no quota".into(),
             saved_to: None,
+            saved_path: None,
         })));
     }
 

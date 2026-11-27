@@ -12,6 +12,7 @@ use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
 use rtwk_core::unicode::grapheme_boundaries;
 
 use codex_tui_core::app::effects::CopyFormat;
+use codex_tui_core::features::FeatureIntent;
 use codex_tui_core::features::copy::{Intent, Response, strip_line_directives};
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::status::StatusCard;
@@ -21,7 +22,6 @@ use super::strings::{
     STATUS_THREAD_NAME, WHOLE_RESPONSE, WHOLE_STATUS, code_in,
 };
 use super::targets::{self, Target};
-use crate::features::verb;
 use crate::pages::session::cells::status::StatusCell;
 use crate::widgets::picker::list::{Columns, Item, List};
 use crate::widgets::picker::{Event, Picker};
@@ -184,7 +184,7 @@ impl State for PickerState {
 
     fn update(&mut self, msg: Msg, w: &CopyPicker, cx: &mut Cx<'_, Self>) -> Rebuild {
         let Msg::Picked(event) = msg;
-        match event {
+        let outcome = match event {
             Event::Choose(id) => {
                 let picked = id
                     .parse::<usize>()
@@ -210,12 +210,12 @@ impl State for PickerState {
                         label: label.clone(),
                     },
                 };
-                verb(cx, intent);
+                Some(intent.into())
             }
-            Event::Cancel => {}
+            Event::Cancel => None,
             _ => return Rebuild::No,
-        }
-        close_dialog::<_, ()>(cx, None);
+        };
+        close_dialog::<_, FeatureIntent>(cx, outcome);
         Rebuild::No
     }
 

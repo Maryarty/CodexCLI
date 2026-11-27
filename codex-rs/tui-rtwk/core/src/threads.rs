@@ -1281,6 +1281,8 @@ pub struct ThreadCore {
     /// A queued command the screen has to run (and report with `ThreadIntent::QueueEvent`): the
     /// queue waits for the answer.
     due: Option<DueCommand>,
+    /// The modal operations that still hold queued input.
+    queue_modals: BTreeMap<u64, queue::ModalPhase>,
     /// Steers sent to the running turn and not yet echoed, oldest first.
     pending_steers: Vec<PendingSteer>,
     /// Steers the server refused (a review or compact turn): they go out first
@@ -1494,6 +1496,7 @@ impl ThreadModel {
                 recorded: None,
                 queue: Vec::new(),
                 due: None,
+                queue_modals: BTreeMap::new(),
                 pending_steers: Vec::new(),
                 rejected_steers: Vec::new(),
                 steers_after_interrupt: false,
@@ -1800,6 +1803,7 @@ pub struct ThreadFx<'a> {
     /// The server's collaboration-mode presets at this moment (the app's fact, stamped per
     /// event by `apply_thread`): what a switch of the mode chooses from.
     modes: &'a [screens::select::collaboration::Mask],
+    plan_effort: Option<&'a codex_protocol::openai_models::ReasoningEffort>,
     /// The thread's backend uses native admission, with exact live receipts.
     cloud: bool,
     /// The app's facts at this moment (the clock the host told, the account, the `[tui]`
@@ -1822,6 +1826,7 @@ impl<'a> ThreadFx<'a> {
             prompt_priority: screens::chat::plan_mode::PromptPriority::Ordinary,
             daybreak: Daybreak::Apply,
             modes: &[],
+            plan_effort: None,
             cloud: false,
             facts: None,
             image_restrictions: None,
@@ -1884,14 +1889,23 @@ impl<'a> ThreadFx<'a> {
     }
 
     /// The same, with the collaboration-mode presets of the moment.
-    pub(crate) fn with_modes(mut self, modes: &'a [screens::select::collaboration::Mask]) -> Self {
+    pub(crate) fn with_modes(
+        mut self,
+        modes: &'a [screens::select::collaboration::Mask],
+        plan_effort: Option<&'a codex_protocol::openai_models::ReasoningEffort>,
+    ) -> Self {
         self.modes = modes;
+        self.plan_effort = plan_effort;
         self
     }
 
     /// The server's collaboration-mode presets (empty until read).
     pub(crate) fn modes(&self) -> &[screens::select::collaboration::Mask] {
         self.modes
+    }
+
+    pub(crate) fn plan_effort(&self) -> Option<&codex_protocol::openai_models::ReasoningEffort> {
+        self.plan_effort
     }
 
     /// A turn start was said in this step and its ticket is not in the model yet.
@@ -2963,11 +2977,22 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                         model.last_error = Some(Failure::from(error));
                     }
                 }
-                (ThreadCtx::Screen(ctx), Answer::Screen(reply)) => {
-                    screens::apply_reply(&mut model.slots, ctx, Ok(reply), fx);
-                }
-                (ThreadCtx::Screen(ctx), Answer::Failed(error)) => {
-                    screens::apply_reply(&mut model.slots, ctx, Err(error), fx);
+                (ThreadCtx::Screen(ctx), answer @ (Answer::Screen(_) | Answer::Failed(_))) => {
+                    let operation = match &ctx {
+                        ScreenCtx::Chat(screens::chat::Ctx::PlanEffort { operation, .. }) => {
+                            operation.clone()
+                        }
+                        _ => None,
+                    };
+                    let result = match answer {
+                        Answer::Screen(reply) => Ok(reply),
+                        Answer::Failed(error) => Err(error),
+                        _ => unreachable!(),
+                    };
+                    screens::apply_reply(&mut model.slots, ctx, result, fx);
+                    if let Some(operation) = operation {
+                        finish_plan_effort_pick(model, operation, fx);
+                    }
                 }
                 (ThreadCtx::Feature(ctx), Answer::Feature(reply)) => {
                     feature_reply(model, ctx, Ok(reply), fx);
@@ -3018,10 +3043,22 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             let message = UserMessage::text(screens::chat::plan_mode::IMPLEMENT_MESSAGE);
             apply_ev(model, ThreadEv::Submit { message }, fx);
         }
-        // `/plan`, with the preset the app chose.
+        // `/plan`, with the preset the app chose, or a settled Plan reasoning change.
         ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(screens::chat::ThreadIntent::SetMask(
-            mask,
-        ))) if model.has_writer() => switch_mode(model, &mask, fx),
+            change,
+        ))) if model.has_writer() => match change {
+            screens::select::collaboration::Change::Preset(mask) => switch_mode(model, &mask, fx),
+            screens::select::collaboration::Change::PlanEffort {
+                effort,
+                scope,
+                operation,
+            } => {
+                model
+                    .slots
+                    .chat
+                    .set_plan_effort(effort, scope, operation, fx);
+            }
+        },
         // Shift+Tab (`cycle_collaboration_mode`): the next preset of the server's list, while no
         // turn runs and none is about to start.
         ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
@@ -3062,7 +3099,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         // The model picker can settle a command already issued while its writer is detached.
         // The queue gate waits for the writer before it sends the next line.
         ThreadEv::ScreenIntent(intent)
-            if model.has_writer() || queue::is_model_picker_settlement(&intent) =>
+            if model.has_writer() || queue::is_queue_settlement(&intent) =>
         {
             if let Err(intent) = queue::apply(model, intent, fx) {
                 let busy = model.is_running() || model.outgoing.any(is_start_turn);
@@ -3591,6 +3628,17 @@ fn switch_mode(
         let note = Note::from(NoteKey::Mode(ModeNote::ModelChanged(change)));
         apply_appended(model, None, Item::Note(note));
     }
+}
+
+fn finish_plan_effort_pick(
+    model: &mut ThreadModel,
+    operation: queue::QueueOperation,
+    fx: &mut ThreadFx<'_>,
+) {
+    let intent = ScreenThreadIntent::Chat(screens::chat::ThreadIntent::QueueEvent(
+        queue::QueueEvent::ModelApplied(operation),
+    ));
+    apply_ev(model, ThreadEv::ScreenIntent(intent), fx);
 }
 
 /// Messages back to the composer (`restore_composer_state`).

@@ -99,16 +99,25 @@ pub struct Rewrite {
     pub prompt: String,
 }
 
+/// A live review identifies both the failed turn and its version of the findings.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReviewId {
+    turn: TurnId,
+    revision: u64,
+}
+
 /// The findings of a misalignment failure and the way to continue after them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Review {
-    /// Names this review: a verb that carries another number is stale and does nothing.
-    pub seq: u64,
-    pub turn: TurnId,
+    id: ReviewId,
     details: MisalignmentErrorDetails,
 }
 
 impl Review {
+    pub fn id(&self) -> &ReviewId {
+        &self.id
+    }
+
     /// What was detected, for the findings page (markdown).
     pub fn findings(&self) -> &str {
         self.details
@@ -184,11 +193,16 @@ impl Safety {
     }
 
     /// Whether `review` is the one on screen: a stale verb must not authorize a turn.
-    pub fn is_current(&self, review: u64) -> bool {
+    pub fn is_current(&self, review: &ReviewId) -> bool {
+        self.current_review(review).is_some()
+    }
+
+    fn current_review(&self, id: &ReviewId) -> Option<&Review> {
         self.violation
+            .as_ref()?
+            .review
             .as_ref()
-            .and_then(|violation| violation.review.as_ref())
-            .is_some_and(|current| current.seq == review)
+            .filter(|review| review.id() == id)
     }
 
     /// The retry the app has to carry out.
@@ -238,7 +252,7 @@ pub enum Verb {
     /// Start a new chat from the rewrite `prompt` offered for the blocked `turn`.
     Rewrite { turn: TurnId, prompt: String },
     /// Acknowledge the findings of `review` and continue with the server's instruction.
-    Continue { review: u64 },
+    Continue { review: ReviewId },
     /// The app took the retry or the rewrite it was asked for.
     Taken,
 }
@@ -550,8 +564,10 @@ fn stop(model: &mut ThreadModel, turn: Option<TurnId>, details: Option<Misalignm
     let safety = &mut core.safety;
     safety.reviews += 1;
     let review = turn.clone().zip(details).map(|(turn, details)| Review {
-        seq: safety.reviews,
-        turn,
+        id: ReviewId {
+            turn,
+            revision: safety.reviews,
+        },
         details,
     });
     safety.violation = Some(Violation { turn, review });
@@ -608,15 +624,16 @@ fn verb_applied(model: &mut ThreadModel, verb: Verb, fx: &mut ThreadFx<'_>) {
             let current = model
                 .core
                 .safety
-                .violation
-                .as_ref()
-                .and_then(|violation| violation.review.as_ref())
-                .filter(|current| current.seq == review)
-                .filter(|current| last_turn(model).is_none_or(|last| last == current.turn));
+                .current_review(&review)
+                .filter(|_| last_turn(model).is_none_or(|last| last == review.turn));
             let Some(message) = current.and_then(Review::continuation).map(str::to_owned) else {
                 return;
             };
-            if model.is_running() || model.core.outgoing.any(super::is_start_turn) {
+            if !model.has_writer()
+                || model.slots.chat.parent_owned
+                || model.is_running()
+                || model.core.outgoing.any(super::is_start_turn)
+            {
                 return;
             }
             // The turn that went wrong is not sent again: the instruction goes as a new turn with

@@ -316,6 +316,8 @@ pub struct GeneratedImage {
     pub failed: bool,
     pub detail: String,
     pub saved_to: Option<String>,
+    /// The host lookup uses the original path, independent of its display spelling.
+    pub saved_path: Option<String>,
 }
 
 /// The namespaces and tools whose output carries a delegated message
@@ -469,6 +471,10 @@ pub(super) fn entry(payload: &ThreadItemPayload, completed: bool) -> Option<(Ite
                     .saved_path
                     .as_ref()
                     .map(|path| file_url(&path.as_path().to_string_lossy())),
+                saved_path: image
+                    .saved_path
+                    .as_ref()
+                    .map(|path| path.as_path().to_string_lossy().into_owned()),
             })),
         ),
         _ => return None,

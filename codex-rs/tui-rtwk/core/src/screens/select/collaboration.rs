@@ -13,6 +13,11 @@ use codex_app_server_protocol::{
 use codex_protocol::config_types::{CollaborationMode, ModeKind, Settings};
 use codex_protocol::openai_models::ReasoningEffort;
 
+use crate::ids::{BackendId, ThreadId, Ticket};
+use crate::threads::queue::QueueOperation;
+
+use super::models::{PlanSource, Selection};
+
 pub use codex_protocol::config_types::CollaborationModeMask as Mask;
 
 /// `collaborationMode/list`.
@@ -77,6 +82,47 @@ pub fn default_mode_mask(catalog: &[Mask]) -> Option<Mask> {
 /// The Plan preset (`plan_mask`).
 pub fn plan_mask(catalog: &[Mask]) -> Option<Mask> {
     mask_for_kind(catalog, ModeKind::Plan)
+}
+
+/// What can change the thread's mode settings.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Change {
+    Preset(Mask),
+    PlanEffort {
+        effort: Option<ReasoningEffort>,
+        scope: ReasoningScope,
+        operation: Option<QueueOperation>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReasoningScope {
+    Session,
+    PlanOnly,
+    AllModes,
+}
+
+/// An accepted scope choice awaiting its backend's configuration write.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlanWrite {
+    pub(crate) thread: ThreadId,
+    pub(crate) backend: BackendId,
+    pub(crate) issued: Ticket,
+    pub(crate) selection: Selection,
+    pub(crate) operation: Option<QueueOperation>,
+}
+
+/// The accepted Plan override or the catalog preset underneath it.
+pub(crate) fn plan_source(
+    override_effort: Option<&ReasoningEffort>,
+    mask: Option<&Mask>,
+) -> PlanSource {
+    if let Some(effort) = override_effort {
+        return PlanSource::Override(effort.clone());
+    }
+    mask.map_or(PlanSource::Unknown, |mask| {
+        PlanSource::Default(mask.reasoning_effort.clone().flatten())
+    })
 }
 
 /// The preset after the one of `current`, in list order (Shift+Tab); the first one when
@@ -155,9 +201,7 @@ pub fn effective(
         mode: mask.mode.unwrap_or(ModeKind::Default),
         settings: Settings {
             model: mask.model.unwrap_or_else(|| base.model.clone()),
-            reasoning_effort: mask
-                .reasoning_effort
-                .unwrap_or_else(|| base.effort.clone()),
+            reasoning_effort: mask.reasoning_effort.unwrap_or_else(|| base.effort.clone()),
             developer_instructions: mask.developer_instructions.unwrap_or(None),
         },
     }

@@ -31,6 +31,7 @@ pub mod view;
 use crate::l10n::Lang;
 use crate::pages::session::transcript::copy::CopyLog;
 use crate::services::shell;
+pub(crate) use crate::services::shell::finish_route as finish_request_route;
 use crate::sheets::presenter;
 use crate::sheets::presenter::Presenter;
 use crate::widgets::thread_ui::ThreadUiMap;

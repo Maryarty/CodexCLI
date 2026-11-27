@@ -19,7 +19,7 @@ fn row_of(s: &Screen, text: &str) -> usize {
 const SAFETY_HEADER: &str = "Giving this request a little extra thought";
 
 // Reasons shared by several tests (what the chat screen does not have yet).
-const SAFETY_PENDING: &str = "no safety-buffering state on the chat screen: model/safetyBuffering/updated is not applied, so no retry prompt, learn-more link or retry confirmation is drawn";
+const SAFETY_PENDING: &str = "the typed retry request has no backend consumer for the verified interrupt, history check, and fork before the checked turn";
 
 /// Frame size of an oracle snapshot: its width as the oracle test sets it, its rows as stored.
 fn oracle_size(name: &str, width: u16) -> (u16, u16) {
@@ -595,20 +595,38 @@ fn safety_buffering_retry_confirmation_closes_when_turn_completes() {
 // ORACLE chatwidget/tests/app_server.rs:420 safety_buffering_does_not_offer_retry_in_side_conversation kind=snap owner=chat-live snap=safety_buffering_side_conversation_without_retry
 #[test]
 fn safety_buffering_does_not_offer_retry_in_side_conversation() {
-    kit::pending(
-        Owner::ChatLive,
-        "no safety-buffering state and no side-conversation state on the chat screen: the notice is not drawn, and a side conversation has no feed step",
-    );
     let (w, h) = oracle_size("safety_buffering_side_conversation_without_retry", 80);
-    let mut s = Screen::build(Owner::ChatLive).size(w, h).live().open();
-    s.feed(&turn_started("turn-safety-buffering"));
-    s.feed(&safety_buffering(
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(w, h + 5)
+        .live()
+        .side()
+        .open();
+    let of_side = |step: String| step.replace("\"thread-1\"", &format!("\"{}\"", kit::SIDE_THREAD));
+    s.feed(&of_side(turn_started("turn-safety-buffering")));
+    s.feed(&of_side(safety_buffering(
         "turn-safety-buffering",
         true,
         Some("faster-model"),
-    ));
-    // oracle: in a side conversation the notice is drawn without the retry option.
-    s.assert_snap("safety_buffering_side_conversation_without_retry");
+    )));
+    s.assert_contains(SAFETY_HEADER);
+    s.assert_contains("Dismiss and keep waiting");
+    s.assert_contains("Learn more");
+    s.assert_absent("Retry with a faster model");
+    s.double_click_text("Learn more");
+    kit::assert_same(
+        s.opened_urls().len(),
+        1,
+        "a double click opens the help page once",
+    );
+    s.click_text("Dismiss and keep waiting");
+    s.assert_contains("Dismiss and keep waiting");
+    s.click_text("Dismiss and keep waiting");
+    s.assert_absent("Dismiss and keep waiting");
+    s.assert_contains("Working");
+    s.assert_contains(SAFETY_HEADER);
+    s.assert_no_turn();
+    s.assert_interrupts(0);
+    s.assert_active_thread(kit::SIDE_THREAD);
 }
 
 // ORACLE chatwidget/tests/app_server.rs:439 safety_buffering_retry_confirmation_closes_when_response_starts kind=ui owner=chat-live
@@ -646,29 +664,54 @@ fn safety_buffering_retry_confirmation_closes_when_response_starts() {
 // ORACLE chatwidget/tests/app_server.rs:482 safety_buffering_without_retry_shows_short_app_message kind=snap owner=chat-live snap=safety_buffering_status_without_retry
 #[test]
 fn safety_buffering_without_retry_shows_short_app_message() {
-    kit::pending(Owner::ChatLive, SAFETY_PENDING);
     let (w, h) = oracle_size("safety_buffering_status_without_retry", 80);
-    let mut s = Screen::build(Owner::ChatLive).size(w, h).live().open();
+    let mut s = Screen::build(Owner::ChatLive).size(w, h + 5).live().open();
     s.feed(&turn_started("turn-safety-buffering"));
     s.feed(&safety_buffering("turn-safety-buffering", true, None));
-    s.assert_snap("safety_buffering_status_without_retry");
+    let expected = kit::snap_rows("safety_buffering_status_without_retry", "");
+    for row in expected.iter().filter(|row| !row.trim().is_empty()) {
+        s.assert_has_row(row);
+    }
     let popup = s.shot();
-    // oracle: the same turn with a faster model, sent again, leaves the short message as it is.
+    // An external turn cannot be retried even if a later update names a faster model.
     s.feed(&safety_buffering(
         "turn-safety-buffering",
         true,
         Some("faster-model"),
     ));
     s.assert_same_rows(&popup);
-    s.keys("enter");
-    s.assert_absent("Press enter to confirm or esc to go back");
+    s.keys("down enter");
+    kit::assert_same(
+        s.opened_urls(),
+        vec!["https://help.openai.com/en/articles/20001326".to_owned()],
+        "Learn more opens the published help URL",
+    );
+    s.keys("up");
+    s.assert_same_rows(&popup);
+    s.keys("esc");
+    s.assert_absent("Dismiss and keep waiting");
+    s.assert_contains("Working");
+    s.assert_contains(SAFETY_HEADER);
+    s.feed(&safety_buffering("turn-safety-buffering", true, None));
+    s.assert_absent("Dismiss and keep waiting");
+    s.feed(&agent_delta("turn-safety-buffering", "Visible response"));
+    s.assert_absent(SAFETY_HEADER);
+    s.assert_contains("Visible response");
+    s.feed(&safety_buffering("turn-safety-buffering", true, None));
+    s.assert_absent(SAFETY_HEADER);
+    s.assert_no_turn();
+    s.assert_interrupts(0);
 }
 
 // ORACLE chatwidget/tests/app_server.rs:522 safety_buffering_ignores_hidden_stale_and_historical_updates kind=ui owner=chat-live
 #[test]
 fn safety_buffering_ignores_hidden_stale_and_historical_updates() {
-    kit::pending(Owner::ChatLive, SAFETY_PENDING);
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    s.feed(&safety_buffering(
+        "completed-turn",
+        true,
+        Some("faster-model"),
+    ));
     s.feed(&turn_started("turn-safety-buffering"));
     s.feed(&safety_buffering(
         "turn-safety-buffering",
@@ -676,7 +719,6 @@ fn safety_buffering_ignores_hidden_stale_and_historical_updates() {
         Some("faster-model"),
     ));
     s.feed(&safety_buffering("stale-turn", true, Some("faster-model")));
-    // oracle: a hidden update and a stale turn draw nothing; the historical (replayed) update has no feed step yet.
     s.assert_absent(SAFETY_HEADER);
     s.feed(&safety_buffering(
         "turn-safety-buffering",
@@ -684,14 +726,28 @@ fn safety_buffering_ignores_hidden_stale_and_historical_updates() {
         Some("faster-model"),
     ));
     s.assert_contains(SAFETY_HEADER);
-    s.keys("enter");
     s.feed(&safety_buffering(
         "turn-safety-buffering",
         false,
         Some("faster-model"),
     ));
     s.assert_absent(SAFETY_HEADER);
-    s.assert_absent("Stop this attempt and retry?");
+    s.feed(&safety_buffering(
+        "turn-safety-buffering",
+        true,
+        Some("faster-model"),
+    ));
+    s.assert_contains(SAFETY_HEADER);
+    s.feed(&turn_completed("turn-safety-buffering", "completed", "[]"));
+    s.assert_absent(SAFETY_HEADER);
+    s.feed(&safety_buffering(
+        "turn-safety-buffering",
+        true,
+        Some("faster-model"),
+    ));
+    s.assert_absent(SAFETY_HEADER);
+    s.assert_no_turn();
+    s.assert_interrupts(0);
 }
 
 // ORACLE chatwidget/tests/app_server.rs:575 tool_suggestion_install_url_is_validated_before_opening kind=snap owner=chat-live snap=declined_tool_suggestion

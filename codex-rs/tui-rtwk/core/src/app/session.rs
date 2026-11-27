@@ -430,7 +430,7 @@ fn plan_on(
     prompt: Option<String>,
     fx: &mut AppFx,
 ) {
-    use crate::screens::select::collaboration::plan_mask;
+    use crate::screens::select::collaboration::{Change, plan_mask};
     use crate::threads::ModeNote;
     let refusal = if !app.screens.chat.flags.collaboration_modes_enabled {
         Some(ModeNote::Disabled)
@@ -455,8 +455,9 @@ fn plan_on(
         return;
     }
     if let Some(mask) = plan_mask(&app.modes) {
-        let set =
-            ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(chat::ThreadIntent::SetMask(mask)));
+        let set = ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(chat::ThreadIntent::SetMask(
+            Change::Preset(mask),
+        )));
         apply_thread(app, &thread, set, fx);
     }
     if let Some(prompt) = prompt {

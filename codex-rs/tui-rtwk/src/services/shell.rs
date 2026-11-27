@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use rtwk::app::AppCx;
+use rtwk::overlay::DialogResult;
 use rtwk_tokio::TokioApp;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
@@ -306,6 +307,15 @@ async fn ambient(
             }
         }
     }
+}
+
+/// Delivers one native navigator route's close receipt to its presenter.
+pub(crate) fn finish_route(
+    cx: &mut AppCx<'_, '_, UiApp>,
+    result: DialogResult<()>,
+    closed: impl FnOnce(&mut UiApp, Option<()>, &mut AppCx<'_, '_, UiApp>) + 'static,
+) {
+    cx.spawn(result, closed);
 }
 
 /// Runs the effects of one `apply_app` call.
