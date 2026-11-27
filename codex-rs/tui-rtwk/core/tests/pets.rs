@@ -264,6 +264,42 @@ mod live {
     }
 
     #[test]
+    fn a_late_boot_asset_cannot_reactivate_a_disabled_pet() {
+        use std::sync::Arc;
+
+        use codex_tui_core::screens::pets::{Ambient, Anchor, Clip};
+
+        let mut app = CodexApp::default();
+        let boot = asked(
+            &act(&mut app, PetIntent::FetchAmbient),
+            AssetAsk::Ambient { selector: None },
+        );
+        no_pet_ask(&act(&mut app, PetIntent::FetchAmbient));
+
+        let disable = asked(
+            &request(&mut app, Visit::fresh(), Some("off"), true),
+            AssetAsk::Save {
+                selector: DISABLED.into(),
+            },
+        );
+        no_pet_ask(&answer(&mut app, disable, AssetDone::Saved(Ok(()))));
+        let asset = Ambient {
+            size: ImageSize {
+                width: 192,
+                height: 208,
+            },
+            anchor: Anchor::Composer,
+            clips: std::array::from_fn(|_| Clip {
+                data: Arc::new([]),
+                until_idle: None,
+            }),
+        };
+        answer(&mut app, boot, AssetDone::Ambient(Some(Arc::new(asset))));
+        assert!(app.features().pets.ambient().is_none());
+        assert_eq!(app.features().pets.selected(), Some(DISABLED));
+    }
+
+    #[test]
     fn preview_results_cannot_fill_a_newer_visit_or_a_repeated_selector() {
         let mut app = CodexApp::default();
         let visit = open(&mut app, None);

@@ -180,3 +180,85 @@ fn encode(sheet: &RgbaImage, grid: Grid, animation: &Timeline, budget: usize) ->
             .then(|| Duration::from_millis(elapsed * u64::from(animation.plays))),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use super::*;
+
+    #[test]
+    fn ambient_apng_contains_each_stock_frame_once_with_three_plays() -> Result<()> {
+        let grid = Grid {
+            width: 8,
+            height: 8,
+            ..Grid::default()
+        };
+        let mut sheet = RgbaImage::new(grid.width * grid.columns, grid.height * grid.rows);
+        for frame in 0..grid.columns * grid.rows {
+            let red = u8::try_from(frame)?;
+            let tile =
+                RgbaImage::from_pixel(grid.width, grid.height, image::Rgba([red, 0, 255, 255]));
+            imageops::replace(
+                &mut sheet,
+                &tile,
+                i64::from(frame % grid.columns * grid.width),
+                i64::from(frame / grid.columns * grid.height),
+            );
+        }
+        let timeline = timeline(&Manifest::default(), grid, Motion::Running)?;
+        let clip = encode(&sheet, grid, &timeline, MAX_ENCODED)?;
+        assert_eq!(clip.until_idle, Some(Duration::from_millis(2460)));
+        let mut reader = png::Decoder::new(Cursor::new(&*clip.data)).read_info()?;
+        let control = reader
+            .info()
+            .animation_control
+            .context("expected APNG control")?;
+        assert_eq!((control.num_frames, control.num_plays), (6, 3));
+        let mut rgba = vec![0; reader.output_buffer_size().context("expected buffer")?];
+        for (frame, expected_delay) in timeline.frames {
+            reader.next_frame(&mut rgba)?;
+            let control = reader
+                .info()
+                .frame_control
+                .context("expected APNG frame control")?;
+            assert_eq!(
+                (control.delay_num, control.delay_den),
+                (expected_delay, 1000)
+            );
+            assert_eq!(rgba[0], u8::try_from(frame)?);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn ambient_manifest_custom_loop_and_reduced_motion_have_distinct_deadlines() -> Result<()> {
+        let manifest: Manifest = serde_json::from_str(
+            r#"{"animations":{"idle":{"frames":[3,1],"fps":8,"loop":true}}}"#,
+        )?;
+        let grid = Grid {
+            width: 1,
+            height: 1,
+            ..Grid::default()
+        };
+        let sheet = RgbaImage::new(grid.width * grid.columns, grid.height * grid.rows);
+        let mut timeline = timeline(&manifest, grid, Motion::Idle)?;
+        assert_eq!(timeline.frames, [(3, 125), (1, 125)]);
+        let animated = encode(&sheet, grid, &timeline, MAX_ENCODED)?;
+        let reader = png::Decoder::new(Cursor::new(&*animated.data)).read_info()?;
+        let control = reader
+            .info()
+            .animation_control
+            .context("expected APNG control")?;
+        assert_eq!((control.num_frames, control.num_plays), (2, 0));
+        assert_eq!(animated.until_idle, None);
+
+        timeline.frames.truncate(1);
+        let still = encode(&sheet, grid, &timeline, MAX_ENCODED)?;
+        let reader = png::Decoder::new(Cursor::new(&*still.data)).read_info()?;
+        assert!(reader.info().animation_control.is_none());
+        assert_eq!(still.until_idle, None);
+        assert!(encode(&sheet, grid, &timeline, 1).is_err());
+        Ok(())
+    }
+}
