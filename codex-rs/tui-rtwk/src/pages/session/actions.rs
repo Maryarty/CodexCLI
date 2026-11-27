@@ -113,7 +113,6 @@ pub(super) fn run(
     if !drained && line.trim().is_empty() && w.ui.draft.remote_count() == 0 {
         return;
     }
-    // the composer is emptied for a line it sent, not for one the queue ran
     let clear_sent = |ui: &_| {
         if !drained {
             clear_sent(ui);
@@ -123,7 +122,6 @@ pub(super) fn run(
     let thread = read::<ThreadModel, _>(cx);
     let session = read::<SessionSlice, _>(cx);
     let source = super::thread_address(&thread);
-    // the commands the current model's service tiers add (`/fast`)
     let thread_model = thread.screen_slots().chat.model.clone();
     let tiers = codex_tui_core::screens::chat::facts::tier_commands(
         &states.chat.status,
@@ -132,7 +130,9 @@ pub(super) fn run(
         &states.chat.service_tiers,
     );
     let mut flags = states.chat.flags;
-    flags.side_conversation_active = read::<FeatureStates, _>(cx).side.is_side(thread.id());
+    if w.presentation != super::Presentation::Solo {
+        flags.side_conversation_active = read::<FeatureStates, _>(cx).side.is_side(thread.id());
+    }
     flags.service_tier_commands_enabled = !tiers.is_empty();
     let facts = DispatchCx {
         flags,
