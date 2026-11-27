@@ -3585,6 +3585,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-realtime-webrtc"
+version = "0.170.0"
+dependencies = [
+ "anyhow",
+ "codex-build-info",
+ "codex-install-context",
+ "codex-utils-pty",
+ "futures",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "codex-response-debug-context"
 version = "0.170.0"
 dependencies = [
@@ -3711,6 +3726,7 @@ dependencies = [
  "codex-model-provider-info",
  "codex-ollama",
  "codex-protocol",
+ "codex-realtime-webrtc",
  "codex-rollout",
  "codex-state",
  "codex-terminal-detection",
