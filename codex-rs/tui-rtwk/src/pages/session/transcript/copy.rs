@@ -350,13 +350,19 @@ struct PieceId {
     ordinal: usize,
 }
 
+impl Target {
+    fn same_source(&self, other: &Self) -> bool {
+        std::ptr::eq(self, other) || self.label == other.label && self.payload == other.payload
+    }
+}
+
 /// What the pane read of the transcript for the mode.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Targets {
     /// The pieces in the order of the transcript.
-    list: Vec<(PieceId, Target)>,
+    list: Vec<(PieceId, Rc<Target>)>,
     /// The last response as a whole: its payload is the Markdown the copy answers with.
-    pub response: Option<Target>,
+    response: Option<(ItemKey, Rc<Target>)>,
 }
 
 impl Targets {
@@ -421,13 +427,16 @@ impl Targets {
             Item::Agent { text: source, .. } | Item::Plan { text: source } => {
                 let cwd = reading.cwd.unwrap_or("");
                 if let Some(markdown) = (cutter.whole)(source, cwd) {
-                    self.response = Some(Target {
-                        row,
-                        fill: None,
-                        range: first..last,
-                        label: table.copy_whole,
-                        payload: Some(markdown),
-                    });
+                    self.response = Some((
+                        key.clone(),
+                        Rc::new(Target {
+                            row,
+                            fill: None,
+                            range: first..last,
+                            label: table.copy_whole,
+                            payload: Some(markdown),
+                        }),
+                    ));
                 }
                 if !reading.raw {
                     found.extend(rendered_blocks(
@@ -439,24 +448,39 @@ impl Targets {
         }
         found.sort_by_key(|target| (target.range.start, std::cmp::Reverse(target.range.end)));
         self.list
-            .extend(found.into_iter().enumerate().map(|(ordinal, target)| {
+            .extend(found.into_iter().enumerate().map(|(ordinal, mut target)| {
+                // Include the logical displayed text for renderers with no separate source.
+                if target.payload.is_none() {
+                    target.payload = text.get(target.range.clone()).map(str::to_owned);
+                }
                 (
                     PieceId {
                         item: key.clone(),
                         ordinal,
                     },
-                    target,
+                    Rc::new(target),
                 )
             }));
     }
 
     /// The payloads and paint ranges in transcript order.
     pub fn pieces(&self) -> impl ExactSizeIterator<Item = &Target> {
-        self.list.iter().map(|(_, target)| target)
+        self.list.iter().map(|(_, target)| target.as_ref())
     }
 
-    fn position_of(&self, piece: &PieceId) -> Option<usize> {
-        self.list.iter().position(|(id, _)| id == piece)
+    fn position_of(&self, piece: &PieceId, source: &Target) -> Option<usize> {
+        self.list
+            .iter()
+            .position(|(id, target)| id == piece && target.same_source(source))
+    }
+
+    fn pick(&self, at: usize) -> Cursor {
+        let (id, source) = &self.list[at];
+        Cursor::Piece {
+            id: id.clone(),
+            source: source.clone(),
+            at: Some(at),
+        }
     }
 }
 
@@ -759,19 +783,24 @@ pub struct Payload {
     pub format: CopyFormat,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum Cursor {
     Response,
-    Piece(usize),
-    Unavailable,
+    Piece {
+        id: PieceId,
+        source: Rc<Target>,
+        /// Current paint location, absent when the displayed bytes have changed.
+        at: Option<usize>,
+    },
 }
 
 struct Data {
     active: bool,
     /// The first target is chosen with the first targets the pane reads.
     placed: bool,
-    /// The target held. A disappeared piece must never copy its replacement.
     at: Cursor,
+    /// The whole response as it was on entry, even after navigating to a block.
+    response: Option<(ItemKey, Rc<Target>)>,
     targets: Rc<Targets>,
     follow: Option<Follow>,
     /// What the feature reads of a source, handed in when it began the mode.
@@ -782,10 +811,31 @@ struct Data {
     reveal: bool,
     /// What Enter chose to copy, for the copy that the page sends next.
     pending: Option<Payload>,
-    /// What the target held draws (a filled target is not selected: the selection reverses the
-    /// glyphs it covers, and the fill has done that already), for the copy of a target with no
-    /// source of its own.
-    drawn: Option<String>,
+}
+
+impl Data {
+    fn source(&self) -> Option<&Target> {
+        match &self.at {
+            Cursor::Response => self.response.as_ref().map(|(_, target)| target.as_ref()),
+            Cursor::Piece { source, .. } => Some(source),
+        }
+    }
+
+    /// Only paint an item that still represents the retained copy source.
+    fn painted(&self) -> Option<&Target> {
+        match &self.at {
+            Cursor::Response => {
+                let (key, response) = self.response.as_ref()?;
+                let (current, target) = self.targets.response.as_ref()?;
+                (current == key && target.same_source(response)).then_some(target.as_ref())
+            }
+            Cursor::Piece { at, .. } => self
+                .targets
+                .list
+                .get((*at)?)
+                .map(|(_, target)| target.as_ref()),
+        }
+    }
 }
 
 struct Inner {
@@ -816,13 +866,13 @@ pub fn mode_of(finder: &Finder) -> CopyMode {
                 active: false,
                 placed: false,
                 at: Cursor::Response,
+                response: None,
                 targets: Rc::default(),
                 follow: None,
                 cutter: None,
                 shown: None,
                 reveal: false,
                 pending: None,
-                drawn: None,
             }),
             marks,
             ticks: select::of(finder).listenable(),
@@ -864,6 +914,7 @@ impl CopyMode {
             data.placed = false;
             data.at = Cursor::Response;
             data.shown = None;
+            data.response = None;
             data.pending = None;
             data.follow = Some(follow.clone());
             data.cutter = Some(cutter);
@@ -883,6 +934,8 @@ impl CopyMode {
         {
             let mut data = self.0.data.borrow_mut();
             data.active = false;
+            data.at = Cursor::Response;
+            data.response = None;
             data.shown = None;
             data.targets = Rc::default();
         }
@@ -899,22 +952,16 @@ impl CopyMode {
         self.0.data.borrow().follow.clone()
     }
 
-    fn current(&self) -> Option<Target> {
-        let data = self.0.data.borrow();
-        match data.at {
-            Cursor::Response => data.targets.response.clone(),
-            Cursor::Piece(at) => data.targets.list.get(at).map(|(_, target)| target.clone()),
-            Cursor::Unavailable => None,
-        }
-    }
-
     /// What the cell of `row` of the list fills while the mode holds a piece of it as the target
     /// (the oracle paints all the cells of the target's rows, blank ones included).
     pub fn fill_of(&self, row: usize) -> Option<Fill> {
         if !self.active() {
             return None;
         }
-        self.current()
+        self.0
+            .data
+            .borrow()
+            .painted()
             .filter(|target| target.row == row)
             .and_then(|target| target.fill)
     }
@@ -925,7 +972,7 @@ impl CopyMode {
         if !self.active() {
             return None;
         }
-        self.current().map(|target| target.label)
+        self.0.data.borrow().source().map(|target| target.label)
     }
 
     /// The targets the pane last read (what the footer and the cursor choose among).
@@ -941,32 +988,28 @@ impl CopyMode {
             if !data.active {
                 return;
             }
-            let before = (data.at, data.targets.clone());
-            if !Rc::ptr_eq(&data.targets, targets) && *data.targets != **targets {
-                if let Cursor::Piece(at) = data.at {
-                    data.at = data
-                        .targets
-                        .list
-                        .get(at)
-                        .and_then(|(piece, _)| targets.position_of(piece))
-                        .map_or(Cursor::Unavailable, Cursor::Piece);
+            let changed = !Rc::ptr_eq(&data.targets, targets) && *data.targets != **targets;
+            if changed {
+                if let Cursor::Piece { id, source, at } = &mut data.at {
+                    *at = targets.position_of(id, source);
                 }
                 data.targets = targets.clone();
             }
-            // a read with no target yet (the rows are not drawn) places nothing: the next one does
-            let anything = data.targets.response.is_some() || !data.targets.list.is_empty();
-            if !data.placed && anything {
+            // A read without targets places nothing; capture the first available revision.
+            let placed =
+                !data.placed && (data.targets.response.is_some() || !data.targets.list.is_empty());
+            if placed {
                 data.placed = true;
-                data.at = if data.targets.response.is_some() {
+                data.response = data.targets.response.clone();
+                data.at = if data.response.is_some() {
                     Cursor::Response
                 } else {
-                    Cursor::Piece(data.targets.list.len() - 1)
+                    data.targets.pick(data.targets.list.len() - 1)
                 };
                 data.reveal = true;
                 data.shown = None;
             }
-            // what the footer names follows the targets: it is told when they or the cursor moved
-            before.0 != data.at || !Rc::ptr_eq(&before.1, &data.targets)
+            changed || placed
         };
         if changed {
             self.notify();
@@ -997,8 +1040,14 @@ impl CopyMode {
                     n.checked_sub(1).map(Some)
                 }
             }),
-            Do::Copy if self.0.data.borrow().at == Cursor::Unavailable => Step::Moved,
-            Do::Copy => Step::Copy,
+            Do::Copy => {
+                let data = self.0.data.borrow();
+                if data.source().is_some_and(|target| target.payload.is_some()) {
+                    Step::Copy
+                } else {
+                    Step::Moved
+                }
+            }
             Do::Exit => Step::Exit,
             Do::Page(pages) => Step::Page(pages),
             Do::Other => Step::Moved,
@@ -1011,13 +1060,13 @@ impl CopyMode {
     fn go(&self, to: impl Fn(Option<usize>, usize, bool) -> Option<Option<usize>>) -> Step {
         {
             let mut data = self.0.data.borrow_mut();
-            let (n, response) = (data.targets.list.len(), data.targets.response.is_some());
-            let at = match data.at {
-                Cursor::Piece(at) => Some(at),
-                Cursor::Response | Cursor::Unavailable => None,
+            let (n, response) = (data.targets.list.len(), data.response.is_some());
+            let at = match &data.at {
+                Cursor::Piece { at, .. } => *at,
+                Cursor::Response => None,
             };
             if let Some(next) = to(at, n, response) {
-                let next = next.map_or(Cursor::Response, Cursor::Piece);
+                let next = next.map_or(Cursor::Response, |at| data.targets.pick(at));
                 if next != data.at {
                     data.at = next;
                     data.shown = None;
@@ -1034,34 +1083,28 @@ impl CopyMode {
         if !std::mem::take(&mut self.0.data.borrow_mut().reveal) {
             return None;
         }
-        self.current().map(|target| target.row)
+        self.0.data.borrow().painted().map(|target| target.row)
     }
 
     /// The target is shown as the selection of the area (it paints it REVERSED, as the oracle
     /// does).
     pub fn show(&self, rows: &Rc<RowTexts>, selection: &TextSelection) {
         let controller = selection.controller();
-        let wanted = self
-            .current()
-            .map(|target| (target.row, target.range, rows.revision_of()));
-        if wanted.is_some() && self.0.data.borrow().shown == wanted {
+        let data = self.0.data.borrow();
+        let painted = data.painted();
+        let wanted = painted.map(|target| (target.row, target.range.clone(), rows.revision_of()));
+        if wanted.is_some() && data.shown == wanted {
             return;
         }
-        let filled = self.current().is_some_and(|target| target.fill.is_some());
+        let filled = painted.is_some_and(|target| target.fill.is_some());
+        drop(data);
         match &wanted {
             Some((row, range, _)) if !filled => {
                 controller.select(SelectionTarget::of(rows), *row, range.start, range.end);
             }
             _ => controller.clear(),
         }
-        let drawn = wanted
-            .as_ref()
-            .filter(|_| filled)
-            .and_then(|(row, range, _)| rows.row_text(*row).get(range.clone()))
-            .map(str::to_owned);
-        let mut data = self.0.data.borrow_mut();
-        data.shown = wanted;
-        data.drawn = drawn;
+        self.0.data.borrow_mut().shown = wanted;
     }
 
     /// Enter: what the target copies as is kept for the copy the page sends next ([`shape`]), and
@@ -1069,19 +1112,20 @@ impl CopyMode {
     ///
     /// [`shape`]: CopyMode::shape
     pub fn copying(&self) {
-        let target = self.current();
-        let whole = self.0.data.borrow().at == Cursor::Response;
-        let drawn = self.0.data.borrow().drawn.clone();
-        self.0.data.borrow_mut().pending = target.and_then(|target| {
-            target.payload.or(drawn).map(|text| Payload {
-                text,
-                format: if whole {
-                    CopyFormat::Markdown
-                } else {
-                    CopyFormat::PlainText
-                },
-            })
-        });
+        {
+            let mut data = self.0.data.borrow_mut();
+            data.pending = data
+                .source()
+                .and_then(|target| target.payload.clone())
+                .map(|text| Payload {
+                    text,
+                    format: if data.at == Cursor::Response {
+                        CopyFormat::Markdown
+                    } else {
+                        CopyFormat::PlainText
+                    },
+                });
+        }
         self.leave();
     }
 

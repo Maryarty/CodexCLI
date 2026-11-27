@@ -337,6 +337,43 @@ fn a_loading_page_does_not_change_the_code_block_chosen_for_copy() {
     s.answer_copy(Ok(()));
 }
 
+#[test]
+fn canonical_replacement_does_not_change_the_frozen_copy_source() {
+    const ORIGINAL: &str = "A response\n\n```sh\nold command\n```\n\n```sh\nother command\n```\n";
+    const REPLACEMENT: &str = "A response\n\n```sh\nother command\n```\n";
+    let update = |source: &str| {
+        serde_json::json!({"step":"notify","message":{"method":"item/completed","params":{
+            "threadId":"thread-1","turnId":"turn-1","completedAtMs":1,
+            "item":{"type":"agentMessage","id":"same","text":source,"phase":null}
+        }}})
+        .to_string()
+    };
+    for (choose_block, expected) in [(true, "old command\n"), (false, ORIGINAL.trim_end())] {
+        let mut s = Screen::build(Owner::ChatLive)
+            .owned_transcript()
+            .size(65, 18)
+            .live()
+            .open();
+        s.feed(&update(ORIGINAL));
+        begin_copy_mode(&mut s);
+        if choose_block {
+            s.keys("up up");
+            s.assert_contains("Copy code block");
+        } else {
+            s.assert_contains("Copy whole response");
+        }
+        s.assert_text_style("old command", "reversed");
+
+        s.feed(&update(REPLACEMENT));
+        s.resize(44, 18);
+        s.assert_absent("old command");
+        s.assert_text_style("other command", "!reversed");
+        s.keys("enter");
+        s.assert_copies_asked(&[expected]);
+        s.answer_copy(Ok(()));
+    }
+}
+
 // ORACLE transcript_view/copy_mode_tests.rs:551 copying_the_whole_typed_prompt_preserves_markdown_source kind=ui owner=chat-live
 #[test]
 fn copying_the_whole_typed_prompt_preserves_markdown_source() {
