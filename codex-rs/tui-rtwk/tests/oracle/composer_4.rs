@@ -208,10 +208,6 @@ fn blockquote_paste_uses_cursor_line_and_preserves_suffix() {
 // ORACLE bottom_pane/chat_composer/blockquote_paste_tests.rs:56 blockquote_paste_large_expands_quoted_text_on_submit kind=ui owner=chat-live
 #[test]
 fn blockquote_paste_large_expands_quoted_text_on_submit() {
-    kit::pending(
-        Owner::ChatLive,
-        "G73: item 1, the quote draws as rtwk Markdown (a `│` bar, one paragraph): the sent user message is drawn as Markdown, so `> x` / `> second` is one quote paragraph (the oracle prints the typed lines): the user message cell, chat-cells",
-    );
     let mut s = chat(100, 24);
     s.type_text("> ");
     let first = "x".repeat(1000);
@@ -221,7 +217,7 @@ fn blockquote_paste_large_expands_quoted_text_on_submit() {
     s.assert_row(p, "› > [Pasted Content 1009 chars]");
     s.type_text("Next block");
     s.keys("enter");
-    s.assert_in_order(&["> second", "Next block"]);
+    s.assert_turn_texts(&[&format!("> {first}\n> second\n\nNext block")]);
 }
 
 // ORACLE bottom_pane/chat_composer/blockquote_paste_tests.rs:80 blockquote_paste_rendered kind=snap owner=chat-live snap=blockquote_paste
@@ -658,10 +654,6 @@ fn plugin_mention_uses_display_name_for_opaque_id() {
 // ORACLE bottom_pane/chat_composer/snapshot_tests.rs:49 shortcut_footer_displays_configured_chords kind=snap owner=chat-live snap=footer_mode_configured_key_chords
 #[test]
 fn shortcut_footer_displays_configured_chords() {
-    kit::pending(
-        Owner::ChatLive,
-        "no keymap seed on the chat screen: the configured chords (ctrl-g ctrl-g, ctrl-x enter) are not read, so the shortcut overlay draws the defaults",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(100, 21)
         .live()
@@ -671,7 +663,15 @@ fn shortcut_footer_displays_configured_chords() {
         ])
         .open();
     s.type_text("?");
-    s.assert_snap("footer_mode_configured_key_chords");
+    s.assert_contains("Keyboard shortcuts");
+    s.assert_contains("⌃x enter");
+    s.assert_contains("⌃g ⌃g");
+    s.keys("esc");
+    s.type_text("first")
+        .keys("ctrl+x enter")
+        .type_text("second");
+    s.keys("enter");
+    s.assert_turn_texts(&["first\nsecond"]);
 }
 
 // ORACLE bottom_pane/chat_composer/snapshot_tests.rs:94 draft_and_voice_composer_snapshots kind=snap owner=chat-live snap=codex_tui__bottom_pane__chat_composer__snapshot_tests__draft_composer snap=codex_tui__bottom_pane__chat_composer__snapshot_tests__voice_composer

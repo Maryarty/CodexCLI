@@ -22,6 +22,7 @@ mod small;
 mod startup;
 mod state_db;
 mod target;
+mod terminal_mode;
 mod update;
 mod viewer;
 mod voice;
@@ -85,9 +86,8 @@ enum Launch {
 
 /// One launch: the app on its backend, until it ends.
 async fn launch(cli: &Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<Launch> {
-    // First frame first: the config, the state DB and the environment manager
-    // are loaded by the backend future, after the terminal has painted the
-    // composer (the oracle's `StartupDraft`); a failure arrives as `StartFailed`.
+    // Resolve the presentation mode before painting. The backend still loads the full config,
+    // state DB and environment manager after the composer takes input.
     let (done_tx, done_rx) = tokio::sync::oneshot::channel();
     let (failed_tx, mut failed_rx) = tokio::sync::oneshot::channel::<String>();
     let flags = target::Flags {
@@ -110,6 +110,7 @@ async fn launch(cli: &Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<Laun
         }
     }
     let startup_warning = target::startup_warning(&flags);
+    let alternate_screen = terminal_mode::alternate_screen(cli).await;
     let provisional_draft = startup::can_show_draft(cli);
     // The update the startup page's prompt chose: run once the terminal is
     // restored (the oracle's `UpdatePromptOutcome::RunUpdate`).
@@ -128,6 +129,7 @@ async fn launch(cli: &Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<Laun
     let first = Backend::Connector(Box::new(in_process::InProcess {
         arg0_paths,
         mode,
+        alternate_screen,
         no_daemon: cli.no_daemon,
         done: done_tx,
         model: cli.model.clone(),
@@ -167,7 +169,7 @@ async fn launch(cli: &Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<Laun
     if let Some(message) = cli.initial_message(cli.lang(&rtwk::l10n::requested())) {
         app = app.with_initial_prompt(message);
     }
-    let result = run_on(app, !cli.no_alt_screen);
+    let result = run_on(app, alternate_screen);
     // Quitting aborted the backend future (rtwk unmounts the app and aborts
     // its task), so nothing after its loop runs: the client came back
     // through `done_rx`, and the shutdown happens here.

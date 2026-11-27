@@ -402,11 +402,12 @@ fn slash_command_dispatches_after_vim_insert_slash() {
 fn inline_slash_command_dispatch_resets_vim_mode_to_insert() {
     kit::pending(
         Owner::ChatLive,
-        "G-mask: `/plan <text>` needs the collaboration-mask catalogue (collaborationMode/list, which no screen reads yet): without a Plan mask the command is refused and the line goes back to the composer, so Vim is not reset to Insert after a dispatch",
+        "Inline /plan dispatch submits the payload and returns to Insert; after x Esc dot the Vim repeat also restores the submitted slash draft",
     );
     let mut s = vim(100, 9);
     s.keys("i");
     s.type_text("/plan investigate this").keys("enter");
+    s.assert_turn_texts(&["investigate this"]);
     s.assert_text_style("Vim: Insert", "fg=Green");
     s.type_text("x").keys("esc");
     s.type_text(".");

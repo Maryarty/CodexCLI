@@ -863,9 +863,9 @@ fn collab_mode_shift_tab_cycles_only_when_idle() {
 fn mode_switch_surfaces_model_change_notification_when_effective_model_changes() {
     kit::pending(
         Owner::ChatLive,
-        "G-mask: the mode switch works (/plan, Shift+Tab) but the port has no collaboration-mask catalogue, so no per-mode model/effort (gpt-5.6-luna medium for Plan) and no model-change notice; the masks come from collaborationMode/list, which no screen reads yet",
+        "Plan mode uses the catalog model and reports the change; the default fixture has no base model and retains the Plan model on the return switch",
     );
-    let mut s = Screen::build(Owner::ChatLive).live().open();
+    let mut s = mode_switch_session("gpt-5.6-luna");
     s.keys("shift+tab");
     s.assert_contains("Model changed to gpt-5.6-luna medium for Plan mode.");
     s.keys("shift+tab");
@@ -875,13 +875,23 @@ fn mode_switch_surfaces_model_change_notification_when_effective_model_changes()
 // ORACLE chatwidget/tests/plan_mode.rs:1377 mode_switch_surfaces_reasoning_change_notification_when_model_stays_same kind=ui owner=chat-live
 #[test]
 fn mode_switch_surfaces_reasoning_change_notification_when_model_stays_same() {
-    kit::pending(
-        Owner::ChatLive,
-        "G-mask: the mode switch works but the port has no collaboration-mask catalogue (per-mode reasoning effort, gpt-5.6-terra High), so no reasoning-change notice",
-    );
-    let mut s = Screen::build(Owner::ChatLive).live().open();
+    let mut s = mode_switch_session("gpt-5.6-terra");
+    s.feed(&reasoning_settings("thread-1", "default", "high").replace("gpt-5.5", "gpt-5.6-terra"));
     s.keys("shift+tab");
     s.assert_contains("Model changed to gpt-5.6-terra medium for Plan mode.");
+}
+
+fn mode_switch_session(plan_model: &str) -> Screen {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .live()
+        .collaboration_catalog(serde_json::json!({"data": [
+            {"name":"Plan","mode":"plan","model":plan_model,"reasoning_effort":"medium"},
+            {"name":"Default","mode":"default","model":null,"reasoning_effort":null}
+        ]}))
+        .open();
+    s.server_answers("thread/settings/update", serde_json::json!({}));
+    s
 }
 
 // ORACLE chatwidget/tests/plan_mode.rs:1416 plan_slash_command_with_args_submits_prompt_in_plan_mode kind=ui owner=chat-live

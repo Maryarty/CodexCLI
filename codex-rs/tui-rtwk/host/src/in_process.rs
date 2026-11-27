@@ -205,6 +205,8 @@ pub struct InProcess {
     pub arg0_paths: Arg0DispatchPaths,
     /// Which server: the embedded one, the local daemon or a remote one.
     pub mode: Mode,
+    /// Whether this launch's terminal is using the alternate screen.
+    pub alternate_screen: bool,
     /// `--no-daemon`.
     pub no_daemon: bool,
     /// Receives the client when the backend future ends or is aborted, so
@@ -259,6 +261,7 @@ async fn run(
     let InProcess {
         arg0_paths,
         mut mode,
+        alternate_screen,
         no_daemon,
         done,
         model,
@@ -482,6 +485,7 @@ async fn run(
     // The startup page's asks: the trust is a local folder's question.
     let (restart, mut restarts) = tokio::sync::mpsc::unbounded_channel::<crate::startup::Restart>();
     let mut startup = crate::startup::Startup {
+        alternate_screen,
         daemon_features,
         daemon: Default::default(),
         current: Arc::new(tokio::sync::RwLock::new(config.clone())),
@@ -546,7 +550,10 @@ async fn run(
     emit(
         &ingress,
         epoch,
-        AppEv::Tui(crate::effects::tui_settings(&config)),
+        AppEv::Tui(crate::terminal_mode::tui_settings(
+            &config,
+            alternate_screen,
+        )),
     );
     emit(
         &ingress,
@@ -1032,7 +1039,10 @@ pub(crate) async fn config_write(
         emit(
             &ingress,
             epoch,
-            AppEv::Tui(crate::effects::tui_settings(config)),
+            AppEv::Tui(crate::terminal_mode::tui_settings(
+                config,
+                startup.alternate_screen,
+            )),
         );
         let mut jobs = FuturesUnordered::new();
         deliver(

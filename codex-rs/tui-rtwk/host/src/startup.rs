@@ -97,6 +97,8 @@ pub fn can_show_draft(cli: &codex_tui_rtwk::Cli) -> bool {
 #[derive(Clone)]
 pub struct Startup {
     pub config: Arc<Config>,
+    /// The physical screen mode chosen before the terminal opened.
+    pub alternate_screen: bool,
     /// The server is not embedded (a daemon): the trust key is the folder as
     /// it was read (`remote_trust_key`), and the write says so.
     pub connected: bool,
@@ -1195,6 +1197,7 @@ mod tests {
             .expect("a config");
         let config = Arc::new(config);
         let startup = Startup {
+            alternate_screen: true,
             // A copy: a test may still change `config` alone.
             current: Arc::new(tokio::sync::RwLock::new(Arc::new((*config).clone()))),
             restart: tokio::sync::mpsc::unbounded_channel().0,
