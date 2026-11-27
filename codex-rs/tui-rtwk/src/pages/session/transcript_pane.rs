@@ -300,7 +300,7 @@ pub(super) struct ViewportState {
     /// The first row the list showed, to see rows come in above it.
     first: RefCell<Option<(ThreadId, ItemKey)>>,
     /// Actual constraints of the pane, supplied by its layout builder.
-    width: i32,
+    width: Option<i32>,
     inline_layout: RefCell<Option<InlineLayout>>,
     revealed_rows: RefCell<Option<RevealedRows>>,
     scan_first: RefCell<Option<(ThreadId, ItemKey, usize)>>,
@@ -964,7 +964,7 @@ impl StatefulWidget for Pane {
             activity: RefCell::default(),
             shown: RefCell::default(),
             first: RefCell::default(),
-            width: Room::default().width,
+            width: None,
             inline_layout: RefCell::default(),
             revealed_rows: RefCell::default(),
             scan_first: RefCell::default(),
@@ -1042,10 +1042,10 @@ impl State for ViewportState {
     fn update(&mut self, msg: Msg, widget: &Pane, cx: &mut Cx<'_, Self>) -> Rebuild {
         match msg {
             Msg::Room(width) => {
-                if self.width == width {
+                if self.width == Some(width) {
                     return Rebuild::No;
                 }
-                self.width = width;
+                self.width = Some(width);
                 Rebuild::Yes
             }
             Msg::Load(thread) => {
@@ -1227,7 +1227,7 @@ impl State for ViewportState {
         // uses its retained revision. TailNews watches incoming deltas separately.
         let cells = cells_strings::of(cx);
         let room = Room {
-            width: self.width,
+            width: self.width.unwrap_or_else(|| Room::default().width),
             segmenter: segmenter_of(cx),
         };
         let reads_across_rows = reads || widget.detailed || widget.mark.is_some();
@@ -1477,7 +1477,7 @@ impl State for ViewportState {
         } else {
             rows
         };
-        let terminal_history = if self.width > 0
+        let terminal_history = if self.width.is_some_and(|width| width > 0)
             && !reads
             && !widget.follow.holding_selection()
             && widget.mark.is_none()
@@ -1762,7 +1762,7 @@ impl State for ViewportState {
             }));
         }
         let finder = { move |key: &Key| Some(list_rows.list_index(list_rows.logical_index(key)?)) };
-        let build_row = Rc::new(move |thread: &ThreadModel, row: &Row, listed| {
+        let build_row = move |thread: &ThreadModel, row: &Row, listed, committed_width| {
             let range = &row.range;
             let index = range.start;
             let transcript = thread.transcript();
@@ -1797,8 +1797,8 @@ impl State for ViewportState {
                     && {
                         // the nearest prompt or cell above that draws rows (a blank prompt draws none)
                         let drawn = (0..index).rev().find(|above| {
-                        !matches!(transcript.get(*above), Some((_, Item::User(prompt))) if user::is_blank(prompt))
-                    });
+                    !matches!(transcript.get(*above), Some((_, Item::User(prompt))) if user::is_blank(prompt))
+                });
                         drawn.is_some_and(|above| {
                             matches!(transcript.get(above), Some((_, Item::User(_))))
                                 && (above..index)
@@ -1924,10 +1924,11 @@ impl State for ViewportState {
                     timing,
                     timing_facts(&key.turn),
                     cells,
+                    committed_width,
                 ));
             }
             column.into()
-        });
+        };
         if let Some((sink, history, rows, range, header)) = commits {
             history.commit(
                 cx,
@@ -1935,12 +1936,13 @@ impl State for ViewportState {
                 &thread,
                 &rows[range.clone()],
                 header,
-                range.map(|index| build_row(&thread, &rows[index], index)),
+                range.map(|index| build_row(&thread, &rows[index], index, self.width)),
             );
         }
         let draw_rows = rows.clone();
-        let draw: DrawRow =
-            Rc::new(move |thread, listed| build_row(thread, &draw_rows[listed - lead], listed));
+        let draw: DrawRow = Rc::new(move |thread, listed| {
+            build_row(thread, &draw_rows[listed - lead], listed, None)
+        });
         let snapshot = uses_snapshot.then_some(thread);
         let listed_thread = thread_id.clone();
         let list = ListView::builder(count, move |index| {
@@ -2058,7 +2060,7 @@ impl State for ViewportState {
         let width = self.width;
         let changed = cx.local_sender();
         LayoutBuilder::new(move |_, bounds| {
-            if bounds.max_width != width {
+            if Some(bounds.max_width) != width {
                 changed(Msg::Room(bounds.max_width));
             }
             tail_news.clone()

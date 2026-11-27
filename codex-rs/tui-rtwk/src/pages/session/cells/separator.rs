@@ -1,7 +1,8 @@
 //! The row under a turn's last cell: how long it worked, when it ended and what the turn cost
 //! (oracle `history_cell/separators.rs` `FinalMessageSeparator`, "Worked for 2m 5s • 2:32 PM").
 //! Flutter: a `Padding` over a wrapping `Text`, the indent chosen from the measured width
-//! (`LayoutBuilder`). Nothing is drawn for a turn with no duration, no time and no metrics.
+//! (`LayoutBuilder` in the reader, the pane's measured width for terminal history). Nothing is
+//! drawn for a turn with no duration, no time and no metrics.
 
 use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDate, NaiveDateTime, TimeZone};
 use rtwk::layout::{EdgeInsets, Padding};
@@ -28,25 +29,28 @@ pub struct Facts<'a> {
 }
 
 /// The separator row of a finished turn; nothing when there is nothing to say.
-pub fn completion(timing: TurnTiming, facts: Facts<'_>, strings: &Strings) -> Option<AnyWidget> {
+pub fn completion(
+    timing: TurnTiming,
+    facts: Facts<'_>,
+    strings: &Strings,
+    committed_width: Option<i32>,
+) -> Option<AnyWidget> {
     let label = label(timing, facts, strings)?;
-    // The oracle's text is dim and default-coloured.
-    let style = Style::new().attrs(Attrs::DIM);
-    Some(
-        LayoutBuilder::new(move |_, room| {
-            let left = if room.max_width >= INDENT_FROM {
-                INDENT
-            } else {
-                0
-            };
-            Padding::new(
-                EdgeInsets::only(left, 1, 0, 0),
-                Text::new(label.clone()).style(style.clone()),
-            )
-            .into()
-        })
-        .into(),
-    )
+    let row = move |width| {
+        let left = if width >= INDENT_FROM { INDENT } else { 0 };
+        // The oracle's text is dim and default-coloured.
+        Padding::new(
+            EdgeInsets::only(left, 1, 0, 0),
+            Text::new(label.clone()).style(Style::new().attrs(Attrs::DIM)),
+        )
+        .into()
+    };
+    // The history sink asks for intrinsic height before the first layout. Give
+    // it the native Padding and Text so it can measure both the spacer and the label.
+    Some(match committed_width {
+        Some(width) => row(width),
+        None => LayoutBuilder::new(move |_, room| row(room.max_width)).into(),
+    })
 }
 
 /// The text of the separator: the parts that are known, joined (a folded turn's disclosure

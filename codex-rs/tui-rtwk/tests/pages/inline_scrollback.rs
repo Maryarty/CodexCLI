@@ -15,7 +15,7 @@ use rtwk_test::Options;
 use serde_json::{Value, json};
 
 use crate::common::{Harness, start_driven_mode};
-use crate::kit::{self, Screen};
+use crate::kit::{self, Owner, Screen};
 
 fn inline_chat() -> Harness {
     let mut history = vec!["S27 shell sentinel".to_owned()];
@@ -25,8 +25,7 @@ fn inline_chat() -> Harness {
         Options::new()
             .mode(ScreenMode::Inline)
             .history(history.iter().map(String::as_str))
-            .size(68, 16)
-            .fail_on_overflow(false),
+            .size(68, 16),
         true,
         |app| app,
     );
@@ -111,6 +110,40 @@ fn only_settled_rows_leave_the_live_view_and_survive_resize_once() {
             .count(),
         1
     );
+}
+
+#[test]
+fn a_replayed_completion_separator_reaches_terminal_history() {
+    let first = long_answer("replayed first response");
+    let second = long_answer("replayed second response");
+    let mut first = kit::agent_turn("first", &[&first]);
+    first["durationMs"] = json!(125_000);
+    first["completedAt"] = Value::Null;
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(58, 16)
+        .inline(&[])
+        .replay(vec![kit::agent_turn("second", &[&second]), first])
+        .open();
+    s.wait(1200);
+
+    let history = s.scrollback().join("\n");
+    let separator = "  Worked for 2m 5s";
+    assert_eq!(
+        history
+            .lines()
+            .filter(|row| row.trim_end() == separator)
+            .count(),
+        1,
+        "{history}",
+    );
+    let first = history
+        .find("replayed first response")
+        .expect("first response");
+    let timing = history.find(separator).expect("complete timing row");
+    let second = history
+        .find("replayed second response")
+        .expect("second response");
+    assert!(first < timing && timing < second, "{history}");
 }
 
 #[test]
