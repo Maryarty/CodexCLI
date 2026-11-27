@@ -22,8 +22,8 @@ from server import ScenarioServer  # noqa: E402
 
 
 def loop_reload_is_constant() -> None:
-    sc = scenarios.load("multi-agent")  # three matched responses
-    assert sum(r.matched for r in sc.responses) == 3
+    sc = scenarios.load("multi-agent")
+    assert sc.responses and all(response.matched for response in sc.responses)
     with ScenarioServer() as srv:
         srv.load(sc)
         seen = [srv.queued()]

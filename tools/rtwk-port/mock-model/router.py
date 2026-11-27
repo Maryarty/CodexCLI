@@ -249,10 +249,14 @@ def build_scenario() -> Scenario:
     r = Router()
     turns: list[Turn] = []
     for name, words, _ in ROUTES:
+        responses = r.chains[name]
+        if name == "multi-agent":
+            # The server handles the child's request separately from the parent's steps.
+            responses = [*responses, child()]
         turns.append(
             Turn(
                 words[0],
-                r.chains[name],
+                responses,
                 outcome="failed" if name in FAILS else "completed",
                 esc_after=4.0 if name == "interrupted" else None,
             )
@@ -260,7 +264,7 @@ def build_scenario() -> Scenario:
     turns.append(Turn("compact", r.chains["compact"]))
     # the next message compacts first: one more request (the summary) before the help text
     turns.append(Turn("nothing special", [summary(), helptext()]))
-    turns.append(Turn("all", r.chains["all"]))
+    turns.append(Turn("all", [*r.chains["all"], child()]))
     # The router is stateless, so any keyword may start a session: `check.py --jobs N` runs four
     # pieces side by side (~40 s each, 29 turns of ~4 s were one 151 s session). Never cut
     # between `compact` and `nothing special`: the second one needs the first one's token usage.
