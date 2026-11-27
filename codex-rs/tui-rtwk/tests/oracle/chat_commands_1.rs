@@ -282,12 +282,36 @@ fn parent_owned_thread_blocks_settings_shortcuts() {
 fn handoff_image_survives_model_rejection_and_submission_failure() {
     kit::pending(
         Owner::ChatNavPane,
-        "no seed for a draft handoff with an image pasted by alt+v (a clipboard image on a model without image input) and a failed switch; the composer's image placeholder is the visible part",
+        "The startup image reaches the session and survives an unsupported model. A definitive JSON-RPC turn/start rejection after switching to an image-capable model drops the original draft.",
     );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    s.keys("alt+v");
-    s.assert_contains("[Image #1]");
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .held_start()
+        .model_catalog(image_submission_catalog())
+        .open();
+    let read = s.ask_clipboard_image("alt+v");
+    let path = kit::image_file("handoff-image.png");
+    s.answer_clipboard_read(read, Ok(path.clone())).wait(300);
+    s.assert_composer("[Image #1]");
+    s.assert_no_turn();
+
+    s.start_thread();
+    s.assert_active_thread("thread-1");
+    s.set_thread_model("text-only");
     s.keys("enter");
+    s.assert_contains("Model text-only does not support image inputs");
+    s.assert_composer("[Image #1]");
+    s.assert_no_turn();
+
+    s.set_thread_model("gpt-5.5");
+    s.hold_image_preparation();
+    s.keys("enter");
+    s.assert_sole_turn(kit::Turn::text("[Image #1]").images(&[(&path, 0..10)]));
+    s.reject_turn_start("submission failed");
+    s.assert_contains("submission failed");
+    s.assert_composer("[Image #1]");
+    s.assert_sole_turn(kit::Turn::text("[Image #1]").images(&[(&path, 0..10)]));
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:573 local_clipboard_image_does_not_turn_a_held_bang_into_a_shell_command kind=ui owner=chat-nav-pane
@@ -441,14 +465,7 @@ fn submission_prefers_selected_duplicate_skill_path() {
 // ORACLE chatwidget/tests/composer_submission.rs:1286 blocked_image_restore_preserves_mention_bindings kind=ui owner=chat-nav-pane
 #[test]
 fn blocked_image_restore_preserves_mention_bindings() {
-    let mut catalog: serde_json::Value =
-        serde_json::from_str(include_str!("fixtures/chat_commands_2/speed_catalog.json")).unwrap();
-    let mut text_only = catalog["data"][0].clone();
-    text_only["id"] = serde_json::json!("text-only");
-    text_only["model"] = serde_json::json!("text-only");
-    text_only["displayName"] = serde_json::json!("Text only");
-    text_only["inputModalities"] = serde_json::json!(["text"]);
-    catalog["data"].as_array_mut().unwrap().push(text_only);
+    let catalog = image_submission_catalog();
     enum Submission {
         Direct,
         Queued,
@@ -520,6 +537,18 @@ fn blocked_image_restore_preserves_mention_bindings() {
                 .skills(&[("file", "/tmp/skills/file/SKILL.md")]),
         );
     }
+}
+
+fn image_submission_catalog() -> serde_json::Value {
+    let mut catalog: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/chat_commands_2/speed_catalog.json")).unwrap();
+    let mut text_only = catalog["data"][0].clone();
+    text_only["id"] = serde_json::json!("text-only");
+    text_only["model"] = serde_json::json!("text-only");
+    text_only["displayName"] = serde_json::json!("Text only");
+    text_only["inputModalities"] = serde_json::json!(["text"]);
+    catalog["data"].as_array_mut().unwrap().push(text_only);
+    catalog
 }
 
 fn image_submit_model(s: &mut Screen, model: &str) {
@@ -625,14 +654,33 @@ fn startup_draft_file_search_waits_for_protected_view_and_enabled_input() {
 // ORACLE chatwidget/tests/composer_submission.rs:1773 interrupted_turn_restore_keeps_active_mode_for_resubmission kind=ui owner=chat-nav-pane
 #[test]
 fn interrupted_turn_restore_keeps_active_mode_for_resubmission() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no seed for the plan collaboration mode on a running turn with a queued message, interrupted; the active mode kind is not a row",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    // The oracle queues "Implement the plan." in plan mode, then interrupts turn-1.
-    s.assert_contains("Implement the plan.");
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(100, 24)
+        .live()
+        .open();
+    s.set_thread_model("gpt-5");
+    s.server_answers("thread/settings/update", serde_json::json!({}));
+    s.keys("shift+tab");
+    s.assert_contains("Plan mode");
+    s.assert_last_request_has("thread/settings/update", r#""mode":"plan""#);
+
+    let draft = "Implement the plan.";
+    s.feed(RUNNING.lines().last().expect("turn started notification"));
+    s.type_text(draft).keys("tab");
+    s.assert_contains("↳ Implement the plan.");
+    s.assert_composer("");
+    s.keys("esc");
+    s.assert_interrupts(1);
+    s.feed(INTERRUPTED);
+    s.assert_composer(draft);
+    s.assert_absent("↳ Implement the plan.");
+    s.assert_no_turn();
+    s.assert_contains("Plan mode");
+
     s.keys("enter");
+    s.assert_turn_texts(&[draft]);
+    s.assert_contains("Plan mode");
+    s.assert_requests_of("thread/settings/update", 1);
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:1950 empty_enter_during_task_does_not_queue kind=ui owner=chat-nav-pane

@@ -6,7 +6,7 @@ use codex_tui_core::features::windows_sandbox::{Config, Fact, Host, Intent as Sa
 use codex_tui_core::features::{FeatureFact, FeatureIntent};
 use codex_tui_core::fixtures::builders::turn_started;
 use codex_tui_core::fixtures::script::Answer;
-use codex_tui_core::ids::{BackendId, ThreadId};
+use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
 use codex_tui_core::rpc::{Reply, ServerError};
 use codex_tui_core::screens::{ScreenCommand, ScreenEv, agents, chat};
 use codex_tui_rtwk::app::UiApp;
@@ -451,21 +451,38 @@ impl Screen {
     /// The preparation of the images of the turn in flight ends in `message` (`Failed to
     /// prepare image: ..`): the message never left, so it goes back whole to the composer.
     pub fn fail_image_preparation(&mut self, message: &str) -> &mut Screen {
-        let ticket = self
-            .h
-            .fake
-            .commands()
-            .iter()
-            .rev()
-            .find_map(|command| match command {
-                Command::StartTurn { ticket, .. } => Some(*ticket),
-                _ => None,
-            })
-            .expect("a turn is in flight");
-        let epoch = self.h.fake.epoch().expect("attached");
+        let Command::StartTurn { ticket, .. } = self.latest_turn_start() else {
+            unreachable!("a turn is in flight");
+        };
+        self.finish_turn_start(ticket, Reply::prepare_failed(message))
+    }
+
+    /// The server refused the turn after the image was prepared.
+    pub fn reject_turn_start(&mut self, message: &str) -> &mut Screen {
+        let (ticket, reply) = codex_tui_core::protocol::reply_from_server(
+            &self.latest_turn_start(),
+            Err(ServerError {
+                code: Some(-32602),
+                message: message.to_owned(),
+                data: None,
+            }),
+        )
+        .expect("a turn start has a server reply");
+        self.finish_turn_start(ticket, reply)
+    }
+
+    fn latest_turn_start(&self) -> Command {
         self.h
             .fake
-            .inject(epoch, AppEv::Reply(ticket, Reply::prepare_failed(message)));
+            .commands()
+            .into_iter()
+            .rfind(|command| matches!(command, Command::StartTurn { .. }))
+            .expect("a turn is in flight")
+    }
+
+    fn finish_turn_start(&mut self, ticket: Ticket, reply: Reply) -> &mut Screen {
+        let epoch = self.h.fake.epoch().expect("attached");
+        self.h.fake.inject(epoch, AppEv::Reply(ticket, reply));
         self.h.advance(100);
         self
     }

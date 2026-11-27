@@ -349,13 +349,19 @@ fn active_transcript_preserves_clipped_markdown_hyperlinks() {
 // ORACLE chatwidget/rendering_tests.rs:380 initial_session_header_starts_at_the_top_of_the_viewport kind=snap owner=chat-live
 #[test]
 fn initial_session_header_starts_at_the_top_of_the_viewport() {
-    kit::pending(
-        Owner::ChatLive,
-        "no thread session is fed: the transcript draws its header (transcript_header.rs) once the chat knows the thread's cwd, and no kit step supplies one, so row 0 is empty",
-    );
-    let s = Screen::build(Owner::ChatLive).size(48, 24).live().open();
-    // oracle: the header's first rows start at the top of the viewport; the version and the cwd are placeholders in the oracle.
-    s.assert_row_starts_with(0, "  >_ OpenAI Codex (v");
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(48, 24)
+        .live()
+        .held_start()
+        .open();
+    s.assert_row(0, "");
+    s.assert_row_starts_with(1, "  >_ OpenAI Codex (v");
+    s.assert_row(2, "     loading");
+    s.configured_cwd("/tmp/project");
+    s.assert_row_starts_with(1, "  >_ OpenAI Codex (v");
+    s.assert_row(2, "     /tmp/project");
+    s.assert_text_count("OpenAI Codex", 1);
+    s.assert_no_turn();
 }
 
 // ORACLE chatwidget/rendering_tests.rs:410 active_cell_layout_reuses_heights_without_freezing_animation kind=ui owner=chat-live

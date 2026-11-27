@@ -940,14 +940,60 @@ fn compact_queues_user_messages_snapshot() {
 // ORACLE chatwidget/tests/slash_commands.rs:3863 transcript_copy_feedback_stays_in_the_footer_without_history_or_interrupts kind=snap owner=chat-nav-pane snap=transcript_copy_success snap=transcript_copy_unconfirmed snap=transcript_copy_failure
 #[test]
 fn transcript_copy_feedback_stays_in_the_footer_without_history_or_interrupts() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the transcript copy feedback in the footer (success, unconfirmed, failure) is not built; the copy results cannot be seeded black-box",
-    );
-    let s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    s.assert_snap("transcript_copy_success");
-    s.assert_snap("transcript_copy_unconfirmed");
-    s.assert_snap("transcript_copy_failure");
+    let selected = "selected café";
+    let feedback = [
+        "Copied 13 chars to host clipboard",
+        "Copy sent to terminal · paste to verify",
+        "Copy failed · try again",
+    ];
+    for (outcome, message) in feedback.into_iter().enumerate() {
+        let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+        s.feed(
+            r#"{"step":"screen","dir":"dialogs","ev":{"kind":"warnings","entries":[{"source":"Startup","details":"Selected warning"}]}}"#,
+        );
+        s.selection_copy_policy(true, false);
+        s.live_tail(selected).commit_live_tail();
+        let (row, column) = s
+            .rows()
+            .iter()
+            .enumerate()
+            .find_map(|(row, text)| {
+                let at = text.find(selected)?;
+                Some((row, text[..at].chars().count()))
+            })
+            .expect("the selectable transcript line");
+        let row = u16::try_from(row).expect("row");
+        let column = u16::try_from(column).expect("column");
+        s.drag(column, row, column + 12, row);
+        s.assert_copies_asked(&[selected]);
+        let before = s.shot();
+
+        match outcome {
+            0 => s.answer_copy(Ok(())),
+            1 => s.answer_copy_unconfirmed(),
+            _ => {
+                s.keys("f2");
+                s.assert_contains("Selected warning");
+                s.answer_copy(Err("clipboard unavailable"));
+                s.assert_contains("Selected warning");
+                s.keys("esc");
+            }
+        }
+        let prompt = s
+            .rows()
+            .iter()
+            .rposition(|row| row.starts_with("› "))
+            .expect("the composer");
+        s.assert_row_ends_with(prompt - 2, message);
+        s.assert_text_count(message, 1);
+        s.assert_text_count(selected, 1);
+        s.assert_interrupts(0);
+        s.assert_no_turn();
+
+        s.wait(5_500);
+        s.assert_absent(message);
+        s.assert_same_rows_in(&before, 0..prompt - 2);
+    }
 }
 
 // ---- oracle: chatwidget/tests/sparkle_submission_tests.rs (1 screen-level tests here; 0 state tests left to chat-nav-pane)

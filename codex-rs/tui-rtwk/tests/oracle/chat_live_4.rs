@@ -861,15 +861,29 @@ fn collab_mode_shift_tab_cycles_only_when_idle() {
 // ORACLE chatwidget/tests/plan_mode.rs:1338 mode_switch_surfaces_model_change_notification_when_effective_model_changes kind=ui owner=chat-live
 #[test]
 fn mode_switch_surfaces_model_change_notification_when_effective_model_changes() {
-    kit::pending(
-        Owner::ChatLive,
-        "Plan mode uses the catalog model and reports the change; the default fixture has no base model and retains the Plan model on the return switch",
-    );
     let mut s = mode_switch_session("gpt-5.6-luna");
+    s.set_thread_model("gpt-5");
     s.keys("shift+tab");
-    s.assert_contains("Model changed to gpt-5.6-luna medium for Plan mode.");
+    s.assert_text_count("Model changed to gpt-5.6-luna medium for Plan mode.", 1);
     s.keys("shift+tab");
-    s.assert_contains("Model changed to gpt-5 default for Default mode.");
+    s.assert_text_count("Model changed to gpt-5 default for Default mode.", 1);
+    s.assert_requests_of("thread/settings/update", 2);
+    let patches = s.request_params("thread/settings/update");
+    for (patch, mode, model) in [
+        (&patches[0], "plan", "gpt-5.6-luna"),
+        (&patches[1], "default", "gpt-5"),
+    ] {
+        kit::assert_same(
+            patch["collaborationMode"]["mode"].as_str(),
+            Some(mode),
+            "mode",
+        );
+        kit::assert_same(
+            patch["collaborationMode"]["settings"]["model"].as_str(),
+            Some(model),
+            "effective model",
+        );
+    }
 }
 
 // ORACLE chatwidget/tests/plan_mode.rs:1377 mode_switch_surfaces_reasoning_change_notification_when_model_stays_same kind=ui owner=chat-live
