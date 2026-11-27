@@ -28,6 +28,7 @@ pub struct Env<'a> {
     pub syntax: &'a SyntaxTheme,
     pub detailed: bool,
     pub expanded: bool,
+    pub inline: bool,
 }
 
 /// A call as the row draws it.
@@ -169,6 +170,7 @@ pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
             rest: place.rest.clone(),
             output_lines: place.streamed_shell_output_lines,
             detailed: env.detailed,
+            inline_room: place.inline_room,
         }
         .measured(),
     )

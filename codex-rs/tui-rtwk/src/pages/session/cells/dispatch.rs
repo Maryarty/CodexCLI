@@ -3,9 +3,6 @@
 //! lays the rows out and calls [`cell`]; in which mode an item is drawn (rich, or the raw
 //! source of alt+r) is decided here, what is drawn for it by the file of its kind (`cell_list!`
 //! in `cells/mod.rs`: registry 3 of the UI hubs).
-//!
-//! The width is not an input: every cell sizes itself to the constraints it
-//! is given (`LayoutBuilder` where it must choose a spelling).
 
 use std::sync::Arc;
 
@@ -44,6 +41,8 @@ pub struct CellEnv<'a> {
 /// Where the item sits in the list.
 #[derive(Default)]
 pub struct Place {
+    /// Normal-screen transcript viewport, using the scrollback preview spelling.
+    pub inline_room: Option<super::text::Room>,
     /// Something is above it: a blank row separates them.
     pub separator: bool,
     /// A prompt that follows another in the detailed transcript (no blank row between).

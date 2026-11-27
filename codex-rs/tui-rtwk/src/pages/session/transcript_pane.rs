@@ -6,7 +6,7 @@ use std::ops::Range;
 use std::rc::Rc;
 use std::time::Duration;
 
-use rtwk::binding::AppBinding;
+use rtwk::binding::{AppBinding, ScreenMode};
 use rtwk::foundation::{Listenable, VoidCallback};
 use rtwk::gestures::SelectionTarget;
 use rtwk::layout::{Align, Alignment, Column, CrossAxisAlignment, MainAxisSize};
@@ -94,6 +94,7 @@ pub(super) struct ViewportState {
     first: RefCell<Option<(ThreadId, ItemKey)>>,
     /// Actual constraints of the pane, supplied by its layout builder.
     width: i32,
+    inline_layout: RefCell<Option<InlineLayout>>,
     revealed_rows: RefCell<Option<RevealedRows>>,
     scan_first: RefCell<Option<(ThreadId, ItemKey, usize)>>,
     scan_match: RefCell<Option<(ItemKey, String)>>,
@@ -192,6 +193,20 @@ struct ActivityLayout {
     rows: Rc<[Row]>,
     stamp: ActivityStamp,
     walk: Rc<Walk>,
+}
+
+/// Inputs that can change the height measured by the inline host.
+#[derive(PartialEq, Eq)]
+struct InlineLayout {
+    thread: ThreadId,
+    reset: u64,
+    rows: u64,
+    activity: u64,
+    folds: u64,
+    count: usize,
+    room: Room,
+    detailed: bool,
+    raw: bool,
 }
 
 struct RevealedRows {
@@ -671,6 +686,7 @@ fn stop_of(
     transcript: &codex_tui_core::threads::Transcript,
     strings: &super::cells::strings::Strings,
     room: Room,
+    inline: bool,
 ) -> Option<Stop> {
     if let Some(fold) = fold_of(row, transcript) {
         return Some(Stop::fold(fold));
@@ -678,7 +694,7 @@ fn stop_of(
     let (key, item) = transcript.get(row.range.start)?;
     let has = match item {
         Item::Patch(patch) => !patch.changes.is_empty(),
-        Item::Tool(tool) => has_control(tool, strings, room),
+        Item::Tool(tool) => has_control(tool, strings, room, inline),
         _ => false,
     };
     has.then(|| Stop::cell(key.clone()))
@@ -691,8 +707,9 @@ impl ViewportState {
         thread: &Rc<ThreadModel>,
         strings: &'static super::cells::strings::Strings,
         room: Room,
+        inline: bool,
     ) -> Rc<Walk> {
-        let stamp = ActivityStamp::of(thread.transcript(), strings, room);
+        let stamp = ActivityStamp::of(thread.transcript(), strings, room, inline);
         let mut cache = self.activity.borrow_mut();
         if let Some(layout) = cache.as_ref()
             && Rc::ptr_eq(&layout.rows, rows)
@@ -706,7 +723,8 @@ impl ViewportState {
                 rows.iter()
                     .enumerate()
                     .filter_map(|(index, row)| {
-                        stop_of(row, thread.transcript(), strings, room).map(|stop| (index, stop))
+                        stop_of(row, thread.transcript(), strings, room, inline)
+                            .map(|stop| (index, stop))
                     })
                     .collect()
             }
@@ -731,6 +749,7 @@ impl StatefulWidget for Pane {
             shown: RefCell::default(),
             first: RefCell::default(),
             width: Room::default().width,
+            inline_layout: RefCell::default(),
             revealed_rows: RefCell::default(),
             scan_first: RefCell::default(),
             scan_match: RefCell::default(),
@@ -910,6 +929,11 @@ impl State for ViewportState {
         let caret = select::of(&search);
         let copier = copying::mode_of(&search);
         let reads = search.active() || caret.active() || caret.extending() || copier.active();
+        let binding = AppBinding::maybe_of(cx);
+        let inline_region = binding
+            .as_ref()
+            .is_some_and(|binding| binding.mode() == ScreenMode::Inline);
+        let inline = inline_region && !widget.detailed;
         if !reads {
             self.row_text_cache.borrow_mut().clear();
             self.texts.borrow_mut().take();
@@ -933,7 +957,7 @@ impl State for ViewportState {
                     thread.id().clone(),
                     transcript.layout_revision(),
                     transcript.reset_revision(),
-                    ActivityStamp::of(transcript, cells, room),
+                    ActivityStamp::of(transcript, cells, room, inline),
                     thread.can_load_history(),
                     thread.history_state(),
                     thread.read_only(),
@@ -1051,6 +1075,7 @@ impl State for ViewportState {
         let card_figure = |number| usage.as_ref().and_then(|usage| usage.card_figure(number));
         let reading = Reading {
             env: &env,
+            inline,
             bullet: &bullet,
             cwd,
             rendering,
@@ -1163,6 +1188,29 @@ impl State for ViewportState {
             rows
         };
         let count = rows.len() + lead;
+        if let Some(binding) = binding.filter(|_| inline_region && count != 0) {
+            let transcript = thread.transcript();
+            let layout = InlineLayout {
+                thread: thread_id.clone(),
+                reset: transcript.reset_revision(),
+                rows: transcript.layout_revision(),
+                activity: transcript.activity_revision(),
+                folds: activity.revision(),
+                count,
+                room,
+                detailed,
+                raw,
+            };
+            let mut previous = self.inline_layout.borrow_mut();
+            if previous.as_ref() != Some(&layout) {
+                *previous = Some(layout);
+                // The inline host takes the list's intrinsic height before
+                // layout. Revisit it once after measuring the changed rows.
+                binding.schedule_frame_callback(cx.callback(|_, _: Duration| ()), None);
+            }
+        } else {
+            self.inline_layout.borrow_mut().take();
+        }
         let grew = self.counted.replace(count) != count;
         self.listen_folds(&activity, cx.local_sender());
         // the folds and the cells with a control the chat's own list has, for the keys that walk
@@ -1172,7 +1220,8 @@ impl State for ViewportState {
             self.activity.borrow_mut().take();
         }
         if !detailed {
-            let walk = (!raw).then(|| self.activity_walk(&rows, &thread, cells, reading.room));
+            let walk =
+                (!raw).then(|| self.activity_walk(&rows, &thread, cells, reading.room, inline));
             activity.set_folds(walk.as_ref());
             if let Some(ids) = activity.take_reveal()
                 && let Some(logical) = walk.and_then(|walk| walk.row(&ids))
@@ -1395,6 +1444,7 @@ impl State for ViewportState {
                 _ => None,
             };
             let place = Place {
+                inline_room: inline.then_some(room),
                 separator,
                 // only the detailed transcript (oracle `TranscriptView`) draws prompts with no
                 // turn between them as one block; the chat keeps each prompt's own rows
@@ -1566,7 +1616,9 @@ impl State for ViewportState {
         .controller(widget.follow.scroll())
         .stick_to_bottom(!reverse)
         .reverse(reverse)
-        .shrink_wrap(reverse);
+        // The terminal sizes its inline region from the widget tree. A
+        // forward list contributes no height unless it shrink-wraps too.
+        .shrink_wrap(reverse || inline_region);
         let list: AnyWidget = match &texts {
             Some(texts) => list
                 .selection_text(texts.clone() as Rc<dyn ItemTexts>)

@@ -461,10 +461,6 @@ fn thread_identity_renders_names_and_fallbacks_on_both_surfaces() {
 // ORACLE chatwidget/tests/tool_activity_tests.rs:4 image_result_live_and_replay_render_in_the_owning_call kind=snap owner=ui-pane
 #[test]
 fn image_result_live_and_replay_render_in_the_owning_call() {
-    kit::pending(
-        Owner::UiPane,
-        "the oracle's snapshot is the inline `display_lines` of the call (`• Inspect screenshot`, a code-mode call with a title has no verb); the chat draws the owned transcript's `compact_hyperlink_lines` (`• Called Inspect screenshot`, the oracle's own owned-mode spelling, mcp_tests.rs:458); the result rows under it equal the snapshot, live and replayed",
-    );
     // The oracle renders the one call's cell live and by replay; both equal the same snapshot.
     // The cell's row on the transcript is set by ui-pane with the seed.
     let item = |done: bool| {
@@ -480,18 +476,30 @@ fn image_result_live_and_replay_render_in_the_owning_call() {
             "error": null, "durationMs": done.then_some(5)
         })
     };
+    let notes = |done| {
+        let mut call = item(done);
+        call["id"] = serde_json::json!("notes");
+        call["arguments"]["title"] = serde_json::json!("Read notes");
+        if done {
+            call["result"]["content"] = serde_json::json!([{"type":"text", "text":"Notes result"}]);
+        }
+        call
+    };
     let at = |s: &Screen| {
         s.rows()
             .iter()
-            .position(|row| row.starts_with("• Called Inspect screenshot"))
+            .position(|row| row.starts_with("• Inspect screenshot"))
             .unwrap_or_else(|| panic!("no call cell:\n{}", s.text()))
     };
     let mut live = Screen::build(Owner::UiPane)
         .size(80, 24)
+        .inline(&[])
         .script(RUNNING)
         .open();
     let started = item_run(&item(false));
     live.feed(started.split('\n').next().unwrap_or_default());
+    let notes_run = item_run(&notes(true));
+    live.feed(notes_run.split('\n').nth(1).unwrap_or_default());
     let completed = item_run(&item(true));
     live.feed(completed.split('\n').nth(1).unwrap_or_default());
     live.assert_snap_region(
@@ -501,9 +509,10 @@ fn image_result_live_and_replay_render_in_the_owning_call() {
     );
     let replay = Screen::build(Owner::UiPane)
         .size(80, 24)
+        .inline(&[])
         .replay(vec![kit::replay_turn(
             "turn-1",
-            serde_json::json!([item(true)]),
+            serde_json::json!([item(true), notes(true)]),
         )])
         .open();
     replay.assert_snap_region(
@@ -511,6 +520,15 @@ fn image_result_live_and_replay_render_in_the_owning_call() {
         at(&replay),
         0,
     );
+    for shown in [&live, &replay] {
+        shown.assert_in_order(&[
+            "Inspect screenshot",
+            "Screenshot captured",
+            "Returned image",
+            "Read notes",
+            "Notes result",
+        ]);
+    }
 }
 
 // ---- oracle: status_indicator_widget.rs (6 screen-level tests here; 4 state tests left to ui-pane)

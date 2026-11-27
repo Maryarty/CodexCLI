@@ -25,6 +25,7 @@ use crate::pages::session::cells::{agent, raw, session_info};
 /// it with (the session's directory, the user's `tui.rendering`, raw output mode, raw reasoning).
 pub struct Reading<'a> {
     pub env: &'a Env<'a>,
+    pub(crate) inline: bool,
     /// The assistant's bullet: the first part of its message.
     pub bullet: &'a str,
     pub cwd: Option<&'a str>,
@@ -49,6 +50,7 @@ impl<'a> Reading<'a> {
     pub fn new(env: &'a Env<'a>, bullet: &'a str) -> Reading<'a> {
         Reading {
             env,
+            inline: false,
             bullet,
             cwd: None,
             rendering: Rendering::default(),
@@ -159,7 +161,7 @@ pub fn row_parts(transcript: &Transcript, row: &Row, reading: &Reading<'_>) -> O
         } else {
             reading.env
         };
-        return tool_texts(&calls, env, reading.room);
+        return tool_texts(&calls, env, reading.room, reading.inline);
     }
     mounted_parts(item, reading)
 }
@@ -204,6 +206,7 @@ pub fn mounted_pieces(item: &Item, reading: &Reading<'_>) -> Option<Vec<Piece>> 
         &ReadContext {
             cwd: reading.cwd,
             room: reading.room,
+            inline: reading.inline,
             status: reading.status_words,
             approvals: reading.approval_words,
             usage: reading.usage,

@@ -2,7 +2,8 @@
 //! `history_cell/computer_activity.rs`): `• Using|Used computer · N
 //! action(s)[ · N failed]` and the calls worth showing under it. The preview
 //! favours a failure and an image over order but keeps the calls' own order;
-//! the shared control (not the oracle's `N more · ⌃t` row) reveals the rest.
+//! the owned transcript has a shared disclosure, and the inline viewport
+//! reports its hidden calls with the scrollback hint.
 
 use rtwk::layout::{
     BoxConstraints, Column, ConstrainedBox, CrossAxisAlignment, Expanded, MainAxisSize, Row,
@@ -37,16 +38,17 @@ pub fn parts(calls: &[&McpCall], env: &Env<'_>) -> Parts {
         strings,
         tokens,
         expanded,
+        inline,
         ..
     } = *env;
-    let disclosure = Some(
+    let disclosure = (expanded || !inline).then(|| {
         if expanded {
             strings.hide_details
         } else {
             strings.show_details
         }
-        .to_owned(),
-    );
+        .to_owned()
+    });
     if expanded {
         let mut column = Column::new()
             .main_axis_size(MainAxisSize::Min)
@@ -66,7 +68,13 @@ pub fn parts(calls: &[&McpCall], env: &Env<'_>) -> Parts {
         }
         return Parts::Plain(column.into(), disclosure);
     }
-    let (label, counted, failed, shown) = compact(calls, strings);
+    let Compact {
+        label,
+        counted,
+        failed,
+        shown,
+        remaining,
+    } = compact(calls, strings);
     let mut header = vec![
         Span::styled(label, tokens.bold()),
         Span::styled(counted, tokens.dim().attrs(Attrs::DIM)),
@@ -74,12 +82,24 @@ pub fn parts(calls: &[&McpCall], env: &Env<'_>) -> Parts {
     if let Some(failed) = failed {
         header.push(Span::styled(failed, tokens.error()));
     }
-    let last = shown.len().saturating_sub(1);
-    let body = shown
+    let tail = inline && remaining > 0;
+    let mut body: Vec<_> = shown
         .iter()
         .enumerate()
-        .map(|(row, &index)| summary(calls[index], row == last, strings, tokens))
+        .map(|(row, &index)| {
+            summary(
+                calls[index],
+                !tail && row + 1 == shown.len(),
+                strings,
+                tokens,
+            )
+        })
         .collect();
+    if tail {
+        let dim = tokens.dim().attrs(Attrs::DIM);
+        let hint = strings.label(strings.computer_more, &remaining.to_string());
+        body.push(glyph_row("└ ", dots_end(hint, dim.clone()), dim));
+    }
     Parts::Rows(Rows {
         mark: tokens.dim().attrs(Attrs::DIM),
         header: Text::rich(header).into(),
@@ -88,10 +108,15 @@ pub fn parts(calls: &[&McpCall], env: &Env<'_>) -> Parts {
     })
 }
 
-fn compact(
-    calls: &[&McpCall],
-    strings: &Strings,
-) -> (&'static str, String, Option<String>, Vec<usize>) {
+struct Compact {
+    label: &'static str,
+    counted: String,
+    failed: Option<String>,
+    shown: Vec<usize>,
+    remaining: usize,
+}
+
+fn compact(calls: &[&McpCall], strings: &Strings) -> Compact {
     let active = calls.iter().rposition(|call| call.result.is_none());
     let failures = calls
         .iter()
@@ -131,7 +156,17 @@ fn compact(
             indices
         }
     };
-    (label, counted, failed, shown)
+    Compact {
+        label,
+        counted,
+        failed,
+        remaining: if active.is_none() {
+            count - shown.len()
+        } else {
+            0
+        },
+        shown,
+    }
 }
 
 fn label(call: &McpCall, strings: &Strings) -> String {
@@ -149,7 +184,7 @@ fn preview(call: &McpCall, title: &str, strings: &Strings) -> String {
     }
 }
 
-pub(super) fn texts(calls: &[&McpCall], env: &TextEnv<'_>, room: Room) -> Vec<Part> {
+pub(super) fn texts(calls: &[&McpCall], env: &TextEnv<'_>, room: Room, inline: bool) -> Vec<Part> {
     let strings = env.cells;
     let expanded = env.expanded || env.detailed;
     let mut parts = Vec::new();
@@ -160,14 +195,21 @@ pub(super) fn texts(calls: &[&McpCall], env: &TextEnv<'_>, room: Room) -> Vec<Pa
             parts.extend(transcript_parts(call, strings, room));
         }
     } else {
-        let (verb, count, failed, shown) = compact(calls, strings);
+        let Compact {
+            label,
+            counted,
+            failed,
+            shown,
+            remaining,
+        } = compact(calls, strings);
+        let tail = inline && remaining > 0;
         parts.push(Part::gutter(BULLET));
         parts.push(Part::text(format!(
-            "{verb}{count}{}",
+            "{label}{counted}{}",
             failed.as_deref().unwrap_or_default()
         )));
         for (position, &index) in shown.iter().enumerate() {
-            let branch = if position + 1 == shown.len() {
+            let branch = if !tail && position + 1 == shown.len() {
                 "└ "
             } else {
                 "├ "
@@ -175,8 +217,15 @@ pub(super) fn texts(calls: &[&McpCall], env: &TextEnv<'_>, room: Room) -> Vec<Pa
             parts.push(Part::gutter(branch));
             parts.extend(summary_parts(calls[index], strings, room.after(branch)));
         }
+        if tail {
+            let hint = strings.label(strings.computer_more, &remaining.to_string());
+            parts.extend([Part::gutter("└ "), Part::text(hint.clone())]);
+            if room.after("└ ").cuts(&hint) {
+                parts.push(Part::gutter("…"));
+            }
+        }
     }
-    if !env.detailed {
+    if !env.detailed && (expanded || !inline) {
         parts.push(Part::gutter(if expanded {
             strings.hide_details
         } else {

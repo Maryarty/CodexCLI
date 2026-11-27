@@ -189,6 +189,7 @@ pub struct Strings {
     pub tool_earlier_lines: &'static str,
     pub repl_hidden_line: &'static str,
     pub repl_hidden_lines: &'static str,
+    pub inline_repl_hidden: &'static str,
     pub tool_arguments: &'static str,
     pub output_unavailable: &'static str,
     // history_cell/computer_activity.rs
@@ -468,6 +469,7 @@ pub const EN: Strings = Strings {
     tool_earlier_lines: "… {} earlier lines hidden",
     repl_hidden_line: "+1 line",
     repl_hidden_lines: "+{} lines",
+    inline_repl_hidden: "{} (⌃t to view transcript)",
     tool_arguments: "Arguments: {}",
     output_unavailable: "(output unavailable)",
     computer_using: "Using computer",

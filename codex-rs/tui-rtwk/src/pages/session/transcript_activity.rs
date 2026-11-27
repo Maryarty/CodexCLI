@@ -30,13 +30,20 @@ pub(super) struct ToolRow {
     pub rest: Vec<Arc<ToolActivity>>,
     pub output_lines: Option<usize>,
     pub detailed: bool,
+    pub inline_room: Option<Room>,
 }
 
 /// Whether the tool row draws a closed control, which makes it an F4 stop.
-pub(super) fn has_control(first: &ToolActivity, strings: &Strings, room: Room) -> bool {
+pub(super) fn has_control(
+    first: &ToolActivity,
+    strings: &Strings,
+    room: Room,
+    inline: bool,
+) -> bool {
     match first.kind {
         ToolKind::Shell { .. } => exec::has_control(first, strings, room),
-        ToolKind::Mcp(_) | ToolKind::Dynamic(_) => true,
+        ToolKind::Mcp(ref call) => !inline || !tool_call::uses_inline_display(call),
+        ToolKind::Dynamic(_) => true,
     }
 }
 
@@ -46,11 +53,12 @@ pub(super) fn has_control(first: &ToolActivity, strings: &Strings, room: Room) -
 pub(super) struct ActivityStamp {
     metadata: u64,
     room: Room,
+    inline: bool,
     output_stops: Vec<(ItemKey, bool)>,
 }
 
 impl ActivityStamp {
-    pub(super) fn of(transcript: &Transcript, strings: &Strings, room: Room) -> Self {
+    pub(super) fn of(transcript: &Transcript, strings: &Strings, room: Room, inline: bool) -> Self {
         let mut output_stops: Vec<_> = transcript
             .streamed_shell_output_lines()
             .filter_map(|(key, tool, initial, current)| {
@@ -65,6 +73,7 @@ impl ActivityStamp {
         Self {
             metadata: transcript.activity_revision(),
             room,
+            inline,
             output_stops,
         }
     }
@@ -126,6 +135,7 @@ impl State for ToolRowState {
             syntax: &syntax,
             detailed: widget.detailed,
             expanded,
+            inline: widget.inline_room.is_some(),
         };
         let calls: Vec<&ToolActivity> = widget.calls().collect();
         let parts = match &calls[0].kind {
@@ -144,7 +154,7 @@ impl State for ToolRowState {
                     .collect();
                 computer_activity::parts(&group, &env)
             }
-            ToolKind::Mcp(call) => tool_call::mcp(call, &env),
+            ToolKind::Mcp(call) => tool_call::mcp(call, &env, widget.inline_room),
             ToolKind::Dynamic(call) => tool_call::dynamic(call, &env),
         };
         let control = tokens.dim().attrs(Attrs::DIM);
