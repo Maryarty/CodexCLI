@@ -54,7 +54,7 @@ fn enter_picks_the_pet_and_closes() {
 }
 
 /// `/pets` through the real opener with the local host's capabilities answered by the fake.
-fn pets_command(h: &mut Harness) {
+fn pets_command(h: &mut Harness, configured: Option<&str>) {
     let pet = |selector: &str, name: &str| Pet {
         selector: selector.into(),
         name: name.into(),
@@ -80,21 +80,21 @@ fn pets_command(h: &mut Harness) {
         h,
         AssetAsk::Catalog { graphics: true },
         AssetDone::Catalog(Ok(Picker::build(
-            None,
+            configured,
             vec![pet("codex", "Codex"), pet("dewey", "Dewey")],
         ))),
     );
     h.wait_for("the picker", |screen| screen.contains("Loading preview..."));
 }
 
-fn live() -> Harness {
+fn live(configured: Option<&str>) -> Harness {
     let options = Options::new()
         .size(80, 24)
         .graphics(GraphicsProtocol::Kitty)
         .cell_pixels(8, 16);
     let mut h = start_driven_with(false, options);
     h.wait_idle();
-    pets_command(&mut h);
+    pets_command(&mut h, configured);
     h
 }
 
@@ -140,10 +140,51 @@ fn native_preview() -> ImagePreview {
     }
 }
 
+#[test]
+fn configured_path_shows_a_native_preview_without_changing_catalog_rows() {
+    let path = "./my pets/owl/pet.json";
+    let mut h = live(Some(path));
+    answer(
+        &mut h,
+        AssetAsk::Preview {
+            selector: path.into(),
+        },
+        AssetDone::Preview(Ok(native_preview())),
+    );
+    h.wait_until("native preview of configured path", |h| {
+        !h.t.images().is_empty()
+    });
+    let screen = h.t.screen();
+    assert!(screen.contains("Disable terminal pets"));
+    assert!(screen.contains("Codex"));
+    assert!(!screen.contains("(current)"));
+    assert!(!screen.contains(path));
+
+    h.press("down");
+    answer(
+        &mut h,
+        AssetAsk::Preview {
+            selector: "codex".into(),
+        },
+        AssetDone::Preview(Ok(native_preview())),
+    );
+    h.wait_until("native preview of catalog row", |h| {
+        !h.t.images().is_empty()
+    });
+    h.press("esc");
+    assert!(h.fake.commands().into_iter().all(|command| !matches!(
+        command,
+        Command::Effect {
+            ask: Ask::Pet(AssetAsk::Save { .. }),
+            ..
+        }
+    )));
+}
+
 /// The pick is saved: Enter writes `tui.pet` through the host (the oracle's `PetSelected`).
 #[test]
 fn enter_writes_the_pick_to_the_config() {
-    let mut h = live();
+    let mut h = live(None);
     h.press("down");
     answer(
         &mut h,
@@ -168,7 +209,7 @@ fn enter_writes_the_pick_to_the_config() {
     assert!(h.t.images().is_empty());
 
     h.advance(700);
-    pets_command(&mut h);
+    pets_command(&mut h, None);
     h.wait_for("acknowledged current pet", |screen| {
         screen.contains("Dewey (current)")
     });
@@ -177,7 +218,7 @@ fn enter_writes_the_pick_to_the_config() {
 /// The disable row is saved as the selector the oracle's `PetDisabled` writes.
 #[test]
 fn enter_on_the_disable_row_writes_the_disabled_pet() {
-    let mut h = live();
+    let mut h = live(None);
     h.press("up");
     h.wait_for("disabled preview", |screen| {
         screen.contains("Terminal pets disabled")

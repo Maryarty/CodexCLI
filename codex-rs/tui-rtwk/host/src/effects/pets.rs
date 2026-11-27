@@ -100,7 +100,7 @@ pub(super) async fn run(ask: AssetAsk, config: Option<Arc<Config>>) -> AssetDone
                 .map_err(|err| err.to_string()),
         ),
         AssetAsk::Ambient { selector } => AssetDone::Ambient(
-            ambient::load(config, selector)
+            ambient::load(config, selector, &terminal_info())
                 .await
                 .ok()
                 .flatten()
@@ -284,6 +284,36 @@ fn installed_asset(home: &Path, selector: &str) -> Result<(Manifest, PathBuf)> {
     bail!("unknown pet {selector}");
 }
 
+fn local_asset(home: &Path, selector: &str) -> Result<(Manifest, PathBuf)> {
+    let path = Path::new(selector);
+    if !path.is_absolute() && !selector.contains(['/', '\\']) && !matches!(selector, "." | "..") {
+        return installed_asset(home, selector);
+    }
+    let expanded;
+    let path = if let Some(suffix) = selector.strip_prefix("~/") {
+        let user_home = std::env::var_os("HOME").context("HOME is not set")?;
+        expanded = PathBuf::from(user_home).join(suffix);
+        expanded.as_path()
+    } else {
+        path
+    };
+    let metadata = fs::metadata(path).with_context(|| format!("pet path {}", path.display()))?;
+    let directory = if metadata.is_dir() {
+        path
+    } else {
+        path.parent()
+            .context("pet path has no containing directory")?
+    };
+    // Explicit selectors name a pack. A file selector chooses its containing pack,
+    // with the same manifest precedence as the oracle.
+    for (_, filename) in CUSTOM_DIRS {
+        if directory.join(filename).is_file() {
+            return custom_asset(directory, filename);
+        }
+    }
+    bail!("missing pet.json or avatar.json in {}", directory.display());
+}
+
 fn validate_grid(grid: Grid) -> Result<()> {
     if grid.width == 0
         || grid.height == 0
@@ -319,7 +349,7 @@ async fn preview(config: Option<Arc<Config>>, selector: String) -> Result<ImageP
             .context("read built-in pet frame")?;
     }
     blocking(move || {
-        let (manifest, sheet) = installed_asset(config.codex_home.as_path(), &selector)?;
+        let (manifest, sheet) = local_asset(config.codex_home.as_path(), &selector)?;
         first_idle(&sheet, &manifest)
     })
     .await
@@ -460,16 +490,141 @@ mod tests {
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].selector, "custom:owl");
         assert_eq!(listed[0].legacy_selector.as_deref(), Some("owl"));
-        let (manifest, path) = installed_asset(home.path(), "owl")?;
-        let frame = first_idle(&path, &manifest)?;
+        for selector in ["owl", "custom:owl"] {
+            let (manifest, path) = local_asset(home.path(), selector)?;
+            let frame = first_idle(&path, &manifest)?;
+            assert_eq!(
+                frame.size,
+                ImageSize {
+                    width: 192,
+                    height: 208
+                }
+            );
+            assert_eq!(image::load_from_memory(&frame.png)?.get_pixel(0, 0), marker);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn pet_path_selector_uses_the_containing_pack_for_absolute_and_relative_paths() -> Result<()> {
+        let cwd = std::env::current_dir()?;
+        let workspace = tempfile::tempdir_in(&cwd)?;
+        let home = tempfile::tempdir()?;
+        let pack = workspace.path().join("pet with spaces");
+        fs::create_dir(&pack)?;
+        let avatar = pack.join("avatar.json");
+        fs::File::create(&avatar)?
+            .write_all(br#"{"displayName":"Legacy","spritesheetPath":"sheet.png"}"#)?;
+        image::RgbaImage::new(WIDTH, HEIGHT).save(pack.join("sheet.png"))?;
+        let (manifest, _) = local_asset(home.path(), avatar.to_str().context("avatar path")?)?;
+        assert_eq!(manifest.display_name.as_deref(), Some("Legacy"));
+
+        let pet = pack.join("pet.json");
+        fs::File::create(&pet)?
+            .write_all(br#"{"displayName":"Modern","spritesheetPath":"sheet.png"}"#)?;
+        let relative = pack.strip_prefix(&cwd)?;
+        let relative_file = relative.join("avatar.json");
+        let dotted = Path::new(".").join(&relative_file);
+        let parent_relative = Path::new("..")
+            .join(cwd.file_name().context("package directory")?)
+            .join(&relative_file);
+        let absolute = pack.canonicalize()?;
+        let selectors: [&Path; 6] = [
+            &absolute,
+            &pet,
+            relative,
+            &relative_file,
+            &dotted,
+            &parent_relative,
+        ];
+        for selector in selectors {
+            let selector = selector.to_str().context("UTF-8 pet selector")?;
+            let (manifest, sheet) = local_asset(home.path(), selector)?;
+            assert_eq!(manifest.display_name.as_deref(), Some("Modern"));
+            assert_eq!(sheet, absolute.join("sheet.png"));
+        }
+        assert_eq!(custom_catalog(home.path()).count(), 0);
+        assert!(local_asset(home.path(), "pet with spaces").is_err());
+        assert!(local_asset(home.path(), "custom:pet with spaces").is_err());
+        assert!(local_asset(home.path(), "./does-not-exist/pet.json").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn pet_path_selector_reuses_pack_validation_for_an_invalid_sheet() -> Result<()> {
+        let home = tempfile::tempdir()?;
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("pet.json");
+        let selector = path.to_str().context("UTF-8 pet selector")?;
+        for (manifest, message) in [
+            (
+                r#"{"spritesheetPath":"../escape.png"}"#,
+                "inside its manifest directory",
+            ),
+            (r#"{"spritesheetPath":"tiny.png"}"#, "1536×1872"),
+        ] {
+            image::RgbaImage::new(1, 1).save(dir.path().join("tiny.png"))?;
+            fs::File::create(&path)?.write_all(manifest.as_bytes())?;
+            let result = local_asset(home.path(), selector);
+            let Err(error) = result else {
+                panic!("expected invalid pet pack")
+            };
+            assert!(error.to_string().contains(message), "{error}");
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn configured_pet_path_opens_preview_and_native_ambient_from_the_same_pack() -> Result<()>
+    {
+        use codex_core::config::ConfigBuilder;
+        use codex_tui_core::screens::pets::Motion;
+
+        let home = tempfile::tempdir()?;
+        let pack = tempfile::tempdir()?;
+        let manifest = pack.path().join("pet.json");
+        fs::File::create(&manifest)?.write_all(
+            br#"{"displayName":"Outside","spritesheetPath":"sheet.png","animations":{"idle":{"frames":[1,0],"fps":8}}}"#,
+        )?;
+        let marker = image::Rgba([80, 160, 120, 255]);
+        let mut sheet = image::RgbaImage::new(WIDTH, HEIGHT);
+        sheet.put_pixel(192, 0, marker);
+        sheet.save(pack.path().join("sheet.png"))?;
+        let selector = manifest.to_str().context("UTF-8 pet selector")?;
+        let config = || {
+            ConfigBuilder::default()
+                .codex_home(home.path().to_owned())
+                .fallback_cwd(Some(home.path().to_owned()))
+                .build()
+        };
+        save(Some(&config().await?), selector).await?;
+        let config = Arc::new(config().await?);
+        let picker = catalog(Some(&config));
+        assert_eq!(picker.current.as_deref(), Some(selector));
+        assert!(picker.pets.iter().all(|pet| pet.selector != selector));
+
+        let preview = preview(Some(config.clone()), selector.to_owned()).await?;
         assert_eq!(
-            frame.size,
-            ImageSize {
-                width: 192,
-                height: 208
-            }
+            image::load_from_memory(&preview.png)?.get_pixel(0, 0),
+            marker
         );
-        assert_eq!(image::load_from_memory(&frame.png)?.get_pixel(0, 0), marker);
+        let kitty = TerminalInfo {
+            name: TerminalName::Kitty,
+            term_program: None,
+            version: None,
+            term: None,
+            multiplexer: None,
+            backend: None,
+        };
+        let ambient = ambient::load(Some(config), None, &kitty)
+            .await?
+            .context("configured path at startup")?;
+        let data = &ambient.clip(Motion::Idle).data;
+        let reader = png::Decoder::new(Cursor::new(data.as_ref())).read_info()?;
+        let control = reader.info().animation_control.context("native APNG")?;
+        assert_eq!((control.num_frames, control.num_plays), (2, 0));
+        assert_eq!(image::load_from_memory(data)?.get_pixel(0, 0), marker);
+        assert!(!home.path().join("cache/tui-pets/v1/assets").exists());
         Ok(())
     }
 }

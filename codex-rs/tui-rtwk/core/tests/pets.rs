@@ -264,6 +264,96 @@ mod live {
     }
 
     #[test]
+    fn configured_path_preview_is_separate_from_catalog_rows_and_visit_owned() {
+        let mut app = CodexApp::default();
+        let path = "./my pets/owl/pet.json";
+        let visit = open(&mut app, Some(path));
+        assert_eq!(ready(&app, visit).initial(), 0);
+        assert!(
+            !ready(&app, visit)
+                .pets
+                .iter()
+                .any(|pet| pet.selector == path)
+        );
+        for selector in ["./other/pet.json", "unknown"] {
+            no_pet_ask(&act(
+                &mut app,
+                PetIntent::ReadPreview {
+                    visit,
+                    selector: Some(selector.into()),
+                },
+            ));
+        }
+        let old = preview(&mut app, visit, path);
+        no_pet_ask(&act(
+            &mut app,
+            PetIntent::ReadPreview {
+                visit,
+                selector: Some("./other/pet.json".into()),
+            },
+        ));
+        assert_eq!(
+            ready(&app, visit).preview,
+            Some((path.into(), Preview::Loading))
+        );
+        let row = preview(&mut app, visit, "codex");
+        answer(&mut app, old, image(1));
+        assert_eq!(
+            ready(&app, visit).preview,
+            Some(("codex".into(), Preview::Loading))
+        );
+        answer(&mut app, row, image(2));
+        no_pet_ask(&act(&mut app, PetIntent::RetirePreview(visit)));
+        let reopened = open(&mut app, Some(path));
+        no_pet_ask(&act(
+            &mut app,
+            PetIntent::ReadPreview {
+                visit,
+                selector: Some(path.into()),
+            },
+        ));
+        assert_eq!(ready(&app, reopened).preview, None);
+        preview(&mut app, reopened, path);
+    }
+
+    #[test]
+    fn an_explicit_path_is_saved_only_after_asset_validation() {
+        let path = "./my pets/owl/pet.json";
+        let mut app = CodexApp::default();
+        for (result, valid) in [
+            (AssetDone::Preview(Err("missing pet.json".into())), false),
+            (image(2), true),
+        ] {
+            let visit = Visit::fresh();
+            let catalog = asked(
+                &request(&mut app, visit, Some(path), true),
+                AssetAsk::Catalog { graphics: true },
+            );
+            let validation = asked(
+                &answer(&mut app, catalog, list(None)),
+                AssetAsk::Preview {
+                    selector: path.into(),
+                },
+            );
+            let out = answer(&mut app, validation, result);
+            assert_eq!(app.features().pets.selected(), None);
+            if valid {
+                let write = asked(
+                    &out,
+                    AssetAsk::Save {
+                        selector: path.into(),
+                    },
+                );
+                answer(&mut app, write, AssetDone::Saved(Ok(())));
+                assert_eq!(app.features().pets.selected(), Some(path));
+            } else {
+                no_pet_ask(&out);
+                assert_eq!(app.features().pets.phase(visit), Some(&Phase::Finished));
+            }
+        }
+    }
+
+    #[test]
     fn a_late_boot_asset_cannot_reactivate_a_disabled_pet() {
         use std::sync::Arc;
 

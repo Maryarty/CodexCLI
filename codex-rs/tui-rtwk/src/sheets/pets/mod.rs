@@ -229,25 +229,25 @@ impl ScreenState {
     fn put(&self, w: &Screen, picker: &Picker, index: usize, cx: &mut Cx<'_, Self>) {
         self.cursor.select(index);
         self.cursor.set_cursor(Some(index));
-        Self::preview_of(w, picker, index, cx);
+        if let Some(pet) = picker.pets.get(index) {
+            Self::request_preview(w, &pet.selector, cx);
+        }
     }
 
-    fn preview_of(w: &Screen, picker: &Picker, index: usize, cx: &mut Cx<'_, Self>) {
-        if let Some(pet) = picker.pets.get(index) {
-            if let Some(visit) = w.visit {
-                verb(
-                    cx,
-                    LiveIntent::ReadPreview {
-                        visit,
-                        selector: Some(pet.selector.clone()),
-                    },
-                );
-                return;
-            }
+    fn request_preview(w: &Screen, selector: &str, cx: &mut Cx<'_, Self>) {
+        if let Some(visit) = w.visit {
+            verb(
+                cx,
+                LiveIntent::ReadPreview {
+                    visit,
+                    selector: Some(selector.to_owned()),
+                },
+            );
+        } else {
             let hs = read::<Hs, _>(cx);
             cx.emit(
                 &hs.screen,
-                ScreenIntent::Pets(Intent::LoadPreview(pet.selector.clone())),
+                ScreenIntent::Pets(Intent::LoadPreview(selector.to_owned())),
             );
         }
     }
@@ -318,12 +318,16 @@ impl State for ScreenState {
         }
         let picker = picker(w, cx);
         if let (Some(picker), false) = (&picker, self.started) {
-            // Seen first: the cursor starts on the configured pet, whose preview is asked for.
+            // A configured filesystem pack can be previewed without becoming a catalog row.
             let initial = picker.initial();
             self.cursor.select(initial);
             self.cursor.set_cursor(Some(initial));
             self.below.set_value(picker.pets.len() > WINDOW);
-            Self::preview_of(w, picker, initial, cx);
+            let catalog_row = picker.pets.get(initial).map(|pet| pet.selector.as_str());
+            let configured = w.visit.and(picker.current.as_deref());
+            if let Some(selector) = configured.or(catalog_row) {
+                Self::request_preview(w, selector, cx);
+            }
             self.started = true;
         }
     }

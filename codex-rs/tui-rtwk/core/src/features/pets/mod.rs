@@ -207,6 +207,12 @@ fn read_preview(state: &mut State, visit: Visit, selector: Option<String>, cx: &
     let Phase::Ready(picker) = &mut active.phase else {
         return;
     };
+    if selector.as_ref().is_some_and(|selector| {
+        picker.current.as_ref() != Some(selector)
+            && !picker.pets.iter().any(|pet| &pet.selector == selector)
+    }) {
+        return;
+    }
     if picker.preview.as_ref().map(|(selector, _)| selector) == selector.as_ref() {
         return;
     }
@@ -216,9 +222,7 @@ fn read_preview(state: &mut State, visit: Visit, selector: Option<String>, cx: &
         picker.preview = Some((DISABLED.to_owned(), Preview::Disabled));
         return;
     }
-    let Some(selector) =
-        selector.filter(|selector| picker.pets.iter().any(|pet| &pet.selector == selector))
-    else {
+    let Some(selector) = selector else {
         return;
     };
     picker.preview = Some((selector.clone(), Preview::Loading));

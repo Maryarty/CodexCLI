@@ -7,13 +7,13 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use codex_config::types::TuiPetAnchor;
 use codex_core::config::Config;
-use codex_terminal_detection::terminal_info;
+use codex_terminal_detection::TerminalInfo;
 use codex_tui_core::app::effects::ImageSize;
 use codex_tui_core::screens::pets::{Ambient, Anchor, Clip, ClipTransition, DISABLED, Motion};
 use codex_tui_rtwk::services::agents::workspace::blocking;
 use image::{RgbaImage, imageops};
 
-use super::{BUILTIN, Grid, Manifest, ensure_builtin, installed_asset, support};
+use super::{BUILTIN, Grid, Manifest, ensure_builtin, local_asset, support};
 
 const MAX_FRAMES: usize = 256;
 const MAX_EDGE: u32 = 256;
@@ -22,6 +22,7 @@ const MAX_ENCODED: usize = 16 * 1024 * 1024;
 pub(super) async fn load(
     config: Option<Arc<Config>>,
     selector: Option<String>,
+    terminal: &TerminalInfo,
 ) -> Result<Option<Ambient>> {
     let Some(config) = config else {
         return Ok(None);
@@ -29,7 +30,7 @@ pub(super) async fn load(
     let Some(selector) = selector.or_else(|| config.tui_pet.clone()) else {
         return Ok(None);
     };
-    if selector == DISABLED || support(&terminal_info(), true).is_err() {
+    if selector == DISABLED || support(terminal, true).is_err() {
         return Ok(None);
     }
     let anchor = match config.tui_pet_anchor {
@@ -45,7 +46,7 @@ pub(super) async fn load(
     blocking(move || {
         let (manifest, sheet) = match sheet {
             Some(sheet) => (Manifest::default(), sheet),
-            None => installed_asset(config.codex_home.as_path(), &selector)?,
+            None => local_asset(config.codex_home.as_path(), &selector)?,
         };
         compile(&sheet, &manifest, anchor, animations).map(Some)
     })
