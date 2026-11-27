@@ -1249,6 +1249,25 @@ impl HostDoors for ConnectionDoors {
         Some(Outcome::event(event))
     }
 
+    async fn git_summary(
+        &self,
+        _thread: ThreadId,
+        cwd: String,
+        _address: codex_tui_core::rpc::Address,
+    ) -> Option<Outcome> {
+        // The Cloud adapter does not serve one-off workspace commands.
+        let summary = if matches!(&self.handle, AppServerRequestHandle::Cloud(_)) {
+            Default::default()
+        } else {
+            let exec = AppServerExec::new(sender(self.handle.clone()), self.ids.clone());
+            codex_tui_rtwk::services::git_summary::read(&exec, std::path::Path::new(&cwd)).await
+        };
+        Some(Outcome::Effect(
+            codex_tui_core::app::effects::Done::GitSummary(summary),
+            None,
+        ))
+    }
+
     async fn directories(&self, cwds: Vec<String>) -> Option<Outcome> {
         Some(Outcome::event(Some(
             directories(self.workspace.clone(), cwds).await,

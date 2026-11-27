@@ -13,6 +13,7 @@ mod consent;
 pub mod effects;
 pub mod facts;
 pub(crate) mod features;
+mod git_summary;
 mod host_asks;
 mod lifecycle;
 mod mentions;
@@ -1183,6 +1184,20 @@ impl CodexApp {
         }
         let address = match command {
             Command::Effect {
+                request,
+                ask:
+                    effects::Ask::GitSummary {
+                        thread,
+                        cwd,
+                        address,
+                    },
+            } => {
+                if !git_summary::may_dispatch(self, *request, thread, cwd, *address) {
+                    return None;
+                }
+                *address
+            }
+            Command::Effect {
                 ask: effects::Ask::ReconnectIdleThread { address, .. },
                 ..
             } => *address,
@@ -1230,7 +1245,9 @@ impl CodexApp {
                 agents.owner_of(thread.as_str())
             }
             Command::Effect {
-                ask: effects::Ask::ReconnectIdleThread { address, .. },
+                ask:
+                    effects::Ask::ReconnectIdleThread { address, .. }
+                    | effects::Ask::GitSummary { address, .. },
                 ..
             } => address.backend,
             Command::RejectRequest { key }
@@ -1343,6 +1360,7 @@ impl CodexApp {
         self.attaching_events
             .retain(|(source, ..)| *source != backend);
         features::retire_rate_offer(self, backend);
+        git_summary::retire(self, backend);
         detach_threads(self, backend, fx);
         self.fail_in_flight(backend);
         structured::lost(self, backend, fx);
@@ -1436,6 +1454,7 @@ impl CodexApp {
                 read_session(self, &mut fx);
             }
             finish_apply(self, false, &mut fx);
+            git_summary::sync(self, false, &mut fx);
             sync_picker_root(self);
             return Some(fx);
         };
@@ -1466,6 +1485,10 @@ impl CodexApp {
                 self.address(origin.backend) == origin
                     && self.request_address(*ticket) == Some(origin)
             }
+            AppEv::Effect {
+                request,
+                done: effects::Done::GitSummary(_),
+            } => git_summary::accepts(self, origin, *request),
             _ => true,
         }
     }
@@ -1504,6 +1527,8 @@ fn apply_at(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
                 | ServerNotification::ThreadDeleted(_)
         ));
     let status = matches!(ev, AppEv::Screen(ScreenEv::Chat(chat::Ev::Status(_))));
+    let workspace_changed = git_summary::observes(&ev);
+    let finishing_turn = git_summary::finishing_turn(app, origin, &ev);
     let previous = Rc::clone(&app.session);
     // the refusal the last apply heard has been on screen for its frame
     if app.session.cloud_switch == Some(CloudSwitch::Failed) {
@@ -1515,6 +1540,12 @@ fn apply_at(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
         !Rc::ptr_eq(&previous, &app.session) && previous.active != app.session.active;
     if status || active_changed {
         notices::invalid_status_items(app, fx);
+    }
+    if workspace_changed || active_changed {
+        let refresh_git = finishing_turn
+            .as_ref()
+            .is_some_and(|turn| git_summary::ended(app, turn));
+        git_summary::sync(app, refresh_git, fx);
     }
     if ancestry || active_changed {
         sync_picker_root(app);
@@ -2050,6 +2081,12 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         AppEv::Presets(slots) => select::event(app, crate::screens::select::Ev::Dials(slots), fx),
         AppEv::Feature(fact) => features::fact(app, fact, fx),
         AppEv::ErrorLine { message } => notices::error_line(app, message, fx),
+        AppEv::Effect {
+            done: effects::Done::GitSummary(summary),
+            ..
+        } => {
+            git_summary::answer(app, summary, fx);
+        }
         AppEv::Effect { request, done } if effects::is_feature_request(request) => {
             features::effect_done(app, request, done, fx);
         }

@@ -19,6 +19,7 @@ pub mod editor;
 pub mod effects;
 pub mod exec;
 pub mod file_search;
+pub mod git_summary;
 pub mod history;
 pub mod images;
 pub mod open_url;

@@ -1067,8 +1067,12 @@ handle and pass the restart acknowledgement to its original continuation. Popove
 conversation captured at submission. The browser door reports either its feature result or an
 error line. The account's reset-credit mutation uses the ordinary RPC queue with the picker's
 backend, the original idempotency key on retry, and the existing timeout. The tests switch
-backends and replace the transport before accepting the current receipt. The hub budget allows
-10 `Command` variants and 29 entries in the capability catalog.
+backends and replace the transport before accepting the current receipt.
+
+The status line uses a read-only `GitSummary` capability for branch and pull request metadata.
+The app captures the shown thread, cwd and physical address when it registers the request. It
+accepts the reply only for that pending workspace. The connection runs bounded probes through its workspace
+executor. The hub budget allows 10 `Command` variants and 30 entries in the capability catalog.
 
 **The host's feeds: `host_feed_list!` (fw-hubs-c, P7).** What the host tells a slice unasked (the
 config's facts at start and after a write, the account's, the notices the server holds) is the slice's

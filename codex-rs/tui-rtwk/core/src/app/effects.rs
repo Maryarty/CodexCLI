@@ -24,6 +24,7 @@ use crate::features::FeatureCtx;
 use crate::ids::{RequestKey, ThreadId, Ticket};
 use crate::rpc::Address;
 use crate::screens::approvals::verify::{AttemptId, Cause, Verifications};
+use crate::screens::chat::facts::GitSummary;
 use crate::screens::select::review::Commit;
 use crate::screens::select::worktree::Entry as WorktreeEntry;
 use crate::screens::transcript::diff;
@@ -156,6 +157,9 @@ host_capability_list! {
     /// `diff::Diff` machine through its workspace executor.
     git_diff => GitDiff { cwd: Option<String> }
         -> new GitDiff(Result<diff::Report, diff::Failure>);
+    /// The open pull request and committed branch changes of the given workspace.
+    git_summary => GitSummary { thread: ThreadId, cwd: String, address: Address } by thread
+        -> new GitSummary(GitSummary);
     /// The transcript of `thread`, as the Markdown the asker rendered from the cells' text,
     /// written to `path` (`~/` is the home directory, a relative path is under `cwd`: the
     /// launch directory for a remote workspace, else the thread's; an existing file is never

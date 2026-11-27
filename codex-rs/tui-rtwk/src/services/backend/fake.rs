@@ -13,7 +13,7 @@ use codex_tui_core::app::AppEv;
 use codex_tui_core::app::BackendEv;
 use codex_tui_core::app::Command;
 use codex_tui_core::app::Ingress;
-use codex_tui_core::app::effects::{HostDoors, run_ask};
+use codex_tui_core::app::effects::{Done, HostDoors, run_ask};
 use codex_tui_core::app::worktree::Checkout as WorktreeCheckout;
 use codex_tui_core::fixtures::builders::turn_started;
 use codex_tui_core::fixtures::builders::user_item_with_receipt;
@@ -22,8 +22,8 @@ use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::ids::Ticket;
 use codex_tui_core::ids::TurnId;
-use codex_tui_core::rpc::Reply;
 use codex_tui_core::rpc::ServerError;
+use codex_tui_core::rpc::{Address, Reply};
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::DirKeys;
 use codex_tui_core::screens::agents::Ev as AgentsEv;
@@ -559,7 +559,7 @@ async fn run_as(
                 continue;
             }
         };
-        let Some((command, _)) = dispatch.on(backend, epoch) else {
+        let Some((command, stamp)) = dispatch.on(backend, epoch) else {
             continue;
         };
         let scripted = {
@@ -640,8 +640,9 @@ async fn run_as(
             Command::RejectRequest { .. }
             | Command::ResolveRequest { .. }
             | Command::InterruptTurn { .. } => {}
-            Command::Effect { ask, .. } => {
+            Command::Effect { request, ask, .. } => {
                 let doors = FakeDoors {
+                    request,
                     shared: &shared,
                     ids: &ids,
                     workspace: &server.workspace,
@@ -652,7 +653,13 @@ async fn run_as(
                         let ingress = ingress.clone();
                         tokio::spawn(async move {
                             if let Some(event) = job.await {
-                                let _ = ingress.send(Ingress::of(backend, epoch, event));
+                                let reply = match stamp {
+                                    Some(stamp) => {
+                                        Ingress::transport_event(backend, epoch, stamp, event)
+                                    }
+                                    None => Ingress::of(backend, epoch, event),
+                                };
+                                let _ = ingress.send(reply);
                             }
                         });
                     }
@@ -694,6 +701,7 @@ async fn run_as(
 /// Scripts can answer immediately or do the same asynchronous work as the
 /// host. Unscripted capabilities remain recorded for the test to answer.
 struct FakeDoors<'a> {
+    request: u64,
     shared: &'a Arc<Mutex<Shared>>,
     ids: &'a Ids,
     workspace: &'a Arc<FakeWorkspace>,
@@ -723,6 +731,26 @@ impl HostDoors for FakeDoors<'_> {
             };
             let send = request_sender(log, responder);
             import::run(ask, site, ids, send).await
+        })))
+    }
+
+    async fn git_summary(
+        &self,
+        _thread: ThreadId,
+        cwd: String,
+        _address: Address,
+    ) -> Option<FakeWork> {
+        let responder = self.responder()?;
+        let (log, ids, request) = (self.shared.clone(), self.ids.clone(), self.request);
+        Some(FakeWork::Spawn(Box::pin(async move {
+            let exec =
+                crate::services::exec::AppServerExec::new(request_sender(log, responder), ids);
+            let summary =
+                crate::services::git_summary::read(&exec, std::path::Path::new(&cwd)).await;
+            Some(AppEv::Effect {
+                request,
+                done: Done::GitSummary(summary),
+            })
         })))
     }
 
