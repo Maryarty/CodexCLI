@@ -288,7 +288,7 @@ pub enum Intent {
         token: ModalToken<Selection>,
         mode: Mode,
     },
-    DismissOwned(ModalToken<Selection>),
+    CancelOwnedSetup(ModalToken<Selection>),
 }
 
 /// The permission hold whose concrete selection stays with its app owner.
@@ -682,10 +682,10 @@ feature! {
                     Intent::BeginOwned { token, mode } if state.owns_prompt(&token) => {
                         cx.verb(PublicVerb::PermissionSetup(PermissionSetup::Begin { token, mode }));
                     }
-                    Intent::DismissOwned(token) if state.owns_prompt(&token) => state.cancel_then(cx),
+                    Intent::CancelOwnedSetup(token) if state.owns_prompt(&token) => state.cancel_then(cx),
                     Intent::Begin(mode) if state.then_owner.is_none() => state.begin(mode, None, cx),
                     Intent::BeginThen { mode, then } if state.then_owner.is_none() => state.begin(mode, Some(then), cx),
-                    Intent::BeginOwned { .. } | Intent::DismissOwned(_) | Intent::Begin(_) | Intent::BeginThen { .. } => {},
+                    Intent::BeginOwned { .. } | Intent::CancelOwnedSetup(_) | Intent::Begin(_) | Intent::BeginThen { .. } => {},
                     Intent::Shown(prompt) => {
                         if state.due == Some(prompt) {
                             state.due = None;

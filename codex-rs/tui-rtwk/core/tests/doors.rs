@@ -223,7 +223,7 @@ fn owned_permissions_keep_the_original_choice_through_windows_setup() {
             })
         };
         if outcome == "cancelled" {
-            let fx = sandbox_intent(&mut app, Sandbox::DismissOwned(token.clone()).into());
+            let fx = sandbox_intent(&mut app, Sandbox::CancelOwnedSetup(token.clone()).into());
             assert!(!fx.commands().iter().any(permission_settings));
             assert!(sandbox_intent(&mut app, begin()).commands().is_empty());
         } else {
