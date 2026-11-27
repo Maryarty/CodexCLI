@@ -18,7 +18,7 @@ use crate::side_return::{SIDE, forked};
 const SECOND: &str = "side-2";
 const THIRD: &str = "side-3";
 
-fn open_workspace(attached: bool) -> Harness {
+fn workspace(attached: bool) -> Harness {
     let mut h = configured_workspace(true, true, None);
     if attached {
         let epoch = h
@@ -72,6 +72,11 @@ fn open_workspace(attached: bool) -> Harness {
             }
             _ => None,
         });
+    h
+}
+
+fn open_workspace(attached: bool) -> Harness {
+    let mut h = workspace(attached);
     send_line(&mut h, "/side first-side");
     assert_active(&h, SIDE);
     h
@@ -158,15 +163,18 @@ fn native_tabs_select_open_children_by_keyboard_and_mouse_with_independent_draft
     );
 
     h.press("f12 t");
-    h.press("left");
+    h.advance(150);
+    assert_active(&h, FAKE_THREAD);
+    assert!(h.t.screen().contains("New side chat"));
+    h.press("down");
+    h.press("enter");
     h.advance(150);
     assert_active(&h, SIDE);
     assert!(h.t.screen().contains("FIRST HISTORY") && h.t.screen().contains("first-draft"));
     assert!(!h.t.screen().contains("SECOND HISTORY"));
-    h.press("enter");
     assert!(
         !submitted(&h, SIDE, "first-draft"),
-        "Enter focuses the composer from the tabs"
+        "Enter selects the existing child without submitting its draft"
     );
     h.t.type_text("!");
     h.advance(120);
@@ -244,7 +252,7 @@ fn close_uses_storage_and_leaves_the_previous_child_alive() {
         send_line(&mut h, "/side second-side");
         finish_opening_turn(&mut h, SECOND, "SECOND HISTORY");
         if attached {
-            click_label(&mut h, "×");
+            close_tab(&mut h, "Second side", 0);
         } else {
             h.press("f12 c");
             assert!(h.t.screen().contains("lose this temporary chat’s history"));
@@ -273,5 +281,98 @@ fn close_uses_storage_and_leaves_the_previous_child_alive() {
                 .any(|r| r["method"] == "thread/unsubscribe" && r["params"]["threadId"] == SIDE)
         );
         assert!(!requests.iter().any(|r| r["method"] == "thread/archive"));
+    }
+}
+
+fn close_tab(h: &mut Harness, label: &str, button: u8) {
+    let bar = h.t.lines().first().cloned().unwrap_or_default();
+    let index = bar
+        .find(label)
+        .unwrap_or_else(|| panic!("missing {label}: {bar}"));
+    let x = if button == 1 {
+        bar[..index].chars().count()
+    } else {
+        let close = bar[index..]
+            .find('×')
+            .unwrap_or_else(|| panic!("missing close: {bar}"));
+        bar[..index + close].chars().count()
+    };
+    let x = u16::try_from(x).expect("visible tab column");
+    h.t.mouse(MouseKind::Down, x, 0, button, Mods::NONE);
+    h.t.mouse(MouseKind::Up, x, 0, button, Mods::NONE);
+    h.advance(150);
+}
+
+#[test]
+fn the_empty_workspace_chooser_creates_and_plus_can_open_a_fresh_child() {
+    let mut h = workspace(false);
+    assert_active(&h, FAKE_THREAD);
+    h.press("f12 t");
+    h.advance(150);
+    assert!(h.t.screen().contains("New side chat"), "{}", h.t.screen());
+    h.press("enter");
+    h.advance(300);
+    assert_active(&h, SIDE);
+    assert!(!submitted(&h, SIDE, "New side chat"));
+    click_label(&mut h, "+");
+    assert_active(&h, FAKE_THREAD);
+    assert!(h.t.screen().contains("New side chat"), "{}", h.t.screen());
+    h.press("enter");
+    h.advance(300);
+    assert_active(&h, SECOND);
+    let forks = h
+        .fake
+        .requests()
+        .into_iter()
+        .filter(|r| r["method"] == "thread/fork")
+        .count();
+    assert_eq!(forks, 2);
+}
+
+#[test]
+fn closing_an_inactive_attached_child_uses_its_own_loss_and_keeps_the_composer() {
+    for button in [0, 1] {
+        let mut h = open_workspace(true);
+        finish_opening_turn(&mut h, SIDE, "FIRST HISTORY");
+        h.t.type_text("first parked input");
+        h.press("f12 h");
+        send_line(&mut h, "/side second-side");
+        finish_opening_turn(&mut h, SECOND, "SECOND HISTORY");
+        h.t.type_text("second active input");
+        h.advance(120);
+
+        close_tab(&mut h, "first-side", button);
+        let dialog = h.t.screen();
+        assert!(
+            dialog.contains("Close side chat?") && dialog.contains("first-side"),
+            "{dialog}"
+        );
+        assert!(dialog.contains("discard unsent input"), "{dialog}");
+        h.press("esc");
+        assert_active(&h, SECOND);
+        assert!(h.t.screen().contains("second active input"));
+        assert!(
+            !h.fake
+                .requests()
+                .iter()
+                .any(|r| r["method"] == "thread/unsubscribe")
+        );
+        close_tab(&mut h, "first-side", button);
+        h.press("right");
+        h.press("enter");
+        h.advance(250);
+        assert_active(&h, SECOND);
+        assert!(!h.t.screen().contains("first-side"));
+        h.t.type_text("!");
+        h.press("enter");
+        h.advance(250);
+        assert!(submitted(&h, SECOND, "second active input!"));
+        assert!(!submitted(&h, SIDE, "first parked input"));
+        assert!(
+            h.fake
+                .requests()
+                .iter()
+                .any(|r| r["method"] == "thread/unsubscribe" && r["params"]["threadId"] == SIDE)
+        );
     }
 }

@@ -279,6 +279,28 @@ pub(super) fn side_is_temporary(states: &FeatureStates, child: &ThreadId) -> boo
         .is_some_and(|link| link.storage == Storage::Temporary)
 }
 
+pub(crate) use codex_tui_core::features::side::SavedChats;
+
+pub(super) fn create_side<S: 'static>(cx: &mut Cx<'_, S>, parent: ThreadId) {
+    use codex_tui_core::features::side::Intent;
+    verb(cx, Intent::Create { parent });
+}
+
+pub(super) fn refresh_saved_side<S: 'static>(cx: &mut Cx<'_, S>, parent: ThreadId) {
+    use codex_tui_core::features::side::Intent;
+    verb(cx, Intent::RefreshSaved { parent });
+}
+
+pub(super) fn open_saved_side<S: 'static>(cx: &mut Cx<'_, S>, parent: ThreadId, child: ThreadId) {
+    use codex_tui_core::features::side::Intent;
+    verb(cx, Intent::OpenSaved { parent, child });
+}
+
+pub(super) fn archive_side<S: 'static>(cx: &mut Cx<'_, S>, parent: ThreadId, child: ThreadId) {
+    use codex_tui_core::features::side::Intent;
+    verb(cx, Intent::ArchiveSaved { parent, child });
+}
+
 pub(super) fn select_side<S: 'static>(cx: &mut Cx<'_, S>, parent: ThreadId, child: ThreadId) {
     use codex_tui_core::features::side::Intent;
     verb(cx, Intent::Select { parent, child });

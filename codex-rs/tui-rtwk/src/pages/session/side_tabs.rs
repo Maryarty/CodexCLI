@@ -1,18 +1,25 @@
-//! The native tab controller presents the core's ordered, open children for one parent.
+//! The workspace strip addresses every open child independently.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::threads::{Item, ThreadModel};
-use rtwk::controls::{Button, TabBar, TabController};
-use rtwk::focus::{FocusNode, KeyBindings};
-use rtwk::foundation::{Listenable, VoidCallback};
+use rtwk::controls::{Button, Pressable};
+use rtwk::focus::{Focus, FocusNode, KeyEventResult};
+use rtwk::gestures::{Listener, PointerEvent};
 use rtwk::l10n::{Arg, Fmt};
-use rtwk::layout::{Expanded, Row};
-use rtwk::{AnyWidget, Cx, Str};
+use rtwk::layout::{Axis, BoxWidget, EdgeInsets, Expanded, MainAxisSize, Row};
+use rtwk::prelude::HitTestBehavior;
+use rtwk::scroll::SingleChildScrollView;
+use rtwk::style::Theme;
+use rtwk::widgets::Text;
+use rtwk::{AnyWidget, Cx, Key, Str};
+
+use crate::keymap::press::{PaneActivationGuard, PaneActivationKey, horizontal_focus};
 
 use crate::widgets::thread_ui::ThreadUi;
+use rtwk::provider::read;
 
 use super::side_pane::{DockState, Msg};
 
@@ -42,72 +49,18 @@ pub(super) fn tab_name(thread: &ThreadModel, ui: &ThreadUi) -> Option<Str> {
     name
 }
 
-pub(super) struct Tabs {
-    children: Rc<RefCell<Rc<[ThreadId]>>>,
-    projecting: Rc<Cell<bool>>,
-    controller: TabController,
-    listener: Option<VoidCallback>,
-    pub focus: FocusNode,
-}
-
-impl Tabs {
-    pub fn new(children: Rc<[ThreadId]>, selected: &ThreadId) -> Self {
-        let index = children.iter().position(|id| id == selected).unwrap_or(0);
-        Self {
-            controller: TabController::with_initial_index(children.len(), index),
-            children: Rc::new(RefCell::new(children)),
-            projecting: Rc::new(Cell::new(false)),
-            listener: None,
-            focus: FocusNode::new(),
-        }
-    }
-
-    pub fn listen(&mut self, tell: Rc<dyn Fn(Msg)>) {
-        let children = self.children.clone();
-        let projecting = self.projecting.clone();
-        let controller = self.controller.clone();
-        let listener: VoidCallback = Rc::new(move || {
-            if !projecting.get()
-                && let Some(id) = children.borrow().get(controller.index())
-            {
-                tell(Msg::SelectTab(id.clone()));
-            }
-        });
-        self.controller.add_listener(listener.clone());
-        self.listener = Some(listener);
-    }
-
-    pub fn project(&self, children: &Rc<[ThreadId]>, selected: &ThreadId) {
-        let Some(index) = children.iter().position(|id| id == selected) else {
-            return;
-        };
-        self.projecting.set(true);
-        *self.children.borrow_mut() = children.clone();
-        self.controller.set_length(children.len());
-        self.controller.set_index(index);
-        self.projecting.set(false);
-    }
-
-    pub fn dispose(&mut self) {
-        if let Some(listener) = self.listener.take() {
-            self.controller.remove_listener(&listener);
-        }
-        self.controller.dispose();
-        self.focus.dispose();
-    }
-
-    pub fn view(
-        &self,
-        cx: &mut Cx<'_, DockState>,
-        selected: &ThreadId,
-        names: &[Option<Str>],
-    ) -> AnyWidget {
-        let words = super::strings::of(cx);
-        let count = self.controller.length();
-        let labels = names.iter().enumerate().map(|(index, name)| {
-            if let Some(name) = name {
-                name.clone()
-            } else if count == 1 {
+pub(super) fn view(
+    cx: &mut Cx<'_, DockState>,
+    focus: &FocusNode,
+    selected: Option<&ThreadId>,
+    children: &[ThreadId],
+    names: &[Option<Str>],
+) -> AnyWidget {
+    let words = super::strings::of(cx);
+    let mut items = Row::new().main_axis_size(MainAxisSize::Min);
+    for (index, (child, name)) in children.iter().zip(names).enumerate() {
+        let label = name.clone().unwrap_or_else(|| {
+            if children.len() == 1 {
                 Str::Static(words.side_chat.trim())
             } else {
                 Fmt::new(words.side_tab, [Arg::Int(index as u64 + 1)], &words.num)
@@ -115,11 +68,70 @@ impl Tabs {
                     .into()
             }
         });
-        let tabs = TabBar::strip(&self.controller, labels).focus_node(Some(self.focus.clone()));
-        let tabs = KeyBindings::new([("enter", cx.send(Msg::FocusChild))], tabs);
+        let selected = selected == Some(child);
+        let select = Pressable::new(move |cx, _| {
+            let theme = Theme::of(cx);
+            let style = if selected {
+                &theme.selection
+            } else {
+                &theme.primary
+            };
+            BoxWidget::new()
+                .padding(EdgeInsets::x(1))
+                .child(Text::line(label.clone()).style(style.clone()))
+                .into()
+        })
+        .can_request_focus(false)
+        .behavior(HitTestBehavior::Opaque)
+        .on_tap({
+            let child = child.clone();
+            cx.map(move |_| Msg::SelectTab(child.clone()))
+        });
         let close = Button::new(words.side_close_tab_symbol)
             .can_request_focus(false)
-            .on_pressed(cx.send(Msg::CloseTab(selected.clone())));
-        Row::new().child(Expanded::new(1, tabs)).child(close).into()
+            .on_pressed({
+                let child = child.clone();
+                cx.map(move |()| Msg::CloseTab(child.clone()))
+            });
+        let middle = child.clone();
+        let item = Listener::new()
+            .behavior(HitTestBehavior::Translucent)
+            .on_pointer_down(cx.map(move |event: PointerEvent| {
+                if event.button == 1 {
+                    Msg::CloseTab(middle.clone())
+                } else {
+                    Msg::Ignore
+                }
+            }))
+            .child(
+                Row::new()
+                    .main_axis_size(MainAxisSize::Min)
+                    .child(select)
+                    .child(close),
+            );
+        items = items.child(AnyWidget::from(item).with_key(Key::value(child.clone())));
     }
+    let list = SingleChildScrollView::new(items)
+        .scroll_direction(Axis::Horizontal)
+        .can_request_focus(false);
+    let tell = cx.local_sender();
+    let activation = read::<PaneActivationGuard, _>(cx);
+    let list = Focus::new(list)
+        .focus_node(focus.clone())
+        .on_key_event(move |node, key| {
+            if !node.has_primary_focus() {
+                return KeyEventResult::Ignored;
+            }
+            if let Some(right) = horizontal_focus(&key) {
+                tell(Msg::StepTab(if right { 1 } else { -1 }));
+            } else if PaneActivationKey::of_press(&key) == Some(PaneActivationKey::Enter) {
+                activation.arm(PaneActivationKey::Enter);
+                tell(Msg::FocusChild);
+            } else {
+                return KeyEventResult::Ignored;
+            }
+            KeyEventResult::Handled
+        });
+    let add = Button::new(words.side_add_tab_symbol).on_pressed(cx.map(|()| Msg::FocusTabs));
+    Row::new().child(Expanded::new(1, list)).child(add).into()
 }

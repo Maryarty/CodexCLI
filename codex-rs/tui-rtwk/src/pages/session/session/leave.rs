@@ -29,6 +29,16 @@ pub(super) fn taken(key: PageKey, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs)
 /// Ctrl+C: a feature that owns the thread takes it (the return from a side conversation), else it
 /// interrupts the turn, else it quits (`on_ctrl_c`).
 pub(super) fn ctrl_c(w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs) {
+    let words = crate::pages::session::composer::strings::of(cx);
+    let draft = w.ui.draft.submission(&w.ui.composer, |n| words.image(n));
+    if draft.text.is_empty()
+        && draft.images.is_empty()
+        && draft.remote_images.is_empty()
+        && !w.ui.draft.shell()
+        && super::super::side_pane::interrupt_side(cx)
+    {
+        return;
+    }
     if taken(PageKey::Interrupt, w, cx, hs) {
         return;
     }

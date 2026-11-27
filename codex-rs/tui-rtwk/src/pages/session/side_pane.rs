@@ -13,7 +13,7 @@ use codex_tui_core::keymap::actions::{
 };
 use codex_tui_core::keymap::{ActionId, Keymap};
 use codex_tui_core::threads::{ThreadModel, UserMessage};
-use rtwk::binding::InputListener;
+use rtwk::binding::{AppBinding, InputListener};
 use rtwk::controls::Pressable;
 use rtwk::focus::{Focus, FocusNode, FocusScope, KeyBindings, KeyCombo, KeyEventResult, KeyPress};
 use rtwk::gestures::{AbsorbPointer, Listener, PointerEvent};
@@ -41,7 +41,9 @@ use crate::keymap::press::{
 use crate::widgets::thread_scope::thread_scope;
 use crate::widgets::thread_ui::ThreadUi;
 
-use super::side_tabs::{Tabs, tab_name};
+use super::side_tabs::{self, tab_name};
+
+mod chooser;
 use super::{Presentation, session_page::Chat};
 
 const SPLIT_AT: i32 = 100;
@@ -52,11 +54,14 @@ const CHILD_MIN: i32 = 36;
 struct Pane {
     model: Rc<ThreadModel>,
     ui: Rc<ThreadUi>,
+    temporary: bool,
 }
 
 impl PartialEq for Pane {
     fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.model, &other.model) && Rc::ptr_eq(&self.ui, &other.ui)
+        Rc::ptr_eq(&self.model, &other.model)
+            && Rc::ptr_eq(&self.ui, &other.ui)
+            && self.temporary == other.temporary
     }
 }
 
@@ -70,12 +75,13 @@ pub(super) fn composer_node(ui: &ThreadUi) -> FocusNode {
 #[derive(Clone, PartialEq)]
 pub(super) struct Dock {
     parent: Pane,
-    child: Pane,
+    child: Option<Pane>,
+    open: Rc<[Pane]>,
     children: Rc<[ThreadId]>,
     tab_names: Rc<[Option<Str>]>,
     active: ThreadId,
     preferred_width: Option<u8>,
-    temporary: bool,
+    saved: Option<features::SavedChats>,
 }
 
 impl Dock {
@@ -87,20 +93,18 @@ impl Dock {
         let active = app.core.session().active.as_ref()?;
         let side = &app.core.features().side;
         let (parent, child) = if let Some(link) = side.link(active) {
-            (&link.parent, active)
+            (&link.parent, Some(active))
         } else {
-            (active, side.side_of(active)?)
+            (active, side.side_of(active))
         };
         let pane = |id| {
             Some(Pane {
                 model: app.core.thread(id)?.clone(),
                 ui: app.ui.thread_ui.get(Some(id)),
+                temporary: features::side_is_temporary(app.core.features(), id),
             })
         };
         let children = side.children_of(parent);
-        if !children.contains(child) {
-            return None;
-        }
         let tab_names = children
             .iter()
             .map(|id| {
@@ -111,17 +115,51 @@ impl Dock {
             .collect();
         Some(Self {
             parent: pane(parent)?,
-            child: pane(child)?,
+            child: child.and_then(pane),
+            open: children.iter().filter_map(pane).collect(),
             children: Rc::from(children),
             tab_names,
             active: active.clone(),
             preferred_width: settings.sidebar_width_percent,
-            temporary: features::side_is_temporary(app.core.features(), child),
+            saved: side.saved(parent).cloned(),
         })
     }
 
     fn on_child(&self) -> bool {
-        &self.active == self.child.model.id()
+        self.child
+            .as_ref()
+            .is_some_and(|child| child.model.id() == &self.active)
+    }
+
+    fn active_pane(&self) -> &Pane {
+        self.child
+            .as_ref()
+            .filter(|pane| pane.model.id() == &self.active)
+            .unwrap_or(&self.parent)
+    }
+
+    fn open_child(&self, id: &ThreadId) -> Option<&Pane> {
+        self.open.iter().find(|pane| pane.model.id() == id)
+    }
+
+    fn has_saved(&self, id: &ThreadId) -> bool {
+        matches!(&self.saved, Some(features::SavedChats::Ready(rows)) if rows.iter().any(|row| &row.id == id))
+    }
+
+    fn name(&self, id: &ThreadId) -> Option<Str> {
+        self.children
+            .iter()
+            .position(|child| child == id)
+            .and_then(|index| self.tab_names[index].clone())
+            .or_else(|| match &self.saved {
+                Some(features::SavedChats::Ready(rows)) => rows
+                    .iter()
+                    .find(|row| &row.id == id)
+                    .and_then(|row| row.name.as_deref().or_else(|| row.preview.lines().next()))
+                    .filter(|name| !name.trim().is_empty())
+                    .map(Str::copy),
+                _ => None,
+            })
     }
 
     pub(super) fn keyed(self) -> AnyWidget {
@@ -133,7 +171,8 @@ impl Dock {
 pub(super) struct DockState {
     width: i32,
     split: SplitController,
-    tabs: Tabs,
+    tabs_focus: FocusNode,
+    chooser: Option<chooser::ChooserControls>,
     parent_key: GlobalKey,
     child_key: GlobalKey,
     initial_width: Option<u8>,
@@ -158,6 +197,9 @@ pub enum Msg {
     Hide,
     Zoom,
     FocusTabs,
+    DismissChooser,
+    Choose(chooser::SideChoice, bool),
+    Archive(ThreadId),
     SelectTab(ThreadId),
     StepTab(i32),
     CloseSelected,
@@ -176,9 +218,87 @@ pub enum Msg {
 #[derive(Debug, PartialEq)]
 pub struct CloseProof {
     thread: ThreadId,
-    draft: UserMessage,
+    archive: bool,
+    draft: Option<UserMessage>,
     shell: bool,
     running: bool,
+}
+
+impl CloseProof {
+    fn capture(
+        w: &Dock,
+        thread: ThreadId,
+        archive: bool,
+        cx: &mut Cx<'_, DockState>,
+    ) -> Option<Self> {
+        let Some(pane) = w.open_child(&thread) else {
+            return (archive && w.has_saved(&thread)).then_some(Self {
+                thread,
+                archive,
+                draft: None,
+                shell: false,
+                running: false,
+            });
+        };
+        if pane.ui.draft.in_burst() || (archive && pane.temporary) {
+            return None;
+        }
+        let words = super::composer::strings::of(cx);
+        Some(Self {
+            thread,
+            archive,
+            draft: Some(
+                pane.ui
+                    .draft
+                    .submission(&pane.ui.composer, |n| words.image(n)),
+            ),
+            shell: pane.ui.draft.shell(),
+            running: pane.model.task_running(),
+        })
+    }
+
+    fn losses(&self, w: &Dock, cx: &mut Cx<'_, DockState>) -> Vec<&'static str> {
+        let words = super::strings::of(cx);
+        let mut losses = Vec::new();
+        if self.running {
+            losses.push(words.side_close_turn);
+        }
+        if self.shell
+            || self.draft.as_ref().is_some_and(|draft| {
+                !draft.text.is_empty()
+                    || !draft.images.is_empty()
+                    || !draft.remote_images.is_empty()
+            })
+        {
+            losses.push(words.side_close_draft);
+        }
+        if w.open_child(&self.thread)
+            .is_some_and(|pane| pane.temporary)
+        {
+            losses.push(words.side_close_history);
+        }
+        if self.archive {
+            losses.push(words.side_archive_history);
+        }
+        losses
+    }
+
+    fn is_current(&self, w: &Dock, cx: &mut Cx<'_, DockState>) -> bool {
+        Self::capture(w, self.thread.clone(), self.archive, cx).is_some_and(|current| {
+            self.draft == current.draft
+                && self.shell == current.shell
+                && (self.running || !current.running)
+        })
+    }
+
+    fn commit(&self, w: &Dock, cx: &mut Cx<'_, DockState>) {
+        let parent = w.parent.model.id().clone();
+        if self.archive {
+            features::archive_side(cx, parent, self.thread.clone());
+        } else {
+            features::close_side(cx, parent, self.thread.clone());
+        }
+    }
 }
 
 struct PendingClose {
@@ -233,7 +353,7 @@ pub(super) fn chords(keymap: &Keymap) -> Vec<(KeyCombo, KeyCombo, Msg)> {
 }
 
 #[derive(Clone, PartialEq)]
-struct Commands(Handler<Msg>, FocusNode);
+struct Commands(Handler<Msg>, FocusNode, Option<FocusNode>, Option<ThreadId>);
 
 pub(super) fn take<S>(cx: &mut Cx<'_, S>, message: Msg) {
     if let Some(commands) = Provider::<Commands>::maybe_of(cx, false) {
@@ -241,8 +361,25 @@ pub(super) fn take<S>(cx: &mut Cx<'_, S>, message: Msg) {
     }
 }
 
+pub(super) fn interrupt_side<S>(cx: &mut Cx<'_, S>) -> bool {
+    let Some(commands) = Provider::<Commands>::maybe_of(cx, false) else {
+        return false;
+    };
+    let Some(child) = &commands.3 else {
+        return false;
+    };
+    cx.emit(&commands.0, Msg::Archive(child.clone()));
+    true
+}
+
 pub(super) fn tabs_focused<S>(cx: &mut Cx<'_, S>) -> bool {
-    Provider::<Commands>::maybe_of(cx, false).is_some_and(|commands| commands.1.has_primary_focus())
+    Provider::<Commands>::maybe_of(cx, false).is_some_and(|commands| {
+        commands.1.has_primary_focus()
+            || commands
+                .2
+                .as_ref()
+                .is_some_and(FocusNode::has_primary_focus)
+    })
 }
 
 impl StatefulWidget for Dock {
@@ -252,7 +389,8 @@ impl StatefulWidget for Dock {
         DockState {
             width: 0,
             split: SplitController::new().with_fractions([2.0, 1.0]),
-            tabs: Tabs::new(self.children.clone(), self.child.model.id()),
+            tabs_focus: FocusNode::new(),
+            chooser: None,
             parent_key: GlobalKey::new(),
             child_key: GlobalKey::new(),
             initial_width: self.preferred_width,
@@ -270,6 +408,19 @@ impl_widget!(stateful eq Dock);
 impl DockState {
     fn wide(&self) -> bool {
         self.width >= SPLIT_AT && self.zoom.is_none() && !self.hidden
+    }
+
+    fn docked(&self, w: &Dock) -> bool {
+        self.wide() && (w.child.is_some() || self.chooser.is_some())
+    }
+
+    fn focus_after_frame(cx: &mut Cx<'_, Self>, focus: FocusNode) {
+        if let Some(binding) = AppBinding::maybe_of(cx) {
+            binding.add_post_frame_callback(cx.callback_with(move |_, _, _| {
+                focus.request_focus();
+                Rebuild::No
+            }));
+        }
     }
 
     fn focus(cx: &mut Cx<'_, Self>, pane: &Pane, active: &ThreadId) {
@@ -331,7 +482,12 @@ impl DockState {
                 Presentation::Passive
             },
         };
-        let controls = Commands(cx.map(|msg: Msg| msg), self.tabs.focus.clone());
+        let controls = Commands(
+            cx.map(|msg: Msg| msg),
+            self.tabs_focus.clone(),
+            self.chooser.as_ref().map(|chooser| chooser.focus.clone()),
+            (activate == Msg::FocusChild && !pane.temporary).then(|| pane.model.id().clone()),
+        );
         let chat =
             Provider::value_shared(pane.model.clone()).child(Provider::value(controls).child(chat));
         let hint: AnyWidget = if resizing {
@@ -368,11 +524,7 @@ impl State for DockState {
     type Widget = Dock;
     type Msg = Msg;
 
-    fn init_state(&mut self, _: &Dock, cx: &mut Cx<'_, Self>) {
-        self.tabs.listen(cx.local_sender());
-    }
-
-    fn did_update_widget(&mut self, old: &Dock, w: &Dock, _cx: &mut Cx<'_, Self>) {
+    fn did_update_widget(&mut self, old: &Dock, w: &Dock, cx: &mut Cx<'_, Self>) {
         if old.active != w.active && w.on_child() {
             self.hidden = false;
         }
@@ -382,11 +534,14 @@ impl State for DockState {
                 _ => None,
             };
         }
-        let changed_child = old.child.model.id() != w.child.model.id();
-        if changed_child || old.children != w.children {
-            self.tabs.project(&w.children, w.child.model.id());
+        if old.active != w.active && w.on_child() && self.chooser.take().is_some() {
+            Self::focus_after_frame(cx, composer_node(&w.active_pane().ui));
         }
-        if changed_child && let Some(pending) = self.close_pending.take() {
+        let missing = self.close_pending.as_ref().is_some_and(|pending| {
+            w.open_child(&pending.proof.thread).is_none()
+                && !(pending.proof.archive && w.has_saved(&pending.proof.thread))
+        });
+        if missing && let Some(pending) = self.close_pending.take() {
             pending.dialog.close(None);
         }
     }
@@ -396,13 +551,13 @@ impl State for DockState {
             pending.dialog.close(None);
         }
         self.split.dispose();
-        self.tabs.dispose();
+        self.tabs_focus.dispose();
         self.resize_focus.dispose();
     }
 
     fn update(&mut self, msg: Msg, w: &Dock, cx: &mut Cx<'_, Self>) -> Rebuild {
         let msg = match msg {
-            Msg::CloseSelected if w.on_child() => Msg::CloseTab(w.child.model.id().clone()),
+            Msg::CloseSelected if w.on_child() => Msg::CloseTab(w.active.clone()),
             other => other,
         };
         match msg {
@@ -414,29 +569,76 @@ impl State for DockState {
                     self.set_child_width((width * i32::from(percent) + 50) / 100);
                 }
                 if let Some(Resize::Keyboard(_)) = self.resize.take() {
-                    let pane = if w.on_child() { &w.child } else { &w.parent };
-                    Self::focus(cx, pane, &w.active);
+                    Self::focus(cx, w.active_pane(), &w.active);
+                }
+                if width < SPLIT_AT && self.chooser.take().is_some() {
+                    Self::focus(cx, w.active_pane(), &w.active);
                 }
             }
-            Msg::FocusParent => Self::focus(cx, &w.parent, &w.active),
+            Msg::FocusParent => {
+                self.chooser = None;
+                Self::focus(cx, &w.parent, &w.active);
+            }
             Msg::FocusChild => {
-                self.hidden = false;
-                Self::focus(cx, &w.child, &w.active);
+                if let Some(child) = &w.child {
+                    self.chooser = None;
+                    self.hidden = false;
+                    Self::focus(cx, child, &w.active);
+                }
             }
             Msg::FocusTabs if self.width >= SPLIT_AT => {
-                self.hidden = false;
-                self.zoom = None;
-                self.tabs.focus.request_focus();
+                if self.chooser.is_some() {
+                    self.chooser = None;
+                    Self::focus(cx, w.child.as_ref().unwrap_or(&w.parent), &w.active);
+                } else {
+                    self.hidden = false;
+                    self.zoom = None;
+                    let chooser = chooser::ChooserControls::new();
+                    if w.on_child() {
+                        Self::focus(cx, &w.parent, &w.active);
+                    }
+                    // Native autofocus fills an empty scope. The outgoing composer can still
+                    // own focus while the chooser and its parent are being mounted.
+                    Self::focus_after_frame(cx, chooser.focus.clone());
+                    self.chooser = Some(chooser);
+                    features::refresh_saved_side(cx, w.parent.model.id().clone());
+                }
             }
-            Msg::FocusTabs => Self::focus(cx, &w.child, &w.active),
-            Msg::SelectTab(child) if w.children.contains(&child) && child != w.active => {
-                self.hidden = false;
-                // The controller's click is a request. The core decides which child is shown.
-                self.tabs.project(&w.children, w.child.model.id());
-                features::select_side(cx, w.parent.model.id().clone(), child);
+            Msg::DismissChooser if self.chooser.is_some() => {
+                self.chooser = None;
+                Self::focus(cx, w.child.as_ref().unwrap_or(&w.parent), &w.active);
             }
-            Msg::StepTab(step) if w.on_child() || self.tabs.focus.has_primary_focus() => {
-                let Some(index) = w.children.iter().position(|id| id == w.child.model.id()) else {
+            Msg::Choose(choice, keyboard) if self.chooser.is_some() && !w.on_child() => {
+                if keyboard {
+                    read::<PaneActivationGuard, _>(cx).arm(PaneActivationKey::Enter);
+                }
+                let parent = w.parent.model.id().clone();
+                match choice {
+                    chooser::SideChoice::Create => features::create_side(cx, parent),
+                    chooser::SideChoice::Open(child) if w.open_child(&child).is_some() => {
+                        features::select_side(cx, parent, child);
+                    }
+                    chooser::SideChoice::Open(child) if w.has_saved(&child) => {
+                        features::open_saved_side(cx, parent, child);
+                    }
+                    chooser::SideChoice::Retry => features::refresh_saved_side(cx, parent),
+                    chooser::SideChoice::Open(_) => return Rebuild::No,
+                }
+            }
+            Msg::SelectTab(child) if w.open_child(&child).is_some() => {
+                self.hidden = false;
+                if child != w.active {
+                    features::select_side(cx, w.parent.model.id().clone(), child);
+                } else {
+                    Self::focus(cx, w.active_pane(), &w.active);
+                }
+            }
+            Msg::StepTab(step) if w.on_child() || self.tabs_focus.has_primary_focus() => {
+                let Some(index) = w
+                    .child
+                    .as_ref()
+                    .and_then(|child| w.children.iter().position(|id| id == child.model.id()))
+                else {
                     return Rebuild::No;
                 };
                 let count = w.children.len();
@@ -460,44 +662,25 @@ impl State for DockState {
             Msg::Zoom if !self.hidden && self.width >= SPLIT_AT => {
                 self.zoom = self.zoom.is_none().then(|| w.active.clone());
             }
-            Msg::CloseTab(target)
-                if &target == w.child.model.id() && self.close_pending.is_none() =>
-            {
-                let ui = &w.child.ui;
-                if ui.draft.in_burst() {
+            Msg::CloseTab(_) | Msg::Archive(_) if self.close_pending.is_none() => {
+                let (target, archive) = match msg {
+                    Msg::CloseTab(target) => (target, false),
+                    Msg::Archive(target) => (target, true),
+                    _ => unreachable!(),
+                };
+                let Some(proof) = CloseProof::capture(w, target, archive, cx) else {
                     return Rebuild::No;
-                }
-                let words = super::composer::strings::of(cx);
-                let draft = ui.draft.submission(&ui.composer, |n| words.image(n));
-                let shell = ui.draft.shell();
-                let unsent = shell
-                    || !draft.text.is_empty()
-                    || !draft.images.is_empty()
-                    || !draft.remote_images.is_empty();
-                let running = w.child.model.task_running();
-                let words = super::strings::of(cx);
-                let mut losses = Vec::new();
-                if running {
-                    losses.push(words.side_close_turn);
-                }
-                if unsent {
-                    losses.push(words.side_close_draft);
-                }
-                if w.temporary {
-                    losses.push(words.side_close_history);
-                }
+                };
+                let losses = proof.losses(w, cx);
                 if losses.is_empty() {
-                    features::close_side(cx, w.parent.model.id().clone(), target);
+                    proof.commit(w, cx);
                     return Rebuild::No;
                 }
-                let proof = Rc::new(CloseProof {
-                    thread: target,
-                    draft,
-                    shell,
-                    running,
-                });
+                let proof = Rc::new(proof);
                 let dialog = ConfirmClose {
+                    name: w.name(&proof.thread),
                     losses,
+                    archive,
                     on_decision: {
                         let proof = proof.clone();
                         cx.map(move |accepted| Msg::CloseDecision(proof.clone(), accepted))
@@ -517,35 +700,27 @@ impl State for DockState {
                     .is_some_and(|pending| Rc::ptr_eq(&pending.proof, &proof)) =>
             {
                 self.close_pending = None;
-                let ui = &w.child.ui;
-                let words = super::composer::strings::of(cx);
                 // A rejected send can bring input back while the dialog owns the keys.
-                if accepted
-                    && &proof.thread == w.child.model.id()
-                    && !ui.draft.in_burst()
-                    && (proof.running || !w.child.model.task_running())
-                    && proof.shell == ui.draft.shell()
-                    && proof.draft == ui.draft.submission(&ui.composer, |n| words.image(n))
-                {
-                    features::close_side(cx, w.parent.model.id().clone(), proof.thread.clone());
+                if accepted && proof.is_current(w, cx) {
+                    proof.commit(w, cx);
                 }
             }
             Msg::Step(delta) if self.keyboard_resize() => {
                 self.set_child_width(self.child_width() - delta);
             }
-            Msg::Nudge(direction) if self.wide() && w.on_child() => {
+            Msg::Nudge(direction) if self.docked(w) && w.on_child() => {
                 let step = (self.width.saturating_mul(2).saturating_add(50) / 100).max(1);
                 let before = self.child_width();
                 self.set_child_width(before - direction * step);
                 self.save_width(before, cx);
             }
-            Msg::Share(percent) if self.wide() => {
+            Msg::Share(percent) if self.docked(w) => {
                 let side = if w.on_child() { percent } else { 100 - percent };
                 let before = self.child_width();
                 self.set_child_width(((self.width - 1) * i32::from(side) + 99) / 100);
                 self.save_width(before, cx);
             }
-            Msg::Resize if self.wide() && self.resize.is_none() => {
+            Msg::Resize if self.docked(w) && self.resize.is_none() => {
                 self.resize = Some(Resize::Keyboard(self.child_width()));
                 self.resize_focus.request_focus();
             }
@@ -553,10 +728,9 @@ impl State for DockState {
                 if let Some(Resize::Keyboard(before)) = self.resize.take() {
                     self.save_width(before, cx);
                 }
-                let pane = if w.on_child() { &w.child } else { &w.parent };
-                composer_node(&pane.ui).request_focus();
+                composer_node(&w.active_pane().ui).request_focus();
             }
-            Msg::DividerDown(column) if self.wide() && self.resize.is_none() => {
+            Msg::DividerDown(column) if self.docked(w) && self.resize.is_none() => {
                 if let [left, right] = self.split.sizes().as_slice()
                     && left + right + 1 == self.width
                     && column == *left
@@ -579,7 +753,7 @@ impl State for DockState {
     }
 
     fn build(&self, w: &Dock, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let wide = self.wide();
+        let wide = self.docked(w);
         let on_child = w.on_child();
         let resize = self.keyboard_resize();
         let parent = self.pane(
@@ -590,18 +764,35 @@ impl State for DockState {
             Msg::FocusParent,
             resize && !on_child,
         );
-        let child = self.pane(
-            cx,
-            &w.child,
-            &self.child_key,
-            on_child,
-            Msg::FocusChild,
-            resize && on_child,
-        );
+        let child = w.child.as_ref().map(|child| {
+            self.pane(
+                cx,
+                child,
+                &self.child_key,
+                on_child && self.chooser.is_none(),
+                Msg::FocusChild,
+                resize && on_child,
+            )
+        });
         let shown: AnyWidget = if wide {
-            let child = Column::new()
-                .child(self.tabs.view(cx, w.child.model.id(), &w.tab_names))
-                .child(Expanded::new(1, child));
+            let strip = side_tabs::view(
+                cx,
+                &self.tabs_focus,
+                w.child.as_ref().map(|child| child.model.id()),
+                &w.children,
+                &w.tab_names,
+            );
+            let content: AnyWidget = match (&self.chooser, child) {
+                (Some(chooser), Some(child)) => Stack::new()
+                    .fit(StackFit::Expand)
+                    .child(Offstage::new(true, child))
+                    .child(chooser.view(w, cx))
+                    .into(),
+                (Some(chooser), None) => chooser.view(w, cx),
+                (None, Some(child)) => child,
+                (None, None) => SizedBox::shrink().into(),
+            };
+            let child = Column::new().child(strip).child(Expanded::new(1, content));
             let mut split = SplitView::new([
                 SplitPane::new(parent).min_size(PARENT_MIN),
                 SplitPane::new(child).min_size(CHILD_MIN),
@@ -622,12 +813,14 @@ impl State for DockState {
                 }))
                 .child(split)
                 .into()
-        } else {
+        } else if let Some(child) = child {
             Stack::new()
                 .fit(StackFit::Expand)
                 .child(Offstage::new(on_child, parent))
                 .child(Offstage::new(!on_child, child))
                 .into()
+        } else {
+            parent
         };
         let sampled = self.width;
         let tell = cx.local_sender();
@@ -692,7 +885,9 @@ impl State for DockState {
 
 #[derive(Clone, PartialEq)]
 struct ConfirmClose {
+    name: Option<Str>,
     losses: Vec<&'static str>,
+    archive: bool,
     on_decision: Handler<bool>,
 }
 
@@ -795,7 +990,11 @@ impl State for ConfirmCloseState {
             ))
             .child(Self::button(
                 cx,
-                words.side_close,
+                if w.archive {
+                    words.side_archive
+                } else {
+                    words.side_close
+                },
                 &self.close,
                 &self.cancel,
                 true,
@@ -803,10 +1002,18 @@ impl State for ConfirmCloseState {
         let mut body = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Start);
+        if let Some(name) = &w.name {
+            body = body.child(Text::line(name.clone()));
+        }
         for loss in &w.losses {
             body = body.child(Text::new(*loss));
         }
-        let dialog = Dialog::new(body.child(actions)).title(words.side_close_title);
+        let title = if w.archive {
+            words.side_archive_title
+        } else {
+            words.side_close_title
+        };
+        let dialog = Dialog::new(body.child(actions)).title(title);
         let cancel = self.cancel.clone();
         let close = self.close.clone();
         InputListener::with_raw_key_repeats(dialog, move |event| {

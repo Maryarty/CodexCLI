@@ -293,6 +293,10 @@ pub enum Intent {
         source: Option<ThreadId>,
         prompt: Option<String>,
     },
+    /// Start a fresh side conversation from the shown workspace parent.
+    Create {
+        parent: ThreadId,
+    },
     /// Open a specific child of the shown conversation family.
     Select {
         parent: ThreadId,
@@ -628,6 +632,15 @@ feature! {
             fn intent(state: &mut State, intent: Intent, cx: &mut AppCx<'_>) {
                 match intent {
                     Intent::Start { source, prompt } => start(state, source, prompt, false, false, cx),
+                    Intent::Create { parent } => {
+                        let view = cx.view();
+                        let tui = view.facts().tui();
+                        if tui.workspace_enabled && tui.transcript_owned
+                            && view.active() == Some(&parent)
+                        {
+                            start(state, Some(parent), None, true, true, cx);
+                        }
+                    }
                     Intent::Select { parent, child } => {
                         let view = cx.view();
                         let shown = view.active();
