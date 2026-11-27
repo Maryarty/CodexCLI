@@ -1133,7 +1133,7 @@ pub(super) fn opening_permission_baseline(
             action: startup::Action::Resume,
             thread,
         } => thread.as_str() == id,
-        AppCtx::Agents(agents::Ctx::Resume { thread }) => thread == id,
+        AppCtx::Agents(agents::Ctx::Resume { thread }) => thread.as_str() == id,
         AppCtx::StartThread { .. }
         | AppCtx::NewConversation { .. }
         | AppCtx::Agents(agents::Ctx::Start | agents::Ctx::Fork { .. })
