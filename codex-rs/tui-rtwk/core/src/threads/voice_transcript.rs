@@ -18,13 +18,117 @@ pub enum Event {
     Completed(wire::ThreadRealtimeItem),
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum History {
+    #[default]
+    Unknown,
+    Canonical,
+    Legacy,
+}
+
+impl History {
+    pub(crate) fn of(thread: &wire::Thread) -> Self {
+        if thread.history_mode == wire::ThreadHistoryMode::Paginated && !thread.ephemeral {
+            Self::Canonical
+        } else {
+            Self::Legacy
+        }
+    }
+
+    pub(crate) fn canonical(self) -> bool {
+        self == Self::Canonical
+    }
+}
+
+/// The pinned publisher emits one ordered stream per speaker within an owned call.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Legacy {
+    ordered: bool,
+    user: Option<FlatSegment>,
+    assistant: Option<FlatSegment>,
+    current: Option<Role>,
+    next: u64,
+}
+
+impl Legacy {
+    pub(crate) fn new() -> Self {
+        Self {
+            ordered: true,
+            user: None,
+            assistant: None,
+            current: None,
+            next: 0,
+        }
+    }
+
+    pub(crate) fn ordered(&self) -> bool {
+        self.ordered
+    }
+
+    pub(crate) fn lose_order(&mut self) {
+        self.ordered = false;
+        self.user = None;
+        self.assistant = None;
+    }
+
+    fn take(&mut self, role: Role) -> Option<FlatSegment> {
+        match role {
+            Role::User => self.user.take(),
+            Role::Assistant => self.assistant.take(),
+        }
+    }
+
+    fn completed(&mut self, role: Role) -> ItemId {
+        self.take(role)
+            .map_or_else(|| next_item(&mut self.next), |segment| segment.item)
+    }
+
+    fn append(&mut self, role: Role, text: &str) -> &FlatSegment {
+        self.current = Some(role);
+        let slot = match role {
+            Role::User => &mut self.user,
+            Role::Assistant => &mut self.assistant,
+        };
+        let segment = slot.get_or_insert_with(|| FlatSegment {
+            item: next_item(&mut self.next),
+            text: String::new(),
+        });
+        segment.text.push_str(text);
+        segment
+    }
+}
+
+fn next_item(next: &mut u64) -> ItemId {
+    *next += 1;
+    ItemId::new(format!("#{}", *next))
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FlatSegment {
+    item: ItemId,
+    text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FlatCaption {
+    role: Role,
+    text: String,
+    completed: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadEvent {
     Caption {
         event: Event,
         show_user_preview: bool,
     },
-    Supported(bool),
+    LegacyCaption {
+        caption: FlatCaption,
+        show_user_preview: bool,
+    },
+    LegacyClosed,
+    LostLegacyOrder,
+    Supported(History),
     Read {
         oldest: Option<TurnId>,
         more_history: bool,
@@ -34,7 +138,7 @@ pub enum ThreadEvent {
 
 pub(super) fn apply(model: &mut ThreadModel, event: ThreadEvent, fx: &mut ThreadFx<'_>) {
     match event {
-        ThreadEvent::Supported(supported) => model.voice_history_supported = supported,
+        ThreadEvent::Supported(history) => model.slots.voice.set_history(history),
         ThreadEvent::Read {
             oldest,
             more_history,
@@ -45,6 +149,30 @@ pub(super) fn apply(model: &mut ThreadModel, event: ThreadEvent, fx: &mut Thread
                 .read_voice_history(oldest, more_history, fx);
         }
         ThreadEvent::LoadOlder => model.core.transcript.load_older_voice_history(fx),
+        ThreadEvent::LegacyClosed => {
+            if let Some((session, legacy)) = model.slots.voice.legacy_captions(fx.address) {
+                model.core.transcript.seal_legacy_captions(session, legacy);
+            }
+            voice::apply_thread(&mut model.slots.voice, voice::ThreadEv::Closed, fx);
+        }
+        ThreadEvent::LostLegacyOrder => {
+            if model.slots.voice.lose_legacy_order() {
+                model.core.transcript.clear_live_voice();
+            }
+        }
+        ThreadEvent::LegacyCaption {
+            caption,
+            show_user_preview,
+        } => {
+            if let Some((session, legacy)) = model.slots.voice.legacy_captions(fx.address) {
+                model.core.transcript.apply_legacy_caption(
+                    session,
+                    legacy,
+                    caption,
+                    show_user_preview,
+                );
+            }
+        }
         ThreadEvent::Caption {
             event,
             show_user_preview,
@@ -80,15 +208,50 @@ pub(crate) fn project(notification: &wire::ServerNotification) -> Option<(Thread
     Some((ThreadId::new(thread), event))
 }
 
+pub(crate) fn project_legacy(
+    notification: &wire::ServerNotification,
+    accepts: impl FnOnce(&ThreadId) -> bool,
+) -> Option<(ThreadId, FlatCaption)> {
+    use wire::ServerNotification as Note;
+    let (thread, role, text, completed) = match notification {
+        Note::ThreadRealtimeTranscriptDelta(note) => {
+            (&note.thread_id, &note.role, &note.delta, false)
+        }
+        Note::ThreadRealtimeTranscriptDone(note) => (&note.thread_id, &note.role, &note.text, true),
+        _ => return None,
+    };
+    let role = match role.as_str() {
+        "user" => Role::User,
+        "assistant" => Role::Assistant,
+        _ => return None,
+    };
+    let thread = ThreadId::new(thread);
+    if !accepts(&thread) {
+        return None;
+    }
+    Some((
+        thread,
+        FlatCaption {
+            role,
+            text: text.clone(),
+            completed,
+        },
+    ))
+}
+
+fn key(session: &str, item: ItemId) -> ItemKey {
+    // The server's turn IDs form a separate namespace from realtime sessions.
+    ItemKey {
+        turn: TurnId::new(format!("#/{session}")),
+        item,
+    }
+}
+
 fn caption(item: wire::ThreadRealtimeItem) -> Option<(ItemKey, Role, String)> {
     let wire::ThreadRealtimeItemContent::TranscriptSegment { role, text } = item.content else {
         return None;
     };
-    let key = ItemKey {
-        // The server's turn IDs form a separate namespace from realtime sessions.
-        turn: TurnId::new(format!("#/{}", item.realtime_session_id)),
-        item: ItemId::new(item.id),
-    };
+    let key = key(&item.realtime_session_id, ItemId::new(item.id));
     Some((key, role, text))
 }
 
@@ -111,38 +274,101 @@ impl Transcript {
                     && !self.items.contains_key(&key)
                     && !self.live_voice_items.contains_key(&key.item)
                 {
-                    self.live_voice_items.insert(
-                        key.item.clone(),
-                        LiveCaption {
-                            key: key.clone(),
-                            role,
-                        },
-                    );
-                    if show_user_preview || role == Role::Assistant {
-                        self.append_text(key, &text, Text::Voice(role));
-                    }
+                    self.preview_voice_caption(key, role, &text, show_user_preview);
                 }
             }
             Event::Delta { item, text } => {
                 if let Some(live) = self.live_voice_items.get(&item).cloned() {
-                    if show_user_preview || live.role == Role::Assistant {
-                        self.append_text(live.key, &text, Text::Voice(live.role));
-                    } else {
-                        self.drop_voice_preview(&live.key);
-                    }
+                    self.append_voice_preview(live.key, live.role, &text, show_user_preview);
                 }
             }
             Event::Completed(item) if item.realtime_session_id == session => {
                 if let Some((key, role, text)) = caption(item) {
-                    self.live_voice_items.remove(&key.item);
-                    if text.trim().is_empty() {
-                        self.drop_voice_preview(&key);
-                    } else {
-                        self.upsert(key, Item::VoiceTranscript { role, text });
-                    }
+                    self.finish_voice_caption(key, role, text);
                 }
             }
             _ => {}
+        }
+    }
+
+    fn apply_legacy_caption(
+        &mut self,
+        session: &str,
+        legacy: &mut Legacy,
+        caption: FlatCaption,
+        show_user_preview: bool,
+    ) {
+        let FlatCaption {
+            role,
+            text,
+            completed,
+        } = caption;
+        if completed {
+            self.finish_voice_caption(key(session, legacy.completed(role)), role, text);
+        } else if !text.is_empty() {
+            let segment = legacy.append(role, &text);
+            let key = key(session, segment.item.clone());
+            let delta = if self.streaming.contains_key(&key) {
+                &text
+            } else {
+                &segment.text
+            };
+            self.preview_voice_caption(key, role, delta, show_user_preview);
+        }
+    }
+
+    fn seal_legacy_captions(&mut self, session: &str, legacy: &mut Legacy) {
+        // The oracle flushes the interleaved speaker before the current speaker.
+        let order = if legacy.current == Some(Role::User) {
+            [Role::Assistant, Role::User]
+        } else {
+            [Role::User, Role::Assistant]
+        };
+        for role in order {
+            if let Some(segment) = legacy.take(role) {
+                let key = key(session, segment.item);
+                self.drop_voice_preview(&key);
+                self.finish_voice_caption(key, role, segment.text);
+            }
+        }
+    }
+
+    fn preview_voice_caption(
+        &mut self,
+        key: ItemKey,
+        role: Role,
+        text: &str,
+        show_user_preview: bool,
+    ) {
+        self.live_voice_items
+            .entry(key.item.clone())
+            .or_insert_with(|| LiveCaption {
+                key: key.clone(),
+                role,
+            });
+        self.append_voice_preview(key, role, text, show_user_preview);
+    }
+
+    fn append_voice_preview(
+        &mut self,
+        key: ItemKey,
+        role: Role,
+        text: &str,
+        show_user_preview: bool,
+    ) {
+        if show_user_preview || role == Role::Assistant {
+            self.append_text(key, text, Text::Voice(role));
+        } else {
+            self.drop_voice_preview(&key);
+        }
+    }
+
+    fn finish_voice_caption(&mut self, key: ItemKey, role: Role, text: String) {
+        self.live_voice_items.remove(&key.item);
+        if text.trim().is_empty() {
+            self.drop_voice_preview(&key);
+        } else {
+            self.upsert(key, Item::VoiceTranscript { role, text });
         }
     }
 

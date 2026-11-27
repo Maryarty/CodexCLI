@@ -1338,7 +1338,6 @@ pub struct ThreadCore {
     /// The cursor of the next older page of history; none once the oldest
     /// page was read.
     history_next: Option<String>,
-    voice_history_supported: bool,
     /// The user messages the replayed turns seed the composer's history with.
     submissions: replay::Submissions,
     /// What became of the last ask for an older page.
@@ -1557,7 +1556,6 @@ impl ThreadModel {
                 completed_items: HashSet::new(),
                 legacy_user_completions: HashMap::new(),
                 history_next: None,
-                voice_history_supported: false,
                 history_ask: HistoryAsk::Idle,
                 submissions: replay::Submissions::default(),
                 writer: Writer::Detached,
@@ -1601,7 +1599,7 @@ impl ThreadModel {
     }
 
     pub(crate) fn voice_history_supported(&self) -> bool {
-        self.voice_history_supported
+        self.slots.voice.history().canonical()
     }
 
     pub(crate) fn can_load_voice_history(&self) -> bool {
@@ -1763,7 +1761,7 @@ impl ThreadCore {
         self.last_ended.as_ref()
     }
 
-    pub(crate) fn turn_finished(&self, turn: &TurnId) -> bool {
+    pub fn turn_finished(&self, turn: &TurnId) -> bool {
         self.finished_turns.contains(turn)
     }
 
@@ -1842,6 +1840,7 @@ pub struct ThreadFx<'a> {
     registered: Vec<(Ticket, ThreadCtx)>,
     published_name: Option<String>,
     voice_failure: Option<Failure>,
+    ordered_legacy_voice: bool,
     address: Address,
     /// The app's arbitration for the completed turn carried by this event.
     prompt_priority: screens::chat::plan_mode::PromptPriority,
@@ -1871,6 +1870,7 @@ impl<'a> ThreadFx<'a> {
             registered: Vec::new(),
             published_name: None,
             voice_failure: None,
+            ordered_legacy_voice: false,
             address: Address::default(),
             prompt_priority: screens::chat::plan_mode::PromptPriority::Ordinary,
             daybreak: Daybreak::Apply,
@@ -1880,6 +1880,15 @@ impl<'a> ThreadFx<'a> {
             facts: None,
             image_restrictions: None,
         }
+    }
+
+    pub(crate) fn with_legacy_voice(mut self, ordered: bool) -> Self {
+        self.ordered_legacy_voice = ordered;
+        self
+    }
+
+    pub(crate) fn ordered_legacy_voice(&self) -> bool {
+        self.ordered_legacy_voice
     }
 
     pub(crate) fn with_cloud(mut self, cloud: bool) -> Self {
@@ -2587,7 +2596,7 @@ fn reset_history(model: &mut ThreadModel) {
 /// (R9): a delta may come before its item, a started turn twice.
 pub fn apply(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     apply_ev(model, ev, fx);
-    if !model.slots.voice.has_call() {
+    if !model.slots.voice.captions_open() {
         model.core.transcript.clear_live_voice();
     }
     if let Some(failure) = fx.voice_failure.take() {

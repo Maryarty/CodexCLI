@@ -8,7 +8,7 @@ use codex_tui_core::app::{
     AppEv, AppFx, BackendEv, CodexApp, Command, Ingress, Intent, Now, apply_app, apply_app_from,
 };
 use codex_tui_core::fixtures::script::build;
-use codex_tui_core::ids::{BackendId, ThreadId};
+use codex_tui_core::ids::{BackendId, ConnEpoch, ThreadId};
 use codex_tui_core::protocol::{client_request, reply};
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::screens::{ScreenThreadIntent, voice};
@@ -28,10 +28,14 @@ fn run(app: &mut CodexApp, event: AppEv) -> AppFx {
 }
 
 fn intent(app: &mut CodexApp, intent: ThreadIntent) -> AppFx {
+    intent_for(app, "thread-1", intent)
+}
+
+fn intent_for(app: &mut CodexApp, thread: &str, intent: ThreadIntent) -> AppFx {
     run(
         app,
         AppEv::Intent(Intent::ThreadScreen {
-            thread: ThreadId::new("thread-1"),
+            thread: ThreadId::new(thread),
             intent: ScreenThreadIntent::Voice(intent),
         }),
     )
@@ -125,10 +129,14 @@ fn answer(thread: &str) -> AppEv {
 }
 
 fn preparing(app: &mut CodexApp) -> AppFx {
-    let prepared = intent(app, ThreadIntent::Start);
+    preparing_for(app, "thread-1")
+}
+
+fn preparing_for(app: &mut CodexApp, thread: &str) -> AppFx {
+    let prepared = intent_for(app, thread, ThreadIntent::Start);
     let (cmd, _) = host(&prepared);
     assert_eq!(cmd.action, AudioAction::Prepare);
-    assert_eq!(cmd.owner.thread.as_str(), "thread-1");
+    assert_eq!(cmd.owner.thread.as_str(), thread);
     assert!(
         app.dispatch_route(prepared.commands().first().expect("command"), None)
             .is_some()
@@ -152,7 +160,7 @@ fn offered(app: &mut CodexApp, prepared: &AppFx) -> (AppFx, String) {
     assert!(
         matches!(params.transport, Some(wire::ThreadRealtimeStartTransport::Webrtc { sdp }) if sdp == "local-offer-ice")
     );
-    assert_eq!(params.thread_id, "thread-1");
+    assert_eq!(params.thread_id, host(prepared).0.owner.thread.as_str());
     (
         start,
         params
@@ -382,14 +390,11 @@ fn captions(app: &CodexApp, thread: &str) -> Vec<String> {
         .collect()
 }
 
-/// Attach a listed app-server thread and answer its resume on the registered transport.
-fn open_thread(app: &mut CodexApp, id: &str, backend: BackendId, paginated: bool) -> AppFx {
-    use codex_tui_core::screens::agents::{Ev, Page, Reply as AgentsReply};
-    use codex_tui_core::screens::{ScreenEv, ScreenReply};
-    let thread: wire::Thread = serde_json::from_value(serde_json::json!({
+fn voice_thread_details(id: &str, paginated: bool, ephemeral: bool) -> wire::Thread {
+    serde_json::from_value(serde_json::json!({
         "id": id, "environments": null, "extra": null, "sessionId": id,
         "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
-        "preview": "", "ephemeral": false, "section": null, "sectionEnteredAt": null,
+        "preview": "", "ephemeral": ephemeral, "section": null, "sectionEnteredAt": null,
         "projectId": null, "historyMode": if paginated {"paginated"} else {"legacy"}, "modelProvider": "openai",
         "model": null, "reasoningEffort": null, "createdAt": 0, "updatedAt": 0,
         "recencyAt": 0, "status": {"type":"idle"}, "path": null, "cwd": "/tmp/project",
@@ -397,7 +402,14 @@ fn open_thread(app: &mut CodexApp, id: &str, backend: BackendId, paginated: bool
         "threadSource": null, "agentNickname": null, "agentRole": null, "gitInfo": null,
         "name": "Another thread", "daybreakEnabled": null, "turns": []
     }))
-    .expect("a listed thread");
+    .expect("a listed thread")
+}
+
+/// Attach a listed app-server thread and answer its resume on the registered transport.
+fn open_thread(app: &mut CodexApp, id: &str, backend: BackendId, paginated: bool) -> AppFx {
+    use codex_tui_core::screens::agents::{Ev, Page, Reply as AgentsReply};
+    use codex_tui_core::screens::{ScreenEv, ScreenReply};
+    let thread = voice_thread_details(id, paginated, false);
     run(
         app,
         AppEv::Screen(ScreenEv::Agents(Ev::ListedBy(
@@ -614,4 +626,318 @@ fn timeline_stops_automatic_pages_and_keeps_explicit_older_history_available() {
     let answer = timeline_answer(command, serde_json::json!([]), Some("spurious-empty-page"));
     assert!(timeline(&run(&mut app, answer)).is_none());
     assert_eq!(app.active_thread().history_state(), HistoryState::Complete);
+}
+
+fn flat(thread: &str, role: &str, text: &str, done: bool) -> AppEv {
+    if done {
+        note(
+            "thread/realtime/transcript/done",
+            serde_json::json!({"threadId": thread, "role": role, "text": text}),
+        )
+    } else {
+        note(
+            "thread/realtime/transcript/delta",
+            serde_json::json!({"threadId": thread, "role": role, "delta": text}),
+        )
+    }
+}
+
+fn stamped(app: &mut CodexApp, physical: ConnEpoch, event: AppEv) -> Option<AppFx> {
+    let backend = BackendId::default();
+    let result = app.ingest(Ingress::transport_event(
+        backend,
+        app.epoch_of(backend),
+        physical,
+        event,
+    ));
+    app.assert_consistent();
+    result
+}
+
+fn publisher(app: &mut CodexApp, physical: ConnEpoch) -> Option<AppFx> {
+    app.ingest(Ingress::legacy_voice_publisher(app.epoch(), physical))
+}
+
+fn offer_for(app: &mut CodexApp, thread: &str) -> (AppFx, String) {
+    let prepare = preparing_for(app, thread);
+    offered(app, &prepare)
+}
+
+fn confirm_voice(app: &mut CodexApp, thread: &str, epoch: ConnEpoch, session: &str, start: &AppFx) {
+    stamped(app, epoch, started(thread, session)).expect("stamped Started");
+    let sdp = stamped(app, epoch, answer(thread)).expect("stamped SDP");
+    run(app, media(&sdp, AudioResult::Connected(Ok(()))));
+    run(app, ack(start));
+    assert!(!display(app).expect("live call").connecting);
+}
+
+#[test]
+fn ordered_legacy_keeps_speaker_rows_and_repeated_finals_until_stamped_closed() {
+    let mut app = ready();
+    let thread = "thread-2";
+    let backend = BackendId::default();
+    let epoch = app.epoch();
+    open_thread(&mut app, thread, backend, false);
+    publisher(&mut app, epoch).expect("pinned source");
+    let (start, session) = offer_for(&mut app, thread);
+    stamped(&mut app, epoch, started(thread, "old call"));
+    stamped(&mut app, epoch, flat(thread, "user", "quarantined", true));
+    run(&mut app, started(thread, &session));
+    stamped(
+        &mut app,
+        epoch,
+        flat(thread, "user", "unproved start", true),
+    );
+    assert!(captions(&app, thread).is_empty());
+
+    confirm_voice(&mut app, thread, epoch, &session, &start);
+    run(&mut app, flat(thread, "user", "unstamped", true));
+    stamped(
+        &mut app,
+        epoch,
+        flat(thread, "assistant", "thinking", false),
+    );
+    stamped(&mut app, epoch, flat(thread, "user", "same phrase", false));
+    stamped(
+        &mut app,
+        epoch,
+        caption_done(thread, &session, "keyed", "canonical duplicate"),
+    );
+    assert_eq!(captions(&app, thread), ["thinking", "same phrase"]);
+    stamped(&mut app, epoch, flat(thread, "user", "same phrase", true));
+    stamped(&mut app, epoch, flat(thread, "assistant", "answer", true));
+    stamped(&mut app, epoch, flat(thread, "user", "same phrase", true));
+    assert_eq!(
+        captions(&app, thread),
+        ["answer", "same phrase", "same phrase"]
+    );
+
+    stamped(
+        &mut app,
+        epoch,
+        flat(thread, "assistant", "unfinished", false),
+    );
+    let stop = intent_for(&mut app, thread, ThreadIntent::Stop);
+    run(&mut app, closed(thread));
+    assert_eq!(
+        captions(&app, thread).last().map(String::as_str),
+        Some("unfinished")
+    );
+    stamped(&mut app, epoch, closed(thread));
+    stamped(
+        &mut app,
+        epoch,
+        flat(thread, "assistant", "after close", true),
+    );
+    assert_eq!(
+        captions(&app, thread),
+        ["answer", "same phrase", "same phrase", "unfinished"]
+    );
+    run(&mut app, ack(&stop));
+    let (replacement, new_session) = offer_for(&mut app, thread);
+    assert_ne!(new_session, session);
+    confirm_voice(&mut app, thread, epoch, &new_session, &replacement);
+    stamped(&mut app, epoch, flat(thread, "user", "after restart", true));
+    assert_eq!(
+        captions(&app, thread).last().map(String::as_str),
+        Some("after restart")
+    );
+}
+
+#[test]
+fn replacement_requires_a_new_publisher_fact_for_a_legacy_thread() {
+    let mut app = ready();
+    let backend = BackendId::default();
+    let epoch = app.epoch();
+    let thread = "thread-2";
+    open_thread(&mut app, thread, backend, false);
+    publisher(&mut app, epoch).expect("pinned source");
+    let (first, session) = offer_for(&mut app, thread);
+    confirm_voice(&mut app, thread, epoch, &session, &first);
+    stamped(
+        &mut app,
+        epoch,
+        flat(thread, "assistant", "before replacement", false),
+    );
+    assert_eq!(captions(&app, thread), ["before replacement"]);
+
+    app.ingest(Ingress::transport_replaced(backend, epoch, epoch.next()))
+        .expect("new physical transport");
+    assert!(captions(&app, thread).is_empty());
+    assert!(publisher(&mut app, epoch).is_none());
+    assert!(stamped(&mut app, epoch, closed(thread)).is_none());
+    assert!(
+        stamped(
+            &mut app,
+            epoch,
+            flat(thread, "user", "retired packet", true)
+        )
+        .is_none()
+    );
+
+    let physical = epoch.next();
+    open_thread(&mut app, thread, backend, false);
+    let (second, session) = offer_for(&mut app, thread);
+    confirm_voice(&mut app, thread, physical, &session, &second);
+    stamped(
+        &mut app,
+        physical,
+        flat(thread, "user", "unknown publisher", true),
+    );
+    assert!(captions(&app, thread).is_empty());
+
+    publisher(&mut app, physical).expect("new publisher proof");
+    stamped(
+        &mut app,
+        physical,
+        flat(thread, "user", "mid-call proof", true),
+    );
+    assert!(captions(&app, thread).is_empty());
+    stamped(&mut app, physical, closed(thread));
+
+    let (third, session) = offer_for(&mut app, thread);
+    confirm_voice(&mut app, thread, physical, &session, &third);
+    stamped(
+        &mut app,
+        physical,
+        flat(thread, "user", "new publisher", true),
+    );
+    assert_eq!(captions(&app, thread), ["new publisher"]);
+}
+
+#[test]
+fn ordered_publisher_keeps_paginated_captions_canonical_and_discards_flat_duplicates() {
+    let mut app = ready();
+    let backend = BackendId::default();
+    let epoch = app.epoch();
+    let thread = "thread-2";
+    open_thread(&mut app, thread, backend, true);
+    publisher(&mut app, epoch).expect("pinned source");
+    let (start, session) = offer_for(&mut app, thread);
+    confirm_voice(&mut app, thread, epoch, &session, &start);
+    stamped(&mut app, epoch, flat(thread, "user", "one answer", true));
+    for _ in 0..2 {
+        stamped(
+            &mut app,
+            epoch,
+            caption_done(thread, &session, "keyed", "one answer"),
+        );
+    }
+    assert_eq!(captions(&app, thread), ["one answer"]);
+}
+
+#[test]
+fn a_notification_gap_discards_legacy_previews_and_locks_that_call() {
+    let mut app = ready();
+    let epoch = app.epoch();
+    let thread = "thread-2";
+    open_thread(&mut app, thread, BackendId::default(), false);
+    publisher(&mut app, epoch).expect("pinned source");
+    let (start, session) = offer_for(&mut app, thread);
+    confirm_voice(&mut app, thread, epoch, &session, &start);
+    stamped(&mut app, epoch, flat(thread, "assistant", "partial", false));
+    assert_eq!(captions(&app, thread), ["partial"]);
+    stamped(&mut app, epoch, AppEv::Backend(BackendEv::Lagged(1)));
+    stamped(
+        &mut app,
+        epoch,
+        flat(thread, "assistant", "uncertain final", true),
+    );
+    assert!(captions(&app, thread).is_empty());
+    stamped(&mut app, epoch, closed(thread));
+    let (start, session) = offer_for(&mut app, thread);
+    confirm_voice(&mut app, thread, epoch, &session, &start);
+    stamped(
+        &mut app,
+        epoch,
+        flat(thread, "assistant", "next call", true),
+    );
+    assert_eq!(captions(&app, thread), ["next call"]);
+}
+
+#[test]
+fn a_new_ephemeral_chat_receives_flat_captions_even_with_a_paginated_hint() {
+    use codex_tui_core::threads::ThreadReply;
+
+    let mut app = CodexApp::new();
+    let epoch = app.epoch();
+    let thread = "temporary";
+    publisher(&mut app, epoch).expect("pinned source");
+    let boot = run(&mut app, AppEv::Connected);
+    let ticket = boot
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::StartThread { ticket, .. } => Some(*ticket),
+            _ => None,
+        })
+        .expect("a new session request");
+    run(
+        &mut app,
+        AppEv::Reply(
+            ticket,
+            Reply::thread(ThreadReply::SessionStarted {
+                thread: ThreadId::new(thread),
+                details: Some(Box::new(voice_thread_details(thread, true, true))),
+                sources: Vec::new(),
+                permissions: None,
+            }),
+        ),
+    );
+    assert_eq!(app.session().active, Some(ThreadId::new(thread)));
+    let (start, session) = offer_for(&mut app, thread);
+    confirm_voice(&mut app, thread, epoch, &session, &start);
+    stamped(
+        &mut app,
+        epoch,
+        flat(thread, "assistant", "unsaved dialogue", true),
+    );
+    assert_eq!(captions(&app, thread), ["unsaved dialogue"]);
+}
+
+#[test]
+fn ordered_close_seals_both_partial_speakers_without_repeating_a_done_item() {
+    use codex_tui_core::screens::{ScreenEv, chat};
+
+    let mut app = ready();
+    let epoch = app.epoch();
+    let thread = "thread-2";
+    open_thread(&mut app, thread, BackendId::default(), false);
+    publisher(&mut app, epoch).expect("pinned source");
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Chat(chat::Ev::Status(Box::new(
+            chat::StatusFacts {
+                animations: false,
+                ..chat::StatusFacts::default()
+            },
+        )))),
+    );
+    let (start, session) = offer_for(&mut app, thread);
+    confirm_voice(&mut app, thread, epoch, &session, &start);
+
+    stamped(
+        &mut app,
+        epoch,
+        flat(thread, "assistant", "already completed", true),
+    );
+    stamped(&mut app, epoch, flat(thread, "assistant", "first ", false));
+    stamped(&mut app, epoch, flat(thread, "user", "a correction", false));
+    stamped(&mut app, epoch, flat(thread, "assistant", "answer", false));
+    assert_eq!(
+        captions(&app, thread),
+        ["already completed", "first answer"]
+    );
+
+    stamped(&mut app, epoch, closed(thread));
+    stamped(&mut app, epoch, flat(thread, "user", "a correction", true));
+    stamped(
+        &mut app,
+        epoch,
+        flat(thread, "assistant", "first answer", true),
+    );
+    assert_eq!(
+        captions(&app, thread),
+        ["already completed", "a correction", "first answer"]
+    );
 }
