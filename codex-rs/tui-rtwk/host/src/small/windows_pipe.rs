@@ -11,6 +11,8 @@ use std::path::PathBuf;
 use std::ptr;
 use std::time::Instant;
 
+use super::monotonic_now;
+
 use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
 use windows_sys::Win32::Foundation::ERROR_NOT_FOUND;
 use windows_sys::Win32::Foundation::GENERIC_READ;
@@ -319,7 +321,7 @@ fn token_user(token: HANDLE) -> io::Result<TokenUserBuffer> {
 }
 
 fn remaining_timeout_ms(deadline: Instant) -> u32 {
-    let now = Instant::now();
+    let now = monotonic_now();
     if now >= deadline {
         return 0;
     }

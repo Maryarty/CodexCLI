@@ -1,12 +1,13 @@
 //! What lies over the page: a window of three rows or fewer shows nothing, the running state
 //! included (`ui_snapshots_small_heights_idle`). The page keeps its layout and clips, and a
-//! blank sheet laid over it by a layout builder that holds no state covers it, so that nothing
-//! of the page's own state stands under a builder.
+//! blank sheet laid over it covers it independently of the page's layout.
 
 use rtwk::gestures::IgnorePointer;
 use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, Expanded, SizedBox, Stack, StackFit};
 use rtwk::style::Style;
 use rtwk::{AnyWidget, Cx, LayoutBuilder, StatelessWidget, impl_widget};
+
+use crate::pages::session::composer::images;
 
 use super::chord_guide::ChordGuide;
 
@@ -43,7 +44,7 @@ pub(super) fn page(
     });
     Stack::new()
         .fit(StackFit::Expand)
-        .child(page)
+        .child(images::page_room(page.into()))
         .child(guide)
         .child(blank)
 }

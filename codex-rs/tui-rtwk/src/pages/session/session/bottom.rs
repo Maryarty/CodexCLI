@@ -271,7 +271,7 @@ pub(super) fn body(
     Column::new()
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Start)
-        .child(super::safety::slot(w, state, cx, thread.id(), body.into()))
+        .child(super::safety::slot(w, state, cx, body.into()))
 }
 
 /// The terminal title keeps being told while the selector takes the bottom pane; the Luna

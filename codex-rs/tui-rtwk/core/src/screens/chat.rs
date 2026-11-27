@@ -657,12 +657,15 @@ pub enum ActivityPhase {
 }
 
 impl ThreadPart {
+    /// The live effort when available. Plan with no reasoning supplies its own empty value.
+    pub fn thread_reasoning(&self) -> Option<Option<&str>> {
+        (self.effort.is_some() || self.mode == codex_protocol::config_types::ModeKind::Plan)
+            .then_some(self.effort.as_deref())
+    }
+
     pub fn effective_reasoning<'a>(&'a self, fallback: &'a StatusFacts) -> Option<&'a str> {
-        if self.mode == codex_protocol::config_types::ModeKind::Plan {
-            self.effort.as_deref()
-        } else {
-            self.effort.as_deref().or(fallback.effort.as_deref())
-        }
+        self.thread_reasoning()
+            .unwrap_or(fallback.effort.as_deref())
     }
 
     pub(crate) fn collaboration_base(&self, fallback: &StatusFacts) -> collaboration::Base {

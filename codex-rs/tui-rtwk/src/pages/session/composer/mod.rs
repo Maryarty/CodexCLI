@@ -17,8 +17,8 @@ use rtwk::focus::FocusNode;
 use rtwk::foundation::{Listenable, VoidCallback};
 use rtwk::gestures::IgnorePointer;
 use rtwk::layout::{
-    BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row,
-    Shadow, SizedBox,
+    BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, Flexible, MainAxisSize, Padding,
+    Row, Shadow, SizedBox,
 };
 use rtwk::overlay::{OptionItem, OptionList, Panel, Popover, fuzzy_match};
 use rtwk::provider::{read, select, watch};
@@ -51,6 +51,7 @@ pub mod alone;
 pub mod burst;
 pub mod editing;
 pub mod footer;
+pub(super) mod images;
 pub mod mentions;
 pub mod plain;
 pub mod queue;
@@ -1241,14 +1242,8 @@ impl State for ComposerState {
             .cross_axis_alignment(CrossAxisAlignment::Start)
             .child(mark)
             .child(Expanded::new(1, field));
-        let remote = w.ui.draft.remote_count();
-        if remote == 0 {
-            return Aura {
-                child: draft_row.into(),
-            }
-            .into();
-        }
         // the remote images stand above the draft, one blank row between
+        let remote = w.ui.draft.remote_count();
         let selected = w.ui.draft.remote_selected();
         let labels = strings::of(cx);
         let start = Column::new()
@@ -1265,10 +1260,22 @@ impl State for ComposerState {
                 Text::line(labels.image(at + 1)).style(style),
             ))
         });
+        let rows = if remote > 0 {
+            rows.child(SizedBox::new(None, Some(1), None))
+        } else {
+            rows
+        };
+        let thumbnails = if w.history_field || w.ui.find.active() {
+            SizedBox::shrink().into()
+        } else {
+            images::strip(&w.ui, read::<ThreadModel, _>(cx).id().clone())
+        };
         Aura {
             child: rows
-                .child(SizedBox::new(None, Some(1), None))
-                .child(draft_row)
+                // Measure the draft first. During an inline resize the app's region takes
+                // a frame to grow to its new intrinsic height, so the strip can give up rows.
+                .child(Flexible::new(1, thumbnails))
+                .child(AnyWidget::from(draft_row).with_key(rtwk::Key::value("draft")))
                 .into(),
         }
         .into()
