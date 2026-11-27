@@ -1465,6 +1465,24 @@ impl ThreadSet {
             .find_map(|(id, model)| model.outgoing.address(ticket).map(|address| (id, address)))
     }
 
+    /// An IDE-gated steer has not left the app. Once the turn has restored or
+    /// merged its input, discard the unused request without recovering it again.
+    pub(crate) fn retain_preparing_steer(
+        &mut self,
+        thread: &ThreadId,
+        ticket: Ticket,
+        client_id: &str,
+    ) -> bool {
+        let Some(model) = self.held.get_mut(thread) else {
+            return false;
+        };
+        if pending_steer(model, client_id).is_some() {
+            return true;
+        }
+        Rc::make_mut(model).outgoing.drop_ticket(ticket);
+        false
+    }
+
     /// The thread is gone (archived or deleted): the app holds no model of it
     /// any more (`discard_thread_local_state`).
     pub(crate) fn forget(&mut self, id: &ThreadId) {

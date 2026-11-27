@@ -410,3 +410,73 @@ fn physical_replacement_returns_the_unsent_original_without_dispatching_it() {
         .is_none()
     );
 }
+
+fn interrupted() -> BackendEv {
+    use codex_app_server_protocol::{Turn, TurnCompletedNotification, TurnItemsView, TurnStatus};
+
+    BackendEv::Notification(Box::new(ServerNotification::TurnCompleted(
+        TurnCompletedNotification {
+            thread_id: T.into(),
+            turn: Turn {
+                id: "turn-1".into(),
+                root_turn_id: None,
+                items: Vec::new(),
+                items_view: TurnItemsView::NotLoaded,
+                status: TurnStatus::Interrupted,
+                error: None,
+                started_at: None,
+                completed_at: None,
+                duration_ms: None,
+            },
+        },
+    )))
+}
+
+#[test]
+fn interruption_retires_old_steers_before_restoring_or_sending_them_again() {
+    for reissue in [false, true] {
+        let mut app = ready();
+        enable(&mut app);
+        run(&mut app, AppEv::Backend(turn_started(T, "turn-1")));
+        let fx = submit(&mut app, "kept original");
+        let old = fresh_read(&app, &fx);
+
+        if reissue {
+            let fx = run(
+                &mut app,
+                AppEv::Intent(Intent::ThreadScreen {
+                    thread: ThreadId::new(T),
+                    intent: ScreenThreadIntent::Chat(chat::ThreadIntent::InterruptForSteers),
+                }),
+            );
+            assert!(
+                fx.commands()
+                    .iter()
+                    .any(|command| matches!(command, Command::InterruptTurn { .. }))
+            );
+        }
+        let fx = run(&mut app, AppEv::Backend(interrupted()));
+        assert!(submissions(&fx).is_empty());
+        let epoch = app.epoch();
+        assert!(
+            app.ingest(Ingress::new(epoch, result(old, FIRST_SELECTION)))
+                .is_none()
+        );
+
+        if reissue {
+            let new = fresh_read(&app, &fx);
+            let fx = run(&mut app, result(new, NEW_SELECTION));
+            let (input, _) = start(&fx, "kept original");
+            assert!(text(&input).contains(NEW_SELECTION));
+            assert!(!text(&input).contains(FIRST_SELECTION));
+        } else {
+            assert_eq!(
+                app.active_thread()
+                    .restore()
+                    .expect("unsent steer")
+                    .messages(),
+                [UserMessage::text("kept original")]
+            );
+        }
+    }
+}

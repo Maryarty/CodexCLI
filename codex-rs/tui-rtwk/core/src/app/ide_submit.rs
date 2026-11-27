@@ -32,6 +32,24 @@ struct Pending {
 /// Called after the normal reducer registered the StartTurn or Steer. It sees
 /// actual wire sends, including queue drain and steer retries.
 pub(super) fn prepare(app: &mut CodexApp, fx: &mut AppFx, emitted_from: usize) {
+    app.ide_submissions.waiting.retain(|&request, pending| {
+        let Command::Screen {
+            thread,
+            command: ScreenCommand::Chat(chat::Command::Steer { client_id, .. }),
+            ..
+        } = &pending.command
+        else {
+            return true;
+        };
+        let keep = app
+            .threads
+            .retain_preparing_steer(thread, pending.ticket, client_id);
+        if !keep {
+            app.effects.take_ide_submit(request);
+        }
+        keep
+    });
+
     if ide_opted_in(&app.features) && fx.commands[emitted_from..].iter().any(is_submission) {
         for command in fx.commands.split_off(emitted_from) {
             let Some((ticket, thread)) = submission(&command) else {

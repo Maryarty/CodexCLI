@@ -1442,12 +1442,13 @@ fn thread_ask<'a>(command: &'a Command, thread: &ThreadId) -> ThreadRpc<&'a User
             turn,
             client_id,
             message,
-            ..
+            ide_prompt,
         } => ThreadRpc::Steer {
             thread: thread.to_string(),
             turn: turn.to_string(),
             client_id: client_id.clone(),
             message,
+            ide_prompt: ide_prompt.clone(),
         },
         Command::ApprovePlan(markdown) => ThreadRpc::PrepareApprovedPlan {
             thread: thread.to_string(),

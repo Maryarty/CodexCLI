@@ -11,6 +11,7 @@ use super::safety::retry::{
     ForkRequest, ITEM_LIMIT, ItemsRequest, StartRequest, TURN_LIMIT, TurnsRequest,
 };
 use super::{ReviewTarget, SettingsPatch, UserMessage, structured};
+use crate::app::effects::IdePrompt;
 use crate::ids::{ThreadId, TurnId};
 use crate::rpc::{RpcError, ServerError};
 use crate::screens::status::AgentsSource;
@@ -21,14 +22,17 @@ use codex_protocol::openai_models::ReasoningEffort;
 /// turn's existing input through `ThreadRpc` while it builds the request.
 pub type ThreadAsk = ThreadRpc<UserMessage>;
 
-/// Adds the accepted send's private context after the catalog encoded its attachments.
-pub(crate) fn apply_ide_context(request: &mut wire::ClientRequest, context: &str) {
-    let input = match request {
-        wire::ClientRequest::TurnStart { params, .. } => &mut params.input,
-        wire::ClientRequest::TurnSteer { params, .. } => &mut params.input,
-        _ => return,
-    };
-    super::user_prompt::prepend_ide_context(input, context);
+/// Encode the existing attachments before prepending context to the wire text.
+fn submission_input(
+    message: &UserMessage,
+    thread: &str,
+    context: Option<&IdePrompt>,
+) -> Vec<wire::UserInput> {
+    let mut input = crate::protocol::turn_input_in(message, Some(thread));
+    if let Some(context) = context {
+        super::user_prompt::prepend_ide_context(&mut input, context.as_str());
+    }
+    input
 }
 
 impl TurnsRequest {
@@ -208,11 +212,13 @@ crate::rpc_list! {
         -> wire::ThreadTurnsListResponse, |answer| ThreadReply::History {
             turns: answer.data, next: answer.next_cursor,
         };
-    StartUserTurn { thread: ThreadId, message: M, client_id: String, misalignment_override: Option<i64> },
-        Self::StartUserTurn { thread, message, client_id, misalignment_override }
+    StartUserTurn {
+        thread: ThreadId, message: M, client_id: String,
+        misalignment_override: Option<i64>, ide_prompt: Option<IdePrompt>
+    }, Self::StartUserTurn { thread, message, client_id, misalignment_override, ide_prompt }
         => TurnStart(wire::TurnStartParams {
             thread_id: thread.to_string(),
-            input: crate::protocol::turn_input_in(message.borrow(), Some(thread.as_str())),
+            input: submission_input(message.borrow(), thread.as_str(), ide_prompt.as_ref()),
             client_user_message_id: Some(client_id.clone()),
             responsesapi_client_metadata: misalignment_override.map(|timestamp| {
                 std::collections::HashMap::from([(
@@ -228,11 +234,11 @@ crate::rpc_list! {
     Interrupt { thread: String, turn: String }, Self::Interrupt { thread, turn }
         => TurnInterrupt(wire::TurnInterruptParams { thread_id: thread.clone(), turn_id: turn.clone() })
         -> wire::TurnInterruptResponse, |_| ThreadReply::Interrupted;
-    Steer { thread: String, turn: String, client_id: String, message: M },
-        Self::Steer { thread, turn, client_id, message }
+    Steer { thread: String, turn: String, client_id: String, message: M, ide_prompt: Option<IdePrompt> },
+        Self::Steer { thread, turn, client_id, message, ide_prompt }
         => TurnSteer(wire::TurnSteerParams {
             thread_id: thread.clone(),
-            input: crate::protocol::turn_input_in(message.borrow(), Some(thread.as_str())),
+            input: submission_input(message.borrow(), thread.as_str(), ide_prompt.as_ref()),
             expected_turn_id: turn.clone(),
             client_user_message_id: Some(client_id.clone()),
             ..Default::default()

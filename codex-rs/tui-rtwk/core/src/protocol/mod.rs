@@ -35,7 +35,7 @@ use crate::rpc::ServerError;
 use crate::screens;
 use crate::threads::ToolMention;
 use crate::threads::UserMessage;
-use crate::threads::asks::{ThreadRpc, apply_ide_context, changed_turn};
+use crate::threads::asks::{ThreadRpc, changed_turn};
 
 use std::path::PathBuf;
 
@@ -47,7 +47,7 @@ pub fn client_request(
     request_id: RequestId,
     model: Option<&str>,
 ) -> Option<ClientRequest> {
-    let mut request = match command {
+    match command {
         Command::ReadRateLimits { .. } => Some(ClientRequest::GetAccountRateLimits {
             request_id,
             params: None,
@@ -75,11 +75,7 @@ pub fn client_request(
         Command::RejectRequest { .. } | Command::ResolveRequest { .. } | Command::Effect { .. } => {
             None
         }
-    }?;
-    if let Some(context) = ide_prompt(command) {
-        apply_ide_context(&mut request, context.as_str());
     }
-    Some(request)
 }
 
 /// The ticket and reply for `command` out of the request's JSON `result`
@@ -232,17 +228,6 @@ pub fn reply_from_server(
     reply(command, result.map_err(|error| error.message))
 }
 
-fn ide_prompt(command: &Command) -> Option<&crate::app::effects::IdePrompt> {
-    match command {
-        Command::StartTurn { ide_prompt, .. }
-        | Command::Screen {
-            command: screens::ScreenCommand::Chat(screens::chat::Command::Steer { ide_prompt, .. }),
-            ..
-        } => ide_prompt.as_ref(),
-        _ => None,
-    }
-}
-
 /// The app's launch and input effects are projected onto the same catalog as
 /// requests from a screen. The input can stay borrowed for request construction.
 fn lifecycle_ask(command: &Command) -> Option<(Ticket, &'static str, ThreadRpc<&UserMessage>)> {
@@ -263,7 +248,7 @@ fn lifecycle_ask(command: &Command) -> Option<(Ticket, &'static str, ThreadRpc<&
             message,
             client_id,
             misalignment_override,
-            ..
+            ide_prompt,
         } => (
             *ticket,
             "turn/start",
@@ -272,6 +257,7 @@ fn lifecycle_ask(command: &Command) -> Option<(Ticket, &'static str, ThreadRpc<&
                 message,
                 client_id: client_id.clone(),
                 misalignment_override: *misalignment_override,
+                ide_prompt: ide_prompt.clone(),
             },
         ),
         Command::InterruptTurn {
