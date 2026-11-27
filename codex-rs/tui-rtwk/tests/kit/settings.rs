@@ -1,10 +1,14 @@
 //! The `[tui]` settings a screen test turns on after the screen is open (the host sends them
 //! once at the start: `AppEv::Tui`).
 
+use std::sync::Arc;
+
 use codex_tui_core::app::effects::{Ask, Done, ImagePreview, ImageSize};
 use codex_tui_core::app::facts::{Rendering, TuiSettings};
 use codex_tui_core::app::{AppEv, Command};
-use codex_tui_core::screens::pets::{AssetAsk, AssetDone, Pet, Picker, Unavailable};
+use codex_tui_core::screens::pets::{
+    Ambient, Anchor, AssetAsk, AssetDone, Clip, Pet, Picker, Unavailable,
+};
 use codex_tui_rtwk::app::UiApp;
 
 use super::Screen;
@@ -76,6 +80,118 @@ impl Screen {
         self.pet_answer(
             |ask| matches!(ask, AssetAsk::Save { selector: id } if id == selector),
             AssetDone::Saved(Ok(())),
+        );
+    }
+
+    /// Resolve the ambient read from configuration or from a confirmed local selection.
+    pub fn pets_ambient(&mut self, selector: Option<&str>, screen_bottom: bool) {
+        let file = super::image_file_sized("ambient-pet", 192, 208);
+        let png = std::fs::read(file).expect("ambient pet PNG");
+        let ambient = Ambient {
+            size: ImageSize {
+                width: 192,
+                height: 208,
+            },
+            anchor: if screen_bottom {
+                Anchor::ScreenBottom
+            } else {
+                Anchor::Composer
+            },
+            clips: std::array::from_fn(|_| Clip {
+                data: png.clone().into(),
+                until_idle: None,
+            }),
+        };
+        self.pet_answer(
+            |ask| matches!(ask, AssetAsk::Ambient { selector: id } if id.as_deref() == selector),
+            AssetDone::Ambient(Some(Arc::new(ambient))),
+        );
+    }
+
+    pub fn pets_animated_ambient(&mut self) {
+        use image::codecs::gif::{GifEncoder, Repeat};
+        use image::{Delay, Frame, Rgba, RgbaImage};
+
+        let mut bytes = Vec::new();
+        {
+            let mut encoder = GifEncoder::new(&mut bytes);
+            encoder
+                .set_repeat(Repeat::Infinite)
+                .expect("repeat animation");
+            for red in [30, 90, 150, 210] {
+                let pixels = RgbaImage::from_pixel(9, 10, Rgba([red, 0, 255, 255]));
+                encoder
+                    .encode_frame(Frame::from_parts(
+                        pixels,
+                        0,
+                        0,
+                        Delay::from_numer_denom_ms(125, 1),
+                    ))
+                    .expect("encode test animation frame");
+            }
+        }
+        let data: Arc<[u8]> = bytes.into();
+        self.pet_answer(
+            |ask| matches!(ask, AssetAsk::Ambient { selector: None }),
+            AssetDone::Ambient(Some(Arc::new(Ambient {
+                size: ImageSize {
+                    width: 192,
+                    height: 208,
+                },
+                anchor: Anchor::Composer,
+                clips: std::array::from_fn(|_| Clip {
+                    data: data.clone(),
+                    until_idle: None,
+                }),
+            }))),
+        );
+    }
+
+    pub fn ambient_frame_counts(&mut self, millis: u64) -> (u64, u64, u64) {
+        let sample = |this: &Self| {
+            let loop_ = this.h.t.frame_loop();
+            (
+                loop_.frames_run(),
+                loop_.stats().frames,
+                loop_.stats().bytes,
+            )
+        };
+        let before = sample(self);
+        self.h.t.pump_for(crate::common::ms(millis));
+        let after = sample(self);
+        (after.0 - before.0, after.1 - before.1, after.2 - before.2)
+    }
+
+    pub fn assert_single_ambient_fetch(&self) {
+        let asks = self
+            .commands()
+            .into_iter()
+            .filter(|command| {
+                matches!(
+                    command,
+                    Command::Effect {
+                        ask: Ask::Pet(AssetAsk::Ambient { .. }),
+                        ..
+                    }
+                )
+            })
+            .count();
+        assert_eq!(asks, 1);
+    }
+
+    /// Native terminal protocol placements are independent of text cells.
+    pub fn assert_ambient_pet(&mut self, rect: Option<(usize, usize, usize, usize)>) {
+        self.h.settle();
+        let images = self.h.t.images();
+        let got: Vec<_> = images
+            .iter()
+            .map(|image| (image.x, image.y, image.cols, image.rows))
+            .collect();
+        assert_eq!(
+            got,
+            rect.into_iter().collect::<Vec<_>>(),
+            "{images:?}\n{}",
+            self.text()
         );
     }
 

@@ -1275,14 +1275,21 @@ fn ui_small_heights_hide_running_state() {
 // ORACLE chatwidget/tests/status_and_layout.rs:2774 ambient_pet_stays_hidden_until_a_pet_is_selected kind=ui owner=ui-pane
 #[test]
 fn ambient_pet_stays_hidden_until_a_pet_is_selected() {
-    kit::pending(
-        Owner::UiPane,
-        "kit gap: the ambient pet is a kitty image placement (x 51, y 14, 9x5), which the text grid cannot assert; no pet on the chat screen yet",
-    );
-    // oracle: no pet until one is selected; the selected pet draws at (51, 14) with 9 columns and 5 rows, above the status row.
-    let _s = Screen::build(Owner::UiPane).size(60, 20).live().open();
-    // needs feed: the test pet pack written and selected (set_tui_pet codex)
-    // kit gap: no grid assertion for the pet image placement (see the pending reason)
+    let mut s = Screen::build(Owner::UiPane)
+        .size(60, 20)
+        .kitty()
+        .live()
+        .open();
+    s.assert_ambient_pet(None);
+    s.type_text("/pets codex").keys("enter");
+    s.pets_catalog();
+    s.pets_preview("codex");
+    s.assert_ambient_pet(None);
+    s.pets_save_accepted("codex");
+    s.pets_ambient(Some("codex"), false);
+    s.assert_ambient_pet(Some((51, 14, 9, 5)));
+    s.feed(RUNNING);
+    s.assert_ambient_pet(Some((51, 14, 9, 5)));
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:2815 ambient_pet_screen_bottom_anchor_uses_terminal_bottom kind=ui owner=ui-pane
@@ -1290,65 +1297,93 @@ fn ambient_pet_stays_hidden_until_a_pet_is_selected() {
 fn ambient_pet_screen_bottom_anchor_uses_terminal_bottom() {
     kit::pending(
         Owner::UiPane,
-        "kit gap: the pet anchor is a kitty image placement (y 14 composer-anchored, y 18 screen-bottom), which the text grid cannot assert; no pet on the chat screen yet",
+        "rtwk inline graphics are clipped to the active viewport; the physical bottom cannot be addressed when the viewport ends earlier",
     );
-    // oracle: width 80, height 24, composer bottom 20: the composer anchor draws at y 14, the screen-bottom anchor at y 18.
-    let _s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: pet selected, pet_anchor screen-bottom setting
-    // kit gap: no grid assertion for the pet image placement (see the pending reason)
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .kitty()
+        .live()
+        .open();
+    s.pets_ambient(None, true);
+    s.assert_ambient_pet(Some((71, 18, 9, 5)));
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:2849 added_history_uses_pet_adjusted_terminal_width kind=snap owner=ui-pane
 #[test]
 fn added_history_uses_pet_adjusted_terminal_width() {
-    kit::pending(
-        Owner::UiPane,
-        "no pet-adjusted history width on the chat screen",
-    );
-    // oracle: with a pet the history wrap width is 69 of 80; the active response and the width-sensitive history row show in order.
-    let s = Screen::build(Owner::UiPane).size(80, 4).live().open();
-    // needs feed: pet selected; active response "active response"; add width-sensitive history cell
-    s.assert_in_order(&["active response", "width-sensitive history"]);
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 10)
+        .kitty()
+        .live()
+        .open();
+    s.pets_ambient(None, false);
+    s.feed(RUNNING);
+    s.feed(&agent_message(
+        "width-sensitive history uses available columns for its answer, and wraps here finally.",
+    ));
+    s.feed(TURN_ENDED);
+    s.assert_contains("width-sensitive history uses available columns for its answer, and");
+    s.assert_absent("and wraps here finally.");
+    s.assert_contains("wraps here finally.");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:2917 ambient_pet_reduces_stream_width_and_composer_text_width kind=ui owner=ui-pane
 #[test]
 fn ambient_pet_reduces_stream_width_and_composer_text_width() {
-    kit::pending(
-        Owner::UiPane,
-        "no pet-reserved stream width on the chat screen; the composer draft must wrap at the pet's width",
-    );
-    // oracle: at width 80 the pet reserves 11 columns, so the stream and the composer draft wrap at 69 - 2 (with pet) against 80 - 2 (without).
-    let s = Screen::build(Owner::UiPane).size(80, 8).live().open();
-    // needs feed: pet selected; composer draft "Minim commodo esse elit Lorem exercitation elit ipsum proident labore. Esse culpa aliqua"
-    s.assert_contains("Minim");
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 12)
+        .kitty()
+        .live()
+        .open();
+    let text =
+        "Minim commodo esse elit Lorem exercitation elit ipsum proident labore. Esse culpa aliqua";
+    s.pets_ambient(None, false);
+    s.type_text(text);
+    s.assert_contains("Minim commodo esse elit Lorem exercitation elit ipsum proident");
+    s.assert_absent("proident labore.");
+    s.assert_contains("labore. Esse culpa aliqua");
+    s.keys("ctrl+u");
+    s.type_text("/pets disable").keys("enter");
+    s.pets_save_accepted("disabled");
+    s.type_text(text);
+    s.assert_contains("proident labore.");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:2988 ambient_pet_draw_uses_terminal_screen_area_not_short_inline_viewport kind=ui owner=ui-pane
 #[test]
 fn ambient_pet_draw_uses_terminal_screen_area_not_short_inline_viewport() {
-    kit::pending(
-        Owner::UiPane,
-        "kit gap: the pet draw is a kitty image placement (x 71, y 18 on a full 80x24 screen), which the text grid cannot assert; no pet on the chat screen yet",
-    );
-    // oracle: a 3-row inline viewport cannot hold the pet; the full 80x24 screen draws it at (71, 18).
-    let _s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: pet selected
-    // kit gap: no grid assertion for the pet image placement (see the pending reason)
+    let mut small = Screen::build(Owner::UiPane)
+        .size(80, 3)
+        .kitty()
+        .inline(&[])
+        .live()
+        .open();
+    small.pets_ambient(None, false);
+    small.assert_ambient_pet(None);
+    let mut full = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .kitty()
+        .live()
+        .open();
+    full.pets_ambient(None, true);
+    full.assert_ambient_pet(Some((71, 18, 9, 5)));
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:3019 ambient_pet_hides_notification_text_overlay kind=ui owner=ui-pane
 #[test]
 fn ambient_pet_hides_notification_text_overlay() {
-    kit::pending(
-        Owner::UiPane,
-        "no ambient pet notification overlay on the chat screen: the notification labels must stay hidden",
-    );
-    // oracle: at width 60 and height 20 the notification labels Running, Needs input, Ready and Blocked do not show.
-    let s = Screen::build(Owner::UiPane).size(60, 20).live().open();
-    // needs feed: pet selected, then set_ambient_pet_notification for each of Running, Waiting, Review, Failed
+    let mut s = Screen::build(Owner::UiPane)
+        .size(60, 20)
+        .kitty()
+        .live()
+        .open();
+    s.pets_ambient(None, false);
+    s.feed(RUNNING);
+    s.assert_ambient_pet(Some((51, 14, 9, 5)));
     s.assert_absent("Running");
     s.assert_absent("Needs input");
+    s.feed(TURN_ENDED);
+    s.assert_ambient_pet(Some((51, 14, 9, 5)));
     s.assert_absent("Ready");
     s.assert_absent("Blocked");
 }
