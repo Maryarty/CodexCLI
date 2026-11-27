@@ -358,7 +358,7 @@ async fn ensure_builtin(config: &Config, pet: &Builtin) -> Result<PathBuf> {
     }
     let pool = RouteAwareClientPool::new(config.http_client_factory(), ClientRouteClass::Other);
     let mut response = pool
-        .get(&format!("{CDN}/{}", pet.file))
+        .get(format!("{CDN}/{}", pet.file))
         .timeout(Duration::from_secs(60))
         .send()
         .await?
@@ -431,9 +431,8 @@ mod tests {
         let home = tempfile::tempdir()?;
         let directory = home.path().join("avatars/owl");
         fs::create_dir_all(&directory)?;
-        fs::write(
-            directory.join("avatar.json"),
-            r#"{
+        fs::File::create(directory.join("avatar.json"))?.write_all(
+            br#"{
             "displayName": "Owl",
             "spritesheetPath": "spritesheet.png",
             "animations": {"idle": {"frames": [1, 0]}}

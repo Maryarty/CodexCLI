@@ -6,8 +6,10 @@
 //! Oracle: `pets/picker.rs` (`build_pet_picker_params`), `pets/preview.rs`.
 
 use std::rc::Rc;
+use std::time::Duration;
 
 use rtwk::NotificationListener;
+use rtwk::binding::AppBinding;
 use rtwk::controls::SelectionController;
 use rtwk::editing::{TextEditingController, TextField};
 use rtwk::focus::Focus;
@@ -80,7 +82,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             name,
             description,
             script,
-            open: EntryOpen::Dialog(|_| Screen { visit: None }.into()),
+            open: EntryOpen::Dialog(|_| Screen::debug().into()),
         })
         .collect()
 }
@@ -89,7 +91,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
 /// dimming, at the bottom edge, as the oracle draws it in place of the
 /// composer (architecture §1, amendment 2026-11-19b).
 pub fn open<S: 'static>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
-    open_visit(cx, None)
+    open_visit(cx, None, None)
 }
 
 /// The slash command keeps its argument all the way to the local pet feature.
@@ -105,22 +107,28 @@ pub fn command<S: State + 'static>(cx: &mut Cx<'_, S>, args: &str) {
             },
         );
     } else {
-        let previous_focus = Focus::maybe_of(cx, false)
+        let return_focus = Focus::maybe_of(cx, false)
             .and_then(|node| node.manager())
-            .and_then(|manager| manager.primary_focus());
-        let dialog = open_visit(cx, (!args.is_empty()).then(|| args.to_owned()));
-        cx.spawn(async move {
-            if dialog.await.is_some()
-                && let Some(focus) = previous_focus
-            {
-                focus.request_focus();
-            }
-            None
-        });
+            .and_then(|manager| manager.primary_focus())
+            .map(|focus| {
+                cx.callback_with(move |_, _: Duration, _| {
+                    focus.request_focus();
+                    Rebuild::No
+                })
+            });
+        drop(open_visit(
+            cx,
+            (!args.is_empty()).then(|| args.to_owned()),
+            return_focus,
+        ));
     }
 }
 
-fn open_visit<S: 'static>(cx: &mut Cx<'_, S>, selector: Option<String>) -> DialogResult<()> {
+fn open_visit<S: 'static>(
+    cx: &mut Cx<'_, S>,
+    selector: Option<String>,
+    return_focus: Option<Handler<Duration>>,
+) -> DialogResult<()> {
     let visit = Visit::fresh();
     let graphics =
         GraphicsScope::of(cx).is_some_and(|caps| caps.protocol != GraphicsProtocol::None);
@@ -134,20 +142,36 @@ fn open_visit<S: 'static>(cx: &mut Cx<'_, S>, selector: Option<String>) -> Dialo
     );
     show_dialog(
         cx,
-        move |_| Screen { visit: Some(visit) }.into(),
+        move |_| {
+            Screen {
+                visit: Some(visit),
+                return_focus: return_focus.clone(),
+            }
+            .into()
+        },
         crate::sheets::sheet_options(),
     )
 }
 
 /// Opens the sheet with no seeded model (debug menu): nothing to pick from.
 pub fn open_empty() -> DebugOpen {
-    DebugOpen::Dialog(|_| Screen { visit: None }.into())
+    DebugOpen::Dialog(|_| Screen::debug().into())
 }
 
 /// The picker sheet.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Screen {
     visit: Option<Visit>,
+    return_focus: Option<Handler<Duration>>,
+}
+
+impl Screen {
+    fn debug() -> Self {
+        Self {
+            visit: None,
+            return_focus: None,
+        }
+    }
 }
 
 /// Widget state: rtwk's controllers (R14): the cursor row (a key into the
@@ -229,13 +253,18 @@ impl ScreenState {
 
     /// Leaves the picker: its preview is not wanted any more.
     fn leave(w: &Screen, cx: &mut Cx<'_, Self>) {
+        let restore = w.return_focus.clone().zip(AppBinding::maybe_of(cx));
         if let Some(visit) = w.visit {
             verb(cx, LiveIntent::RetirePreview(visit));
         } else {
             let hs = read::<Hs, _>(cx);
             cx.emit(&hs.screen, ScreenIntent::Pets(Intent::ReleasePreview));
         }
-        close_dialog(cx, w.visit.map(|_| ()));
+        close_dialog::<_, ()>(cx, None);
+        // The opener's callback is still mounted after the dialog route pops.
+        if let Some((focus, binding)) = restore {
+            binding.add_post_frame_callback(focus);
+        }
     }
 
     fn apply(w: &Screen, selector: String, cx: &mut Cx<'_, Self>) {
