@@ -544,6 +544,15 @@ cross-thread state are values (R10).
 | R13 | a newtype per id kind; composite keys where an id is scoped | types |
 | R14 | app data never enters rtwk local state; controllers (`ScrollController`, `ListController`, `SelectionController`, `TextEditingController`, `TabController`, `ExpansionController`, `AnimationController`, `FocusNode`) are made as Flutter makes them: in a widget's `State` (`create_state`/`init_state`/its fields' constructors) or the per-thread `ThreadUi` holder, disposed with it, never inside a `build`/`view`/`*_view`/`render*` function or a builder closure, never in core; screens take app data only as `&CodexApp`, memo deps or `rtwk::provider` projections of the model; routes and dialogs take ids, not data (a dialog that edits a value copies it as its draft) | `disallowed_types` `Obs`; `disallowed_methods` `use_state`, `TokioApp::follow`; `rules.rs`: `r14_controllers_are_made_in_a_state_never_in_build_or_a_closure`, `r14_core_has_no_controller` (the constructor ban and its file allowlist are gone, 2026-11-19); a check that `State` fields of screens and dialogs hold ids, drafts and controllers, never model types — a lint, so SC6a is caught, not impossible |
 
+**Transport and operation ownership (R1, R8–R10).** The pending entry records the ticket,
+physical backend address and typed context at registration. Dispatch, ingress validation and
+retirement use that address even after the visible conversation changes. A matching reply spends
+the ticket once. The domain owner then checks whether the operation can still accept the result
+in its current phase. When a new operation replaces one on the same connection, its generation
+or issued continuation identifies which result can commit. Tests cover wrong-backend receipts at
+equal attach epochs, physical replacement during the same attachment, and independent answers on
+another backend before or after the loss. The loss test enumerates every app-owned request kind.
+
 **Queued command continuations (R8, R9, R10 and ADR-012).** The thread queue issues each
 command with its original thread and generation. Only a report for the issued generation
 can consume it. For a modal continuation, the queue retains the opening and open phases.
