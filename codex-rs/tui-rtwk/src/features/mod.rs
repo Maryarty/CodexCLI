@@ -286,7 +286,7 @@ pub(super) fn select_side<S: 'static>(cx: &mut Cx<'_, S>, parent: ThreadId, chil
 
 pub(super) fn close_side<S: 'static>(cx: &mut Cx<'_, S>, parent: ThreadId, child: ThreadId) {
     use codex_tui_core::features::side::Intent;
-    verb(cx, Intent::CloseTab { parent, child });
+    verb(cx, Intent::Unload { parent, child });
 }
 
 /// A verb of a feature, from the widget that has the user's decision: the app applies it
