@@ -12,13 +12,16 @@ use codex_tui_core::keymap::actions::{
     GLOBAL_TOGGLE_PANE_ZOOM,
 };
 use codex_tui_core::keymap::{ActionId, Keymap};
-use codex_tui_core::threads::ThreadModel;
+use codex_tui_core::threads::{ThreadModel, UserMessage};
 use rtwk::binding::InputListener;
+use rtwk::controls::Button;
 use rtwk::focus::{Focus, FocusNode, FocusScope, KeyBindings, KeyCombo, KeyEventResult, KeyPress};
-use rtwk::gestures::{Listener, PointerEvent};
+use rtwk::gestures::{AbsorbPointer, Listener, PointerEvent};
 use rtwk::layout::{
-    Column, Expanded, Offstage, SizedBox, SplitController, SplitPane, SplitView, Stack, StackFit,
+    BoxWidget, Column, Expanded, MainAxisSize, Offstage, Positioned, Row, SizedBox,
+    SplitController, SplitPane, SplitView, Stack, StackFit,
 };
+use rtwk::overlay::{Dialog, DialogOptions, close_dialog, show_dialog};
 use rtwk::prelude::HitTestBehavior;
 use rtwk::provider::{Provider, read};
 use rtwk::widgets::Text;
@@ -115,9 +118,10 @@ pub(super) struct DockState {
     zoom: Option<ThreadId>,
     resizing: bool,
     resize_focus: FocusNode,
+    close_pending: bool,
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum Msg {
     Width(i32),
     FocusParent,
@@ -125,11 +129,20 @@ pub enum Msg {
     Hide,
     Zoom,
     Close,
+    CloseDecision(Option<Rc<CloseProof>>),
     Step(i32),
+    Nudge(i32),
     Share(u8),
     Resize,
     FinishResize,
     Ignore,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct CloseProof {
+    thread: ThreadId,
+    draft: UserMessage,
+    shell: bool,
 }
 
 const ACTIONS: &[(ActionId, Msg)] = &[
@@ -140,8 +153,8 @@ const ACTIONS: &[(ActionId, Msg)] = &[
     (GLOBAL_HIDE_PANE, Msg::Hide),
     (GLOBAL_TOGGLE_PANE_ZOOM, Msg::Zoom),
     (GLOBAL_CLOSE_SIDEBAR_TAB, Msg::Close),
-    (GLOBAL_MOVE_DIVIDER_LEFT, Msg::Step(-2)),
-    (GLOBAL_MOVE_DIVIDER_RIGHT, Msg::Step(2)),
+    (GLOBAL_MOVE_DIVIDER_LEFT, Msg::Nudge(-1)),
+    (GLOBAL_MOVE_DIVIDER_RIGHT, Msg::Nudge(1)),
     (GLOBAL_MINIMIZE_PANE_WIDTH, Msg::Share(0)),
     (GLOBAL_MAXIMIZE_PANE_WIDTH, Msg::Share(100)),
     (GLOBAL_EQUALIZE_PANE_WIDTHS, Msg::Share(50)),
@@ -161,16 +174,16 @@ pub(super) fn claims_key(keymap: &Keymap, key: &KeyPress) -> bool {
 pub(super) fn single(keymap: &Keymap, key: &KeyPress) -> Option<Msg> {
     ACTIONS
         .iter()
-        .find_map(|&(id, msg)| crate::keymap::pressed(keymap, id, key).then_some(msg))
+        .find_map(|(id, msg)| crate::keymap::pressed(keymap, *id, key).then(|| msg.clone()))
 }
 
 pub(super) fn chords(keymap: &Keymap) -> Vec<(KeyCombo, KeyCombo, Msg)> {
     ACTIONS
         .iter()
-        .flat_map(|&(id, msg)| {
-            crate::keymap::chords_of(keymap, id)
+        .flat_map(|(id, msg)| {
+            crate::keymap::chords_of(keymap, *id)
                 .into_iter()
-                .map(move |(prefix, completion)| (prefix, completion, msg))
+                .map(move |(prefix, completion)| (prefix, completion, msg.clone()))
         })
         .collect()
 }
@@ -202,6 +215,7 @@ impl StatefulWidget for Dock {
             zoom: None,
             resizing: false,
             resize_focus: FocusNode::new(),
+            close_pending: false,
         }
     }
 }
@@ -223,12 +237,29 @@ impl DockState {
         cx.emit(&hs.open_thread, id.clone());
     }
 
+    fn close(cx: &mut Cx<'_, Self>, child: &ThreadId) {
+        if let Some(intent) = features::run_key(PageKey::ClosePane, child, "", cx) {
+            let hs = read::<Hs, _>(cx);
+            cx.emit(&hs.intent, codex_tui_core::app::Intent::Feature(intent));
+        }
+    }
+
+    fn step(&self, delta: i32) {
+        if let [left, right] = self.split.sizes().as_slice() {
+            let total = left + right;
+            let left = (left + delta).clamp(PARENT_MIN, (total - CHILD_MIN).max(PARENT_MIN));
+            self.split
+                .set_fractions(&[f64::from(left), f64::from(total - left)]);
+        }
+    }
+
     fn pane(
         cx: &mut Cx<'_, Self>,
         pane: &Pane,
         focused: bool,
         activate: Msg,
         heading: bool,
+        resizing: bool,
     ) -> AnyWidget {
         let key = pane.ui.held(|| PaneKey(GlobalKey::new()));
         let chat = Chat {
@@ -247,7 +278,18 @@ impl DockState {
             SizedBox::shrink().into()
         };
         let column = Column::new().child(heading).child(Expanded::new(1, chat));
-        let scope = FocusScope::new(column)
+        let hint: AnyWidget = if resizing {
+            let label = crate::oracle_strings::commands::SIDE_PANE_RESIZE_H_L_SHIFT_10_COLS;
+            Positioned::new(BoxWidget::new().child(Text::line(format!("  {label}"))))
+                .left(0)
+                .right(0)
+                .bottom(0)
+                .into()
+        } else {
+            SizedBox::shrink().into()
+        };
+        let body = Stack::new().fit(StackFit::Expand).child(column).child(hint);
+        let scope = FocusScope::new(body)
             .descendants_are_focusable(focused)
             .can_request_focus(focused);
         AnyWidget::from(
@@ -255,7 +297,7 @@ impl DockState {
                 .behavior(HitTestBehavior::Translucent)
                 .on_pointer_down(cx.map(move |event: PointerEvent| {
                     if !focused && event.button == 0 {
-                        activate
+                        activate.clone()
                     } else {
                         Msg::Ignore
                     }
@@ -311,21 +353,67 @@ impl State for DockState {
             Msg::Zoom if !self.hidden && self.width >= SPLIT_AT => {
                 self.zoom = self.zoom.is_none().then(|| w.active.clone());
             }
-            Msg::Close if w.on_child() => {
-                let draft = super::composer::submission(&w.child.ui);
-                if let Some(intent) = features::run_key(PageKey::ClosePane, &w.active, &draft, cx) {
-                    let hs = read::<Hs, _>(cx);
-                    cx.emit(&hs.intent, codex_tui_core::app::Intent::Feature(intent));
+            Msg::Close if w.on_child() && !self.close_pending => {
+                let ui = &w.child.ui;
+                if ui.draft.in_burst() {
+                    return Rebuild::No;
+                }
+                let words = super::composer::strings::of(cx);
+                let draft = ui.draft.submission(&ui.composer, |n| words.image(n));
+                let shell = ui.draft.shell();
+                let unsent = shell
+                    || !draft.text.is_empty()
+                    || !draft.images.is_empty()
+                    || !draft.remote_images.is_empty();
+                // The current lifecycle uses temporary side conversations.
+                let history =
+                    !w.child.model.transcript().is_empty() || w.child.model.task_running();
+                let loss = match (unsent, history) {
+                    (true, true) => {
+                        "This will discard unsent input and lose this temporary chat’s history."
+                    }
+                    (true, false) => "This will discard unsent input.",
+                    (false, true) => "This will lose this temporary chat’s history.",
+                    (false, false) => {
+                        Self::close(cx, w.child.model.id());
+                        return Rebuild::No;
+                    }
+                };
+                self.close_pending = true;
+                let result = show_dialog(
+                    cx,
+                    move |_| ConfirmClose { loss }.into(),
+                    DialogOptions::default(),
+                );
+                let proof = Rc::new(CloseProof {
+                    thread: w.child.model.id().clone(),
+                    draft,
+                    shell,
+                });
+                cx.spawn(async move {
+                    Some(Msg::CloseDecision(
+                        (result.await == Some(true)).then_some(proof),
+                    ))
+                });
+            }
+            Msg::CloseDecision(proof) => {
+                self.close_pending = false;
+                let ui = &w.child.ui;
+                let words = super::composer::strings::of(cx);
+                // A rejected send can bring input back while the dialog owns the keys.
+                if let Some(proof) = proof
+                    && &proof.thread == w.child.model.id()
+                    && !ui.draft.in_burst()
+                    && proof.shell == ui.draft.shell()
+                    && proof.draft == ui.draft.submission(&ui.composer, |n| words.image(n))
+                {
+                    Self::close(cx, &proof.thread);
                 }
             }
-            Msg::Step(delta) if self.wide() => {
-                if let [left, right] = self.split.sizes().as_slice() {
-                    let total = left + right;
-                    let left =
-                        (left + delta).clamp(PARENT_MIN, (total - CHILD_MIN).max(PARENT_MIN));
-                    self.split
-                        .set_fractions(&[f64::from(left), f64::from(total - left)]);
-                }
+            Msg::Step(delta) if self.wide() => self.step(delta),
+            Msg::Nudge(direction) if self.wide() && w.on_child() => {
+                let step = (self.width.saturating_mul(2).saturating_add(50) / 100).max(1);
+                self.step(direction * step);
             }
             Msg::Share(percent) if self.wide() => {
                 let side = if w.on_child() { percent } else { 100 - percent };
@@ -348,8 +436,22 @@ impl State for DockState {
     fn build(&self, w: &Dock, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let wide = self.wide();
         let on_child = w.on_child();
-        let parent = Self::pane(cx, &w.parent, !on_child, Msg::FocusParent, false);
-        let child = Self::pane(cx, &w.child, on_child, Msg::FocusChild, wide);
+        let parent = Self::pane(
+            cx,
+            &w.parent,
+            !on_child,
+            Msg::FocusParent,
+            false,
+            self.resizing && !on_child,
+        );
+        let child = Self::pane(
+            cx,
+            &w.child,
+            on_child,
+            Msg::FocusChild,
+            wide,
+            self.resizing && on_child,
+        );
         let shown: AnyWidget = if wide {
             SplitView::new([
                 SplitPane::new(parent).min_size(PARENT_MIN),
@@ -380,11 +482,13 @@ impl State for DockState {
         let keymap = crate::keymap::keymap(cx);
         let keys = ACTIONS
             .iter()
-            .flat_map(|&(action, msg)| crate::keymap::bindings(&keymap, action, &cx.send(msg)))
+            .flat_map(|(action, msg)| {
+                crate::keymap::bindings(&keymap, *action, &cx.send(msg.clone()))
+            })
             .collect();
         let resize = self.resizing;
         let key = tell.clone();
-        let shown = Focus::new(shown)
+        let shown = Focus::new(AbsorbPointer::new().absorbing(resize).child(shown))
             .focus_node(self.resize_focus.clone())
             .skip_traversal(true)
             .on_key_event(move |node, press| {
@@ -412,5 +516,62 @@ impl State for DockState {
             resize && matches!(event, InputEvent::Paste(_))
         })
         .into()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct ConfirmClose {
+    loss: &'static str,
+}
+
+struct ConfirmCloseState;
+
+impl StatefulWidget for ConfirmClose {
+    type State = ConfirmCloseState;
+
+    fn create_state(&self) -> Self::State {
+        ConfirmCloseState
+    }
+}
+
+impl_widget!(stateful eq ConfirmClose);
+
+impl State for ConfirmCloseState {
+    type Widget = ConfirmClose;
+    type Msg = bool;
+
+    fn update(&mut self, close: bool, _: &ConfirmClose, cx: &mut Cx<'_, Self>) -> Rebuild {
+        close_dialog(cx, Some(close));
+        Rebuild::No
+    }
+
+    fn build(&self, w: &ConfirmClose, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        let actions = Row::new()
+            .main_axis_size(MainAxisSize::Min)
+            .child(
+                Button::new("Cancel")
+                    .autofocus(true)
+                    .on_pressed(cx.send(false)),
+            )
+            .child(Button::new("Close").on_pressed(cx.send(true)));
+        let body = Column::new()
+            .main_axis_size(MainAxisSize::Min)
+            .child(Text::new(w.loss))
+            .child(actions);
+        Focus::new(Dialog::new(body).title("Close side chat?"))
+            .can_request_focus(false)
+            .on_key_event(|node, key| {
+                let moved = match (key.code, key.mods) {
+                    (KeyCode::Left, Mods::NONE) => node.previous_focus(),
+                    (KeyCode::Right, Mods::NONE) => node.next_focus(),
+                    _ => false,
+                };
+                if moved {
+                    KeyEventResult::Handled
+                } else {
+                    KeyEventResult::Ignored
+                }
+            })
+            .into()
     }
 }

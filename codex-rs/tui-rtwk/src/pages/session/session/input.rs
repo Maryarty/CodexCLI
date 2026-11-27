@@ -253,7 +253,7 @@ pub(super) fn install(state: &mut ChatState, workspace: bool, cx: &mut Cx<'_, Ch
                 .find(|(prefix, done, _)| prefix.accepts_press(&first) && done.accepts_press(&key))
             {
                 draft_now.set_chord(None);
-                send(ChatMsg::Workspace(*action));
+                send(ChatMsg::Workspace(action.clone()));
                 return KeyEventResult::Handled;
             }
             if close
