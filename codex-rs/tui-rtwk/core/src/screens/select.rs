@@ -1429,8 +1429,14 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
         }),
         SeedEv::Models { current } => model(ModelMenu::Models(current)),
         SeedEv::AllModels { current } => model(ModelMenu::AllModels(current)),
-        SeedEv::Reasoning { preset, current } => model(ModelMenu::Reasoning { preset, current }),
-        SeedEv::Advanced { preset, current } => model(ModelMenu::Advanced { preset, current }),
+        SeedEv::Reasoning { preset, current } => model(ModelMenu::Reasoning {
+            preset,
+            current: Box::new(current),
+        }),
+        SeedEv::Advanced { preset, current } => model(ModelMenu::Advanced {
+            preset,
+            current: Box::new(current),
+        }),
         SeedEv::PlanScope {
             model: name,
             effort,

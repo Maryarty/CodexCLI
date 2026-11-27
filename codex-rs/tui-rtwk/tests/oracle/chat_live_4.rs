@@ -352,6 +352,7 @@ fn all_modes_reasoning_waits_for_the_config_write_before_updating_plan() {
         r#""keyPath":"plan_mode_reasoning_effort""#,
     );
     s.assert_requests_of("thread/settings/update", updates);
+    let settings_reply = s.hold_request("thread/settings/update");
     s.release(&write);
     s.assert_requests_of("thread/settings/update", updates + 1);
     s.assert_last_request_has("thread/settings/update", r#""threadId":"thread-1""#);
@@ -361,6 +362,10 @@ fn all_modes_reasoning_waits_for_the_config_write_before_updating_plan() {
     s.keys("shift+tab");
     s.assert_last_request_has("thread/settings/update", r#""mode":"default""#);
     s.assert_last_request_has("thread/settings/update", r#""reasoning_effort":"medium""#);
+    s.keys("shift+tab");
+    s.assert_last_request_has("thread/settings/update", r#""mode":"plan""#);
+    s.assert_last_request_has("thread/settings/update", r#""reasoning_effort":"medium""#);
+    s.release(&settings_reply);
 }
 
 #[test]

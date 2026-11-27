@@ -675,19 +675,27 @@ impl ThreadPart {
     pub(crate) fn set_plan_effort(
         &mut self,
         effort: Option<ReasoningEffort>,
-        all_modes: bool,
+        scope: collaboration::ReasoningScope,
         operation: Option<crate::threads::queue::QueueOperation>,
         fx: &mut ThreadFx<'_>,
     ) {
         use codex_protocol::config_types::ModeKind;
+        use collaboration::ReasoningScope;
         if self.mode != ModeKind::Plan {
             return;
         }
         let Some(model) = &self.model else { return };
-        let base = all_modes.then(|| collaboration::Base {
-            model: model.clone(),
-            effort: effort.clone(),
-        });
+        // A saved scope has already been confirmed by config/batchWrite. Subsequent
+        // mode switches must use those defaults even while this Plan RPC is in flight.
+        if scope != ReasoningScope::Session {
+            self.plan_override = None;
+        }
+        if scope == ReasoningScope::AllModes {
+            self.base = collaboration::Base {
+                model: model.clone(),
+                effort: effort.clone(),
+            };
+        }
         let mut mask =
             collaboration::plan_mask(fx.modes()).unwrap_or_else(|| collaboration::Mask {
                 name: String::new(),
@@ -698,13 +706,13 @@ impl ThreadPart {
             });
         mask.model = Some(model.clone());
         self.plan_update = self.plan_update.wrapping_add(1);
-        let settings =
-            collaboration::effective(base.as_ref().unwrap_or(&self.base), &mask, effort.as_ref());
+        let settings = collaboration::effective(&self.base, &mask, effort.as_ref());
         fx.request(
             Ctx::PlanEffort {
                 update: self.plan_update,
-                effort,
-                base,
+                session_override: (scope == ReasoningScope::Session)
+                    .then_some(effort)
+                    .flatten(),
                 operation,
             },
             Command::Mode(settings),
@@ -1210,8 +1218,7 @@ pub enum Ctx {
     Mode,
     PlanEffort {
         update: u64,
-        effort: Option<ReasoningEffort>,
-        base: Option<collaboration::Base>,
+        session_override: Option<ReasoningEffort>,
         operation: Option<crate::threads::queue::QueueOperation>,
     },
     ApprovePlan,
@@ -1368,8 +1375,7 @@ pub fn apply_reply(
     }
     if let Ctx::PlanEffort {
         update,
-        effort,
-        base,
+        session_override,
         ..
     } = &ctx
     {
@@ -1377,10 +1383,7 @@ pub fn apply_reply(
             return;
         }
         if matches!(result, Ok(Reply::Ack)) {
-            part.plan_override = effort.clone();
-            if let Some(base) = base {
-                part.base = base.clone();
-            }
+            part.plan_override.clone_from(session_override);
         }
     }
     // a steer's reply is read by `threads::apply`, never here

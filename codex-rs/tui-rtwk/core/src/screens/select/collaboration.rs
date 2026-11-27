@@ -90,9 +90,16 @@ pub enum Change {
     Preset(Mask),
     PlanEffort {
         effort: Option<ReasoningEffort>,
-        all_modes: bool,
+        scope: ReasoningScope,
         operation: Option<QueueOperation>,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReasoningScope {
+    Session,
+    PlanOnly,
+    AllModes,
 }
 
 /// An accepted scope choice awaiting its backend's configuration write.
