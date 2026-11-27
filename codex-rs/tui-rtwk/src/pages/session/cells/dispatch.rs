@@ -3,9 +3,6 @@
 //! lays the rows out and calls [`cell`]; in which mode an item is drawn (rich, or the raw
 //! source of alt+r) is decided here, what is drawn for it by the file of its kind (`cell_list!`
 //! in `cells/mod.rs`: registry 3 of the UI hubs).
-//!
-//! The width is not an input: every cell sizes itself to the constraints it
-//! is given (`LayoutBuilder` where it must choose a spelling).
 
 use std::sync::Arc;
 
