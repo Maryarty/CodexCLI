@@ -1244,5 +1244,16 @@ fn fullscreen_image_previews_follow_layout_without_entering_text_surfaces() {
         );
         s.click_text("− Hide details");
         s.assert_image_rows(if graphics { &["Saved to:"] } else { &[] }, 100);
+        if graphics {
+            s.keys("alt+r");
+            s.assert_image_rows(&[], 100);
+            std::fs::remove_file(&path).unwrap();
+            s.keys("alt+r");
+            s.click_text("+ Show details");
+            s.assert_contains(path.to_str().unwrap());
+            s.assert_no_link(path.to_str().unwrap());
+            s.assert_contains("A red rectangle");
+            s.assert_image_rows(&[], 100);
+        }
     }
 }
