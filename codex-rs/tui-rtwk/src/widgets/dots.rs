@@ -78,36 +78,42 @@ pub fn dots_spans(spans: Vec<Span>) -> AnyWidget {
     .into()
 }
 
-/// [`dots_spans`] with the `…` always among the nodes of the line: a cell whose text the app
-/// reads before it is mounted (Find over the model) cannot know whether the room cuts the line, and
-/// a `…` that is a `Text` only when it cuts would move every match after it by that node. Not cut,
-/// the `…` is a node a cell wide of no width (clipped, nothing drawn); cut, it is the one `dots_spans`
-/// draws. Either way it is a gutter of one character.
+/// [`dots_spans`] with both text nodes retained across clipping. Find keeps their
+/// offsets, and a native selection can still address the same text after resize.
 pub fn dots_spans_kept(spans: Vec<Span>) -> AnyWidget {
+    let text: String = spans.iter().map(|span| span.text.as_str()).collect();
     LayoutBuilder::new(move |cx, constraints| {
         let seg = segmenter_of(cx);
-        let line = Text::rich_line(spans.clone()).overflow(TextOverflow::Clip);
-        let text: String = spans.iter().map(|span| span.text.as_str()).collect();
-        let last = spans
-            .last()
-            .map(|span| span.style.clone())
-            .unwrap_or_default();
-        if seg.width(&text) as i32 <= constraints.max_width {
-            return Row::new()
-                .child(line)
-                .child(ExcludeSelection::new(SizedBox::new(
-                    Some(0),
-                    Some(1),
-                    Some(
-                        Text::line("\u{2026}")
-                            .style(last)
-                            .overflow(TextOverflow::Clip)
-                            .into(),
-                    ),
-                )))
-                .into();
+        let room = usize::try_from(constraints.max_width).unwrap_or(0);
+        let cut = seg.width(&text) > room;
+        let shown = cut.then(|| cut_head_cells(&seg, &text, room.saturating_sub(1), false));
+        let mut left = shown.unwrap_or(room);
+        let mut style = Style::default();
+        for span in &spans {
+            style = span.style.clone();
+            let width = seg.width(&span.text);
+            if left <= width {
+                break;
+            }
+            left -= width;
         }
-        dots_spans(spans.clone())
+
+        let line = Text::rich_line(spans.clone()).overflow(TextOverflow::Clip);
+        let ellipsis = Text::line("\u{2026}")
+            .style(style)
+            .overflow(TextOverflow::Clip);
+        Row::new()
+            .child(SizedBox::new(
+                shown.and_then(|width| i32::try_from(width).ok()),
+                Some(1),
+                Some(line.into()),
+            ))
+            .child(ExcludeSelection::new(SizedBox::new(
+                Some(i32::from(cut && room > 0)),
+                Some(1),
+                Some(ellipsis.into()),
+            )))
+            .into()
     })
     .into()
 }

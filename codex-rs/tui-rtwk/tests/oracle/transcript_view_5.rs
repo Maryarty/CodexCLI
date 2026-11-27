@@ -373,10 +373,6 @@ fn fullscreen_markdown_keeps_a_fitting_url_on_one_row() {
 // ORACLE transcript_view/text_tests.rs:356 command_and_output_copy_preserve_hard_lines_across_resize kind=snap owner=chat-live snap=compact_command_copy snap=detailed_command_copy
 #[test]
 fn command_and_output_copy_preserve_hard_lines_across_resize() {
-    kit::pending(
-        Owner::ChatLive,
-        "the exact command and two output hard lines copy at 64 columns. At 24 the compact tool preview truncates both long lines; the retained native range stops owning Ctrl+C and no second clipboard request is sent",
-    );
     const COMMAND: &str = "printf 'alpha beta gamma delta'";
     const OUTPUT: &str = "  output alpha beta gamma delta\nnext line";
     const EXPECTED: &str =
@@ -405,6 +401,10 @@ fn command_and_output_copy_preserve_hard_lines_across_resize() {
         s.assert_copies_asked(&[EXPECTED]);
         s.answer_copy_unconfirmed();
         s.resize(24, 20);
+        if !detailed {
+            s.assert_absent(COMMAND);
+            s.assert_contains("next line");
+        }
         s.keys("ctrl+c");
         s.assert_copies_asked(&[EXPECTED, EXPECTED]);
         s.answer_copy_unconfirmed();
