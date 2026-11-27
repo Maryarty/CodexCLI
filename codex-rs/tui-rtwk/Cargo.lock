@@ -3725,6 +3725,7 @@ dependencies = [
  "codex-worktree",
  "dunce",
  "futures",
+ "image",
  "libc",
  "objc2-foundation",
  "rtwk",
