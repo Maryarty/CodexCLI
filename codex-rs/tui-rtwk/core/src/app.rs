@@ -563,7 +563,15 @@ pub enum Command {
         ticket: Ticket,
         thread: ThreadId,
         command: crate::features::FeatureCommand,
+        preparation_checkpoint: Option<PreparationCheckpoint>,
     },
+}
+
+/// The local rollout that must confirm a persistent fork's context before admission.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PreparationCheckpoint {
+    pub parent: ThreadId,
+    pub rollout: Option<std::path::PathBuf>,
 }
 
 impl Command {
@@ -1464,8 +1472,13 @@ impl CodexApp {
     }
 
     fn retire_outgoing(&mut self, backend: BackendId, fx: &mut AppFx) {
-        self.preparing_forks
-            .retain(|_, preparation| preparation.address.backend != backend);
+        for preparation in self.preparing_forks.values_mut() {
+            if preparation.address.backend == backend {
+                // The acknowledged fork might survive on disk without a confirmed boundary.
+                // Keep it unavailable and do not let a replacement transport bless or delete it.
+                preparation.retired = true;
+            }
+        }
         ide_submit::retire(self, backend, fx);
         safety_retry::lost(self, backend, fx);
         self.attaching_events
@@ -3846,6 +3859,7 @@ fn resume_answer(app: &mut CodexApp, ctx: resume::Ctx, answer: Answer, fx: &mut 
 fn open_thread(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) {
     let model = &app.screens.agents;
     if !is_listed(app, id)
+        || app.preparing_forks.contains_key(id)
         || model.held()
         || model.failure.is_some()
         || folder_consent::pending(&app.screens.onboarding)

@@ -173,8 +173,17 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
             command,
             ctx,
         } => {
-            fx.ask(app, AppCtx::Feature(ctx), |_, ticket| Command::Feature {
+            fx.ask(app, AppCtx::Feature(ctx), |app, ticket| Command::Feature {
                 ticket,
+                preparation_checkpoint: app
+                    .preparing_forks
+                    .get(&thread)
+                    .filter(|preparation| {
+                        !preparation.retired
+                            && preparation.address
+                                == app.address(app.screens.agents.owner_of(thread.as_str()))
+                    })
+                    .and_then(|preparation| preparation.checkpoint.clone()),
                 thread,
                 command,
             });

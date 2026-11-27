@@ -647,6 +647,7 @@ fn attached_child() -> Thread {
     attached.ephemeral = false;
     attached.history_mode = ThreadHistoryMode::Paginated;
     attached.attached_to_thread_id = Some(MAIN.to_owned());
+    attached.path = serde_json::from_value(serde_json::json!("/tmp/side-1.jsonl")).unwrap();
     attached
 }
 
@@ -687,6 +688,20 @@ fn attached_storage_waits_for_the_durable_boundary_and_close_only_unsubscribes()
             .all(|command| !matches!(command, Command::StartTurn { .. }))
     );
     let boundary = boundary_ticket(&preparing).expect("attached boundary");
+    assert!(preparing.commands().iter().any(|command| matches!(command,
+        Command::Feature { preparation_checkpoint: Some(checkpoint), thread, .. }
+            if thread == &child && checkpoint.parent.as_str() == MAIN
+                && checkpoint.rollout.as_deref() == Some(std::path::Path::new("/tmp/side-1.jsonl")))));
+    let impatient = slash(&mut app, SlashCommand::Side, "preserve my next draft");
+    assert!(impatient.commands().is_empty());
+    assert!(
+        app.active_thread()
+            .restore()
+            .unwrap()
+            .messages()
+            .iter()
+            .any(|message| message.text == "preserve my next draft")
+    );
     let ClientRequest::ThreadInjectItems { params, .. } = wire(&preparing, boundary) else {
         panic!("expected preparation")
     };
@@ -722,6 +737,64 @@ fn attached_storage_waits_for_the_durable_boundary_and_close_only_unsubscribes()
             ..
         }
     )));
+}
+
+#[test]
+fn a_retired_fork_cannot_be_opened_or_deleted_by_the_replacement_handle() {
+    let mut app = ready();
+    let (_, fork) = attached_fork_ask(&mut app);
+    let preparing = reply_fork(&mut app, fork, attached_child());
+    let boundary = boundary_ticket(&preparing).unwrap();
+    let prior = app.epoch();
+    let next = prior.next();
+    let restarted = app
+        .ingest(Ingress::transport_replaced(
+            BackendId::default(),
+            prior,
+            next,
+        ))
+        .unwrap();
+    assert!(restarted.commands().iter().all(|command| !matches!(
+        command,
+        Command::Screen {
+            command: ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Delete { .. })),
+            ..
+        }
+    )));
+    assert!(
+        app.ingest(Ingress::transport_reply(
+            BackendId::default(),
+            prior,
+            prior,
+            boundary,
+            Reply::feature(FeatureReply::Side(SideReply)),
+        ))
+        .is_none()
+    );
+    let child = ThreadId::new(SIDE);
+    let show = run(&mut app, AppEv::Intent(Intent::OpenThread(child.clone())));
+    assert!(
+        show.commands()
+            .iter()
+            .all(|command| !matches!(command, Command::Screen {
+        command: ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Resume { thread })), ..
+    } if thread == SIDE))
+    );
+    let submit = run(
+        &mut app,
+        AppEv::Intent(Intent::Submit {
+            thread: Some(child.clone()),
+            message: codex_tui_core::threads::UserMessage::text("do not submit".to_owned()),
+        }),
+    );
+    assert!(
+        submit
+            .commands()
+            .iter()
+            .all(|command| !matches!(command, Command::StartTurn { .. }))
+    );
+    assert!(app.features().side.link(&child).is_none());
+    assert_eq!(app.session().active, Some(ThreadId::new(MAIN)));
 }
 
 #[test]

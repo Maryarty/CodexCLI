@@ -409,6 +409,21 @@ fn start(
     cx: &mut AppCx<'_>,
 ) {
     let prompt = prompt.filter(|prompt| !prompt.trim().is_empty());
+    if retained
+        && let Some(parent) = source.as_ref()
+        && (state
+            .opening
+            .as_ref()
+            .is_some_and(|activation| &activation.parent == parent)
+            || state.preparing.values().any(|preparation| {
+                preparation
+                    .pending_link
+                    .as_ref()
+                    .is_some_and(|link| &link.parent == parent)
+            }))
+    {
+        return restore(cx, parent, prompt);
+    }
     match (state.start(source.as_ref(), fresh), source) {
         (Start::Block(note), source) => {
             if let Some(thread) = &source {

@@ -8,7 +8,8 @@
 use codex_app_server_protocol as wire;
 
 use super::{
-    AppCtx, AppFx, CodexApp, Command, apply_thread, features, is_listed, open_verified, submit,
+    AppCtx, AppFx, CodexApp, Command, PreparationCheckpoint, apply_thread, features, is_listed,
+    open_verified, submit,
 };
 use crate::features::{FeatureCtx, Lifecycle, Refusal, ThreadSpawn};
 use crate::ids::{BackendId, ThreadId, Ticket};
@@ -46,10 +47,11 @@ pub(super) struct SideFork {
     attached_policy: String,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(super) struct Preparation {
     pub address: Address,
-    attached: bool,
+    pub checkpoint: Option<PreparationCheckpoint>,
+    pub retired: bool,
 }
 
 /// One lifecycle step a feature asked for.
@@ -66,7 +68,13 @@ pub(super) fn carry(app: &mut CodexApp, lifecycle: Lifecycle, fx: &mut AppFx) {
             }
         }
         Lifecycle::FinishPreparation { thread } => {
-            app.preparing_forks.remove(&thread);
+            if app
+                .preparing_forks
+                .get(&thread)
+                .is_some_and(|preparation| !preparation.retired)
+            {
+                app.preparing_forks.remove(&thread);
+            }
         }
         Lifecycle::Submit { thread, message } => submit(app, &thread, message, fx),
         Lifecycle::GiveBack { thread, text } => {
@@ -315,7 +323,16 @@ pub(super) fn side_reply(
                     child.clone(),
                     Preparation {
                         address,
-                        attached: side.phase == SidePhase::Attached,
+                        checkpoint: (side.phase == SidePhase::Attached).then(|| {
+                            PreparationCheckpoint {
+                                parent: side.parent.clone(),
+                                rollout: thread
+                                    .path
+                                    .as_ref()
+                                    .map(|path| path.as_path().to_path_buf()),
+                            }
+                        }),
+                        retired: false,
                     },
                 );
                 super::attach_thread_with_metadata(
@@ -351,7 +368,9 @@ fn remove_unprepared(app: &mut CodexApp, thread: ThreadId, ctx: FeatureCtx, fx: 
     let backend = app.screens.agents.owner_of(thread.as_str());
     if app.session.active.as_ref() == Some(&thread)
         || !app.preparing_forks.get(&thread).is_some_and(|preparation| {
-            preparation.attached && preparation.address == app.address(backend)
+            !preparation.retired
+                && preparation.checkpoint.is_some()
+                && preparation.address == app.address(backend)
         })
     {
         return features::thread_opened(app, ctx, Err(Refusal::Busy), fx);

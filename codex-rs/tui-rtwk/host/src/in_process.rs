@@ -30,12 +30,16 @@ use codex_core::config::Config;
 use codex_core::config::ConfigBuilder;
 use codex_core::config::ConfigOverrides;
 use codex_feedback::CodexFeedback;
+use codex_protocol::models::{ContentItem, ResponseItem};
+use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::SessionSource;
+use codex_rollout::{ResponseItemEnvelope, RolloutItem};
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::BackendEv;
 use codex_tui_core::app::Command;
 use codex_tui_core::app::Ingress;
 use codex_tui_core::app::LocalSideStorage;
+use codex_tui_core::app::PreparationCheckpoint;
 use codex_tui_core::app::effects::ConfigEdit;
 use codex_tui_core::app::effects::{
     Ask as HostAsk, Done, HostDoors, ImageRevision, ImageSize, run_ask,
@@ -1554,6 +1558,23 @@ pub(crate) fn work(
             };
             Some(AppEv::Reply(ticket, reply))
         }),
+        command @ Command::Feature {
+            preparation_checkpoint: Some(_),
+            ..
+        } => Box::pin(async move {
+            let Command::Feature {
+                thread,
+                preparation_checkpoint: Some(checkpoint),
+                ..
+            } = &command
+            else {
+                return None;
+            };
+            let request = protocol::client_request(&command, ids.next(), model.as_deref())?;
+            let result = confirm_preparation(send(request).await, thread, checkpoint).await;
+            protocol::reply_from_server(&command, result)
+                .map(|(ticket, reply)| AppEv::Reply(ticket, reply))
+        }),
         // `RejectRequest` is handled by the pump, which owns the client.
         command => Box::pin(async move {
             answer(command, facts, ids, model, send)
@@ -1561,6 +1582,72 @@ pub(crate) fn work(
                 .map(|(ticket, reply)| AppEv::Reply(ticket, reply))
         }),
     }
+}
+
+async fn confirm_preparation(
+    result: Result<serde_json::Value, ServerError>,
+    thread: &ThreadId,
+    checkpoint: &PreparationCheckpoint,
+) -> Result<serde_json::Value, ServerError> {
+    let value = result?;
+    match verified_preparation(thread, checkpoint).await {
+        Ok(true) => Ok(value),
+        Ok(false) => Err("Side conversation context was not saved".into()),
+        Err(error) => Err(error.to_string().into()),
+    }
+}
+
+/// A successful injection is only committed when the exact child's own rollout contains
+/// the attached metadata and both context items before its first turn.
+async fn verified_preparation(
+    thread: &ThreadId,
+    checkpoint: &PreparationCheckpoint,
+) -> std::io::Result<bool> {
+    let Some(path) = checkpoint.rollout.as_deref() else {
+        return Ok(false);
+    };
+    let mut reader = codex_rollout::open_rollout_line_reader(path).await?;
+    let mut attached = false;
+    let mut policy = false;
+    while let Some(line) = reader.next_line().await? {
+        match codex_rollout::parse_rollout_line(&line)?.item {
+            RolloutItem::SessionMeta(meta) => {
+                attached = meta.meta.attached_thread
+                    && meta.meta.id.to_string() == thread.as_str()
+                    && meta
+                        .meta
+                        .forked_from_id
+                        .is_some_and(|parent| parent.to_string() == checkpoint.parent.as_str());
+                if !attached {
+                    return Ok(false);
+                }
+            }
+            RolloutItem::ResponseItem(ResponseItemEnvelope {
+                item: ResponseItem::Message { role, content, .. },
+                ..
+            }) if attached => {
+                let [ContentItem::InputText { text }] = content.as_slice() else {
+                    continue;
+                };
+                let text = text.trim();
+                match role.as_str() {
+                    "developer" => {
+                        policy |= text.starts_with("<side_conversation>")
+                            && text.ends_with("</side_conversation>")
+                    }
+                    "user"
+                        if policy && text.lines().next() == Some("Side conversation boundary.") =>
+                    {
+                        return Ok(true);
+                    }
+                    _ => {}
+                }
+            }
+            RolloutItem::EventMsg(EventMsg::TurnStarted(_)) => break,
+            _ => {}
+        }
+    }
+    Ok(false)
 }
 
 /// The client of the shell's effects: one request over the handle. A
@@ -1634,6 +1721,92 @@ pub(crate) async fn resolve(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn attached_preparation_ack_requires_both_items_in_its_own_rollout() -> anyhow::Result<()>
+    {
+        use codex_protocol::protocol::SessionMeta;
+        use serde_json::json;
+
+        let parent = codex_protocol::ThreadId::from_u128(1);
+        let child = codex_protocol::ThreadId::from_u128(2);
+        let thread = ThreadId::new(child.to_string());
+        let dir = tempfile::tempdir()?;
+        let rollout = dir.path().join("rollout.jsonl");
+        let mut checkpoint = PreparationCheckpoint {
+            parent: ThreadId::new(parent.to_string()),
+            rollout: None,
+        };
+        let ack = json!({});
+        assert!(
+            confirm_preparation(Ok(ack.clone()), &thread, &checkpoint)
+                .await
+                .is_err()
+        );
+        checkpoint.rollout = Some(rollout.clone());
+
+        let record = |kind, ordinal, payload| {
+            json!({
+                "timestamp": "2026-11-27T00:00:00.000Z", "ordinal": ordinal,
+                "type": kind, "payload": payload,
+            })
+        };
+        let meta = |id, forked_from_id, attached_thread| {
+            serde_json::to_value(SessionMeta {
+                id,
+                session_id: id.into(),
+                forked_from_id: Some(forked_from_id),
+                attached_thread,
+                ..SessionMeta::default()
+            })
+            .map(|meta| record("session_meta", 0, meta))
+        };
+        let item = |role, ordinal, text| {
+            record(
+                "response_item",
+                ordinal,
+                json!({
+                    "type": "message", "role": role, "content": [{"type": "input_text", "text": text}],
+                }),
+            )
+        };
+        let write = |records: &[&serde_json::Value]| {
+            let lines = records.iter().map(ToString::to_string).collect::<Vec<_>>();
+            std::fs::write(&rollout, lines.join("\n"))
+        };
+        let child_meta = meta(child, parent, true)?;
+        let unrelated_meta = meta(parent, child, true)?;
+        let unrelated_parent = meta(child, codex_protocol::ThreadId::from_u128(3), true)?;
+        let temporary_meta = meta(child, parent, false)?;
+        let policy = item(
+            "developer",
+            1,
+            "<side_conversation>Policy</side_conversation>",
+        );
+        let boundary = item("user", 2, "Side conversation boundary.\n\nContext only.");
+        let wrong = [
+            vec![&child_meta],
+            vec![&child_meta, &policy],
+            vec![&child_meta, &boundary, &policy],
+            vec![&unrelated_meta, &policy, &boundary],
+            vec![&unrelated_parent, &policy, &boundary],
+            vec![&temporary_meta, &policy, &boundary],
+        ];
+        for records in wrong {
+            write(&records)?;
+            assert!(
+                confirm_preparation(Ok(ack.clone()), &thread, &checkpoint)
+                    .await
+                    .is_err()
+            );
+        }
+        write(&[&child_meta, &policy, &boundary])?;
+        assert_eq!(
+            confirm_preparation(Ok(ack.clone()), &thread, &checkpoint).await?,
+            ack
+        );
+        Ok(())
+    }
 
     #[tokio::test]
     async fn host_asks_keep_gateway_acknowledgement_and_replace_import_detection() {
