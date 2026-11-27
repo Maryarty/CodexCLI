@@ -28,12 +28,19 @@ fn the_row_reads_the_reasoning_header_instead_of_working() {
     s.feed(&reasoning("**Checking tests**"));
     s.assert_contains("• Waiting for background terminal");
     s.assert_absent("Checking tests");
-    // the next thing the turn does ends the wait, and the model's words take the row
+    // With only a partial response, releasing the wait restores the reasoning header.
     s.feed(
-        r#"{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-1","delta":"Done waiting\n"}}}"#,
+        r#"{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-1","delta":"Done waiting"}}}"#,
     );
     s.assert_contains("Checking tests (");
+    s.assert_absent("Waiting for background terminal");
     s.assert_absent("Working");
+
+    s.feed(r#"{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-1","delta":"\n"}}}"#);
+    s.assert_contains("Done waiting");
+    s.assert_absent("Checking tests (");
+    s.assert_absent("esc to interrupt");
+    s.assert_contains("1 background terminal running");
 }
 
 #[test]
