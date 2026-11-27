@@ -191,15 +191,82 @@ fn opened_with_fork(
 }
 
 fn boundary_ticket(fx: &AppFx) -> Option<Ticket> {
+    boundary_ticket_for(fx, SIDE)
+}
+
+fn boundary_ticket_for(fx: &AppFx, child: &str) -> Option<Ticket> {
     fx.commands().iter().find_map(|c| match c {
         Command::Feature {
             ticket,
             thread,
             command: FeatureCommand::Side(_),
             ..
-        } if thread.as_str() == SIDE => Some(*ticket),
+        } if thread.as_str() == child => Some(*ticket),
         _ => None,
     })
+}
+
+#[test]
+fn closing_the_current_workspace_tab_returns_to_the_most_recent_sibling() {
+    let mut app = ready();
+    enable_workspace(&mut app, None);
+    let parent = ThreadId::new(MAIN);
+    let oldest = ThreadId::new("oldest-side");
+    let middle = ThreadId::new("middle-side");
+    let newest = ThreadId::new("newest-side");
+    for child in [&oldest, &middle, &newest] {
+        run(&mut app, AppEv::Intent(Intent::OpenThread(parent.clone())));
+        let request = slash(&mut app, SlashCommand::Side, "");
+        let fork = thread_ask(&request, |ask| matches!(ask, ThreadAsk::ForkAt { .. }));
+        let preparing = reply_fork(&mut app, fork, forked_thread(child.as_str()));
+        let boundary = boundary_ticket_for(&preparing, child.as_str()).unwrap();
+        run(
+            &mut app,
+            AppEv::Reply(boundary, Reply::feature(FeatureReply::Side(SideReply))),
+        );
+        assert_eq!(app.session().active.as_ref(), Some(child));
+    }
+    for child in [&oldest, &newest] {
+        feature(
+            &mut app,
+            SideIntent::Select {
+                parent: parent.clone(),
+                child: child.clone(),
+            },
+        );
+    }
+    let stale = feature(
+        &mut app,
+        SideIntent::CloseTab {
+            parent: ThreadId::new("other-parent"),
+            child: newest.clone(),
+        },
+    );
+    assert!(stale.commands().is_empty());
+    assert_eq!(app.session().active.as_ref(), Some(&newest));
+
+    let closed = feature(
+        &mut app,
+        SideIntent::CloseTab {
+            parent: parent.clone(),
+            child: newest.clone(),
+        },
+    );
+    thread_ask(
+        &closed,
+        |ask| matches!(ask, ThreadAsk::Unsubscribe { thread } if thread == newest.as_str()),
+    );
+    assert_eq!(app.session().active.as_ref(), Some(&oldest));
+    assert!(app.thread(&newest).is_none());
+    assert!(app.thread(&middle).is_some());
+    assert_eq!(
+        app.features().side.children_of(&parent),
+        &[oldest.clone(), middle.clone()]
+    );
+
+    feature(&mut app, SideIntent::Return { child: oldest });
+    assert_eq!(app.session().active.as_ref(), Some(&parent));
+    assert_eq!(app.features().side.children_of(&parent), &[middle]);
 }
 
 fn notes(app: &CodexApp, thread: &str) -> Vec<SideNote> {

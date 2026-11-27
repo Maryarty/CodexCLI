@@ -105,7 +105,7 @@ pub struct Link {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Children {
     ordered: Vec<ThreadId>,
-    recent_child: ThreadId,
+    visits: Vec<ThreadId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -179,9 +179,17 @@ impl State {
 
     /// The last shown child of this parent, or the first available one.
     pub fn side_of(&self, parent: &ThreadId) -> Option<&ThreadId> {
+        let children = self.children.get(parent)?;
+        children.visits.last().or_else(|| children.ordered.first())
+    }
+
+    fn previous_child(&self, parent: &ThreadId, child: &ThreadId) -> Option<&ThreadId> {
         self.children
-            .get(parent)
-            .map(|children| &children.recent_child)
+            .get(parent)?
+            .visits
+            .iter()
+            .rev()
+            .find(|id| *id != child)
     }
 
     fn remember(&mut self, child: ThreadId, link: Link) {
@@ -192,7 +200,7 @@ impl State {
             .entry(link.parent.clone())
             .or_insert_with(|| Children {
                 ordered: Vec::new(),
-                recent_child: child.clone(),
+                visits: Vec::new(),
             })
             .ordered
             .push(child.clone());
@@ -212,7 +220,8 @@ impl State {
         if let Some(link) = self.links.get(child)
             && let Some(children) = self.children.get_mut(&link.parent)
         {
-            children.recent_child = child.clone();
+            children.visits.retain(|id| id != child);
+            children.visits.push(child.clone());
         }
     }
 
@@ -224,12 +233,9 @@ impl State {
             return;
         };
         children.ordered.retain(|id| id != child);
-        match children.ordered.last() {
-            None => {
-                self.children.remove(&link.parent);
-            }
-            Some(last) if children.recent_child == *child => children.recent_child = last.clone(),
-            Some(_) => {}
+        children.visits.retain(|id| id != child);
+        if children.ordered.is_empty() {
+            self.children.remove(&link.parent);
         }
     }
 
@@ -280,6 +286,8 @@ pub enum Intent {
     },
     /// Open a specific child of the shown conversation family.
     Select { parent: ThreadId, child: ThreadId },
+    /// Close a workspace tab, moving from an active child to its most recently used sibling.
+    CloseTab { parent: ThreadId, child: ThreadId },
     /// Return from `child` to its parent and drop it: the parent is shown, then the side
     /// conversation's turn is interrupted, the server stops holding it and the app forgets it
     /// (`select_agent_thread_and_discard_side`, `discard_side_thread`). A verb the view says for
@@ -397,6 +405,36 @@ fn drop_side(state: &mut State, child: &ThreadId, cx: &mut AppCx<'_>) {
     state.parked.remove(child);
     cx.discard(child);
     cx.chat_facts(chat_facts(state, cx.view()));
+}
+
+fn close_side(
+    state: &mut State,
+    parent: &ThreadId,
+    child: ThreadId,
+    workspace: bool,
+    cx: &mut AppCx<'_>,
+) {
+    if !state
+        .link(&child)
+        .is_some_and(|link| &link.parent == parent)
+    {
+        return;
+    }
+    let shown = cx.view().active();
+    if shown == Some(&child) {
+        let next = if workspace {
+            state.previous_child(parent, &child).unwrap_or(parent)
+        } else {
+            parent
+        };
+        cx.open_thread(next, Ctx::Return { child });
+    } else if shown == Some(parent)
+        || shown
+            .and_then(|thread| state.link(thread))
+            .is_some_and(|link| &link.parent == parent)
+    {
+        drop_side(state, &child, cx);
+    }
 }
 
 /// `/side` and `/btw` (`handle_start_side`), typed in `source`.
@@ -556,21 +594,12 @@ feature! {
                             cx.open_thread(&child, Ctx::Reuse { parent, prompt: None });
                         }
                     }
+                    Intent::CloseTab { parent, child } => close_side(state, &parent, child, true, cx),
                     Intent::Return { child } => {
                         let Some(link) = state.links.get(&child) else {
                             return;
                         };
-                        let shown = cx.view().active();
-                        if shown == Some(&child) {
-                            // The parent first; the side conversation goes once it is shown.
-                            let parent = link.parent.clone();
-                            cx.open_thread(&parent, Ctx::Return { child });
-                        } else if shown == Some(&link.parent)
-                            || shown.and_then(|thread| state.link(thread))
-                                .is_some_and(|shown| shown.parent == link.parent)
-                        {
-                            drop_side(state, &child, cx);
-                        }
+                        close_side(state, &link.parent.clone(), child, false, cx);
                     }
                 }
             }
