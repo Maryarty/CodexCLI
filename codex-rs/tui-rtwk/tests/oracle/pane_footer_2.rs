@@ -571,6 +571,7 @@ fn apply_text_suggestion_updates_matching_prompt_beneath_an_overlay() {
     s.assert_contains("Would you like to run the following command?");
     s.keys("esc");
     s.assert_contains("Fix login timeout");
+    s.assert_contains("Suggested from this conversation");
     s.assert_absent("Generating a title suggestion");
     s.keys("enter");
     s.assert_set_names(&["Fix login timeout"]);

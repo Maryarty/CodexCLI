@@ -1,7 +1,7 @@
 //! Session-owned menus for a live safety check and a stopped conversation.
 
 use std::borrow::Cow;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use rtwk::binding::AppBinding;
@@ -156,6 +156,7 @@ pub(super) fn slot(
 ) -> AnyWidget {
     // The first thread inherits the provisional composer's controllers.
     let key = Key::object(&w.ui);
+    let dismissed_refusal = w.ui.held(DismissedRefusal::default);
     let w = w.clone();
     let on_stop = cx.callback(move |state, ()| {
         w.ui.draft.discard(&w.ui.composer);
@@ -166,6 +167,7 @@ pub(super) fn slot(
         child,
         on_stop,
         composer_focus: state.node.clone(),
+        dismissed_refusal,
     })
     .with_key(key)
 }
@@ -175,12 +177,22 @@ struct Slot {
     child: AnyWidget,
     on_stop: Handler<()>,
     composer_focus: FocusNode,
+    dismissed_refusal: DismissedRefusal,
+}
+
+/// A dismissal travels with the thread's UI when the chat page is remounted.
+#[derive(Clone, Default)]
+struct DismissedRefusal(Rc<RefCell<Option<TurnId>>>);
+
+impl PartialEq for DismissedRefusal {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
 }
 
 #[derive(Default)]
 struct SlotState {
     dismissed: Option<Check>,
-    dismissed_refusal: Option<TurnId>,
     confirming: Option<RetryOffer>,
     viewed: Option<ReviewId>,
     stopped: Cell<bool>,
@@ -255,7 +267,13 @@ fn can_offer_in_chat(states: &ScreenStates, thread: &ThreadId) -> bool {
 }
 
 impl SlotState {
-    fn surface(&self, facts: Facts, can_offer: bool, can_give_feedback: bool) -> Option<Surface> {
+    fn surface(
+        &self,
+        w: &Slot,
+        facts: Facts,
+        can_offer: bool,
+        can_give_feedback: bool,
+    ) -> Option<Surface> {
         if let Some(review) = facts.precaution {
             return Some(match review {
                 Some(review) if self.viewed.as_ref() == Some(&review) => Surface::Findings {
@@ -269,8 +287,9 @@ impl SlotState {
             return Some(Surface::Retrying);
         }
         if can_offer {
+            let dismissed_refusal = w.dismissed_refusal.0.borrow();
             if let Some(offer) = facts.recourse
-                && self.dismissed_refusal.as_ref() != Some(&offer.turn)
+                && dismissed_refusal.as_ref() != Some(&offer.turn)
             {
                 let can_enable = facts.daybreak.as_ref() == Some(&offer.turn);
                 if can_enable || can_give_feedback || !offer.suggestions.is_empty() {
@@ -282,7 +301,7 @@ impl SlotState {
                 }
             }
             if let Some(turn) = facts.daybreak
-                && self.dismissed_refusal.as_ref() != Some(&turn)
+                && dismissed_refusal.as_ref() != Some(&turn)
             {
                 return Some(Surface::EnableDaybreak(turn));
             }
@@ -318,7 +337,7 @@ impl State for SlotState {
             surface,
             action,
         }: Self::Msg,
-        _: &Slot,
+        w: &Slot,
         cx: &mut Cx<'_, Self>,
     ) -> Rebuild {
         let thread = read::<ThreadModel, _>(cx);
@@ -330,6 +349,7 @@ impl State for SlotState {
             || session.active.as_ref() != Some(&owner)
             || self
                 .surface(
+                    w,
                     Facts::of(&thread),
                     can_offer_in_chat(&states, &owner),
                     can_give_feedback,
@@ -348,7 +368,9 @@ impl State for SlotState {
                     ..
                 },
                 Action::CloseRefusal,
-            ) => self.dismissed_refusal = Some(turn),
+            ) => {
+                w.dismissed_refusal.0.replace(Some(turn));
+            }
             (
                 Surface::EnableDaybreak(turn)
                 | Surface::Recourse {
@@ -358,7 +380,7 @@ impl State for SlotState {
                 },
                 Action::EnableDaybreak,
             ) => {
-                self.dismissed_refusal = Some(turn.clone());
+                w.dismissed_refusal.0.replace(Some(turn.clone()));
                 crate::features::enable_daybreak_for_refusal(cx, owner, turn);
             }
             (Surface::Recourse { offer, .. }, Action::GiveFeedback) => {
@@ -446,7 +468,7 @@ impl State for SlotState {
                 });
         let can_give_feedback = current.recourse.is_some()
             && select::<FeatureStates, _, _>(cx, |features| features.feedback.can_upload());
-        let surface = self.surface(current, can_offer, can_give_feedback);
+        let surface = self.surface(w, current, can_offer, can_give_feedback);
         // Edit controllers and focus only after the old editor has left the tree.
         let first_stop = !self.stopped.replace(stopped) && stopped;
         if first_stop && let Some(binding) = AppBinding::maybe_of(cx) {

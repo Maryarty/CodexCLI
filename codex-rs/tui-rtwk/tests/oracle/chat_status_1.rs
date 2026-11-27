@@ -742,6 +742,35 @@ fn a_different_thread_cannot_use_the_refusals_actions() {
     s.assert_no_turn();
 }
 
+#[test]
+fn dismissing_a_refusal_survives_switching_threads_and_allows_the_next_refusal() {
+    let mut s = daybreak_refusal_screen();
+    start_daybreak_turn(&mut s, "blocked");
+    offer_daybreak_alternatives(&mut s, "blocked");
+    fail_daybreak_turn(&mut s, "blocked");
+    s.assert_contains("4. Enable Daybreak");
+    s.keys("esc");
+    s.assert_absent("1. Overview");
+
+    s.server_resumes("thread-2").visit_thread("thread-2");
+    s.assert_active_thread("thread-2");
+    s.server_resumes("thread-1").visit_thread("thread-1");
+    s.assert_active_thread("thread-1");
+    s.assert_contains("This content can’t be shown");
+    s.assert_absent("1. Overview");
+    s.type_text("draft after return");
+    s.assert_composer("draft after return");
+    s.assert_requests_of("thread/metadata/update", 0);
+    s.assert_no_turn();
+
+    start_daybreak_turn(&mut s, "blocked-again");
+    offer_daybreak_alternatives(&mut s, "blocked-again");
+    fail_daybreak_turn(&mut s, "blocked-again");
+    s.assert_contains("1. Overview");
+    s.keys("esc");
+    s.assert_composer("draft after return");
+}
+
 // ORACLE chatwidget/tests/status_and_layout.rs:370 app_server_model_verification_renders_warning kind=ui owner=ui-pane
 #[test]
 fn app_server_model_verification_renders_warning() {
