@@ -17,18 +17,21 @@
 //! available in TUI yet.`, `Stub::MemoryMaintenance`) and stay so.
 
 mod data;
+mod ide;
 mod rpcs;
 mod seed;
 
 use codex_app_server_protocol::{ClientRequest, RequestId};
 
-use super::{AppCx, Feature, Never, Slash, ThreadCx, ThreadView};
+use super::{AppCx, Connection, Feature, Never, Slash, ThreadCx, ThreadView};
+use crate::app::effects::Done;
 use crate::commands::SlashCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::threads::Tone;
 
 pub use data::{DaybreakFailure, DefaultFailure, IdeFailure, IdeReading, Row, Style};
+pub use ide::Ide;
 pub use rpcs::{Command, Reply};
 
 /// The marker type of the feature.
@@ -56,7 +59,10 @@ pub enum Intent {
     /// `/daybreak`, typed in the thread `source`.
     Daybreak { source: Option<ThreadId> },
     /// `/ide`, `/ide on`, `/ide off`, `/ide status`: `args` as typed after the command.
-    Ide { args: Option<String> },
+    Ide {
+        args: Option<String>,
+        source: Option<ThreadId>,
+    },
     /// `/debug-config`.
     DebugConfig,
 }
@@ -82,21 +88,10 @@ impl ThreadPart {
     }
 }
 
-/// What `/ide` keeps: whether the IDE's context goes with the messages.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Ide {
-    pub enabled: bool,
-    /// A message went out without the IDE's context and the line saying so was shown: it is
-    /// not said again until the context is read again (`prompt_fetch_warned`).
-    pub warned: bool,
-}
-
 /// The app-scoped state of the feature.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct State {
     pub ide: Ide,
-    /// What the host last said of the IDE's connection (`Fact::Ide`): none until it said.
-    ide_fact: Option<Result<IdeReading, IdeFailure>>,
     /// The rows of `/debug-config` as the host last built them (`Fact::DebugConfig`).
     debug_config: Vec<Row>,
 }
@@ -114,13 +109,15 @@ pub enum Ctx {
     DaybreakDefault {
         enabled: bool,
     },
+    IdeProbe {
+        thread: ThreadId,
+        generation: u64,
+    },
 }
 
 /// What the host tells the feature of what only it can read.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Fact {
-    /// Whether an IDE answers (oracle `fetch_ide_context`): its context, or why it cannot be read.
-    Ide(Result<IdeReading, IdeFailure>),
     /// The rows of `/debug-config` for the config in force.
     DebugConfig(Vec<Row>),
     /// `/ide` is on and an IDE answers: the state a script starts a thread in, the indicator
@@ -129,16 +126,6 @@ pub enum Fact {
 }
 
 impl Fact {
-    /// No IDE answers: the two hints of the oracle's `IdeContextError`.
-    pub fn ide_unavailable(hint: String, skip_hint: String) -> Fact {
-        Fact::Ide(Err(IdeFailure { hint, skip_hint }))
-    }
-
-    /// An IDE answers, with or without context to send.
-    pub fn ide_context(has_context: bool) -> Fact {
-        Fact::Ide(Ok(IdeReading { has_context }))
-    }
-
     /// The rows of `/debug-config`, each with the style name (`plain`, `bold`, `dim`,
     /// `magenta`) of its line.
     pub fn debug_config<'a>(rows: impl IntoIterator<Item = (String, &'a str)>) -> Fact {
@@ -193,64 +180,12 @@ pub enum Note {
     IdeOn { has_context: bool },
     /// `IDE context could not be enabled.` with the failure's hint (info).
     IdeCouldNotEnable { hint: String },
+    /// The command has no conversation on a local filesystem.
+    IdeNoLocalWorkspace,
     /// `Usage: /ide [on|off|status]` (error).
     IdeUsage,
     /// The config as the host holds it, one row a line.
     DebugConfig(Vec<Row>),
-}
-
-fn ide_status(state: &mut State, cx: &mut AppCx<'_>) {
-    if !state.ide.enabled {
-        return cx.note(None, Note::IdeOff);
-    }
-    match state.ide_fact.clone() {
-        Some(Ok(reading)) => {
-            state.ide.warned = false;
-            cx.note(
-                None,
-                Note::IdeOn {
-                    has_context: reading.has_context,
-                },
-            );
-        }
-        failure => {
-            state.ide = Ide::default();
-            let hint = failure
-                .and_then(Result::err)
-                .map(|f| f.hint)
-                .unwrap_or_default();
-            cx.note(None, Note::IdeCouldNotEnable { hint });
-        }
-    }
-}
-
-fn ide_off(state: &mut State, cx: &mut AppCx<'_>) {
-    state.ide = Ide::default();
-    cx.note(None, Note::IdeOff);
-}
-
-fn ide_on(state: &mut State, cx: &mut AppCx<'_>) {
-    state.ide = Ide {
-        enabled: true,
-        warned: false,
-    };
-    ide_status(state, cx);
-}
-
-/// `handle_ide_command_args`.
-fn ide(state: &mut State, args: Option<String>, cx: &mut AppCx<'_>) {
-    match args
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "" if state.ide.enabled => ide_off(state, cx),
-        "" | "on" => ide_on(state, cx),
-        "off" => ide_off(state, cx),
-        "status" => ide_status(state, cx),
-        _ => cx.note(None, Note::IdeUsage),
-    }
 }
 
 /// `SlashCommand::Daybreak`: the checks of the chat widget, then the choice saved for the
@@ -347,7 +282,8 @@ impl Feature for SmallCmds {
         let intent = match slash.command {
             SlashCommand::Logout => Intent::Logout,
             SlashCommand::Ide => Intent::Ide {
-                args: slash.into_args(),
+                args: (!slash.args.is_empty()).then_some(slash.args),
+                source: slash.source,
             },
             SlashCommand::Daybreak => Intent::Daybreak {
                 source: slash.source,
@@ -362,7 +298,7 @@ impl Feature for SmallCmds {
         match intent {
             Intent::Logout => cx.ask(None, Command::Logout, Ctx::Logout),
             Intent::Daybreak { source } => daybreak(source, cx),
-            Intent::Ide { args } => ide(state, args, cx),
+            Intent::Ide { args, source } => state.ide.command(args, source, cx),
             Intent::DebugConfig => {
                 let rows = state.debug_config.clone();
                 cx.note(None, Note::DebugConfig(rows));
@@ -372,15 +308,22 @@ impl Feature for SmallCmds {
 
     fn on_fact(state: &mut State, fact: Fact, _cx: &mut AppCx<'_>) {
         match fact {
-            Fact::Ide(reading) => state.ide_fact = Some(reading),
             Fact::DebugConfig(rows) => state.debug_config = rows,
-            Fact::IdeOn(reading) => {
-                state.ide = Ide {
-                    enabled: true,
-                    warned: false,
-                };
-                state.ide_fact = Some(Ok(reading));
+            Fact::IdeOn(_) => {
+                state.ide.enabled = true;
             }
+        }
+    }
+
+    fn on_connection(state: &mut State, connection: Connection, _cx: &mut AppCx<'_>) {
+        if connection == Connection::ShuttingDown {
+            state.ide.retire();
+        }
+    }
+
+    fn effect_done(state: &mut State, ctx: Ctx, done: Done, cx: &mut AppCx<'_>) {
+        if let (Ctx::IdeProbe { thread, generation }, Done::IdeContext(reading)) = (ctx, done) {
+            state.ide.probed(thread, generation, reading, cx);
         }
     }
 
@@ -409,6 +352,7 @@ impl Feature for SmallCmds {
                 }
                 cx.note(None, Note::DaybreakSet(enabled));
             }
+            (Ctx::IdeProbe { .. }, _) => {}
         }
     }
 
@@ -424,6 +368,7 @@ impl Feature for SmallCmds {
             | Note::IdeOff
             | Note::IdeOn { .. }
             | Note::IdeCouldNotEnable { .. }
+            | Note::IdeNoLocalWorkspace
             | Note::DebugConfig(_) => Tone::Info,
             Note::LogoutFailed(_)
             | Note::DaybreakNeedsProvider

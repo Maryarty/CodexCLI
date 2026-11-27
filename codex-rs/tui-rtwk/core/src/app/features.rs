@@ -178,13 +178,15 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
             });
         }
         Out::Effect { ask, ctx } => {
-            let address = match &ask {
-                effects::Ask::ImageSnapshot { thread, .. } => {
-                    Some(app.address(app.screens.agents.owner_of(thread.as_str())))
-                }
-                _ => None,
-            };
-            let request = app.effects.ask_for_feature(ctx, address);
+            let workspace = ask
+                .workspace_receipt()
+                .zip(ask.thread())
+                .map(|(receipt, thread)| effects::WorkspaceEffect {
+                    thread: thread.clone(),
+                    address: app.address(app.screens.agents.owner_of(thread.as_str())),
+                    receipt,
+                });
+            let request = app.effects.ask_for_feature(ctx, workspace);
             fx.commands.push(effects::command(request, ask));
         }
         Out::Note { thread, note } => {
@@ -409,10 +411,18 @@ pub(super) fn reconnected(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx
     }
 }
 
-/// Artifact replies depend on the connection's locality. Forget the old handle's requests
-/// and snapshots, retaining the mounted surfaces' interests for the next handle.
-pub(super) fn retire_images(app: &mut CodexApp, backend: BackendId) {
-    app.effects.retire_images(backend);
+/// The displayed conversation's consent and presence do not carry to a new visit.
+pub(super) fn retire_ide(app: &mut CodexApp) {
+    Rc::make_mut(&mut app.features).small_cmds.ide.retire();
+}
+
+/// Workspace replies depend on the connection's locality. Forget the old handle's requests
+/// and snapshots, retaining the mounted images' interests for the next handle.
+pub(super) fn retire_workspace_effects(app: &mut CodexApp, backend: BackendId) {
+    app.effects.retire_workspace_effects(backend);
+    if backend == BackendId::default() {
+        retire_ide(app);
+    }
     let agents = &app.screens.agents;
     features::retire_image_snapshots(&mut app.features, |thread| {
         agents.owner_of(thread.as_str()) == backend

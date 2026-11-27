@@ -49,9 +49,12 @@ rtwk-tokio = { workspace = true }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 dunce = "1.0.4"
 futures = { version = "0.3", default-features = false }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3.23.0"
+thiserror = "2"
 url = "2"
+uuid = { version = "1", features = ["v4"] }
 webbrowser = "1.2.2"
 which = "8"
 tracing = "0.1"
@@ -60,13 +63,23 @@ tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync",
 [target.'cfg(windows)'.dependencies]
 # `device_login::has_http_handler`: whether a program is registered for `http`;
 # `analytics::clock`: the short time pattern of the user's locale.
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Globalization", "Win32_UI_Shell"] }
+# `small::windows_pipe`: authenticated, deadline-bounded IDE context.
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+] }
 
 # `analytics::clock`: the clock preference of the user's locale (the oracle's own features).
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSDateFormatter", "NSFormatter", "NSLocale", "NSString"] }
 
-[target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
+[target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [dev-dependencies]

@@ -21,6 +21,7 @@ mod capability;
 
 use super::Command;
 use crate::features::FeatureCtx;
+use crate::features::small_cmds::{IdeFailure, IdeReading};
 use crate::ids::{RequestKey, ThreadId, Ticket};
 use crate::rpc::Address;
 use crate::screens::approvals::verify::{AttemptId, Cause, Verifications};
@@ -219,6 +220,10 @@ host_capability_list! {
     /// bounded preview. Paths from remote workspaces cannot be resolved on the client.
     image_snapshot => ImageSnapshot { thread: ThreadId, path: String, preview: Option<ImageSize> }
         by thread -> new ImageSnapshot(ImageSnapshot);
+    /// Probe the extension for a local workspace. Only its availability and whether it has
+    /// context cross this reply; the extension's selection stays in the host.
+    ide_context => IdeContext { thread: ThreadId, cwd: String }
+        by thread -> new IdeContext(Result<IdeReading, IdeFailure>);
     /// Opens `thread` in the Desktop app (`codex://threads/{id}`, `/app`). Answered by nothing,
     /// or the launch's own failure text.
     open_desktop => OpenDesktop { thread: ThreadId } -> new Opened(Result<(), String>);
@@ -330,6 +335,14 @@ pub struct TerminalColors {
 }
 
 impl Ask {
+    pub(super) fn workspace_receipt(&self) -> Option<WorkspaceReceipt> {
+        match self {
+            Self::ImageSnapshot { .. } => Some(WorkspaceReceipt::ImageSnapshot),
+            Self::IdeContext { .. } => Some(WorkspaceReceipt::IdeContext),
+            _ => None,
+        }
+    }
+
     pub fn open_url(url: String) -> Self {
         Self::OpenUrl {
             url,
@@ -366,6 +379,14 @@ pub enum EditorFailure {
 }
 
 impl Done {
+    fn workspace_receipt(&self) -> Option<WorkspaceReceipt> {
+        match self {
+            Self::ImageSnapshot(_) => Some(WorkspaceReceipt::ImageSnapshot),
+            Self::IdeContext(_) => Some(WorkspaceReceipt::IdeContext),
+            _ => None,
+        }
+    }
+
     /// No answer follows this one: a copy reports `Pending` first and how it ended after, every
     /// other ask answers once.
     pub fn is_final(&self) -> bool {
@@ -391,7 +412,20 @@ pub struct Effects {
 struct FeatureRequest {
     ctx: FeatureCtx,
     /// Some host capabilities depend on the physical connection's locality.
-    image_address: Option<Address>,
+    workspace: Option<WorkspaceEffect>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum WorkspaceReceipt {
+    ImageSnapshot,
+    IdeContext,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct WorkspaceEffect {
+    pub thread: ThreadId,
+    pub address: Address,
+    pub receipt: WorkspaceReceipt,
 }
 
 impl Effects {
@@ -429,23 +463,48 @@ impl Effects {
     pub(super) fn ask_for_feature(
         &mut self,
         ctx: FeatureCtx,
-        image_address: Option<Address>,
+        workspace: Option<WorkspaceEffect>,
     ) -> u64 {
         self.feature_asks += 1;
         let request = FEATURE_REQUEST_BIT | self.feature_asks;
         self.features
-            .insert(request, FeatureRequest { ctx, image_address });
+            .insert(request, FeatureRequest { ctx, workspace });
         request
     }
 
-    pub(super) fn image_address(&self, request: u64) -> Option<Address> {
-        self.features.get(&request)?.image_address
+    pub(super) fn workspace_address(&self, request: u64) -> Option<Address> {
+        self.workspace_effect(request).map(|effect| effect.address)
     }
 
-    pub(super) fn retire_images(&mut self, backend: crate::ids::BackendId) {
+    pub(super) fn workspace_dispatch(&self, request: u64, ask: &Ask) -> Option<Address> {
+        let effect = self.workspace_effect(request)?;
+        (ask.thread() == Some(&effect.thread) && ask.workspace_receipt() == Some(effect.receipt))
+            .then_some(effect.address)
+    }
+
+    pub(super) fn accepts_workspace_receipt(
+        &self,
+        request: u64,
+        origin: Address,
+        done: &Done,
+    ) -> bool {
+        match self.workspace_effect(request) {
+            Some(effect) => {
+                origin == effect.address && done.workspace_receipt() == Some(effect.receipt)
+            }
+            None => done.workspace_receipt().is_none(),
+        }
+    }
+
+    fn workspace_effect(&self, request: u64) -> Option<&WorkspaceEffect> {
+        self.features.get(&request)?.workspace.as_ref()
+    }
+
+    pub(super) fn retire_workspace_effects(&mut self, backend: crate::ids::BackendId) {
         self.features.retain(|_, ask| {
-            ask.image_address
-                .is_none_or(|address| address.backend != backend)
+            ask.workspace
+                .as_ref()
+                .is_none_or(|effect| effect.address.backend != backend)
         });
     }
 

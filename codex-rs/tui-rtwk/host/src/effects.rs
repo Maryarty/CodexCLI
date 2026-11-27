@@ -26,7 +26,7 @@ use codex_tui_core::app::effects::HostDoors;
 use codex_tui_core::app::effects::run_ask;
 use codex_tui_core::app::facts::Rendering;
 use codex_tui_core::app::facts::TuiSettings;
-use codex_tui_core::ids::ConnEpoch;
+use codex_tui_core::ids::{ConnEpoch, ThreadId};
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::popovers;
 use codex_tui_core::screens::select::quick_dials::{Dial, Origin, SLOTS, Slot};
@@ -288,6 +288,7 @@ pub(crate) struct Link {
     pub ingress: IngressTx,
     pub epoch: ConnEpoch,
     pub codex_home: PathBuf,
+    pub workspace_local: bool,
 }
 
 /// The executors that are this host's own: the git lists, the background server, the editor, the
@@ -301,6 +302,22 @@ struct Own<'a> {
 
 impl HostDoors for Own<'_> {
     type Out = Outcome;
+
+    async fn ide_context(&self, _thread: ThreadId, cwd: String) -> Option<Self::Out> {
+        let read = match self.link {
+            Some(link)
+                if link.workspace_local
+                    && link.startup.target != crate::startup::Target::Remote =>
+            {
+                crate::small::read_ide_context(PathBuf::from(cwd), link.codex_home.clone()).await
+            }
+            _ => Err(crate::small::ide_unavailable()),
+        };
+        let read = read.map(|context| codex_tui_core::features::small_cmds::IdeReading {
+            has_context: context.is_some(),
+        });
+        Some(Outcome::Effect(Done::IdeContext(read), None))
+    }
 
     async fn git_branches(&self, cwd: Option<String>) -> Option<Self::Out> {
         let cwd = at(cwd);
@@ -654,6 +671,23 @@ mod tests {
             Some(AppEv::Effect { request: 1, done }) => done,
             other => panic!("not an effect answer: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn ide_context_receipt_fails_when_no_local_workspace_is_lent() {
+        let rig = rig(false, false);
+        let ask = Ask::IdeContext {
+            thread: ThreadId::new("thread-1"),
+            cwd: "/work".to_owned(),
+        };
+        let reply = done(answer(&rig, effect(ask)).await);
+        assert_eq!(
+            reply,
+            Done::IdeContext(Err(crate::small::ide_unavailable()))
+        );
+        assert!(rig.written.lock().unwrap().is_empty());
+        assert!(rig.terminal.lock().unwrap().is_empty());
+        assert!(rig.opened.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
