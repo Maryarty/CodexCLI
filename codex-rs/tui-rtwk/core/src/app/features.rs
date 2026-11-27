@@ -377,6 +377,18 @@ pub(super) fn finish_queue_modal(
                     super::select::finish_owned_apps(app, choice, fx);
                 }
             }
+            ModalReceipt::Preset(token, choice) => {
+                if let Some(write) = choice.take() {
+                    queue_event(
+                        app,
+                        thread,
+                        QueueEvent::applying_modal(operation.clone()),
+                        fx,
+                    );
+                    super::select::presets::apply(app, token.clone(), write, fx);
+                    return Ok(());
+                }
+            }
             ModalReceipt::Copy(..) | ModalReceipt::StatusLine(..) => {
                 run(app, fx, |states, cx| {
                     features::apply_modal_choice(states, thread, &mut receipt, cx);

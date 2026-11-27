@@ -241,10 +241,9 @@ pub(crate) fn modal_is_visible(
     operation: &ModalOperation,
     address: Address,
 ) -> bool {
-    model.id() == operation.thread()
-        && matches!(model.queue_modals.get(&operation.operation().seq),
-            Some(ModalPhase::Opening(issued, kind) | ModalPhase::Open(issued, kind))
-                if *issued == address && *kind == operation.kind())
+    matches!(dialog_phase(model, operation),
+        Some(ModalPhase::Opening(issued, kind) | ModalPhase::Open(issued, kind))
+            if *issued == address && *kind == operation.kind())
 }
 
 pub(crate) fn modal_is_open(
@@ -252,9 +251,16 @@ pub(crate) fn modal_is_open(
     operation: &ModalOperation,
     address: Address,
 ) -> bool {
-    model.id() == operation.thread()
-        && model.queue_modals.get(&operation.operation().seq)
-            == Some(&ModalPhase::Open(address, operation.kind()))
+    dialog_phase(model, operation) == Some(&ModalPhase::Open(address, operation.kind()))
+}
+
+fn dialog_phase<'a>(model: &'a ThreadModel, operation: &ModalOperation) -> Option<&'a ModalPhase> {
+    if model.id() != operation.thread()
+        || (operation.kind() == ModalKind::Preset && (!model.has_writer() || model.stream_lost()))
+    {
+        return None;
+    }
+    model.queue_modals.get(&operation.operation().seq)
 }
 
 pub(crate) fn modal_is_applying(
