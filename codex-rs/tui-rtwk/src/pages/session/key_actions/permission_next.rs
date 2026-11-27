@@ -23,6 +23,9 @@ pub(super) fn cycle(cx: &mut Cx<'_, ChatState>, keyed: &Keyed<'_>, forward: bool
     let thread = rtwk::provider::read::<ThreadModel, _>(cx).id().clone();
     cx.emit(
         &keyed.hs.thread_screen,
-        (thread, ScreenThreadIntent::CyclePermissions { forward }),
+        (
+            thread,
+            ScreenThreadIntent::ApplyAdjacentPermissions { forward },
+        ),
     );
 }

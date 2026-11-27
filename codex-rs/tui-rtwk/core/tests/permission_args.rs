@@ -872,7 +872,7 @@ fn permission_catalog_survives_foreign_loss_and_retires_with_its_physical_owner(
             app,
             AppEv::Intent(Intent::ThreadScreen {
                 thread: ThreadId::new(T),
-                intent: ScreenThreadIntent::CyclePermissions { forward: true },
+                intent: ScreenThreadIntent::ApplyAdjacentPermissions { forward: true },
             }),
         )
     };

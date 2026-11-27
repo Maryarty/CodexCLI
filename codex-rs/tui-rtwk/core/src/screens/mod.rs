@@ -19,7 +19,7 @@ pub enum ScreenThreadIntent {
     Chat(chat::ThreadIntent),
     Backtrack(backtrack::ThreadIntent),
     Voice(voice::ThreadIntent),
-    CyclePermissions { forward: bool },
+    ApplyAdjacentPermissions { forward: bool },
 }
 
 pub(crate) fn apply_thread_intent(
@@ -39,7 +39,7 @@ pub(crate) fn apply_thread_intent(
             voice::apply_intent_on_thread(&mut slots.voice, intent, fx)
         }
         // App-owned directory and write, accepted by app::apply_intent before thread dispatch.
-        ScreenThreadIntent::CyclePermissions { .. } => {}
+        ScreenThreadIntent::ApplyAdjacentPermissions { .. } => {}
     }
 }
 

@@ -3074,7 +3074,7 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
         }
         Intent::ThreadScreen {
             thread,
-            intent: ScreenThreadIntent::CyclePermissions { forward },
+            intent: ScreenThreadIntent::ApplyAdjacentPermissions { forward },
         } => {
             select::cycle_permissions(app, &thread, forward, fx);
         }
