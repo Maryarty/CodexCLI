@@ -7,7 +7,8 @@ mod windows_pipe;
 
 use std::path::PathBuf;
 
-use codex_tui_core::features::small_cmds::IdeFailure;
+use codex_tui_core::app::effects::IdeFailure;
+use codex_tui_rtwk::services::agents::workspace::blocking;
 use serde::Deserialize;
 
 const OPEN_IDE_HINT: &str =
@@ -20,13 +21,18 @@ pub(crate) fn ide_unavailable() -> IdeFailure {
     }
 }
 
+#[cfg(any(unix, windows))]
+fn monotonic_now() -> std::time::Instant {
+    codex_tui_rtwk::services::clock::deadline_in(std::time::Duration::ZERO).into_std()
+}
+
 /// One read of the local IDE's active file and tabs. The caller has already
 /// checked that the owning session uses a local workspace.
 pub(crate) async fn read_ide_context(
     workspace: PathBuf,
     codex_home: PathBuf,
 ) -> Result<Option<String>, IdeFailure> {
-    tokio::task::spawn_blocking(move || {
+    blocking(move || {
         if !workspace.is_absolute() || !workspace.is_dir() {
             return Err(ide_unavailable());
         }
@@ -38,11 +44,14 @@ pub(crate) async fn read_ide_context(
             })
     })
     .await
-    .map_err(|_| IdeFailure {
-        hint: "Codex could not read IDE context. Try /ide again.".to_owned(),
-        skip_hint: "Codex could not read IDE context. Codex will keep trying on future messages."
-            .to_owned(),
-    })?
+    .unwrap_or_else(|| {
+        Err(IdeFailure {
+            hint: "Codex could not read IDE context. Try /ide again.".to_owned(),
+            skip_hint:
+                "Codex could not read IDE context. Codex will keep trying on future messages."
+                    .to_owned(),
+        })
+    })
 }
 
 // The wire shape is carried from `tui/src/ide_context.rs`. Only the

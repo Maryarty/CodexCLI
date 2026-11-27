@@ -21,7 +21,6 @@ mod capability;
 
 use super::Command;
 use crate::features::FeatureCtx;
-use crate::features::small_cmds::{IdeFailure, IdeReading};
 use crate::ids::{RequestKey, ThreadId, Ticket};
 use crate::rpc::Address;
 use crate::screens::approvals::verify::{AttemptId, Cause, Verifications};
@@ -153,6 +152,19 @@ pub enum ImageRead {
     Snapshot(ImageSnapshot),
     /// The previous revision still identifies the file in this read.
     Unchanged,
+}
+
+/// Whether the local IDE's successful read included a selection or tabs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IdeReading {
+    pub has_context: bool,
+}
+
+/// The extension's failure hints for enabling IDE context or sending a message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IdeFailure {
+    pub hint: String,
+    pub skip_hint: String,
 }
 
 /// One edit of the user's config file (`config/batchWrite`: a dotted key path and its new value,

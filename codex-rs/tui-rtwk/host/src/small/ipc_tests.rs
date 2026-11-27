@@ -1,10 +1,12 @@
 use std::fs;
 use std::io;
 use std::io::Write;
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
 use std::os::unix::net::UnixStream;
-use std::thread;
+
+use codex_tui_rtwk::services::agents::workspace::blocking;
 
 use super::*;
 
@@ -20,13 +22,19 @@ fn fixture() -> io::Result<(tempfile::TempDir, PathBuf, UnixListener)> {
 }
 
 fn read_request(listener: UnixListener) -> (UnixStream, Value) {
+    wait_for_fd_ready(
+        listener.as_raw_fd(),
+        libc::POLLIN,
+        monotonic_now() + Duration::from_secs(1),
+    )
+    .unwrap_or_else(|error| panic!("IDE fixture receive deadline: {error}"));
     let (mut stream, _) = listener
         .accept()
         .unwrap_or_else(|error| panic!("IDE fixture accept: {error}"));
     stream
         .set_read_timeout(Some(Duration::from_secs(1)))
         .unwrap_or_else(|error| panic!("IDE fixture timeout: {error}"));
-    let request = read_frame(&mut stream, Instant::now() + Duration::from_secs(1))
+    let request = read_frame(&mut stream, monotonic_now() + Duration::from_secs(1))
         .unwrap_or_else(|error| panic!("read IDE IPC request: {error}"));
     (stream, request)
 }
@@ -61,7 +69,7 @@ async fn ide_context_reads_the_actual_authenticated_socket_and_correlates_replie
     let workspace = home.path().join("workspace");
     fs::create_dir(&workspace)?;
     let expected_workspace = workspace.clone();
-    let provider = thread::spawn(move || -> anyhow::Result<()> {
+    let provider = blocking(move || -> anyhow::Result<()> {
         let (mut stream, request) = read_request(listener);
         assert_eq!(request["method"], "ide-context");
         assert_eq!(request["version"], 0);
@@ -74,17 +82,17 @@ async fn ide_context_reads_the_actual_authenticated_socket_and_correlates_replie
         respond(&mut stream, &request["requestId"], "fn main")?;
         Ok(())
     });
-    let prompt = super::super::read_ide_context(workspace, home.path().to_owned())
-        .await
-        .unwrap_or_else(|failure| panic!("{}", failure.hint));
+    let (provider, prompt) = tokio::join!(
+        provider,
+        super::super::read_ide_context(workspace, home.path().to_owned())
+    );
+    provider.unwrap_or_else(|| panic!("IDE fixture panicked"))?;
+    let prompt = prompt.unwrap_or_else(|failure| panic!("{}", failure.hint));
     let prompt = prompt.unwrap_or_else(|| panic!("no prompt from the IDE fixture"));
     assert!(prompt.contains("## Active file: src/main.rs"));
     assert!(prompt.contains("## Active selection of the file:\nfn main"));
     assert!(prompt.contains("- Cargo.toml: Cargo.toml"));
     assert!(!prompt.contains("foreign answer"));
-    provider
-        .join()
-        .unwrap_or_else(|_| panic!("IDE fixture panicked"))?;
     Ok(())
 }
 
@@ -103,7 +111,7 @@ fn ide_context_rejects_an_unowned_peer_and_untrusted_socket_directory() -> anyho
         socket,
         Vec::new(),
         home.path(),
-        Instant::now() + Duration::from_secs(1),
+        monotonic_now() + Duration::from_secs(1),
     );
     assert!(
         matches!(error, Err(IdeContextError::Connect(error)) if error.kind() == io::ErrorKind::PermissionDenied)
@@ -113,51 +121,60 @@ fn ide_context_rejects_an_unowned_peer_and_untrusted_socket_directory() -> anyho
     Ok(())
 }
 
-#[test]
-fn ide_context_rejects_an_oversized_frame_before_reading_its_body() -> anyhow::Result<()> {
+#[tokio::test]
+async fn ide_context_rejects_an_oversized_frame_before_reading_its_body() -> anyhow::Result<()> {
     let (home, socket, listener) = fixture()?;
-    let provider = thread::spawn(move || -> io::Result<()> {
+    let provider = blocking(move || -> io::Result<()> {
         let (mut stream, _) = read_request(listener);
         let oversized = u32::try_from(MAX_IPC_FRAME_BYTES + 1)
             .unwrap_or_else(|error| panic!("frame size: {error}"));
         stream.write_all(&oversized.to_le_bytes())
     });
-    let result = fetch_ide_context_from_unix_socket_paths(
-        socket,
-        Vec::new(),
-        home.path(),
-        Instant::now() + Duration::from_secs(1),
-    );
-    assert!(matches!(result, Err(IdeContextError::ResponseTooLarge)));
-    provider
-        .join()
-        .unwrap_or_else(|_| panic!("IDE fixture panicked"))?;
+    let reader = blocking(move || {
+        fetch_ide_context_from_unix_socket_paths(
+            socket,
+            Vec::new(),
+            home.path(),
+            monotonic_now() + Duration::from_secs(1),
+        )
+    });
+    let (provider, result) = tokio::join!(provider, reader);
+    provider.unwrap_or_else(|| panic!("IDE fixture panicked"))?;
+    assert!(matches!(
+        result,
+        Some(Err(IdeContextError::ResponseTooLarge))
+    ));
     Ok(())
 }
 
-#[test]
-fn ide_context_deadline_includes_a_partial_frame() -> anyhow::Result<()> {
+#[tokio::test]
+async fn ide_context_deadline_includes_a_partial_frame() -> anyhow::Result<()> {
     let (home, socket, listener) = fixture()?;
     let (release, wait) = std::sync::mpsc::channel();
-    let provider = thread::spawn(move || -> io::Result<()> {
+    let provider = blocking(move || -> io::Result<()> {
         let (mut stream, _) = read_request(listener);
         stream.write_all(&[4, 0])?;
         let _ = wait.recv_timeout(Duration::from_secs(2));
         Ok(())
     });
-    let result = fetch_ide_context_from_unix_socket_paths(
-        socket,
-        Vec::new(),
-        home.path(),
-        Instant::now() + Duration::from_millis(250),
-    );
+    let reader = async move {
+        let result = blocking(move || {
+            fetch_ide_context_from_unix_socket_paths(
+                socket,
+                Vec::new(),
+                home.path(),
+                monotonic_now() + Duration::from_millis(250),
+            )
+        })
+        .await;
+        let _ = release.send(());
+        result
+    };
+    let (provider, result) = tokio::join!(provider, reader);
+    provider.unwrap_or_else(|| panic!("IDE fixture panicked"))?;
     assert!(
-        matches!(result, Err(IdeContextError::Read(error)) if error.kind() == io::ErrorKind::TimedOut)
+        matches!(result, Some(Err(IdeContextError::Read(error))) if error.kind() == io::ErrorKind::TimedOut)
     );
-    release.send(())?;
-    provider
-        .join()
-        .unwrap_or_else(|_| panic!("IDE fixture panicked"))?;
     Ok(())
 }
 
