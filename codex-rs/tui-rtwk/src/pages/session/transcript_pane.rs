@@ -222,7 +222,6 @@ pub(super) fn remember_browsing(cx: &mut Cx<'_, ChatState>, ui: &ThreadUi, go_la
         }
         return;
     };
-    let captured = reading.clone();
     let active = follow.clone();
     let moves = follow.moves();
     let modes = ui.modes.clone();
@@ -235,7 +234,7 @@ pub(super) fn remember_browsing(cx: &mut Cx<'_, ChatState>, ui: &ThreadUi, go_la
     });
     if !cx.request_viewport(
         move |viewport| {
-            let mut browsing = captured.0.browsing.borrow_mut();
+            let mut browsing = reading.0.browsing.borrow_mut();
             let Some((_, capture)) = browsing
                 .as_mut()
                 .filter(|(_, capture)| capture.visit == visit)
