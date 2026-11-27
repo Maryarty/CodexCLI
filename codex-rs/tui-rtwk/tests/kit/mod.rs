@@ -129,6 +129,11 @@ pub fn image_file(name: &str) -> std::path::PathBuf {
     path
 }
 
+/// The local artifact disappeared between image snapshot requests.
+pub fn remove_artifact_file(path: &std::path::Path) {
+    std::fs::remove_file(path).expect("remove the local artifact");
+}
+
 impl Screen {
     // ---- keys ----------------------------------------------------------
 
