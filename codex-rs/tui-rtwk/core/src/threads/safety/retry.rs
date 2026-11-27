@@ -4,8 +4,8 @@
 
 use codex_app_server_protocol::{
     SortDirection, Thread, ThreadForkParams, ThreadHistoryMode, ThreadItem, ThreadItemPayload,
-    ThreadItemsListParams, ThreadItemsListResponse, ThreadStatus, ThreadTurnsListParams, ThreadTurnsListResponse,
-    Turn, TurnItemsView, TurnStartParams, TurnStatus, UserInput,
+    ThreadItemsListParams, ThreadItemsListResponse, ThreadStatus, ThreadTurnsListParams,
+    ThreadTurnsListResponse, Turn, TurnItemsView, TurnStartParams, TurnStatus, UserInput,
 };
 use codex_protocol::openai_models::ReasoningEffort;
 
@@ -112,16 +112,10 @@ impl ReadTurns {
         &self.attempt.origin
     }
 
-    pub(crate) fn params(&self) -> ThreadTurnsListParams {
-        ThreadTurnsListParams {
-            thread_id: self.origin().thread.to_string(),
-            cursor: None,
-            limit: Some(TURN_LIMIT),
-            sort_direction: Some(SortDirection::Desc),
-            items_view: Some(match self.mode {
-                ThreadHistoryMode::Legacy => TurnItemsView::Full,
-                ThreadHistoryMode::Paginated => TurnItemsView::NotLoaded,
-            }),
+    pub(crate) fn request(&self) -> TurnsRequest {
+        TurnsRequest {
+            thread: self.origin().thread.clone(),
+            mode: self.mode,
         }
     }
 
@@ -162,6 +156,31 @@ impl ReadTurns {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TurnsRequest {
+    thread: ThreadId,
+    mode: ThreadHistoryMode,
+}
+
+impl TurnsRequest {
+    pub(crate) fn thread(&self) -> &ThreadId {
+        &self.thread
+    }
+
+    pub(crate) fn params(&self) -> ThreadTurnsListParams {
+        ThreadTurnsListParams {
+            thread_id: self.thread.to_string(),
+            cursor: None,
+            limit: Some(TURN_LIMIT),
+            sort_direction: Some(SortDirection::Desc),
+            items_view: Some(match self.mode {
+                ThreadHistoryMode::Legacy => TurnItemsView::Full,
+                ThreadHistoryMode::Paginated => TurnItemsView::NotLoaded,
+            }),
+        }
+    }
+}
+
 fn validate_terminal(latest: &Turn, previous: Option<&Turn>) -> Result<(), Invalid> {
     if latest.status == TurnStatus::InProgress {
         return Err(Invalid::TurnRunning);
@@ -185,14 +204,10 @@ impl ReadItems {
         &self.0.origin
     }
 
-    pub(crate) fn params(&self) -> ThreadItemsListParams {
-        ThreadItemsListParams {
-            thread_id: self.origin().thread.to_string(),
-            turn_id: Some(self.origin().turn.to_string()),
-            cursor: None,
-            limit: Some(ITEM_LIMIT),
-            sort_direction: Some(SortDirection::Asc),
-            defer_output: None,
+    pub(crate) fn request(&self) -> ItemsRequest {
+        ItemsRequest {
+            thread: self.origin().thread.clone(),
+            turn: self.origin().turn.clone(),
         }
     }
 
@@ -208,6 +223,29 @@ impl ReadItems {
             items.push(ThreadItem::try_from(entry).map_err(|_| Invalid::IncompleteInput)?);
         }
         ReadyToFork::from_items(self.0, &items, ThreadHistoryMode::Paginated)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ItemsRequest {
+    thread: ThreadId,
+    turn: TurnId,
+}
+
+impl ItemsRequest {
+    pub(crate) fn thread(&self) -> &ThreadId {
+        &self.thread
+    }
+
+    pub(crate) fn params(&self) -> ThreadItemsListParams {
+        ThreadItemsListParams {
+            thread_id: self.thread.to_string(),
+            turn_id: Some(self.turn.to_string()),
+            cursor: None,
+            limit: Some(ITEM_LIMIT),
+            sort_direction: Some(SortDirection::Asc),
+            defer_output: None,
+        }
     }
 }
 
@@ -265,18 +303,11 @@ impl ReadyToFork {
         })
     }
 
-    pub(crate) fn origin(&self) -> &Origin {
-        &self.origin
-    }
-
-    pub(crate) fn params(&self) -> ThreadForkParams {
-        // Leave permission parameters absent so the server inherits the source's settings.
-        ThreadForkParams {
-            thread_id: self.origin.thread.to_string(),
-            before_turn_id: Some(self.origin.turn.to_string()),
-            defer_goal_continuation: true,
-            exclude_turns: self.mode == ThreadHistoryMode::Paginated,
-            ..ThreadForkParams::default()
+    pub(crate) fn request(&self) -> ForkRequest {
+        ForkRequest {
+            thread: self.origin.thread.clone(),
+            turn: self.origin.turn.clone(),
+            mode: self.mode,
         }
     }
 
@@ -296,35 +327,80 @@ impl ReadyToFork {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ForkRequest {
+    thread: ThreadId,
+    turn: TurnId,
+    mode: ThreadHistoryMode,
+}
+
+impl ForkRequest {
+    pub(crate) fn thread(&self) -> &ThreadId {
+        &self.thread
+    }
+
+    pub(crate) fn params(&self) -> ThreadForkParams {
+        // Leave permission parameters absent so the server inherits the source's settings.
+        ThreadForkParams {
+            thread_id: self.thread.to_string(),
+            before_turn_id: Some(self.turn.to_string()),
+            defer_goal_continuation: true,
+            exclude_turns: self.mode == ThreadHistoryMode::Paginated,
+            ..ThreadForkParams::default()
+        }
+    }
+}
+
 pub(crate) struct ReadyToStart {
     fork: ReadyToFork,
     child: Box<Thread>,
 }
 
 impl ReadyToStart {
-    pub(crate) fn origin(&self) -> &Origin {
-        self.fork.origin()
-    }
-
-    pub(crate) fn child(&self) -> &Thread {
-        &self.child
-    }
-
-    /// The fork's effective permissions stay in force because the turn carries no overrides.
-    pub(crate) fn start(self, client_user_message_id: String) -> (Box<Thread>, UserMessage, TurnStartParams) {
-        let thread_id = self.child.id.clone();
+    pub(crate) fn start(
+        self,
+        client_user_message_id: String,
+    ) -> (Box<Thread>, UserMessage, StartRequest) {
+        let thread = ThreadId::new(&self.child.id);
         (
             self.child,
             self.fork.message,
-            TurnStartParams {
-                thread_id,
+            StartRequest {
+                thread,
                 input: self.fork.input,
-                client_user_message_id: Some(client_user_message_id),
-                model: Some(self.fork.model),
-                effort: Some(ReasoningEffort::Low),
-                ..TurnStartParams::default()
+                client_user_message_id,
+                model: self.fork.model,
             },
         )
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct StartRequest {
+    thread: ThreadId,
+    input: Vec<UserInput>,
+    client_user_message_id: String,
+    model: String,
+}
+
+// The pinned UserInput variants contain text, paths, IDs, and text ranges.
+impl Eq for StartRequest {}
+
+impl StartRequest {
+    pub(crate) fn thread(&self) -> &ThreadId {
+        &self.thread
+    }
+
+    /// The fork's effective permissions stay in force because the turn carries no overrides.
+    pub(crate) fn params(&self) -> TurnStartParams {
+        TurnStartParams {
+            thread_id: self.thread.to_string(),
+            input: self.input.clone(),
+            client_user_message_id: Some(self.client_user_message_id.clone()),
+            model: Some(self.model.clone()),
+            effort: Some(ReasoningEffort::Low),
+            ..TurnStartParams::default()
+        }
     }
 }
 
@@ -341,6 +417,32 @@ pub(crate) enum Invalid {
     PredecessorRunning,
     IncompleteInput,
     ResponseStarted,
+    UnexpectedReceipt,
+    TimedOut,
+}
+
+impl Invalid {
+    pub(crate) fn message(self) -> &'static str {
+        match self {
+            Self::WrongThread | Self::IneligibleThread => {
+                "The source conversation is unavailable for retry."
+            }
+            Self::WrongFork => "The server did not return the verified fork.",
+            Self::WrongTurn | Self::MissingTurn => {
+                "The checked turn is missing from the history of the source conversation."
+            }
+            Self::NotLatest => "The checked turn is no longer the latest turn.",
+            Self::IncompleteTurns => "The predecessor of the checked turn could not be verified.",
+            Self::TurnRunning => "The checked turn is still in progress.",
+            Self::PredecessorRunning => "The previous turn is still in progress.",
+            Self::IncompleteInput => {
+                "Cannot safely retry a turn whose input exceeds the bounded history page."
+            }
+            Self::ResponseStarted => "The source turn has already started answering.",
+            Self::UnexpectedReceipt => "The server did not acknowledge the retry.",
+            Self::TimedOut => "Timed out waiting for confirmation of the retry.",
+        }
+    }
 }
 
 #[cfg(test)]

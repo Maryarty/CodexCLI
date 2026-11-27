@@ -164,7 +164,7 @@ fn only_the_terminal_latest_turn_with_a_known_predecessor_can_fork() {
 fn paged_input_must_be_complete_and_belong_to_the_checked_turn() {
     let message = UserMessage::text("original");
     let history = items(message.clone());
-    let params = history.params();
+    let params = history.request().params();
     assert_eq!(params.thread_id, "source");
     assert_eq!(params.turn_id.as_deref(), Some("checked"));
     assert_eq!(params.limit, Some(100));
@@ -194,7 +194,7 @@ fn verified_fork_and_start_preserve_input_and_inherit_permissions() {
         ..UserMessage::text("[Image #1] Explain this diagram.")
     };
     let read = turns(ThreadHistoryMode::Legacy, message.clone());
-    let params = read.params();
+    let params = read.request().params();
     assert_eq!(params.limit, Some(5));
     assert_eq!(params.sort_direction, Some(SortDirection::Desc));
     let saved = vec![
@@ -213,7 +213,7 @@ fn verified_fork_and_start_preserve_input_and_inherit_permissions() {
     else {
         panic!("legacy input")
     };
-    let params = fork.params();
+    let params = fork.request().params();
     assert_eq!(params.thread_id, "source");
     assert_eq!(params.before_turn_id.as_deref(), Some("checked"));
     assert!(params.last_turn_id.is_none());
@@ -221,7 +221,7 @@ fn verified_fork_and_start_preserve_input_and_inherit_permissions() {
     assert!(params.permissions.is_none());
     assert!(params.sandbox.is_none());
     assert!(params.approval_policy.is_none());
-    assert_eq!(fork.origin().address.backend, BackendId(2));
+    assert_eq!(fork.origin.address.backend, BackendId(2));
 
     let wrong = Box::new(thread("child", ThreadHistoryMode::Legacy, Some("other")));
     assert!(matches!(
@@ -230,9 +230,10 @@ fn verified_fork_and_start_preserve_input_and_inherit_permissions() {
     ));
     let child = Box::new(thread("child", ThreadHistoryMode::Legacy, Some("source")));
     let start = fork.forked(child).expect("fork from source");
-    assert_eq!(start.origin().turn.as_str(), "checked");
-    assert_eq!(start.child().id, "child");
-    let (_, saved, params) = start.start("start-receipt".to_owned());
+    assert_eq!(start.fork.origin.turn.as_str(), "checked");
+    assert_eq!(start.child.id, "child");
+    let (_, saved, request) = start.start("start-receipt".to_owned());
+    let params = request.params();
     assert_eq!(params.thread_id, "child");
     assert_eq!(
         params.client_user_message_id.as_deref(),

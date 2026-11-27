@@ -7,6 +7,7 @@ use codex_app_server_protocol as wire;
 use serde::Deserialize;
 use serde_json::Value;
 
+use super::safety::retry::{ForkRequest, ItemsRequest, StartRequest, TurnsRequest};
 use super::{ReviewTarget, SettingsPatch, UserMessage, structured};
 use crate::ids::{ThreadId, TurnId};
 use crate::rpc::{RpcError, ServerError};
@@ -171,19 +172,19 @@ crate::rpc_list! {
     RetryInterrupt { thread: ThreadId, turn: TurnId }, Self::RetryInterrupt { thread, turn }
         => TurnInterrupt(wire::TurnInterruptParams { thread_id: thread.to_string(), turn_id: turn.to_string() })
         -> wire::TurnInterruptResponse, |_| ThreadReply::RetryInterrupted;
-    RetryTurns(Box<wire::ThreadTurnsListParams>), Self::RetryTurns(params)
-        => ThreadTurnsList(params.as_ref().clone())
+    RetryTurns(TurnsRequest), Self::RetryTurns(params)
+        => ThreadTurnsList(params.params())
         -> wire::ThreadTurnsListResponse, |answer| ThreadReply::RetryTurns(Box::new(answer));
-    RetryItems(Box<wire::ThreadItemsListParams>), Self::RetryItems(params)
-        => ThreadItemsList(params.as_ref().clone())
+    RetryItems(ItemsRequest), Self::RetryItems(params)
+        => ThreadItemsList(params.params())
         -> wire::ThreadItemsListResponse, |answer| ThreadReply::RetryItems(Box::new(answer));
-    RetryFork(Box<wire::ThreadForkParams>), Self::RetryFork(params)
-        => ThreadFork(params.as_ref().clone())
+    RetryFork(ForkRequest), Self::RetryFork(params)
+        => ThreadFork(params.params())
         -> wire::ThreadForkResponse, |answer| ThreadReply::RetryForked(Box::new(answer.thread));
-    RetryStart(Box<wire::TurnStartParams>), Self::RetryStart(params)
-        => TurnStart(params.as_ref().clone())
+    RetryStart(StartRequest), Self::RetryStart(params)
+        => TurnStart(params.params())
         -> wire::TurnStartResponse, |answer| ThreadReply::RetryStarted {
-            thread: ThreadId::new(&params.thread_id), turn: TurnId::new(answer.turn.id),
+            thread: params.thread().clone(), turn: TurnId::new(answer.turn.id),
         };
     Compact { thread: String }, Self::Compact { thread }
         => ThreadCompactStart(wire::ThreadCompactStartParams { thread_id: thread.clone() })
@@ -300,7 +301,10 @@ pub enum ThreadReply {
     RetryTurns(Box<wire::ThreadTurnsListResponse>),
     RetryItems(Box<wire::ThreadItemsListResponse>),
     RetryForked(Box<wire::Thread>),
-    RetryStarted { thread: ThreadId, turn: TurnId },
+    RetryStarted {
+        thread: ThreadId,
+        turn: TurnId,
+    },
     Started(Box<wire::Thread>),
     Resumed(Box<wire::Thread>),
     Forked(Box<wire::Thread>),
@@ -366,10 +370,10 @@ impl<M: Borrow<UserMessage>> ThreadRpc<M> {
             | Self::PrepareApprovedPlan { thread, .. }
             | Self::StructuredTurn { thread, .. }
             | Self::Unsubscribe { thread } => Some(thread),
-            Self::RetryTurns(params) => Some(&params.thread_id),
-            Self::RetryItems(params) => Some(&params.thread_id),
-            Self::RetryFork(params) => Some(&params.thread_id),
-            Self::RetryStart(params) => Some(&params.thread_id),
+            Self::RetryTurns(params) => Some(params.thread().as_str()),
+            Self::RetryItems(params) => Some(params.thread().as_str()),
+            Self::RetryFork(params) => Some(params.thread().as_str()),
+            Self::RetryStart(params) => Some(params.thread().as_str()),
             Self::RetryInterrupt { thread, .. }
             | Self::StartUserTurn { thread, .. }
             | Self::ListTerminals { thread, .. }

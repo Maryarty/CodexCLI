@@ -19,6 +19,7 @@ mod lifecycle;
 mod mentions;
 mod notices;
 mod reset;
+mod safety_retry;
 mod select;
 mod session;
 mod structured;
@@ -596,12 +597,15 @@ impl AppFx {
         let backend = match &context {
             AppCtx::Worktree { backend, .. }
             | AppCtx::OpenThread { backend, .. }
-            | AppCtx::Structured { backend, .. }
             | AppCtx::NewConversation { backend, .. }
             | AppCtx::Redemption { backend, .. }
             | AppCtx::Select(
                 screens::select::Ctx::Fallback { backend }
                 | screens::select::Ctx::Switch { backend, .. },
+            ) => *backend,
+            AppCtx::TurnOperation(
+                TurnOperation::Structured { backend, .. }
+                | TurnOperation::SafetyRetry { backend, .. },
             ) => *backend,
             AppCtx::Resume(context) => context.backend(),
             AppCtx::SessionRead | AppCtx::OpenSession { .. } => BackendId::default(),
@@ -740,11 +744,23 @@ enum AppCtx {
         action: crate::screens::startup::Action,
         thread: ThreadId,
     },
-    /// An RPC of a structured turn a feature asked for (`app/structured.rs`): `run` is its
-    /// number, `backend` the one it goes to.
-    Structured { run: u64, backend: BackendId },
+    /// An RPC owned by an app-scoped operation on a turn.
+    TurnOperation(TurnOperation),
     /// An RPC of a feature slice about the app.
     Feature(crate::features::FeatureCtx),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TurnOperation {
+    Structured {
+        run: u64,
+        backend: BackendId,
+    },
+    SafetyRetry {
+        generation: Ticket,
+        backend: BackendId,
+        attaching: bool,
+    },
 }
 
 /// An ask made before the first thread exists.
@@ -823,6 +839,7 @@ pub struct CodexApp {
     host_transport_lost: bool,
     /// The structured turns the features asked for and have no answer to yet.
     structured: structured::Runs,
+    safety_retry: Option<safety_retry::Run>,
     /// What was asked before the first thread exists, in order: it goes out
     /// when the thread starts (oracle: input queued until the session is
     /// configured).
@@ -928,6 +945,7 @@ impl CodexApp {
             host_outgoing: Pending::default(),
             host_transport_lost: false,
             structured: structured::Runs::default(),
+            safety_retry: None,
             queued_submits: Vec::new(),
             attaching_events: VecDeque::new(),
             spawn_requests: std::collections::HashMap::new(),
@@ -1122,7 +1140,7 @@ impl CodexApp {
         for run in self.structured.asking() {
             let asked = self
                 .outgoing
-                .any(|ctx| matches!(ctx, AppCtx::Structured { run: asked, .. } if *asked == run));
+                .any(|ctx| matches!(ctx, AppCtx::TurnOperation(TurnOperation::Structured { run: asked, .. }) if *asked == run));
             assert!(
                 asked,
                 "structured turn {run} is waiting for an answer nobody owes"
@@ -1361,6 +1379,7 @@ impl CodexApp {
     }
 
     fn retire_outgoing(&mut self, backend: BackendId, fx: &mut AppFx) {
+        safety_retry::lost(self, backend, fx);
         self.attaching_events
             .retain(|(source, ..)| *source != backend);
         features::retire_rate_offer(self, backend);
@@ -1556,6 +1575,7 @@ fn apply_at(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
         select::retire_model_picker(app);
         features::retire_ide(app);
         if let Some(thread) = &previous.active {
+            safety_retry::left(app, thread, fx);
             features::retire_queue_modal_choices(app, thread, fx);
         }
     }
@@ -1603,7 +1623,8 @@ fn finish_apply(app: &mut CodexApp, lists: bool, fx: &mut AppFx) {
             fx.host(effects::Ask::Directories { cwds });
         }
     }
-    fx.wake = features::wake(app);
+    safety_retry::tick(app, fx);
+    fx.wake = safety_retry::wake(app, features::wake(app));
 }
 
 /// `SessionSlice::cloud_switch` follows the tickets: connecting while a start asked of a Cloud
@@ -2442,7 +2463,19 @@ fn invalidate_image_restrictions(app: &mut CodexApp, backend: BackendId) {
 
 fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx) {
     if let Some(address) = app.outgoing.address(ticket) {
-        let Some((ctx, answer)) = app.outgoing.resolve(ticket, reply) else {
+        let resolved = if matches!(
+            app.outgoing.context(ticket),
+            Some(AppCtx::TurnOperation(TurnOperation::SafetyRetry { .. }))
+        ) {
+            let retry = app.safety_retry.as_ref();
+            app.outgoing.resolve_if(ticket, reply, |ctx, answer| {
+                matches!(ctx, AppCtx::TurnOperation(TurnOperation::SafetyRetry { generation, .. })
+                    if retry.is_some_and(|run| run.accepts(ticket, *generation, answer)))
+            })
+        } else {
+            app.outgoing.resolve(ticket, reply)
+        };
+        let Some((ctx, answer)) = resolved else {
             return;
         };
         match ctx {
@@ -2755,7 +2788,12 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 session_opened(app, action, thread, answer, fx);
             }
             AppCtx::Opening { thread, ctx } => lifecycle::read(app, thread, ctx, answer, fx),
-            AppCtx::Structured { run, .. } => structured::answered(app, run, answer, fx),
+            AppCtx::TurnOperation(TurnOperation::Structured { run, .. }) => {
+                structured::answered(app, run, answer, fx);
+            }
+            AppCtx::TurnOperation(TurnOperation::SafetyRetry { generation, .. }) => {
+                safety_retry::answered(app, ticket, generation, address, answer, fx);
+            }
             AppCtx::Feature(ctx) => features::answer(app, ctx, answer, fx),
         }
         return;
@@ -3023,6 +3061,10 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             }
         }
         // a verb of the thread's safety state: the thread's own, not the screen's
+        Intent::Screen(ScreenIntent::Chat(chat::Intent::Safety {
+            thread,
+            verb: crate::threads::safety::Verb::Retry(offer),
+        })) => safety_retry::begin(app, thread, offer, fx),
         Intent::Screen(ScreenIntent::Chat(chat::Intent::Safety { thread, verb })) => {
             if matches!(&verb, crate::threads::safety::Verb::Continue { .. })
                 && app.session.active.as_ref() != Some(&thread)
@@ -4108,6 +4150,10 @@ fn is_attach(ctx: &AppCtx) -> bool {
             | AppCtx::NewConversation { .. }
             | AppCtx::OpenThread { .. }
             | AppCtx::OpenSession { .. }
+            | AppCtx::TurnOperation(TurnOperation::SafetyRetry {
+                attaching: true,
+                ..
+            })
             | AppCtx::Agents(agents::Ctx::Start | agents::Ctx::Fork { .. })
     )
 }
@@ -4242,6 +4288,7 @@ fn dismiss_banner_for_new_turn(app: &mut CodexApp, thread: &ThreadId) {
 
 /// A thread event routed to its thread. Used by `apply_app` and by tests.
 pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mut AppFx) {
+    safety_retry::observe(app, thread, &ev, fx);
     // A cyber refusal is worded by the setting of the moment (a delta carries none).
     let daybreak = if ev.may_fail_a_turn() {
         notices::daybreak_of(app, thread)

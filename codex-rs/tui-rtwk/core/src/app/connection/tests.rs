@@ -2,9 +2,9 @@
 //! feature, so the rules let this file name one (`ROOT_TESTS`).
 
 use super::*;
-use crate::app::{AppCtx, AppEv, apply_app, worktree};
+use crate::app::{AppCtx, AppEv, TurnOperation, apply_app, worktree};
 use crate::features::FeatureCtx;
-use crate::ids::{Cwd, ThreadId};
+use crate::ids::{Cwd, ThreadId, Ticket};
 use crate::screens::{ScreenEv, agents, chat, resume, select, startup, status};
 use std::collections::BTreeSet;
 
@@ -25,12 +25,15 @@ fn kind(ctx: &AppCtx) -> &'static str {
         AppCtx::Worktree { .. } => "Worktree",
         AppCtx::SessionRead => "SessionRead",
         AppCtx::OpenSession { .. } => "OpenSession",
-        AppCtx::Structured { .. } => "Structured",
         AppCtx::Feature(_) => "Feature",
+        AppCtx::TurnOperation(operation) => match operation {
+            TurnOperation::Structured { .. } => "Structured",
+            TurnOperation::SafetyRetry { .. } => "SafetyRetry",
+        },
     }
 }
 
-const KINDS: usize = 16;
+const KINDS: usize = 17;
 
 /// One ask of every kind, all on the first backend.
 fn samples() -> Vec<AppCtx> {
@@ -93,7 +96,12 @@ fn samples() -> Vec<AppCtx> {
             action: startup::Action::Resume,
             thread,
         },
-        AppCtx::Structured { run: 1, backend },
+        AppCtx::TurnOperation(TurnOperation::Structured { run: 1, backend }),
+        AppCtx::TurnOperation(TurnOperation::SafetyRetry {
+            generation: Ticket::new(1),
+            backend,
+            attaching: true,
+        }),
         AppCtx::Feature(FeatureCtx::Plugins(crate::features::plugins::Ctx::List {
             cwd: Cwd::new("/work"),
             request: 1,
