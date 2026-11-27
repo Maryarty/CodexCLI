@@ -54,6 +54,8 @@ pub struct Screen {
     /// The setups preview what the chat shows now (a command opened them); a debug entry's
     /// preview is what its script made.
     pub live: bool,
+    /// The native dialog returns its edit to the queued command's owner.
+    pub queued: bool,
 }
 
 /// Widget state: whether the feature offers the dialog yet.
@@ -88,6 +90,7 @@ impl State for ScreenState {
             Some(Shown::Setup(which)) => setup::SetupSheet {
                 which,
                 live: w.live,
+                queued: w.queued,
             }
             .into(),
             Some(Shown::Theme) => theme::ThemeSheet.into(),
@@ -98,10 +101,7 @@ impl State for ScreenState {
             .into(),
             Some(Shown::Hooks) => hooks::HooksSheet.into(),
             Some(Shown::Config) => config_panel::ConfigSheet.into(),
-            Some(Shown::Keymap) => keymap_editor::KeymapSheet {
-                inspect: w.inspect,
-            }
-            .into(),
+            Some(Shown::Keymap) => keymap_editor::KeymapSheet { inspect: w.inspect }.into(),
             Some(Shown::SkillsMenu) => prompts::SkillsMenu.into(),
             Some(Shown::Enable(feature)) => prompts::EnableSheet { feature }.into(),
             // No dialog offered (the debug menu's row): the skeleton's empty-slot line.

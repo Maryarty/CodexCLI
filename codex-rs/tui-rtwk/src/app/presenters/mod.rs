@@ -15,7 +15,7 @@
 use rtwk::app::AppCx;
 
 use codex_tui_core::app::{AppEv, Intent};
-use codex_tui_core::features::Scope;
+use codex_tui_core::features::{FeatureIntent, Scope};
 use codex_tui_core::screens::select::{
     Intent as SelectIntent, ModelCompletion, ModelResult, QueuedModelShow,
 };
@@ -121,7 +121,7 @@ fn present_shows(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
                                     }),
                                 ))));
                             }
-                            None => queue_model_picker(app, operation, QueueEvent::PickerClosed),
+                            None => queue_receipt(app, operation, QueueEvent::PickerClosed),
                         },
                     );
                     !dialog.is_closed()
@@ -151,15 +151,15 @@ fn present_shows(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
         ))));
         if let Some(operation) = operation {
             if opened {
-                queue_model_picker(app, operation, QueueEvent::PickerOpened);
+                queue_receipt(app, operation, QueueEvent::PickerOpened);
             } else {
-                queue_model_picker(app, operation, QueueEvent::PickerClosed);
+                queue_receipt(app, operation, QueueEvent::PickerClosed);
             }
         }
     }
 }
 
-fn queue_model_picker(
+fn queue_receipt(
     app: &mut UiApp,
     operation: QueueOperation,
     receipt: impl FnOnce(QueueOperation) -> QueueEvent,
@@ -182,15 +182,27 @@ fn present_wishes(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
                 wish.seq,
                 wish.wish.clone(),
                 wish.scope.clone(),
+                wish.queue_modal.clone(),
                 crate::features::shown(&wish.wish, &wish.scope),
             )
         })
         .collect();
-    for (seq, wish, scope, shown) in wishes {
+    for (seq, wish, scope, queue_modal, shown) in wishes {
+        if let Some(operation) = queue_modal
+            .as_ref()
+            .and_then(|modal| modal.operation.as_ref())
+            && app.core.session().active.as_ref() != Some(operation.thread())
+        {
+            finish_queue_modal(app, Some(operation.clone()), None);
+            app.ui.presenters.taken = seq;
+            app.send(AppEv::Intent(Intent::WishShown(seq)));
+            continue;
+        }
         // `/copy` on the chat's own transcript is copy mode, not a sheet (`show_copy_picker`):
         // the picker is for a transcript the chat does not own, or where Find or another mode
         // holds the keys (`FeatureView::in_place`)
-        if app.core.tui().transcript_owned
+        if queue_modal.is_none()
+            && app.core.tui().transcript_owned
             && let Scope::Thread(thread) = &scope
         {
             match crate::features::in_place(&wish, &app.ui.thread_ui.get(Some(thread))) {
@@ -216,17 +228,49 @@ fn present_wishes(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
                 return;
             };
             let open = shown.open.clone();
-            let dialog = cx.show_dialog_from::<()>(
-                place,
-                move |_| open(),
-                shown.options,
-                |_app, _answer, _cx| {},
-            );
-            if dialog.is_closed() {
-                return;
+            if let Some(modal) = queue_modal {
+                let operation = modal.operation.clone();
+                let dialog = cx.show_dialog_from::<FeatureIntent>(
+                    place,
+                    move |_| open(),
+                    shown.options,
+                    move |app, answer, _| finish_queue_modal(app, modal.operation, answer),
+                );
+                if !dialog.is_closed()
+                    && let Some(operation) = operation
+                {
+                    queue_receipt(app, operation, QueueEvent::ModalOpened);
+                }
+            } else {
+                let dialog = cx.show_dialog_from::<()>(
+                    place,
+                    move |_| open(),
+                    shown.options,
+                    |_app, _answer, _cx| {},
+                );
+                if dialog.is_closed() {
+                    return;
+                }
             }
+        } else if let Some(modal) = queue_modal {
+            finish_queue_modal(app, modal.operation, None);
         }
         app.ui.presenters.taken = seq;
         app.send(AppEv::Intent(Intent::WishShown(seq)));
+    }
+}
+
+fn finish_queue_modal(
+    app: &mut UiApp,
+    operation: Option<QueueOperation>,
+    answer: Option<FeatureIntent>,
+) {
+    if let Some(operation) = operation {
+        queue_receipt(app, operation, |operation| QueueEvent::ModalFinished {
+            operation,
+            accepted: answer.map(Box::new),
+        });
+    } else if let Some(answer) = answer {
+        app.send(AppEv::Intent(Intent::Feature(answer)));
     }
 }

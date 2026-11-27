@@ -8,7 +8,8 @@ use std::rc::Rc;
 use super::effects::{self, Done};
 use super::{AppCtx, AppFx, CodexApp, Command, Now, Wake, apply_thread, session_note};
 use crate::features::{
-    self, AppCx, AppView, FeatureCtx, FeatureFact, FeatureIntent, FeatureThreadIntent, InterestStep,
+    self, AppCx, AppView, FeatureCtx, FeatureFact, FeatureIntent, FeatureThreadIntent,
+    InterestStep, Scope,
 };
 use crate::features::{ChatFacts, Connection, FeatureStates, Out, Refusal};
 use crate::ids::{BackendId, ThreadId};
@@ -16,6 +17,7 @@ use crate::rpc::{Address, Answer, RpcError};
 use crate::screens::chat::{facts, plan_mode::PromptPriority};
 use crate::screens::status::RateRead;
 use crate::screens::{ScreenThreadIntent, chat};
+use crate::threads::queue::{self, QueueEvent, QueueOperation};
 use crate::threads::{Note, NoteKey, ThreadEv};
 use codex_app_server_protocol::{ErrorNotification, ServerNotification, ServerRequest};
 
@@ -176,7 +178,13 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
             });
         }
         Out::Effect { ask, ctx } => {
-            let request = app.effects.ask_for_feature(ctx);
+            let address = match &ask {
+                effects::Ask::ImageSnapshot { thread, .. } => {
+                    Some(app.address(app.screens.agents.owner_of(thread.as_str())))
+                }
+                _ => None,
+            };
+            let request = app.effects.ask_for_feature(ctx, address);
             fx.commands.push(effects::command(request, ask));
         }
         Out::Note { thread, note } => {
@@ -186,7 +194,54 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
         Out::Thread { thread, intent } => {
             apply_thread(app, &thread, ThreadEv::FeatureIntent(intent), fx);
         }
-        Out::Wish { scope, wish } => Rc::make_mut(&mut app.wishes).push(scope, wish),
+        Out::Wish {
+            scope,
+            wish,
+            mut queue_modal,
+        } => {
+            if let Some(modal) = &mut queue_modal
+                && let Scope::Thread(thread) = &scope
+            {
+                let active = app.session.active.as_ref() == Some(thread);
+                let operation = match modal.operation.take() {
+                    Some(operation) => {
+                        let issued = app
+                            .threads
+                            .get(thread)
+                            .and_then(|model| model.due_command())
+                            .is_some_and(|due| due.operation() == &operation);
+                        if !issued {
+                            return;
+                        }
+                        operation
+                    }
+                    None if active && app.threads.contains(thread) => {
+                        QueueOperation::modal(thread.clone(), app.mint.next().seq())
+                    }
+                    None => return,
+                };
+                queue_event(
+                    app,
+                    thread,
+                    QueueEvent::opening_modal(operation.clone()),
+                    fx,
+                );
+                if !active {
+                    queue_event(
+                        app,
+                        thread,
+                        QueueEvent::ModalFinished {
+                            operation,
+                            accepted: None,
+                        },
+                        fx,
+                    );
+                    return;
+                }
+                modal.operation = Some(operation);
+            }
+            Rc::make_mut(&mut app.wishes).push(scope, wish, queue_modal);
+        }
         Out::Lifecycle(lifecycle) => super::lifecycle::carry(app, lifecycle, fx),
         Out::Chat(facts) => chat_facts(app, facts, fx),
         Out::Verb(verb) => super::verbs::carry(app, verb, fx),
@@ -202,6 +257,56 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
             apply_thread(app, &thread, resume, fx);
         }
     }
+}
+
+fn queue_event(app: &mut CodexApp, thread: &ThreadId, event: QueueEvent, fx: &mut AppFx) {
+    apply_thread(
+        app,
+        thread,
+        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(chat::ThreadIntent::QueueEvent(
+            event,
+        ))),
+        fx,
+    );
+}
+
+/// Apply a native dialog result before releasing its original queue. A late result may
+/// release its own hold, but cannot select on behalf of another conversation.
+pub(super) fn finish_queue_modal(
+    app: &mut CodexApp,
+    thread: &ThreadId,
+    message: ScreenThreadIntent,
+    fx: &mut AppFx,
+) -> Result<(), ScreenThreadIntent> {
+    let ScreenThreadIntent::Chat(chat::ThreadIntent::QueueEvent(QueueEvent::ModalFinished {
+        operation,
+        accepted,
+    })) = message
+    else {
+        return Err(message);
+    };
+    if operation.thread() != thread {
+        return Ok(());
+    }
+    if app.session.active.as_ref() == Some(thread)
+        && app
+            .threads
+            .get(thread)
+            .is_some_and(|model| queue::modal_is_open(model, &operation))
+        && let Some(action) = accepted
+    {
+        intent(app, *action, fx);
+    }
+    queue_event(
+        app,
+        thread,
+        QueueEvent::ModalFinished {
+            operation,
+            accepted: None,
+        },
+        fx,
+    );
+    Ok(())
 }
 
 /// An intent of a feature.
@@ -275,6 +380,7 @@ pub(super) fn reconnected(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx
         let owner = match &interest {
             FeatureInterest::Providers(_) => BackendId::default(),
             FeatureInterest::Rename(interest) => agents.owner_of(interest.thread().as_str()),
+            FeatureInterest::Images(interest) => agents.owner_of(interest.source.thread.as_str()),
             _ => agents.displayed,
         };
         if owner != backend {
@@ -283,6 +389,29 @@ pub(super) fn reconnected(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx
         run(app, fx, |states, cx| {
             features::on_interest(states, &interest, true, cx)
         });
+    }
+}
+
+/// Artifact replies depend on the connection's locality. Forget the old handle's requests
+/// and snapshots, retaining the mounted surfaces' interests for the next handle.
+pub(super) fn retire_images(app: &mut CodexApp, backend: BackendId) {
+    app.effects.retire_images(backend);
+    let agents = &app.screens.agents;
+    features::images::retire(&mut app.features, |thread| {
+        agents.owner_of(thread.as_str()) == backend
+    });
+}
+
+/// The replacement already has its new request address, even when it did not emit Up/Lost.
+pub(super) fn reconnect_images(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx) {
+    for interest in app.interests.all() {
+        if let features::FeatureInterest::Images(read) = &interest
+            && app.screens.agents.owner_of(read.source.thread.as_str()) == backend
+        {
+            run(app, fx, |states, cx| {
+                features::on_interest(states, &interest, true, cx)
+            });
+        }
     }
 }
 

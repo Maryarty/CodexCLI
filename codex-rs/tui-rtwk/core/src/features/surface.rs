@@ -10,6 +10,7 @@ use std::collections::VecDeque;
 
 use super::{FeatureInterest, FeatureWish};
 use crate::ids::{Cwd, ThreadId};
+use crate::threads::queue::QueueOperation;
 
 /// What a wish is about, and so who may still want it shown (ADR-013 §3): a directory (the
 /// plugins of a working directory) or a thread. A surface open for another scope is not the
@@ -40,6 +41,13 @@ pub struct SurfaceWish {
     /// What the wish is about: the surface that shows it is the one open for this scope.
     pub scope: Scope,
     pub wish: FeatureWish,
+    pub queue_modal: Option<QueueModal>,
+}
+
+/// A modal may have a result even before the first thread exists to hold a queue.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QueueModal {
+    pub operation: Option<QueueOperation>,
 }
 
 /// The wishes nobody has shown yet.
@@ -50,12 +58,18 @@ pub struct Wishes {
 }
 
 impl Wishes {
-    pub(crate) fn push(&mut self, scope: Scope, wish: FeatureWish) {
+    pub(crate) fn push(
+        &mut self,
+        scope: Scope,
+        wish: FeatureWish,
+        queue_modal: Option<QueueModal>,
+    ) {
         self.seq += 1;
         self.queue.push_back(SurfaceWish {
             seq: self.seq,
             scope,
             wish,
+            queue_modal,
         });
     }
 

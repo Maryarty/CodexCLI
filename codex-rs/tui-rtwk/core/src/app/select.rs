@@ -8,15 +8,17 @@
 use std::rc::Rc;
 
 use super::{AppCtx, AppFx, CodexApp, Command};
-use crate::ids::ThreadId;
+use crate::ids::{BackendId, ThreadId};
 use crate::rpc::{Answer, RpcError};
+use crate::screens::select::collaboration::{Change, PlanWrite};
+use crate::screens::select::models::{Apply, Current, Effort, Scope};
 use crate::screens::select::{self, apps, permissions, review};
 use crate::screens::{ScreenCommand, ScreenReply, ScreenThreadIntent, chat};
 use crate::threads::ThreadEv;
 use crate::threads::queue::{self, QueueEvent, QueueOperation};
 
 /// An intent of the select screen, and the asks it left open.
-pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx) {
+pub(super) fn intent(app: &mut CodexApp, mut intent: select::Intent, fx: &mut AppFx) {
     // The dialog of the app shows its switch at once; the directory follows the saved write.
     if let select::Intent::SetApp { id, enabled } = intent {
         ask(
@@ -46,6 +48,25 @@ pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx)
             fx.host(crate::app::effects::Ask::open_url_or_report(url));
         }
         return;
+    }
+    match &mut intent {
+        select::Intent::Reasoning { current, plan, .. } if current.scope.is_some() => {
+            let Some(live) = live_current(app, current) else {
+                return;
+            };
+            *plan = live.plan.is_some();
+            *current = live;
+        }
+        select::Intent::Settle(select::ModelCompletion::Inline {
+            selection,
+            scope: Some(scope),
+        }) => {
+            if !accepts_model_scope(app, scope, selection) {
+                return;
+            }
+            retire_model_picker(app);
+        }
+        _ => {}
     }
     match intent {
         select::Intent::Settle(select::ModelCompletion::Queued { operation, result }) => {
@@ -85,6 +106,22 @@ pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx)
     } else {
         None
     };
+    if let select::Intent::OpenModels(request) = &mut intent
+        && request.current.scope.is_some()
+    {
+        let Some(mut current) = live_current(app, &request.current) else {
+            if let Some(operation) = queued {
+                queued_picker_event(app, &operation, QueueEvent::PickerClosed, fx);
+            }
+            return;
+        };
+        retire_model_picker(app);
+        if let Some(scope) = &mut current.scope {
+            scope.visit = app.screens.select.model_visit;
+            scope.address = Some(app.address(app.screens.agents.owner_of(scope.thread.as_str())));
+        }
+        request.current = current;
+    }
     let screens = Rc::make_mut(&mut app.screens);
     let before = (
         screens.select.catalog.pending,
@@ -127,6 +164,56 @@ pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx)
     drain(app, fx);
     if let Some(operation) = declined {
         queued_picker_event(app, &operation, QueueEvent::PickerClosed, fx);
+    }
+}
+
+fn live_current(app: &CodexApp, asked: &Current) -> Option<Current> {
+    let origin = asked.scope.as_ref()?;
+    if app.session.active.as_ref() != Some(&origin.thread) {
+        return None;
+    }
+    let thread = app.threads.get(&origin.thread)?;
+    let owner = app.screens.agents.owner_of(origin.thread.as_str());
+    Some(Current {
+        reserve: asked.reserve.clone(),
+        scope: asked.scope.clone(),
+        ..Current::from_thread(
+            &thread.screen_slots().chat,
+            &app.screens.chat.status,
+            app.screens.chat.flags.collaboration_modes_enabled,
+            app.screens.select.plan_defaults.get(&owner),
+            &app.modes,
+        )
+    })
+}
+
+fn accepts_model_scope(app: &CodexApp, scope: &Scope, selection: &select::Selection) -> bool {
+    if scope.visit != app.screens.select.model_visit
+        || app.session.active.as_ref() != Some(&scope.thread)
+        || scope.address != Some(app.address(app.screens.agents.owner_of(scope.thread.as_str())))
+    {
+        return false;
+    }
+    if matches!(selection.apply, Apply::PlanOnly | Apply::AllModes) {
+        return plan_thread(app, &scope.thread, &selection.model);
+    }
+    true
+}
+
+pub(super) fn retire_model_picker(app: &mut CodexApp) {
+    let select = &mut Rc::make_mut(&mut app.screens).select;
+    select.model_visit = select.model_visit.wrapping_add(1);
+}
+
+pub(super) fn configured_plan(app: &mut CodexApp, backend: BackendId, effort: Option<Effort>) {
+    if app.screens.select.plan_defaults.get(&backend) == effort.as_ref() {
+        return;
+    }
+    let defaults = &mut Rc::make_mut(&mut app.screens).select.plan_defaults;
+    if let Some(effort) = effort {
+        defaults.insert(backend, effort);
+    } else {
+        defaults.remove(&backend);
     }
 }
 
@@ -518,10 +605,38 @@ fn model_pick(
     operation: Option<QueueOperation>,
     fx: &mut AppFx,
 ) {
-    use select::models::Apply;
     let effects = select::persist::effects(&selection);
     if let Some(threads) = selection.warning {
         notes(app, [select::Note::UltraConcurrency(threads)]);
+    }
+    if matches!(selection.apply, Apply::PlanOnly | Apply::AllModes) {
+        let thread = operation
+            .as_ref()
+            .map(QueueOperation::thread)
+            .or(app.session.active.as_ref())
+            .filter(|thread| plan_thread(app, thread, &selection.model))
+            .cloned();
+        let Some(thread) = thread else {
+            if let Some(operation) = operation {
+                queued_picker_event(app, &operation, QueueEvent::ModelApplied, fx);
+            }
+            return;
+        };
+        let backend = app.screens.agents.owner_of(thread.as_str());
+        ask(
+            app,
+            select::Command::Write {
+                edits: effects.edits,
+            },
+            select::Ctx::PlanWrite(Box::new(PlanWrite {
+                thread,
+                backend,
+                selection,
+                operation,
+            })),
+            fx,
+        );
+        return;
     }
     let session = selection.apply == Apply::Session;
     let line = select::Note::ModelChanged {
@@ -541,18 +656,11 @@ fn model_pick(
         );
     }
     if effects.edits.is_empty() {
-        // Plan mode only saves a key and says nothing of the model.
         if session {
             notes(app, [line]);
         }
         return;
     }
-    let setting = if selection.apply == Apply::PlanOnly {
-        select::Setting::PlanEffort
-    } else {
-        select::Setting::Model
-    };
-    let then = (selection.apply != Apply::PlanOnly).then_some(line);
     let queued = operation.map(|operation| {
         if has_thread_update {
             select::QueuedModelWrite::SavingDefault(operation)
@@ -566,12 +674,110 @@ fn model_pick(
             edits: effects.edits,
         },
         select::Ctx::Write {
-            setting,
-            then,
+            setting: select::Setting::Model,
+            then: Some(line),
             queued,
         },
         fx,
     );
+}
+
+fn plan_thread(app: &CodexApp, thread: &ThreadId, model: &str) -> bool {
+    use codex_protocol::config_types::ModeKind;
+    app.screens.chat.flags.collaboration_modes_enabled
+        && app.threads.get(thread).is_some_and(|thread| {
+            let chat = &thread.screen_slots().chat;
+            thread.has_writer()
+                && chat.mode() == ModeKind::Plan
+                && chat.model.as_deref() == Some(model)
+        })
+}
+
+fn plan_effort(
+    app: &mut CodexApp,
+    thread: &ThreadId,
+    effort: Option<Effort>,
+    all_modes: bool,
+    operation: Option<QueueOperation>,
+    fx: &mut AppFx,
+) {
+    let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::SetMask(Change::PlanEffort {
+        effort,
+        all_modes,
+        operation,
+    }));
+    super::apply_thread(app, thread, ThreadEv::ScreenIntent(intent), fx);
+}
+
+fn plan_written(
+    app: &mut CodexApp,
+    write: PlanWrite,
+    result: Result<select::Reply, RpcError>,
+    fx: &mut AppFx,
+) {
+    let PlanWrite {
+        thread,
+        backend,
+        selection,
+        operation,
+    } = write;
+    let all_modes = selection.apply == Apply::AllModes;
+    let owns_thread =
+        app.threads.contains(&thread) && app.screens.agents.owner_of(thread.as_str()) == backend;
+    let setting = if all_modes {
+        select::Setting::Model
+    } else {
+        select::Setting::PlanEffort
+    };
+    let note = match result {
+        Ok(select::Reply::Written { overridden: false }) => {
+            configured_plan(app, backend, selection.effort.clone());
+            if owns_thread && plan_thread(app, &thread, &selection.model) {
+                plan_effort(
+                    app,
+                    &thread,
+                    selection.effort.clone(),
+                    all_modes,
+                    operation,
+                    fx,
+                );
+                if all_modes {
+                    let note = select::Note::ModelChanged {
+                        model: selection.model,
+                        effort: selection.effort,
+                        session: false,
+                    };
+                    super::session_note(
+                        app,
+                        Some(thread),
+                        crate::threads::NoteKey::Select(note).into(),
+                        fx,
+                    );
+                }
+                return;
+            }
+            None
+        }
+        Ok(select::Reply::Written { overridden: true }) => Some(select::Note::Overridden(setting)),
+        Ok(_) => None,
+        Err(error) => Some(select::Note::SaveFailed {
+            setting,
+            error: text(error),
+        }),
+    };
+    if owns_thread {
+        if let Some(note) = note {
+            super::session_note(
+                app,
+                Some(thread),
+                crate::threads::NoteKey::Select(note).into(),
+                fx,
+            );
+        }
+        if let Some(operation) = operation {
+            queued_picker_event(app, &operation, QueueEvent::ModelApplied, fx);
+        }
+    }
 }
 
 /// A reasoning shortcut's step (`UpdateReasoningEffort`, `UpdatePlanModeReasoningEffort`): the
@@ -584,21 +790,17 @@ fn effort_pick(
     plan: bool,
     fx: &mut AppFx,
 ) {
-    let patch = if plan {
-        let mut mode = crate::screens::chat::plan_mode::collaboration_mode(
-            codex_protocol::config_types::ModeKind::Plan,
-            Some(model),
-        );
-        mode.settings.reasoning_effort = Some(effort);
-        crate::threads::SettingsPatch {
-            collaboration_mode: Some(mode),
-            ..Default::default()
+    if plan {
+        if let Some(thread) = app.session.active.clone()
+            && plan_thread(app, &thread, model)
+        {
+            plan_effort(app, &thread, Some(effort), false, None, fx);
         }
-    } else {
-        crate::threads::SettingsPatch {
-            effort: Some(effort),
-            ..Default::default()
-        }
+        return;
+    }
+    let patch = crate::threads::SettingsPatch {
+        effort: Some(effort),
+        ..Default::default()
     };
     settings(app, patch, select::Setting::Model, None, None, fx);
 }
@@ -700,6 +902,7 @@ pub(in crate::app) fn ask(
             queued: Some(queued),
             ..
         } => queued.operation().thread().clone(),
+        select::Ctx::PlanWrite(write) => write.thread.clone(),
         _ => ThreadId::default(),
     };
     fx.ask(app, AppCtx::Select(ctx), |_, ticket| Command::Screen {
@@ -754,6 +957,7 @@ fn answered(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx
         select::apply(&mut Rc::make_mut(&mut app.screens).select, ev, fx);
     };
     match (ctx, result) {
+        (select::Ctx::PlanWrite(write), result) => plan_written(app, *write, result, fx),
         (
             select::Ctx::Settings {
                 setting,
