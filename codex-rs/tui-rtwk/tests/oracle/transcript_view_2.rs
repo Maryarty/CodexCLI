@@ -860,24 +860,109 @@ fn narrow_selection_and_search_keep_complete_exit_hints() {
 fn patch_disclosure_preserves_manual_scrolling() {
     kit::pending(
         Owner::ChatLive,
-        "the chat has no activity cell with a `+ Show details` disclosure, and no focus on it from a click",
+        "The pinned transparent rtwk ModalBarrier of a live patch approval blocks the visible transcript's disclosure above the pane. Resolution with a pre-existing manual viewport is covered separately by transcript_kit::resolving_a_patch_approval_keeps_the_disclosed_manual_viewport.",
     );
-    let mut s = Screen::build(Owner::ChatLive).size(32, 10).live().open();
-    s.assert_contains("+ Show details");
-    s.click_text("+ Show details");
-    // the oracle: the disclosure is focused; the manual scroll position survives the patch approval sync
+    const PATCH: &str = include_str!("fixtures/transcript_view_2/patch_disclosure.jsonl");
+    const APPROVAL: &str =
+        include_str!("fixtures/transcript_view_2/patch_disclosure_approval.jsonl");
+    const RESOLVED: &str =
+        include_str!("fixtures/transcript_view_2/patch_disclosure_resolved.jsonl");
+    const PROMPT: &str = "Would you like to make the following edits?";
+    for scroll_before_click in [false, true] {
+        let mut s = Screen::build(Owner::ChatLive).size(48, 29).live().open();
+        s.mouse_scroll_speed(Some(1.0));
+        s.feed(PATCH);
+        s.assert_in_order(&["approval-patch.txt", "+ Show details", "tail output 10"]);
+        if scroll_before_click {
+            s.wheel_up(1, 1, 1);
+            s.assert_contains("Back to bottom");
+        }
+        s.feed(APPROVAL);
+        s.assert_in_order(&["approval-patch.txt", "+ Show details", PROMPT]);
+        s.click_text("+ Show details");
+        s.assert_in_order(&["approval-patch.txt", "patch line five", "Hide details"]);
+        s.assert_contains(PROMPT);
+        s.assert_no_resolved_requests();
+        if !scroll_before_click {
+            s.wheel_up(1, 1, 1);
+        }
+        let before = s.shot();
+        s.feed(RESOLVED);
+        s.assert_absent(PROMPT);
+        s.assert_same_rows_in(&before, 0..3);
+        s.assert_contains("Back to bottom");
+        s.assert_no_resolved_requests();
+    }
 }
 
 // ORACLE transcript_view/footer_tests.rs:483 activity_focus_keeps_controls_without_passive_hints kind=snap owner=chat-live snap=activity_focus_keeps_controls_without_passive_hints
 #[test]
 fn activity_focus_keeps_controls_without_passive_hints() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no focusable activity cell (F4 focus, Enter expand) with its controls and footer hints",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(32, 10).live().open();
-    s.keys("f4");
-    s.assert_snap("activity_focus_keeps_controls_without_passive_hints");
+    const LIVE: &str = include_str!("fixtures/transcript_view_2/activity_disclosure_live.jsonl");
+    const COMMIT: &str =
+        include_str!("fixtures/transcript_view_2/activity_disclosure_commit.jsonl");
+    for bare in [false, true] {
+        let open = Screen::build(Owner::ChatLive).size(82, 18).live();
+        let mut s = if bare { open.view_compact() } else { open }.open();
+        s.feed(LIVE);
+        s.assert_contains("+ Show details");
+        s.assert_absent("hidden detail");
+        s.assert_absent("enter expand");
+        if bare {
+            s.assert_absent("for shortcuts");
+        } else {
+            s.assert_contains("for shortcuts");
+        }
+        s.assert_text_style("Running", "!underlined");
+        s.keys("f4");
+        s.assert_text_style("Running", "underlined");
+        s.assert_contains("↑ previous · ↓ next · enter expand · esc back");
+        s.assert_absent("for shortcuts");
+        let indent = if bare { 0 } else { 2 };
+        s.resize(32 + indent, 18);
+        s.assert_contains("↓ next · enter expand · esc back");
+        s.assert_absent("↑ previous");
+        s.resize(20 + indent, 18);
+        s.assert_contains("esc back");
+        s.assert_absent("enter expand");
+        s.resize(82, 18);
+        s.keys("enter");
+        s.assert_contains("echo hidden detail");
+        s.assert_contains("Hide details");
+        s.assert_contains("enter collapse");
+        s.feed(COMMIT);
+        s.assert_text_style("Ran", "underlined");
+        s.assert_contains("echo hidden detail");
+        s.assert_contains("enter collapse");
+        s.keys("enter");
+        s.assert_contains("+ Show details");
+        s.assert_absent("hidden detail");
+        s.keys("esc");
+        s.assert_text_style("Ran", "!underlined");
+        s.assert_absent("esc back");
+    }
+    let bindings: [&[(&str, &str)]; 3] = [
+        &[("global.focus_activity", "ctrl-x t")],
+        &[
+            ("global.focus_activity", "ctrl-x t"),
+            ("global.focus_activity", "f4"),
+        ],
+        &[("global.focus_activity", "")],
+    ];
+    for keymap in bindings {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(82, 18)
+            .live()
+            .keymap(keymap)
+            .open();
+        s.feed(LIVE);
+        s.feed(COMMIT);
+        s.assert_contains("+ Show details");
+        s.assert_text_style("Ran", "!underlined");
+        s.assert_has_row("  ← for agents · ? for shortcuts");
+        s.assert_absent("enter expand");
+        s.assert_absent("esc back");
+    }
 }
 
 // ORACLE transcript_view/footer_tests.rs:565 transcript_footer_keys_remain_distinct_from_prose_and_query_text kind=snap owner=chat-live snap=transcript_footer_keys_remain_distinct_from_prose_and_query_text
