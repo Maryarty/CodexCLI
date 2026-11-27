@@ -87,6 +87,7 @@ pub(super) fn pane(state: &ChatState, w: &Chat, frame: &Frame, inline_draft: boo
                 find: find.clone(),
                 detailed: modes.detailed(),
                 mark: modes.selected(),
+                inline_history: true,
             }
             .into()
         })

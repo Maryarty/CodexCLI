@@ -2,8 +2,12 @@
 //! included (`ui_snapshots_small_heights_idle`). The page keeps its layout and clips, and a
 //! blank sheet laid over it covers it independently of the page's layout.
 
+use rtwk::binding::{AppBinding, ScreenMode};
 use rtwk::gestures::IgnorePointer;
-use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, Expanded, SizedBox, Stack, StackFit};
+use rtwk::layout::{
+    BoxWidget, Column, CrossAxisAlignment, Expanded, Flexible, MainAxisSize, SizedBox, Stack,
+    StackFit,
+};
 use rtwk::style::Style;
 use rtwk::{AnyWidget, Cx, LayoutBuilder, StatelessWidget, impl_widget};
 
@@ -20,10 +24,7 @@ use super::{Chat, ChatState};
 const HIDDEN_BELOW_ROWS: i32 = 4;
 
 /// The transcript above the bottom pane, the guide of a held chord at the bottom right, and the
-/// blank sheet over all. An inline region is as
-/// tall as the page asks (`inline_draft`: the startup draft, whose heading stands where the
-/// transcript will), so the transcript has no flex there: a flex child would keep the rows of
-/// the tallest frame (the footer's row, gone with the first key).
+/// blank sheet over all. The live inline region fits its rows after settled output leaves it.
 pub(super) fn page(
     transcript: Stack,
     body: Column,
@@ -31,17 +32,11 @@ pub(super) fn page(
     guide: ChordGuide,
     pet: ambient::Pet,
 ) -> Stack {
-    let transcript = ambient::reserve(transcript);
-    let transcript = if inline_draft {
-        transcript
-    } else {
-        Expanded::new(1, transcript).into()
+    let page = ChatColumn {
+        transcript: ambient::reserve(transcript),
+        body: Bottom { child: body.into() },
+        inline_draft,
     };
-    let page = Column::new()
-        .cross_axis_alignment(CrossAxisAlignment::Start)
-        .overflow_intended(true)
-        .child(transcript)
-        .child(Bottom { child: body.into() });
     let blank = LayoutBuilder::new(|_, constraints| {
         if constraints.max_height < HIDDEN_BELOW_ROWS {
             BoxWidget::new().style(Style::new()).into()
@@ -58,6 +53,42 @@ pub(super) fn page(
             .child(blank)
             .into(),
     ))
+}
+
+#[derive(Clone, PartialEq)]
+struct ChatColumn {
+    transcript: AnyWidget,
+    body: Bottom,
+    inline_draft: bool,
+}
+
+impl_widget!(stateless eq ChatColumn);
+
+impl StatelessWidget for ChatColumn {
+    fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
+        let inline =
+            AppBinding::maybe_of(cx).is_some_and(|binding| binding.mode() == ScreenMode::Inline);
+        let transcript = self.transcript.clone();
+        let transcript = if self.inline_draft {
+            transcript
+        } else if inline {
+            Flexible::new(1, transcript).into()
+        } else {
+            Expanded::new(1, transcript).into()
+        };
+        let main_axis = if inline {
+            MainAxisSize::Min
+        } else {
+            MainAxisSize::Max
+        };
+        Column::new()
+            .main_axis_size(main_axis)
+            .cross_axis_alignment(CrossAxisAlignment::Start)
+            .overflow_intended(true)
+            .child(transcript)
+            .child(self.body.clone())
+            .into()
+    }
 }
 
 pub(super) fn pet(state: &ChatState, w: &Chat, frame: &Frame) -> ambient::Pet {
