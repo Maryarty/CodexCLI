@@ -1301,36 +1301,115 @@ fn live_app_server_model_verification_renders_warning() {
 // ORACLE chatwidget/tests/app_server.rs:2173 live_app_server_manual_thread_name_updates_status_surfaces kind=snap owner=chat-live snap=manual_thread_name_status_surfaces
 #[test]
 fn live_app_server_manual_thread_name_updates_status_surfaces() {
-    kit::pending(
-        Owner::ChatLive,
-        "the name is applied (ThreadPart.name, read by status_surfaces.rs) but the oracle's snapshot has the sections `transcript:` and `footer:` and a `title:` line, which the kit's frame parser does not read (no frame `transcript`); the footer and the title are the chat-status chunk's",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.feed(&notify(
+    s.feed(&thread_settings_updated("GPT-5.6-Sol", "openai"));
+    s.feed(THREAD_NAME_SURFACES);
+    s.assert_title("project");
+    s.assert_has_row_trimmed("GPT-5.6-Sol default · /tmp/project");
+    let transcript = transcript_rows(&s);
+    let before = s.shot();
+
+    s.server_answers("thread/name/set", serde_json::json!({}));
+    let rename = s.hold_request("thread/name/set");
+    s.type_text("/rename review-fix").keys("enter");
+    s.assert_set_names(&["review-fix"]);
+    kit::assert_same(
+        s.requests_of("thread/name/set"),
+        1,
+        "the wire rename is pending",
+    );
+
+    s.feed(&thread_name_updated("thread-1", "review-fix"));
+    assert_name_surfaces(&s, "review-fix");
+    s.release(&rename);
+    assert_name_surfaces(&s, "review-fix");
+    // The oracle's composite snapshot has an empty transcript section.
+    s.assert_same_rows_in(&before, transcript);
+}
+
+const THREAD_NAME_SURFACES: &str = r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"GPT-5.6-Sol","cwd":"/tmp/project","project_root":"project","animations":false,"items":["model-with-reasoning","current-dir","thread-name"],"terminal_title":["thread-name","project-name"]}}}"#;
+
+fn thread_name_updated(thread: &str, name: &str) -> String {
+    notify(
         "thread/name/updated",
-        r#"{"threadId":"123e4567-e89b-12d3-a456-426614174000","threadName":"review-fix"}"#,
-    ));
-    // oracle: the transcript line, the footer and the title carry the new name.
-    s.assert_snap_section("manual_thread_name_status_surfaces", "transcript");
-    s.assert_snap_section("manual_thread_name_status_surfaces", "footer");
-    s.assert_title("review-fix | project");
+        &serde_json::json!({"threadId":thread,"threadName":name}).to_string(),
+    )
+}
+
+fn assert_name_surfaces(s: &Screen, name: &str) {
+    s.assert_has_row_trimmed(&format!("GPT-5.6-Sol default · /tmp/project · {name}"));
+    s.assert_title(&format!("{name} | project"));
+}
+
+fn transcript_rows(s: &Screen) -> std::ops::Range<usize> {
+    let first_composer_row = s
+        .rows()
+        .iter()
+        .rposition(|row| row.trim_start().starts_with("› "))
+        .expect("the live composer is visible");
+    0..first_composer_row
 }
 
 // ORACLE chatwidget/tests/app_server.rs:2208 live_app_server_automatic_thread_name_update_is_silent kind=snap owner=chat-live
 #[test]
 fn live_app_server_automatic_thread_name_update_is_silent() {
-    kit::pending(
-        Owner::ChatLive,
-        "the generated name is applied and drawn by the status surfaces (status_surfaces.rs reads ThreadPart.name), so the whole-screen comparison differs; the oracle's test compares the transcript only, and the replay kinds have no feed step",
+    for (thread, history) in [("thread-1", false), ("thread-1", true), ("restored", true)] {
+        let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+        if history {
+            s.server_answers("thread/resume", named_thread_snapshot(thread));
+            if thread == "thread-1" {
+                s.stream_lost("recovering the active conversation");
+            }
+            s.visit_thread(thread);
+            s.assert_active_thread(thread);
+            s.assert_contains("Recorded conversation");
+            kit::assert_same(
+                s.requests_of("thread/resume"),
+                1,
+                "history came from the server",
+            );
+        } else {
+            s.feed(&thread_settings_updated("GPT-5.6-Sol", "openai"));
+        }
+        s.feed(THREAD_NAME_SURFACES);
+        if history {
+            assert_name_surfaces(&s, "Generated title");
+            s.assert_text_count("Generated title", 1);
+        } else {
+            s.assert_title("project");
+        }
+        let transcript = transcript_rows(&s);
+        let before = s.shot();
+
+        // The protocol provides a persisted name in the thread snapshot and can send the
+        // same metadata separately after the session attaches.
+        s.feed(&thread_name_updated(thread, "Generated title"));
+        assert_name_surfaces(&s, "Generated title");
+        s.assert_same_rows_in(&before, transcript);
+        s.assert_set_names(&[]);
+    }
+}
+
+fn named_thread_snapshot(id: &str) -> serde_json::Value {
+    let turn = kit::replay_turn(
+        "recorded-turn",
+        serde_json::json!([{
+            "type":"userMessage","id":"recorded-item","clientId":null,
+            "content":[{"type":"text","text":"Recorded conversation","text_elements":[]}]
+        }]),
     );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    let before = s.shot();
-    s.feed(&notify(
-        "thread/name/updated",
-        r#"{"threadId":"thread-1","threadName":"Generated title"}"#,
-    ));
-    // oracle: a generated name draws nothing in the transcript (live, snapshot and resume replays alike; the replay kinds have no feed step yet).
-    s.assert_same_rows(&before);
+    serde_json::json!({
+        "thread": {
+            "id":id,"sessionId":id,"preview":"Recorded conversation","ephemeral":false,
+            "historyMode":"legacy","modelProvider":"openai","createdAt":1700000000,
+            "updatedAt":1700000000,"recencyAt":1700000000,"status":{"type":"idle"},
+            "cwd":"/tmp/project","cliVersion":"0.0.0","source":"cli",
+            "canAcceptDirectInput":true,"name":"Generated title","turns":[turn]
+        },
+        "model":"GPT-5.6-Sol","modelProvider":"openai","cwd":"/tmp/project",
+        "approvalPolicy":"on-request","approvalsReviewer":"user",
+        "sandbox":{"type":"dangerFullAccess"},"instructionSources":[]
+    })
 }
 
 // ORACLE chatwidget/tests/app_server.rs:2268 thread_name_suggestion_requires_matching_thread_and_request kind=ui owner=chat-live
