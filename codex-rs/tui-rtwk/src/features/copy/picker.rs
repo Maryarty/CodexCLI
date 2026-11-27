@@ -1,7 +1,7 @@
 //! The copy picker (oracle `chatwidget/copy_picker.rs` `show_copy_picker`): `/copy` over the last
 //! response lists the whole response (as Markdown), then each code block and quote of its source
 //! (as plain text), each with a one-line preview. What is picked goes back to the feature as
-//! `Intent::Text`; a preview is cut at 72 graphemes and never changes what is copied.
+//! `CopyChoice`; a preview is cut at 72 graphemes and never changes what is copied.
 //! Flutter's `showModalBottomSheet` over a list of options.
 
 use std::rc::Rc;
@@ -11,11 +11,9 @@ use rtwk::overlay::close_dialog;
 use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
 use rtwk_core::unicode::grapheme_boundaries;
 
-use codex_tui_core::app::effects::CopyFormat;
-use codex_tui_core::features::FeatureIntent;
-use codex_tui_core::features::copy::{Intent, Response, strip_line_directives};
-use codex_tui_core::ids::ThreadId;
+use codex_tui_core::features::copy::{Response, strip_line_directives};
 use codex_tui_core::screens::status::StatusCard;
+use codex_tui_core::threads::queue::CopyChoice;
 
 use super::strings::{
     BLOCKQUOTE, CODE_BLOCK, PICKER_TITLE, STATUS_DIRECTORY, STATUS_MODEL, STATUS_SESSION_ID,
@@ -32,10 +30,7 @@ const PREVIEW_GRAPHEMES: usize = 72;
 #[derive(Clone, Debug, PartialEq)]
 pub enum Source {
     Response(Response),
-    Status {
-        thread: ThreadId,
-        card: Arc<StatusCard>,
-    },
+    Status(Arc<StatusCard>),
 }
 
 /// The picker over the copy source selected by the thread.
@@ -58,7 +53,7 @@ pub enum Msg {
 struct Choice {
     label: String,
     text: String,
-    format: CopyFormat,
+    markdown: bool,
 }
 
 /// The rows of the picker for `response` (`show_copy_picker`).
@@ -66,7 +61,7 @@ fn response_choices(response: &Response) -> Vec<Choice> {
     let mut choices = vec![Choice {
         label: WHOLE_RESPONSE.to_owned(),
         text: response.markdown.clone(),
-        format: CopyFormat::Markdown,
+        markdown: true,
     }];
     for target in targets::extract(&response.source) {
         match target {
@@ -74,7 +69,7 @@ fn response_choices(response: &Response) -> Vec<Choice> {
                 label: language
                     .map_or_else(|| CODE_BLOCK.to_owned(), |language| code_in(&language)),
                 text: content,
-                format: CopyFormat::PlainText,
+                markdown: false,
             }),
             Target::Quote(content) => {
                 let content: String = content
@@ -85,7 +80,7 @@ fn response_choices(response: &Response) -> Vec<Choice> {
                     choices.push(Choice {
                         label: BLOCKQUOTE.to_owned(),
                         text: content,
-                        format: CopyFormat::PlainText,
+                        markdown: false,
                     });
                 }
             }
@@ -96,7 +91,7 @@ fn response_choices(response: &Response) -> Vec<Choice> {
 
 fn choices(source: &Source, cx: &mut Cx<'_, PickerState>) -> Vec<Choice> {
     let card = match source {
-        Source::Status { card, .. } => card,
+        Source::Status(card) => card,
         Source::Response(response) => return response_choices(response),
     };
     let whole = StatusCell::export_text(card, cx);
@@ -118,7 +113,7 @@ fn choices(source: &Source, cx: &mut Cx<'_, PickerState>) -> Vec<Choice> {
         Some(Choice {
             label: label.to_owned(),
             text: text?.to_owned(),
-            format: CopyFormat::PlainText,
+            markdown: false,
         })
     })
     .collect()
@@ -182,7 +177,7 @@ impl State for PickerState {
         }
     }
 
-    fn update(&mut self, msg: Msg, w: &CopyPicker, cx: &mut Cx<'_, Self>) -> Rebuild {
+    fn update(&mut self, msg: Msg, _w: &CopyPicker, cx: &mut Cx<'_, Self>) -> Rebuild {
         let Msg::Picked(event) = msg;
         let outcome = match event {
             Event::Choose(id) => {
@@ -193,29 +188,21 @@ impl State for PickerState {
                 let Some(Choice {
                     label,
                     text,
-                    format,
+                    markdown,
                 }) = picked
                 else {
                     return Rebuild::No;
                 };
-                let intent = match &w.source {
-                    Source::Response(_) => Intent::Text {
-                        text: text.clone(),
-                        label: label.clone(),
-                        format: format.clone(),
-                    },
-                    Source::Status { thread, .. } => Intent::StatusText {
-                        thread: thread.clone(),
-                        text: text.clone(),
-                        label: label.clone(),
-                    },
-                };
-                Some(intent.into())
+                Some(if *markdown {
+                    CopyChoice::markdown(text.clone(), label.clone())
+                } else {
+                    CopyChoice::plain_text(text.clone(), label.clone())
+                })
             }
             Event::Cancel => None,
             _ => return Rebuild::No,
         };
-        close_dialog::<_, FeatureIntent>(cx, outcome);
+        close_dialog::<_, CopyChoice>(cx, outcome);
         Rebuild::No
     }
 

@@ -74,7 +74,7 @@ const FOCUS_REASON: &str = "the terminal losing and regaining focus (`set_sparkl
 const HELP_STATUS: &str = include_str!("fixtures/pane_footer_1/help_status.jsonl");
 const EXTENSION_NA: &str = "no live producer: the oracle's app never builds a ui_tree status row (only its tests); native wrap/row budget covered by native_wrap_tracks_agent_label_and_content_changes_at_the_same_width and status_survives_hints_feedback_and_queue";
 const ACTIVITY_REASON: &str = "the hint is the footer of the transcript view (`TranscriptFooter`: `ctrl+o t/f4 inspect activity`, interactive or not, with the shortcut key unbound) that the composer shows under the transcript pager: the pager has no such footer yet (the pager task's), the Working row and the activity rows of chunk-status do not draw it";
-const MODE_REASON: &str = "the footer at five widths with Plan mode, the IDE context indicator, the vim mode and 2 warnings: Plan mode, the vim mode and the warnings are in the page (ported in the plan and warnings tests), the IDE context indicator is not (no IDE-context fact in StatusFacts, no host probe: a Need on the IDE-context owner)";
+const MODE_REASON: &str = "the combined Plan, IDE, Vim and warning snapshot needs the composer-only height budget and separated status line across seven fullscreen and scrollback configurations";
 const POPUP_REASON: &str = "the status stays under the composer while the popup is open (page test), but the popup's own rows (`/model` descriptions, the selection marker) are the popups chunk's widget and differ from the oracle's Buffer snapshot";
 
 /// The chat screen's status facts (`ScreenEv::Chat(Ev::Status)`), as the host sends them.
@@ -1018,6 +1018,35 @@ fn footer_layout_in_fullscreen_and_scrollback() {
     s.resize(31, 6);
     s.type_text("draft");
     s.assert_contains("Plan mode");
+}
+
+#[test]
+fn ide_status_uses_fresh_receipts_in_fullscreen_and_scrollback() {
+    for inline in [false, true] {
+        let open = Screen::build(Owner::UiPane)
+            .size(120, 24)
+            .script(PLAN_STATUS)
+            .live();
+        let mut s = if inline {
+            open.inline(&["previous shell output"]).open()
+        } else {
+            open.open()
+        };
+        s.type_text("/ide on").keys("enter");
+        s.assert_absent("IDE context is on.");
+        s.answer_ide_context(Ok(true));
+        s.wait_for("IDE context is on.");
+        s.assert_contains("Future messages will include your current IDE selection and open tabs.");
+        s.assert_row_of("for shortcuts", &["IDE context"], &[]);
+        s.type_text("/ide off").keys("enter");
+        s.wait_for("IDE context is off.");
+        s.assert_row_of("for shortcuts", &[], &["IDE context"]);
+        s.type_text("/ide on").keys("enter");
+        s.answer_ide_context(Err("The local IDE extension did not answer."));
+        s.wait_for("IDE context could not be enabled.");
+        s.assert_contains("The local IDE extension did not answer.");
+        s.assert_row_of("for shortcuts", &[], &["IDE context"]);
+    }
 }
 
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:830 active_side_action_keeps_plan_expanded_on_the_other_row kind=ui owner=ui-pane

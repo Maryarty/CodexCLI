@@ -41,7 +41,7 @@ use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::screens::SeedError;
 use crate::threads::Tone;
-use crate::threads::queue::QueueOperation;
+use crate::threads::queue::{ModalKind, QueueOperation, StatusLineChoice};
 
 pub use catalog::*;
 pub use persist::Setting;
@@ -483,11 +483,22 @@ impl State {
             inspect: false,
             queued: true,
         };
-        if cx.wish_for_queued_operation(operation, wish) {
+        if cx.wish_for_queued_operation(operation, ModalKind::StatusLine, wish) {
             self.offer(Offer::Setup(items::status_line(
                 &cx.view().screens().chat.status,
             )));
         }
+    }
+
+    pub(super) fn save_status_line(&mut self, choice: StatusLineChoice, cx: &mut AppCx<'_>) {
+        self.request(
+            Edit::SetupSaved {
+                kind: SetupKind::StatusLine,
+                items: choice.items,
+                use_theme_colors: choice.use_theme_colors,
+            },
+            cx,
+        );
     }
 
     /// `/experimental`: the dialog opens loading and the first page is asked for the active
