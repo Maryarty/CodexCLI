@@ -471,7 +471,7 @@ async fn run(
     }));
     // `tui.keymap.*`: a keymap the oracle refuses is a warning and the
     // defaults stay.
-    let keymap = match crate::facts::keymap(&config) {
+    let keymap = match crate::facts::keymap(&config, alternate_screen) {
         Ok(keymap) => Some(keymap),
         Err(details) => {
             warnings.push(Warning {

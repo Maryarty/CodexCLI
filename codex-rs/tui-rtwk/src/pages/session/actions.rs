@@ -11,7 +11,8 @@ use codex_tui_core::commands::{
     DispatchCx, Notice, Open, Outcome, SessionIntent, SlashCommand, Target, dispatch_with_tiers,
     parent_owned_takes,
 };
-use codex_tui_core::ids::Cwd;
+use codex_tui_core::features::FeatureStates;
+use codex_tui_core::ids::{Cwd, ThreadId};
 use codex_tui_core::screens::composer::{self, ShellLine};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, popovers};
 use codex_tui_core::threads::{Failure, Note, NoteKey, Ran, ThreadModel, Toggle};
@@ -50,6 +51,12 @@ pub(super) fn open_warnings(cx: &mut Cx<'_, ChatState>) {
     super::open::open_warnings(cx);
 }
 
+/// The draft before the first session has no server thread yet.
+pub(super) fn thread_address(thread: &ThreadModel) -> Option<ThreadId> {
+    let id = thread.id();
+    (!id.as_str().is_empty()).then(|| id.clone())
+}
+
 /// A settings shortcut (`Shift+Tab`, `Alt+,`, `Alt+.`) on a thread its parent controls says so
 /// and does nothing (`add_error_message(PARENT_OWNED_INPUT_MESSAGE)`); true when it refused.
 pub(super) fn refuses_parent_owned(cx: &mut Cx<'_, ChatState>, hs: &Hs) -> bool {
@@ -58,7 +65,7 @@ pub(super) fn refuses_parent_owned(cx: &mut Cx<'_, ChatState>, hs: &Hs) -> bool 
         return false;
     }
     let intent = chat::Intent::Note {
-        thread: read::<SessionSlice, _>(cx).active.clone(),
+        thread: thread_address(&thread),
         note: Note::from(NoteKey::ParentOwned),
     };
     cx.emit(&hs.screen, ScreenIntent::from(intent));
@@ -121,6 +128,7 @@ pub(super) fn run(
     let states = read::<ScreenStates, _>(cx);
     let thread = read::<ThreadModel, _>(cx);
     let session = read::<SessionSlice, _>(cx);
+    let source = thread_address(&thread);
     // the commands the current model's service tiers add (`/fast`)
     let thread_model = thread.screen_slots().chat.model.clone();
     let tiers = codex_tui_core::screens::chat::facts::tier_commands(
@@ -130,11 +138,12 @@ pub(super) fn run(
         &states.chat.service_tiers,
     );
     let mut flags = states.chat.flags;
+    flags.side_conversation_active = read::<FeatureStates, _>(cx).side.is_side(thread.id());
     flags.service_tier_commands_enabled = !tiers.is_empty();
     let facts = DispatchCx {
         flags,
         task_running: thread.busy(), // a turn running or a start in flight
-        side_conversation: states.chat.flags.side_conversation_active,
+        side_conversation: flags.side_conversation_active,
         review_mode: thread.screen_slots().chat.review_mode(),
         queued_follow_up: !thread.queue().is_empty() || !thread.rejected_steers().is_empty(),
         thread_started: matches!(session.status, Session::Ready),
@@ -146,7 +155,7 @@ pub(super) fn run(
     // What the line answered with is a note of the thread it was sent in.
     let say = |cx: &mut Cx<'_, ChatState>, note: Note| {
         let intent = chat::Intent::Note {
-            thread: session.active.clone(),
+            thread: source.clone(),
             note,
         };
         cx.emit(&hs.screen, ScreenIntent::from(intent));
@@ -181,7 +190,7 @@ pub(super) fn run(
     if let Some(shell) = composer::shell_line(line, !drained && w.ui.draft.shell()) {
         // a thread that exists but is not taking input (no connection) keeps
         // the draft; with no thread yet the app queues it
-        if !facts.thread_started && session.active.is_some() {
+        if !facts.thread_started && source.is_some() {
             return;
         }
         match shell {
@@ -193,7 +202,7 @@ pub(super) fn run(
                 record(cx);
                 clear_sent(&w.ui);
                 let intent = chat::Intent::Shell {
-                    thread: session.active.clone(),
+                    thread: source.clone(),
                     command,
                 };
                 screen(cx, intent);
@@ -202,18 +211,18 @@ pub(super) fn run(
         return;
     }
     let outcome = dispatch_with_tiers(line, &facts, &tiers);
-    features::supersede_status_copy(&outcome, session.active.as_ref(), cx, hs);
+    features::supersede_status_copy(&outcome, source.as_ref(), cx, hs);
     match outcome {
         Outcome::NotACommand => {
             // The decision is `apply`'s (R10): it starts a turn or queues
             // the message; the composer clears when it has.
             *ran = Some(Ran::Submitted);
             if let Some(deferred) = deferred {
-                cx.emit(&hs.submit, deferred.message().clone());
+                cx.emit(&hs.submit, (source.clone(), deferred.message().clone()));
             } else if !line.trim().is_empty() || w.ui.draft.remote_count() > 0 {
                 record(cx);
                 let message = queue::message(line, w, cx, &states);
-                queue::send(cx, hs, message, session.active.clone());
+                queue::send(cx, hs, message, source.clone());
             }
         }
         // A feature's own sheet (`/plugins`, a bare `/export`): its UI half opens it with the
@@ -229,7 +238,7 @@ pub(super) fn run(
             let args = features::OpenArgs::of(
                 feature,
                 Cwd::new(review_cwd(&states, &thread)),
-                session.active.clone(),
+                source.clone(),
             );
             features::open(cx, args);
             note_opened(Target::Feature(feature));
@@ -254,7 +263,7 @@ pub(super) fn run(
                 screen(
                     cx,
                     chat::Intent::Session {
-                        thread: session.active.clone(),
+                        thread: source.clone(),
                         command: opened.command,
                         intent,
                     },
@@ -306,7 +315,7 @@ pub(super) fn run(
                     &hs.screen,
                     ScreenIntent::Select(queue::scope_select(
                         intent,
-                        session.active.as_ref(),
+                        source.as_ref(),
                         deferred,
                         ran,
                     )),
@@ -346,7 +355,7 @@ pub(super) fn run(
             screen(
                 cx,
                 chat::Intent::Session {
-                    thread: session.active.clone(),
+                    thread: source.clone(),
                     command,
                     intent,
                 },

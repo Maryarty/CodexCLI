@@ -7,10 +7,10 @@
 
 use crate::common::{Harness, start_driven};
 
-const SIDE: &str = "side-1";
+pub(crate) const SIDE: &str = "side-1";
 
 /// The server's answer to the fork `/side` asks for.
-fn forked() -> serde_json::Value {
+pub(crate) fn forked() -> serde_json::Value {
     serde_json::json!({
         "thread": {
             "id": SIDE, "environments": null, "extra": null, "sessionId": SIDE,

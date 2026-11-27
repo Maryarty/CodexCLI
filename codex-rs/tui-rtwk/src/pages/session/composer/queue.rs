@@ -69,7 +69,7 @@ pub(in crate::pages::session) fn send(
     message: UserMessage,
     thread: Option<ThreadId>,
 ) {
-    cx.emit(&hs.submit, message);
+    cx.emit(&hs.submit, (thread.clone(), message));
     if let Some(thread) = thread {
         features::verb(cx, QuestionIntent::Superseded { thread });
     }

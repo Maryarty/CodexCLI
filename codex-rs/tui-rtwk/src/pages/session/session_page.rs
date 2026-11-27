@@ -102,11 +102,27 @@ pub use msg::ChatMsg;
 #[derive(Clone)]
 pub struct Chat {
     pub ui: Rc<ThreadUi>,
+    pub(super) presentation: Presentation,
+}
+
+/// Only the selected chat presents terminal-wide controls.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum Presentation {
+    #[default]
+    Solo,
+    Focused,
+    Passive,
+}
+
+impl Presentation {
+    pub(super) fn focused(self) -> bool {
+        self != Self::Passive
+    }
 }
 
 impl PartialEq for Chat {
     fn eq(&self, other: &Chat) -> bool {
-        Rc::ptr_eq(&self.ui, &other.ui)
+        Rc::ptr_eq(&self.ui, &other.ui) && self.presentation == other.presentation
     }
 }
 
@@ -197,7 +213,11 @@ impl StatefulWidget for Chat {
             search_rev: self.ui.draft.search_rev(),
             draft_shell: self.ui.draft.shell(),
             draft_vim: self.ui.draft.vim_label(),
-            node: FocusNode::new(),
+            node: if self.presentation == Presentation::Solo {
+                FocusNode::new()
+            } else {
+                super::side_pane::composer_node(&self.ui)
+            },
             control: Rc::new(Cell::new(false)),
             banner: BannerGate::new(),
             banner_blocked: Rc::new(Cell::new(BannerBlocked::default())),
@@ -261,13 +281,13 @@ impl State for ChatState {
     type Widget = Chat;
     type Msg = ChatMsg;
 
-    fn init_state(&mut self, _: &Chat, cx: &mut Cx<'_, Self>) {
+    fn init_state(&mut self, w: &Chat, cx: &mut Cx<'_, Self>) {
         self.edges = Some(cx.map(ChatMsg::Edge));
-        input::install(self, cx);
+        input::install(self, w.presentation != Presentation::Solo, cx);
     }
 
     fn did_update_widget(&mut self, old: &Chat, w: &Chat, _cx: &mut Cx<'_, Self>) {
-        if old != w {
+        if !Rc::ptr_eq(&old.ui, &w.ui) {
             self.close_editor();
             self.asking = w.ui.held(Rc::default);
             *self.composer.borrow_mut() = w.ui.composer.clone();
@@ -285,6 +305,9 @@ impl State for ChatState {
             }
             self.banner.quick_menu.set(false);
             self.forking = None;
+        }
+        if !old.presentation.focused() && w.presentation.focused() {
+            self.node.request_focus();
         }
     }
 
@@ -389,6 +412,11 @@ impl State for ChatState {
                 drop(Navigator::of(cx).push::<()>(PageRoute::<()>::new(|_| DebugMenu.into())));
             }
             ChatMsg::Action(action) => action.run(cx, &Keyed { hs: &hs, ui: &w.ui }),
+            ChatMsg::Workspace(action) => {
+                if w.presentation.focused() {
+                    super::side_pane::take(cx, action);
+                }
+            }
             ChatMsg::Interrupt => return escape::interrupt(&read::<ThreadModel, _>(cx), cx, &hs),
             ChatMsg::Escape => {
                 if let Some(rebuild) = self.escape(w, cx, &hs) {
@@ -411,11 +439,16 @@ impl State for ChatState {
         let transcript = reader::pane(self, w, &frame, inline_draft);
         let slot = slot::slot(self, w, cx, &frame);
         let body = bottom::body(self, w, cx, &frame, slot);
-        let body = bottom::with_titles(&frame, body, title::titles(cx, &frame));
+        let titles = if w.presentation.focused() {
+            title::titles(cx, &frame)
+        } else {
+            Vec::new()
+        };
+        let body = bottom::with_titles(&frame, body, titles);
         let guide = chord_guide::guide(w.ui.draft.clone(), frame.keymap.clone());
         let pet = overlay::pet(self, w, &frame);
         let page = overlay::page(transcript, body, inline_draft, guide, pet);
-        let focus = input::focus(self, cx, &frame, &w.ui, page);
+        let focus = input::focus(self, cx, &frame, &w.ui, w.presentation, page);
         // The listener stands outside the keyed focus: a key that changes in the same flush as a
         // directive (the continue key ends the lock and gives the words in one step) would end its
         // state, and the edge with it.

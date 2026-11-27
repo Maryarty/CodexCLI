@@ -41,6 +41,7 @@ use crate::app::debug::DebugOpen;
 use crate::app::debug::EntryOpen;
 use crate::app::debug::seeded::Seeded;
 
+mod side_pane;
 pub mod strings;
 
 /// What the debug menu lists for this directory: a screen per state worth
@@ -53,6 +54,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         open: EntryOpen::Route(|seeded: &Seeded| {
             session_page::Chat {
                 ui: seeded.thread_ui.get(seeded.core.session().active.as_ref()),
+                presentation: session_page::Presentation::Solo,
             }
             .into()
         }),
@@ -67,14 +69,19 @@ pub fn debug_entries() -> Vec<DebugEntry> {
 pub fn seeded(seeded: &Seeded<'_>) -> AnyWidget {
     session_page::Chat {
         ui: seeded.thread_ui.get(seeded.core.session().active.as_ref()),
+        presentation: session_page::Presentation::Solo,
     }
     .into()
 }
 
 /// The `Navigator`'s home: the chat of the active thread.
 pub fn home(app: &crate::app::UiApp) -> AnyWidget {
+    if let Some(pair) = side_pane::Dock::of(app) {
+        return pair.keyed();
+    }
     session_page::Chat {
         ui: app.ui.thread_ui.get(app.core.session().active.as_ref()),
+        presentation: session_page::Presentation::Solo,
     }
     .into()
 }

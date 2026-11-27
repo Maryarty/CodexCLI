@@ -27,9 +27,8 @@ use crate::sheets::presenter::home_node;
 
 /// The app's handlers, provided to the tree.
 pub struct Hs {
-    /// Send `text` to the active thread (to the startup draft before the
-    /// session is ready).
-    pub submit: Handler<UserMessage>,
+    /// Send a message to the thread that received the input. None is the startup draft.
+    pub submit: Handler<(Option<ThreadId>, UserMessage)>,
     /// Close a request without answering it.
     pub dismiss: Handler<RequestKey>,
     pub dismiss_banner: Handler<(BackendId, Ticket)>,
@@ -57,8 +56,7 @@ pub struct Hs {
 /// The view of the app.
 pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
     let hs = Hs {
-        submit: cx.on_with(|app: &mut UiApp, message: UserMessage, _cx| {
-            let thread = app.core.session().active.clone();
+        submit: cx.on_with(|app: &mut UiApp, (thread, message), _cx| {
             app.send(AppEv::Intent(Intent::Submit { thread, message }));
         }),
         dismiss: cx.on_with(|app: &mut UiApp, key: RequestKey, _cx| {

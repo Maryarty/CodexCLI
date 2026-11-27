@@ -64,6 +64,20 @@ pub(super) fn body(
         placeholder,
         editing,
     } = slot;
+    if !w.presentation.focused() {
+        return Column::new()
+            .cross_axis_alignment(CrossAxisAlignment::Start)
+            .main_axis_size(MainAxisSize::Min)
+            .child(StatusSlot {
+                hook: run.hook.clone(),
+            })
+            .child(
+                BoxWidget::new()
+                    .padding(EdgeInsets::only(0, 1, 1, 1))
+                    .child(composer),
+            )
+            .child(SizedBox::new(None, Some(1), None));
+    }
     // Whether `StatusSlot` shows a row: the reader's gap then sets itself
     // apart from it with a blank row.
     let status_above = !run.read_only

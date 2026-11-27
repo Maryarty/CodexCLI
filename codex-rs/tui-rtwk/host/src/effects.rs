@@ -137,6 +137,10 @@ pub(crate) fn tui_settings(config: &Config) -> TuiSettings {
         hide_rate_limit_model_nudge: config.notices.hide_rate_limit_model_nudge.unwrap_or(false),
         transcript_owned: config.tui_fullscreen_transcript
             && config.tui_alternate_screen != codex_config::types::AltScreenMode::Never,
+        workspace_enabled: config
+            .features
+            .enabled(codex_features::Feature::TuiWorkspace),
+        sidebar_width_percent: config.tui_sidebar_width_percent,
         rendering: Rendering {
             mermaid: rendering.mermaid,
             math: rendering.math,

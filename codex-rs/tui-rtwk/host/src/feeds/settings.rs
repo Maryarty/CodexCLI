@@ -76,8 +76,18 @@ fn fact(config: &Config, home: Option<&Path>, alternate_screen: bool) -> Fact {
                 generate_memories,
             }),
         config_rows: config_rows(config, &PasteEnvironment::detect(), alternate_screen),
-        keymap_tabs: crate::facts::keymap(config)
-            .map(|resolved| keymap::picker(&resolved, keymap::Filter::default()).tabs)
+        keymap_tabs: crate::facts::keymap(config, alternate_screen)
+            .map(|resolved| {
+                let tui = crate::terminal_mode::tui_settings(config, alternate_screen);
+                keymap::picker(
+                    &resolved,
+                    keymap::Filter {
+                        workspace: tui.transcript_owned && tui.workspace_enabled,
+                        ..keymap::Filter::default()
+                    },
+                )
+                .tabs
+            })
             .unwrap_or_default(),
         keymap_spec: serde_json::to_value(&config.tui_keymap)
             .map(|value| KeymapSpec::from_json(&value))

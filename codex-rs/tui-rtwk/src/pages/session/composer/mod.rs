@@ -240,6 +240,8 @@ pub struct Composer {
     placeholder: Option<Placeholder>,
     /// The preview remains mounted while its sibling query field owns input.
     history_field: bool,
+    /// A docked peer keeps its draft visible without accepting input or opening suggestions.
+    passive: bool,
     /// Input is off (`set_input_enabled(false, ..)`): the draft stays, takes no key, shows no
     /// caret and draws this placeholder in its place.
     off: Option<Placeholder>,
@@ -289,6 +291,7 @@ impl PartialEq for Composer {
             && self.restricted == other.restricted
             && self.placeholder == other.placeholder
             && self.history_field == other.history_field
+            && self.passive == other.passive
             && self.off == other.off
     }
 }
@@ -311,6 +314,7 @@ impl Composer {
             restricted: None,
             placeholder: None,
             history_field: false,
+            passive: false,
             off: None,
         }
     }
@@ -332,6 +336,7 @@ impl Composer {
             restricted: None,
             placeholder: None,
             history_field: false,
+            passive: false,
             off: None,
         }
     }
@@ -340,6 +345,11 @@ impl Composer {
     #[must_use]
     pub fn with_history_field(mut self, shown: bool) -> Self {
         self.history_field = shown;
+        self
+    }
+
+    pub(super) fn passive(mut self, passive: bool) -> Self {
+        self.passive = passive;
         self
     }
 
@@ -549,7 +559,7 @@ fn apply_before_search<S>(cx: &mut Cx<'_, S>, action: BeforeSearch) -> rtwk::Reb
     let hs = read::<Hs, _>(cx);
     match action {
         BeforeSearch::VimToggled(on) => {
-            let thread = read::<SessionSlice, _>(cx).active.clone();
+            let thread = super::actions::thread_address(&read::<ThreadModel, _>(cx));
             let note = Note::from(NoteKey::Toggled(Toggle::Vim, on));
             let intent = chat::Intent::Note { thread, note };
             cx.emit(&hs.screen, ScreenIntent::from(intent));
@@ -1068,7 +1078,7 @@ impl State for ComposerState {
             .controller(c.clone())
             .cursor_shape(CursorShape::TerminalDefault)
             .min_lines(1)
-            .autofocus(w.plain.as_ref().is_none_or(|look| look.autofocus))
+            .autofocus(!w.passive && w.plain.as_ref().is_none_or(|look| look.autofocus))
             // the oracle draws the selection REVERSED (`textarea.rs`)
             .selection_style(Style::new().attrs(Attrs::REVERSE))
             .on_changed(cx.map(ComposerMsg::Changed));
@@ -1236,7 +1246,7 @@ impl State for ComposerState {
             );
         }
         let area: AnyWidget = IgnorePointer::new()
-            .ignoring(w.history_field)
+            .ignoring(w.history_field || w.passive)
             .child(area)
             .into();
         // the plain-text composer: the prompt and the field, nothing around
@@ -1246,7 +1256,7 @@ impl State for ComposerState {
         let table = chat_strings::of(cx);
         // the rows of the text as it is now (the states may have changed)
         self.refresh(w, &popovers, &slash, table);
-        let field = self.popup(keys(area), w.ui.find.active(), cx);
+        let field = self.popup(keys(area), w.passive || w.ui.find.active(), cx);
         let mark = if w.ui.draft.shell() {
             prompt(
                 strings::of(cx).shell_prompt,

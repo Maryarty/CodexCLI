@@ -57,7 +57,7 @@ impl PartialEq for Sent {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum SeededMsg {
-    Submit(UserMessage),
+    Submit(Option<ThreadId>, UserMessage),
     Dismiss(RequestKey),
     DismissBanner(BackendId, Ticket),
     PickBanner(BackendId, Ticket, usize),
@@ -99,10 +99,7 @@ impl State for SeededScopeState {
             return Rebuild::No;
         };
         let intent = match msg {
-            SeededMsg::Submit(message) => Intent::Submit {
-                thread: sandbox.app().session().active.clone(),
-                message,
-            },
+            SeededMsg::Submit(thread, message) => Intent::Submit { thread, message },
             SeededMsg::Dismiss(key) => Intent::DismissRequest(key),
             SeededMsg::DismissBanner(backend, ticket) => {
                 Intent::DismissBackendBanner { backend, ticket }
@@ -141,7 +138,7 @@ impl State for SeededScopeState {
         };
         let core = sandbox.app();
         let hs = Hs {
-            submit: cx.map(SeededMsg::Submit),
+            submit: cx.map(|(thread, message)| SeededMsg::Submit(thread, message)),
             dismiss: cx.map(SeededMsg::Dismiss),
             dismiss_banner: cx.map(|(backend, ticket)| SeededMsg::DismissBanner(backend, ticket)),
             pick_banner: cx

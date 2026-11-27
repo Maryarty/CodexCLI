@@ -109,6 +109,8 @@ struct Deps {
     fork_failed: u32,
     /// The page is the route in front: a removal waits until it is.
     current: bool,
+    /// Only the selected pane can open a global surface.
+    focused: bool,
     /// The session is configured and its thread idle (`startup::confirm_ready`).
     ready: bool,
 }
@@ -132,6 +134,13 @@ fn deps<S: 'static>(cx: &mut Cx<'_, S>) -> Deps {
     });
     let removed = select::<SessionSlice, u32, _>(cx, |session| session.removed);
     let thread = counters.thread.clone();
+    let addressed = thread.clone();
+    let focused = select::<SessionSlice, bool, _>(cx, move |session| {
+        session.active.as_ref().map_or_else(
+            || addressed.as_str().is_empty(),
+            |active| active == &addressed,
+        )
+    });
     let fork_failed = select::<SessionSlice, u32, _>(cx, move |session| {
         session.fork_failed.get(&thread).copied().unwrap_or(0)
     });
@@ -141,7 +150,8 @@ fn deps<S: 'static>(cx: &mut Cx<'_, S>) -> Deps {
         counters,
         removed,
         fork_failed,
-        current: Route::is_current_of(cx),
+        current: focused && Route::is_current_of(cx),
+        focused,
         ready: idle && started,
     }
 }
@@ -163,6 +173,8 @@ pub struct ListenerState {
     front: bool,
     /// Whether the session was ready at the last look.
     ready: bool,
+    due_shown: Option<(ThreadId, u64)>,
+    plan_shown: Option<(ThreadId, u64)>,
 }
 
 impl StatefulWidget for Listener {
@@ -199,6 +211,7 @@ impl State for ListenerState {
             removed,
             fork_failed,
             current,
+            focused,
             ready,
         } = deps(cx);
         let before = self.seen.replace(now.clone());
@@ -271,17 +284,20 @@ impl State for ListenerState {
                 cx.emit(&w.on_edge, Edge::Draft(restore.draft.message()));
             }
         }
-        if Self::moved(before.as_ref(), &now, |c| c.plan) {
+        let plan = now.plan.map(|seq| (now.thread.clone(), seq));
+        if focused && plan.is_some() && plan != self.plan_shown {
+            self.plan_shown = plan;
             cx.emit(&w.on_edge, Edge::Plan);
         }
         // a queued command waits for the page, a first look at the thread included: it is run
         // once, when the page is in front to show what it opens
-        let due = |c: &Counters| (c.thread.clone(), c.due);
+        let due = now.due.map(|seq| (now.thread.clone(), seq));
         if current
-            && now.due.is_some()
-            && before.as_ref().map(due) != Some(due(&now))
+            && due.is_some()
+            && due != self.due_shown
             && let Some(command) = read::<ThreadModel, _>(cx).due_command().cloned()
         {
+            self.due_shown = due;
             cx.emit(&w.on_edge, Edge::Due(command));
         }
         if current && !self.front {

@@ -356,7 +356,15 @@ impl Keymap {
     /// where both actions can be active, a chord's prefix may not hide a
     /// single key, and the reserved keys stay reserved.
     pub fn resolve(spec: &KeymapSpec) -> Result<Keymap, KeymapError> {
-        let keymap = Keymap::build(spec, true)?;
+        Self::resolve_for_workspace(spec, false)
+    }
+
+    /// Resolve the pane chords only when the terminal owns its workspace.
+    pub fn resolve_for_workspace(
+        spec: &KeymapSpec,
+        workspace: bool,
+    ) -> Result<Keymap, KeymapError> {
+        let keymap = Keymap::build(spec, true, workspace)?;
         keymap.validate()?;
         Ok(keymap)
     }
@@ -365,7 +373,7 @@ impl Keymap {
     /// the oracle's tests set field by field. A spec that does not parse is
     /// skipped.
     pub fn resolve_unchecked(spec: &KeymapSpec) -> Keymap {
-        match Keymap::build(spec, false) {
+        match Keymap::build(spec, false, false) {
             Ok(keymap) => keymap,
             Err(_) => Keymap::defaults(),
         }
@@ -488,10 +496,18 @@ impl Keymap {
         })
     }
 
-    fn build(spec: &KeymapSpec, strict: bool) -> Result<Keymap, KeymapError> {
+    fn build(spec: &KeymapSpec, strict: bool, workspace: bool) -> Result<Keymap, KeymapError> {
         // Pane shortcuts have no pane to act on (classic mode): they must not
         // claim keys or chord prefixes.
-        let spec = &spec.without("global", SIDE_PANE);
+        // Tab picking belongs to the later multi-chat sidebar. Keep its keys
+        // free while the workspace contains a single peer.
+        let unsupported = ["focus_sidebar_tabs", "sidebar_up", "sidebar_down"];
+        let inactive = if workspace {
+            &unsupported[..]
+        } else {
+            SIDE_PANE
+        };
+        let spec = &spec.without("global", inactive);
         let parsed = parse_configured(spec, strict)?;
         let mut slots = vec![Slot::default(); ROWS.len()];
 
@@ -577,7 +593,7 @@ impl Keymap {
         }
 
         let mut keymap = Keymap { slots, leaders };
-        keymap.add_implicit_chords(spec);
+        keymap.add_implicit_chords(spec, inactive);
         // Single keys before chords, as a hint lists them.
         for slot in &mut keymap.slots {
             if slot.configured {
@@ -591,7 +607,7 @@ impl Keymap {
 
     /// The chords no config sets: Vim's `g g`, and the leader shortcuts of
     /// the backend, presets and selection (`leader_defaults::register`).
-    fn add_implicit_chords(&mut self, spec: &KeymapSpec) {
+    fn add_implicit_chords(&mut self, spec: &KeymapSpec, inactive: &[&str]) {
         let g = Stroke::parse("g").unwrap_or(Stroke::new(Key::Char('g'), Mods::NONE));
         let jump_top = Binding::Chord {
             prefix: g,
@@ -633,8 +649,7 @@ impl Keymap {
             let Some(completion_stroke) = Stroke::parse(completion) else {
                 continue;
             };
-            // The port has no panes, and a configured action keeps its keys.
-            if SIDE_PANE.contains(name) || self.slots[index].configured {
+            if inactive.contains(name) || self.slots[index].configured {
                 continue;
             }
             for prefix in self.leaders.clone() {

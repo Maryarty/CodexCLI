@@ -30,7 +30,6 @@ use rtwk_core::input::{Mods, MouseEvent, MouseKind};
 use codex_tui_core::app::{AppEv, Intent};
 use codex_tui_core::ids::{BackendId, RequestKey, ThreadId, Ticket};
 use codex_tui_core::screens::{ScreenIntent, ScreenThreadIntent};
-use codex_tui_core::threads::UserMessage;
 use codex_tui_rtwk::app::UiApp;
 use codex_tui_rtwk::app::debug::seeded::Seeded;
 use codex_tui_rtwk::app::run::{localized, root};
@@ -139,8 +138,7 @@ fn home(
     make: fn(&Seeded<'_>) -> AnyWidget,
 ) -> AnyWidget {
     let hs = Hs {
-        submit: cx.on_with(|app: &mut UiApp, message: UserMessage, _cx| {
-            let thread = app.core.session().active.clone();
+        submit: cx.on_with(|app: &mut UiApp, (thread, message), _cx| {
             app.send(AppEv::Intent(Intent::Submit { thread, message }));
         }),
         dismiss: cx.on_with(|app: &mut UiApp, key: RequestKey, _cx| {

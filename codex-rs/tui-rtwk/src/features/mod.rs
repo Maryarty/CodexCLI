@@ -123,6 +123,8 @@ pub enum PageKey {
     Interrupt,
     /// Ctrl+D (`QUIT_ON_EMPTY`).
     Quit,
+    /// The workspace's explicit Close Side Tab action.
+    ClosePane,
 }
 
 /// What `FeatureView::in_place` says of a wish.

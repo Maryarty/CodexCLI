@@ -67,7 +67,13 @@ impl Frame {
         let keymap = crate::keymap::keymap(cx);
         // what the page's shape follows (each build selects anew)
         thread_shape(cx);
-        let drawn = slice::drawn(cx, thread.id());
+        let mut drawn = slice::drawn(cx, thread.id());
+        if !w.presentation.focused() {
+            let id = thread.id().clone();
+            drawn.flags.side_conversation_active =
+                select::<FeatureStates, _, _>(cx, move |features| features.side.is_side(&id));
+            drawn.facts.side = None;
+        }
         let searching = w.ui.draft.search_state();
         // the page follows the runs under way, not the rest of the thread
         let runs = select::<ThreadModel, Vec<RunningHook>, _>(cx, |thread| {
@@ -120,7 +126,7 @@ impl Frame {
     pub(super) fn context(&self) -> StatusContext<'_> {
         let slots = self.thread.screen_slots();
         StatusContext {
-            thread_id: self.session.active.as_ref(),
+            thread_id: (!self.thread.id().as_str().is_empty()).then(|| self.thread.id()),
             thread: Some(&slots.chat),
             daybreak_enabled: !self.drawn.flags.side_conversation_active
                 && codex_tui_core::features::daybreak_of(self.thread.view()).unwrap_or(false),

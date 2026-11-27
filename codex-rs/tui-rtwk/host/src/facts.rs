@@ -425,13 +425,18 @@ pub fn warnings(config: &Config) -> Vec<Warning> {
 /// `tui.keymap.*`: the bindings the user set, resolved over the built-in
 /// defaults (`RuntimeKeymap::from_config`). An error is the oracle's text,
 /// naming the config path; the app then keeps the defaults.
-pub fn keymap(config: &Config) -> Result<Keymap, String> {
-    keymap_of(&config.tui_keymap)
+pub fn keymap(config: &Config, alternate_screen: bool) -> Result<Keymap, String> {
+    let tui = crate::terminal_mode::tui_settings(config, alternate_screen);
+    keymap_of(
+        &config.tui_keymap,
+        tui.transcript_owned && tui.workspace_enabled,
+    )
 }
 
-fn keymap_of(config: &TuiKeymap) -> Result<Keymap, String> {
+fn keymap_of(config: &TuiKeymap, workspace: bool) -> Result<Keymap, String> {
     let value = serde_json::to_value(config).map_err(|error| error.to_string())?;
-    Keymap::resolve(&KeymapSpec::from_json(&value)).map_err(|error| error.to_string())
+    Keymap::resolve_for_workspace(&KeymapSpec::from_json(&value), workspace)
+        .map_err(|error| error.to_string())
 }
 
 /// What the config says of cyber access programs (oracle `daybreak_feature_enabled` and the
@@ -582,13 +587,16 @@ mod tests {
             "list": { "accept": "ctrl-y", "cancel": [] },
         }))
         .expect("a keymap table");
-        let keymap = keymap_of(&config).expect("a valid keymap");
+        let keymap = keymap_of(&config, false).expect("a valid keymap");
         assert_eq!(
             keymap.singles(LIST_ACCEPT),
             [Stroke::parse("ctrl-y").expect("a stroke")]
         );
         assert!(keymap.singles(LIST_CANCEL).is_empty(), "[] unbinds");
-        assert_eq!(keymap_of(&TuiKeymap::default()), Ok(Keymap::defaults()));
+        assert_eq!(
+            keymap_of(&TuiKeymap::default(), false),
+            Ok(Keymap::defaults())
+        );
     }
 
     #[test]
@@ -597,7 +605,7 @@ mod tests {
             "list": { "move_up": "down" },
         }))
         .expect("a keymap table");
-        let message = keymap_of(&config).expect_err("a conflict");
+        let message = keymap_of(&config, false).expect_err("a conflict");
         assert!(
             message.starts_with("Ambiguous `tui.keymap.list` bindings:"),
             "{message}"

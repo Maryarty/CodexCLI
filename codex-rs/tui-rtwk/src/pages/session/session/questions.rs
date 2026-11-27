@@ -209,7 +209,7 @@ impl ChatState {
                         (thread.id().clone(), ScreenThreadIntent::Chat(intent)),
                     );
                 } else {
-                    cx.emit(&hs.submit, message);
+                    cx.emit(&hs.submit, (Some(thread.id().clone()), message));
                 }
                 if !owned {
                     self.asking.answered.set(true);

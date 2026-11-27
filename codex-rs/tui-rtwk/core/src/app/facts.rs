@@ -58,6 +58,10 @@ pub struct TuiSettings {
     /// instead of opening the picker. Off is the oracle's Terminal mode, where the history lives
     /// in the terminal's scrollback and the picker is the way.
     pub transcript_owned: bool,
+    /// The experimental conversation workspace from the resolved host configuration.
+    pub workspace_enabled: bool,
+    /// The preferred share of the fullscreen side pane.
+    pub sidebar_width_percent: Option<u8>,
 }
 
 impl Default for TuiSettings {
@@ -73,6 +77,8 @@ impl Default for TuiSettings {
             vim_mode_default: false,
             hide_rate_limit_model_nudge: false,
             transcript_owned: false,
+            workspace_enabled: false,
+            sidebar_width_percent: None,
         }
     }
 }

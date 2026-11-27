@@ -48,7 +48,8 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
     let searching = &frame.searching;
     let mut hints: Option<Footer> = None;
     let mut placeholder = frame.strings.chat.placeholder;
-    let editing = !frame.forking
+    let editing = w.presentation.focused()
+        && !frame.forking
         && frame.provider.is_none()
         && !thread.read_only()
         && frame.run.asking > 0
@@ -97,6 +98,7 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
         (editor, SizedBox::shrink().into())
     } else {
         let mut composer = Composer::new(w.ui.clone(), state.node.clone())
+            .passive(!w.presentation.focused())
             .on_changed(cx.map(ChatMsg::Changed))
             .on_submitted(cx.map(ChatMsg::Submit))
             .on_picked(cx.map(ChatMsg::Picked))

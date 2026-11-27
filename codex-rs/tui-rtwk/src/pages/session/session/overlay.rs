@@ -102,6 +102,7 @@ pub(super) fn pet(state: &ChatState, w: &Chat, frame: &Frame) -> ambient::Pet {
         thread: frame.thread.id().clone(),
         motion,
         hidden: state.shortcuts
+            || !w.presentation.focused()
             || state.banner.quick_menu.get()
             || frame.searching.is_some()
             || state.editing(frame.run.asking),

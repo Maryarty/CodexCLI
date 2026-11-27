@@ -36,7 +36,7 @@ use crate::widgets::finder::{Finder, Mode as FindMode};
 use crate::widgets::thread_ui::{Input, ThreadUi};
 
 use super::frame::Frame;
-use super::{ChatMsg, ChatState};
+use super::{ChatMsg, ChatState, Presentation};
 
 #[derive(Clone, Default)]
 struct VoiceKeys(Rc<Cell<bool>>);
@@ -57,7 +57,7 @@ pub(super) fn may_close_transcript(ui: &ThreadUi) -> bool {
 /// `?` (the shortcut overlay, `footer_shortcuts_default`) and `←` (the agents page,
 /// `handle_agents_navigation`) on an EMPTY composer belong to the page; with text they go to
 /// the field.
-pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
+pub(super) fn install(state: &mut ChatState, workspace: bool, cx: &mut Cx<'_, ChatState>) {
     let send = cx.local_sender();
     let composer = state.composer.clone();
     let draft = state.draft.clone();
@@ -203,8 +203,12 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
         // (`visible_new_backend_control`), `open_presets` (`Ctrl+X p`) opens the menu of `/presets`
         // where the page is free (`no_modal_or_popup_active`), `select_transcript` (`Ctrl+X [`)
         // begins select mode; all work with a draft in the composer.
-        let (hosts, presets, selects, voice, close) = {
+        let (hosts, presets, selects, voice, close, panes) = {
             let keymap = keymap.borrow();
+            if workspace && let Some(action) = super::super::side_pane::single(&keymap, &key) {
+                send(ChatMsg::Workspace(action));
+                return KeyEventResult::Handled;
+            }
             let hosts = if control.get() {
                 chords_of(&keymap, GLOBAL_CHANGE_HOST)
             } else {
@@ -224,6 +228,11 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
                 } else {
                     Vec::new()
                 },
+                if workspace {
+                    super::super::side_pane::chords(&keymap)
+                } else {
+                    Vec::new()
+                },
             )
         };
         // The prefix of a leader chord is held in the draft, as the editor chords' first key is
@@ -239,6 +248,14 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
             None
         };
         if let Some(first) = held {
+            if let Some((_, _, action)) = panes
+                .iter()
+                .find(|(prefix, done, _)| prefix.accepts_press(&first) && done.accepts_press(&key))
+            {
+                draft_now.set_chord(None);
+                send(ChatMsg::Workspace(*action));
+                return KeyEventResult::Handled;
+            }
             if close
                 .iter()
                 .any(|(prefix, done)| prefix.accepts_press(&first) && done.accepts_press(&key))
@@ -277,7 +294,12 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
                 .chain(&voice)
                 .chain(&close)
                 .any(|(prefix, _)| prefix.accepts_press(&first) && prefix.accepts_press(&key));
-            if again || (unmodified(&key) && pressed_fixed(fixed::DISMISS, &key)) {
+            if again
+                || panes.iter().any(|(prefix, _, _)| {
+                    prefix.accepts_press(&first) && prefix.accepts_press(&key)
+                })
+                || (unmodified(&key) && pressed_fixed(fixed::DISMISS, &key))
+            {
                 draft_now.set_chord(None);
                 return KeyEventResult::Handled;
             }
@@ -298,6 +320,9 @@ pub(super) fn install(state: &mut ChatState, cx: &mut Cx<'_, ChatState>) {
             .chain(&voice)
             .chain(&close)
             .any(|(prefix, _)| prefix.accepts_press(&key))
+            || panes
+                .iter()
+                .any(|(prefix, _, _)| prefix.accepts_press(&key))
         {
             draft_now.set_leader_chord(Some((key, now)));
             return KeyEventResult::Handled;
@@ -425,6 +450,7 @@ pub(super) fn focus(
     cx: &mut Cx<'_, ChatState>,
     frame: &Frame,
     ui: &ThreadUi,
+    presentation: Presentation,
     page: Stack,
 ) -> AnyWidget {
     let (thread, keymap) = (&frame.thread, &frame.keymap);
@@ -460,6 +486,11 @@ pub(super) fn focus(
         (fixed::TRANSCRIPT_LATEST_ALT, ChatMsg::Latest),
     ] {
         for key in crate::keymap::presses(keymap, id) {
+            if presentation != Presentation::Solo
+                && super::super::side_pane::claims_key(keymap, &key)
+            {
+                continue;
+            }
             // A configured turn binding wins over page-level shortcuts such as the debug key.
             // Physical Escape still runs the overlay and editor precedence in ChatState::escape.
             if id != fixed::ESCAPE
@@ -505,6 +536,9 @@ pub(super) fn focus(
         });
     voice_keys(state).set(voice_controls);
     for (action, key) in keys::presses(keymap) {
+        if presentation != Presentation::Solo && super::super::side_pane::claims_key(keymap, &key) {
+            continue;
+        }
         if action == keys::Action::CloseTranscript {
             continue;
         }

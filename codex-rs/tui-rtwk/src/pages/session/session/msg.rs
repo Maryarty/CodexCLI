@@ -42,6 +42,8 @@ pub enum ChatMsg {
     DebugMenu,
     /// A key action of the chat (`keys::defaults`).
     Action(Action),
+    /// A workspace shortcut from the focused pane's composer.
+    Workspace(super::super::side_pane::Msg),
     /// PageUp (-1) and PageDown (1): the transcript a page.
     Page(i8),
     /// Ctrl+Home, Alt+<: the transcript's first row; Ctrl+End, Alt+>: its last (`JumpTarget`).
