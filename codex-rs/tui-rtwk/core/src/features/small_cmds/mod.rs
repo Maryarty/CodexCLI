@@ -315,10 +315,6 @@ impl Feature for SmallCmds {
         }
     }
 
-    fn on_shown(state: &mut State, _thread: &ThreadId, _cx: &mut AppCx<'_>) {
-        state.ide.shown();
-    }
-
     fn on_connection(state: &mut State, connection: Connection, _cx: &mut AppCx<'_>) {
         if connection == Connection::ShuttingDown {
             state.ide.retire();

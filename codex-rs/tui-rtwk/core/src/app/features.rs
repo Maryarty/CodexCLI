@@ -411,12 +411,17 @@ pub(super) fn reconnected(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx
     }
 }
 
-/// Artifact replies depend on the connection's locality. Forget the old handle's requests
-/// and snapshots, retaining the mounted surfaces' interests for the next handle.
-pub(super) fn retire_images(app: &mut CodexApp, backend: BackendId) {
+/// The displayed conversation's consent and presence do not carry to a new visit.
+pub(super) fn retire_ide(app: &mut CodexApp) {
+    Rc::make_mut(&mut app.features).small_cmds.ide.retire();
+}
+
+/// Workspace replies depend on the connection's locality. Forget the old handle's requests
+/// and snapshots, retaining the mounted images' interests for the next handle.
+pub(super) fn retire_workspace_effects(app: &mut CodexApp, backend: BackendId) {
     app.effects.retire_workspace_effects(backend);
     if backend == BackendId::default() {
-        Rc::make_mut(&mut app.features).small_cmds.ide.retire();
+        retire_ide(app);
     }
     let agents = &app.screens.agents;
     features::retire_image_snapshots(&mut app.features, |thread| {

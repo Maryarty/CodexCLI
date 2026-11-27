@@ -1202,10 +1202,9 @@ impl CodexApp {
                 ask: effects::Ask::ReconnectIdleThread { address, .. },
                 ..
             } => *address,
-            Command::Effect {
-                request,
-                ask: effects::Ask::ImageSnapshot { .. },
-            } => self.effects.image_address(*request)?,
+            Command::Effect { request, ask } if ask.workspace_receipt().is_some() => {
+                self.effects.workspace_dispatch(*request, ask)?
+            }
             _ => match command.ticket() {
                 Some(ticket) => self.request_address(ticket).or(tell)?,
                 None => return Some((self.choose_backend(command), None)),
@@ -1365,7 +1364,7 @@ impl CodexApp {
         self.attaching_events
             .retain(|(source, ..)| *source != backend);
         features::retire_rate_offer(self, backend);
-        features::retire_images(self, backend);
+        features::retire_workspace_effects(self, backend);
         git_summary::retire(self, backend);
         detach_threads(self, backend, fx);
         self.fail_in_flight(backend);
@@ -1497,12 +1496,9 @@ impl CodexApp {
                 request,
                 done: effects::Done::GitSummary(_),
             } => git_summary::accepts(self, origin, *request),
-            AppEv::Effect { request, done } => match self.effects.image_address(*request) {
-                Some(address) => {
-                    address == origin && matches!(done, effects::Done::ImageSnapshot(_))
-                }
-                None => !matches!(done, effects::Done::ImageSnapshot(_)),
-            },
+            AppEv::Effect { request, done } => self
+                .effects
+                .accepts_workspace_receipt(*request, origin, done),
             _ => true,
         }
     }
@@ -1517,7 +1513,7 @@ pub fn apply_app(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
         AppEv::Reply(ticket, _) => app.request_address(*ticket).map(|address| address.backend),
         AppEv::Effect { request, .. } => app
             .effects
-            .image_address(*request)
+            .workspace_address(*request)
             .map(|address| address.backend),
         _ => None,
     };
@@ -1558,6 +1554,7 @@ fn apply_at(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
         !Rc::ptr_eq(&previous, &app.session) && previous.active != app.session.active;
     if active_changed {
         select::retire_model_picker(app);
+        features::retire_ide(app);
         if let Some(thread) = &previous.active {
             features::retire_queue_modal_choices(app, thread, fx);
         }

@@ -32,12 +32,6 @@ impl Ide {
         self.owner = None;
     }
 
-    pub(super) fn shown(&mut self) {
-        if self.owner.is_some() {
-            self.reset();
-        }
-    }
-
     pub(super) fn command(
         &mut self,
         args: Option<String>,
