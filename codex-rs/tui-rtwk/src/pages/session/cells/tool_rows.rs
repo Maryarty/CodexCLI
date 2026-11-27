@@ -170,6 +170,6 @@ pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
             output_lines: place.streamed_shell_output_lines,
             detailed: env.detailed,
         }
-        .into(),
+        .measured(),
     )
 }

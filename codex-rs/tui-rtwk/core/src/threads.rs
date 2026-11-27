@@ -22,6 +22,7 @@ pub mod followups;
 pub mod goal;
 pub mod hooks;
 pub mod inline_vis;
+mod live_output;
 pub mod local_links;
 mod message;
 mod note;
@@ -52,6 +53,7 @@ pub use collab::{
 };
 pub use decision::ReviewLine;
 pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
+pub use live_output::{OutputLine, RetainedOutput};
 pub use message::{LocalImage, TaskRef, ToolMention, UserMessage};
 pub use note::{CdRefusal, ModeNote, Note, NoteKey, RemoveNote, Stub, Toggle, Tone};
 pub use processes::{Listed, Terminal, WaitStreak};
@@ -295,36 +297,6 @@ pub struct Transcript {
 struct StreamingItem {
     entry: ItemEntry,
     committed: usize,
-    output: Option<OutputLines>,
-}
-
-/// The command output's line count after trimming trailing CR/LF, as used by
-/// its preview. Separators after the last visible line become interior lines
-/// if a later delta adds more content.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-struct OutputLines {
-    initial: usize,
-    breaks: usize,
-    visible: usize,
-}
-
-impl OutputLines {
-    fn of(text: &str) -> Self {
-        let mut lines = Self::default();
-        lines.append(text);
-        lines.initial = lines.visible;
-        lines
-    }
-
-    fn append(&mut self, delta: &str) {
-        for byte in delta.bytes() {
-            match byte {
-                b'\n' => self.breaks += 1,
-                b'\r' => {}
-                _ => self.visible = self.breaks + 1,
-            }
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -414,7 +386,11 @@ impl Transcript {
 
     /// The preview line count of an output receiving shell command deltas.
     pub fn streamed_shell_output_line_count(&self, key: &ItemKey) -> Option<usize> {
-        Some(self.streaming.get(key)?.output.as_ref()?.visible)
+        let Item::Tool(tool) = self.streaming.get(key)?.entry.item.as_ref() else {
+            return None;
+        };
+        tool.streamed_output_line_counts()
+            .map(|(_, current)| current)
     }
 
     /// The initial and current output line counts of shell commands receiving deltas.
@@ -426,8 +402,8 @@ impl Transcript {
             let Item::Tool(tool) = live.entry.item.as_ref() else {
                 return None;
             };
-            let lines = live.output.as_ref()?;
-            Some((key, tool.as_ref(), lines.initial, lines.visible))
+            let (initial, current) = tool.streamed_output_line_counts()?;
+            Some((key, tool.as_ref(), initial, current))
         })
     }
 
@@ -568,9 +544,8 @@ impl Transcript {
         if let Item::Tool(tool) = &mut item
             && tool.output.is_none()
             && let Some(Item::Tool(previous)) = self.item(&key)
-            && let Some(output) = &previous.output
         {
-            Arc::make_mut(tool).output = Some(output.clone());
+            Arc::make_mut(tool).keep_previous_output(previous);
         }
         let live = self.streaming.remove(&key);
         let before = live
@@ -680,7 +655,6 @@ impl Transcript {
                 entry.insert(StreamingItem {
                     entry: value,
                     committed,
-                    output: None,
                 })
             }
         };
@@ -714,21 +688,13 @@ impl Transcript {
                 entry.insert(StreamingItem {
                     entry: item.clone(),
                     committed: 0,
-                    output: matches!(tool.kind, ToolKind::Shell { .. })
-                        .then(|| OutputLines::of(tool.output.as_deref().unwrap_or_default())),
                 })
             }
         };
         if let Item::Tool(tool) = Rc::make_mut(&mut live.entry.item)
             && tool.status == ToolStatus::Running
         {
-            Arc::make_mut(tool)
-                .output
-                .get_or_insert_with(String::new)
-                .push_str(delta);
-            if let Some(lines) = &mut live.output {
-                lines.append(delta);
-            }
+            Arc::make_mut(tool).append_output(delta);
             self.item_revision += 1;
             live.entry.revision = self.item_revision;
         }

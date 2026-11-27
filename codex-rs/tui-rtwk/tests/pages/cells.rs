@@ -3263,8 +3263,8 @@ mod text_contract {
     }
 
     fn shell(command: &str, output: &str, exit: Option<i32>, millis: Option<u64>) -> Item {
-        Item::Tool(Arc::new(ToolActivity {
-            kind: ToolKind::Shell {
+        Item::Tool(Arc::new(ToolActivity::new(
+            ToolKind::Shell {
                 command: command.into(),
                 actions: Vec::new(),
                 compound: false,
@@ -3274,19 +3274,19 @@ mod text_contract {
                 process_id: None,
                 unified_exec: false,
             },
-            status: match exit {
+            match exit {
                 None => ToolStatus::Running,
                 Some(0) => ToolStatus::Completed,
                 Some(_) => ToolStatus::Failed,
             },
-            output: (!output.is_empty()).then(|| output.to_owned()),
-        }))
+            (!output.is_empty()).then(|| output.to_owned()),
+        )))
     }
 
     /// A call of an exploration (`cat`, read as `src/lib.rs`).
     fn exploring(output: &str) -> Item {
-        Item::Tool(Arc::new(ToolActivity {
-            kind: ToolKind::Shell {
+        Item::Tool(Arc::new(ToolActivity::new(
+            ToolKind::Shell {
                 command: "cat src/lib.rs".into(),
                 actions: vec![ExplorationAction::Read(vec!["src/lib.rs".into()])],
                 compound: false,
@@ -3296,9 +3296,9 @@ mod text_contract {
                 process_id: None,
                 unified_exec: false,
             },
-            status: ToolStatus::Completed,
-            output: (!output.is_empty()).then(|| output.to_owned()),
-        }))
+            ToolStatus::Completed,
+            (!output.is_empty()).then(|| output.to_owned()),
+        )))
     }
 
     fn tools(items: &[Item]) -> Vec<Arc<ToolActivity>> {
@@ -3420,11 +3420,11 @@ mod text_contract {
             }),
         ];
         for kind in calls {
-            let item = Item::Tool(Arc::new(ToolActivity {
+            let item = Item::Tool(Arc::new(ToolActivity::new(
                 kind,
-                status: ToolStatus::Completed,
-                output: None,
-            }));
+                ToolStatus::Completed,
+                None,
+            )));
             for width in [80, 20] {
                 for (detailed, expanded) in [(false, false), (false, true), (true, false)] {
                     assert_eq!(
@@ -3445,16 +3445,16 @@ mod text_contract {
         use codex_tui_rtwk::pages::session::transcript::turn_details::{Kind, Row};
 
         let items = ["first long error output", "last long error output"].map(|message| {
-            Item::Tool(Arc::new(ToolActivity {
-                kind: ToolKind::Mcp(McpCall {
+            Item::Tool(Arc::new(ToolActivity::new(
+                ToolKind::Mcp(McpCall {
                     server: "cua_repl".into(),
                     tool: "js".into(),
                     arguments: serde_json::json!({"title": "Inspect computer screen"}),
                     result: Some(Err(message.into())),
                 }),
-                status: ToolStatus::Failed,
-                output: None,
-            }))
+                ToolStatus::Failed,
+                None,
+            )))
         });
         let mut transcript = Transcript::default();
         for (n, item) in items.iter().enumerate() {
@@ -3688,6 +3688,15 @@ mod text_contract {
             ],
             80,
             true,
+        );
+    }
+
+    #[test]
+    fn a_narrow_shell_disclosure_agrees_with_the_row_text() {
+        let command = shell("echo", "abcdefghijklmnopqrstuvwxyz", Some(0), None);
+        assert_eq!(
+            model_nodes(&command, 20, false, false),
+            logical_nodes(std::slice::from_ref(&command), 20, false, false),
         );
     }
 

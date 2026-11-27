@@ -500,10 +500,6 @@ fn terminal_output_disclosure_follows_live_history_and_keymap() {
 // each frame is compared row by row from the snapshot's text.
 #[test]
 fn terminal_output_disclosure_counts_only_revealable_lines() {
-    kit::pending(
-        Owner::ChatLive,
-        "three of the five frames match; the control's count and hint ignore the room (the oracle counts a preview line clipped by the width as hidden and drops the key hint where it does not fit: `+ 1 line` at 20 columns), and the live output keeps all 530,000 streamed lines where the oracle keeps the first 50 and last 50 (`+ 97 lines`)",
-    );
     /// One frame: its name, the command, the output, the width, whether the output streams, and
     /// the rows the oracle draws.
     type Case = (
@@ -595,6 +591,85 @@ fn terminal_output_disclosure_counts_only_revealable_lines() {
         let got: Vec<String> = s.rows().into_iter().skip(top).take(frame.len()).collect();
         kit::assert_rows_are(&got, frame);
     }
+}
+
+#[test]
+fn a_streamed_shell_line_gains_a_width_aware_f4_stop() {
+    let mut s = live_plain(20, 16, &[streaming_command("width-stop")]);
+    s.feed(&command_delta("width-stop", "abc"));
+    s.assert_absent("+ 1 line");
+    s.keys("f4");
+    s.assert_absent("enter expand");
+
+    s.feed(&command_delta("width-stop", "defghijklmnopqrstuvwxyz"));
+    s.assert_contains("+ 1 line");
+    s.keys("f4").keys("enter");
+    s.assert_has_row("  └ abcdefghijklmnop");
+    s.assert_has_row("    qrstuvwxyz");
+    s.assert_contains("Hide details");
+}
+
+#[test]
+fn retained_command_output_is_searchable_and_copyable_with_its_storage_gap() {
+    // The retained item fits in this viewport, independently of over-height reveal.
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 120)
+        .live()
+        .view_compact()
+        .open();
+    let id = "bounded-output";
+    s.feed(&started_line());
+    s.feed(&streaming_command(id));
+    s.feed(&command_delta(id, "HEADTOKEN\n"));
+    s.feed(&command_delta(id, &"retained head row\n".repeat(49)));
+    s.feed(&command_delta(
+        id,
+        &"LOSTNEEDLE in the middle\n".repeat(45_000),
+    ));
+    s.feed(&command_delta(id, &"retained tail row\n".repeat(49)));
+    s.feed(&command_delta(id, "TAILTOKEN\n"));
+    s.assert_contains("+ 97 lines (⌃t to expand)");
+
+    s.keys("/").type_text("LOSTNEEDLE");
+    s.assert_find_query("LOSTNEEDLE");
+    s.assert_find_footer(80, "No matches · full transcript · esc cancel");
+    s.find_query("45000 lines");
+    s.assert_text_style("45000 lines", "reversed");
+    s.assert_contains("… +45000 lines");
+    s.find_query("TAILTOKEN");
+    s.assert_text_style("TAILTOKEN", "reversed");
+    s.find_query("HEADTOKEN");
+    s.assert_text_style("HEADTOKEN", "reversed");
+    s.double_click_text("HEADTOKEN");
+    s.keys("ctrl+c");
+    s.assert_copy_asked("HEADTOKEN");
+}
+
+#[test]
+fn a_byte_limited_ansi_preview_can_reveal_visible_output_after_the_cut() {
+    let mut s = live_plain(64, 16, &[streaming_command("ansi-tail")]);
+    let output = format!("{}VisibleSuffix", "\u{1b}[0m".repeat(5_000));
+    s.feed(&command_delta("ansi-tail", &output));
+    s.assert_absent("VisibleSuffix");
+    s.assert_contains("+ 1 line");
+    s.keys("f4").keys("enter");
+    s.assert_contains("VisibleSuffix");
+}
+
+fn streaming_command(id: &str) -> String {
+    let mut item = command_item(id, "bash -lc echo");
+    item["status"] = serde_json::json!("inProgress");
+    item["aggregatedOutput"] = serde_json::Value::Null;
+    item["exitCode"] = serde_json::Value::Null;
+    item["durationMs"] = serde_json::Value::Null;
+    item_line("item/started", item)
+}
+
+fn command_delta(id: &str, delta: &str) -> String {
+    notify_line(
+        "item/commandExecution/outputDelta",
+        serde_json::json!({"threadId": "thread-1", "turnId": "turn-1", "itemId": id, "delta": delta}),
+    )
 }
 
 /// `text` as one shell word.

@@ -1138,8 +1138,8 @@ mod calls {
         user_shell: bool,
         status: ToolStatus,
     ) -> Item {
-        Item::Tool(Arc::new(ToolActivity {
-            kind: ToolKind::Shell {
+        Item::Tool(Arc::new(ToolActivity::new(
+            ToolKind::Shell {
                 command: "ls".into(),
                 compound: actions.len() > 1,
                 actions,
@@ -1150,8 +1150,8 @@ mod calls {
                 unified_exec: false,
             },
             status,
-            output: None,
-        }))
+            None,
+        )))
     }
 
     fn read() -> Vec<ExplorationAction> {

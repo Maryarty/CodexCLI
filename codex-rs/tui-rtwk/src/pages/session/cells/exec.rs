@@ -13,7 +13,7 @@ use rtwk::style::{Attrs, Span};
 use rtwk::widgets::Text;
 use rtwk_rich::highlight::{Highlighter, SyntaxTheme, language_named};
 
-use codex_tui_core::threads::{ToolActivity, ToolKind, ToolStatus};
+use codex_tui_core::threads::{OutputLine, RetainedOutput, ToolActivity, ToolKind, ToolStatus};
 
 use crate::app::theme::Tokens;
 use crate::pages::session::strings::{INLINE_GAP, LINE_BREAK, MORE};
@@ -29,7 +29,12 @@ const PREVIEW_LINES: usize = 3;
 const PREVIEW_LINE_BYTES: usize = 16 * 1024;
 
 /// The shell calls of one row (`calls[0]` is the row's first item).
-pub fn parts(calls: &[&ToolActivity], env: &Env<'_>, output_lines: Option<usize>) -> Parts {
+pub fn parts(
+    calls: &[&ToolActivity],
+    env: &Env<'_>,
+    output_lines: Option<usize>,
+    room: Room,
+) -> Parts {
     let Env {
         strings,
         tokens,
@@ -65,22 +70,20 @@ pub fn parts(calls: &[&ToolActivity], env: &Env<'_>, output_lines: Option<usize>
         }
     }
     let header = dots_spans_kept(header);
-    let output = preview_output(tool);
     let mut body: Vec<AnyWidget> = Vec::new();
     let mut hidden = 0;
     if expanded {
         for call in calls {
-            body.push(call_details(call, tokens));
+            body.push(call_details(call, strings, tokens));
         }
     } else if !exploring {
-        let tail: Vec<_> = output.lines().rev().take(PREVIEW_LINES).collect();
-        if tail.len() == PREVIEW_LINES {
-            hidden = hidden_output_lines(output_lines.unwrap_or_else(|| output.lines().count()));
+        let tail = preview_tail(tool, strings);
+        let empty = tail.is_empty();
+        hidden = hidden_output_lines(tool, output_lines, &tail, room);
+        for (index, line) in tail.into_iter().enumerate() {
+            body.push(ansi_row(index, &line, tokens, false, PREVIEW_LINE_BYTES));
         }
-        for (index, line) in tail.into_iter().rev().enumerate() {
-            body.push(ansi_row(index, line, tokens, false, PREVIEW_LINE_BYTES));
-        }
-        if output.is_empty() && tool.status != ToolStatus::Running {
+        if empty && tool.status != ToolStatus::Running {
             body.push(ansi_row(
                 0,
                 strings.tool_no_output,
@@ -100,7 +103,7 @@ pub fn parts(calls: &[&ToolActivity], env: &Env<'_>, output_lines: Option<usize>
     let disclosure = if expanded {
         Some(strings.hide_details.to_owned())
     } else {
-        closed_disclosure(&head, hidden, strings)
+        closed_disclosure(&head, hidden, strings, room)
     };
     // Oracle `compact_command_lines`: a non-zero exit draws a plain bold bullet (no red); the
     // exploration header's is a dim one.
@@ -119,27 +122,160 @@ pub fn parts(calls: &[&ToolActivity], env: &Env<'_>, output_lines: Option<usize>
     })
 }
 
-fn closed_disclosure(head: &Headline<'_>, hidden: usize, strings: &Strings) -> Option<String> {
-    if hidden == 1 {
-        Some(strings.hidden_output_line.to_owned())
-    } else if hidden > 1 {
-        Some(strings.label(strings.hidden_output_lines, &hidden.to_string()))
-    } else if head.has_command_control() {
-        Some(strings.show_details.to_owned())
-    } else {
-        None
+fn closed_disclosure(
+    head: &Headline<'_>,
+    hidden: usize,
+    strings: &Strings,
+    room: Room,
+) -> Option<String> {
+    if hidden > 0 {
+        let number = hidden.to_string();
+        let (long, short) = if hidden == 1 {
+            (
+                strings.hidden_output_line.to_owned(),
+                strings.hidden_output_line_short.to_owned(),
+            )
+        } else {
+            (
+                strings.label(strings.hidden_output_lines, &number),
+                strings.label(strings.hidden_output_lines_short, &number),
+            )
+        };
+        let label_room = Room {
+            width: room.width - (room.width / 4).min(4),
+            ..room
+        };
+        return Some(if label_room.cuts(&long) { short } else { long });
     }
+    head.has_command_control()
+        .then(|| strings.show_details.to_owned())
 }
 
-fn preview_output(tool: &ToolActivity) -> &str {
+fn plain_output(tool: &ToolActivity) -> &str {
     tool.output
         .as_deref()
         .unwrap_or_default()
         .trim_end_matches(['\r', '\n'])
 }
 
-fn hidden_output_lines(lines: usize) -> usize {
-    lines.saturating_sub(PREVIEW_LINES)
+/// What the open row and its Copy/Find projection share. A real gap separates the two
+/// retained halves, so a match cannot straddle missing bytes or missing lines.
+fn expanded_output<'a>(tool: &'a ToolActivity, strings: &Strings) -> Cow<'a, str> {
+    let Some(retained) = tool.retained_output() else {
+        return Cow::Borrowed(plain_output(tool));
+    };
+    let mut text = String::new();
+    for (at, line) in retained.lines().enumerate() {
+        if at > 0 {
+            text.push_str(LINE_BREAK);
+        }
+        if at == retained.head_lines() && retained.omitted_lines() > 0 {
+            let omitted = retained.omitted_lines();
+            if omitted == 1 {
+                text.push_str(strings.omitted_output_line);
+            } else {
+                text.push_str(&strings.label(strings.omitted_output_lines, &omitted.to_string()));
+            }
+            text.push_str(LINE_BREAK);
+        }
+        text.push_str(&retained_line(line, strings));
+    }
+    Cow::Owned(text)
+}
+
+fn retained_line(line: &OutputLine, strings: &Strings) -> String {
+    let mut text = line.prefix.clone();
+    if line.omitted_bytes > 0 {
+        // The cut can split OSC or CSI. Close it before the marker and the saved suffix.
+        let end = text.rfind('\x1b').and_then(|start| {
+            let escape = &text.as_bytes()[start + 1..];
+            match escape.first() {
+                Some(b']') if !escape.contains(&b'\x07') => Some('\x07'),
+                Some(b'[') if !escape[1..].iter().any(|byte| (0x40..=0x7e).contains(byte)) => {
+                    Some('m')
+                }
+                _ => None,
+            }
+        });
+        text.extend(end);
+        text.push_str("\x1b[0m");
+        text.push_str(&strings.label(
+            strings.omitted_output_bytes,
+            &line.omitted_bytes.to_string(),
+        ));
+    }
+    text.push_str(&line.suffix());
+    if line.pending_cr {
+        text.push('\r');
+    }
+    text
+}
+
+fn preview_tail<'a>(tool: &'a ToolActivity, strings: &Strings) -> Vec<Cow<'a, str>> {
+    let mut tail: Vec<_> = if let Some(retained) = tool.retained_output() {
+        retained
+            .lines()
+            .rev()
+            .take(PREVIEW_LINES)
+            .map(|line| Cow::Owned(retained_line(line, strings)))
+            .collect()
+    } else if let Some(lines) = tool.streamed_output_tail() {
+        lines.rev().take(PREVIEW_LINES).map(Cow::Borrowed).collect()
+    } else {
+        plain_output(tool)
+            .lines()
+            .rev()
+            .take(PREVIEW_LINES)
+            .map(Cow::Borrowed)
+            .collect()
+    };
+    tail.reverse();
+    tail
+}
+
+fn hidden_by_width(tail: &[Cow<'_, str>], room: Room) -> usize {
+    let output_room = text_room(room).after(BRANCH);
+    tail.iter()
+        .filter(|line| {
+            if line.len() > PREVIEW_LINE_BYTES {
+                return true;
+            }
+            // The same fast path as the ANSI renderer, without allocating styled spans.
+            if line.bytes().all(|byte| (0x20..0x7f).contains(&byte)) {
+                output_room.cuts(line)
+            } else {
+                output_room.cuts(&plain_text(line))
+            }
+        })
+        .count()
+}
+
+fn output_line_count(tool: &ToolActivity, streamed_lines: Option<usize>) -> usize {
+    tool.retained_output().map_or_else(
+        || {
+            streamed_lines
+                .or_else(|| {
+                    tool.streamed_output_line_counts()
+                        .map(|(_, current)| current)
+                })
+                .unwrap_or_else(|| plain_output(tool).lines().count())
+        },
+        RetainedOutput::retained_lines,
+    )
+}
+
+fn hidden_output_lines(
+    tool: &ToolActivity,
+    streamed_lines: Option<usize>,
+    tail: &[Cow<'_, str>],
+    room: Room,
+) -> usize {
+    let hidden = if tail.len() == PREVIEW_LINES {
+        output_line_count(tool, streamed_lines).saturating_sub(PREVIEW_LINES)
+    } else {
+        0
+    };
+    hidden + hidden_by_width(tail, room)
 }
 
 fn multiline(command: &str) -> bool {
@@ -158,21 +294,39 @@ fn has_command_control(tool: &ToolActivity) -> bool {
 }
 
 /// Whether the first call draws a control while it is closed.
-pub(in crate::pages::session) fn has_control(tool: &ToolActivity) -> bool {
-    has_command_control(tool)
-        || hidden_output_lines(preview_output(tool).lines().take(PREVIEW_LINES + 1).count()) > 0
+pub(in crate::pages::session) fn has_control(
+    tool: &ToolActivity,
+    strings: &Strings,
+    room: Room,
+) -> bool {
+    has_command_control(tool) || has_output_control(tool, None, strings, room)
 }
 
-/// Whether a delta has added an output control to a shell whose original
-/// output and command did not already make it a stop.
-pub(in crate::pages::session) fn gained_output_control(
+/// Which streaming shell rows can change eligibility without a structural or metadata change.
+pub(in crate::pages::session) fn tracks_output_control(
     tool: &ToolActivity,
     initial: usize,
-    current: usize,
 ) -> bool {
-    hidden_output_lines(initial) == 0
-        && hidden_output_lines(current) > 0
-        && !has_command_control(tool)
+    initial <= PREVIEW_LINES && !has_command_control(tool)
+}
+
+pub(in crate::pages::session) fn has_output_control(
+    tool: &ToolActivity,
+    streamed_lines: Option<usize>,
+    strings: &Strings,
+    room: Room,
+) -> bool {
+    let enough_lines = if let Some(retained) = tool.retained_output() {
+        retained.retained_lines() > PREVIEW_LINES
+    } else if let Some(current) = streamed_lines.or_else(|| {
+        tool.streamed_output_line_counts()
+            .map(|(_, current)| current)
+    }) {
+        current > PREVIEW_LINES
+    } else {
+        plain_output(tool).lines().nth(PREVIEW_LINES).is_some()
+    };
+    enough_lines || hidden_by_width(&preview_tail(tool, strings), room) > 0
 }
 
 /// What the header of a shell row says, in words: the one place the title, the count of failures
@@ -312,22 +466,21 @@ pub(super) fn texts_at(
             parts.push(Part::gutter(strings.show_details));
             return Some(parts);
         }
-        let output = preview_output(calls[0]);
-        let tail: Vec<_> = output.lines().rev().take(PREVIEW_LINES).collect();
-        for (index, line) in tail.into_iter().rev().enumerate() {
+        let tool = calls[0];
+        let tail = preview_tail(tool, strings);
+        for (index, line) in tail.iter().enumerate() {
             parts.push(Part::gutter(if index == 0 { BRANCH } else { "  " }));
             parts.push(Part::text(plain_text(&compact_output(
                 line,
                 PREVIEW_LINE_BYTES,
             ))));
         }
-        if output.is_empty() && calls[0].status != ToolStatus::Running {
+        if tail.is_empty() && tool.status != ToolStatus::Running {
             parts.push(Part::gutter(BRANCH));
             parts.push(Part::text(strings.tool_no_output));
         }
-        if let Some(disclosure) =
-            closed_disclosure(&head, hidden_output_lines(output.lines().count()), strings)
-        {
+        let hidden = hidden_output_lines(tool, None, &tail, room);
+        if let Some(disclosure) = closed_disclosure(&head, hidden, strings, room) {
             parts.push(Part::gutter(disclosure));
         }
         return Some(parts);
@@ -337,14 +490,10 @@ pub(super) fn texts_at(
             continue;
         };
         parts.push(Part::text(command_text(command)));
-        let output = call
-            .output
-            .as_deref()
-            .unwrap_or_default()
-            .trim_end_matches(['\r', '\n']);
+        let output = expanded_output(call, strings);
         if !output.is_empty() {
             parts.push(Part::gutter(BRANCH));
-            parts.push(Part::text(plain_text(output)));
+            parts.push(Part::text(plain_text(&output)));
         }
     }
     parts.push(Part::gutter(strings.hide_details));
@@ -376,8 +525,9 @@ fn detailed_texts(calls: &[&ToolActivity], strings: &Strings) -> Vec<Part> {
                 .collect::<Vec<_>>()
                 .join(LINE_BREAK),
         ));
-        if let Some(output) = call.output.as_deref().filter(|output| !output.is_empty()) {
-            parts.push(Part::text(output.trim_end_matches(['\r', '\n'])));
+        let output = detailed_output(call, strings);
+        if !output.is_empty() {
+            parts.push(Part::text(output.as_ref()));
         }
         if let Some(code) = *exit_code {
             let mut result = if code == 0 {
@@ -447,8 +597,9 @@ fn detailed_shells(
                     .child(Text::line(strings.shell_prompt).style(tokens.accent()))
                     .child(Expanded::new(1, Text::rich(spans))),
             );
-        if let Some(output) = call.output.as_deref().filter(|output| !output.is_empty()) {
-            detail = detail.child(Text::new(output.trim_end_matches(['\r', '\n']).to_owned()));
+        let output = detailed_output(call, strings);
+        if !output.is_empty() {
+            detail = detail.child(Text::new(output.into_owned()));
         }
         if let Some(code) = *exit_code {
             let mut result = if code == 0 {
@@ -475,8 +626,17 @@ fn detailed_shells(
     rows.into()
 }
 
+fn detailed_output<'a>(call: &'a ToolActivity, strings: &Strings) -> Cow<'a, str> {
+    let output = expanded_output(call, strings);
+    if call.retained_output().is_some() {
+        Cow::Owned(plain_text(&output))
+    } else {
+        output
+    }
+}
+
 /// The expanded call: the whole command, the whole output.
-fn call_details(tool: &ToolActivity, tokens: &Tokens) -> AnyWidget {
+fn call_details(tool: &ToolActivity, strings: &Strings, tokens: &Tokens) -> AnyWidget {
     let ToolKind::Shell { command, .. } = &tool.kind else {
         return AnyWidget::default();
     };
@@ -487,13 +647,9 @@ fn call_details(tool: &ToolActivity, tokens: &Tokens) -> AnyWidget {
             EdgeInsets::only(2, 0, 0, 0),
             Text::new(command_text(command).into_owned()),
         ));
-    let output = tool
-        .output
-        .as_deref()
-        .unwrap_or_default()
-        .trim_end_matches(['\r', '\n']);
+    let output = expanded_output(tool, strings);
     if !output.is_empty() {
-        details = details.child(ansi_row(0, output, tokens, true, PREVIEW_LINE_BYTES));
+        details = details.child(ansi_row(0, &output, tokens, true, PREVIEW_LINE_BYTES));
     }
     details.into()
 }

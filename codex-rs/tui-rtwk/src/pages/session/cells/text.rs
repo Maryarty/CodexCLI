@@ -42,7 +42,7 @@ pub struct Env<'a> {
 }
 
 /// Available columns and the same segmenter the mounted cells use.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Room {
     pub width: i32,
     pub segmenter: crate::widgets::measure::Measure,

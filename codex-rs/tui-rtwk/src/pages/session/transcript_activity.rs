@@ -7,10 +7,11 @@ use std::sync::Arc;
 
 use rtwk::gestures::ExcludeSelection;
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row};
+use rtwk::provider::Provider;
 use rtwk::style::{Attrs, Style};
-use rtwk::text::DefaultTextStyle;
+use rtwk::text::{DefaultTextStyle, segmenter_of};
 use rtwk::widgets::Text;
-use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 use rtwk_rich::highlight::SyntaxTheme;
 
 use codex_tui_core::threads::{ItemKey, McpCall, ToolActivity, ToolKind, Transcript};
@@ -18,6 +19,8 @@ use codex_tui_core::threads::{ItemKey, McpCall, ToolActivity, ToolKind, Transcri
 use crate::app::theme::Tokens;
 
 use super::cells::disclosure::{self, disclosing};
+use super::cells::strings::Strings;
+use super::cells::text::Room;
 use super::cells::tool_rows::{BULLET, Env, Parts};
 use super::cells::{computer_activity, exec, tool_call};
 
@@ -30,39 +33,61 @@ pub(super) struct ToolRow {
 }
 
 /// Whether the tool row draws a closed control, which makes it an F4 stop.
-pub(super) fn has_control(first: &ToolActivity) -> bool {
+pub(super) fn has_control(first: &ToolActivity, strings: &Strings, room: Room) -> bool {
     match first.kind {
-        ToolKind::Shell { .. } => exec::has_control(first),
+        ToolKind::Shell { .. } => exec::has_control(first, strings, room),
         ToolKind::Mcp(_) | ToolKind::Dynamic(_) => true,
     }
 }
 
-/// Inputs that can change F4 stops for a fixed layout. Growing stdout only
-/// changes the walk when a running shell gains an output control.
+/// Inputs that can change F4 stops. For streams whose command can gain or lose an
+/// output-only control this records eligibility, independently of output revisions.
 #[derive(Clone, PartialEq)]
 pub(super) struct ActivityStamp {
     metadata: u64,
-    output_stops: Vec<ItemKey>,
+    room: Room,
+    output_stops: Vec<(ItemKey, bool)>,
 }
 
 impl ActivityStamp {
-    pub(super) fn of(transcript: &Transcript) -> Self {
+    pub(super) fn of(transcript: &Transcript, strings: &Strings, room: Room) -> Self {
         let mut output_stops: Vec<_> = transcript
             .streamed_shell_output_lines()
-            .filter(|(_, tool, initial, current)| {
-                exec::gained_output_control(tool, *initial, *current)
+            .filter_map(|(key, tool, initial, current)| {
+                if !exec::tracks_output_control(tool, initial) {
+                    return None;
+                }
+                let has = exec::has_output_control(tool, Some(current), strings, room);
+                (initial != 0 || has).then(|| (key.clone(), has))
             })
-            .map(|(key, _, _, _)| key.clone())
             .collect();
         output_stops.sort_unstable();
         Self {
             metadata: transcript.activity_revision(),
+            room,
             output_stops,
         }
     }
 }
 
 impl ToolRow {
+    /// A compact shell reads the actual layout width before building its disclosure.
+    pub(super) fn measured(self) -> AnyWidget {
+        if self.detailed || !matches!(self.first.kind, ToolKind::Shell { .. }) {
+            return self.into();
+        }
+        let tool: AnyWidget = self.into();
+        LayoutBuilder::new(move |cx, bounds| {
+            Provider::value(Room {
+                width: bounds.max_width,
+                segmenter: segmenter_of(cx),
+            })
+            .child(tool.clone())
+            .into()
+        })
+        .into()
+    }
+
     fn calls(&self) -> impl Iterator<Item = &ToolActivity> {
         std::iter::once(self.first.as_ref()).chain(self.rest.iter().map(Arc::as_ref))
     }
@@ -104,7 +129,11 @@ impl State for ToolRowState {
         };
         let calls: Vec<&ToolActivity> = widget.calls().collect();
         let parts = match &calls[0].kind {
-            ToolKind::Shell { .. } => exec::parts(&calls, &env, widget.output_lines),
+            ToolKind::Shell { .. } => {
+                let room =
+                    Provider::<Room>::maybe_of(cx, true).map_or_else(Room::default, |room| *room);
+                exec::parts(&calls, &env, widget.output_lines, room)
+            }
             ToolKind::Mcp(_) if calls[0].is_computer_activity() => {
                 let group: Vec<&McpCall> = calls
                     .iter()
