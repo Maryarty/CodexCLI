@@ -557,6 +557,11 @@ impl Screen {
 
     /// The app opens a real typed voice offer and awaits both sides of SDP negotiation.
     pub fn voice_connected(&mut self) -> &mut Self {
+        self.connect_voice();
+        self
+    }
+
+    pub fn connect_voice(&mut self) -> String {
         use codex_app_server_protocol::{ClientRequest, RequestId};
         use codex_tui_core::screens::voice::{AudioAction, AudioResult, Sdp};
 
@@ -590,6 +595,77 @@ impl Screen {
         );
         let sdp = self.voice_audio(|action| matches!(action, AudioAction::Connect(_)));
         self.voice_receipt(&sdp, AudioResult::Connected(Ok(())));
+        params
+            .realtime_session_id
+            .expect("client's session identity")
+    }
+
+    pub fn voice_caption(
+        &mut self,
+        complete: bool,
+        session: &str,
+        item: &str,
+        role: &str,
+        text: &str,
+    ) -> &mut Self {
+        let method = if complete {
+            "thread/realtime/item/completed"
+        } else {
+            "thread/realtime/item/started"
+        };
+        self.voice_notify(
+            method,
+            serde_json::json!({
+                "threadId": self.active_thread().as_str(),
+                "item": {
+                    "id": item, "realtimeSessionId": session, "type": "transcriptSegment",
+                    "role": role, "text": text,
+                },
+            }),
+        );
+        self
+    }
+
+    pub fn voice_delta(&mut self, item: &str, text: &str) -> &mut Self {
+        self.voice_notify(
+            "thread/realtime/item/transcript/delta",
+            serde_json::json!({
+                "threadId": self.active_thread().as_str(), "itemId": item, "delta": text,
+            }),
+        );
+        self
+    }
+
+    pub fn voice_timeline_page(
+        &mut self,
+        cursor: Option<&str>,
+        entries: serde_json::Value,
+        next: Option<&str>,
+    ) -> &mut Self {
+        use codex_tui_core::screens::voice::Command as VoiceCommand;
+
+        let is_page = |command: &Command| {
+            matches!(command, Command::Screen {
+                command: ScreenCommand::Voice(VoiceCommand::ReadTimeline { cursor: asked }), ..
+            } if asked.as_deref() == cursor)
+        };
+        self.h
+            .wait_until("the canonical voice history page reaches the writer", |h| {
+                h.fake.commands().iter().any(&is_page)
+            });
+        let page = self
+            .h
+            .fake
+            .commands()
+            .into_iter()
+            .find(is_page)
+            .expect("timeline request");
+        self.answer_request(
+            &page,
+            serde_json::json!({
+                "data": entries, "nextCursor": next, "activeRealtimeSessionAtPageStart": null,
+            }),
+        );
         self
     }
 

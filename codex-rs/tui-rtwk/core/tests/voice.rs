@@ -165,7 +165,7 @@ fn display(app: &CodexApp) -> Option<voice::Display> {
     app.active_thread().screen_slots().voice.display()
 }
 
-fn active(app: &mut CodexApp) {
+fn active(app: &mut CodexApp) -> String {
     let prepared = preparing(app);
     let (start, session) = offered(app, &prepared);
     run(app, started("thread-1", &session));
@@ -173,6 +173,7 @@ fn active(app: &mut CodexApp) {
     run(app, media(&connect, AudioResult::Connected(Ok(()))));
     run(app, ack(&start));
     assert!(display(app).is_some_and(|display| !display.connecting));
+    session
 }
 
 #[test]
@@ -353,4 +354,262 @@ fn displayed_thread_switch_does_not_move_or_close_the_voice_owner() {
     run(&mut app, closed("thread-2"));
     run(&mut app, show("thread-1"));
     assert!(display(&app).is_some_and(|display| !display.connecting));
+}
+
+fn caption_done(thread: &str, session: &str, id: &str, text: &str) -> AppEv {
+    note(
+        "thread/realtime/item/completed",
+        serde_json::json!({
+            "threadId": thread,
+            "item": {
+                "id": id, "realtimeSessionId": session, "type": "transcriptSegment",
+                "role": "user", "text": text,
+            },
+        }),
+    )
+}
+
+fn captions(app: &CodexApp, thread: &str) -> Vec<String> {
+    use codex_tui_core::threads::Item;
+    app.thread(&ThreadId::new(thread))
+        .expect("the thread is held")
+        .transcript()
+        .iter()
+        .filter_map(|(_, item)| match item {
+            Item::VoiceTranscript { text, .. } => Some(text.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Attach a listed app-server thread and answer its resume on the registered transport.
+fn open_thread(app: &mut CodexApp, id: &str, backend: BackendId) -> AppFx {
+    use codex_tui_core::screens::agents::{Ev, Page, Reply as AgentsReply};
+    use codex_tui_core::screens::{ScreenEv, ScreenReply};
+    let thread: wire::Thread = serde_json::from_value(serde_json::json!({
+        "id": id, "environments": null, "extra": null, "sessionId": id,
+        "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
+        "preview": "", "ephemeral": false, "section": null, "sectionEnteredAt": null,
+        "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
+        "model": null, "reasoningEffort": null, "createdAt": 0, "updatedAt": 0,
+        "recencyAt": 0, "status": {"type":"idle"}, "path": null, "cwd": "/tmp/project",
+        "cliVersion": "0.0.0", "originator": null, "source": "cli", "canAcceptDirectInput": true,
+        "threadSource": null, "agentNickname": null, "agentRole": null, "gitInfo": null,
+        "name": "Another thread", "daybreakEnabled": null, "turns": []
+    }))
+    .expect("a listed thread");
+    run(
+        app,
+        AppEv::Screen(ScreenEv::Agents(Ev::ListedBy(
+            backend,
+            Page {
+                threads: vec![thread.clone()],
+                unread: Vec::new(),
+                next_cursor: None,
+                append: false,
+                pins: None,
+            },
+        ))),
+    );
+    let resume = run(app, AppEv::Intent(Intent::OpenThread(ThreadId::new(id))));
+    let ticket = resume
+        .commands()
+        .iter()
+        .find_map(
+            |command| match client_request(command, wire::RequestId::Integer(1), None) {
+                Some(wire::ClientRequest::ThreadResume { params, .. })
+                    if params.thread_id == id =>
+                {
+                    match command {
+                        Command::Screen { ticket, .. } => Some(*ticket),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            },
+        )
+        .expect("a resume request for the detached thread");
+    let resumed = run(
+        app,
+        AppEv::Reply(
+            ticket,
+            Reply::screen(ScreenReply::Agents(AgentsReply::Resumed(Box::new(thread)))),
+        ),
+    );
+    assert_eq!(app.session().active, Some(ThreadId::new(id)));
+    resumed
+}
+
+#[test]
+fn caption_uses_the_exact_thread_call_and_physical_address() {
+    let mut app = ready();
+    let session = active(&mut app);
+    let backend = BackendId::default();
+    let epoch = app.epoch_of(backend);
+    let receive = |app: &mut CodexApp, physical, event| {
+        app.ingest(Ingress::transport_event(backend, epoch, physical, event))
+    };
+
+    open_thread(&mut app, "thread-2", BackendId(1));
+    receive(
+        &mut app,
+        epoch,
+        caption_done("thread-2", &session, "a", "misrouted"),
+    );
+    receive(
+        &mut app,
+        epoch,
+        caption_done("thread-1", "old-call", "b", "foreign call"),
+    );
+    for _ in 0..2 {
+        receive(
+            &mut app,
+            epoch,
+            caption_done("thread-1", &session, "c", "hello from background"),
+        );
+    }
+    assert_eq!(captions(&app, "thread-1"), ["hello from background"]);
+    assert!(captions(&app, "thread-2").is_empty());
+
+    app.ingest(Ingress::transport_replaced(backend, epoch, epoch.next()))
+        .expect("new physical transport");
+    open_thread(&mut app, "thread-1", backend);
+    let prepared = preparing(&mut app);
+    let (_, current_session) = offered(&mut app, &prepared);
+    assert_ne!(current_session, session);
+    assert!(
+        receive(
+            &mut app,
+            epoch,
+            caption_done("thread-1", &current_session, "late", "retired transport"),
+        )
+        .is_none()
+    );
+    receive(
+        &mut app,
+        epoch.next(),
+        caption_done("thread-1", &session, "old", "retired session"),
+    );
+    receive(
+        &mut app,
+        epoch.next(),
+        caption_done("thread-1", &current_session, "fresh", "new transport"),
+    );
+    assert_eq!(
+        captions(&app, "thread-1"),
+        ["hello from background", "new transport"]
+    );
+}
+
+fn timeline(fx: &AppFx) -> Option<(&Command, wire::ThreadTimelineListParams)> {
+    fx.commands().iter().find_map(|command| {
+        match client_request(command, wire::RequestId::Integer(1), None) {
+            Some(wire::ClientRequest::ThreadTimelineList { params, .. }) => Some((command, params)),
+            _ => None,
+        }
+    })
+}
+
+fn timeline_answer(command: &Command, data: serde_json::Value, next: Option<&str>) -> AppEv {
+    let (ticket, reply) = reply(
+        command,
+        Ok(serde_json::json!({
+            "data": data, "nextCursor": next, "activeRealtimeSessionAtPageStart": null,
+        })),
+    )
+    .expect("canonical timeline response");
+    AppEv::Reply(ticket, reply)
+}
+
+fn read_replay(app: &mut CodexApp, backend: BackendId) -> AppFx {
+    let resumed = open_thread(app, "thread-2", backend);
+    let turns = resumed
+        .commands()
+        .iter()
+        .find(|command| {
+            matches!(
+                client_request(command, wire::RequestId::Integer(1), None),
+                Some(wire::ClientRequest::ThreadTurnsList { params, .. }) if params.thread_id == "thread-2"
+            )
+        })
+        .expect("ordinary history request");
+    let (ticket, history) = reply(
+        turns,
+        Ok(serde_json::json!({ "data": [], "nextCursor": null, "backwardsCursor": null })),
+    )
+    .expect("ordinary history response");
+    run(app, AppEv::Reply(ticket, history))
+}
+
+#[test]
+fn timeline_replay_stays_on_local_or_remote_thread_owner_and_skips_cloud() {
+    for owner in [BackendId::default(), BackendId(1)] {
+        let mut app = ready();
+        let read = read_replay(&mut app, owner);
+        let (command, params) = timeline(&read).expect("typed timeline read");
+        assert_eq!(params.thread_id, "thread-2");
+        let (backend, address) = app
+            .dispatch_route(command, None)
+            .expect("registered address");
+        assert_eq!(backend, owner);
+        assert_eq!(address.expect("physical address").backend, owner);
+
+        let answer = timeline_answer(
+            command,
+            serde_json::json!([{
+                "type": "realtime", "position": 1,
+                "item": {
+                    "id": "saved", "realtimeSessionId": "older-call", "type": "transcriptSegment",
+                    "role": "assistant", "text": "saved voice answer"
+                }
+            }]),
+            None,
+        );
+        let other = BackendId(owner.0 + 1);
+        assert!(
+            app.ingest(Ingress::of(other, app.epoch_of(other), answer.clone()))
+                .is_none()
+        );
+        assert!(captions(&app, "thread-2").is_empty());
+        run(&mut app, answer);
+        assert_eq!(captions(&app, "thread-2"), ["saved voice answer"]);
+    }
+
+    let mut app = ready();
+    let cloud = BackendId(1);
+    run(
+        &mut app,
+        AppEv::Screen(codex_tui_core::screens::ScreenEv::Agents(
+            codex_tui_core::screens::agents::Ev::CloudBackend(cloud),
+        )),
+    );
+    assert!(timeline(&read_replay(&mut app, cloud)).is_none());
+}
+
+#[test]
+fn timeline_stops_automatic_pages_and_keeps_explicit_older_history_available() {
+    use codex_tui_core::threads::HistoryState;
+    let mut app = ready();
+    let mut read = read_replay(&mut app, BackendId::default());
+    let mut seen = 0;
+    while let Some((command, _)) = timeline(&read) {
+        seen += 1;
+        assert!(seen <= 8, "more pages need an explicit history action");
+        let data = serde_json::json!([{
+            "type": "turnStarted", "position": 100 - seen, "turnId": "another-turn", "startedAt": null,
+        }]);
+        let answer = timeline_answer(command, data, Some(&format!("cursor-{seen}")));
+        read = run(&mut app, answer);
+    }
+    assert_eq!(seen, 8);
+    assert_eq!(app.active_thread().history_state(), HistoryState::Partial);
+    read = run(
+        &mut app,
+        AppEv::Intent(Intent::LoadOlderHistory(ThreadId::new("thread-2"))),
+    );
+    let (command, params) = timeline(&read).expect("explicit continuation");
+    assert_eq!(params.cursor.as_deref(), Some("cursor-8"));
+    let answer = timeline_answer(command, serde_json::json!([]), Some("spurious-empty-page"));
+    assert!(timeline(&run(&mut app, answer)).is_none());
+    assert_eq!(app.active_thread().history_state(), HistoryState::Complete);
 }

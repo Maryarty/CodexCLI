@@ -1815,6 +1815,20 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 }
                 return;
             }
+            if let Some((thread, event)) = threads::voice_transcript::project(&notification) {
+                if app.screens.agents.owner_of(thread.as_str()) == origin {
+                    apply_thread(
+                        app,
+                        &thread,
+                        ThreadEv::VoiceCaption {
+                            event,
+                            show_user_preview: app.screens.chat.status.animations,
+                        },
+                        fx,
+                    );
+                }
+                return;
+            }
             match &*notification {
                 ServerNotification::AccountRateLimitsUpdated(note) => {
                     features::rolling_remedy(app, origin, &note.rate_limits);
@@ -3191,6 +3205,12 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                     agents::HistoryRead::Older,
                     fx,
                 );
+            } else if app
+                .threads
+                .get(&id)
+                .is_some_and(|thread| thread.can_load_voice_history())
+            {
+                apply_thread(app, &id, ThreadEv::LoadOlderVoiceHistory, fx);
             }
         }
         Intent::OpenThread(id) => {
@@ -4011,6 +4031,19 @@ fn screen_answer(
         let thread = ThreadId::new(thread);
         let read = if let Ok(agents::Reply::History { turns, next }) = &result {
             apply_thread(app, &thread, threads::history_page(turns, next.clone()), fx);
+            if !app.screens.agents.is_cloud(backend)
+                && app.screens.agents.owner_of(thread.as_str()) == backend
+            {
+                apply_thread(
+                    app,
+                    &thread,
+                    ThreadEv::ReadVoiceHistory {
+                        oldest: turns.last().map(|turn| TurnId::new(&turn.id)),
+                        more_history: next.is_some(),
+                    },
+                    fx,
+                );
+            }
             true
         } else {
             apply_thread(app, &thread, ThreadEv::HistoryFailed, fx);
