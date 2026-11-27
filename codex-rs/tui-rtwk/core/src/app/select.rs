@@ -623,6 +623,7 @@ fn model_pick(
             return;
         };
         let backend = app.screens.agents.owner_of(thread.as_str());
+        let issued = app.mint.next();
         ask(
             app,
             select::Command::Write {
@@ -631,6 +632,7 @@ fn model_pick(
             select::Ctx::PlanWrite(Box::new(PlanWrite {
                 thread,
                 backend,
+                issued,
                 selection,
                 operation,
             })),
@@ -718,6 +720,7 @@ fn plan_written(
     let PlanWrite {
         thread,
         backend,
+        issued,
         selection,
         operation,
     } = write;
@@ -730,7 +733,18 @@ fn plan_written(
         select::Setting::PlanEffort
     };
     let note = match result {
-        Ok(select::Reply::Written { overridden: false }) => {
+        Ok(select::Reply::Written { overridden: false })
+            if app
+                .screens
+                .select
+                .last_plan_write
+                .get(&backend)
+                .is_none_or(|last| *last < issued) =>
+        {
+            Rc::make_mut(&mut app.screens)
+                .select
+                .last_plan_write
+                .insert(backend, issued);
             configured_plan(app, backend, selection.effort.clone());
             if owns_thread && plan_thread(app, &thread, &selection.model) {
                 plan_effort(

@@ -159,11 +159,12 @@ fn plan_reasoning_session(configured_effort: Option<&str>) -> Screen {
     ))
     .unwrap_or_else(|error| panic!("plan reasoning catalog fixture: {error}"));
     let mut s = Screen::build(Owner::ChatLive)
-        .size(100, 24)
+        .size(120, 24)
         .live()
         .model_catalog(catalog["models"].clone())
         .collaboration_catalog(catalog["collaboration"].clone())
         .open();
+    s.server_answers("thread/settings/update", serde_json::json!({}));
     // The host's configured global High and the live Plan mode's effort can differ.
     s.feed(
         &serde_json::json!({"step":"screen","dir":"chat","ev":{"status":{
@@ -399,6 +400,42 @@ fn accepting_plan_only_uses_the_new_effort_for_plan_and_keeps_default() {
     s.assert_last_request_has("thread/settings/update", r#""reasoning_effort":"medium""#);
     s.type_text("plan with this reasoning").keys("enter");
     s.assert_turn_texts(&["plan with this reasoning"]);
+}
+
+#[test]
+fn an_older_plan_save_cannot_replace_a_newer_acknowledged_choice() {
+    let mut s = plan_reasoning_picker(true);
+    choose_medium_reasoning(&mut s);
+    s.server_answers(
+        "config/batchWrite",
+        serde_json::json!({
+            "status":"ok","version":"v","filePath":"/c","overriddenMetadata":null
+        }),
+    );
+    let older = s.hold_request("config/batchWrite");
+    s.click_text("Apply to Plan mode override");
+    s.assert_requests_of("config/batchWrite", 1);
+    open_reasoning_picker(&mut s);
+    s.click_text("High");
+    s.assert_contains("Choose where to apply high reasoning.");
+    let newer = s.hold_request("config/batchWrite");
+    s.click_text("Apply to Plan mode override");
+    s.assert_requests_of("config/batchWrite", 2);
+
+    let updates = s.requests_of("thread/settings/update");
+    s.release(&newer);
+    s.assert_requests_of("thread/settings/update", updates + 1);
+    s.assert_last_request_has("thread/settings/update", r#""reasoning_effort":"high""#);
+    s.feed(&reasoning_settings("thread-1", "plan", "high"));
+    s.release(&older);
+    s.assert_requests_of("thread/settings/update", updates + 1);
+    s.assert_contains("GPT-5.5 high");
+
+    s.server_resumes("thread-2").visit_thread("thread-2");
+    s.feed(&reasoning_settings("thread-2", "default", "high"));
+    s.type_text("/plan").keys("enter");
+    s.assert_last_request_has("thread/settings/update", r#""threadId":"thread-2""#);
+    s.assert_last_request_has("thread/settings/update", r#""reasoning_effort":"high""#);
 }
 
 // ORACLE chatwidget/tests/plan_mode.rs:657 plan_reasoning_scope_popup_plan_only_does_not_update_all_modes_reasoning kind=ui owner=chat-live

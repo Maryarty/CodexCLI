@@ -13,7 +13,7 @@ use codex_app_server_protocol::{
 use codex_protocol::config_types::{CollaborationMode, ModeKind, Settings};
 use codex_protocol::openai_models::ReasoningEffort;
 
-use crate::ids::{BackendId, ThreadId};
+use crate::ids::{BackendId, ThreadId, Ticket};
 use crate::threads::queue::QueueOperation;
 
 use super::models::{PlanSource, Selection};
@@ -100,6 +100,7 @@ pub enum Change {
 pub struct PlanWrite {
     pub(crate) thread: ThreadId,
     pub(crate) backend: BackendId,
+    pub(crate) issued: Ticket,
     pub(crate) selection: Selection,
     pub(crate) operation: Option<QueueOperation>,
 }

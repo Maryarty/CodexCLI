@@ -661,7 +661,7 @@ impl ThreadPart {
         }
         collaboration::Base::of(
             fallback.model.as_deref().or(self.model.as_deref()),
-            fallback.effort.as_deref().or(self.effort.as_deref()),
+            fallback.effort.as_deref(),
         )
     }
 

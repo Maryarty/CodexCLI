@@ -10,7 +10,7 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 
 use crate::app::AppFx;
-use crate::ids::{BackendId, ThreadId};
+use crate::ids::{BackendId, ThreadId, Ticket};
 use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ThreadFx;
@@ -331,6 +331,8 @@ pub struct Model {
     /// The current conversation's visit to the live model picker.
     pub model_visit: u64,
     pub(crate) plan_defaults: BTreeMap<BackendId, Effort>,
+    /// The newest acknowledged Plan config write on each backend.
+    pub(crate) last_plan_write: BTreeMap<BackendId, Ticket>,
     /// The permission profiles the pickers list.
     pub profiles: Profiles,
     /// The apps `/apps` lists.
