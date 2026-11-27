@@ -1040,14 +1040,7 @@ impl CopyMode {
                     n.checked_sub(1).map(Some)
                 }
             }),
-            Do::Copy => {
-                let data = self.0.data.borrow();
-                if data.source().is_some_and(|target| target.payload.is_some()) {
-                    Step::Copy
-                } else {
-                    Step::Moved
-                }
-            }
+            Do::Copy => Step::Copy,
             Do::Exit => Step::Exit,
             Do::Page(pages) => Step::Page(pages),
             Do::Other => Step::Moved,
