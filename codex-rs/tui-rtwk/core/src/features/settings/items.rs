@@ -9,89 +9,8 @@ use super::catalog::{CatalogueItem, setup};
 use super::{Setup, SetupKind};
 use crate::screens::chat::{DEFAULT_STATUS_LINE_ITEMS, StatusFacts};
 
-/// `StatusLineItem`, in `iter()` order.
-pub const STATUS_LINE: [&str; 33] = [
-    "model",
-    "model-with-reasoning",
-    "reasoning",
-    "current-dir",
-    "project-name",
-    "hostname",
-    "git-branch",
-    "pull-request-number",
-    "branch-changes",
-    "run-state",
-    "permissions",
-    "approval-mode",
-    "context-remaining",
-    "context-used",
-    "five-hour-limit",
-    "weekly-limit",
-    "codex-version",
-    "context-window-size",
-    "used-tokens",
-    "total-input-tokens",
-    "total-output-tokens",
-    "thread-credits",
-    "estimated-thread-cost",
-    "thread-id",
-    "fast-mode",
-    "daybreak",
-    "raw-output",
-    "thread-name",
-    "thread-title",
-    "workspace-headline",
-    "task-progress",
-    "profile",
-    "provider",
-];
-
-/// `TerminalTitleItem`, in `iter()` order.
-pub const TERMINAL_TITLE: [&str; 25] = [
-    "app-name",
-    "project-name",
-    "current-dir",
-    "activity",
-    "run-state",
-    "thread-name",
-    "thread-title",
-    "git-branch",
-    "context-remaining",
-    "context-used",
-    "five-hour-limit",
-    "weekly-limit",
-    "codex-version",
-    "used-tokens",
-    "total-input-tokens",
-    "total-output-tokens",
-    "thread-credits",
-    "estimated-thread-cost",
-    "thread-id",
-    "fast-mode",
-    "daybreak",
-    "model",
-    "model-with-reasoning",
-    "reasoning",
-    "task-progress",
-];
-
-/// `DEFAULT_TERMINAL_TITLE_ITEMS`.
-pub const DEFAULT_TITLE: [&str; 3] = ["activity", "thread-name", "project-name"];
-
-/// The names an item is written with, for `id` read as the config may spell it (a serialize
-/// alias): the name the dialog lists it under.
-fn canonical(id: &str) -> &str {
-    match id {
-        "model-name" => "model",
-        "project" | "project-root" => "project-name",
-        "status" => "run-state",
-        "approval" => "approval-mode",
-        "context-usage" => "context-used",
-        "session-id" => "thread-id",
-        "model-provider" => "provider",
-        other => other,
-    }
-}
+pub use crate::screens::chat::surface_items::{DEFAULT_TITLE, STATUS_LINE, TERMINAL_TITLE};
+use crate::screens::chat::surface_items::{status_item, title_item};
 
 fn catalogue(ids: &[&str]) -> Vec<CatalogueItem> {
     ids.iter()
@@ -109,7 +28,7 @@ pub fn status_line(facts: &StatusFacts) -> Setup {
     let selected: Vec<String> = match &facts.items {
         Some(items) => items
             .iter()
-            .map(|item| canonical(item).to_owned())
+            .filter_map(|item| status_item(item).map(str::to_owned))
             .collect(),
         None => DEFAULT_STATUS_LINE_ITEMS
             .iter()
@@ -130,11 +49,7 @@ pub fn title(facts: &StatusFacts) -> Setup {
     let selected: Vec<String> = match &facts.terminal_title {
         Some(items) => items
             .iter()
-            .map(|item| match item.as_str() {
-                "spinner" => "activity".to_owned(),
-                "thread" => "thread-title".to_owned(),
-                other => canonical(other).to_owned(),
-            })
+            .filter_map(|item| title_item(item).map(str::to_owned))
             .collect(),
         None => DEFAULT_TITLE.iter().map(ToString::to_string).collect(),
     };

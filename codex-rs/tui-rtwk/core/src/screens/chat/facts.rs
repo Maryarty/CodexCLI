@@ -388,6 +388,14 @@ impl Facts {
         }
     }
 
+    /// The destination of the current branch's pull request, once the workspace probe answered.
+    pub fn pull_request_url(&self) -> Option<&str> {
+        self.git_summary()?
+            .pull_request
+            .as_ref()
+            .map(|pr| pr.url.as_str())
+    }
+
     /// The `workspace-headline` item's text.
     pub fn headline(&self) -> Option<&str> {
         self.headline.text.as_deref()
@@ -473,21 +481,23 @@ pub fn model_display_name(catalog: &Catalog, model: Option<&str>) -> String {
     }
 }
 
-/// `processing_tier_display_name`: the name the model's offered tiers give the current tier, or
-/// `Flex` for the flex tier on a provider other than Bedrock.
-pub fn tier_display_name(
-    tiers: &[ServiceTierCommand],
+/// The name the catalog gives the current model's tier, or the conventional Flex name when
+/// the effective provider is in the host's configured Flex list.
+pub fn tier_display_name<'a>(
+    catalog: &'a Catalog,
+    model: Option<&str>,
     tier: Option<&str>,
-    provider: Option<&str>,
-) -> Option<String> {
+    flex_tier_fallback: bool,
+) -> Option<&'a str> {
     let id = tier?;
-    tiers
-        .iter()
-        .find(|offered| offered.id == id)
-        .map(|offered| offered.name.clone())
-        .or_else(|| {
-            (id == "flex" && provider != Some("amazon-bedrock")).then(|| "Flex".to_string())
-        })
+    let offered = model
+        .and_then(|model| catalog.presets.iter().find(|preset| preset.model == model))
+        .and_then(|preset| preset.service_tiers.iter().find(|tier| tier.id == id));
+    match (offered, id) {
+        (Some(tier), _) => Some(tier.name.as_str()),
+        (None, "flex") if flex_tier_fallback => Some("Flex"),
+        _ => None,
+    }
 }
 
 /// `current_model_service_tier_commands`: the tiers the current model offers in the catalog,

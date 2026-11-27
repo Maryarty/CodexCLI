@@ -323,14 +323,20 @@ fn repeated_model_metadata_warning_is_hidden_for_same_slug() {
 // ORACLE chatwidget/tests/status_and_layout.rs:3215 status_line_invalid_items_warn_once kind=ui owner=ui-pane
 #[test]
 fn status_line_invalid_items_warn_once() {
-    kit::pending(
-        Owner::UiPane,
-        "an unknown id in `status_line` / `terminal_title` is dropped silently: the once-only warning cell needs the chat `apply` of the status event (core/src/screens/chat.rs, chunk-live's) to push one notice cell per distinct invalid list",
+    let mut s = Screen::build(Owner::UiPane).size(110, 24).live().open();
+    let invalid = r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.4","items":["model-name","model_name","bogus_item","lines_changed","bogus_item"],"project_root":"workspace","terminal_title":["project","unknown-title","unknown-title"]}}}"#;
+    s.feed(invalid);
+    s.assert_title("workspace");
+    s.feed(invalid);
+    s.keys("ctrl+t");
+    s.assert_text_count(
+        r#"Ignored invalid status line items: "model_name", "bogus_item" and "lines_changed"."#,
+        1,
     );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: status_line = model_name, bogus_item, lines_changed, bogus_item; refresh twice
-    s.assert_contains("bogus_item");
-    // the second refresh adds no warning cell: the transcript keeps one
+    s.assert_text_count(
+        r#"Ignored invalid terminal title item: "unknown-title"."#,
+        1,
+    );
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:3243 status_line_hostname_renders_current_machine_hostname kind=ui owner=ui-pane
@@ -500,44 +506,58 @@ fn completed_turn_clears_visible_running_hook() {
 // ORACLE chatwidget/tests/status_and_layout.rs:4264 status_line_processing_tier_updates_with_selection kind=snap owner=ui-pane
 #[test]
 fn status_line_processing_tier_updates_with_selection() {
-    // The oracle's last step runs the `remote-only-provider` (not in `config.model_providers`),
-    // which offers no Flex tier: the provider table is no fact here, only the provider's id is.
-    kit::pending(
-        Owner::UiPane,
-        "the provider table is no fact: `remote-only-provider` (an id outside `config.model_providers`) shows `Standard` in the oracle, `Flex` here; StatusFacts carries the provider's id only (host feed, chunk-live's)",
-    );
-    let status = |model: &str, tier: Option<&str>, fast_mode: bool, provider: &str| {
-        let tier = tier.map_or(String::new(), |tier| format!(r#""service_tier":"{tier}","#));
-        format!(
-            r#"{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"{model}",{tier}"fast_mode":{fast_mode},"provider":"{provider}","items":["fast-mode"],"terminal_title":["fast-mode"]}}}}}}"#
-        )
+    let status = |tier: &str, fast_mode: bool| {
+        serde_json::json!({
+            "step": "screen", "dir": "chat", "ev": {"status": {
+                "model": "gpt-5.4", "service_tier": tier, "fast_mode": fast_mode,
+                "provider": "openai", "provider_names": [{"id": "openai", "name": "OpenAI", "flex_fallback": true}],
+                "items": ["fast-mode"], "terminal_title": ["fast-mode"],
+            }}
+        })
+        .to_string()
     };
-    let line = |s: &Screen, text: &str| {
+    let settings = |model: &str, provider: &str, tier: &str| {
+        serde_json::json!({
+            "step": "notify", "message": { "method": "thread/settings/updated", "params": {
+                "threadId": "thread-1", "threadSettings": {
+                    "cwd": "/tmp/project", "approvalPolicy": "on-request", "approvalsReviewer": "user",
+                    "sandboxPolicy": {"type": "dangerFullAccess"}, "activePermissionProfile": null,
+                    "model": model, "modelProvider": provider, "serviceTier": tier,
+                    "effort": null, "summary": null, "personality": null,
+                    "collaborationMode": {"mode": "default", "settings": {
+                        "model": model, "reasoning_effort": null, "developer_instructions": null
+                    }}
+                }
+            }}
+        }).to_string()
+    };
+    let surfaces = |s: &Screen, text: &str| {
         s.assert_has_row_trimmed(text);
+        s.assert_title(text);
     };
     let mut s = Screen::build(Owner::UiPane)
         .size(100, 24)
         .script(include_str!("fixtures/chat_status_2/fast_tier.jsonl"))
         .open();
-    line(&s, "Standard");
-    s.feed(&status("gpt-5.4", Some("priority"), true, "openai"));
-    line(&s, "fast");
-    s.assert_title("fast");
-    s.feed(&status("gpt-5.4", Some("priority"), false, "openai"));
-    line(&s, "Standard");
-    s.assert_title("Standard");
-    s.feed(&status("gpt-5.2", Some("flex"), true, "openai"));
-    line(&s, "Flex");
-    s.feed(&status("gpt-5.2", Some("flex"), true, "amazon-bedrock"));
-    line(&s, "Standard");
-    // then the provider the oracle does not know: `Standard`
-    s.feed(&status(
-        "gpt-5.2",
-        Some("flex"),
-        true,
-        "remote-only-provider",
-    ));
-    line(&s, "Standard");
+    s.assert_has_row_trimmed("Standard");
+    s.feed(&status("priority", true));
+    surfaces(&s, "fast");
+    s.feed(&status("priority", false));
+    surfaces(&s, "Standard");
+    s.feed(&status("priority", true));
+    // Host config still selects OpenAI, as the attached thread changes its effective provider.
+    for (provider, name) in [
+        ("openai", "Flex"),
+        ("amazon-bedrock", "Standard"),
+        ("amazon-bedrock-runtime", "Standard"),
+        ("remote-only-provider", "Standard"),
+        ("openai", "Flex"),
+    ] {
+        s.feed(&settings("gpt-5.2", provider, "flex"));
+        surfaces(&s, name);
+    }
+    s.feed(&settings("uncatalogued-model", "openai", "priority"));
+    surfaces(&s, "Standard");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4319 status_line_fast_mode_footer_snapshot kind=snap owner=ui-pane snap=status_line_fast_mode_footer
@@ -601,7 +621,7 @@ fn renamed_thread_footer_title_snapshot() {
 fn status_line_model_with_reasoning_speed_footer_snapshots() {
     let status = |tier: &str, items: &str| {
         format!(
-            r#"{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"gpt-5.4","effort":"xhigh","service_tier":"{tier}","cwd":"/tmp/project","items":{items},"terminal_title":["model-with-reasoning"]}}}}}}"#
+            r#"{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"gpt-5.4","effort":"xhigh","service_tier":"{tier}","provider":"openai","provider_names":[{{"id":"openai","name":"OpenAI","flex_fallback":true}}],"cwd":"/tmp/project","items":{items},"terminal_title":["model-with-reasoning"]}}}}}}"#
         )
     };
     let all = r#"["model-with-reasoning","context-used","current-dir"]"#;

@@ -189,7 +189,7 @@ pub(crate) fn texts_at(item: &Item, env: &Env<'_>, cx: &ReadContext<'_>) -> Text
         Item::HighLoad => one(error::line(env.chat.high_load, cells)),
         Item::Warning { message } => Texts::Exact(warning::texts(message, cells)),
         Item::LocalWarning(warning) => {
-            Texts::Exact(warning::texts(env.chat.local_warning(*warning), cells))
+            Texts::Exact(warning::texts(&env.chat.local_warning(warning), cells))
         }
         Item::StartupWarning(warning) => {
             Texts::Exact(warning::texts(&env.chat.mcp_warning(warning), cells))

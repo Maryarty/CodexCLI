@@ -9,7 +9,9 @@ pub mod facts;
 mod mcp;
 pub mod plan_mode;
 pub mod reasoning;
+pub mod surface_items;
 
+use std::collections::BTreeSet;
 use std::rc::Rc;
 
 pub use banner::{
@@ -33,7 +35,7 @@ use crate::screens::Kind;
 use crate::screens::select::collaboration::{self, ModelChange};
 use crate::threads::ThreadReply;
 use crate::threads::asks::ThreadRpc;
-use crate::threads::{Note, ThreadFx, UserMessage};
+use crate::threads::{LocalWarning, Note, ThreadFx, UserMessage};
 
 pub const NAME: &str = "chat";
 pub const ID: &str = "S10";
@@ -61,6 +63,8 @@ pub struct Model {
     pub status_override: StatusOverride,
     /// What the status line shows, read by the host (config, cwd, git).
     pub status: Rc<StatusFacts>,
+    warned_status_items: bool,
+    warned_title_items: bool,
     /// The footer's and the status line's other facts: the workspace probes, the side and
     /// agent labels (`facts`).
     pub facts: Facts,
@@ -74,11 +78,14 @@ pub const DEFAULT_STATUS_LINE_ITEMS: [&str; 3] =
 /// `LUNA_RESERVE_MODEL` (`model_catalog.rs`).
 const LUNA_RESERVE_MODEL: &str = "gpt-reserve";
 
-/// The display name supplied by the configuration for a model provider.
+/// The configuration's display name and tier information for a model provider.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 pub struct ModelProviderName {
     pub id: String,
     pub name: String,
+    /// Whether Flex has a conventional name when the model catalog has no entry for it.
+    #[serde(default)]
+    pub flex_fallback: bool,
 }
 
 /// The facts of the status line that need no session: the loaded config
@@ -123,7 +130,7 @@ pub struct StatusFacts {
     pub hostname: Option<String>,
     pub profile_name: Option<String>,
     pub provider: Option<String>,
-    /// Configured display names for the providers a thread refusal can name.
+    /// Configured providers, with display names for a thread refusal and the Flex fallback.
     pub provider_names: Vec<ModelProviderName>,
     pub version: Option<String>,
     pub animations: bool,
@@ -227,6 +234,12 @@ impl NoticeKind {
 }
 
 impl StatusFacts {
+    pub fn flex_fallback_for(&self, id: &str) -> bool {
+        self.provider_names
+            .iter()
+            .any(|provider| provider.id == id && provider.flex_fallback)
+    }
+
     /// Configured status items in their original order.
     pub fn items(&self) -> Vec<(String, String)> {
         match &self.items {
@@ -301,9 +314,50 @@ impl Default for Model {
             raw_output: false,
             status_override: StatusOverride::default(),
             status: Rc::default(),
+            warned_status_items: false,
+            warned_title_items: false,
             facts: Facts::default(),
         }
     }
+}
+
+impl Model {
+    /// The first warning for each surface in this app's lifetime, once a thread can carry it.
+    pub(crate) fn take_invalid_surface_items(
+        &mut self,
+    ) -> impl Iterator<Item = LocalWarning> + use<> {
+        let status = take_invalid_items(
+            &mut self.warned_status_items,
+            self.status.items.as_deref(),
+            surface_items::status_item,
+        )
+        .map(LocalWarning::InvalidStatusLineItems);
+        let title = take_invalid_items(
+            &mut self.warned_title_items,
+            self.status.terminal_title.as_deref(),
+            surface_items::title_item,
+        )
+        .map(LocalWarning::InvalidTitleItems);
+        status.into_iter().chain(title)
+    }
+}
+
+fn take_invalid_items(
+    warned: &mut bool,
+    configured: Option<&[String]>,
+    known: impl Fn(&str) -> Option<&str>,
+) -> Option<Vec<String>> {
+    if *warned {
+        return None;
+    }
+    let mut seen = BTreeSet::new();
+    let invalid: Vec<_> = configured?
+        .iter()
+        .filter(|id| known(id).is_none() && seen.insert(id.as_str()))
+        .cloned()
+        .collect();
+    *warned = !invalid.is_empty();
+    warned.then_some(invalid)
 }
 
 /// The events of this screen (backend results, tickets); a variant of the

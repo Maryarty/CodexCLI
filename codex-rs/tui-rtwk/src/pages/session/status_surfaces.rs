@@ -3,6 +3,7 @@
 use codex_protocol::account::PlanType;
 use codex_tui_core::format::format_tokens_compact;
 use codex_tui_core::ids::ThreadId;
+use codex_tui_core::screens::chat::surface_items::{DEFAULT_TITLE, status_item, title_item};
 use codex_tui_core::screens::chat::{self, DEFAULT_STATUS_LINE_ITEMS, StatusFacts};
 use codex_tui_core::screens::status::{
     self, Figure, UsageInterest, format_credit_micros, format_estimated_usd_micros,
@@ -44,6 +45,7 @@ impl StatusContext<'_> {
             None => DEFAULT_STATUS_LINE_ITEMS.to_vec(),
         }
         .into_iter()
+        .filter_map(status_item)
         .filter_map(|id| self.value_for(id, facts).map(|text| (id.to_string(), text)))
         .collect()
     }
@@ -90,14 +92,9 @@ impl StatusContext<'_> {
     /// (`status_line_pull_request_url`).
     pub fn link_for(&self, id: &str) -> Option<String> {
         (id == "pull-request-number")
-            .then(|| {
-                self.chat
-                    .git_summary()?
-                    .pull_request
-                    .as_ref()
-                    .map(|pr| pr.url.clone())
-            })
+            .then(|| self.chat.pull_request_url())
             .flatten()
+            .map(str::to_owned)
     }
 
     /// The terminal title (`terminal_title_text_for_selections`): the configured items (or the
@@ -202,20 +199,15 @@ impl StatusContext<'_> {
             .and_then(|thread| thread.service_tier.as_ref())
             .map_or(facts.service_tier.as_deref(), |tier| tier.as_deref());
         let tier = chat::facts::effective_service_tier(facts, tier, slug, self.catalog);
-        // `processing_tier_display_name`: the name the model's catalog entry gives the tier;
-        // without one the fast tier is `Fast`
-        let tier_name = tier.as_deref().and_then(|id| {
-            let offered =
-                slug.and_then(|slug| self.catalog.presets.iter().find(|p| p.model == slug));
-            offered
-                .and_then(|preset| preset.service_tiers.iter().find(|t| t.id == id))
-                .map(|t| t.name.clone())
-                .or_else(|| {
-                    (id == "flex" && facts.provider.as_deref() != Some("amazon-bedrock"))
-                        .then(|| "Flex".to_string())
-                })
-                .or_else(|| (id == "priority").then(|| "Fast".to_string()))
-        });
+        let provider = thread
+            .and_then(|thread| thread.provider.as_deref())
+            .or(facts.provider.as_deref());
+        let tier_name = chat::facts::tier_display_name(
+            self.catalog,
+            slug,
+            tier.as_deref(),
+            provider.is_some_and(|id| facts.flex_fallback_for(id)),
+        );
         let usage = self.usage.filter(|usage| usage.received);
         let tokens = usage.map(|usage| usage.tokens);
         let context_usage = usage.and_then(|usage| usage.context);
@@ -228,13 +220,13 @@ impl StatusContext<'_> {
         };
         match id {
             "model" | "model-name" => model.map(str::to_owned),
-            "model-with-reasoning" => model.map(|model| match &tier_name {
+            "model-with-reasoning" => model.map(|model| match tier_name {
                 Some(name) if title => format!("{model} {effort} {name}"),
-                Some(name) if name == "Fast" => self.strings.status_model_fast(model, effort),
+                Some("Fast") => self.strings.status_model_fast(model, effort),
                 Some(name) => format!("{model} {effort} {}", name.to_lowercase()),
                 None => format!("{model} {effort}"),
             }),
-            "fast-mode" => Some(tier_name.unwrap_or_else(|| "Standard".to_string())),
+            "fast-mode" => Some(tier_name.unwrap_or("Standard").to_string()),
             // the preference is off until the thread says it is on (`daybreak_enabled` is false by default)
             "daybreak" => Some(
                 if thread.and_then(|thread| thread.daybreak).unwrap_or(false) {
@@ -257,10 +249,9 @@ impl StatusContext<'_> {
                 .profile_name
                 .as_ref()
                 .map(|name| format_label("profile", name)),
-            "provider" if self.thread_id.is_some() => thread
-                .and_then(|thread| thread.provider.as_deref())
-                .or(facts.provider.as_deref())
-                .map(|name| format_label("provider", name)),
+            "provider" if self.thread_id.is_some() => {
+                provider.map(|name| format_label("provider", name))
+            }
             "codex-version" => facts.version.clone(),
             "pull-request-number" => self.chat.git_summary()?.pull_request_text(),
             "branch-changes" => self.chat.git_summary()?.changes_text(),
@@ -355,45 +346,6 @@ impl Title {
     }
 }
 
-/// The ids `TerminalTitleItem` knows, with its aliases; others are no item.
-fn is_title_item(id: &str) -> bool {
-    matches!(
-        id,
-        "app-name"
-            | "project-name"
-            | "project"
-            | "current-dir"
-            | "activity"
-            | "spinner"
-            | "run-state"
-            | "status"
-            | "thread-name"
-            | "thread-title"
-            | "thread"
-            | "git-branch"
-            | "context-remaining"
-            | "context-used"
-            | "context-usage"
-            | "five-hour-limit"
-            | "weekly-limit"
-            | "codex-version"
-            | "used-tokens"
-            | "total-input-tokens"
-            | "total-output-tokens"
-            | "thread-credits"
-            | "estimated-thread-cost"
-            | "thread-id"
-            | "session-id"
-            | "fast-mode"
-            | "daybreak"
-            | "model"
-            | "model-name"
-            | "model-with-reasoning"
-            | "reasoning"
-            | "task-progress"
-    )
-}
-
 /// What the items of the status line ask of the thread's usage: a figure that is configured is
 /// wanted whether or not it shows yet (`thread_usage_selected`).
 pub(super) fn line_interests(facts: &StatusFacts) -> Vec<UsageInterest> {
@@ -436,14 +388,10 @@ fn is_spinner(id: &str) -> bool {
 
 /// `configured_terminal_title_items` that parse (`DEFAULT_TERMINAL_TITLE_ITEMS` when unset).
 fn title_items(facts: &StatusFacts) -> Vec<&str> {
-    const DEFAULT: [&str; 3] = ["activity", "thread-name", "project-name"];
     match &facts.terminal_title {
-        Some(items) => items.iter().map(String::as_str).collect::<Vec<_>>(),
-        None => DEFAULT.to_vec(),
+        Some(items) => items.iter().filter_map(|id| title_item(id)).collect(),
+        None => DEFAULT_TITLE.to_vec(),
     }
-    .into_iter()
-    .filter(|id| is_title_item(id))
-    .collect()
 }
 
 /// The most graphemes the title takes of an item (`terminal_title_value_for_item`).
@@ -631,14 +579,40 @@ mod tests {
     #[test]
     fn only_the_ids_of_the_oracle_are_title_items() {
         let facts = StatusFacts {
-            terminal_title: Some(vec![
-                "project".into(),
-                "no-such-item".into(),
-                "status".into(),
-            ]),
+            terminal_title: Some(
+                [
+                    "project",
+                    "project-root",
+                    "status",
+                    "spinner",
+                    "thread",
+                    "context-usage",
+                    "provider",
+                    "session-id",
+                    "model-name",
+                    "model_name",
+                    "app-name",
+                    "no-such-item",
+                ]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            ),
             ..StatusFacts::default()
         };
-        assert_eq!(title_items(&facts), ["project", "status"]);
+        assert_eq!(
+            title_items(&facts),
+            [
+                "project-name",
+                "run-state",
+                "activity",
+                "thread-title",
+                "context-used",
+                "thread-id",
+                "model",
+                "app-name"
+            ]
+        );
         assert_eq!(
             title_items(&StatusFacts::default()),
             ["activity", "thread-name", "project-name"]

@@ -84,6 +84,7 @@ pub async fn status(config: &Config) -> StatusFacts {
             |(id, provider)| codex_tui_core::screens::chat::ModelProviderName {
                 id: id.clone(),
                 name: provider.name.clone(),
+                flex_fallback: !provider.is_amazon_bedrock(),
             },
         )
         .collect::<Vec<_>>();
@@ -546,6 +547,31 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn flex_fallback_uses_the_host_provider_table() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let config = codex_core::config::ConfigBuilder::default()
+            .codex_home(dir.path().to_path_buf())
+            .fallback_cwd(Some(dir.path().to_path_buf()))
+            .build()
+            .await
+            .expect("a config");
+        let facts = status(&config).await;
+        for (provider, present, allowed) in [
+            ("openai", true, true),
+            ("amazon-bedrock", true, false),
+            ("amazon-bedrock-runtime", true, false),
+            ("remote-only-provider", false, false),
+        ] {
+            assert_eq!(
+                config.model_providers.contains_key(provider),
+                present,
+                "{provider}"
+            );
+            assert_eq!(facts.flex_fallback_for(provider), allowed, "{provider}");
+        }
+    }
 
     #[test]
     fn the_keymap_config_is_resolved_over_the_defaults() {

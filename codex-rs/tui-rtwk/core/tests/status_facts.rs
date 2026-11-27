@@ -521,13 +521,13 @@ mod footer {
 
 mod names {
     use super::*;
-    use codex_tui_core::commands::ServiceTierCommand;
     use codex_tui_core::screens::select::models::{Catalog, Preset};
     use pretty_assertions::assert_eq;
 
     fn catalog() -> Catalog {
         let preset: Preset = serde_json::from_value(json!({
-            "model": "gpt-5.1-codex", "name": "GPT-5.1 Codex", "efforts": [], "default_effort": "medium"
+            "model": "gpt-5.1-codex", "name": "GPT-5.1 Codex", "efforts": [], "default_effort": "medium",
+            "service_tiers": [{"id": "priority", "name": "fast", "description": "Fast inference"}]
         }))
         .expect("preset");
         let mut catalog = Catalog::default();
@@ -555,26 +555,19 @@ mod names {
     }
 
     #[test]
-    fn the_tier_is_named_by_the_offered_tiers_or_is_flex() {
-        let tiers = vec![ServiceTierCommand {
-            id: "priority".into(),
-            name: "Fast".into(),
-            description: String::new(),
-        }];
+    fn the_tier_uses_its_catalog_name_and_flex_fallback_needs_a_supported_provider() {
+        let catalog = catalog();
+        let name =
+            |id, fallback| facts::tier_display_name(&catalog, Some("gpt-5.1-codex"), id, fallback);
+        assert_eq!(name(Some("priority"), false), Some("fast"));
         assert_eq!(
-            facts::tier_display_name(&tiers, Some("priority"), None).as_deref(),
-            Some("Fast")
-        );
-        assert_eq!(
-            facts::tier_display_name(&tiers, Some("flex"), Some("openai")).as_deref(),
-            Some("Flex")
-        );
-        assert_eq!(
-            facts::tier_display_name(&tiers, Some("flex"), Some("amazon-bedrock")),
+            facts::tier_display_name(&catalog, Some("unknown"), Some("priority"), true),
             None
         );
-        assert_eq!(facts::tier_display_name(&tiers, Some("other"), None), None);
-        assert_eq!(facts::tier_display_name(&tiers, None, None), None);
+        assert_eq!(name(Some("flex"), true), Some("Flex"));
+        assert_eq!(name(Some("flex"), false), None);
+        assert_eq!(name(Some("other"), true), None);
+        assert_eq!(name(None, true), None);
     }
 }
 
@@ -639,4 +632,50 @@ mod agent_label {
             Some("[worker]")
         );
     }
+}
+
+#[test]
+fn invalid_surface_selection_warnings_wait_for_a_thread_and_are_once_per_app() {
+    use codex_tui_core::app::AppEv;
+    use codex_tui_core::screens::{ScreenEv, agents};
+    use codex_tui_core::threads::{Item, LocalWarning};
+
+    let first = ThreadId::new("first");
+    let later = ThreadId::new("later");
+    let lines = [
+        screen(
+            json!({"status": {"items": ["model-name", "spinner", "model_name", "spinner"],
+                                  "terminal_title": ["project", "spinner", "thread", "project-root"]}}),
+        ),
+        r#"{"step":"seed","seed":"session","thread":"first"}"#.to_owned(),
+        screen(json!({"status": {"items": ["elsewhere"], "terminal_title": ["other-title"]}})),
+    ];
+    let mut sandbox = play(&lines);
+    sandbox.send(AppEv::Screen(ScreenEv::Agents(agents::Ev::Current(Some(
+        later.clone(),
+    )))));
+    let warnings = |id| {
+        sandbox
+            .app()
+            .thread(id)
+            .expect("attached thread")
+            .transcript()
+            .iter()
+            .filter_map(|(_, item)| {
+                if let Item::LocalWarning(warning) = item {
+                    Some(warning.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        warnings(&first),
+        [
+            LocalWarning::InvalidStatusLineItems(vec!["spinner".into(), "model_name".into()]),
+            LocalWarning::InvalidTitleItems(vec!["project-root".into()]),
+        ]
+    );
+    assert!(warnings(&later).is_empty());
 }

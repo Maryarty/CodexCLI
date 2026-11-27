@@ -2,12 +2,14 @@
 //! `StatusSurfacePreviewData`, read from the chat as it stands) and the line the checked items
 //! make, drawn as the footer draws it.
 
+use rtwk::provider::select;
 use rtwk::style::{Color, Span};
 use rtwk::text::{Text, TextOverflow};
 use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::app::SessionSlice;
 use codex_tui_core::features::settings::{ACTIVITY, Setup, SetupKind, USE_THEME_COLORS};
+use codex_tui_core::screens::ScreenStates;
 
 use super::strings::RATE_LIMIT_COPY;
 use crate::app::theme::Tokens;
@@ -25,11 +27,8 @@ pub(super) fn live<S: 'static>(cx: &mut Cx<'_, S>, mut setup: Setup) -> Setup {
         .map(|item| item.id.as_str())
         .filter(|id| *id != USE_THEME_COLORS && *id != ACTIVITY)
         .collect();
-    let values = crate::pages::session::status::setup_values(
-        cx,
-        setup.kind == SetupKind::Title,
-        &ids,
-    );
+    let values =
+        crate::pages::session::status::setup_values(cx, setup.kind == SetupKind::Title, &ids);
     // the chat's value wins over the offer's (the offer's came from the config alone)
     setup.values.extend(values);
     for item in &mut setup.items {
@@ -53,7 +52,20 @@ pub(super) fn live<S: 'static>(cx: &mut Cx<'_, S>, mut setup: Setup) -> Setup {
 /// The colour of the active thread, which its name takes in the preview.
 pub(super) fn thread<S: 'static>(cx: &mut Cx<'_, S>) -> Option<Color> {
     let session = rtwk::provider::read::<SessionSlice, _>(cx);
-    thread_color(cx, session.active.as_ref().map(codex_tui_core::ids::ThreadId::as_str))
+    thread_color(
+        cx,
+        session
+            .active
+            .as_ref()
+            .map(codex_tui_core::ids::ThreadId::as_str),
+    )
+}
+
+/// The preview follows the workspace probe while the dialog is open.
+pub(super) fn pull_request_link<S: 'static>(cx: &mut Cx<'_, S>) -> Option<String> {
+    select::<ScreenStates, _, _>(cx, |states| {
+        states.chat.facts.pull_request_url().map(str::to_owned)
+    })
 }
 
 /// The preview row under the list: the status line as the footer draws it (the accent of each
@@ -62,6 +74,7 @@ pub(super) fn row(
     setup: &Setup,
     tokens: &Tokens,
     thread: Option<Color>,
+    pull_request_link: Option<&str>,
     indent: &str,
 ) -> Option<AnyWidget> {
     if setup.kind != SetupKind::StatusLine {
@@ -81,7 +94,12 @@ pub(super) fn row(
             (item.id.as_str(), value.clone())
         })
         .filter(|(_, value)| !value.is_empty());
-    let mut spans = status_spans(items, colors, tokens, thread, |_| None);
+    let mut spans = status_spans(items, colors, tokens, thread, |id| {
+        (id == "pull-request-number")
+            .then_some(pull_request_link)
+            .flatten()
+            .map(str::to_owned)
+    });
     if spans.is_empty() {
         return None;
     }

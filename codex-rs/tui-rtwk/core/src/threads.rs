@@ -899,11 +899,13 @@ pub struct RunningTurn {
 }
 
 /// What the client itself warns of (the words are the view's, ADR-010).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LocalWarning {
     /// Esc with steers waiting while a review runs: a review turn takes no
     /// steer (`REVIEW_STEER_UNAVAILABLE_MESSAGE`).
     ReviewSteerUnavailable,
+    InvalidStatusLineItems(Vec<String>),
+    InvalidTitleItems(Vec<String>),
 }
 
 /// How a turn ended.

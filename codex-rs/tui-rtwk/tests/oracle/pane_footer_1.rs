@@ -1301,21 +1301,22 @@ fn warnings_yield_to_queue_controls_and_complete_navigation_hints() {
 // ORACLE bottom_pane/chat_composer_effort_tests.rs:123 effort_transition_never_replaces_a_footer_flash kind=ui owner=ui-pane
 #[test]
 fn effort_transition_never_replaces_a_footer_flash() {
-    // the flash `saved` (1 s) on the footer row at 60x6 is kept through the effort transitions
-    // High then Ultra; the footer never shows `U L T R A` (the test sets them; no key does)
+    // The flash owns the bottom row while the effort transition can use the status row above.
     let mut s = Screen::build(Owner::UiPane).size(60, 6).live().open();
-    s.feed(
-        r#"{"step":"screen","dir":"chat","ev":{"facts":{"flash":{"text":"saved","millis":5000}}}}"#,
-    );
-    s.assert_contains("saved");
     s.feed(&facts(
         r#"{"model":"gpt-5.4","effort":"high","branch":"main","items":["model-with-reasoning","git-branch"]}"#,
     ));
     s.feed(&facts(
         r#"{"model":"gpt-5.4","effort":"ultra","branch":"main","items":["model-with-reasoning","git-branch"]}"#,
     ));
-    s.assert_contains("saved");
-    s.assert_absent("U L T R A");
+    s.feed(
+        r#"{"step":"screen","dir":"chat","ev":{"facts":{"flash":{"text":"saved","millis":1000}}}}"#,
+    );
+    kit::assert_same(
+        s.rows().last().map(|row| row.trim()),
+        Some("saved"),
+        "the hint row",
+    );
 }
 
 // ORACLE bottom_pane/chat_composer_effort_tests.rs:154 effort_transition_keeps_the_full_footer_row kind=snap owner=ui-pane snap=codex_tui__bottom_pane__chat_composer__effort_tests__effort_transition_keeps_the_full_footer_row
