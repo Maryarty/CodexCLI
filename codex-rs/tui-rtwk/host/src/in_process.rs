@@ -5,6 +5,8 @@
 
 use std::sync::Arc;
 
+mod attached_history;
+
 use crate::target::Mode;
 use crate::workspace::Local;
 use anyhow::Context as _;
@@ -1559,6 +1561,22 @@ pub(crate) fn work(
             Some(AppEv::Reply(ticket, reply))
         }),
         command @ Command::Feature {
+            attached_history: Some(_),
+            ..
+        } => Box::pin(async move {
+            let Command::Feature {
+                thread,
+                attached_history: Some((storage, work)),
+                ..
+            } = &command
+            else {
+                return None;
+            };
+            let result = attached_history::run(thread, *storage, work, &handle, &ids).await;
+            protocol::reply_from_server(&command, result)
+                .map(|(ticket, reply)| AppEv::Reply(ticket, reply))
+        }),
+        command @ Command::Feature {
             preparation_checkpoint: Some(_),
             ..
         } => Box::pin(async move {
@@ -1590,27 +1608,28 @@ async fn confirm_preparation(
     checkpoint: &PreparationCheckpoint,
 ) -> Result<serde_json::Value, ServerError> {
     let value = result?;
-    match verified_preparation(thread, checkpoint).await {
-        Ok(true) => Ok(value),
-        Ok(false) => Err("Side conversation context was not saved".into()),
+    match saved_checkpoint(thread, checkpoint).await {
+        Ok(Some(_)) => Ok(value),
+        Ok(None) => Err("Side conversation context was not saved".into()),
         Err(error) => Err(error.to_string().into()),
     }
 }
 
 /// A successful injection is only committed when the exact child's own rollout contains
 /// the attached metadata and both context items before its first turn.
-async fn verified_preparation(
+async fn saved_checkpoint(
     thread: &ThreadId,
     checkpoint: &PreparationCheckpoint,
-) -> std::io::Result<bool> {
+) -> std::io::Result<Option<String>> {
     let Some(path) = checkpoint.rollout.as_deref() else {
-        return Ok(false);
+        return Ok(None);
     };
     let mut reader = codex_rollout::open_rollout_line_reader(path).await?;
     let mut attached = false;
     let mut policy = false;
     while let Some(line) = reader.next_line().await? {
-        match codex_rollout::parse_rollout_line(&line)?.item {
+        let record = codex_rollout::parse_rollout_line(&line)?;
+        match record.item {
             RolloutItem::SessionMeta(meta) => {
                 attached = meta.meta.attached_thread
                     && meta.meta.id.to_string() == thread.as_str()
@@ -1619,7 +1638,7 @@ async fn verified_preparation(
                         .forked_from_id
                         .is_some_and(|parent| parent.to_string() == checkpoint.parent.as_str());
                 if !attached {
-                    return Ok(false);
+                    return Ok(None);
                 }
             }
             RolloutItem::ResponseItem(ResponseItemEnvelope {
@@ -1638,7 +1657,7 @@ async fn verified_preparation(
                     "user"
                         if policy && text.lines().next() == Some("Side conversation boundary.") =>
                     {
-                        return Ok(true);
+                        return Ok(Some(record.timestamp));
                     }
                     _ => {}
                 }
@@ -1647,7 +1666,7 @@ async fn verified_preparation(
             _ => {}
         }
     }
-    Ok(false)
+    Ok(None)
 }
 
 /// The client of the shell's effects: one request over the handle. A

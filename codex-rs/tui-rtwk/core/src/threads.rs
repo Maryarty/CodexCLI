@@ -2178,6 +2178,7 @@ impl<'a> ThreadFx<'a> {
             thread: self.thread.clone(),
             command: command.into(),
             preparation_checkpoint: None,
+            attached_history: None,
         });
         ticket
     }

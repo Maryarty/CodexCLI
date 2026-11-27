@@ -238,6 +238,23 @@ crate::rpc_list! {
             ..ListQuery { limit: Some(1), use_state_db_only: true, ..ListQuery::default() }.params()
         })
         -> wire::ThreadListResponse, |_| ThreadReply::AttachedSideSupported(false);
+    ListAttachedSide { parent: ThreadId, cursor: Option<String> }, Self::ListAttachedSide { parent, cursor }
+        => ThreadList(wire::ThreadListParams {
+            attached_to_thread_id: Some(parent.to_string()),
+            ..ListQuery {
+                current_account_only: true, cursor: cursor.clone(), sort_direction: Some(wire::SortDirection::Asc),
+                archived: Some(false), model_providers: Some(Vec::new()), use_state_db_only: true,
+                ..ListQuery::default()
+            }.params()
+        })
+        -> wire::ThreadListResponse as listed, |answer| ThreadReply::Listed(Box::new(answer));
+    FirstAttachedPrompt { thread: ThreadId, cursor: Option<String> }, Self::FirstAttachedPrompt { thread, cursor }
+        => ThreadItemsList(wire::ThreadItemsListParams {
+            thread_id: thread.to_string(), turn_id: None,
+            cursor: cursor.clone().map(wire::ThreadItemsListCursor::Opaque), limit: Some(16),
+            sort_direction: Some(wire::SortDirection::Asc), defer_output: None,
+        })
+        -> wire::ThreadItemsListResponse, |answer| ThreadReply::RetryItems(Box::new(answer));
     /// Persist a side fork linked to this paginated parent, without replaying its turns.
     ForkAttachedSide { thread: ThreadId, instructions: String },
         Self::ForkAttachedSide { thread, instructions }
@@ -573,6 +590,7 @@ impl<M: Borrow<UserMessage>> ThreadRpc<M> {
             | Self::RealtimeStop { thread }
             | Self::ProbeAttachedSide { thread }
             | Self::ForkAttachedSide { thread, .. }
+            | Self::FirstAttachedPrompt { thread, .. }
             | Self::RealtimeTimeline { thread, .. }
             | Self::RetryInterrupt { thread, .. }
             | Self::StartUserTurn { thread, .. }
@@ -586,6 +604,7 @@ impl<M: Borrow<UserMessage>> ThreadRpc<M> {
             | Self::McpServers { .. }
             | Self::StartTemporary(_)
             | Self::List(_)
+            | Self::ListAttachedSide { .. }
             | Self::Search { .. }
             | Self::Loaded => None,
         }

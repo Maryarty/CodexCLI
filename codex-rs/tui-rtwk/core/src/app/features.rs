@@ -172,7 +172,19 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
             thread,
             command,
             ctx,
+            attached_history,
         } => {
+            let attached_history = if let Some(ask) = attached_history {
+                let backend = app.screens.agents.owner_of(thread.as_str());
+                let Some(storage) = app.local_side_storage(backend) else {
+                    let response = features::decode(&command, serde_json::Value::Null)
+                        .map_or_else(Answer::Failed, Answer::Feature);
+                    return answer(app, ctx, response, fx);
+                };
+                Some((storage, ask))
+            } else {
+                None
+            };
             fx.ask(app, AppCtx::Feature(ctx), |app, ticket| Command::Feature {
                 ticket,
                 preparation_checkpoint: app
@@ -186,6 +198,7 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
                     .and_then(|preparation| preparation.checkpoint.clone()),
                 thread,
                 command,
+                attached_history,
             });
         }
         Out::Effect { ask, ctx } => {

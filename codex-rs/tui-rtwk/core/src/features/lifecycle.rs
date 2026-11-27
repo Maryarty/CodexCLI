@@ -63,6 +63,12 @@ pub enum Lifecycle {
     /// Show `thread`, resuming it when this process does not hold it; answered by
     /// `thread_opened` (`Err` when the server has no such thread).
     Open { thread: ThreadId, ctx: FeatureCtx },
+    /// Resume an attested child on its parent's exact backend and hold it offscreen.
+    RestoreAttachment {
+        parent: ThreadId,
+        child: ThreadId,
+        ctx: FeatureCtx,
+    },
     /// Make a thread; answered by `thread_opened` once it is open here (before it is shown).
     Spawn { spawn: ThreadSpawn, ctx: FeatureCtx },
     /// An isolated request to the model in an ephemeral thread of its own, answered by

@@ -83,6 +83,7 @@ fn samples(backend: BackendId) -> Vec<AppCtx> {
         },
         AppCtx::Opening {
             thread: thread.clone(),
+            attached_to: None,
             ctx: FeatureCtx::Plugins(crate::features::plugins::Ctx::List {
                 cwd: Cwd::new("/work"),
                 request: 1,

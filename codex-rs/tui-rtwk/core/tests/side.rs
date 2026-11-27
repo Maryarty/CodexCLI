@@ -222,7 +222,10 @@ fn closing_the_current_workspace_tab_returns_to_the_most_recent_sibling() {
         let boundary = boundary_ticket_for(&preparing, child.as_str()).unwrap();
         run(
             &mut app,
-            AppEv::Reply(boundary, Reply::feature(FeatureReply::Side(SideReply))),
+            AppEv::Reply(
+                boundary,
+                Reply::feature(FeatureReply::Side(SideReply::Boundary)),
+            ),
         );
         assert_eq!(app.session().active.as_ref(), Some(child));
     }
@@ -237,7 +240,7 @@ fn closing_the_current_workspace_tab_returns_to_the_most_recent_sibling() {
     }
     let stale = feature(
         &mut app,
-        SideIntent::CloseTab {
+        SideIntent::Unload {
             parent: ThreadId::new("other-parent"),
             child: newest.clone(),
         },
@@ -247,7 +250,7 @@ fn closing_the_current_workspace_tab_returns_to_the_most_recent_sibling() {
 
     let closed = feature(
         &mut app,
-        SideIntent::CloseTab {
+        SideIntent::Unload {
             parent: parent.clone(),
             child: newest.clone(),
         },
@@ -418,7 +421,10 @@ fn a_btw_prompt_goes_once_the_boundary_is_in() {
     assert_eq!(started(&fx), vec![], "not before the boundary");
     let fx = run(
         &mut app,
-        AppEv::Reply(ticket, Reply::feature(FeatureReply::Side(SideReply))),
+        AppEv::Reply(
+            ticket,
+            Reply::feature(FeatureReply::Side(SideReply::Boundary)),
+        ),
     );
     assert_eq!(
         started(&fx),
@@ -505,7 +511,10 @@ fn workspace_side_is_fresh_and_btw_uses_the_child_selected_for_its_parent() {
             .expect("boundary for this child");
         run(
             &mut app,
-            AppEv::Reply(prepared, Reply::feature(FeatureReply::Side(SideReply))),
+            AppEv::Reply(
+                prepared,
+                Reply::feature(FeatureReply::Side(SideReply::Boundary)),
+            ),
         );
         assert_eq!(app.session().active.as_ref(), Some(child));
         run(&mut app, AppEv::Intent(Intent::OpenThread(parent.clone())));
@@ -559,7 +568,7 @@ fn navigating_away_and_back_parks_the_late_opening_prompt_for_the_exact_child() 
         &mut app,
         AppEv::Reply(
             boundary_ticket(&legacy_boundary).unwrap(),
-            Reply::feature(FeatureReply::Side(SideReply)),
+            Reply::feature(FeatureReply::Side(SideReply::Boundary)),
         ),
     );
     let parent = ThreadId::new(MAIN);
@@ -627,7 +636,10 @@ fn navigating_away_and_back_parks_the_late_opening_prompt_for_the_exact_child() 
     );
     let prepared = run(
         &mut app,
-        AppEv::Reply(boundary, Reply::feature(FeatureReply::Side(SideReply))),
+        AppEv::Reply(
+            boundary,
+            Reply::feature(FeatureReply::Side(SideReply::Boundary)),
+        ),
     );
     assert_eq!(app.session().active.as_ref(), Some(&parent));
     assert!(
@@ -781,7 +793,10 @@ fn attached_storage_waits_for_the_durable_boundary_and_close_only_unsubscribes()
     );
     let prepared = run(
         &mut app,
-        AppEv::Reply(boundary, Reply::feature(FeatureReply::Side(SideReply))),
+        AppEv::Reply(
+            boundary,
+            Reply::feature(FeatureReply::Side(SideReply::Boundary)),
+        ),
     );
     assert_eq!(
         app.features().side.link(&child).unwrap().storage,
@@ -834,7 +849,7 @@ fn a_retired_fork_cannot_be_opened_or_deleted_by_the_replacement_handle() {
             prior,
             prior,
             boundary,
-            Reply::feature(FeatureReply::Side(SideReply)),
+            Reply::feature(FeatureReply::Side(SideReply::Boundary)),
         ))
         .is_none()
     );
@@ -1108,4 +1123,233 @@ fn a_second_fork_while_one_is_being_made_gives_the_prompt_back() {
             .collect::<Vec<_>>(),
         ["quick question"]
     );
+}
+
+fn saved_row(id: &str) -> codex_tui_core::features::side::SavedChat {
+    codex_tui_core::features::side::SavedChat {
+        id: ThreadId::new(id),
+        name: None,
+        preview: "child's first question".to_owned(),
+    }
+}
+
+fn saved_ticket(fx: &AppFx, expected: &codex_tui_core::app::AttachedHistory) -> Ticket {
+    fx.commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Feature {
+                ticket,
+                thread,
+                attached_history: Some((_, work)),
+                ..
+            } if thread.as_str() == MAIN && work == expected => Some(*ticket),
+            _ => None,
+        })
+        .expect("local attachment work")
+}
+
+fn saved_reply(
+    app: &mut CodexApp,
+    ticket: Ticket,
+    result: codex_tui_core::features::side::SavedReply,
+) -> AppFx {
+    run(
+        app,
+        AppEv::Reply(
+            ticket,
+            Reply::feature(FeatureReply::Side(SideReply::Saved(result))),
+        ),
+    )
+}
+
+fn seeded_saved() -> CodexApp {
+    use codex_tui_core::app::AttachedHistory;
+    use codex_tui_core::features::side::SavedReply;
+    let mut app = ready();
+    enable_workspace(&mut app, Some(LocalSideStorage::Embedded));
+    let request = feature(
+        &mut app,
+        SideIntent::RefreshSaved {
+            parent: ThreadId::new(MAIN),
+        },
+    );
+    let ticket = saved_ticket(&request, &AttachedHistory::Discover);
+    saved_reply(
+        &mut app,
+        ticket,
+        SavedReply::List(Some(vec![saved_row(SIDE)])),
+    );
+    app
+}
+
+#[test]
+fn saved_discovery_is_bound_to_the_parent_generation_and_requires_local_transport() {
+    use codex_tui_core::app::AttachedHistory;
+    use codex_tui_core::features::side::{SavedChats, SavedReply};
+    let mut app = ready();
+    let parent = ThreadId::new(MAIN);
+    let refresh = SideIntent::RefreshSaved {
+        parent: parent.clone(),
+    };
+    let no_local = feature(&mut app, refresh.clone());
+    assert!(no_local.commands().is_empty());
+    assert_eq!(
+        app.features().side.saved(&parent),
+        Some(&SavedChats::Unavailable)
+    );
+    enable_workspace(&mut app, Some(LocalSideStorage::Embedded));
+    let old = feature(&mut app, refresh.clone());
+    let current = feature(&mut app, refresh);
+    let old = saved_ticket(&old, &AttachedHistory::Discover);
+    let latest = saved_ticket(&current, &AttachedHistory::Discover);
+    let ClientRequest::ThreadList { params, .. } = wire(&current, latest) else {
+        panic!("attached history query")
+    };
+    assert_eq!(params.attached_to_thread_id.as_deref(), Some(MAIN));
+    assert!(params.current_account_only && params.use_state_db_only);
+    assert_eq!(params.archived, Some(false));
+    saved_reply(
+        &mut app,
+        old,
+        SavedReply::List(Some(vec![saved_row("stale")])),
+    );
+    assert_eq!(
+        app.features().side.saved(&parent),
+        Some(&SavedChats::Loading)
+    );
+    let row = saved_row(SIDE);
+    saved_reply(&mut app, latest, SavedReply::List(Some(vec![row.clone()])));
+    assert_eq!(
+        app.features().side.saved(&parent),
+        Some(&SavedChats::Ready(vec![row]))
+    );
+}
+
+#[test]
+fn restore_saved_verifies_then_resumes_once_and_late_success_keeps_the_current_parent() {
+    use codex_tui_core::app::AttachedHistory;
+    use codex_tui_core::features::side::SavedReply;
+    let mut app = seeded_saved();
+    let parent = ThreadId::new(MAIN);
+    let child = ThreadId::new(SIDE);
+    let elsewhere = ThreadId::new("elsewhere");
+    let mut other = forked_thread(elsewhere.as_str());
+    other.ephemeral = false;
+    other.forked_from_id = None;
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Agents(agents::Ev::Listed(agents::Page {
+            threads: vec![other.clone()],
+            unread: Vec::new(),
+            next_cursor: None,
+            append: false,
+            pins: None,
+        }))),
+    );
+    let requested = feature(
+        &mut app,
+        SideIntent::OpenSaved {
+            parent: parent.clone(),
+            child: child.clone(),
+        },
+    );
+    let verify = saved_ticket(
+        &requested,
+        &AttachedHistory::Verify {
+            child: child.clone(),
+        },
+    );
+    let verified = saved_reply(&mut app, verify, SavedReply::Verified(true));
+    let resume = thread_ask(
+        &verified,
+        |ask| matches!(ask, ThreadAsk::Resume { thread } if thread == SIDE),
+    );
+    let duplicate = feature(
+        &mut app,
+        SideIntent::OpenSaved {
+            parent: parent.clone(),
+            child: child.clone(),
+        },
+    );
+    assert!(duplicate.commands().is_empty());
+    let away = run(
+        &mut app,
+        AppEv::Intent(Intent::OpenThread(elsewhere.clone())),
+    );
+    let away = thread_ask(
+        &away,
+        |ask| matches!(ask, ThreadAsk::Resume { thread } if thread == elsewhere.as_str()),
+    );
+    run(
+        &mut app,
+        AppEv::Reply(
+            away,
+            Reply::screen(ScreenReply::Agents(agents::Reply::Resumed(Box::new(other)))),
+        ),
+    );
+    assert_eq!(app.session().active.as_ref(), Some(&elsewhere));
+    run(&mut app, AppEv::Intent(Intent::OpenThread(parent.clone())));
+
+    let same_child = Reply::screen(ScreenReply::Agents(agents::Reply::Resumed(Box::new(
+        attached_child(),
+    ))));
+    let epoch = app.epoch();
+    assert!(
+        app.ingest(Ingress::transport_reply(
+            BackendId(9),
+            epoch,
+            epoch,
+            resume,
+            same_child.clone()
+        ))
+        .is_none()
+    );
+    assert!(app.thread(&child).is_none());
+    run(&mut app, AppEv::Reply(resume, same_child));
+    assert_eq!(app.session().active.as_ref(), Some(&parent));
+    assert_eq!(
+        app.features().side.link(&child).unwrap().storage,
+        Storage::Attached
+    );
+    let again = feature(
+        &mut app,
+        SideIntent::Select {
+            parent,
+            child: child.clone(),
+        },
+    );
+    assert_eq!(app.session().active.as_ref(), Some(&child));
+    assert!(again.commands().iter().all(|command| !matches!(
+        command,
+        Command::Screen {
+            command: ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Resume { .. })),
+            ..
+        }
+    )));
+}
+
+#[test]
+fn saved_archive_is_a_separate_attested_mutation_and_only_removes_its_inventory_row() {
+    use codex_tui_core::app::AttachedHistory;
+    use codex_tui_core::features::side::{SavedChats, SavedReply};
+    let mut app = seeded_saved();
+    let parent = ThreadId::new(MAIN);
+    let child = ThreadId::new(SIDE);
+    let asked = feature(
+        &mut app,
+        SideIntent::ArchiveSaved {
+            parent: parent.clone(),
+            child: child.clone(),
+        },
+    );
+    let ticket = saved_ticket(&asked, &AttachedHistory::Archive { child });
+    assert!(
+        matches!(wire(&asked, ticket), ClientRequest::ThreadArchive { params, .. } if params.thread_id == SIDE)
+    );
+    saved_reply(&mut app, ticket, SavedReply::Archived(true));
+    assert_eq!(
+        app.features().side.saved(&parent),
+        Some(&SavedChats::Ready(Vec::new()))
+    );
+    assert_eq!(app.session().active.as_ref(), Some(&parent));
 }
