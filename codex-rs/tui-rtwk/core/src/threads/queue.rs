@@ -12,11 +12,15 @@ use std::ops::Deref;
 
 use super::{Item, Note, ThreadFx, ThreadModel, apply_appended, give_back, merge_messages};
 use crate::commands::{QueueDrain, SlashCommand, queued_command_drain_result};
-use crate::features::FeatureIntent;
 use crate::ids::ThreadId;
 use crate::rpc::Address;
 use crate::screens::{self, ScreenThreadIntent};
 use crate::threads::UserMessage;
+
+mod modal;
+
+pub(crate) use modal::ModalKind;
+pub use modal::{CopyChoice, ModalOperation, ModalReceipt, ModalToken, StatusLineChoice};
 
 /// A line of the queue.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -163,17 +167,16 @@ pub enum QueueEvent {
     ModelApplied(QueueOperation),
     ModalOpening(ModalOpening),
     ModalOwnerLeft(ModalOwnerLeft),
-    ModalOpened(QueueOperation),
-    ModalFinished {
-        operation: QueueOperation,
-        accepted: Option<Box<FeatureIntent>>,
-    },
+    ModalOpened(ModalOperation),
+    ModalFinished(ModalReceipt),
+    ModalApplying(ModalApplying),
+    ModalAcknowledged(ModalAcknowledged),
 }
 
 /// Issued only by the queue owner before asking the UI to show a modal.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModalOpening {
-    operation: QueueOperation,
+    operation: ModalOperation,
     address: Address,
 }
 
@@ -181,38 +184,77 @@ pub struct ModalOpening {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModalOwnerLeft(());
 
+/// The choice was consumed and its effect now owns the hold until it settles.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModalApplying(ModalOperation);
+
+/// The effect of a native choice reached its terminal result.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModalAcknowledged(ModalOperation);
+
 impl QueueEvent {
-    pub(crate) fn opening_modal(operation: QueueOperation, address: Address) -> Self {
+    pub(crate) fn opening_modal(operation: ModalOperation, address: Address) -> Self {
         Self::ModalOpening(ModalOpening { operation, address })
     }
 
     pub(crate) fn modal_owner_left() -> Self {
         Self::ModalOwnerLeft(ModalOwnerLeft(()))
     }
+
+    pub(crate) fn applying_modal(operation: ModalOperation) -> Self {
+        Self::ModalApplying(ModalApplying(operation))
+    }
+
+    pub(crate) fn acknowledged_modal(operation: ModalOperation) -> Self {
+        Self::ModalAcknowledged(ModalAcknowledged(operation))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ModalPhase {
-    Opening(Address),
-    Open(Address),
+    Opening(Address, ModalKind),
+    Open(Address, ModalKind),
+    Applying {
+        address: Address,
+        kind: ModalKind,
+        owner_left: bool,
+    },
     /// Its dialog may still close the original hold.
     OwnerLeft,
 }
 
 pub(crate) fn has_live_modal(model: &ThreadModel) -> bool {
-    model
-        .queue_modals
-        .values()
-        .any(|phase| *phase != ModalPhase::OwnerLeft)
+    model.queue_modals.values().any(|phase| {
+        !matches!(
+            phase,
+            ModalPhase::OwnerLeft
+                | ModalPhase::Applying {
+                    owner_left: true,
+                    ..
+                }
+        )
+    })
+}
+
+pub(crate) fn modal_is_visible(
+    model: &ThreadModel,
+    operation: &ModalOperation,
+    address: Address,
+) -> bool {
+    model.id() == operation.thread()
+        && matches!(model.queue_modals.get(&operation.operation().seq),
+            Some(ModalPhase::Opening(issued, kind) | ModalPhase::Open(issued, kind))
+                if *issued == address && *kind == operation.kind())
 }
 
 pub(crate) fn modal_is_open(
     model: &ThreadModel,
-    operation: &QueueOperation,
+    operation: &ModalOperation,
     address: Address,
 ) -> bool {
     model.id() == operation.thread()
-        && model.queue_modals.get(&operation.seq) == Some(&ModalPhase::Open(address))
+        && model.queue_modals.get(&operation.operation().seq)
+            == Some(&ModalPhase::Open(address, operation.kind()))
 }
 
 fn holds_picker(due: &DueCommand, operation: &QueueOperation) -> bool {
@@ -346,7 +388,9 @@ pub(super) fn is_queue_settlement(intent: &ScreenThreadIntent) -> bool {
                 | QueueEvent::ModalOpening(_)
                 | QueueEvent::ModalOwnerLeft(_)
                 | QueueEvent::ModalOpened(_)
-                | QueueEvent::ModalFinished { .. }
+                | QueueEvent::ModalFinished(_)
+                | QueueEvent::ModalApplying(_)
+                | QueueEvent::ModalAcknowledged(_)
         ))
     )
 }
@@ -382,15 +426,17 @@ pub(super) fn apply(
         // it opened (`submit_queued_slash_prompt`).
         Chat::QueueEvent(event) => match event {
             QueueEvent::ModalOpening(ModalOpening { operation, address }) => {
+                let kind = operation.kind();
+                let operation = operation.operation();
                 if model.id() == operation.thread() {
                     model
                         .queue_modals
                         .entry(operation.seq)
-                        .or_insert(ModalPhase::Opening(address));
+                        .or_insert(ModalPhase::Opening(address, kind));
                     if model
                         .due
                         .as_ref()
-                        .is_some_and(|due| due.operation == operation && due.issued())
+                        .is_some_and(|due| &due.operation == operation && due.issued())
                     {
                         model.due = None;
                     }
@@ -398,21 +444,52 @@ pub(super) fn apply(
             }
             QueueEvent::ModalOpened(operation) => {
                 if model.id() == operation.thread()
-                    && let Some(phase) = model.queue_modals.get_mut(&operation.seq)
-                    && let ModalPhase::Opening(address) = *phase
+                    && let Some(phase) = model.queue_modals.get_mut(&operation.operation().seq)
+                    && let ModalPhase::Opening(address, kind) = *phase
+                    && kind == operation.kind()
                 {
-                    *phase = ModalPhase::Open(address);
+                    *phase = ModalPhase::Open(address, kind);
                 }
             }
             QueueEvent::ModalOwnerLeft(_) => {
                 for phase in model.queue_modals.values_mut() {
-                    *phase = ModalPhase::OwnerLeft;
+                    match phase {
+                        ModalPhase::Applying { owner_left, .. } => *owner_left = true,
+                        _ => *phase = ModalPhase::OwnerLeft,
+                    }
                 }
             }
-            QueueEvent::ModalFinished { operation, .. } => {
-                if model.id() == operation.thread()
-                    && model.queue_modals.remove(&operation.seq).is_some()
+            QueueEvent::ModalFinished(receipt) => {
+                let seq = receipt.operation().seq;
+                if model.id() == receipt.thread()
+                    && model.queue_modals.get(&seq).is_some_and(|phase| {
+                        matches!(phase, ModalPhase::Opening(_, kind) | ModalPhase::Open(_, kind) if *kind == receipt.kind())
+                            || matches!(phase, ModalPhase::OwnerLeft)
+                    })
                 {
+                    model.queue_modals.remove(&seq);
+                    send_next(model, fx);
+                }
+            }
+            QueueEvent::ModalApplying(ModalApplying(operation)) => {
+                if model.id() == operation.thread()
+                    && let Some(phase) = model.queue_modals.get_mut(&operation.operation().seq)
+                    && let ModalPhase::Open(address, kind) = *phase
+                    && kind == operation.kind()
+                {
+                    *phase = ModalPhase::Applying {
+                        address,
+                        kind,
+                        owner_left: false,
+                    };
+                }
+            }
+            QueueEvent::ModalAcknowledged(ModalAcknowledged(operation)) => {
+                let seq = operation.operation().seq;
+                if model.id() == operation.thread()
+                    && matches!(model.queue_modals.get(&seq), Some(ModalPhase::Applying { kind, .. }) if *kind == operation.kind())
+                {
+                    model.queue_modals.remove(&seq);
                     send_next(model, fx);
                 }
             }

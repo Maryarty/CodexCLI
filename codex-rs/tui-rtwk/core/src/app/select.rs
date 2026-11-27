@@ -9,27 +9,39 @@ use std::rc::Rc;
 
 use super::{AppCtx, AppFx, CodexApp, Command};
 use crate::ids::{BackendId, ThreadId};
-use crate::rpc::{Answer, RpcError};
+use crate::rpc::{Address, Answer, RpcError};
 use crate::screens::select::collaboration::{Change, PlanWrite, ReasoningScope};
 use crate::screens::select::models::{Apply, Current, Effort, Scope};
 use crate::screens::select::{self, apps, permissions, review};
 use crate::screens::{ScreenCommand, ScreenReply, ScreenThreadIntent, chat};
 use crate::threads::ThreadEv;
-use crate::threads::queue::{self, QueueEvent, QueueOperation};
+use crate::threads::queue::{
+    self, ModalKind, ModalOperation, ModalToken, QueueEvent, QueueOperation,
+};
+
+use super::features::{
+    acknowledge_queue_modal, cancel_queue_modal, modal_address, queue_modal_is_current,
+    register_queue_modal,
+};
 
 /// An intent of the select screen, and the asks it left open.
 pub(super) fn intent(app: &mut CodexApp, mut intent: select::Intent, fx: &mut AppFx) {
     // The dialog of the app shows its switch at once; the directory follows the saved write.
     if let select::Intent::SetApp { id, enabled } = intent {
-        ask(
-            app,
-            select::Command::SetApp {
-                id: id.clone(),
-                enabled,
-            },
-            select::Ctx::App { id, enabled },
-            fx,
-        );
+        set_app(app, id, enabled, None, fx);
+        return;
+    }
+    if let select::Intent::ActInApps { token, action } = intent {
+        let operation = ModalOperation::Apps(token);
+        if queue_modal_is_current(app, &operation) {
+            act_in_owned_apps(app, operation.thread(), action, fx);
+        }
+        return;
+    }
+    if let select::Intent::RetryOwnedPermissions(token) = intent {
+        if queue_modal_is_current(app, &ModalOperation::Permissions(token)) {
+            self::intent(app, select::Intent::LoadProfiles, fx);
+        }
         return;
     }
     if let select::Intent::PlanAnswer(answer) = intent {
@@ -122,13 +134,40 @@ pub(super) fn intent(app: &mut CodexApp, mut intent: select::Intent, fx: &mut Ap
         }
         request.current = current;
     }
+    let modal = if let select::Intent::OpenQueueDialog(open) = &intent {
+        let kind = match open.dialog {
+            select::QueueDialog::Permissions(_) => ModalKind::Permissions,
+            select::QueueDialog::Apps { .. } => ModalKind::Apps,
+        };
+        let Some(operation) =
+            register_queue_modal(app, &open.thread, open.issued.clone(), kind, fx)
+        else {
+            return;
+        };
+        Some(operation)
+    } else {
+        None
+    };
     let screens = Rc::make_mut(&mut app.screens);
     let before = (
         screens.select.catalog.pending,
         screens.select.profiles.pending,
     );
     let apps = screens.select.apps.pending;
-    select::apply_intent(&mut screens.select, intent, fx);
+    if let (select::Intent::OpenQueueDialog(open), Some(operation)) = (&intent, &modal) {
+        screens
+            .select
+            .open_queue_dialog(open.dialog.clone(), operation.clone());
+    } else {
+        select::apply_intent(&mut screens.select, intent, fx);
+    }
+    let declined_modal = modal.filter(|operation| {
+        !screens
+            .select
+            .shows
+            .pending()
+            .any(|show| show.queue_modal.as_ref() == Some(operation))
+    });
     let declined = queued.filter(|operation| {
         !screens.select.shows.pending().any(|show| {
             show.queued_model
@@ -165,6 +204,56 @@ pub(super) fn intent(app: &mut CodexApp, mut intent: select::Intent, fx: &mut Ap
     if let Some(operation) = declined {
         queued_picker_event(app, &operation, QueueEvent::PickerClosed, fx);
     }
+    if let Some(operation) = declined_modal {
+        cancel_queue_modal(app, operation, fx);
+    }
+}
+
+fn set_app(
+    app: &mut CodexApp,
+    id: String,
+    enabled: bool,
+    owner: Option<apps::ModalWriteOwner>,
+    fx: &mut AppFx,
+) {
+    ask(
+        app,
+        select::Command::SetApp {
+            id: id.clone(),
+            enabled,
+        },
+        select::Ctx::App { id, enabled, owner },
+        fx,
+    );
+}
+
+fn act_in_owned_apps(
+    app: &mut CodexApp,
+    thread: &ThreadId,
+    action: apps::ModalAction,
+    fx: &mut AppFx,
+) {
+    match action {
+        apps::ModalAction::Retry => intent(app, select::Intent::RefreshApps, fx),
+        apps::ModalAction::Visit(id) => intent(app, select::Intent::OpenAppPage(id), fx),
+        apps::ModalAction::Enable { id, enabled } => {
+            if app.screens.select.app_installed(&id) {
+                let owner = apps::ModalWriteOwner {
+                    thread: thread.clone(),
+                    scope: app.screens.select.apps.scope(),
+                };
+                set_app(app, id, enabled, Some(owner), fx);
+            }
+        }
+    }
+}
+
+pub(super) fn finish_owned_apps(app: &mut CodexApp, choice: apps::ModalChoice, fx: &mut AppFx) {
+    let intent = match choice {
+        apps::ModalChoice::Unlinked(id) => select::Intent::AppUnlinked(id),
+        apps::ModalChoice::RefreshAfterVisit => select::Intent::RefreshApps,
+    };
+    self::intent(app, intent, fx);
 }
 
 fn live_current(app: &CodexApp, asked: &Current) -> Option<Current> {
@@ -527,6 +616,11 @@ fn asked_apps(app: &mut CodexApp, before: Option<apps::Request>, fx: &mut AppFx)
 
 fn notes(app: &mut CodexApp, notes: impl IntoIterator<Item = select::Note>) {
     Rc::make_mut(&mut app.screens).select.notes.extend(notes);
+}
+
+fn show_owned_note(app: &mut CodexApp, thread: ThreadId, note: select::Note, fx: &mut AppFx) {
+    let note = crate::threads::Note::from(crate::threads::NoteKey::Select(note));
+    super::session_note(app, Some(thread), note, fx);
 }
 
 fn write_notes(
@@ -906,6 +1000,176 @@ pub(super) fn permissions_apply(
     }
 }
 
+pub(super) fn apply_owned_permissions(
+    app: &mut CodexApp,
+    token: ModalToken<permissions::Selection>,
+    selection: permissions::Selection,
+    fx: &mut AppFx,
+) {
+    let thread = token.thread().clone();
+    let label = match &selection {
+        permissions::Selection::Preset { preset, reviewer } => permissions::Label::Mode {
+            preset: *preset,
+            reviewer: *reviewer,
+        },
+        permissions::Selection::Profile { label, .. } => label.clone(),
+    };
+    if !app
+        .threads
+        .get(&thread)
+        .is_some_and(|model| model.has_writer() && !model.stream_lost())
+        || app
+            .screens
+            .select
+            .permissions_applying
+            .contains_key(&thread)
+    {
+        settle_owned_permission(app, token, true, fx);
+        return;
+    }
+    if let Some(setup) = crate::features::setup_before_pick(&app.features, &selection) {
+        super::features::intent(app, setup, fx);
+        settle_owned_permission(app, token, true, fx);
+        return;
+    }
+    let unchanged = matches!(
+        &selection,
+        permissions::Selection::Profile {
+            unchanged: true,
+            ..
+        }
+    );
+    if matches!(&selection, permissions::Selection::Profile { id, unchanged: true, .. } if id.starts_with(':'))
+    {
+        settle_owned_permission(app, token, false, fx);
+        return;
+    }
+    let patch = select::persist::permissions_patch(&selection);
+    let address = modal_address(app, &thread);
+    Rc::make_mut(&mut app.screens)
+        .select
+        .permissions_applying
+        .insert(
+            thread.clone(),
+            permissions::Applying {
+                token: token.clone(),
+                address,
+                patch: patch.clone(),
+                accepted: false,
+                effective: unchanged,
+            },
+        );
+    ask(
+        app,
+        select::Command::Settings {
+            thread: thread.to_string(),
+            patch,
+        },
+        select::Ctx::OwnedPermissionWrite {
+            token,
+            note: select::Note::PermissionSelectionRequested(label),
+        },
+        fx,
+    );
+}
+
+fn settle_owned_permission(
+    app: &mut CodexApp,
+    token: ModalToken<permissions::Selection>,
+    refused: bool,
+    fx: &mut AppFx,
+) {
+    if refused {
+        let event = ScreenThreadIntent::Chat(chat::ThreadIntent::HoldQueue);
+        super::apply_thread(app, token.thread(), ThreadEv::ScreenIntent(event), fx);
+    }
+    acknowledge_queue_modal(app, ModalOperation::Permissions(token), fx);
+}
+
+fn settle_effective_permission(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx) {
+    if app
+        .screens
+        .select
+        .permissions_applying
+        .get(thread)
+        .is_some_and(|pending| pending.accepted && pending.effective)
+        && let Some(pending) = Rc::make_mut(&mut app.screens)
+            .select
+            .permissions_applying
+            .remove(thread)
+    {
+        settle_owned_permission(app, pending.token, false, fx);
+    }
+}
+
+pub(super) fn observe_permission_settings(
+    app: &mut CodexApp,
+    address: Address,
+    notice: &codex_app_server_protocol::ThreadSettingsUpdatedNotification,
+    fx: &mut AppFx,
+) {
+    let thread = ThreadId::new(&notice.thread_id);
+    if let Some(pending) = Rc::make_mut(&mut app.screens)
+        .select
+        .permissions_applying
+        .get_mut(&thread)
+    {
+        pending.observe(address, &notice.thread_settings);
+        settle_effective_permission(app, &thread, fx);
+    }
+}
+
+pub(super) fn retire_permission_writes(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx) {
+    let mut lost = Vec::new();
+    Rc::make_mut(&mut app.screens)
+        .select
+        .permissions_applying
+        .retain(|_, pending| {
+            if pending.address.backend != backend {
+                return true;
+            }
+            lost.push(pending.token.clone());
+            false
+        });
+    for token in lost {
+        settle_owned_permission(app, token, true, fx);
+    }
+}
+
+fn permission_write_answer(
+    app: &mut CodexApp,
+    token: ModalToken<permissions::Selection>,
+    note: select::Note,
+    result: Result<select::Reply, RpcError>,
+    fx: &mut AppFx,
+) {
+    let thread = token.thread().clone();
+    let pending = &mut Rc::make_mut(&mut app.screens).select.permissions_applying;
+    let Some(write) = pending
+        .get_mut(&thread)
+        .filter(|write| write.token == token)
+    else {
+        return;
+    };
+    let error = match result {
+        Ok(select::Reply::Updated) => {
+            write.accepted = true;
+            show_owned_note(app, thread.clone(), note, fx);
+            settle_effective_permission(app, &thread, fx);
+            return;
+        }
+        Err(error) => error,
+        Ok(_) => RpcError::Mismatch,
+    };
+    pending.remove(&thread);
+    let note = select::Note::SaveFailed {
+        setting: select::Setting::Permissions,
+        error: text(error),
+    };
+    show_owned_note(app, thread, note, fx);
+    settle_owned_permission(app, token, true, fx);
+}
+
 pub(in crate::app) fn ask(
     app: &mut CodexApp,
     command: select::Command,
@@ -922,6 +1186,10 @@ pub(in crate::app) fn ask(
             ..
         } => queued.operation().thread().clone(),
         select::Ctx::PlanWrite(write) => write.thread.clone(),
+        select::Ctx::OwnedPermissionWrite { token, .. } => token.thread().clone(),
+        select::Ctx::App {
+            owner: Some(owner), ..
+        } => owner.thread.clone(),
         _ => ThreadId::default(),
     };
     fx.ask(app, AppCtx::Select(ctx), |_, ticket| Command::Screen {
@@ -977,6 +1245,9 @@ fn answered(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx
     };
     match (ctx, result) {
         (select::Ctx::PlanWrite(write), result) => plan_written(app, *write, result, fx),
+        (select::Ctx::OwnedPermissionWrite { token, note }, result) => {
+            permission_write_answer(app, token, note, result, fx);
+        }
         (
             select::Ctx::Settings {
                 setting,
@@ -1026,18 +1297,27 @@ fn answered(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx
         }
         // `SetAppEnabled`: the directory takes the switch once the config has it; a refused
         // write leaves it as it was.
-        (select::Ctx::App { id, enabled }, Ok(select::Reply::Written { .. })) => {
-            event(app, select::Ev::AppSwitched { id, enabled }, fx);
+        (select::Ctx::App { id, enabled, owner }, Ok(select::Reply::Written { .. })) => {
+            if owner.is_none_or(|owner| {
+                app.session.active.as_ref() == Some(&owner.thread)
+                    && app.screens.select.apps.scope() == owner.scope
+            }) {
+                event(app, select::Ev::AppSwitched { id, enabled }, fx);
+            }
         }
         // `SetAppEnabled` refused: said as an error line; the dialog keeps its switch (the oracle's
         // view does too).
-        (select::Ctx::App { id, .. }, Err(error)) => notes(
-            app,
-            [select::Note::SaveFailed {
+        (select::Ctx::App { id, owner, .. }, Err(error)) => {
+            let note = select::Note::SaveFailed {
                 setting: select::Setting::App(id),
                 error: text(error),
-            }],
-        ),
+            };
+            if let Some(owner) = owner {
+                show_owned_note(app, owner.thread, note, fx);
+            } else {
+                notes(app, [note]);
+            }
+        }
         (select::Ctx::App { .. }, Ok(_)) => {}
         // `save_quick_dial`: the slot follows a saved write; a refused one is said, with the
         // editor shown again.

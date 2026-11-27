@@ -19,12 +19,13 @@ use std::rc::Rc;
 
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::overlay::{DialogOptions, close_dialog};
-use rtwk::provider::{read, select};
+use rtwk::provider::{Provider, read, select};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::select::Intent;
-use codex_tui_core::screens::select::apps::{self, Link};
+use codex_tui_core::screens::select::apps::{self, Link, ModalAction, ModalChoice};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates};
+use codex_tui_core::threads::queue::ModalToken;
 
 use super::app_link::AppLinkView;
 use super::strings::{self, Strings};
@@ -40,6 +41,11 @@ pub fn sheet() -> AnyWidget {
         .home(bottom(Directory))
         .back_key(None)
         .into()
+}
+
+/// The owned directory shares its issued token with the nested link route.
+pub(crate) fn owned_sheet(token: ModalToken<ModalChoice>) -> AnyWidget {
+    Provider::value(token).child(sheet()).into()
 }
 
 /// The sheet of one app's link dialog, with no directory under it (the debug entries of the
@@ -88,10 +94,41 @@ impl StatefulWidget for Directory {
 
 impl_widget!(stateful eq Directory);
 
-/// Says a verb to the model.
-fn say(cx: &mut Cx<'_, DirectoryState>, intent: Intent) {
+fn say<S: 'static>(cx: &mut Cx<'_, S>, intent: Intent) {
     let hs = read::<Hs, _>(cx);
     cx.emit(&hs.screen, ScreenIntent::Select(intent));
+}
+
+pub(super) fn act<S: 'static>(cx: &mut Cx<'_, S>, action: ModalAction) {
+    let intent = match Provider::<ModalToken<ModalChoice>>::maybe_of(cx, false) {
+        Some(token) => Intent::ActInApps {
+            token: (*token).clone(),
+            action,
+        },
+        None => match action {
+            ModalAction::Retry => Intent::RefreshApps,
+            ModalAction::Visit(id) => Intent::OpenAppPage(id),
+            ModalAction::Enable { id, enabled } => Intent::SetApp { id, enabled },
+        },
+    };
+    say(cx, intent);
+}
+
+pub(super) fn finish<S: 'static>(cx: &mut Cx<'_, S>, choice: Option<ModalChoice>) {
+    if Provider::<ModalToken<ModalChoice>>::maybe_of(cx, false).is_some() {
+        close_dialog::<_, ModalChoice>(cx, choice);
+        return;
+    }
+    if let Some(choice) = choice {
+        say(
+            cx,
+            match choice {
+                ModalChoice::Unlinked(id) => Intent::AppUnlinked(id),
+                ModalChoice::RefreshAfterVisit => Intent::RefreshApps,
+            },
+        );
+    }
+    close_dialog::<_, ()>(cx, None);
 }
 
 impl State for DirectoryState {
@@ -111,7 +148,7 @@ impl State for DirectoryState {
     fn update(&mut self, msg: Msg, _: &Directory, cx: &mut Cx<'_, Self>) -> Rebuild {
         match msg {
             Msg::Picked(Event::Choose(id)) if id == apps::RETRY => {
-                say(cx, Intent::RefreshApps);
+                act(cx, ModalAction::Retry);
             }
             Msg::Picked(Event::Choose(id)) => {
                 // The app is looked up in the directory as it is now.
@@ -124,8 +161,7 @@ impl State for DirectoryState {
                     Some(Some(link)) => drop(Navigator::of(cx).push::<()>(route(link))),
                     // An app with no page: the note says why, the list is gone.
                     Some(None) => {
-                        say(cx, Intent::AppUnlinked(id));
-                        close_dialog::<_, ()>(cx, None);
+                        finish(cx, Some(ModalChoice::Unlinked(id)));
                     }
                     None => {}
                 }

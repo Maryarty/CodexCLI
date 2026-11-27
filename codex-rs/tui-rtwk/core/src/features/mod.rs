@@ -37,6 +37,7 @@ use crate::ids::{BackendId, ThreadId};
 use crate::rpc::{RpcError, ServerError};
 use crate::screens::SeedError;
 use crate::screens::status::RateRead;
+use crate::threads::queue::ModalReceipt;
 use crate::threads::{LiveThreadEvent, Tone, TurnEnd};
 
 mod cx;
@@ -1197,6 +1198,28 @@ pub(crate) use rate_limit_prompt::{
     reserve as reserve_completion_prompt, retire as retire_rate_offer,
     revalidate as revalidate_rate_offer, rolling as rolling_rate_limits,
 };
+
+/// Applies the value returned by a dialog whose hold the app has verified.
+pub(crate) fn apply_modal_choice(
+    states: &mut FeatureStates,
+    thread: &ThreadId,
+    receipt: &mut ModalReceipt,
+    cx: &mut AppCx<'_>,
+) {
+    match receipt {
+        ModalReceipt::Copy(_, choice) => {
+            if let Some(choice) = choice.take() {
+                copy::choose(thread.clone(), choice, cx);
+            }
+        }
+        ModalReceipt::StatusLine(_, choice) => {
+            if let Some(choice) = choice.take() {
+                states.settings.save_status_line(choice, cx);
+            }
+        }
+        ModalReceipt::Permissions(..) | ModalReceipt::Apps(..) => {}
+    }
+}
 
 pub(crate) fn remember_copy_status(parts: &mut FeatureThreadParts, key: crate::threads::ItemKey) {
     parts.copy.remember_status(key);

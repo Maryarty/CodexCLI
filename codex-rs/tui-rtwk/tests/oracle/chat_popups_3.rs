@@ -6,6 +6,7 @@
 
 use serde_json::json;
 
+use crate::chat_popups_2::turn_note;
 use crate::kit::{self, Owner, Screen};
 
 #[path = "fixtures/chat_popups_3/mouse.rs"]
@@ -1226,6 +1227,81 @@ fn plugins_popup_search_no_matches_and_backspace_restores_results() {
     s.assert_contains("Calendar");
     s.assert_contains("Slack");
     s.assert_absent("no matches");
+}
+
+#[test]
+fn queued_apps_keeps_follow_up_while_the_directory_loads_or_retries() {
+    for retry in [false, true] {
+        let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+        s.feed(&turn_note("turn/started", "inProgress"));
+        s.type_text("/apps").keys("tab");
+        s.type_text("after apps").keys("tab");
+        s.feed(&turn_note("turn/completed", "completed"));
+        s.assert_contains("Loading installed and available apps...");
+        s.assert_apps_asked(1);
+        s.assert_no_turn();
+        s.feed(r#"{"step":"lagged","skipped":1}"#);
+        s.assert_contains("Loading installed and available apps...");
+        s.assert_no_turn();
+        if retry {
+            s.answer_error(&s.asked_apps()[0], "directory unavailable");
+            s.assert_contains("Failed to load apps.");
+            s.keys("enter");
+            s.assert_apps_asked(2);
+            s.assert_no_turn();
+            s.answer_request(
+                &s.asked_apps()[1],
+                apps_answer(&[("notion", "Notion", "Workspace docs")]),
+            );
+            s.keys("enter");
+            s.assert_contains("Notion");
+            s.assert_contains("Disable");
+            s.server_answers("config/batchWrite", json!({}));
+            s.keys("down enter");
+            s.assert_requests_of("config/batchWrite", 1);
+            s.assert_request_mentions("config/batchWrite", "notion");
+            s.assert_no_turn();
+        }
+        s.keys("esc");
+        s.assert_turn_texts(&["after apps"]);
+        if !retry {
+            s.answer_request(
+                &s.asked_apps()[0],
+                apps_answer(&[("notion", "Notion", "Workspace docs")]),
+            );
+            s.assert_absent("Installed 1 of 1 available apps.");
+            s.assert_turn_texts(&["after apps"]);
+        }
+    }
+}
+
+#[test]
+fn direct_apps_does_not_hold_the_queued_follow_up_while_loading() {
+    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    s.feed(&turn_note("turn/started", "inProgress"));
+    s.type_text("after direct apps").keys("tab");
+    s.type_text("/apps").keys("enter");
+    s.assert_contains("Loading installed and available apps...");
+    s.feed(&turn_note("turn/completed", "completed"));
+    s.assert_turn_texts(&["after direct apps"]);
+}
+
+#[test]
+fn owned_app_link_closes_on_transport_replacement() {
+    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    s.feed(&turn_note("turn/started", "inProgress"));
+    s.type_text("/apps").keys("tab");
+    s.feed(&turn_note("turn/completed", "completed"));
+    s.answer_request(
+        &s.asked_apps()[0],
+        apps_answer(&[("notion", "Notion", "Workspace docs")]),
+    );
+    s.keys("enter");
+    s.assert_contains("Disable");
+    s.replace_transport();
+    s.assert_absent("Disable");
+    s.keys("enter");
+    s.assert_requests_of("config/batchWrite", 0);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:2142 apps_popup_stays_loading_until_final_snapshot_updates kind=snap owner=dialogs-pane snap=apps_popup_loading_state

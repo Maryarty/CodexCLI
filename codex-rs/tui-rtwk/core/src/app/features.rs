@@ -17,7 +17,9 @@ use crate::rpc::{Address, Answer, RpcError};
 use crate::screens::chat::{facts, plan_mode::PromptPriority};
 use crate::screens::status::RateRead;
 use crate::screens::{ScreenThreadIntent, chat};
-use crate::threads::queue::{self, QueueEvent, QueueOperation};
+use crate::threads::queue::{
+    self, ModalKind, ModalOperation, ModalReceipt, QueueEvent, QueueOperation,
+};
 use crate::threads::{Note, NoteKey, ThreadEv};
 use codex_app_server_protocol::{ErrorNotification, ServerNotification, ServerRequest};
 
@@ -205,43 +207,11 @@ fn carry(app: &mut CodexApp, out: Out, fx: &mut AppFx) {
                 let Scope::Thread(thread) = &scope else {
                     return;
                 };
-                let active = app.session.active.as_ref() == Some(thread);
-                let operation = match modal.operation {
-                    Some(operation) => {
-                        let issued = app
-                            .threads
-                            .get(thread)
-                            .and_then(|model| model.due_command())
-                            .is_some_and(|due| due.operation() == &operation);
-                        if !issued {
-                            return;
-                        }
-                        operation
-                    }
-                    None if active && app.threads.contains(thread) => {
-                        QueueOperation::modal(thread.clone(), app.mint.next().seq())
-                    }
-                    None => return,
-                };
-                let address = modal_address(app, thread);
-                queue_event(
-                    app,
-                    thread,
-                    QueueEvent::opening_modal(operation.clone(), address),
-                    fx,
-                );
-                if !active {
-                    queue_event(
-                        app,
-                        thread,
-                        QueueEvent::ModalFinished {
-                            operation,
-                            accepted: None,
-                        },
-                        fx,
-                    );
+                let Some(operation) =
+                    register_queue_modal(app, thread, modal.operation, modal.kind, fx)
+                else {
                     return;
-                }
+                };
                 Some(operation)
             } else {
                 None
@@ -276,8 +246,77 @@ fn queue_event(app: &mut CodexApp, thread: &ThreadId, event: QueueEvent, fx: &mu
     );
 }
 
-fn modal_address(app: &CodexApp, thread: &ThreadId) -> Address {
+pub(super) fn modal_address(app: &CodexApp, thread: &ThreadId) -> Address {
     app.address(app.screens.agents.owner_of(thread.as_str()))
+}
+
+pub(super) fn register_queue_modal(
+    app: &mut CodexApp,
+    thread: &ThreadId,
+    issued: Option<QueueOperation>,
+    kind: ModalKind,
+    fx: &mut AppFx,
+) -> Option<ModalOperation> {
+    let active = app.session.active.as_ref() == Some(thread);
+    let operation = match issued {
+        Some(operation) => {
+            let issued = app
+                .threads
+                .get(thread)
+                .and_then(|model| model.due_command())
+                .is_some_and(|due| due.operation() == &operation);
+            if !issued {
+                return None;
+            }
+            operation
+        }
+        None if active && app.threads.contains(thread) => {
+            QueueOperation::modal(thread.clone(), app.mint.next().seq())
+        }
+        None => return None,
+    };
+    let operation = ModalOperation::new(kind, operation);
+    let address = modal_address(app, thread);
+    queue_event(
+        app,
+        thread,
+        QueueEvent::opening_modal(operation.clone(), address),
+        fx,
+    );
+    if active {
+        Some(operation)
+    } else {
+        cancel_queue_modal(app, operation, fx);
+        None
+    }
+}
+
+pub(super) fn cancel_queue_modal(app: &mut CodexApp, operation: ModalOperation, fx: &mut AppFx) {
+    let thread = operation.thread().clone();
+    queue_event(
+        app,
+        &thread,
+        QueueEvent::ModalFinished(operation.cancelled()),
+        fx,
+    );
+}
+
+pub(super) fn queue_modal_is_current(app: &CodexApp, operation: &ModalOperation) -> bool {
+    let thread = operation.thread();
+    app.session.active.as_ref() == Some(thread)
+        && app
+            .threads
+            .get(thread)
+            .is_some_and(|model| queue::modal_is_open(model, operation, modal_address(app, thread)))
+}
+
+pub(super) fn acknowledge_queue_modal(
+    app: &mut CodexApp,
+    operation: ModalOperation,
+    fx: &mut AppFx,
+) {
+    let thread = operation.thread().clone();
+    queue_event(app, &thread, QueueEvent::acknowledged_modal(operation), fx);
 }
 
 pub(super) fn retire_queue_modal_choices(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx) {
@@ -298,33 +337,43 @@ pub(super) fn finish_queue_modal(
     message: ScreenThreadIntent,
     fx: &mut AppFx,
 ) -> Result<(), ScreenThreadIntent> {
-    let ScreenThreadIntent::Chat(chat::ThreadIntent::QueueEvent(QueueEvent::ModalFinished {
-        operation,
-        accepted,
-    })) = message
+    let ScreenThreadIntent::Chat(chat::ThreadIntent::QueueEvent(QueueEvent::ModalFinished(
+        mut receipt,
+    ))) = message
     else {
         return Err(message);
     };
-    if operation.thread() != thread {
+    if receipt.thread() != thread {
         return Ok(());
     }
-    if app.session.active.as_ref() == Some(thread)
-        && app.threads.get(thread).is_some_and(|model| {
-            queue::modal_is_open(model, &operation, modal_address(app, thread))
-        })
-        && let Some(action) = accepted
-    {
-        intent(app, *action, fx);
+    let operation = receipt.modal();
+    if queue_modal_is_current(app, &operation) {
+        match &mut receipt {
+            ModalReceipt::Permissions(token, choice) => {
+                if let Some(selection) = choice.take() {
+                    queue_event(
+                        app,
+                        thread,
+                        QueueEvent::applying_modal(operation.clone()),
+                        fx,
+                    );
+                    super::select::apply_owned_permissions(app, token.clone(), selection, fx);
+                    return Ok(());
+                }
+            }
+            ModalReceipt::Apps(_, choice) => {
+                if let Some(choice) = choice.take() {
+                    super::select::finish_owned_apps(app, choice, fx);
+                }
+            }
+            ModalReceipt::Copy(..) | ModalReceipt::StatusLine(..) => {
+                run(app, fx, |states, cx| {
+                    features::apply_modal_choice(states, thread, &mut receipt, cx);
+                });
+            }
+        }
     }
-    queue_event(
-        app,
-        thread,
-        QueueEvent::ModalFinished {
-            operation,
-            accepted: None,
-        },
-        fx,
-    );
+    queue_event(app, thread, QueueEvent::ModalFinished(receipt), fx);
     Ok(())
 }
 

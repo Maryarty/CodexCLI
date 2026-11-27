@@ -43,7 +43,7 @@ const WORKSPACE_FACTS: &str = r#"{"step":"screen","dir":"chat","ev":{"status":{"
 const COVERING_REQUEST: &str = r#"{"step":"request","message":{"method":"item/commandExecution/requestApproval","id":7,"params":{"kind":"command","itemId":"call-cover","approvalId":"call-cover","environmentId":null,"command":"echo hi","cwd":"/tmp","threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}"#;
 
 /// A turn notification of `thread-1`'s turn `turn-1` with `status`.
-fn turn_note(method: &str, status: &str) -> String {
+pub(super) fn turn_note(method: &str, status: &str) -> String {
     format!(
         r#"{{"step":"notify","message":{{"method":"{method}","params":{{"threadId":"thread-1","turn":{{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"{status}","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}}}}}"#
     )
@@ -61,6 +61,136 @@ fn built_ins() -> serde_json::Value {
         {"id": ":workspace", "description": null, "allowed": true},
         {"id": ":danger-full-access", "description": null, "allowed": true},
     ])
+}
+
+#[test]
+fn permission_picker_holds_queued_follow_up_while_open() {
+    for queued in [false, true] {
+        let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+        s.feed(WORKSPACE_FACTS);
+        s.feed(&turn_note("turn/started", "inProgress"));
+        if queued {
+            s.type_text("/permissions").keys("tab");
+        }
+        s.type_text("after permissions").keys("tab");
+        if !queued {
+            s.type_text("/permissions").keys("enter");
+            s.assert_contains("Update Model Permissions");
+        }
+        s.feed(&turn_note("turn/completed", "completed"));
+        s.assert_contains("Update Model Permissions");
+        s.assert_no_turn();
+        s.answer_permission_catalog(serde_json::Value::Null, built_ins());
+        s.assert_no_turn();
+        s.assert_permission_updates(&[]);
+        s.keys("esc");
+        s.assert_turn_texts(&["after permissions"]);
+        s.assert_permission_updates(&[]);
+    }
+}
+
+fn effective_permissions(s: &mut Screen, policy: &str, reviewer: &str) {
+    s.feed(&json!({
+        "step": "notify", "message": {"method": "thread/settings/updated", "params": {
+            "threadId": "thread-1", "threadSettings": {
+                "cwd": "/tmp", "model": "gpt-5.5", "modelProvider": "openai", "effort": "medium",
+                "approvalPolicy": policy, "approvalsReviewer": reviewer,
+                "sandboxPolicy": {"type": "readOnly"}, "activePermissionProfile": {"id": ":read-only"},
+                "collaborationMode": {"mode": "default", "settings": {
+                    "model": "gpt-5.5", "reasoning_effort": "medium", "developer_instructions": null
+                }}
+            }
+        }}
+    }).to_string());
+}
+
+fn queued_permissions_selection() -> Screen {
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .live()
+        .script(PERMISSION_CATALOG)
+        .open();
+    s.feed(WORKSPACE_FACTS);
+    s.feed(&turn_note("turn/started", "inProgress"));
+    s.type_text("/permissions").keys("tab");
+    s.type_text("after permission changes").keys("tab");
+    s.feed(&turn_note("turn/completed", "completed"));
+    s.assert_contains("Update Model Permissions");
+    s.assert_no_turn();
+    s
+}
+
+#[test]
+fn queued_permissions_requires_the_ack_and_the_effective_settings() {
+    for ack_first in [true, false] {
+        let mut s = queued_permissions_selection();
+        let settings = s.hold_request("thread/settings/update");
+        s.assert_contains("4. Read Only");
+        s.keys("4");
+        s.assert_permission_updates(&[":read-only"]);
+        s.assert_absent("Update Model Permissions");
+        s.assert_no_turn();
+        if ack_first {
+            s.release(&settings);
+        }
+        effective_permissions(&mut s, "never", "user");
+        s.assert_no_turn();
+        effective_permissions(&mut s, "on-request", "auto_review");
+        s.assert_no_turn();
+        effective_permissions(&mut s, "on-request", "user");
+        if !ack_first {
+            s.assert_no_turn();
+            s.release(&settings);
+        }
+        s.assert_turn_texts(&["after permission changes"]);
+        effective_permissions(&mut s, "on-request", "user");
+        s.assert_turn_texts(&["after permission changes"]);
+    }
+}
+
+#[test]
+fn refused_permission_write_retains_the_queued_input() {
+    let mut s = queued_permissions_selection();
+    s.server_refuses(
+        "thread/settings/update",
+        Some(-32000),
+        "selected profile was refused",
+    );
+    s.assert_contains("4. Read Only");
+    s.keys("4");
+    s.assert_permission_updates(&[":read-only"]);
+    s.assert_contains("selected profile was refused");
+    s.assert_no_turn();
+    s.assert_reconnect_queue(&["after permission changes"]);
+    effective_permissions(&mut s, "on-request", "user");
+    s.assert_no_turn();
+}
+
+#[test]
+fn permission_picker_closes_after_its_visit_or_connection_ends() {
+    for transport_replaced in [false, true] {
+        let mut s = Screen::build(Owner::DialogsPane)
+            .size(80, 24)
+            .live()
+            .script(PERMISSION_CATALOG)
+            .open();
+        s.type_text("/permissions").keys("enter");
+        s.assert_contains("Update Model Permissions");
+        if transport_replaced {
+            s.replace_transport();
+        } else {
+            s.server_resumes("other-thread")
+                .visit_thread("other-thread");
+            s.assert_active_thread("other-thread");
+            s.assert_absent("Update Model Permissions");
+            s.visit_thread("thread-1");
+        }
+        s.assert_active_thread("thread-1");
+        s.assert_absent("Update Model Permissions");
+        s.keys("enter");
+        s.assert_permission_updates(&[]);
+        s.assert_no_turn();
+    }
 }
 
 // ---- oracle: chatwidget/tests/permissions.rs (42 screen-level tests here; 11 state tests left to dialogs-pane)

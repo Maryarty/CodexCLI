@@ -81,22 +81,31 @@ impl SetupDraft {
 
     /// Enter: what the setup saves (the enabled items in order, the colour preference apart).
     pub fn save(&self, offered: &Setup) -> Edit {
-        let setup = self.view(offered);
-        let items = setup
-            .items
-            .iter()
-            .filter(|item| item.enabled && item.id != USE_THEME_COLORS)
-            .map(|item| item.id.clone())
-            .collect();
-        let use_theme_colors = setup
-            .items
-            .iter()
-            .any(|item| item.id == USE_THEME_COLORS && item.enabled);
+        let (items, use_theme_colors) = self.selected(offered);
         Edit::SetupSaved {
-            kind: setup.kind,
+            kind: offered.kind,
             items,
             use_theme_colors,
         }
+    }
+
+    /// The ordered selection read by either form of the setup.
+    pub(super) fn selected(&self, offered: &Setup) -> (Vec<String>, bool) {
+        let mut items = Vec::new();
+        let mut use_theme_colors = false;
+        for item in self
+            .view(offered)
+            .items
+            .into_iter()
+            .filter(|item| item.enabled)
+        {
+            if item.id == USE_THEME_COLORS {
+                use_theme_colors = true;
+            } else {
+                items.push(item.id);
+            }
+        }
+        (items, use_theme_colors)
     }
 
     /// Esc: the skills are read again, the others are given up.

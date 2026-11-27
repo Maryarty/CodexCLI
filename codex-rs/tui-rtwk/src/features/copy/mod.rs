@@ -81,7 +81,7 @@ impl FeatureView for Copier {
     fn shown(wish: &Wish, _scope: &Scope) -> Option<Shown> {
         let source = match wish.clone() {
             Wish::Picker { response, .. } => picker::Source::Response(response),
-            Wish::Status { thread, card } => picker::Source::Status { thread, card },
+            Wish::Status { card, .. } => picker::Source::Status(card),
             Wish::Mode { .. } => return None,
         };
         Some(Shown {

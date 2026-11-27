@@ -17,7 +17,7 @@ use codex_tui_core::app::{
 use codex_tui_core::commands::{
     DispatchCx, Outcome, QueueDrain, SlashCommand, Target, dispatch_queued,
 };
-use codex_tui_core::features::{FeatureIntent, settings};
+use codex_tui_core::features::settings;
 use codex_tui_core::fixtures::builders::{
     history_turn, turn_completed, turn_started, user_item_with_receipt,
 };
@@ -27,7 +27,9 @@ use codex_tui_core::screens::{
     ScreenCommand, ScreenEv, ScreenIntent, ScreenReply, ScreenThreadIntent, agents, chat, select,
 };
 use codex_tui_core::threads::ThreadAsk;
-use codex_tui_core::threads::queue::{Dispatched, QueueEvent, QueueOperation};
+use codex_tui_core::threads::queue::{
+    Dispatched, ModalOperation, ModalReceipt, QueueEvent, QueueOperation, StatusLineChoice,
+};
 use codex_tui_core::threads::{Item, Notice, Queued, Ran, ThreadModel, UserMessage};
 use pretty_assertions::assert_eq;
 use std::rc::Rc;
@@ -562,7 +564,7 @@ fn open_listed_thread(app: &mut CodexApp, name: &str) {
     assert_eq!(thread(app).id().as_str(), name);
 }
 
-fn drain_to_status_line(app: &mut CodexApp, receiver: &str, turn: &str) -> QueueOperation {
+fn drain_to_status_line(app: &mut CodexApp, receiver: &str, turn: &str) -> ModalOperation {
     assert!(started_texts(&notify(app, turn_completed(receiver, turn))).is_empty());
     let due = app
         .thread(&ThreadId::new(receiver))
@@ -573,23 +575,24 @@ fn drain_to_status_line(app: &mut CodexApp, receiver: &str, turn: &str) -> Queue
     run(
         app,
         AppEv::Intent(Intent::Feature(
-            settings::Intent::OpenQueuedStatusLine(operation.clone()).into(),
+            settings::Intent::OpenQueuedStatusLine(operation).into(),
         )),
     );
-    assert_eq!(
-        app.wishes()
-            .pending()
-            .last()
-            .and_then(|wish| wish.queue_operation.as_ref()),
-        Some(&operation),
-    );
+    let modal = app
+        .wishes()
+        .pending()
+        .last()
+        .and_then(|wish| wish.queue_operation.clone())
+        .expect("the editor must open with its typed token");
+    assert!(matches!(modal, ModalOperation::StatusLine(_)));
+    assert_eq!(modal.thread().as_str(), receiver);
     assert!(
         app.thread(&ThreadId::new(receiver))
             .unwrap()
             .due_command()
             .is_none()
     );
-    operation
+    modal
 }
 
 fn modal_receipt(app: &mut CodexApp, receiver: &str, event: QueueEvent) -> AppFx {
@@ -602,17 +605,12 @@ fn modal_receipt(app: &mut CodexApp, receiver: &str, event: QueueEvent) -> AppFx
     )
 }
 
-fn saved_status(operation: QueueOperation) -> QueueEvent {
-    QueueEvent::ModalFinished {
-        operation,
-        accepted: Some(Box::new(FeatureIntent::from(settings::Intent::Request(
-            settings::Edit::SetupSaved {
-                kind: settings::SetupKind::StatusLine,
-                items: vec!["model".to_owned()],
-                use_theme_colors: false,
-            },
-        )))),
-    }
+fn saved_status(operation: ModalOperation) -> QueueEvent {
+    let ModalOperation::StatusLine(token) = operation else {
+        panic!("the status editor owns a StatusLine token");
+    };
+    let choice = StatusLineChoice::new(vec!["model".to_owned()], false).expect("offered field");
+    QueueEvent::ModalFinished(ModalReceipt::StatusLine(token, Some(choice)))
 }
 
 fn config_writes(fx: &AppFx) -> usize {
@@ -628,6 +626,23 @@ fn config_writes(fx: &AppFx) -> usize {
             )
         })
         .count()
+}
+
+#[test]
+fn a_status_line_modal_cannot_save_ids_from_other_settings() {
+    let mut app = running();
+    tab(&mut app, "/statusline", false);
+    tab(&mut app, "after cancel", false);
+    let operation = drain_to_status_line(&mut app, T, "turn-1");
+    modal_receipt(&mut app, T, QueueEvent::ModalOpened(operation.clone()));
+    assert!(StatusLineChoice::new(vec!["activity".to_owned()], true).is_none());
+    let closed = modal_receipt(
+        &mut app,
+        T,
+        QueueEvent::ModalFinished(operation.cancelled()),
+    );
+    assert_eq!(config_writes(&closed), 0);
+    assert_eq!(started_texts(&closed), ["after cancel"]);
 }
 
 #[test]

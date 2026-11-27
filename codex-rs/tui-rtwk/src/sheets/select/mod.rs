@@ -563,6 +563,25 @@ pub fn shown(opening: &Opening) -> (AnyWidget, DialogOptions) {
     }
 }
 
+/// Pairs a Select opening with the token for its native result.
+pub(crate) fn owned(
+    opening: &Opening,
+    operation: &codex_tui_core::threads::queue::ModalOperation,
+) -> Option<(AnyWidget, DialogOptions)> {
+    use codex_tui_core::threads::queue::ModalOperation;
+
+    match (opening, operation) {
+        (Opening::Permissions(menu), ModalOperation::Permissions(token)) => Some((
+            permissions::owned_sheet(menu.clone(), token.clone()),
+            permissions::options(),
+        )),
+        (Opening::Apps, ModalOperation::Apps(token)) => {
+            Some((apps::owned_sheet(token.clone()), apps::options()))
+        }
+        _ => None,
+    }
+}
+
 /// A queued model sheet returns its result to the native dialog's scoped callback.
 pub(crate) fn queued_model(
     opening: &Opening,

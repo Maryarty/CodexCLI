@@ -24,7 +24,7 @@ use crate::screens::chat::facts::SideFooter;
 use crate::screens::select::collaboration::Mask;
 use crate::screens::status;
 use crate::threads::daybreak::Access;
-use crate::threads::queue::QueueOperation;
+use crate::threads::queue::{ModalKind, QueueOperation};
 use crate::threads::structured::StructuredTurn;
 use crate::threads::{ThreadCore, ThreadFx, ThreadSet, UserMessage};
 
@@ -501,18 +501,27 @@ impl<'a> AppCx<'a> {
     }
 
     /// Shows a modal over `thread`: its result settles the hold on queued input.
-    pub(crate) fn wish_for_queue(&mut self, thread: ThreadId, wish: impl Into<FeatureWish>) {
+    pub(super) fn wish_for_queue(
+        &mut self,
+        thread: ThreadId,
+        kind: ModalKind,
+        wish: impl Into<FeatureWish>,
+    ) {
         self.out.push(Out::Wish {
             scope: Scope::Thread(thread),
             wish: wish.into(),
-            queue_modal: Some(QueueModal { operation: None }),
+            queue_modal: Some(QueueModal {
+                operation: None,
+                kind,
+            }),
         });
     }
 
     /// Carries the operation already issued for the queued command that opened the modal.
-    pub(crate) fn wish_for_queued_operation(
+    pub(super) fn wish_for_queued_operation(
         &mut self,
         operation: QueueOperation,
+        kind: ModalKind,
         wish: impl Into<FeatureWish>,
     ) -> bool {
         let thread = operation.thread();
@@ -531,6 +540,7 @@ impl<'a> AppCx<'a> {
             wish: wish.into(),
             queue_modal: Some(QueueModal {
                 operation: Some(operation),
+                kind,
             }),
         });
         visible
