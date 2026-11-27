@@ -18,7 +18,9 @@ use codex_tui_core::threads::ThreadModel;
 
 use crate::app::view::Hs;
 use crate::pages::session::open::open;
-use crate::pages::session::transcript_pane::{DetailAction, change_details};
+use crate::pages::session::transcript_pane::{
+    DetailAction, cancel_browsing, change_details, remember_browsing,
+};
 
 use super::{Chat, ChatState};
 
@@ -59,11 +61,16 @@ impl ChatState {
             open(cx, Target::Agents);
             return Some(Rebuild::Yes);
         }
+        if modes.browsing() {
+            cancel_browsing(&w.ui);
+            return Some(Rebuild::Yes);
+        }
         // the detailed transcript with an empty composer: Esc begins
         // browsing the prompts, and with none to browse the transcript
         // closes and the chat says so (`begin_overlay_backtrack_preview`)
         if modes.detailed() && w.ui.composer.text().is_empty() {
             let targets = Targets::of(thread.transcript(), thread.can_load_history());
+            remember_browsing(cx, &w.ui, false);
             if modes.esc(Some(thread.id()), targets) == EscStep::NoPrevious {
                 modes.close();
                 let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::NoPreviousMessage);
@@ -83,9 +90,12 @@ impl ChatState {
         // Esc is the reader's way back before it is the chat's
         // (`handle_scroll_key`); on an empty composer it also primes
         // the backtrack, below.
-        if !thread.read_only() && w.ui.follow.away() {
+        let empty = w.ui.composer.text().is_empty();
+        let editing = thread.screen_slots().backtrack.editing();
+        let away = w.ui.follow.away();
+        if !thread.read_only() && away && (!empty || thread.can_interrupt() || editing) {
             w.ui.follow.jump_to_latest();
-            if !w.ui.composer.text().is_empty() || thread.can_interrupt() {
+            if !empty || thread.can_interrupt() {
                 return Some(Rebuild::No);
             }
         }
@@ -105,12 +115,15 @@ impl ChatState {
         // the first Esc primes, the second opens the detailed transcript
         // with the newest prompt marked (`handle_backtrack_esc_key`); while
         // an edit is under way no other starts
-        if !thread.screen_slots().backtrack.editing() {
+        if !editing {
             let targets = Targets::of(thread.transcript(), thread.can_load_history());
-            let empty = w.ui.composer.text().is_empty();
-            if modes.chat_esc(Some(thread.id()), empty, targets) == EscStep::NoPrevious {
-                let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::NoPreviousMessage);
-                cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
+            match modes.chat_esc(Some(thread.id()), empty, targets) {
+                EscStep::Primed { .. } => remember_browsing(cx, &w.ui, away),
+                EscStep::NoPrevious => {
+                    let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::NoPreviousMessage);
+                    cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
+                }
+                _ => {}
             }
         }
         None

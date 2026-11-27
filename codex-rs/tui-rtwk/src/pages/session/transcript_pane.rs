@@ -86,6 +86,7 @@ struct PresentationBookmarks(Rc<PresentationState>);
 struct PresentationState {
     pane: Cell<Option<(Eid, bool)>>,
     capture: RefCell<Option<Capture>>,
+    browsing: RefCell<Option<(bool, Capture)>>,
     saved: RefCell<[Option<Bookmark>; 2]>,
     returning: RefCell<Option<(bool, Bookmark)>>,
 }
@@ -177,6 +178,91 @@ fn with_render_list<R>(
     }
 }
 
+fn mounted_transcript(
+    cx: &mut Cx<'_, ChatState>,
+    pane: Option<(Eid, bool)>,
+) -> Option<(Eid, Rc<ListRows>)> {
+    let (pane, _) = pane?;
+    let (key, rows) = cx.with_state(pane, |state: &ViewportState| state.mounted_list())??;
+    Some((cx.global_key_element(&key)?, rows))
+}
+
+fn visible_bookmark(viewport: &ViewportCx<'_>, element: Eid, rows: &ListRows) -> Option<Bookmark> {
+    with_render_list(viewport, element, |tree, id, list| {
+        tree.children(id).find_map(|child| {
+            let index = tree.parent_data::<ListParentData>(child)?.index;
+            let (offset, height) = list.item_place(index)?;
+            if height <= 0 || offset + i64::from(height) <= 0 {
+                return None;
+            }
+            Some(Bookmark::Row {
+                key: rows.key_at(index)?,
+                inset: usize::try_from(offset.saturating_neg().max(0)).ok()?,
+            })
+        })
+    })
+}
+
+/// Remember the reading position before the first Escape primes browsing and
+/// returns to the latest row, or before Escape from the detailed presentation.
+pub(super) fn remember_browsing(cx: &mut Cx<'_, ChatState>, ui: &ThreadUi, go_latest: bool) {
+    let reading = ui.held(PresentationBookmarks::default);
+    let detailed = ui.modes.detailed();
+    let visit = cx.serial();
+    let follow = ui.follow.clone();
+    let bookmark = (!follow.away()).then_some(Bookmark::Latest);
+    let mounted = bookmark
+        .is_none()
+        .then(|| mounted_transcript(cx, reading.0.pane.get()))
+        .flatten();
+    *reading.0.browsing.borrow_mut() = Some((detailed, Capture { visit, bookmark }));
+    let Some((element, rows)) = mounted else {
+        if go_latest {
+            follow.jump_to_latest();
+        }
+        return;
+    };
+    let captured = reading.clone();
+    let active = follow.clone();
+    let moves = follow.moves();
+    let modes = ui.modes.clone();
+    let completion = cx.callback_with(move |_, _, cx| {
+        let current = cx.with_widget(cx.id(), |chat: &Chat| chat.ui.follow == active);
+        if go_latest && current == Some(true) && active.moves() == moves && modes.primed() {
+            active.jump_to_latest();
+        }
+        Rebuild::No
+    });
+    if !cx.request_viewport(
+        move |viewport| {
+            let mut browsing = captured.0.browsing.borrow_mut();
+            let Some((_, capture)) = browsing
+                .as_mut()
+                .filter(|(_, capture)| capture.visit == visit)
+            else {
+                return false;
+            };
+            capture.bookmark = visible_bookmark(viewport, element, &rows);
+            true
+        },
+        completion,
+    ) && go_latest
+    {
+        follow.jump_to_latest();
+    }
+}
+
+/// Closing the preview returns the existing reader to its own prior presentation and row.
+pub(super) fn cancel_browsing(ui: &ThreadUi) {
+    let reading = ui.held(PresentationBookmarks::default);
+    if let Some((detailed, capture)) = reading.0.browsing.borrow_mut().take()
+        && let Some(bookmark) = capture.bookmark
+    {
+        *reading.0.returning.borrow_mut() = Some((detailed, bookmark));
+    }
+    ui.modes.leave_browsing();
+}
+
 /// What the reader asked of the detailed presentation.
 pub(super) enum DetailAction {
     Toggle,
@@ -213,11 +299,7 @@ pub(super) fn change_details(cx: &mut Cx<'_, ChatState>, ui: &ThreadUi, action: 
         reading.0.switch(&modes, detailed, Some(Bookmark::Latest));
         return;
     }
-    let mounted = pane.and_then(|(pane, _)| {
-        let (key, rows) = cx.with_state(pane, |state: &ViewportState| state.mounted_list())??;
-        Some((cx.global_key_element(&key)?, rows))
-    });
-    let Some((element, rows)) = mounted else {
+    let Some((element, rows)) = mounted_transcript(cx, pane) else {
         reading.0.switch(&modes, detailed, None);
         return;
     };
@@ -255,19 +337,7 @@ pub(super) fn change_details(cx: &mut Cx<'_, ChatState>, ui: &ThreadUi, action: 
             let Some(capture) = capture.as_mut().filter(|capture| capture.visit == visit) else {
                 return false;
             };
-            capture.bookmark = with_render_list(viewport, element, |tree, id, list| {
-                tree.children(id).find_map(|child| {
-                    let index = tree.parent_data::<ListParentData>(child)?.index;
-                    let (offset, height) = list.item_place(index)?;
-                    if height <= 0 || offset + i64::from(height) <= 0 {
-                        return None;
-                    }
-                    Some(Bookmark::Row {
-                        key: rows.key_at(index)?,
-                        inset: usize::try_from(offset.saturating_neg().max(0)).ok()?,
-                    })
-                })
-            });
+            capture.bookmark = visible_bookmark(viewport, element, &rows);
             true
         },
         completion,

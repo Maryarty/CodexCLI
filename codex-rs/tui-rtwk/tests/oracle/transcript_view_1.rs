@@ -31,28 +31,33 @@ fn provider_error_escape_opens_resume_picker() {
 // ORACLE app/owned_transcript_browsing_tests.rs:89 escape_restores_reading_origin_after_details_navigation_and_resize kind=ui owner=chat-live
 #[test]
 fn escape_restores_reading_origin_after_details_navigation_and_resize() {
-    kit::pending(
-        Owner::ChatLive,
-        "no transcript browsing: Esc primes it, ctrl+t toggles the details, and Esc restores the reading origin after a resize; the browsing and its origin are not built",
-    );
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(80, 16)
-        .script(include_str!(
-            "fixtures/transcript_view_1/prompts_long.jsonl"
-        ))
-        .open();
-    s.wheel_up(0, 4, 4);
-    let before = s.shot();
-    s.keys("esc esc");
-    s.keys("ctrl+t");
-    s.assert_contains("first prompt");
-    s.keys("left");
-    s.assert_contains("first prompt");
-    s.keys("ctrl+t ctrl+t");
-    s.resize(40, 12);
-    s.keys("esc");
-    s.resize(80, 16);
-    s.assert_same_rows_in(&before, 0..8);
+    for detailed in [false, true] {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(80, 16)
+            .script(include_str!(
+                "fixtures/transcript_view_1/prompts_long.jsonl"
+            ))
+            .open();
+        if detailed {
+            s.keys("ctrl+t");
+        }
+        s.keys("pageup pageup");
+        s.assert_contains("Back to bottom");
+        let before = s.shot();
+
+        s.keys(if detailed { "esc" } else { "esc esc" });
+        s.keys("left");
+        s.assert_text_style("first prompt", "reversed");
+        s.keys("ctrl+t");
+        s.assert_text_style("first prompt", "reversed");
+        s.keys("ctrl+t");
+        s.assert_text_style("first prompt", "reversed");
+        s.resize(40, 12);
+        s.keys("esc");
+        s.resize(80, 16);
+        s.assert_same_rows_in(&before, 0..8);
+        s.assert_contains("Back to bottom");
+    }
 }
 
 // ORACLE app/owned_transcript_browsing_tests.rs:171 browsing_search_and_selection_consume_escape_before_mode_exit kind=ui owner=chat-live
@@ -1099,19 +1104,22 @@ fn cancel_restores_both_positions_after_resize_and_pagination() {
 // ORACLE transcript_view/bookmark_tests.rs:38 following_origin_returns_to_new_output_in_original_presentation kind=ui owner=chat-live
 #[test]
 fn following_origin_returns_to_new_output_in_original_presentation() {
-    kit::pending(
-        Owner::ChatLive,
-        "no detailed origin with a follow-state restore on the chat screen: the bookmark taken while detailed and the restore that returns to following in the original (compact) presentation have no key path; the visible part is the 'new output' row after the restore",
-    );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(30, 2)
-        .script(include_str!("fixtures/transcript_view_1/two_prompts.jsonl"))
+        .size(80, 16)
+        .script(include_str!(
+            "fixtures/transcript_view_1/prompts_long.jsonl"
+        ))
         .open();
     s.keys("ctrl+t");
-    s.keys("esc");
-    s.feed(include_str!("fixtures/transcript_view_1/new_output.jsonl"));
+    s.assert_absent("Back to bottom");
+    s.keys("esc left");
+    s.assert_text_style("first prompt", "reversed");
+    s.live_tail("new output");
+    s.assert_absent("new output");
     s.keys("esc");
     s.assert_contains("new output");
+    s.assert_absent("Back to bottom");
+    s.assert_absent("first prompt");
 }
 
 // ORACLE transcript_view/bookmark_tests.rs:57 cancel_restores_a_group_replaced_during_browsing kind=ui owner=chat-live

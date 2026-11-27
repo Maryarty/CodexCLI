@@ -16,7 +16,7 @@ use crate::pages::session::live::browse::{self, Browse};
 use crate::pages::session::transcript::copy::{self, CopyJob, CopyOrigin};
 use crate::pages::session::transcript::selection::Key as SelectionKey;
 use crate::pages::session::transcript_header;
-use crate::pages::session::transcript_pane::Pane;
+use crate::pages::session::transcript_pane::{Pane, cancel_browsing};
 
 use super::frame::Frame;
 use super::{Chat, ChatState};
@@ -56,6 +56,10 @@ pub(super) fn selected(w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs, key: Selec
 
 /// A key of the mode that browses the prompts.
 pub(super) fn browsed(w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs, step: Browse) {
+    if matches!(step, Browse::Cancel | Browse::Leave) {
+        cancel_browsing(&w.ui);
+        return;
+    }
     let modes = &w.ui.modes;
     let thread = read::<ThreadModel, _>(cx);
     let targets = Targets::of(thread.transcript(), thread.can_load_history());
