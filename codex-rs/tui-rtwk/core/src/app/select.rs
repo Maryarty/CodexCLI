@@ -14,10 +14,10 @@ use crate::screens::select::collaboration::{Change, PlanWrite, ReasoningScope};
 use crate::screens::select::models::{Apply, Current, Effort, Scope};
 use crate::screens::select::{self, apps, permissions, review};
 use crate::screens::{ScreenCommand, ScreenReply, ScreenThreadIntent, agents, chat, startup};
-use crate::threads::ThreadEv;
 use crate::threads::queue::{
     self, ModalKind, ModalOperation, ModalToken, QueueEvent, QueueOperation,
 };
+use crate::threads::{ThreadEv, ThreadReply};
 
 use super::features::{
     acknowledge_queue_modal, cancel_queue_modal, modal_address, queue_modal_can_reopen,
@@ -1127,21 +1127,35 @@ pub(super) fn opening_permission_baseline(
         return None;
     };
     let (id, snapshot) = reply.permission_baseline()?;
-    let matches = match ctx {
-        AppCtx::OpenThread { thread, .. }
-        | AppCtx::OpenSession {
-            action: startup::Action::Resume,
-            thread,
-        } => thread.as_str() == id,
-        AppCtx::Agents(agents::Ctx::Resume { thread }) => thread.as_str() == id,
-        AppCtx::StartThread { .. }
-        | AppCtx::NewConversation { .. }
-        | AppCtx::Agents(agents::Ctx::Start | agents::Ctx::Fork { .. })
-        | AppCtx::OpenSession {
-            action: startup::Action::Fork,
-            ..
-        } => true,
-        _ => false,
+    let matches = if let AppCtx::OpenThread { thread, .. }
+    | AppCtx::OpenSession {
+        action: startup::Action::Resume,
+        thread,
+    }
+    | AppCtx::Agents(agents::Ctx::Resume { thread }) = ctx
+    {
+        thread.as_str() == id && matches!(reply, ThreadReply::Resumed(_))
+    } else {
+        matches!(
+            (ctx, reply),
+            (
+                AppCtx::StartThread { .. },
+                ThreadReply::SessionStarted { .. }
+            ) | (
+                AppCtx::NewConversation { .. },
+                ThreadReply::SessionStarted { .. }
+                    | ThreadReply::Started(_)
+                    | ThreadReply::Forked(_),
+            ) | (AppCtx::Agents(agents::Ctx::Start), ThreadReply::Started(_))
+                | (
+                    AppCtx::Agents(agents::Ctx::Fork { .. })
+                        | AppCtx::OpenSession {
+                            action: startup::Action::Fork,
+                            ..
+                        },
+                    ThreadReply::Forked(_),
+                )
+        )
     };
     matches.then(|| (ThreadId::new(id), snapshot.clone()))
 }
