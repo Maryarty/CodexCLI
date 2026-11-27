@@ -690,15 +690,14 @@ fn flush_answer_stream_requests_scrollback_reflow_for_tables() {
     );
 }
 
-// ORACLE chatwidget/tests/status_and_layout.rs:688 completed_plan_table_tail_skips_provisional_history_insert kind=ui owner=ui-pane
-#[test]
-fn completed_plan_table_tail_skips_provisional_history_insert() {
+const PLAN_TABLE: &str = "| Step | Owner |\n| --- | --- |\n| Verify | Codex |\n";
+
+fn stream_plan_table() -> Screen {
     let mut s = Screen::build(Owner::UiPane)
         .size(80, 24)
         .script(RUNNING)
         .open();
-    let source = "| Step | Owner |\n| --- | --- |\n| Verify | Codex |\n";
-    for delta in source.split_inclusive('\n') {
+    for delta in PLAN_TABLE.split_inclusive('\n') {
         s.feed(
             &serde_json::json!({
                 "step": "notify",
@@ -709,19 +708,46 @@ fn completed_plan_table_tail_skips_provisional_history_insert() {
             .to_string(),
         );
     }
+    s.assert_text_count("Verify", 1);
+    s
+}
+
+fn finish_plan_table(s: &mut Screen, text: &str) {
     s.feed(
         &serde_json::json!({
             "step": "notify",
             "message": {"method": "item/completed", "params": {
                 "threadId": "thread-1", "turnId": "turn-1", "completedAtMs": 0,
-                "item": {"type": "plan", "id": "plan-1", "text": source}
+                "item": {"type": "plan", "id": "plan-1", "text": text}
             }}
         })
         .to_string(),
     );
-    // MarkdownView uses box-drawing rules (G73). The live tail must leave one completed table.
+}
+
+fn assert_one_plan_table(s: &Screen) {
+    // MarkdownView uses box-drawing rules (G73).
     s.assert_row_of("Verify", &["Codex", "│"], &[]);
     s.assert_text_count("Verify", 1);
+}
+
+// ORACLE chatwidget/tests/status_and_layout.rs:688 completed_plan_table_tail_skips_provisional_history_insert kind=ui owner=ui-pane
+#[test]
+fn completed_plan_table_tail_skips_provisional_history_insert() {
+    let mut s = stream_plan_table();
+    finish_plan_table(&mut s, "");
+    kit::pending(
+        Owner::UiPane,
+        "the empty completion replaces the accumulated plan with an empty item. The oracle keeps the streamed source as the finalized plan and inserts it once",
+    );
+    assert_one_plan_table(&s);
+}
+
+#[test]
+fn completed_plan_table_with_full_payload_replaces_the_live_tail() {
+    let mut s = stream_plan_table();
+    finish_plan_table(&mut s, PLAN_TABLE);
+    assert_one_plan_table(&s);
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:839 rate_limit_usage_warnings_early_threshold_is_scoped_and_deduplicated kind=snap owner=ui-pane
