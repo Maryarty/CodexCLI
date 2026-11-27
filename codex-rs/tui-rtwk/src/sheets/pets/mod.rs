@@ -13,16 +13,20 @@ use rtwk::editing::{TextEditingController, TextField};
 use rtwk::focus::Focus;
 use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier};
 use rtwk::gestures::{GestureDetector, PointerEvent};
+use rtwk::graphics::GraphicsScope;
 use rtwk::layout::{
     Align, Alignment, BoxWidget, Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox,
 };
-use rtwk::overlay::{Dialog, DialogOptions, DialogResult, close_dialog, show_dialog};
+use rtwk::overlay::{Dialog, DialogResult, close_dialog, show_dialog};
 use rtwk::provider::{read, select};
 use rtwk::scroll::{ListController, ListView, ScrollNotification};
 use rtwk::style::Style;
-use rtwk::widgets::Text;
+use rtwk::text::{Text, TextWrap};
 use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk_core::graphics::GraphicsProtocol;
+use rtwk_rich::image::Image;
 
+use codex_tui_core::features::FeatureStates;
 use codex_tui_core::keymap::fixed;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
@@ -33,7 +37,10 @@ use crate::app::debug::DebugOpen;
 use crate::app::debug::EntryOpen;
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
-use crate::features::pick_pet;
+use crate::features::{
+    PetIntent as LiveIntent, PetPhase as Phase, PetVisit as Visit, is_pet_disable as is_disable,
+    pick_pet, verb, verb_by,
+};
 use crate::keymap::bind_fixed;
 
 pub mod strings;
@@ -73,7 +80,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             name,
             description,
             script,
-            open: EntryOpen::Dialog(|_| Screen.into()),
+            open: EntryOpen::Dialog(|_| Screen { visit: None }.into()),
         })
         .collect()
 }
@@ -81,33 +88,64 @@ pub fn debug_entries() -> Vec<DebugEntry> {
 /// Opens the picker as a modal sheet over the session page: no frame, no
 /// dimming, at the bottom edge, as the oracle draws it in place of the
 /// composer (architecture §1, amendment 2026-11-19b).
-pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
+pub fn open<S: 'static>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
+    open_visit(cx, None)
+}
+
+/// The slash command keeps its argument all the way to the local pet feature.
+pub fn command<S: 'static>(cx: &mut Cx<'_, S>, args: &str) {
+    let args = args.trim();
+    if is_disable(args) {
+        verb(
+            cx,
+            LiveIntent::Request {
+                visit: Visit::fresh(),
+                selector: Some(args.to_owned()),
+                graphics: false,
+            },
+        );
+    } else {
+        drop(open_visit(cx, (!args.is_empty()).then(|| args.to_owned())));
+    }
+}
+
+fn open_visit<S: 'static>(cx: &mut Cx<'_, S>, selector: Option<String>) -> DialogResult<()> {
+    let visit = Visit::fresh();
+    let graphics =
+        GraphicsScope::of(cx).is_some_and(|caps| caps.protocol != GraphicsProtocol::None);
+    verb(
+        cx,
+        LiveIntent::Request {
+            visit,
+            selector,
+            graphics,
+        },
+    );
     show_dialog(
         cx,
-        move |_| Screen.into(),
-        // Esc is the picker's own key when a picker is up (it clears a
-        // search first); the barrier closes the unseeded stub.
-        DialogOptions {
-            barrier_dismissible: true,
-            ..crate::sheets::sheet_options()
-        },
+        move |_| Screen { visit: Some(visit) }.into(),
+        crate::sheets::sheet_options(),
     )
 }
 
 /// Opens the sheet with no seeded model (debug menu): nothing to pick from.
 pub fn open_empty() -> DebugOpen {
-    DebugOpen::Dialog(|_| Screen.into())
+    DebugOpen::Dialog(|_| Screen { visit: None }.into())
 }
 
 /// The picker sheet.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Screen;
+pub struct Screen {
+    visit: Option<Visit>,
+}
 
 /// Widget state: rtwk's controllers (R14): the cursor row (a key into the
 /// picker's pets), the search text, and whether rows lie below the window.
 pub struct ScreenState {
     /// The catalog was seen: the cursor started on its configured pet.
     started: bool,
+    live_seen: bool,
+    live: Option<(Rc<Hs>, Visit)>,
     cursor: SelectionController<usize>,
     list: ListController,
     query: TextEditingController,
@@ -123,6 +161,7 @@ pub enum Msg {
     Search,
     Pick,
     Close,
+    Finished,
 }
 
 impl StatefulWidget for Screen {
@@ -131,6 +170,8 @@ impl StatefulWidget for Screen {
     fn create_state(&self) -> ScreenState {
         ScreenState {
             started: false,
+            live_seen: false,
+            live: None,
             cursor: SelectionController::new(),
             list: ListController::new(),
             query: TextEditingController::default(),
@@ -148,14 +189,24 @@ impl ScreenState {
     }
 
     /// Puts the cursor on `index` and asks the model for the preview of that row.
-    fn put(&self, picker: &Picker, index: usize, cx: &mut Cx<'_, Self>) {
+    fn put(&self, w: &Screen, picker: &Picker, index: usize, cx: &mut Cx<'_, Self>) {
         self.cursor.select(index);
         self.cursor.set_cursor(Some(index));
-        Self::preview_of(picker, index, cx);
+        Self::preview_of(w, picker, index, cx);
     }
 
-    fn preview_of(picker: &Picker, index: usize, cx: &mut Cx<'_, Self>) {
+    fn preview_of(w: &Screen, picker: &Picker, index: usize, cx: &mut Cx<'_, Self>) {
         if let Some(pet) = picker.pets.get(index) {
+            if let Some(visit) = w.visit {
+                verb(
+                    cx,
+                    LiveIntent::ReadPreview {
+                        visit,
+                        selector: Some(pet.selector.clone()),
+                    },
+                );
+                return;
+            }
             let hs = read::<Hs, _>(cx);
             cx.emit(
                 &hs.screen,
@@ -165,38 +216,84 @@ impl ScreenState {
     }
 
     /// Leaves the picker: its preview is not wanted any more.
-    fn leave(cx: &mut Cx<'_, Self>) {
-        let hs = read::<Hs, _>(cx);
-        cx.emit(&hs.screen, ScreenIntent::Pets(Intent::ReleasePreview));
+    fn leave(w: &Screen, cx: &mut Cx<'_, Self>) {
+        if let Some(visit) = w.visit {
+            verb(cx, LiveIntent::RetirePreview(visit));
+        } else {
+            let hs = read::<Hs, _>(cx);
+            cx.emit(&hs.screen, ScreenIntent::Pets(Intent::ReleasePreview));
+        }
         close_dialog::<_, ()>(cx, None);
     }
+
+    fn apply(w: &Screen, selector: String, cx: &mut Cx<'_, Self>) {
+        if let Some(visit) = w.visit {
+            verb(cx, LiveIntent::Apply { visit, selector });
+        } else {
+            pick_pet(cx, selector);
+            Self::leave(w, cx);
+        }
+    }
+}
+
+fn phase(w: &Screen, cx: &mut Cx<'_, ScreenState>) -> Option<Phase> {
+    let visit = w.visit?;
+    select::<FeatureStates, Option<Phase>, _>(cx, move |states| states.pets.phase(visit).cloned())
+}
+
+fn picker(w: &Screen, cx: &mut Cx<'_, ScreenState>) -> Option<Picker> {
+    if w.visit.is_some() {
+        return match phase(w, cx) {
+            Some(Phase::Ready(picker)) => Some(picker),
+            _ => None,
+        };
+    }
+    select::<ScreenStates, Option<Picker>, _>(cx, |states| states.pets.catalog.clone())
 }
 
 impl State for ScreenState {
     type Widget = Screen;
     type Msg = Msg;
 
-    fn did_change_dependencies(&mut self, _: &Screen, cx: &mut Cx<'_, Self>) {
-        let picker =
-            select::<ScreenStates, Option<Picker>, _>(cx, |states| states.pets.catalog.clone());
+    fn dispose_with(&mut self, cx: &mut Cx<'_, Self>) {
+        if let Some((hs, visit)) = self.live.take() {
+            verb_by(cx, &hs, LiveIntent::RetirePreview(visit));
+        }
+    }
+
+    fn did_change_dependencies(&mut self, w: &Screen, cx: &mut Cx<'_, Self>) {
+        if let Some(visit) = w.visit {
+            if self.live.is_none() {
+                self.live = Some((read::<Hs, _>(cx), visit));
+            }
+            let phase = phase(w, cx);
+            if matches!(phase, Some(Phase::Finished)) || (self.live_seen && phase.is_none()) {
+                cx.local_sender()(Msg::Finished);
+            }
+            self.live_seen |= phase.is_some();
+        }
+        let picker = picker(w, cx);
         if let (Some(picker), false) = (&picker, self.started) {
             // Seen first: the cursor starts on the configured pet, whose preview is asked for.
             let initial = picker.initial();
             self.cursor.select(initial);
             self.cursor.set_cursor(Some(initial));
             self.below.set_value(picker.pets.len() > WINDOW);
-            Self::preview_of(picker, initial, cx);
+            Self::preview_of(w, picker, initial, cx);
             self.started = true;
         }
     }
 
-    fn update(&mut self, msg: Msg, _: &Screen, cx: &mut Cx<'_, Self>) -> Rebuild {
-        let Some(picker) =
-            select::<ScreenStates, Option<Picker>, _>(cx, |states| states.pets.catalog.clone())
-        else {
-            // No pets listed (the unseeded stub): Esc leaves it.
-            if matches!(msg, Msg::Close) {
-                close_dialog::<_, ()>(cx, None);
+    fn update(&mut self, msg: Msg, w: &Screen, cx: &mut Cx<'_, Self>) -> Rebuild {
+        if matches!(msg, Msg::Finished) {
+            Self::leave(w, cx);
+            return Rebuild::No;
+        }
+        let Some(picker) = picker(w, cx) else {
+            if matches!(msg, Msg::Close)
+                || (matches!(msg, Msg::Pick) && matches!(phase(w, cx), Some(Phase::Unavailable(_))))
+            {
+                Self::leave(w, cx);
             }
             return Rebuild::No;
         };
@@ -205,7 +302,6 @@ impl State for ScreenState {
             .cursor
             .cursor()
             .and_then(|key| visible.iter().position(|index| *index == key));
-        let hs = read::<Hs, _>(cx);
         match msg {
             Msg::Move(delta) => {
                 if !visible.is_empty() {
@@ -213,58 +309,65 @@ impl State for ScreenState {
                     let from = i64::try_from(at.unwrap_or(0)).unwrap_or(0);
                     let to =
                         usize::try_from((from + i64::from(delta)).rem_euclid(len)).unwrap_or(0);
-                    self.put(&picker, visible[to], cx);
+                    self.put(w, &picker, visible[to], cx);
                     self.list.ensure_index_visible(to);
                 }
             }
             Msg::Row(index) => {
                 if at.is_some_and(|at| visible[at] == index) {
                     if let Some(pet) = picker.pets.get(index) {
-                        pick_pet(cx, pet.selector.clone());
-                        cx.emit(&hs.screen, ScreenIntent::Pets(Intent::ReleasePreview));
-                        close_dialog::<_, ()>(cx, None);
+                        Self::apply(w, pet.selector.clone(), cx);
                     }
                 } else if let Some(row) = visible.iter().position(|pet| *pet == index) {
-                    self.put(&picker, index, cx);
+                    self.put(w, &picker, index, cx);
                     self.list.ensure_index_visible(row);
                 }
             }
             // The search changed: the cursor goes back to the first row.
             Msg::Search => {
                 if let Some(first) = visible.first() {
-                    self.put(&picker, *first, cx);
+                    self.put(w, &picker, *first, cx);
                     self.list.jump_to_index(0);
+                } else if let Some(visit) = w.visit {
+                    verb(
+                        cx,
+                        LiveIntent::ReadPreview {
+                            visit,
+                            selector: None,
+                        },
+                    );
                 }
             }
             Msg::Pick => {
                 if let Some(pet) = at.and_then(|at| picker.pets.get(visible[at])) {
-                    pick_pet(cx, pet.selector.clone());
-                    cx.emit(&hs.screen, ScreenIntent::Pets(Intent::ReleasePreview));
-                    close_dialog::<_, ()>(cx, None);
+                    Self::apply(w, pet.selector.clone(), cx);
                 }
             }
             // Esc clears a search typed, then closes.
             Msg::Close => {
                 if self.query.text().trim().is_empty() && self.query.text().is_empty() {
-                    Self::leave(cx);
+                    Self::leave(w, cx);
                 } else {
                     self.query.clear();
                     if let Some(first) = picker.visible("").first() {
-                        self.put(&picker, *first, cx);
+                        self.put(w, &picker, *first, cx);
                         self.list.jump_to_index(0);
                     }
                 }
             }
+            Msg::Finished => {}
         }
         Rebuild::Yes
     }
 
-    fn build(&self, _: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let picker =
-            select::<ScreenStates, Option<Picker>, _>(cx, |states| states.pets.catalog.clone());
+    fn build(&self, w: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        let picker = picker(w, cx);
         let s = strings::of(cx);
         let tokens = Tokens::of(cx);
         let Some(picker) = picker else {
+            if w.visit.is_some() {
+                return live_status(w, cx, s, &tokens);
+            }
             // No picker seeded (the debug menu's `pets` row): the skeleton's
             // empty-slot line, as before the slot was filled.
             let shared = crate::l10n::strings::of(cx);
@@ -400,10 +503,16 @@ impl State for ScreenState {
 
 /// The preview area: its status, centred (`PetPickerPreviewRenderable`).
 fn preview(picker: &Picker, s: &strings::Strings, tokens: &Tokens) -> AnyWidget {
-    let Some((_, Preview::Loading)) = &picker.preview else {
-        return AnyWidget::default();
+    let (label, detail) = match &picker.preview {
+        Some((_, Preview::Image(image))) => {
+            return Align::new(Alignment::CENTER, Image::memory(image.png.clone())).into();
+        }
+        Some((_, Preview::Loading)) => (s.preview_loading, None),
+        Some((_, Preview::Disabled)) => (s.preview_disabled, Some(s.preview_disabled_detail)),
+        Some((_, Preview::Failed(error))) => (s.preview_unavailable, Some(error.as_str())),
+        _ => return AnyWidget::default(),
     };
-    Column::new()
+    let mut text = Column::new()
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(Text::new(String::new()))
         .child(SizedBox::new(
@@ -412,10 +521,69 @@ fn preview(picker: &Picker, s: &strings::Strings, tokens: &Tokens) -> AnyWidget 
             Some(
                 Align::new(
                     Alignment::TOP_CENTER,
-                    Text::line(s.preview_loading.to_string()).style(tokens.bold()),
+                    Text::line(label.to_owned()).style(tokens.bold()),
                 )
                 .into(),
             ),
-        ))
-        .into()
+        ));
+    if let Some(detail) = detail {
+        text = text.child(Expanded::new(
+            1,
+            Align::new(
+                Alignment::TOP_CENTER,
+                Text::new(detail.to_owned())
+                    .style(tokens.dim())
+                    .wrap(TextWrap::Word),
+            ),
+        ));
+    }
+    text.into()
+}
+
+fn live_status(
+    w: &Screen,
+    cx: &mut Cx<'_, ScreenState>,
+    s: &strings::Strings,
+    tokens: &Tokens,
+) -> AnyWidget {
+    let (title, detail, unavailable) = match phase(w, cx) {
+        Some(Phase::Unavailable(reason)) => (s.unavailable_title, s.unavailable(reason), true),
+        Some(Phase::Applying) => (s.apply_title, s.apply_detail, false),
+        Some(Phase::Finished) => return AnyWidget::default(),
+        _ => (s.picker_title, s.catalog_loading, false),
+    };
+    let mut column = Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Start)
+        .child(Text::line(format!("{}{title}", s.indent)).style(tokens.bold()))
+        .child(
+            Row::new()
+                .child(SizedBox::new(Some(2), None, None))
+                .child(Expanded::new(
+                    1,
+                    Text::new(detail).style(tokens.dim()).wrap(TextWrap::Word),
+                ))
+                .child(SizedBox::new(Some(RIGHT_MARGIN), None, None)),
+        );
+    if unavailable {
+        column = column
+            .child(Text::new(String::new()))
+            .child(Text::new(String::new()))
+            .child(
+                GestureDetector::new()
+                    .on_tap(cx.map(|_: PointerEvent| Msg::Pick))
+                    .child(
+                        Text::line(format!("{}{}", s.cursor_marker, s.close))
+                            .style(tokens.selected()),
+                    ),
+            )
+            .child(Text::new(String::new()))
+            .child(Text::line(format!("{}{}", s.indent, s.hint)).style(tokens.dim()));
+    }
+    let focus = Focus::new(Dialog::bare(
+        BoxWidget::new().style(Style::new()).child(column),
+    ))
+    .autofocus();
+    let focus = bind_fixed(focus, fixed::DISMISS, cx.send(Msg::Close));
+    bind_fixed(focus, fixed::POPUP_ACCEPT, cx.send(Msg::Pick)).into()
 }

@@ -314,6 +314,9 @@ pub(super) fn run(
             }
             if opened.command == SlashCommand::Warnings {
                 open_warnings(cx);
+            } else if opened.command == SlashCommand::Pets {
+                crate::sheets::pets::command(cx, &opened.args);
+                note_opened(opened.target);
             } else if opened.command == SlashCommand::Presets {
                 // the menu opens where presets can be used (`open_quick_dial_menu`): the page says
                 // so after this line is run

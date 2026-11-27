@@ -138,6 +138,232 @@ fn the_preview_becomes_ready_only_for_the_row_it_was_asked_for() {
     );
 }
 
+mod live {
+    use codex_tui_core::app::effects::{Ask, Done, ImagePreview, ImageSize};
+    use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
+    use codex_tui_core::features::pets::{Intent as PetIntent, Phase, Visit};
+    use codex_tui_core::screens::pets::{
+        AssetAsk, AssetDone, DISABLED, Pet, Picker, Preview, Unavailable,
+    };
+
+    fn run(app: &mut CodexApp, event: AppEv) -> AppFx {
+        let mut out = AppFx::default();
+        apply_app(app, event, &mut out);
+        out
+    }
+
+    fn act(app: &mut CodexApp, intent: PetIntent) -> AppFx {
+        run(app, AppEv::Intent(Intent::Feature(intent.into())))
+    }
+
+    fn answer(app: &mut CodexApp, request: u64, done: AssetDone) -> AppFx {
+        run(
+            app,
+            AppEv::Effect {
+                request,
+                done: Done::Pet(done),
+            },
+        )
+    }
+
+    fn asked(out: &AppFx, wanted: AssetAsk) -> u64 {
+        out.commands()
+            .iter()
+            .find_map(|command| match command {
+                Command::Effect {
+                    request,
+                    ask: Ask::Pet(ask),
+                    ..
+                } if ask == &wanted => Some(*request),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("missing {wanted:?} in {:?}", out.commands()))
+    }
+
+    fn no_pet_ask(out: &AppFx) {
+        assert!(
+            !out.commands().iter().any(|command| matches!(
+                command,
+                Command::Effect {
+                    ask: Ask::Pet(_),
+                    ..
+                }
+            )),
+            "{:?}",
+            out.commands()
+        );
+    }
+
+    fn candidate(selector: &str) -> Pet {
+        Pet {
+            selector: selector.into(),
+            name: selector.into(),
+            description: None,
+            legacy_selector: None,
+        }
+    }
+
+    fn list(current: Option<&str>) -> AssetDone {
+        AssetDone::Catalog(Ok(Picker::build(
+            current,
+            vec![candidate("codex"), candidate("dewey")],
+        )))
+    }
+
+    fn request(app: &mut CodexApp, visit: Visit, selector: Option<&str>, graphics: bool) -> AppFx {
+        act(
+            app,
+            PetIntent::Request {
+                visit,
+                selector: selector.map(str::to_owned),
+                graphics,
+            },
+        )
+    }
+
+    fn ready(app: &CodexApp, visit: Visit) -> &Picker {
+        let Some(Phase::Ready(picker)) = app.features().pets.phase(visit) else {
+            panic!("expected ready picker");
+        };
+        picker
+    }
+
+    fn open(app: &mut CodexApp, current: Option<&str>) -> Visit {
+        let visit = Visit::fresh();
+        let req = asked(
+            &request(app, visit, None, true),
+            AssetAsk::Catalog { graphics: true },
+        );
+        no_pet_ask(&answer(app, req, list(current)));
+        visit
+    }
+
+    fn preview(app: &mut CodexApp, visit: Visit, selector: &str) -> u64 {
+        asked(
+            &act(
+                app,
+                PetIntent::ReadPreview {
+                    visit,
+                    selector: Some(selector.into()),
+                },
+            ),
+            AssetAsk::Preview {
+                selector: selector.into(),
+            },
+        )
+    }
+
+    fn image(marker: u8) -> AssetDone {
+        AssetDone::Preview(Ok(ImagePreview {
+            png: vec![marker].into(),
+            size: ImageSize {
+                width: 1,
+                height: 1,
+            },
+        }))
+    }
+
+    #[test]
+    fn preview_results_cannot_fill_a_newer_visit_or_a_repeated_selector() {
+        let mut app = CodexApp::default();
+        let visit = open(&mut app, None);
+        let first_a = preview(&mut app, visit, "codex");
+        let b = preview(&mut app, visit, "dewey");
+        let next_a = preview(&mut app, visit, "codex");
+        answer(&mut app, first_a, image(1));
+        answer(&mut app, b, image(2));
+        assert_eq!(
+            ready(&app, visit).preview,
+            Some(("codex".into(), Preview::Loading))
+        );
+        answer(&mut app, next_a, image(3));
+        let Some((_, Preview::Image(actual))) = &ready(&app, visit).preview else {
+            panic!("owned preview should render");
+        };
+        assert_eq!(&*actual.png, &[3]);
+        let old = preview(&mut app, visit, "dewey");
+        act(&mut app, PetIntent::RetirePreview(visit));
+        let reopened = open(&mut app, None);
+        answer(&mut app, old, image(4));
+        assert_eq!(ready(&app, reopened).preview, None);
+    }
+
+    #[test]
+    fn a_named_pet_is_written_only_after_support_and_owned_asset_validation() {
+        let mut app = CodexApp::default();
+        let old = Visit::fresh();
+        let host = asked(
+            &request(&mut app, old, Some("dewey"), true),
+            AssetAsk::Catalog { graphics: true },
+        );
+        let asset = asked(
+            &answer(&mut app, host, list(None)),
+            AssetAsk::Preview {
+                selector: "dewey".into(),
+            },
+        );
+        act(&mut app, PetIntent::RetirePreview(old));
+        no_pet_ask(&answer(&mut app, asset, image(1)));
+        assert_eq!(app.features().pets.selected(), None);
+
+        let denied = Visit::fresh();
+        let host = asked(
+            &request(&mut app, denied, Some("codex"), false),
+            AssetAsk::Catalog { graphics: false },
+        );
+        no_pet_ask(&answer(
+            &mut app,
+            host,
+            AssetDone::Catalog(Err(Unavailable::Tmux)),
+        ));
+        assert_eq!(
+            app.features().pets.phase(denied),
+            Some(&Phase::Unavailable(Unavailable::Tmux))
+        );
+    }
+
+    #[test]
+    fn config_ack_controls_the_current_pet_when_boot_snapshot_is_stale() {
+        let mut app = CodexApp::default();
+        let visit = open(&mut app, Some("dewey"));
+        let asset = asked(
+            &act(
+                &mut app,
+                PetIntent::Apply {
+                    visit,
+                    selector: "codex".into(),
+                },
+            ),
+            AssetAsk::Preview {
+                selector: "codex".into(),
+            },
+        );
+        let write = asked(
+            &answer(&mut app, asset, image(1)),
+            AssetAsk::Save {
+                selector: "codex".into(),
+            },
+        );
+        assert_eq!(app.features().pets.selected(), Some("dewey"));
+        answer(&mut app, write, AssetDone::Saved(Err("denied".into())));
+        let second = open(&mut app, Some("dewey"));
+        assert_eq!(ready(&app, second).current.as_deref(), Some("dewey"));
+
+        let disabled = Visit::fresh();
+        let out = request(&mut app, disabled, Some("hide"), false);
+        let write = asked(
+            &out,
+            AssetAsk::Save {
+                selector: DISABLED.into(),
+            },
+        );
+        assert_eq!(out.commands().len(), 1);
+        answer(&mut app, write, AssetDone::Saved(Ok(())));
+        let third = open(&mut app, Some("dewey"));
+        assert_eq!(ready(&app, third).current.as_deref(), Some(DISABLED));
+    }
+}
+
 #[test]
 fn typing_filters_the_pets_and_the_disable_row_answers_to_its_words() {
     let sandbox = Sandbox::play(PLAIN).expect("plays");

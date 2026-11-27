@@ -41,6 +41,7 @@ pub enum Preview {
     Loading,
     Ready,
     Image(crate::app::effects::ImagePreview),
+    Disabled,
     Failed(String),
 }
 

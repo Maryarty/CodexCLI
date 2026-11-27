@@ -3,12 +3,13 @@
 //! `chatwidget/tests/slash_commands.rs` (`slash_pets_picker`),
 //! `pets/picker.rs` tests.
 
-use crate::common::{Harness, ms, start_driven, start_sized};
+use crate::common::{Harness, ms, start_driven_with, start_sized};
 use crate::dialogs::oracle::assert_rows;
-use codex_tui_core::app::effects::Ask;
+use codex_tui_core::app::effects::{Ask, Done, ImagePreview, ImageSize};
 use codex_tui_core::app::{AppEv, Command};
-use codex_tui_core::screens::ScreenEv;
-use codex_tui_core::screens::pets::{Ev, Pet, Picker};
+use codex_tui_core::screens::pets::{AssetAsk, AssetDone, Pet, Picker};
+use rtwk_core::graphics::GraphicsProtocol;
+use rtwk_test::Options;
 
 fn open(entry: &str) -> Harness {
     let mut h = start_sized(true, 80, 24);
@@ -52,63 +53,141 @@ fn enter_picks_the_pet_and_closes() {
     assert!(!h.t.screen().contains("Select Pet"), "{}", h.t.screen());
 }
 
-/// `/pets` on a driven harness with the catalog the host listed.
-fn pets_command() -> Harness {
+/// `/pets` through the real opener with the local host's capabilities answered by the fake.
+fn pets_command(h: &mut Harness) {
     let pet = |selector: &str, name: &str| Pet {
         selector: selector.into(),
         name: name.into(),
         description: None,
         legacy_selector: None,
     };
-    let mut h = start_driven(false, 80, 24);
-    h.wait_idle();
-    h.inject([AppEv::Screen(ScreenEv::Pets(Ev::Listed(Picker::build(
-        None,
-        vec![pet("codex", "Codex"), pet("dewey", "Dewey")],
-    ))))]);
+    h.settle();
+    let before = h.fake.commands().len();
     h.t.type_text("/pets");
     h.press("enter");
-    h.wait_for("the picker", |screen| screen.contains("Select Pet"));
-    h.advance(600);
+    h.wait_until("a fresh catalog request", |h| {
+        h.fake.commands().iter().skip(before).any(|command| {
+            matches!(
+                command,
+                Command::Effect {
+                    ask: Ask::Pet(AssetAsk::Catalog { graphics: true }),
+                    ..
+                }
+            )
+        })
+    });
+    answer(
+        h,
+        AssetAsk::Catalog { graphics: true },
+        AssetDone::Catalog(Ok(Picker::build(
+            None,
+            vec![pet("codex", "Codex"), pet("dewey", "Dewey")],
+        ))),
+    );
+    h.wait_for("the picker", |screen| screen.contains("Loading preview..."));
+}
+
+fn live() -> Harness {
+    let options = Options::new()
+        .size(80, 24)
+        .graphics(GraphicsProtocol::Kitty)
+        .cell_pixels(8, 16);
+    let mut h = start_driven_with(false, options);
+    h.wait_idle();
+    pets_command(&mut h);
     h
+}
+
+fn answer(h: &mut Harness, wanted: AssetAsk, done: AssetDone) {
+    let mut held = None;
+    h.wait_until("the pet capability request", |h| {
+        held = h
+            .fake
+            .commands()
+            .into_iter()
+            .rev()
+            .find_map(|command| match command {
+                Command::Effect {
+                    request,
+                    ask: Ask::Pet(ask),
+                    ..
+                } if ask == wanted => Some(request),
+                _ => None,
+            });
+        held.is_some()
+    });
+    h.inject([AppEv::Effect {
+        request: held.expect("pet request"),
+        done: Done::Pet(done),
+    }]);
+}
+
+fn native_preview() -> ImagePreview {
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    let image = image::RgbaImage::from_pixel(192, 208, image::Rgba([103, 177, 54, 255]));
+    image::DynamicImage::ImageRgba8(image)
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .expect("PNG");
+    ImagePreview {
+        png: bytes.into_inner().into(),
+        size: ImageSize {
+            width: 192,
+            height: 208,
+        },
+    }
 }
 
 /// The pick is saved: Enter writes `tui.pet` through the host (the oracle's `PetSelected`).
 #[test]
 fn enter_writes_the_pick_to_the_config() {
-    let mut h = pets_command();
+    let mut h = live();
     h.press("down");
+    answer(
+        &mut h,
+        AssetAsk::Preview {
+            selector: "dewey".into(),
+        },
+        AssetDone::Preview(Ok(native_preview())),
+    );
+    h.wait_until("native pet preview", |h| !h.t.images().is_empty());
+    let images = h.t.images();
+    assert_eq!(images.len(), 1);
+    assert!(images[0].rows <= 4);
     h.press("enter");
-    h.wait_until("the write", |h| !edits(h).is_empty());
-    assert_eq!(edits(&h), vec![("tui.pet".to_owned(), "dewey".into())]);
-    assert!(!h.t.screen().contains("Select Pet"), "{}", h.t.screen());
+    answer(
+        &mut h,
+        AssetAsk::Save {
+            selector: "dewey".into(),
+        },
+        AssetDone::Saved(Ok(())),
+    );
+    h.wait_for("closed picker", |screen| !screen.contains("Loading Pet"));
+    assert!(h.t.images().is_empty());
+
+    h.advance(700);
+    pets_command(&mut h);
+    h.wait_for("acknowledged current pet", |screen| {
+        screen.contains("Dewey (current)")
+    });
 }
 
 /// The disable row is saved as the selector the oracle's `PetDisabled` writes.
 #[test]
 fn enter_on_the_disable_row_writes_the_disabled_pet() {
-    let mut h = pets_command();
+    let mut h = live();
     h.press("up");
+    h.wait_for("disabled preview", |screen| {
+        screen.contains("Terminal pets disabled")
+    });
     h.press("enter");
-    h.wait_until("the write", |h| !edits(h).is_empty());
-    assert_eq!(edits(&h), vec![("tui.pet".to_owned(), "disabled".into())]);
-}
-
-/// The config edits the app has asked of the host.
-fn edits(h: &Harness) -> Vec<(String, serde_json::Value)> {
-    h.fake
-        .commands()
-        .into_iter()
-        .filter_map(|command| match command {
-            Command::Effect {
-                ask: Ask::ConfigWrite { edits },
-                ..
-            } => Some(edits),
-            _ => None,
-        })
-        .flatten()
-        .map(|edit| (edit.key_path, edit.value))
-        .collect()
+    answer(
+        &mut h,
+        AssetAsk::Save {
+            selector: "disabled".into(),
+        },
+        AssetDone::Saved(Ok(())),
+    );
+    h.wait_for("closed picker", |screen| !screen.contains("Loading Pet"));
 }
 
 #[test]
