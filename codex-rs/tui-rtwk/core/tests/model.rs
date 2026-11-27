@@ -9,9 +9,9 @@ use codex_tui_core::app::{
     AppEv, AppFx, BackendEv, CodexApp, Command, Intent, PendingRequest, Session, apply_app,
 };
 use codex_tui_core::fixtures::builders::{
-    agent_completed, agent_delta, command_output, command_progress, command_started,
-    server_request_resolved, tool_input_request, turn_completed, turn_error, turn_failed,
-    turn_started, user_item, user_item_with_receipt,
+    agent_completed, agent_delta, command_completed, command_output, command_progress,
+    command_started, server_request_resolved, tool_input_request, turn_completed, turn_error,
+    turn_failed, turn_started, user_item, user_item_with_receipt,
 };
 use codex_tui_core::ids::{
     ConnEpoch, ItemId, RequestKey, ServerRequestId, ThreadId, Ticket, TurnId,
@@ -647,6 +647,14 @@ fn streamed_command_line_counts_match_the_trimmed_output_across_split_crlf() {
             .expect("streaming shell output");
         assert_eq!(key.item.as_str(), item);
         assert_eq!(tool.output.as_deref(), Some(output.as_str()));
+        let preview = output.trim_end_matches(['\r', '\n']);
+        assert_eq!(
+            tool.streamed_output_tail()
+                .expect("indexed tail")
+                .rev()
+                .collect::<Vec<_>>(),
+            preview.lines().rev().take(3).collect::<Vec<_>>(),
+        );
         assert_eq!(before, 2);
         assert_eq!(
             transcript.streamed_shell_output_line_count(key),
@@ -659,6 +667,155 @@ fn streamed_command_line_counts_match_the_trimmed_output_across_split_crlf() {
         assert_eq!(transcript.layout_revision(), layout_revision);
         assert_eq!(transcript.activity_revision(), metadata_revision);
     }
+}
+
+#[test]
+fn live_command_output_bounds_retained_lines_and_keeps_completion_authority() {
+    let mut app = ready();
+    let (turn, item, command) = ("turn-1", "call-1", " echo output");
+    notification(
+        &mut app,
+        command_started(T, turn, item, command).expect("start"),
+    );
+    let head: String = (0..50).map(|n| format!("head-{n:02}\r\n")).collect();
+    notification(
+        &mut app,
+        command_output(T, turn, item, &head).expect("head"),
+    );
+    let too_much = "not retained in the transcript\n".repeat(40_000);
+    notification(
+        &mut app,
+        command_output(T, turn, item, &too_much).expect("middle"),
+    );
+    let tail: String = (0..49).map(|n| format!("tail-{n:02}\n")).collect();
+    notification(
+        &mut app,
+        command_output(T, turn, item, &tail).expect("tail"),
+    );
+    for delta in ["last\r", "\npartial 🦀\r"] {
+        notification(
+            &mut app,
+            command_output(T, turn, item, delta).expect("split CRLF"),
+        );
+    }
+
+    fn output(app: &CodexApp) -> std::sync::Arc<threads::ToolActivity> {
+        let model = thread(app);
+        let (_, Item::Tool(tool)) = model.transcript().get(0).expect("tool row") else {
+            panic!("command expected");
+        };
+        tool.clone()
+    }
+    let held = output(&app);
+    let retained = held.retained_output().expect("bounded output");
+    assert!(output(&app).output.is_none());
+    assert_eq!(retained.retained_lines(), 101);
+    assert_eq!(retained.omitted_lines(), 40_000);
+    assert_eq!(retained.head_lines(), 50);
+    let kept: Vec<_> = retained.lines().collect();
+    assert_eq!(&kept[0].prefix, "head-00");
+    assert_eq!(&kept[49].prefix, "head-49");
+    assert_eq!(&kept[50].prefix, "tail-00");
+    assert_eq!(&kept[99].prefix, "last");
+    assert_eq!(&kept[100].prefix, "partial 🦀");
+    assert!(kept[100].pending_cr);
+
+    let completion = |output: serde_json::Value| {
+        let event = serde_json::json!({
+            "method": "item/completed",
+            "params": {"threadId": T, "turnId": turn, "completedAtMs": 0, "item": {
+                "type": "commandExecution", "id": item, "command": command, "cwd": "/workspace",
+                "source": "agent", "status": "completed", "commandActions": [],
+                "aggregatedOutput": output, "exitCode": 0, "durationMs": 1,
+            }}
+        });
+        BackendEv::Notification(Box::new(
+            serde_json::from_value(event).expect("completed item"),
+        ))
+    };
+    for _ in 0..2 {
+        notification(&mut app, completion(serde_json::Value::Null));
+        let held = output(&app);
+        let retained = held.retained_output().expect("prior output retained");
+        assert_eq!(
+            (retained.retained_lines(), retained.omitted_lines()),
+            (101, 40_000)
+        );
+    }
+    let complete = "complete ownership\n".repeat(60_000);
+    notification(
+        &mut app,
+        command_completed(T, turn, item, command, &complete, 0).expect("final"),
+    );
+    assert_eq!(output(&app).output.as_deref(), Some(complete.as_str()));
+    assert!(output(&app).retained_output().is_none());
+}
+
+#[test]
+fn live_command_output_bounds_one_unterminated_utf8_line() {
+    let mut app = ready();
+    let (turn, item, command) = ("turn-1", "call-1", "echo output");
+    notification(
+        &mut app,
+        command_started(T, turn, item, command).expect("start"),
+    );
+    let initial = "🦀".repeat(262_144);
+    notification(
+        &mut app,
+        command_output(T, turn, item, &initial).expect("exact budget"),
+    );
+    let outcome = |app: &CodexApp| {
+        let model = thread(app);
+        let (_, Item::Tool(tool)) = model.transcript().get(0).expect("tool") else {
+            panic!("command expected");
+        };
+        tool.clone()
+    };
+    assert_eq!(outcome(&app).output.as_deref(), Some(initial.as_str()));
+    for delta in ["🦀", "🦀tail", "\r", "\n"] {
+        notification(
+            &mut app,
+            command_output(T, turn, item, delta).expect("more"),
+        );
+    }
+    let held = outcome(&app);
+    let retained = held.retained_output().expect("boundary crossed");
+    assert_eq!(
+        (retained.retained_lines(), retained.omitted_lines()),
+        (1, 0)
+    );
+    let line = retained.lines().next().expect("long line");
+    let suffix = line.suffix();
+    assert!(line.prefix.starts_with("🦀🦀"));
+    assert!(suffix.ends_with("🦀tail"));
+    assert_eq!(
+        line.prefix.len() + suffix.len() + line.omitted_bytes,
+        initial.len() + "🦀🦀tail".len()
+    );
+    assert!(line.prefix.len() + suffix.len() < 11_000);
+    assert!(!line.pending_cr);
+}
+
+#[test]
+fn a_running_command_snapshot_is_already_bounded_before_the_next_delta() {
+    let mut app = ready();
+    let initial = "snapshot line\n".repeat(100_000);
+    notification(
+        &mut app,
+        command_progress(T, "turn-1", "call-1", "echo output", &initial).expect("running snapshot"),
+    );
+    let model = thread(&app);
+    let (_, Item::Tool(tool)) = model.transcript().get(0).expect("tool") else {
+        panic!("command expected");
+    };
+    let retained = tool
+        .retained_output()
+        .expect("snapshot bounded without a delta");
+    assert!(tool.output.is_none());
+    assert_eq!(
+        (retained.retained_lines(), retained.omitted_lines()),
+        (100, 99_900)
+    );
 }
 
 #[test]

@@ -666,22 +666,33 @@ fn fold_of(row: &Row, transcript: &codex_tui_core::threads::Transcript) -> Optio
 
 /// The stop of F4 a row draws, if it draws one: its fold, or the cell of a call or a patch that
 /// has a control (`+ Show details`). The key of a cell is its row's first item, as `tile` has it.
-fn stop_of(row: &Row, transcript: &codex_tui_core::threads::Transcript) -> Option<Stop> {
+fn stop_of(
+    row: &Row,
+    transcript: &codex_tui_core::threads::Transcript,
+    strings: &super::cells::strings::Strings,
+    room: Room,
+) -> Option<Stop> {
     if let Some(fold) = fold_of(row, transcript) {
         return Some(Stop::fold(fold));
     }
     let (key, item) = transcript.get(row.range.start)?;
     let has = match item {
         Item::Patch(patch) => !patch.changes.is_empty(),
-        Item::Tool(tool) => has_control(tool),
+        Item::Tool(tool) => has_control(tool, strings, room),
         _ => false,
     };
     has.then(|| Stop::cell(key.clone()))
 }
 
 impl ViewportState {
-    fn activity_walk(&self, rows: &Rc<[Row]>, thread: &Rc<ThreadModel>) -> Rc<Walk> {
-        let stamp = ActivityStamp::of(thread.transcript());
+    fn activity_walk(
+        &self,
+        rows: &Rc<[Row]>,
+        thread: &Rc<ThreadModel>,
+        strings: &'static super::cells::strings::Strings,
+        room: Room,
+    ) -> Rc<Walk> {
+        let stamp = ActivityStamp::of(thread.transcript(), strings, room);
         let mut cache = self.activity.borrow_mut();
         if let Some(layout) = cache.as_ref()
             && Rc::ptr_eq(&layout.rows, rows)
@@ -695,7 +706,7 @@ impl ViewportState {
                 rows.iter()
                     .enumerate()
                     .filter_map(|(index, row)| {
-                        stop_of(row, thread.transcript()).map(|stop| (index, stop))
+                        stop_of(row, thread.transcript(), strings, room).map(|stop| (index, stop))
                     })
                     .collect()
             }
@@ -907,17 +918,22 @@ impl State for ViewportState {
         // Find, keyboard selection and copy mode read live rows. Detailed rows also read across
         // cells when arranging adjacent prompts and computer calls. The ordinary mouse range
         // uses its retained revision. TailNews watches incoming deltas separately.
+        let cells = cells_strings::of(cx);
+        let room = Room {
+            width: self.width,
+            segmenter: segmenter_of(cx),
+        };
         let reads_across_rows = reads || widget.detailed || widget.mark.is_some();
         let live = if reads_across_rows {
             watch::<ThreadModel, _>(cx)
         } else {
-            select::<ThreadModel, _, _>(cx, |thread| {
+            select::<ThreadModel, _, _>(cx, move |thread| {
                 let transcript = thread.transcript();
                 (
                     thread.id().clone(),
                     transcript.layout_revision(),
                     transcript.reset_revision(),
-                    ActivityStamp::of(transcript),
+                    ActivityStamp::of(transcript, cells, room),
                     thread.can_load_history(),
                     thread.history_state(),
                     thread.read_only(),
@@ -979,7 +995,6 @@ impl State for ViewportState {
         let rendering = select::<TuiSettings, _, _>(cx, |settings| settings.rendering);
         let activity = activity_focus::of(&widget.find);
         let disclosed = activity.disclosed();
-        let cells = cells_strings::of(cx);
         // News follows the live transcript. A retained revision has its own row layout
         // so reading it cannot invalidate the cache for the incoming tail.
         let live_rows = Self::rows(&self.layout, &live, detailed, collapse, &activity);
@@ -1017,10 +1032,7 @@ impl State for ViewportState {
             raw,
             raw_reasoning: show_raw_reasoning,
             revealed: search.active(),
-            room: Room {
-                width: self.width,
-                segmenter: segmenter_of(cx),
-            },
+            room,
             status_words: super::cells::status::strings::of(cx),
             approval_words: crate::sheets::approvals::strings::of(cx),
             usage: usage.as_ref().map(|_| &card_figure as _),
@@ -1135,7 +1147,7 @@ impl State for ViewportState {
             self.activity.borrow_mut().take();
         }
         if !detailed {
-            let walk = (!raw).then(|| self.activity_walk(&rows, &thread));
+            let walk = (!raw).then(|| self.activity_walk(&rows, &thread, cells, reading.room));
             activity.set_folds(walk.as_ref());
             if let Some(ids) = activity.take_reveal()
                 && let Some(logical) = walk.and_then(|walk| walk.row(&ids))

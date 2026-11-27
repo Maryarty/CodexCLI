@@ -1,6 +1,7 @@
 //! The activity shown alongside messages in live and restored turns.
 
 use std::borrow::Cow;
+use std::sync::Arc;
 
 use codex_app_server_protocol::{
     CommandAction, CommandExecutionSource, CommandExecutionStatus,
@@ -9,6 +10,7 @@ use codex_app_server_protocol::{
 use codex_protocol::mcp::is_node_repl_backed_server;
 use serde_json::Value;
 
+use super::live_output::{MAX_BYTES, OutputLines, RetainedOutput};
 use crate::ids::ItemId;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -16,6 +18,8 @@ pub struct ToolActivity {
     pub kind: ToolKind,
     pub status: ToolStatus,
     pub output: Option<String>,
+    retained_output: Option<Arc<RetainedOutput>>,
+    output_lines: Option<OutputLines>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,6 +48,78 @@ pub enum ToolKind {
 }
 
 impl ToolActivity {
+    pub fn new(kind: ToolKind, status: ToolStatus, mut output: Option<String>) -> Self {
+        let mut output_lines = None;
+        let mut retained_output = None;
+        if status == ToolStatus::Running
+            && matches!(&kind, ToolKind::Shell { .. })
+            && output.as_ref().is_some_and(|text| text.len() > MAX_BYTES)
+            && let Some(text) = output.take()
+        {
+            output_lines = Some(OutputLines::of(&text));
+            let mut retained = RetainedOutput::default();
+            retained.append(&text);
+            retained_output = Some(Arc::new(retained));
+        }
+        Self {
+            kind,
+            status,
+            output,
+            retained_output,
+            output_lines,
+        }
+    }
+
+    /// Only streamed output can have a storage omission. A final item replaces it.
+    pub fn retained_output(&self) -> Option<&RetainedOutput> {
+        self.retained_output.as_deref()
+    }
+
+    pub fn streamed_output_line_counts(&self) -> Option<(usize, usize)> {
+        let lines = self.output_lines.as_ref()?;
+        Some((lines.initial, lines.visible))
+    }
+
+    pub fn streamed_output_tail(&self) -> Option<impl DoubleEndedIterator<Item = &str>> {
+        Some(self.output_lines.as_ref()?.tail(self.output.as_deref()?))
+    }
+
+    pub(super) fn append_output(&mut self, delta: &str) {
+        if matches!(self.kind, ToolKind::Shell { .. }) {
+            let lines = self
+                .output_lines
+                .get_or_insert_with(|| OutputLines::of(self.output.as_deref().unwrap_or_default()));
+            lines.append(delta);
+        }
+        if let Some(retained) = &mut self.retained_output {
+            Arc::make_mut(retained).append(delta);
+        } else if self
+            .output
+            .as_ref()
+            .map_or(0, String::len)
+            .saturating_add(delta.len())
+            <= MAX_BYTES
+        {
+            self.output.get_or_insert_with(String::new).push_str(delta);
+        } else {
+            let mut retained = RetainedOutput::default();
+            if let Some(full) = self.output.take() {
+                retained.append(&full);
+            }
+            retained.append(delta);
+            self.retained_output = Some(Arc::new(retained));
+        }
+    }
+
+    /// Notification/snapshot with no output preserves what the command already reported.
+    pub(super) fn keep_previous_output(&mut self, previous: &Self) {
+        if self.output.is_none() && self.retained_output.is_none() {
+            self.output.clone_from(&previous.output);
+            self.retained_output.clone_from(&previous.retained_output);
+            self.output_lines.clone_from(&previous.output_lines);
+        }
+    }
+
     /// The call joins a computer-activity group (oracle
     /// `McpInvocation::is_computer_activity`).
     pub fn is_computer_activity(&self) -> bool {
@@ -517,12 +593,5 @@ pub(super) fn tool(payload: &ThreadItemPayload) -> Option<(ItemId, ToolActivity)
         }
         _ => return None,
     };
-    Some((
-        ItemId::new(id),
-        ToolActivity {
-            kind,
-            status,
-            output,
-        },
-    ))
+    Some((ItemId::new(id), ToolActivity::new(kind, status, output)))
 }
