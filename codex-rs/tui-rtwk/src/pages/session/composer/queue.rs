@@ -4,7 +4,6 @@
 use rtwk::Cx;
 
 use codex_tui_core::commands::{Open, SlashCommand};
-use codex_tui_core::features::settings;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::question_reply::Intent as QuestionIntent;
 use codex_tui_core::screens::{
@@ -128,7 +127,6 @@ pub(in crate::pages::session) fn scope_select(
 /// The queued status editor takes the issued operation before mounting its dialog.
 pub(in crate::pages::session) fn open_settings(
     cx: &mut Cx<'_, ChatState>,
-    hs: &Hs,
     opened: &Open,
     deferred: Option<DeferredLine<'_>>,
     ran: &mut Option<Ran>,
@@ -137,11 +135,7 @@ pub(in crate::pages::session) fn open_settings(
         && let Some(DeferredLine::Due(due)) = deferred
     {
         *ran = None;
-        features::verb_by(
-            cx,
-            hs,
-            settings::Intent::OpenQueuedStatusLine(due.operation().clone()),
-        );
+        features::open_queued_status_line(cx, due.operation().clone());
     } else {
         features::open_settings(cx, opened.command, &opened.args);
     }

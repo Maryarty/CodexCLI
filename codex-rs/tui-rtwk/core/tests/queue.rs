@@ -559,7 +559,7 @@ fn open_listed_thread(app: &mut CodexApp, name: &str) {
             )))),
         ),
     );
-    assert_eq!(thread(&app).id().as_str(), name);
+    assert_eq!(thread(app).id().as_str(), name);
 }
 
 fn drain_to_status_line(app: &mut CodexApp, receiver: &str, turn: &str) -> QueueOperation {
