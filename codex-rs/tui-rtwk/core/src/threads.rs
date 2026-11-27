@@ -3313,6 +3313,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             if safety::defer(model, &turn, &fault) {
                 return;
             }
+            safety::offer_daybreak(model, &turn, &fault, fx.daybreak());
             // The precaution of a misalignment stop drops the queue before the turn is finalized.
             safety::misalignment(model, &turn, &fault);
             // Oracle `on_error`: the turn is finalized, then the error row, then

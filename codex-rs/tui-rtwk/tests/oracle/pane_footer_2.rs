@@ -191,7 +191,7 @@ fn voice_footer_rendering_preserves_text_and_styles() {
 fn footer_snapshots() {
     kit::pending(
         Owner::UiPane,
-        "no footer states: no entries chat/<name> for the 23 footer snapshots (one per FooterProps the oracle builds; 1 row, 80 columns unless noted)",
+        "the oracle builds 23 independent FooterProps combinations. Seven exact native entries are covered by pages::chat_status::the_footer_entries_equal_the_oracle_snapshots; live compact mode, queueing, warnings and IDE receipts have separate tests. The other exact composite rows still need equivalent fixtures",
     );
     let s = Screen::build(Owner::UiPane)
         .size(80, 1)
@@ -556,18 +556,25 @@ fn delayed_approval_shortcut_works_after_idle_deadline() {
 // ORACLE bottom_pane/mod.rs:3415 apply_text_suggestion_updates_matching_prompt_beneath_an_overlay kind=ui owner=ui-pane
 #[test]
 fn apply_text_suggestion_updates_matching_prompt_beneath_an_overlay() {
-    kit::pending(
-        Owner::UiPane,
-        "no rename prompt with a text suggestion under an overlay: no entry chat/rename_prompt_suggested (80x8: the suggestion `Fix login timeout` replaces the `Loading` text and shows `Ready`)",
-    );
-    let mut s = Screen::build(Owner::UiPane)
-        .size(80, 8)
-        .entry("chat", "rename_prompt_suggested")
-        .open();
-    s.keys("enter");
+    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    s.feed(r#"{"step":"notify","message":{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","completedAtMs":0,"startedAtMs":0,"item":{"type":"userMessage","id":"u1","clientId":null,"content":[{"type":"text","text":"investigate a login timeout","text_elements":[]}]}}}}"#);
+    s.type_text("/rename").keys("enter");
+    s.assert_contains("Generating a title suggestion");
+    let approval = include_str!("fixtures/pane_footer_2/exec_request.jsonl")
+        .lines()
+        .filter(|line| line.contains(r#""method":"item/commandExecution/requestApproval""#))
+        .collect::<Vec<_>>()
+        .join("\n");
+    s.feed(&approval);
+    s.wait_for("Would you like to run the following command?");
+    s.answer_title(Some("Fix login timeout"));
+    s.assert_contains("Would you like to run the following command?");
+    s.keys("esc");
     s.assert_contains("Fix login timeout");
-    s.assert_contains("Ready");
-    s.assert_absent("Loading");
+    s.assert_contains("Suggested from this conversation");
+    s.assert_absent("Generating a title suggestion");
+    s.keys("enter");
+    s.assert_set_names(&["Fix login timeout"]);
 }
 
 // ORACLE bottom_pane/mod.rs:3480 completing_top_view_preserves_underlying_view kind=ui owner=ui-pane
@@ -830,7 +837,7 @@ fn release_events_are_ignored_for_active_view() {
 fn paste_completion_clears_stacked_views_and_restores_composer_input() {
     kit::pending(
         Owner::UiPane,
-        "no stacked views under a paste: no entry chat/paste_under_views (40x2, composer input disabled, two views in the stack); the kit has no assert that a cursor is shown at any cell (gap, reported)",
+        "the oracle uses two dummy BottomPaneView instances. The upper one's handle_paste unconditionally completes and the test inspects how the lower one is retired. The native production dialogs edit or route paste; there is no equivalent dialog whose paste completes it",
     );
     let mut s = Screen::build(Owner::UiPane)
         .size(40, 2)
@@ -853,9 +860,57 @@ fn pending_input_preview_desired_height_empty() {
 // ORACLE bottom_pane/pending_input_preview.rs:263 oversized_preview_urls_keep_complete_destinations kind=snap owner=ui-pane snap=render_oversized_preview_url
 #[test]
 fn oversized_preview_urls_keep_complete_destinations() {
+    let url = format!(
+        "https://example.test/review?notes={}&mode=raw#hidden-url-tail",
+        "x".repeat(100)
+    );
+    let hidden = "https://example.test/after-preview";
+    let message = format!("Review {url}\nsecond\nthird\nfourth\n{hidden}");
+    for (section, heading) in [
+        ("steers", "Messages to be submitted after next tool call"),
+        ("rejected", "Messages to be submitted at end of turn"),
+        ("queued", "Queued follow-up inputs"),
+    ] {
+        let mut s = Screen::build(Owner::UiPane).size(32, 18).live().open();
+        let mut pending = serde_json::json!({"thread": "thread-1"});
+        pending[section] = serde_json::json!([message]);
+        s.feed(
+            &serde_json::json!({
+                "step": "screen", "dir": "chat", "ev": {"pending": pending}
+            })
+            .to_string(),
+        );
+        s.assert_contains_unwrapped(heading);
+        s.assert_no_link("Review");
+        s.assert_link("https://", &url);
+        s.assert_link_targets(&[&url]);
+        s.assert_absent("hidden-url-tail");
+        s.assert_absent("after-preview");
+    }
+}
+
+#[test]
+fn queued_url_preview_keeps_the_submitted_payload() {
+    let mut s = Screen::build(Owner::UiPane)
+        .size(32, 18)
+        .script(include_str!("fixtures/chat_status_1/running_turn.jsonl"))
+        .open();
+    let url = format!("https://example.test/review?note={}#all", "x".repeat(100));
+    let payload = format!("Review {url}\nsecond\nthird\nfourth\nfull payload tail");
+    s.paste(&payload).keys("tab");
+    s.assert_contains("Queued follow-up inputs");
+    s.assert_link_targets(&[&url]);
+    s.assert_absent("full payload tail");
+    s.assert_no_turn();
+    s.feed(r#"{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","items":[],"itemsView":"full","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}"#);
+    s.assert_turn_texts(&[&payload]);
+}
+
+#[test]
+fn oversized_preview_url_visual_wrap_matches_the_oracle() {
     kit::pending(
         Owner::UiPane,
-        "pending(G48): the oracle keeps a URL-like token whole and clips it to the row (`adaptive_wrap_line_with_source`, then `truncate_line_to_width`); `TextWrap::Word` breaks an oversized token over rows, a hand wrapper would be R15. The preview itself is built (entry chat/render_oversized_preview_url)",
+        "G48: the oracle keeps a URL intact on one row and clips its visible label; native TextWrap::Word may wrap it across visible rows. OSC 8 destinations and payload are verified separately",
     );
     let s = Screen::build(Owner::UiPane)
         .size(32, 4)
@@ -1025,7 +1080,7 @@ fn status_line_theme_colors_at_limited_color_depths() {
 fn promoted_banner_uses_picker_hints_and_preserves_the_draft() {
     kit::pending(
         Owner::UiPane,
-        "no promoted action banner: no entry chat/promoted_action_banner (40 columns, `View usage` with `f3 select · f2 back`, the draft `draft in progress` kept; the list keys remapped to f3 accept and f2 cancel)",
+        "the oracle builds a synthetic promoted View usage row. In live code rate_limits.rs promotes the owner-nudge confirmation. The native workspace route, remapped picker and retained draft are tested by chat_status_1::promoted_owner_confirmation_uses_remapped_picker_keys_and_keeps_the_draft",
     );
     let mut s = Screen::build(Owner::UiPane)
         .size(40, 6)
@@ -1231,7 +1286,7 @@ fn render_many_sessions() {
 fn centered_dialog_retains_backdrop_and_routes_cursor() {
     kit::pending(
         Owner::UiPane,
-        "no centered dialog over a backdrop: no entry chat/centered_dialog (80x9, 24x7 and 12x2; the cursor at (4,3), (2,2) and (2,0)); the oracle joins three frames, the kit's section header has no WxH form (gap)",
+        "the oracle pairs two dummy renderers and returns invented terminal-cursor coordinates from the centered one. The real centered archive picker owns selection and keeps the backdrop; exact synthetic caret frames remain unverified",
     );
     let s = Screen::build(Owner::UiPane)
         .size(80, 9)
@@ -1251,6 +1306,22 @@ fn centered_dialog_retains_backdrop_and_routes_cursor() {
         .open();
     s.assert_cursor(2, 0);
     s.assert_snap_section("centered_dialog_retains_backdrop_and_routes_cursor", "12x2");
+}
+
+#[test]
+fn centered_archive_picker_keeps_the_transcript_and_returns_input_to_the_composer() {
+    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    s.feed(r#"{"step":"notify","message":{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","completedAtMs":0,"startedAtMs":0,"item":{"type":"agentMessage","id":"a1","text":"A transcript message behind the confirmation.","phase":null}}}}"#);
+    s.type_text("/archive").keys("enter");
+    s.assert_contains("Archive this session?");
+    s.assert_contains("A transcript message behind the confirmation.");
+    s.resize(40, 16);
+    s.assert_contains("Archive this session?");
+    s.keys("esc");
+    s.assert_absent("Archive this session?");
+    s.assert_archives(0);
+    s.type_text("input after archive was cancelled");
+    s.assert_composer("input after archive was cancelled");
 }
 
 // ---- oracle: bottom_pane/voice_strip_tests.rs (2 screen-level tests here; 2 state tests left to ui-pane)

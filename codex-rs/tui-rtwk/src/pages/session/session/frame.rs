@@ -122,6 +122,8 @@ impl Frame {
         StatusContext {
             thread_id: self.session.active.as_ref(),
             thread: Some(&slots.chat),
+            daybreak_enabled: !self.drawn.flags.side_conversation_active
+                && codex_tui_core::features::daybreak_of(self.thread.view()).unwrap_or(false),
             usage: Some(&slots.status),
             rate_limits: self.session.rate_limits.get(&self.drawn.owner),
             run_state: Some(self.run.word(&self.session, self.reconnecting)),
@@ -178,6 +180,7 @@ fn thread_shape(cx: &mut Cx<'_, ChatState>) {
             thread.last_error().cloned(),
             thread.screen_slots().chat.clone(),
             thread.screen_slots().status.clone(),
+            codex_tui_core::features::daybreak_of(thread.view()),
         )
     });
 }

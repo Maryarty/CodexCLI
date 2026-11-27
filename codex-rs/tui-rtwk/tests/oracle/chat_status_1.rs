@@ -595,31 +595,180 @@ fn app_server_cyber_policy_error_renders_dedicated_notice() {
     s.assert_absent("server fallback message");
 }
 
+fn notify_daybreak(method: &str, params: serde_json::Value) -> String {
+    serde_json::json!({"step": "notify", "message": {"method": method, "params": params}})
+        .to_string()
+}
+
+fn daybreak_refusal_screen() -> Screen {
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .live()
+        .daybreak(&[("gpt-5.6-sol", true, true)])
+        .open();
+    let source = include_str!("fixtures/chat_status_3/mixed_status_popup.jsonl")
+        .lines()
+        .filter(|line| line.contains(r#""method":"thread/started""#))
+        .collect::<Vec<_>>()
+        .join("\n");
+    s.feed(
+        &source
+            .replace(r#""model":null"#, r#""model":"gpt-5.6-sol""#)
+            .replace(r#""daybreakEnabled":true"#, r#""daybreakEnabled":false"#),
+    );
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"items":["daybreak"]}}}"#);
+    s.server_answers("thread/metadata/update", serde_json::json!({}));
+    s
+}
+
+fn start_daybreak_turn(s: &mut Screen, turn: &str) {
+    s.feed(&notify_daybreak(
+        "turn/started",
+        serde_json::json!({
+            "threadId": "thread-1",
+            "turn": {"id": turn, "items": [], "itemsView": "full", "status": "inProgress"}
+        }),
+    ));
+}
+
+fn daybreak_error() -> serde_json::Value {
+    serde_json::json!({
+        "message": "The server declined this request.", "codexErrorInfo": "cyberPolicy",
+        "misalignment": null, "additionalDetails": null
+    })
+}
+
+fn fail_daybreak_turn(s: &mut Screen, turn: &str) {
+    s.feed(&notify_daybreak(
+        "turn/completed",
+        serde_json::json!({
+            "threadId": "thread-1",
+            "turn": {"id": turn, "items": [], "itemsView": "full", "status": "failed",
+                "error": daybreak_error()}
+        }),
+    ));
+}
+
+fn offer_daybreak_alternatives(s: &mut Screen, turn: &str) {
+    s.feed(&notify_daybreak("turn/moderationMetadata", serde_json::json!({
+        "threadId": "thread-1", "turnId": turn,
+        "metadata": {"safety_recourse": {
+            "schema_version": 1, "domain": "cyber", "source": "user_request",
+            "source_message": {"id": "1", "kind": "ordinary_message", "role": "user"},
+            "topic": "unauthorized_account_or_system_access",
+            "suggestions": [
+                {"label": "Overview", "prompt_text": "Review ordinary account safety settings."},
+                {"label": "Recovery", "prompt_text": "Find official account recovery guidance."},
+                {"label": "Prevention", "prompt_text": "Summarize the account safety checklist."}
+            ]
+        }}
+    })));
+}
+
 // ORACLE chatwidget/tests/status_and_layout.rs:143 daybreak_refusal_offers_enable_for_the_next_turn kind=snap owner=ui-pane snap=daybreak_recourse_picker snap=daybreak_refusal_enable_picker snap=daybreak_refusal_parent_owned
 #[test]
 fn daybreak_refusal_offers_enable_for_the_next_turn() {
-    kit::pending(
-        Owner::UiPane,
-        "no Daybreak notices or safety-recourse picker on the chat screen",
-    );
-    // oracle: Daybreak off on gpt-5.6-sol -> notice "Daybreak is currently off" and the enable picker; Enter persists;
-    // the recourse picker has the eight suggestion sets; "5" opens feedback consent; Esc back; "4" enables;
-    // the Daybreak-on notice follows; the Astra model says Daybreak is not available; a parent-owned thread shows its own notice.
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // needs feed: a gpt-5.6-sol model with the DaybreakBlue access program; feature CliDaybreak on; a refusal (cyber policy)
-    s.assert_contains("Daybreak is currently off");
-    s.assert_snap("daybreak_refusal_enable_picker");
+    let mut s = daybreak_refusal_screen();
+    start_daybreak_turn(&mut s, "blocked");
+    s.feed(&notify_daybreak("error", serde_json::json!({
+        "threadId": "thread-1", "turnId": "blocked", "willRetry": false, "error": daybreak_error()
+    })));
+    s.assert_contains("Turn on Daybreak for your next request?");
+    s.assert_contains("Enable Daybreak");
+    s.assert_requests_of("thread/metadata/update", 0);
+    s.assert_no_turn();
     s.keys("enter");
-    s.assert_snap("daybreak_recourse_picker");
+    s.assert_requests_of("thread/metadata/update", 1);
+    s.assert_last_request_has("thread/metadata/update", r#""threadId":"thread-1""#);
+    s.assert_last_request_has("thread/metadata/update", r#""daybreakEnabled":true"#);
+    s.assert_has_row_trimmed("Daybreak on");
+    s.assert_absent("Turn on Daybreak for your next request?");
+    s.assert_no_turn();
+}
+
+#[test]
+fn daybreak_recourse_reviews_alternatives_and_opens_safety_consent() {
+    let mut s = daybreak_refusal_screen();
+    start_daybreak_turn(&mut s, "blocked");
+    offer_daybreak_alternatives(&mut s, "blocked");
+    s.assert_absent("1. Overview");
+    fail_daybreak_turn(&mut s, "blocked");
+    s.assert_contains("1. Overview");
+    s.assert_contains("4. Enable Daybreak");
+    s.assert_contains("5. Give feedback");
+    s.keys("1");
+    s.assert_contains("Review ordinary account safety settings.");
+    s.assert_no_turn();
+    s.keys("q");
+    s.assert_contains("1. Overview");
     s.keys("5");
     s.assert_contains("Include logs and session history?");
+    s.assert_requests_of("feedback/upload", 0);
     s.keys("esc");
     s.assert_contains("1. Overview");
     s.keys("4");
-    s.assert_contains("Daybreak is on");
-    s.assert_contains("You can ask Codex for an overview");
-    s.assert_contains("Daybreak isn’t available for Astra");
-    s.assert_snap("daybreak_refusal_parent_owned");
+    s.assert_requests_of("thread/metadata/update", 1);
+    s.assert_no_turn();
+}
+
+#[test]
+fn a_new_turn_retires_the_refusals_actions_before_a_key_can_apply_them() {
+    let mut s = daybreak_refusal_screen();
+    start_daybreak_turn(&mut s, "blocked");
+    offer_daybreak_alternatives(&mut s, "blocked");
+    fail_daybreak_turn(&mut s, "blocked");
+    s.assert_contains("4. Enable Daybreak");
+    start_daybreak_turn(&mut s, "new-owner-turn");
+    s.assert_absent("4. Enable Daybreak");
+    s.keys("4");
+    s.assert_requests_of("thread/metadata/update", 0);
+    s.assert_requests_of("feedback/upload", 0);
+    s.assert_no_turn();
+}
+
+#[test]
+fn a_different_thread_cannot_use_the_refusals_actions() {
+    let mut s = daybreak_refusal_screen();
+    start_daybreak_turn(&mut s, "blocked");
+    offer_daybreak_alternatives(&mut s, "blocked");
+    fail_daybreak_turn(&mut s, "blocked");
+    s.assert_contains("4. Enable Daybreak");
+    s.server_resumes("thread-2").visit_thread("thread-2");
+    s.assert_active_thread("thread-2");
+    s.assert_absent("4. Enable Daybreak");
+    s.keys("4");
+    s.assert_requests_of("thread/metadata/update", 0);
+    s.assert_requests_of("feedback/upload", 0);
+    s.assert_no_turn();
+}
+
+#[test]
+fn dismissing_a_refusal_survives_switching_threads_and_allows_the_next_refusal() {
+    let mut s = daybreak_refusal_screen();
+    start_daybreak_turn(&mut s, "blocked");
+    offer_daybreak_alternatives(&mut s, "blocked");
+    fail_daybreak_turn(&mut s, "blocked");
+    s.assert_contains("4. Enable Daybreak");
+    s.keys("esc");
+    s.assert_absent("1. Overview");
+
+    s.server_resumes("thread-2").visit_thread("thread-2");
+    s.assert_active_thread("thread-2");
+    s.server_resumes("thread-1").visit_thread("thread-1");
+    s.assert_active_thread("thread-1");
+    s.assert_contains("This content can’t be shown");
+    s.assert_absent("1. Overview");
+    s.type_text("draft after return");
+    s.assert_composer("draft after return");
+    s.assert_requests_of("thread/metadata/update", 0);
+    s.assert_no_turn();
+
+    start_daybreak_turn(&mut s, "blocked-again");
+    offer_daybreak_alternatives(&mut s, "blocked-again");
+    fail_daybreak_turn(&mut s, "blocked-again");
+    s.assert_contains("1. Overview");
+    s.keys("esc");
+    s.assert_composer("draft after return");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:370 app_server_model_verification_renders_warning kind=ui owner=ui-pane
@@ -997,6 +1146,29 @@ fn workspace_member_credits_depleted_prompts_and_sends_credits() {
     );
     s.keys("y");
     s.assert_requests_of("account/sendAddCreditsNudgeEmail", 1);
+}
+
+#[test]
+fn promoted_owner_confirmation_uses_remapped_picker_keys_and_keeps_the_draft() {
+    let limits = limit_snapshot(100, Some("workspace_member_credits_depleted"));
+    for accept in [false, true] {
+        let mut s = Screen::build(Owner::UiPane)
+            .size(40, 16)
+            .keymap(&[("list.accept", "f3"), ("list.cancel", "f2")])
+            .live()
+            .open();
+        s.type_text("draft in progress");
+        s.feed(&format!("{}\n{}\n", rolling(&limits), limit_error(false)));
+        s.wait_for("Yes (y)");
+        s.assert_contains("f3 select");
+        s.assert_contains("f2 back");
+        s.assert_requests_of("account/sendAddCreditsNudgeEmail", 0);
+        s.keys(if accept { "up f3" } else { "f2" });
+        s.assert_absent("Yes (y)");
+        s.assert_requests_of("account/sendAddCreditsNudgeEmail", usize::from(accept));
+        s.assert_composer("draft in progress");
+        s.assert_no_turn();
+    }
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:2090 workspace_member_usage_limit_prompts_and_sends_usage_limit kind=snap owner=ui-pane snap=workspace_member_usage_limit_prompt

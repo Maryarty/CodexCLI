@@ -371,16 +371,26 @@ fn session_status_detail_uses_only_foreground_activity() {
 // ORACLE chatwidget/tests/terminal_title.rs:8 daybreak_status_surfaces_follow_the_thread_preference kind=snap owner=ui-pane
 #[test]
 fn daybreak_status_surfaces_follow_the_thread_preference() {
-    kit::pending(
-        Owner::UiPane,
-        "`Daybreak off` is the default and is covered by a page test; the toggle (the thread's `daybreakEnabled` from thread/started metadata) and the side conversation (no side fact in StatusFacts, chunk-live's) have no seed",
-    );
-    let s = Screen::build(Owner::UiPane).size(100, 24).live().open();
-    // terminal_title = ["daybreak"]: the window title follows the Daybreak item.
+    let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"items":["daybreak"],"terminal_title":["daybreak"]}}}"#);
     s.assert_title("Daybreak off");
-    // (Daybreak enabled) the oracle then expects "Daybreak on"; a side conversation, "Daybreak off" again.
+    s.assert_has_row_trimmed("Daybreak off");
+
+    let enabled = include_str!("fixtures/chat_status_3/mixed_status_popup.jsonl")
+        .lines()
+        .filter(|line| line.contains(r#""method":"thread/started""#))
+        .collect::<Vec<_>>()
+        .join("\n");
+    s.feed(&enabled);
     s.assert_title("Daybreak on");
+    s.assert_has_row_trimmed("Daybreak on");
+
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"flags":{"side_conversation_active":true}}}"#);
     s.assert_title("Daybreak off");
+    s.assert_has_row_trimmed("Daybreak off");
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"flags":{"side_conversation_active":false}}}"#);
+    s.assert_title("Daybreak on");
+    s.assert_has_row_trimmed("Daybreak on");
 }
 
 // ORACLE chatwidget/tests/terminal_title.rs:38 goal_clock_refresh_redraws_only_when_elapsed_label_changes kind=snap owner=ui-pane

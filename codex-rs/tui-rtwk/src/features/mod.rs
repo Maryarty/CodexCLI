@@ -29,7 +29,7 @@ use codex_tui_core::features::settings::SettingId;
 use codex_tui_core::features::{
     Feature, FeatureIntent, FeatureInterest, FeatureNote, FeatureTarget, FeatureWish, Scope,
 };
-use codex_tui_core::ids::{Cwd, ThreadId};
+use codex_tui_core::ids::{Cwd, ThreadId, TurnId};
 use codex_tui_core::keymap::ActionId;
 use codex_tui_core::threads::queue::QueueOperation;
 
@@ -293,6 +293,20 @@ pub fn open_security_page<S: 'static>(cx: &mut Cx<'_, S>, hs: &Hs) {
         hs,
         codex_tui_core::features::security_setup::Intent::Open,
     );
+}
+
+/// Persist an explicitly selected Daybreak preference for the refused turn's thread.
+pub fn enable_daybreak_for_refusal<S: 'static>(cx: &mut Cx<'_, S>, thread: ThreadId, turn: TurnId) {
+    verb(
+        cx,
+        codex_tui_core::features::small_cmds::Intent::EnableDaybreakForRefusal { thread, turn },
+    );
+}
+
+/// Open consent for feedback attached to this particular refusal.
+pub fn open_safety_feedback<S: 'static>(cx: &mut Cx<'_, S>, thread: ThreadId, turn: TurnId) {
+    use codex_tui_core::features::feedback::{Intent, SafetySubject};
+    verb(cx, Intent::OpenForSafety(SafetySubject { thread, turn }));
 }
 
 /// The browser action of a clicked link in a particular transcript.

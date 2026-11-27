@@ -19,6 +19,8 @@ use crate::widgets::interest::Interest;
 pub(super) struct StatusContext<'a> {
     pub thread_id: Option<&'a ThreadId>,
     pub thread: Option<&'a chat::ThreadPart>,
+    /// The active thread's preference, off while a side conversation is active.
+    pub daybreak_enabled: bool,
     pub usage: Option<&'a status::ThreadPart>,
     pub rate_limits: Option<&'a status::RateLimits>,
     pub run_state: Option<&'a str>,
@@ -232,7 +234,7 @@ impl StatusContext<'_> {
             "fast-mode" => Some(tier_name.unwrap_or("Standard").to_string()),
             // the preference is off until the thread says it is on (`daybreak_enabled` is false by default)
             "daybreak" => Some(
-                if thread.and_then(|thread| thread.daybreak).unwrap_or(false) {
+                if self.daybreak_enabled {
                     "Daybreak on"
                 } else {
                     "Daybreak off"
