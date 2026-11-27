@@ -40,6 +40,32 @@ pub struct Pet {
 pub enum Preview {
     Loading,
     Ready,
+    Image(crate::app::effects::ImagePreview),
+    Failed(String),
+}
+
+/// The host's terminal does not offer a usable graphics transport for pets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Unavailable {
+    Terminal,
+    Tmux,
+    Zellij,
+    OldIterm,
+}
+
+/// Local pet assets and configuration are independent of the app-server connection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AssetAsk {
+    Catalog { graphics: bool },
+    Preview { selector: String },
+    Save { selector: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AssetDone {
+    Catalog(Result<Picker, Unavailable>),
+    Preview(Result<crate::app::effects::ImagePreview, String>),
+    Saved(Result<(), String>),
 }
 
 /// What the `/pets` picker lists (`pets/picker.rs`: `build_pet_picker_params`): the host's
@@ -82,7 +108,9 @@ impl Picker {
         let preferred = self.current.as_deref().unwrap_or(DEFAULT);
         self.pets
             .iter()
-            .position(|pet| pet.selector == preferred || pet.legacy_selector.as_deref() == Some(preferred))
+            .position(|pet| {
+                pet.selector == preferred || pet.legacy_selector.as_deref() == Some(preferred)
+            })
             .unwrap_or(0)
     }
 

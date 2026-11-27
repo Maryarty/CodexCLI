@@ -325,6 +325,8 @@ host_capability_list! {
     /// Microphone capture and speaker playback of voice (oracle `voice.rs`, `audio_device.rs`).
     /// Listed for the voice package; the host answers it with its audio executor.
     audio => Audio(command: AudioCommand) -> new Audio(Result<(), String>);
+    /// Read a terminal pet catalog or static frame, or persist the local selection.
+    pet => Pet(ask: crate::screens::pets::AssetAsk) -> new Pet(crate::screens::pets::AssetDone);
     /// Suspends the process to the shell (Ctrl+Z, oracle `tui/job_control.rs`); the answer comes
     /// when the shell resumes it.
     suspend => Suspend -> new Resumed(Result<(), String>);

@@ -49,6 +49,8 @@ use codex_tui_rtwk::services::shell::WorkspaceExec;
 
 use crate::startup::{Browser, UpdateSlot};
 
+mod pets;
+
 /// Where the terminal's clipboard request goes: the owner of the terminal writes it.
 type Terminal = Arc<dyn Fn(&str) + Send + Sync>;
 
@@ -319,6 +321,13 @@ impl Own<'_> {
 
 impl HostDoors for Own<'_> {
     type Out = Outcome;
+
+    async fn pet(&self, ask: codex_tui_core::screens::pets::AssetAsk) -> Option<Self::Out> {
+        Some(Outcome::Effect(
+            Done::Pet(pets::run(ask, self.effects.config.clone()).await),
+            None,
+        ))
+    }
 
     async fn ide_context(&self, _thread: ThreadId, cwd: String) -> Option<Self::Out> {
         let read = self.read_ide(cwd).await.map(|context| IdeReading {
