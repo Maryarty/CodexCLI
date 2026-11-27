@@ -76,41 +76,37 @@ impl Run {
     pub(super) fn of(thread: &ThreadModel) -> Run {
         let screen_error = thread.screen_slots().chat.error.clone().map(Failure::from);
         let transcript = thread.transcript();
-        // Once the stream commits a visible line, it provides the turn's progress feedback.
-        // A stream with only a partial line, completed commentary, or a later tool leaves room for status.
+        // A committed stream line follows wire order, even when its display row is older.
+        // A completed final answer still follows the last relevant transcript row.
         let answer_displaces_status = if let TurnState::Running(running) = thread.turn()
             && thread.pending_steers().is_empty()
         {
-            (0..transcript.len())
-                .rev()
-                .filter_map(|at| transcript.get(at))
-                .take_while(|(key, _)| key.turn == running.turn)
-                .find(|(_, item)| {
-                    !matches!(
-                        item,
-                        Item::Warning { .. }
-                            | Item::LocalWarning(_)
-                            | Item::Deprecation { .. }
-                            | Item::Note(_)
-                            | Item::Status { .. }
-                    )
-                })
-                .is_some_and(|(key, item)| {
-                    let Item::Agent {
-                        text,
-                        phase,
-                        questions: None,
-                    } = item
-                    else {
-                        return false;
-                    };
-                    if transcript.is_agent_streaming(key) {
-                        return running.has_recent_agent_line(&key.item);
-                    }
-                    matches!(phase, None | Some(MessagePhase::FinalAnswer))
-                        && !text.trim_start().is_empty()
-                        && thread.received_item_completion(key)
-                })
+            thread.has_recent_agent_line()
+                || (0..transcript.len())
+                    .rev()
+                    .filter_map(|at| transcript.get(at))
+                    .take_while(|(key, _)| key.turn == running.turn)
+                    .find(|(_, item)| {
+                        !matches!(
+                            item,
+                            Item::Warning { .. }
+                                | Item::LocalWarning(_)
+                                | Item::Deprecation { .. }
+                                | Item::Note(_)
+                                | Item::Status { .. }
+                        )
+                    })
+                    .is_some_and(|(key, item)| {
+                        matches!(
+                            item,
+                            Item::Agent {
+                                text,
+                                phase: None | Some(MessagePhase::FinalAnswer),
+                                questions: None,
+                            } if !text.trim_start().is_empty()
+                        ) && !transcript.is_agent_streaming(key)
+                            && thread.received_item_completion(key)
+                    })
         } else {
             false
         };

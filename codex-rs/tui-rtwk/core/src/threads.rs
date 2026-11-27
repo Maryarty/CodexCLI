@@ -890,15 +890,9 @@ pub struct RunningTurn {
     began: i64,
     interrupt_sent: bool,
     /// Latest agent item to complete a nonblank line since the last command started.
-    last_agent_line: Option<ItemId>,
+    last_agent_line: Option<ItemKey>,
     /// The same command's repeated start cannot supersede newer output.
-    started_unified_exec: Rc<HashSet<ItemId>>,
-}
-
-impl RunningTurn {
-    pub fn has_recent_agent_line(&self, item: &ItemId) -> bool {
-        self.last_agent_line.as_ref() == Some(item)
-    }
+    started_commands: Rc<HashSet<ItemId>>,
 }
 
 /// What the client itself warns of (the words are the view's, ADR-010).
@@ -1670,6 +1664,26 @@ impl ThreadModel {
     /// Whether the live turn received the completion for this agent or reasoning item.
     pub fn received_item_completion(&self, key: &ItemKey) -> bool {
         self.completed_items.contains(key)
+    }
+
+    /// Whether the last wire-committed answer line still belongs to a live prose item.
+    pub fn has_recent_agent_line(&self) -> bool {
+        let TurnState::Running(running) = &self.turn else {
+            return false;
+        };
+        running
+            .last_agent_line
+            .as_ref()
+            .and_then(|key| self.transcript.streaming.get(key))
+            .is_some_and(|live| {
+                matches!(
+                    live.entry.item.as_ref(),
+                    Item::Agent {
+                        questions: None,
+                        ..
+                    }
+                )
+            })
     }
 
     pub fn turn(&self) -> &TurnState {
@@ -3330,16 +3344,16 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::HookEnded { id, turn, item } => hooks::ended(model, &id, turn, item),
         ThreadEv::ItemStarted { key, item, receipt } => {
             if matches!(&item, Item::Tool(tool) if tool.status == ToolStatus::Running
-                && matches!(tool.kind, ToolKind::Shell { unified_exec: true, .. }))
+                && matches!(tool.kind, ToolKind::Shell { .. }))
             {
                 if model.completed_items.contains(&key) {
                     return;
                 }
                 if let TurnState::Running(running) = &mut model.turn
                     && running.turn == key.turn
-                    && !running.started_unified_exec.contains(&key.item)
+                    && !running.started_commands.contains(&key.item)
                 {
-                    Rc::make_mut(&mut running.started_unified_exec).insert(key.item.clone());
+                    Rc::make_mut(&mut running.started_commands).insert(key.item.clone());
                     running.last_agent_line = None;
                 }
             }
@@ -3404,15 +3418,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                         Item::Reasoning { .. } => {
                             model.completed_items.insert(key.clone());
                         }
-                        Item::Tool(tool)
-                            if matches!(
-                                tool.kind,
-                                ToolKind::Shell {
-                                    unified_exec: true,
-                                    ..
-                                }
-                            ) =>
-                        {
+                        Item::Tool(tool) if matches!(tool.kind, ToolKind::Shell { .. }) => {
                             model.completed_items.insert(key.clone());
                         }
                         Item::Plan { text } => {
@@ -3447,7 +3453,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     && let TurnState::Running(running) = &mut model.turn
                     && running.turn == committed.turn
                 {
-                    running.last_agent_line = Some(committed.item);
+                    running.last_agent_line = Some(committed);
                 }
             }
         }
@@ -4450,7 +4456,7 @@ fn start_turn(model: &mut ThreadModel, turn: TurnId, now: i64) {
                 began: now,
                 interrupt_sent: false,
                 last_agent_line: None,
-                started_unified_exec: Rc::default(),
+                started_commands: Rc::default(),
             })
         }
         TurnState::Running(_) => {}

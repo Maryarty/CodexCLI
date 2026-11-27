@@ -906,27 +906,61 @@ fn reasoning_delta_restores_recreated_status_indicator_header() {
 
 #[test]
 fn reasoning_status_uses_wire_order_when_terminal_and_line_fit_one_frame() {
-    for terminal_last in [false, true] {
-        let mut s = Screen::build(Owner::UiPane)
-            .size(80, 16)
-            .script(BASE)
-            .open();
-        s.feed(TURN);
-        let answer = prose_delta("item/agentMessage/delta", "answer", "Complete line\n");
-        let events = if terminal_last {
-            format!("{answer}\n{BACKGROUND}")
-        } else {
-            format!("{BACKGROUND}\n{answer}")
-        };
-        s.feed(&events);
-        s.assert_contains("Complete line");
-        s.assert_contains("1 background terminal running");
-        if terminal_last {
+    let mut read: serde_json::Value = serde_json::from_str(BACKGROUND).expect("background script");
+    let item = &mut read["message"]["params"]["item"];
+    item["command"] = serde_json::json!("cat README.md");
+    item["commandActions"] = serde_json::json!([{
+        "type": "read", "command": "cat README.md", "name": "README.md", "path": "/tmp/project/README.md"
+    }]);
+
+    let background_read = read.to_string();
+    let item = &mut read["message"]["params"]["item"];
+    item["source"] = serde_json::json!("agent");
+    item["processId"] = serde_json::Value::Null;
+
+    for (command, recognized_read, background) in [
+        (BACKGROUND.to_owned(), false, true),
+        (background_read, true, true),
+        (read.to_string(), true, false),
+    ] {
+        for command_last in [false, true] {
+            let mut s = Screen::build(Owner::UiPane)
+                .size(80, 16)
+                .script(BASE)
+                .open();
+            s.feed(TURN);
+            s.feed(&prose_delta(
+                "item/agentMessage/delta",
+                "answer",
+                "Complete line",
+            ));
             s.assert_contains("esc to interrupt");
-        } else {
-            s.assert_absent("esc to interrupt");
-            s.feed(BACKGROUND);
-            s.assert_absent("esc to interrupt");
+            let newline = prose_delta("item/agentMessage/delta", "answer", "\n");
+            let events = if command_last {
+                format!("{newline}\n{command}")
+            } else {
+                format!("{command}\n{newline}")
+            };
+            s.feed(&events);
+            s.assert_contains("Complete line");
+            s.assert_present("Read README.md", recognized_read);
+            s.assert_present("1 background terminal running", background);
+            s.assert_present("esc to interrupt", command_last);
+            if !command_last {
+                s.feed(&command);
+                s.assert_absent("esc to interrupt");
+                s.feed(
+                    &serde_json::json!({"step": "notify", "message": {
+                        "method": "item/completed", "params": {
+                            "threadId": "thread-1", "turnId": "turn-1", "completedAtMs": 0,
+                            "item": {"type": "agentMessage", "id": "answer",
+                                "text": "Complete line", "phase": "commentary"}
+                        }
+                    }})
+                    .to_string(),
+                );
+                s.assert_contains("esc to interrupt");
+            }
         }
     }
 }
