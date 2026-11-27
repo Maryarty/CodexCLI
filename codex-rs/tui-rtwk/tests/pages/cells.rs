@@ -3497,31 +3497,58 @@ mod text_contract {
     }
 
     #[test]
-    fn diff_nodes_include_numbered_lines_and_a_failure() {
+    fn a_completed_diff_has_numbered_nodes_after_disclosure() {
         use codex_tui_core::threads::{PatchActivity, PatchChange, PatchKind, PatchSource};
-        for source in [PatchSource::Live, PatchSource::History] {
-            let item = Item::Patch(Arc::new(PatchActivity {
-                changes: vec![PatchChange {
-                    path: "notes.txt".into(),
-                    kind: PatchKind::Add,
-                    diff: "\tline one\nline two\n".into(),
-                }],
-                status: ToolStatus::Failed,
-                source,
-            }));
-            for (detailed, expanded) in [(true, false), (false, true)] {
-                let model = model_nodes(&item, 80, detailed, expanded);
-                assert_eq!(
-                    model,
-                    logical_nodes(std::slice::from_ref(&item), 80, detailed, expanded)
-                );
-                if source == PatchSource::History {
-                    assert_eq!(
-                        model,
-                        ["✘ Failed to apply patch", "  └ (error details unavailable)"]
-                    );
-                }
-            }
+        let item = Item::Patch(Arc::new(PatchActivity {
+            changes: vec![PatchChange {
+                path: "notes.txt".into(),
+                kind: PatchKind::Add,
+                diff: "\tline one\nline two\nline three\nline four\n".into(),
+            }],
+            status: ToolStatus::Completed,
+            source: PatchSource::Live,
+        }));
+        for (detailed, expanded) in [(true, false), (false, true)] {
+            let model = model_nodes(&item, 80, detailed, expanded);
+            assert_eq!(
+                model,
+                logical_nodes(std::slice::from_ref(&item), 80, detailed, expanded)
+            );
+            assert!(
+                model
+                    .windows(3)
+                    .any(|row| row == ["1", " +", "    line one"])
+            );
+            assert!(model.windows(3).any(|row| row == ["4", " +", "line four"]));
+            assert_eq!(
+                model.iter().any(|node| node == CELLS.hide_details),
+                expanded
+            );
+        }
+    }
+
+    #[test]
+    fn a_stored_patch_failure_has_only_the_failure_and_fallback_nodes() {
+        use codex_tui_core::threads::{PatchActivity, PatchChange, PatchKind, PatchSource};
+        let item = Item::Patch(Arc::new(PatchActivity {
+            changes: vec![PatchChange {
+                path: "notes.txt".into(),
+                kind: PatchKind::Add,
+                diff: "\tline one\nline two\n".into(),
+            }],
+            status: ToolStatus::Failed,
+            source: PatchSource::History,
+        }));
+        for detailed in [false, true] {
+            let model = model_nodes(&item, 80, detailed, false);
+            assert_eq!(
+                model,
+                logical_nodes(std::slice::from_ref(&item), 80, detailed, false)
+            );
+            assert_eq!(
+                model,
+                ["✘ Failed to apply patch", "  └ (error details unavailable)"]
+            );
         }
     }
 
