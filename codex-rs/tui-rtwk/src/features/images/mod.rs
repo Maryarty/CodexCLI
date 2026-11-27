@@ -4,7 +4,7 @@
 use rtwk::gestures::ExcludeSelection;
 use rtwk::graphics::GraphicsScope;
 use rtwk::layout::{Align, Alignment, BoxConstraints, ConstrainedBox};
-use rtwk::provider::select;
+use rtwk::provider::{Provider, select};
 use rtwk::{AnyWidget, Cx, LayoutBuilder};
 use rtwk_core::graphics::GraphicsProtocol;
 use rtwk_rich::image::Image;
@@ -12,6 +12,8 @@ use rtwk_rich::image::Image;
 use codex_tui_core::app::effects::{ImagePreview, ImageSize, ImageSnapshot};
 use codex_tui_core::features::images::{Images, Interest as Snapshot, Source};
 use codex_tui_core::features::{Feature, FeatureStates};
+use codex_tui_core::ids::ThreadId;
+use codex_tui_core::threads::ItemKey;
 
 use super::FeatureView;
 use crate::pages::session::strings::Strings;
@@ -23,7 +25,15 @@ impl FeatureView for Images {
     }
 }
 
-pub(crate) fn request<S>(cx: &mut Cx<'_, S>, source: &Source, preview: bool) -> Snapshot {
+pub(crate) fn scope(thread: ThreadId, item: ItemKey, path: String, child: AnyWidget) -> AnyWidget {
+    Provider::value(Source { thread, item, path })
+        .update_should_notify(|old, new| old != new)
+        .child(child)
+        .into()
+}
+
+pub(crate) fn request<S>(cx: &mut Cx<'_, S>, preview: bool) -> Option<Snapshot> {
+    let source = Provider::<Source>::maybe_of(cx, true)?;
     let graphics = GraphicsScope::of(cx);
     let preview = graphics
         .filter(|_| preview)
@@ -40,10 +50,10 @@ pub(crate) fn request<S>(cx: &mut Cx<'_, S>, source: &Source, preview: bool) -> 
             }
             _ => None,
         });
-    Snapshot {
-        source: source.clone(),
+    Some(Snapshot {
+        source: (*source).clone(),
         preview,
-    }
+    })
 }
 
 pub(crate) fn snapshot<S>(cx: &mut Cx<'_, S>, read: &Snapshot) -> Option<ImageSnapshot> {

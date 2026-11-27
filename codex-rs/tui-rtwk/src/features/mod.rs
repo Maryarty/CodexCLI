@@ -270,6 +270,10 @@ pub fn verb_by<S: 'static>(cx: &mut Cx<'_, S>, hs: &Hs, intent: impl Into<Featur
 }
 
 pub use copy::supersede_status_copy;
+pub(crate) use images::{
+    preview as artifact_preview, request as artifact_request, scope as artifact_scope,
+    snapshot as artifact_snapshot, watch as watch_artifact,
+};
 
 /// The action of the security-setup reminder over the composer (its one row opens the page): the
 /// session page that draws the banner names no feature.

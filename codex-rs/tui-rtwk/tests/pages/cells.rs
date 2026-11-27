@@ -101,7 +101,6 @@ mod viewed_image_disclosure {
             name: "example.png".into(),
             path: PATH.into(),
             detailed,
-            source: None,
             raw: false,
         }
     }
@@ -1524,7 +1523,6 @@ mod delegated_and_generated {
                 saved_to: saved.map(str::to_owned),
                 saved_path: None,
             }),
-            source: None,
             raw: false,
         });
         t
@@ -3200,7 +3198,6 @@ mod text_contract {
             Item::Note(note) => note::NoteCell { note: note.clone() }.into(),
             Item::Generated(image) => generated_image::GeneratedImageCell {
                 image: image.clone(),
-                source: None,
                 raw: false,
             }
             .into(),
@@ -3213,7 +3210,6 @@ mod text_contract {
                 name: name.clone(),
                 path: path.clone(),
                 detailed,
-                source: None,
                 raw: false,
             }
             .into(),

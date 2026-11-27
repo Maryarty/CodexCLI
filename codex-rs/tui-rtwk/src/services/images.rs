@@ -17,6 +17,20 @@ use url::Url;
 const MAX_FILE_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_DECODE_BYTES: u64 = 32 * 1024 * 1024;
 
+/// The host's worker for local reads. Keep simultaneous optional raster decodes bounded.
+pub async fn read_local_snapshot(path: String, preview: Option<ImageSize>) -> ImageSnapshot {
+    static READERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+    let Ok(permit) = READERS.acquire().await else {
+        return ImageSnapshot::default();
+    };
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        local_snapshot(Path::new(&path), preview)
+    })
+    .await
+    .unwrap_or_default()
+}
+
 /// Read one snapshot of a path whose workspace the host has already verified as local.
 /// No path-only cache is shared between requests, so rereading the same path sees a rewrite.
 pub fn local_snapshot(path: &Path, preview: Option<ImageSize>) -> ImageSnapshot {

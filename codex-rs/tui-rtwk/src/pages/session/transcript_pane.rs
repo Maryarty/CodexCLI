@@ -1389,11 +1389,6 @@ impl State for ViewportState {
                 fill: copier.fill_of(listed),
                 streaming: transcript.is_agent_streaming(key),
                 streamed_shell_output_lines: transcript.streamed_shell_output_line_count(key),
-                image: image_path.map(|path| codex_tui_core::features::images::Source {
-                    thread: thread.id().clone(),
-                    item: key.clone(),
-                    path: path.to_owned(),
-                }),
                 rest: (index + 1..range.end)
                     .filter_map(|index| match transcript.get(index) {
                         Some((_, Item::Tool(tool))) => Some(tool.clone()),
@@ -1453,6 +1448,16 @@ impl State for ViewportState {
                         },
                         &place,
                     );
+                    let drawn = if let Some(path) = image_path {
+                        crate::features::artifact_scope(
+                            thread.id().clone(),
+                            key.clone(),
+                            path.to_owned(),
+                            drawn,
+                        )
+                    } else {
+                        drawn
+                    };
                     // a cell with a control is the thread's controller's: a tap, a key and Find
                     // open and shut it the same way
                     if matches!(

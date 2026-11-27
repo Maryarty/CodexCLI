@@ -16,7 +16,7 @@ use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use crate::app::theme::Tokens;
-use crate::features::images;
+use crate::features::{artifact_preview, artifact_request, artifact_snapshot, watch_artifact};
 
 use super::dispatch::{CellEnv, Place, below};
 use super::one_row::one_row;
@@ -67,7 +67,6 @@ pub struct ViewedImageCell {
     pub path: String,
     /// The detailed transcript shows the full path and no control.
     pub detailed: bool,
-    pub source: Option<codex_tui_core::features::images::Source>,
     pub raw: bool,
 }
 
@@ -99,11 +98,8 @@ impl State for ViewedImageCellState {
         let tokens = Tokens::of(cx);
         let strings = super::strings::of(cx);
         let expanded = widget.detailed || super::disclosure::expanded(cx, self.expanded);
-        let read = widget
-            .source
-            .as_ref()
-            .map(|source| images::request(cx, source, expanded && !widget.raw));
-        let snapshot = read.as_ref().and_then(|read| images::snapshot(cx, read));
+        let read = artifact_request(cx, expanded && !widget.raw);
+        let snapshot = read.as_ref().and_then(|read| artifact_snapshot(cx, read));
         let link = snapshot.as_ref().and_then(|image| image.link.as_deref());
         let path_style = link.map_or_else(|| tokens.dim(), |url| tokens.dim().link(url));
         let summary: AnyWidget = if expanded {
@@ -152,11 +148,11 @@ impl State for ViewedImageCellState {
                 .main_axis_size(MainAxisSize::Min)
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
                 .child(text)
-                .child(images::preview(preview))
+                .child(artifact_preview(preview))
                 .into(),
             None => text,
         };
-        images::watch(read, child)
+        watch_artifact(read, child)
     }
 }
 
@@ -172,7 +168,6 @@ pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
             name: name.clone(),
             path: path.clone(),
             detailed: env.detailed,
-            source: place.image.clone(),
             raw: env.raw,
         }
         .into(),
