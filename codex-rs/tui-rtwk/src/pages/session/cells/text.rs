@@ -242,7 +242,7 @@ pub(crate) fn texts_at(item: &Item, env: &Env<'_>, cx: &ReadContext<'_>) -> Text
         Item::Collab(event) => Texts::Exact(collab::texts(event, cells)),
         Item::Tool(tool) => tool_texts(&[tool.as_ref()], env, cx.room, cx.inline)
             .map_or(Texts::Gap(Gap::Rows), Texts::Exact),
-        Item::Patch(activity) => Texts::Exact(patch::texts(activity, cx.cwd, env)),
+        Item::Patch(activity) => Texts::Exact(patch::texts(activity, cx.cwd, env, cx.inline)),
         Item::Status { card, .. } => {
             let held = cx.usage.and_then(|figure| figure(card.number));
             Texts::Exact(super::status::StatusCell::texts(

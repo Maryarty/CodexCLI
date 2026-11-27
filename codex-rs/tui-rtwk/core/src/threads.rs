@@ -45,8 +45,8 @@ pub use asks::{HISTORY_PAGE, ThreadAsk, ThreadReply, cloud_submit_params};
 pub use calls::ShellClass;
 pub use cells::{
     DelegatedMessage, GeneratedImage, HookEntry, HookEntryKind, HookRun, HookStatus, Notice,
-    PatchActivity, PatchChange, PatchKind, PlanStep, PlanUpdate, StepStatus, WebAction,
-    WebActivity,
+    PatchActivity, PatchChange, PatchKind, PatchSource, PlanStep, PlanUpdate, StepStatus,
+    WebAction, WebActivity,
 };
 pub use codex_protocol::models::MessagePhase;
 pub use collab::{

@@ -17,6 +17,20 @@ use crate::ids::ItemId;
 pub struct PatchActivity {
     pub changes: Vec<PatchChange>,
     pub status: ToolStatus,
+    pub source: PatchSource,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PatchSource {
+    Live,
+    History,
+}
+
+impl PatchActivity {
+    /// A stored failure records the outcome without reporting the attempted edits as applied.
+    pub fn recorded_failure(&self) -> bool {
+        self.source == PatchSource::History && self.status == ToolStatus::Failed
+    }
 }
 
 /// One file of a patch: its path, what happened to it and its diff (the
@@ -415,6 +429,7 @@ pub(super) fn entry(payload: &ThreadItemPayload, completed: bool) -> Option<(Ite
                     PatchApplyStatus::Failed => ToolStatus::Failed,
                     PatchApplyStatus::Declined => ToolStatus::Declined,
                 },
+                source: PatchSource::Live,
             })),
         ),
         ThreadItemPayload::WebSearch(search) => (
@@ -489,10 +504,10 @@ fn file_name(path: &str) -> &str {
         .unwrap_or(path)
 }
 
-/// The reasoning item of a history page (oracle `thread_items_to_transcript_cells`), the form a
-/// resumed thread's older turns take: the raw content follows the split summary body as it is,
-/// so a heading of its own stays (the live and snapshot form, `entry`, joins the raw parts to
-/// the summary parts first, and the split takes a leading bold line as the status header).
+/// Items projected from a persisted turn rather than a live notification
+/// (oracle `thread_items_to_transcript_cells`). In reasoning, raw content follows the split
+/// summary body unchanged, so a heading of its own stays. For patches, keep the outcome and
+/// attempted changes under the original item ID, together with where the record came from.
 pub(super) fn history(
     payload: &ThreadItemPayload,
     entry: (ItemId, super::Item),
@@ -511,6 +526,10 @@ pub(super) fn history(
                 }
             });
             (id, super::Item::Reasoning { summary, with_raw })
+        }
+        (_, (id, super::Item::Patch(mut patch))) => {
+            std::sync::Arc::make_mut(&mut patch).source = PatchSource::History;
+            (id, super::Item::Patch(patch))
         }
         (_, entry) => entry,
     }

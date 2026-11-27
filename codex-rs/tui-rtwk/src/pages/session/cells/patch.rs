@@ -69,8 +69,9 @@ impl State for PatchCellState {
 
     fn build(&self, widget: &PatchCell, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let tokens = Tokens::of(cx);
-        let syntax = SyntaxTheme::of(cx);
         let strings = super::strings::of(cx);
+        let activity = &widget.activity;
+        let syntax = SyntaxTheme::of(cx);
         let styles = PatchStyles {
             tokens: &tokens,
             syntax: &syntax,
@@ -78,11 +79,11 @@ impl State for PatchCellState {
             cwd: widget.cwd.as_deref(),
         };
         let expanded = widget.detailed || super::disclosure::expanded(cx, self.expanded);
-        let activity = &widget.activity;
         let mut column = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Stretch);
-        if !activity.changes.is_empty() {
+        let has_changes = !activity.recorded_failure() && !activity.changes.is_empty();
+        if has_changes {
             let summary = patch(activity, &styles, (!expanded).then_some(PREVIEW_LINES));
             column = column.child(if widget.detailed {
                 summary
@@ -104,14 +105,11 @@ impl State for PatchCellState {
         if activity.status == ToolStatus::Failed {
             // oracle tool_lifecycle.rs: a failed item adds a failure cell; the
             // wire item carries no stderr.
-            if !activity.changes.is_empty() {
+            if has_changes {
                 column = column.child(Text::new(strings.gap));
             }
             column = column
-                .child(
-                    // The oracle's magenta, the theme's accent (status_line.rs).
-                    Text::new(strings.patch_failed).style(tokens.accent().attrs(Attrs::BOLD)),
-                )
+                .child(failure_title(&tokens, strings))
                 .child(Text::rich(vec![
                     Span::styled(strings.file_branch, tokens.dim()),
                     Span::styled(strings.error_unavailable, tokens.dim().attrs(Attrs::DIM)),
@@ -122,6 +120,10 @@ impl State for PatchCellState {
 }
 
 impl_widget!(stateful eq PatchCell);
+
+fn failure_title(tokens: &Tokens, strings: &Strings) -> Text {
+    Text::new(strings.patch_failed).style(tokens.accent().attrs(Attrs::BOLD))
+}
 
 /// The styles one patch cell paints with.
 pub struct PatchStyles<'a> {
@@ -492,9 +494,19 @@ fn line_sign(kind: DiffLineKind, strings: &Strings) -> &'static str {
 }
 
 /// Every text node of the full diff, in the virtual list's selection order.
-pub(super) fn texts(activity: &PatchActivity, cwd: Option<&str>, env: &Env<'_>) -> Vec<Part> {
+pub(super) fn texts(
+    activity: &PatchActivity,
+    cwd: Option<&str>,
+    env: &Env<'_>,
+    inline: bool,
+) -> Vec<Part> {
     let strings = env.cells;
-    let changes = &activity.changes;
+    let recorded_failure = activity.recorded_failure();
+    let changes = if recorded_failure {
+        &[]
+    } else {
+        activity.changes.as_slice()
+    };
     let span_text = |spans: Vec<Span>| {
         Part::text(
             spans
@@ -549,10 +561,12 @@ pub(super) fn texts(activity: &PatchActivity, cwd: Option<&str>, env: &Env<'_>) 
             parts.push(Part::text(strings.gap));
         }
         parts.push(Part::text(strings.patch_failed));
-        parts.push(Part::text(format!(
-            "{}{}",
-            strings.file_branch, strings.error_unavailable
-        )));
+        if !recorded_failure || !inline {
+            parts.push(Part::text(format!(
+                "{}{}",
+                strings.file_branch, strings.error_unavailable
+            )));
+        }
     }
     parts
 }
@@ -563,6 +577,9 @@ pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
     let Item::Patch(activity) = item else {
         return AnyWidget::default();
     };
+    if activity.recorded_failure() && place.inline_room.is_some() {
+        return below(place.separator, failure_title(env.tokens, env.cells).into());
+    }
     below(
         place.separator,
         PatchCell {

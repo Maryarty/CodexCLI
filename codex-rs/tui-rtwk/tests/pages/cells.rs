@@ -19,7 +19,7 @@ fn cells_slot_is_registered_and_empty() {
 mod patch_disclosure {
     use std::sync::Arc;
 
-    use codex_tui_core::threads::{PatchActivity, PatchChange, PatchKind, ToolStatus};
+    use codex_tui_core::threads::{PatchActivity, PatchChange, PatchKind, PatchSource, ToolStatus};
     use codex_tui_rtwk::pages::session::cells::patch::PatchCell;
 
     fn cell() -> PatchCell {
@@ -31,6 +31,7 @@ mod patch_disclosure {
                     diff: "one\ntwo\nthree\nfour\n".into(),
                 }],
                 status: ToolStatus::Completed,
+                source: PatchSource::Live,
             }),
             cwd: None,
             detailed: false,
@@ -184,7 +185,7 @@ mod viewed_image_disclosure {
 mod patch_preview {
     use std::sync::Arc;
 
-    use codex_tui_core::threads::{PatchActivity, PatchChange, PatchKind, ToolStatus};
+    use codex_tui_core::threads::{PatchActivity, PatchChange, PatchKind, PatchSource, ToolStatus};
     use codex_tui_rtwk::pages::session::cells::patch::PatchCell;
 
     fn cell(diff: &str) -> PatchCell {
@@ -196,6 +197,7 @@ mod patch_preview {
                     diff: diff.into(),
                 }],
                 status: ToolStatus::Completed,
+                source: PatchSource::Live,
             }),
             cwd: None,
             detailed: false,
@@ -3496,23 +3498,31 @@ mod text_contract {
 
     #[test]
     fn diff_nodes_include_numbered_lines_and_a_failure() {
-        use codex_tui_core::threads::{PatchActivity, PatchChange, PatchKind};
-        let item = Item::Patch(Arc::new(PatchActivity {
-            changes: vec![PatchChange {
-                path: "notes.txt".into(),
-                kind: PatchKind::Add,
-                diff: "\tline one\nline two\n".into(),
-            }],
-            status: ToolStatus::Failed,
-        }));
-        assert_eq!(
-            model_nodes(&item, 80, true, false),
-            logical_nodes(std::slice::from_ref(&item), 80, true, false)
-        );
-        assert_eq!(
-            model_nodes(&item, 80, false, true),
-            logical_nodes(std::slice::from_ref(&item), 80, false, true)
-        );
+        use codex_tui_core::threads::{PatchActivity, PatchChange, PatchKind, PatchSource};
+        for source in [PatchSource::Live, PatchSource::History] {
+            let item = Item::Patch(Arc::new(PatchActivity {
+                changes: vec![PatchChange {
+                    path: "notes.txt".into(),
+                    kind: PatchKind::Add,
+                    diff: "\tline one\nline two\n".into(),
+                }],
+                status: ToolStatus::Failed,
+                source,
+            }));
+            for (detailed, expanded) in [(true, false), (false, true)] {
+                let model = model_nodes(&item, 80, detailed, expanded);
+                assert_eq!(
+                    model,
+                    logical_nodes(std::slice::from_ref(&item), 80, detailed, expanded)
+                );
+                if source == PatchSource::History {
+                    assert_eq!(
+                        model,
+                        ["✘ Failed to apply patch", "  └ (error details unavailable)"]
+                    );
+                }
+            }
+        }
     }
 
     #[test]

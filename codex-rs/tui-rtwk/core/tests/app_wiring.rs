@@ -1128,7 +1128,8 @@ mod calls {
     use std::sync::Arc;
 
     use codex_tui_core::threads::{
-        ExplorationAction, Item, PatchActivity, ShellClass, ToolActivity, ToolKind, ToolStatus,
+        ExplorationAction, Item, PatchActivity, PatchSource, ShellClass, ToolActivity, ToolKind,
+        ToolStatus,
     };
     use pretty_assertions::assert_eq;
 
@@ -1176,6 +1177,7 @@ mod calls {
         let patch = Item::Patch(Arc::new(PatchActivity {
             changes: Vec::new(),
             status: ToolStatus::Completed,
+            source: PatchSource::Live,
         }));
         assert_eq!(patch.call_count(), 1);
     }
@@ -1788,7 +1790,7 @@ mod replay {
     use codex_tui_core::ids::ThreadId;
     use codex_tui_core::rpc::Reply;
     use codex_tui_core::screens::backtrack::Mention;
-    use codex_tui_core::threads::{Item, history_page};
+    use codex_tui_core::threads::{Item, ToolStatus, history_page};
     use pretty_assertions::assert_eq;
 
     const T: &str = "thread-1";
@@ -1821,6 +1823,34 @@ mod replay {
             history_page(newest_first, None),
             &mut AppFx::default(),
         );
+    }
+
+    #[test]
+    fn history_preserves_failed_patch_identity_and_attempted_changes() {
+        let diff = "@@ -1 +1 @@\n-old sample\n+new sample\n";
+        let mut turn = history_turn("turn", "", "");
+        turn.items = vec![ThreadItem::untimed(
+            serde_json::from_value(serde_json::json!({
+                "type": "fileChange", "id": "patch", "status": "failed", "changes": [{
+                    "path": "sample.txt", "kind": {"type": "update", "move_path": null},
+                    "diff": diff
+                }]
+            }))
+            .expect("persisted patch"),
+        )];
+        let mut app = app();
+        load(&mut app, &[turn]);
+        let thread = app.active_thread();
+        let (key, item) = thread.transcript().get(0).expect("patch item");
+        let Item::Patch(patch) = item else {
+            panic!("one patch attempt");
+        };
+        assert_eq!(key.turn.as_str(), "turn");
+        assert_eq!(key.item.as_str(), "patch");
+        assert_eq!(patch.status, ToolStatus::Failed);
+        assert!(patch.recorded_failure());
+        assert_eq!(patch.changes[0].path, "sample.txt");
+        assert_eq!(patch.changes[0].diff, diff);
     }
 
     fn user(id: &str, inputs: Vec<UserInput>) -> ThreadItem {

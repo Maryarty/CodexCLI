@@ -611,18 +611,37 @@ fn snapshot_formatter_live_and_buffered_patch_notifications_render_once() {
 // ORACLE chatwidget/tests/history_projection.rs:344 snapshot_formatter_empty_success_and_failed_patch_keep_their_outcomes kind=snap owner=chat-live snap=empty
 #[test]
 fn snapshot_formatter_empty_success_and_failed_patch_keep_their_outcomes() {
-    kit::pending(
-        Owner::ChatLive,
-        "a replayed failed file change draws the patch's `• Edited sample.txt (+1 -1)` cell with its diff and `└ (error details unavailable)`, where the oracle's snapshot formatter draws the single row `✘ Failed to apply patch`; the empty completed patch adds no cell, as the oracle's",
-    );
     let empty = serde_json::json!({"type": "fileChange", "id": "empty", "changes": [], "status": "completed"});
-    let s = resumed(vec![kit::replay_turn(
+    let turns = vec![kit::replay_turn(
         "turn",
         serde_json::json!([empty, patch_item("failed")]),
-    )]);
-    // oracle: the empty patch adds no cell; the failed one is the only row of the history
-    s.assert_has_row("✘ Failed to apply patch");
-    s.assert_absent("Edited");
+    )];
+    let assert_failure = |s: &Screen| {
+        s.assert_has_row("✘ Failed to apply patch");
+        s.assert_text_count("Failed to apply patch", 1);
+        for phantom in ["Edited", "old sample", "new sample"] {
+            s.assert_absent(phantom);
+        }
+    };
+
+    let inline = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .replay(turns.clone())
+        .live()
+        .inline(&[])
+        .open();
+    assert_failure(&inline);
+    inline.assert_absent("error details unavailable");
+
+    let mut owned = resumed(turns);
+    for detailed in [false, true] {
+        if detailed {
+            owned.keys("ctrl+t");
+        }
+        assert_failure(&owned);
+        let at = row_of(&owned, "✘ Failed to apply patch");
+        owned.assert_row(at + 1, "  └ (error details unavailable)");
+    }
 }
 
 // ---- oracle: chatwidget/tests/history_replay.rs (24 screen-level tests here; 11 state tests left to chat-live)

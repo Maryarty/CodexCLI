@@ -981,7 +981,7 @@ fn stop_of(
     }
     let (key, item) = transcript.get(row.range.start)?;
     let has = match item {
-        Item::Patch(patch) => !patch.changes.is_empty(),
+        Item::Patch(patch) => !patch.recorded_failure() && !patch.changes.is_empty(),
         Item::Tool(tool) => has_control(tool, strings, room, inline),
         _ => false,
     };
