@@ -14,6 +14,7 @@ use crate::side_pane::configured_workspace;
 use crate::side_return::{SIDE, forked};
 
 const SECOND: &str = "side-2";
+const THIRD: &str = "side-3";
 
 fn open_workspace(attached: bool) -> Harness {
     let mut h = configured_workspace(true, true, None);
@@ -42,17 +43,18 @@ fn open_workspace(attached: bool) -> Harness {
                 Some(Ok(serde_json::json!({"thread": thread})))
             }
             "thread/fork" => {
-                let id = match forks.fetch_add(1, Ordering::Relaxed) {
-                    0 => SIDE,
-                    1 => SECOND,
-                    _ => panic!("/btw must not fork a third chat"),
+                let (id, name) = match forks.fetch_add(1, Ordering::Relaxed) {
+                    0 => (SIDE, "First side"),
+                    1 => (SECOND, "Second side"),
+                    2 => (THIRD, "Third side"),
+                    _ => panic!("unexpected fourth fork"),
                 };
                 let mut reply = forked();
                 let thread = &mut reply["thread"];
                 thread["id"] = id.into();
                 thread["sessionId"] = id.into();
                 thread["preview"] = "".into();
-                thread["name"] = serde_json::Value::Null;
+                thread["name"] = name.into();
                 thread["forkedFromId"] = FAKE_THREAD.into();
                 if attached {
                     assert_eq!(request["params"]["attachToSource"], true);
@@ -68,7 +70,7 @@ fn open_workspace(attached: bool) -> Harness {
             }
             _ => None,
         });
-    send_line(&mut h, "/side");
+    send_line(&mut h, "/side first-side");
     assert_active(&h, SIDE);
     h
 }
@@ -127,12 +129,12 @@ fn native_tabs_select_open_children_by_keyboard_and_mouse_with_independent_draft
     h.t.type_text("first-draft");
     h.press("left");
     h.press("f12 h");
-    send_line(&mut h, "/side");
+    send_line(&mut h, "/side second-side");
     assert_active(&h, SECOND);
     completed_answer(&mut h, SECOND, "SECOND HISTORY");
     h.t.type_text("second-draft");
     h.advance(120);
-    assert!(h.t.screen().contains("Side 1") && h.t.screen().contains("Side 2"));
+    assert!(h.t.screen().contains("First side") && h.t.screen().contains("Second side"));
 
     h.press("f12 t");
     h.press("left");
@@ -149,24 +151,32 @@ fn native_tabs_select_open_children_by_keyboard_and_mouse_with_independent_draft
     h.advance(120);
     assert!(h.t.screen().contains("first-draf!t"), "{}", h.t.screen());
 
-    click_label(&mut h, "Side 2");
+    click_label(&mut h, "Second side");
     assert_active(&h, SECOND);
     assert!(h.t.screen().contains("SECOND HISTORY") && h.t.screen().contains("second-draft"));
-    h.press("f12 h");
-    send_line(&mut h, "/btw one more question");
-    assert_active(&h, SECOND);
-    assert!(submitted(&h, SECOND, "one more question"));
-    assert!(h.t.screen().contains("second-draft"));
+    for alias in ["/btw", "/side"] {
+        h.press("f12 h");
+        send_line(&mut h, alias);
+        assert_active(&h, SECOND);
+        assert!(h.t.screen().contains("second-draft"));
+    }
     h.press("f12 u");
     assert_active(&h, SIDE);
     assert!(h.t.screen().contains("first-draf!t"));
+    h.press("f12 h");
+    send_line(&mut h, "/btw one more question");
+    assert_active(&h, THIRD);
+    assert!(submitted(&h, THIRD, "one more question"));
+    click_label(&mut h, "Second side");
+    assert_active(&h, SECOND);
+    assert!(h.t.screen().contains("second-draft"));
     assert_eq!(
         h.fake
             .requests()
             .iter()
             .filter(|r| r["method"] == "thread/fork")
             .count(),
-        2
+        3
     );
 }
 
@@ -192,9 +202,9 @@ fn side_tabs_restore_the_readers_position_and_enable_the_default_shift_tab_chord
     }
     assert!(h.t.screen().contains("first reader line 00"));
     h.press("f12 h");
-    send_line(&mut h, "/side");
+    send_line(&mut h, "/side second-side");
     assert_active(&h, SECOND);
-    click_label(&mut h, "Side 1");
+    click_label(&mut h, "First side");
     assert_active(&h, SIDE);
     assert!(
         h.t.screen().contains("first reader line 00"),
@@ -210,7 +220,7 @@ fn close_uses_storage_and_leaves_the_previous_child_alive() {
         let mut h = open_workspace(attached);
         completed_answer(&mut h, SIDE, "FIRST HISTORY");
         h.press("f12 h");
-        send_line(&mut h, "/side");
+        send_line(&mut h, "/side second-side");
         completed_answer(&mut h, SECOND, "SECOND HISTORY");
         if attached {
             click_label(&mut h, "×");

@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::OnceLock;
 
+use super::actions::GLOBAL_SIDEBAR_UP;
 use super::catalogue::{
     ALLOWED_OVERLAPS, ActionId, CTRL_Z_RESERVED, Context, DEFAULT_LEADER, GLOBAL_FALLBACK,
     LEADER_DEFAULTS, LIST_RESERVED, MAIN_RESERVED, PRINTABLE_RESERVED, ROWS, RUNTIME_ONLY, SCOPES,
@@ -860,8 +861,7 @@ impl Keymap {
             let hit = reserved.iter().find(|(_, spec)| {
                 let key = Stroke::parse(spec);
                 // The tab step acts only after its chord prefix; bare Shift+Tab still cycles mode.
-                let sidebar_step =
-                    *spec == "shift-tab" && *id == ActionId::new(Context::Global, "sidebar_up");
+                let sidebar_step = *spec == "shift-tab" && *id == GLOBAL_SIDEBAR_UP;
                 key == Some(prefix)
                     || key == Some(completion) && !sidebar_step && (!list || key == Some(ctrl_c))
             });

@@ -28,8 +28,7 @@ use rtwk::semantics::{Semantics, SemanticsRole};
 use rtwk::style::Theme;
 use rtwk::widgets::Text;
 use rtwk::{
-    AnyWidget, Cx, GlobalKey, Handler, Key, LayoutBuilder, Rebuild, State, StatefulWidget,
-    impl_widget,
+    AnyWidget, Cx, GlobalKey, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget,
 };
 use rtwk_core::input::InputEvent;
 
@@ -38,6 +37,7 @@ use crate::features;
 use crate::keymap::press::{
     PaneActivationGuard, PaneActivationKey, ResizeKey, horizontal_focus, resize_key,
 };
+use crate::widgets::thread_scope::thread_scope;
 use crate::widgets::thread_ui::ThreadUi;
 
 use super::side_tabs::Tabs;
@@ -128,8 +128,8 @@ impl Dock {
     }
 
     pub(super) fn keyed(self) -> AnyWidget {
-        let key = Key::value(self.parent.model.id().clone());
-        AnyWidget::from(self).with_key(key)
+        let parent = self.parent.model.id().clone();
+        thread_scope(&parent, self)
     }
 }
 

@@ -4,11 +4,11 @@
 //! thread another process writes.
 
 use rtwk::AnyWidget;
+use rtwk::Cx;
 use rtwk::layout::{EdgeInsets, Padding, SizedBox};
 use rtwk::provider::select;
 use rtwk::style::Theme;
 use rtwk::widgets::Text;
-use rtwk::{Cx, Key};
 
 use codex_tui_core::ids::BackendId;
 use codex_tui_core::screens::ScreenStates;
@@ -25,6 +25,7 @@ use crate::pages::session::keys::Action;
 use crate::pages::session::live::provider_error;
 use crate::pages::session::transcript;
 use crate::widgets::status_line::{Notice, with_warning_notice};
+use crate::widgets::thread_scope::thread_scope;
 
 use super::cloud_wait;
 use super::frame::Frame;
@@ -212,7 +213,7 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
         let composer = if w.presentation == Presentation::Solo {
             composer
         } else {
-            composer.with_key(Key::value(thread.id().clone()))
+            thread_scope(thread.id(), composer)
         };
         (composer, footer)
     };
