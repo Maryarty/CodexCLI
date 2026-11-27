@@ -571,16 +571,17 @@ fn the_status_row_waits_for_the_background_terminal_and_names_its_command() {
     );
 }
 
-/// The next thing the turn does ends the wait: an agent delta writes the streak and the row
-/// reads `Working` again, with no command under it.
+/// The first partial delta flushes the wait and restores `Working`. Committing the line
+/// on the next delta hides the status row while the answer streams.
 #[test]
 fn an_agent_delta_ends_the_wait_and_the_row_reads_working_again() {
     let mut s = Screen::build(Owner::UiPane)
         .size(80, 12)
         .script(WAITING)
         .open();
+    s.assert_contains("Waiting for background terminal");
     s.feed(
-        r#"{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-1","delta":"Done waiting\n"}}}"#,
+        r#"{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-1","delta":"Done waiting"}}}"#,
     );
     s.assert_contains("• Working");
     s.assert_absent("Waiting for background terminal");
@@ -594,6 +595,11 @@ fn an_agent_delta_ends_the_wait_and_the_row_reads_working_again() {
     );
     s.wait(360);
     s.assert_contains("◦ Working");
+    s.feed(r#"{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-1","delta":"\n"}}}"#);
+    s.assert_contains("Done waiting");
+    s.assert_absent("Working (");
+    s.assert_absent("esc to interrupt");
+    s.assert_contains("1 background terminal running");
 }
 
 #[test]

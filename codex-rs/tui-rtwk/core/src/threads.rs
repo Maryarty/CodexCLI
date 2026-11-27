@@ -191,6 +191,16 @@ pub enum Item {
 }
 
 impl Item {
+    /// An empty plan completion leaves the source already delivered for this item intact.
+    fn keep_previous_plan_text(&mut self, previous: Option<&Self>) {
+        if let Self::Plan { text } = self
+            && text.is_empty()
+            && let Some(Self::Plan { text: previous }) = previous
+        {
+            text.clone_from(previous);
+        }
+    }
+
     /// The Markdown body of a reasoning item (empty for another kind): the summary, and with
     /// `show_raw` (`show_raw_agent_reasoning`) the raw reasoning content after it.
     pub fn reasoning_text(&self, show_raw: bool) -> &str {
@@ -318,7 +328,8 @@ struct ItemEntry {
 }
 
 impl ItemEntry {
-    fn updated(before: Option<&Self>, item: Item, revision: &mut u64) -> Self {
+    fn updated(before: Option<&Self>, mut item: Item, revision: &mut u64) -> Self {
+        item.keep_previous_plan_text(before.map(|entry| entry.item.as_ref()));
         if let Some(before) = before
             && *before.item == item
         {
@@ -632,9 +643,9 @@ impl Transcript {
         )
     }
 
-    /// Appends a delta in wire order, scanning only its new bytes for a line boundary.
-    pub fn append_agent(&mut self, key: ItemKey, delta: &str) {
-        self.append_text(key, delta, Text::Agent);
+    /// Appends an answer delta and returns its key when it commits a nonblank line.
+    pub fn append_agent(&mut self, key: ItemKey, delta: &str) -> Option<ItemKey> {
+        self.append_text(key, delta, Text::Agent)
     }
 
     /// Appends a delta of the proposed plan (`item/plan/delta`), as an answer's text streams.
@@ -642,19 +653,19 @@ impl Transcript {
         self.append_text(key, delta, Text::Plan);
     }
 
-    fn append_text(&mut self, key: ItemKey, delta: &str, kind: Text) {
+    fn append_text(&mut self, key: ItemKey, delta: &str, kind: Text) -> Option<ItemKey> {
         if delta.is_empty() {
-            return;
+            return None;
         }
         use std::collections::hash_map::Entry;
-        let live = match self.streaming.entry(key) {
-            Entry::Occupied(entry) => entry.into_mut(),
+        let mut entry = match self.streaming.entry(key) {
+            Entry::Occupied(entry) => entry,
             Entry::Vacant(entry) => {
                 let (value, committed) = match self.items.get(entry.key()) {
-                    Some(item) => match kind.text_of(&item.item) {
-                        Some(text) => (item.clone(), text.len()),
-                        None => return,
-                    },
+                    Some(item) => {
+                        let text = kind.text_of(&item.item)?;
+                        (item.clone(), text.len())
+                    }
                     None => {
                         Rc::make_mut(&mut self.order).push(entry.key().clone());
                         self.layout_revision += 1;
@@ -664,20 +675,24 @@ impl Transcript {
                         )
                     }
                 };
-                entry.insert(StreamingItem {
+                entry.insert_entry(StreamingItem {
                     entry: value,
                     committed,
                 })
             }
         };
-        if let Some(text) = kind.text_mut(Rc::make_mut(&mut live.entry.item)) {
-            if let Some(last) = delta.rfind('\n') {
-                live.committed = text.len() + last + 1;
-            }
-            text.push_str(delta);
-            self.item_revision += 1;
-            live.entry.revision = self.item_revision;
+        let live = entry.get_mut();
+        let text = kind.text_mut(Rc::make_mut(&mut live.entry.item))?;
+        let previous = live.committed;
+        if let Some(last) = delta.rfind('\n') {
+            live.committed = text.len() + last + 1;
         }
+        text.push_str(delta);
+        self.item_revision += 1;
+        live.entry.revision = self.item_revision;
+        let committed_agent_line =
+            matches!(kind, Text::Agent) && !text[previous..live.committed].trim_start().is_empty();
+        committed_agent_line.then(|| entry.key().clone())
     }
 
     fn append_command_output(&mut self, key: ItemKey, delta: &str) {
@@ -874,6 +889,10 @@ pub struct RunningTurn {
     /// oracle's status timer, the elapsed time of a turn the server timed no duration for.
     began: i64,
     interrupt_sent: bool,
+    /// Latest agent item to complete a nonblank line since the last command started.
+    last_agent_line: Option<ItemKey>,
+    /// The same command's repeated start cannot supersede newer output.
+    started_commands: Rc<HashSet<ItemId>>,
 }
 
 /// What the client itself warns of (the words are the view's, ADR-010).
@@ -1645,6 +1664,26 @@ impl ThreadModel {
     /// Whether the live turn received the completion for this agent or reasoning item.
     pub fn received_item_completion(&self, key: &ItemKey) -> bool {
         self.completed_items.contains(key)
+    }
+
+    /// Whether the last wire-committed answer line still belongs to a live prose item.
+    pub fn has_recent_agent_line(&self) -> bool {
+        let TurnState::Running(running) = &self.turn else {
+            return false;
+        };
+        running
+            .last_agent_line
+            .as_ref()
+            .and_then(|key| self.transcript.streaming.get(key))
+            .is_some_and(|live| {
+                matches!(
+                    live.entry.item.as_ref(),
+                    Item::Agent {
+                        questions: None,
+                        ..
+                    }
+                )
+            })
     }
 
     pub fn turn(&self) -> &TurnState {
@@ -3304,6 +3343,20 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::HookStarted { id, message } => hooks::started(model, id, message),
         ThreadEv::HookEnded { id, turn, item } => hooks::ended(model, &id, turn, item),
         ThreadEv::ItemStarted { key, item, receipt } => {
+            if matches!(&item, Item::Tool(tool) if tool.status == ToolStatus::Running
+                && matches!(tool.kind, ToolKind::Shell { .. }))
+            {
+                if model.completed_items.contains(&key) {
+                    return;
+                }
+                if let TurnState::Running(running) = &mut model.turn
+                    && running.turn == key.turn
+                    && !running.started_commands.contains(&key.item)
+                {
+                    Rc::make_mut(&mut running.started_commands).insert(key.item.clone());
+                    running.last_agent_line = None;
+                }
+            }
             processes::track(model, &key, &item);
             note_review(model, &item);
             let (echo, released) = match receipt {
@@ -3324,7 +3377,12 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 send_next(model, fx);
             }
         }
-        ThreadEv::ItemUpsert { key, item, receipt } => {
+        ThreadEv::ItemUpsert {
+            key,
+            mut item,
+            receipt,
+        } => {
+            item.keep_previous_plan_text(model.transcript.item(&key));
             processes::track(model, &key, &item);
             note_review(model, &item);
             let (echo, released) = match receipt {
@@ -3360,7 +3418,17 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                         Item::Reasoning { .. } => {
                             model.completed_items.insert(key.clone());
                         }
-                        Item::Plan { text } => model.slots.chat.plan.plan_completed(text),
+                        Item::Tool(tool) if matches!(tool.kind, ToolKind::Shell { .. }) => {
+                            model.completed_items.insert(key.clone());
+                        }
+                        Item::Plan { text } => {
+                            let first = model.completed_items.insert(key.clone());
+                            if first
+                                && matches!(&model.turn, TurnState::Running(run) if run.turn == key.turn)
+                            {
+                                model.slots.chat.plan.plan_completed(text);
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -3381,12 +3449,19 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::AgentDelta { key, delta } => {
             if !model.finished_turns.contains(&key.turn) && !model.completed_items.contains(&key) {
                 processes::flush(model, Some(key.turn.clone()));
-                model.transcript.append_agent(key, &delta);
+                if let Some(committed) = model.transcript.append_agent(key, &delta)
+                    && let TurnState::Running(running) = &mut model.turn
+                    && running.turn == committed.turn
+                {
+                    running.last_agent_line = Some(committed);
+                }
             }
         }
         ThreadEv::PlanDelta { key, delta } => {
             if !model.finished_turns.contains(&key.turn) && !model.completed_items.contains(&key) {
-                model.slots.chat.plan.plan_delta();
+                if matches!(&model.turn, TurnState::Running(run) if run.turn == key.turn) {
+                    model.slots.chat.plan.plan_delta();
+                }
                 processes::flush(model, Some(key.turn.clone()));
                 model.transcript.append_plan(key, &delta);
             }
@@ -4380,6 +4455,8 @@ fn start_turn(model: &mut ThreadModel, turn: TurnId, now: i64) {
                 started_at: None,
                 began: now,
                 interrupt_sent: false,
+                last_agent_line: None,
+                started_commands: Rc::default(),
             })
         }
         TurnState::Running(_) => {}

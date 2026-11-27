@@ -864,13 +864,130 @@ fn reasoning_delta_does_not_double_schedule_visible_status_redraw() {
 // ORACLE chatwidget/tests/status_and_layout.rs:5257 reasoning_delta_restores_recreated_status_indicator_header kind=snap owner=ui-pane snap=reasoning_delta_restores_recreated_status_indicator
 #[test]
 fn reasoning_delta_restores_recreated_status_indicator_header() {
-    kit::pending(
-        Owner::UiPane,
-        "reasoning and answer streaming headers, prose previews and per-message headers are not built in the chat skeleton",
-    );
-    let s = Screen::build(Owner::UiPane).size(80, 8).live().open();
-    // seed: a task started, the status indicator recreated, reasoning header 'Checking files and preparing a response'
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 16)
+        .script(BASE)
+        .open();
+    let item =
+        serde_json::json!({"type": "reasoning", "id": "reasoning-1", "summary": [], "content": []});
+    let started = serde_json::json!({"step": "notify", "message": {"method": "item/started", "params": {
+        "threadId": "thread-1", "turnId": "turn-1", "item": item, "startedAtMs": 0
+    }}});
+    let reasoning_delta = |delta: &str| {
+        serde_json::json!({"step": "notify", "message": {
+            "method": "item/reasoning/summaryTextDelta", "params": {
+                "threadId": "thread-1", "turnId": "turn-1", "itemId": "reasoning-1",
+                "summaryIndex": 0, "delta": delta
+            }
+        }})
+        .to_string()
+    };
+    s.feed(&format!(
+        "{TURN}\n{started}\n{}",
+        reasoning_delta("**Checking files**")
+    ));
+    s.assert_contains("Checking files");
+    let preamble = |delta| prose_delta("item/agentMessage/delta", "preamble", delta);
+    s.feed(&preamble("\n"));
+    s.assert_contains("Checking files");
+    s.feed(&preamble("Preamble line"));
+    s.assert_contains("Checking files");
+    s.feed(&preamble("\n"));
+    s.assert_contains("Preamble line");
+    s.assert_absent("esc to interrupt");
+    s.feed(BACKGROUND);
+    s.assert_contains("Checking files");
+    s.assert_contains("1 background terminal running");
+    s.feed(&reasoning_delta(" and preparing a response"));
+    s.assert_contains("Checking files and preparing a response");
+    s.resize(80, 8);
     s.assert_snap("reasoning_delta_restores_recreated_status_indicator");
+}
+
+#[test]
+fn reasoning_status_uses_wire_order_when_terminal_and_line_fit_one_frame() {
+    let mut read: serde_json::Value = serde_json::from_str(BACKGROUND).expect("background script");
+    let item = &mut read["message"]["params"]["item"];
+    item["command"] = serde_json::json!("cat README.md");
+    item["commandActions"] = serde_json::json!([{
+        "type": "read", "command": "cat README.md", "name": "README.md", "path": "/tmp/project/README.md"
+    }]);
+
+    let background_read = read.to_string();
+    let item = &mut read["message"]["params"]["item"];
+    item["source"] = serde_json::json!("agent");
+    item["processId"] = serde_json::Value::Null;
+
+    for (command, recognized_read, background) in [
+        (BACKGROUND.to_owned(), false, true),
+        (background_read, true, true),
+        (read.to_string(), true, false),
+    ] {
+        for command_last in [false, true] {
+            let mut s = Screen::build(Owner::UiPane)
+                .size(80, 16)
+                .script(BASE)
+                .open();
+            s.feed(TURN);
+            s.feed(&prose_delta(
+                "item/agentMessage/delta",
+                "answer",
+                "Complete line",
+            ));
+            s.assert_contains("esc to interrupt");
+            let newline = prose_delta("item/agentMessage/delta", "answer", "\n");
+            let events = if command_last {
+                format!("{newline}\n{command}")
+            } else {
+                format!("{command}\n{newline}")
+            };
+            s.feed(&events);
+            s.assert_contains("Complete line");
+            s.assert_present("Read README.md", recognized_read);
+            s.assert_present("1 background terminal running", background);
+            s.assert_present("esc to interrupt", command_last);
+            if !command_last {
+                s.feed(&command);
+                s.assert_absent("esc to interrupt");
+                s.feed(
+                    &serde_json::json!({"step": "notify", "message": {
+                        "method": "item/completed", "params": {
+                            "threadId": "thread-1", "turnId": "turn-1", "completedAtMs": 0,
+                            "item": {"type": "agentMessage", "id": "answer",
+                                "text": "Complete line", "phase": "commentary"}
+                        }
+                    }})
+                    .to_string(),
+                );
+                s.assert_contains("esc to interrupt");
+            }
+        }
+    }
+}
+
+#[test]
+fn reasoning_status_keeps_the_new_turn_hidden_under_an_older_terminal() {
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 16)
+        .script(BASE)
+        .open();
+    s.feed(&format!(
+        "{TURN}\n{BACKGROUND}\n{}",
+        turn_ended("completed")
+    ));
+    s.feed(&TURN.replace("turn-1", "turn-2"));
+    let answer = prose_delta("item/agentMessage/delta", "answer", "Complete line\n");
+    s.feed(&answer.replace("turn-1", "turn-2"));
+    s.assert_contains("1 background terminal running");
+    s.assert_contains("Complete line");
+    s.assert_absent("esc to interrupt");
+    s.feed(
+        &BACKGROUND
+            .replace("turn-1", "turn-2")
+            .replace("proc-1", "proc-2"),
+    );
+    s.assert_contains("2 background terminal");
+    s.assert_contains("esc to interrupt");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5296 user_prompt_submit_app_server_hook_notifications_render_snapshot kind=snap owner=ui-pane snap=user_prompt_submit_app_server_hook_notifications_render_snapshot
