@@ -22,6 +22,81 @@ use codex_tui_core::screens::{ScreenCommand, ScreenIntent, ScreenReply};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
+#[test]
+fn a_model_scope_from_an_earlier_visit_cannot_write_even_after_returning() {
+    use codex_tui_core::ids::ThreadId;
+    use codex_tui_core::screens::ScreenEv;
+    use codex_tui_core::screens::agents;
+    use codex_tui_core::screens::select::models::{Apply, Effort, Selection};
+
+    let mut app = CodexApp::new();
+    let thread = ThreadId::new("thread-a");
+    let show = |app: &mut CodexApp, id: ThreadId| {
+        run(
+            app,
+            AppEv::Screen(ScreenEv::Agents(agents::Ev::Current(Some(id)))),
+        )
+    };
+    let scope = |app: &mut CodexApp| {
+        open(
+            app,
+            SelectIntent::open_models(ModelCurrent::for_thread(thread.clone())),
+        );
+        app.screens()
+            .select
+            .shows
+            .pending()
+            .filter_map(|show| match &show.opening {
+                Opening::Models(menu) => menu.scope().cloned(),
+                _ => None,
+            })
+            .last()
+            .expect("live picker scope")
+    };
+    let pick = Selection {
+        model: "gpt-5.5".into(),
+        effort: Some(Effort::Low),
+        apply: Apply::Selection,
+        warning: None,
+    };
+    show(&mut app, thread.clone());
+    let old = scope(&mut app);
+    show(&mut app, ThreadId::new("thread-b"));
+    show(&mut app, thread.clone());
+    let effects = open(
+        &mut app,
+        SelectIntent::settle_model(pick.clone(), Some(old)),
+    );
+    assert!(
+        effects.commands().is_empty(),
+        "returning did not revive the old confirmation"
+    );
+    let current = scope(&mut app);
+    let effects = open(
+        &mut app,
+        SelectIntent::settle_model(pick.clone(), Some(current.clone())),
+    );
+    assert_eq!(
+        effects
+            .commands()
+            .iter()
+            .filter(|command| matches!(
+                command,
+                Command::Screen {
+                    command: ScreenCommand::Select(select::Command::Write { .. }),
+                    ..
+                }
+            ))
+            .count(),
+        1
+    );
+    let effects = open(&mut app, SelectIntent::settle_model(pick, Some(current)));
+    assert!(
+        effects.commands().is_empty(),
+        "the same confirmation was already consumed"
+    );
+}
+
 fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
     let mut fx = AppFx::default();
     apply_app(app, ev, &mut fx);

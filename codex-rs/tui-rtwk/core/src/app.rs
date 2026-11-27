@@ -1540,6 +1540,9 @@ fn apply_at(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx) {
     finish_apply(app, lists, fx);
     let active_changed =
         !Rc::ptr_eq(&previous, &app.session) && previous.active != app.session.active;
+    if active_changed {
+        select::retire_model_picker(app);
+    }
     if status || active_changed {
         notices::invalid_status_items(app, fx);
     }
@@ -2130,6 +2133,9 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                             | agents::Ev::Notice(Some(agents::Notice::ReconnectFailed))
                     )
                 );
+            if let ScreenEv::Chat(chat::Ev::Status(facts)) = &ev {
+                select::configured_plan(app, origin, facts.plan_effort.clone());
+            }
             match &ev {
                 ScreenEv::Select(screens::select::Ev::Provider(provider))
                     if *provider != screens::select::models::Provider::Settled =>
@@ -2855,7 +2861,9 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             features::interrupted(app, &thread, fx);
         }
         Intent::ThreadScreen { thread, intent } => {
-            apply_thread(app, &thread, ThreadEv::ScreenIntent(intent), fx)
+            if let Err(intent) = features::finish_queue_modal(app, &thread, intent, fx) {
+                apply_thread(app, &thread, ThreadEv::ScreenIntent(intent), fx);
+            }
         }
         Intent::AutoReview { thread, what } => {
             let ev = match what {
@@ -4220,7 +4228,7 @@ pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mu
                 .with_prompt_priority(priority)
                 .with_image_restrictions(image_restrictions)
                 .stamped(daybreak)
-                .with_modes(&app.modes)
+                .with_modes(&app.modes, app.screens.select.plan_defaults.get(&backend))
                 .with_cloud(cloud)
                 .with_facts(AppFacts::new(
                     app.now,

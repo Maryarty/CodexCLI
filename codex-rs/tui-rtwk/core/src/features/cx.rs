@@ -7,7 +7,7 @@
 use std::sync::OnceLock;
 
 use super::lifecycle::{Lifecycle, ThreadSpawn};
-use super::surface::Scope;
+use super::surface::{QueueModal, Scope};
 use super::verb::PublicVerb;
 use super::{
     FeatureCommand, FeatureCtx, FeatureNote, FeatureThreadIntent, FeatureThreadParts, FeatureWish,
@@ -24,6 +24,7 @@ use crate::screens::chat::facts::SideFooter;
 use crate::screens::select::collaboration::Mask;
 use crate::screens::status;
 use crate::threads::daybreak::Access;
+use crate::threads::queue::QueueOperation;
 use crate::threads::structured::StructuredTurn;
 use crate::threads::{ThreadCore, ThreadFx, ThreadSet, UserMessage};
 
@@ -393,7 +394,11 @@ pub enum Out {
     Settled { thread: ThreadId },
     /// A one-shot for the surface (ADR-013 Ж): it is queued under `scope` (the directory the
     /// feature's data is for) and shown once by the surface's presenter.
-    Wish { scope: Scope, wish: FeatureWish },
+    Wish {
+        scope: Scope,
+        wish: FeatureWish,
+        queue_modal: Option<QueueModal>,
+    },
     /// What a feature asked of a thread's life (open, spawn, discard, submit, give back, a
     /// structured question): the app's own steps carry it out (`lifecycle.rs`).
     Lifecycle(Lifecycle),
@@ -491,7 +496,44 @@ impl<'a> AppCx<'a> {
         self.out.push(Out::Wish {
             scope: scope.into(),
             wish: wish.into(),
+            queue_modal: None,
         });
+    }
+
+    /// Shows a modal over `thread`: its result settles the hold on queued input.
+    pub(crate) fn wish_for_queue(&mut self, thread: ThreadId, wish: impl Into<FeatureWish>) {
+        self.out.push(Out::Wish {
+            scope: Scope::Thread(thread),
+            wish: wish.into(),
+            queue_modal: Some(QueueModal { operation: None }),
+        });
+    }
+
+    /// Carries the operation already issued for the queued command that opened the modal.
+    pub(crate) fn wish_for_queued_operation(
+        &mut self,
+        operation: QueueOperation,
+        wish: impl Into<FeatureWish>,
+    ) -> bool {
+        let thread = operation.thread();
+        if !self
+            .view
+            .threads
+            .get(thread)
+            .and_then(|model| model.due_command())
+            .is_some_and(|due| due.operation() == &operation)
+        {
+            return false;
+        }
+        let visible = self.view.active() == Some(thread);
+        self.out.push(Out::Wish {
+            scope: Scope::Thread(thread.clone()),
+            wish: wish.into(),
+            queue_modal: Some(QueueModal {
+                operation: Some(operation),
+            }),
+        });
+        visible
     }
 
     /// Asks the app for one of its public verbs (`PublicVerb`): the app carries it out in the

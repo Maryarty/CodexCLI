@@ -33,10 +33,10 @@ use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use crate::widgets::picker::list::normalize_paste;
-use codex_tui_core::features::FeatureStates;
 use codex_tui_core::features::settings::{
-    Offer, Setup, SetupItem, SetupKind, USE_THEME_COLORS, Which,
+    Intent, Offer, Setup, SetupItem, SetupKind, USE_THEME_COLORS, Which,
 };
+use codex_tui_core::features::{FeatureIntent, FeatureStates};
 use codex_tui_core::keymap::Keymap;
 
 use super::draft::SetupDraft;
@@ -95,6 +95,7 @@ pub struct SetupSheet {
     pub which: Which,
     /// The preview shows what the chat shows now (a command opened the sheet).
     pub live: bool,
+    pub queued: bool,
 }
 
 /// Widget state: the controllers and the draft (R14).
@@ -214,6 +215,7 @@ impl SetupState {
         offered: &Setup,
         setup: &Setup,
         rows: &[Entry],
+        queued: bool,
         cx: &mut Cx<'_, Self>,
     ) {
         let at = self.at(setup, rows);
@@ -242,13 +244,18 @@ impl SetupState {
             // Enter saves the order and the checks; on the skills it flips
             // the row under the cursor like Space (each flip is saved).
             Act::Save if setup.kind == SetupKind::Skills => self.toggle(offered, id, cx),
-            Act::Save => {
-                super::request(cx, self.draft.save(offered));
-                close_dialog::<_, ()>(cx, None);
-            }
-            Act::Close => {
-                super::request(cx, SetupDraft::cancel(offered));
-                close_dialog::<_, ()>(cx, None);
+            Act::Save | Act::Close => {
+                let edit = if act == Act::Save {
+                    self.draft.save(offered)
+                } else {
+                    SetupDraft::cancel(offered)
+                };
+                if queued {
+                    close_dialog::<_, FeatureIntent>(cx, Some(Intent::Request(edit).into()));
+                } else {
+                    super::request(cx, edit);
+                    close_dialog::<_, ()>(cx, None);
+                }
             }
         }
     }
@@ -303,10 +310,10 @@ impl State for SetupState {
         let rows = entries(&setup, &self.query.text());
         match msg {
             Msg::Query => self.settle(&setup, &rows),
-            Msg::Act(act) => self.act(act, &offered, &setup, &rows, cx),
+            Msg::Act(act) => self.act(act, &offered, &setup, &rows, w.queued, cx),
             Msg::Row(row) => {
                 if self.at(&setup, &rows) == Some(row) {
-                    self.act(Act::Toggle, &offered, &setup, &rows, cx);
+                    self.act(Act::Toggle, &offered, &setup, &rows, w.queued, cx);
                 } else if matches!(rows.get(row), Some(Entry::Item(_))) {
                     self.put(&setup, &rows, row);
                 }

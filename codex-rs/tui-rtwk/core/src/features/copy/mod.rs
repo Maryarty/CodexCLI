@@ -217,13 +217,13 @@ feature! {
                             return cx.note(None, Note::NoResponse);
                         };
                         if let Some(card) = status_source(view) {
-                            return cx.wish(thread.clone(), Wish::Status { thread, card });
+                            return cx.wish_for_queue(thread.clone(), Wish::Status { thread, card });
                         }
                         if cx.view().facts().tui().transcript_owned {
                             return cx.wish(thread.clone(), Wish::Mode { thread });
                         }
                         match last_response(&cx.view(), &thread) {
-                            Some(response) => cx.wish(thread.clone(), Wish::Picker { thread, response }),
+                            Some(response) => cx.wish_for_queue(thread.clone(), Wish::Picker { thread, response }),
                             None => cx.note(Some(thread), Note::NoResponse),
                         }
                     }
@@ -248,7 +248,7 @@ feature! {
                         text,
                         label,
                         format,
-                    } => copy(cx, None, text, label, format),
+                    } => copy(cx, cx.view().active().cloned(), text, label, format),
                     Intent::StatusSuperseded { thread } => {
                         cx.thread(&thread, ThreadIntent::StatusSuperseded);
                     }
