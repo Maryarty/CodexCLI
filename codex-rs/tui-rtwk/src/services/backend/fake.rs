@@ -741,9 +741,12 @@ impl HostDoors for FakeDoors<'_> {
         } else {
             Default::default()
         };
-        Some(FakeWork::Ready(Box::new(AppEv::Effect {
-            request: self.request,
-            done: Done::ImageSnapshot(snapshot),
+        let request = self.request;
+        Some(FakeWork::Spawn(Box::pin(async move {
+            Some(AppEv::Effect {
+                request,
+                done: Done::ImageSnapshot(snapshot),
+            })
         })))
     }
 

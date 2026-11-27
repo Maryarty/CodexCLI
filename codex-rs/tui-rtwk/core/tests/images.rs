@@ -1,10 +1,10 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use codex_tui_core::app::effects::{Ask, Done, ImageSnapshot};
-use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
+use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Ingress, Intent, apply_app};
 use codex_tui_core::features::{InterestStep, images};
-use codex_tui_core::ids::{ItemId, ThreadId, TurnId};
-use codex_tui_core::rpc::Reply;
+use codex_tui_core::ids::{BackendId, ItemId, ThreadId, TurnId};
+use codex_tui_core::rpc::{Address, Reply};
 use codex_tui_core::threads::ItemKey;
 
 fn step(app: &mut CodexApp, event: AppEv) -> AppFx {
@@ -51,6 +51,10 @@ fn raise(app: &mut CodexApp, source: &images::Interest) -> u64 {
         app,
         AppEv::Intent(Intent::Interest(InterestStep::Open(source.clone().into()))),
     );
+    snapshot_request(&fx, source)
+}
+
+fn snapshot_request(fx: &AppFx, source: &images::Interest) -> u64 {
     fx.commands()
         .iter()
         .find_map(|command| match command {
@@ -72,6 +76,71 @@ fn raise(app: &mut CodexApp, source: &images::Interest) -> u64 {
             _ => None,
         })
         .expect("the source's image snapshot request")
+}
+
+#[test]
+fn an_image_read_is_reissued_for_the_same_row_after_physical_replacement() {
+    let (mut app, source) = ready();
+    let backend = BackendId::default();
+    let epoch = app.epoch_of(backend);
+    let next = epoch.next();
+    let stale = raise(&mut app, &source);
+    let effects = app
+        .ingest(Ingress::transport_replaced(backend, epoch, next))
+        .expect("the same connector installed a new handle");
+    let current = snapshot_request(&effects, &source);
+    let command = effects
+        .commands()
+        .iter()
+        .find(|command| {
+            matches!(
+                command, Command::Effect { request, ask: Ask::ImageSnapshot { .. }, .. }
+                    if *request == current
+            )
+        })
+        .expect("image ask");
+    assert_eq!(
+        app.dispatch_route(command, None),
+        Some((
+            backend,
+            Some(Address {
+                backend,
+                epoch: next
+            })
+        ))
+    );
+
+    for (source_backend, stamp, request) in [
+        (backend, epoch, stale),
+        (backend, epoch, current),
+        (BackendId(1), epoch, current),
+    ] {
+        let response = image_answer(request, "file:///tmp/old.png");
+        assert!(
+            app.ingest(Ingress::transport_event(
+                source_backend,
+                epoch,
+                stamp,
+                response
+            ))
+            .is_none()
+        );
+    }
+    assert!(app.features().images.snapshot(&source).is_none());
+
+    app.ingest(Ingress::transport_event(
+        backend,
+        epoch,
+        next,
+        image_answer(current, "file:///tmp/fresh.png"),
+    ))
+    .expect("the response on the new handle");
+    let snapshot = app
+        .features()
+        .images
+        .snapshot(&source)
+        .expect("current snapshot");
+    assert_eq!(snapshot.link.as_deref(), Some("file:///tmp/fresh.png"));
 }
 
 fn close(app: &mut CodexApp, source: &images::Interest) {

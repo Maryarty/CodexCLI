@@ -3,12 +3,13 @@
 //! that was still in flight when its last reader went away.
 
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use crate::app::effects::{Ask, Done, ImageSize, ImageSnapshot};
 use crate::ids::ThreadId;
 use crate::threads::ItemKey;
 
-use super::AppCx;
+use super::{AppCx, FeatureStates};
 
 pub struct Images;
 
@@ -55,6 +56,20 @@ impl State {
     }
 }
 
+pub(crate) fn retire(states: &mut Rc<FeatureStates>, owns: impl Fn(&ThreadId) -> bool) {
+    if states
+        .images
+        .entries
+        .keys()
+        .any(|interest| owns(&interest.source.thread))
+    {
+        Rc::make_mut(states)
+            .images
+            .entries
+            .retain(|interest, _| !owns(&interest.source.thread));
+    }
+}
+
 feature! {
     impl Feature for Images {
         const NAME: &'static str = "images";
@@ -66,6 +81,10 @@ feature! {
             fn on_interest(state: &mut State, interest: &Interest, open: bool, cx: &mut AppCx<'_>) {
                 if !open {
                     state.entries.remove(interest);
+                    return;
+                }
+                if state.entries.contains_key(interest)
+                    || cx.view().thread(&interest.source.thread).is_none() {
                     return;
                 }
                 state.generation = state.generation.wrapping_add(1);
