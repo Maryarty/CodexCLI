@@ -361,7 +361,7 @@ mod misalignment {
             .safety()
             .violation()
             .and_then(|violation| violation.review.as_ref())
-            .map(|review| review.seq)
+            .map(|review| review.id())
             .expect("a review")
     }
 

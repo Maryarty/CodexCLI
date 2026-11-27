@@ -102,13 +102,17 @@ pub struct Rewrite {
 /// The findings of a misalignment failure and the way to continue after them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Review {
-    /// Names this review: a verb that carries another number is stale and does nothing.
-    pub seq: u64,
+    seq: u64,
     pub turn: TurnId,
     details: MisalignmentErrorDetails,
 }
 
 impl Review {
+    /// Identifies the findings a continuation acknowledges. A replacement has another ID.
+    pub fn id(&self) -> u64 {
+        self.seq
+    }
+
     /// What was detected, for the findings page (markdown).
     pub fn findings(&self) -> &str {
         self.details
@@ -616,7 +620,11 @@ fn verb_applied(model: &mut ThreadModel, verb: Verb, fx: &mut ThreadFx<'_>) {
             let Some(message) = current.and_then(Review::continuation).map(str::to_owned) else {
                 return;
             };
-            if model.is_running() || model.core.outgoing.any(super::is_start_turn) {
+            if !model.has_writer()
+                || model.slots.chat.parent_owned
+                || model.is_running()
+                || model.core.outgoing.any(super::is_start_turn)
+            {
                 return;
             }
             // The turn that went wrong is not sent again: the instruction goes as a new turn with

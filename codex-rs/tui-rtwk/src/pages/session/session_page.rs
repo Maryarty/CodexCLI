@@ -85,6 +85,8 @@ mod presets;
 mod questions;
 #[path = "session/reader.rs"]
 mod reader;
+#[path = "footer/safety.rs"]
+pub(super) mod safety;
 #[path = "session/send.rs"]
 mod send;
 #[path = "session/slot.rs"]

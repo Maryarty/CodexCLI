@@ -262,12 +262,16 @@ pub(super) fn body(
     };
     // The find bar's slot (`find_footer::slot`): while Find is open its query row and status row
     // stand where the footer does, below the composer; closed, the footer the page would draw.
-    body.child(transcript::find_footer::slot(
+    body = body.child(transcript::find_footer::slot(
         cx,
         &w.ui.find,
         &w.ui.selection,
         footer,
-    ))
+    ));
+    Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Start)
+        .child(super::safety::slot(w, state, cx, thread.id(), body.into()))
 }
 
 /// The terminal title keeps being told while the selector takes the bottom pane; the Luna

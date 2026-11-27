@@ -485,20 +485,18 @@ fn app_server_mcp_startup_next_reported_start_reactivates_progress() {
 // ORACLE chatwidget/tests/misalignment_policy_tests.rs:50 misalignment_policy_failure_stops_the_thread_and_renders_once kind=snap owner=chat-live snap=misalignment_policy_violation snap=misalignment_policy_violation_narrow
 #[test]
 fn misalignment_policy_failure_stops_the_thread_and_renders_once() {
-    kit::pending(
-        Owner::ChatLive,
-        "no misalignment precaution popup on the chat screen and no model/safetyBuffering/updated handling; the async question has no feed step",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&script_of(&[
         turn_note("turn/started", "turn-1", "inProgress"),
         safety_buffering("turn-1"),
     ]));
     s.assert_contains("Giving this request a little extra thought");
-    s.type_text("stale draft");
     s.keys("enter");
-    // oracle: a queued follow-up, a question with an answer typed in the alt+up editor, and the stale draft are then
-    // discarded by the failure; the question has no feed step yet.
+    s.type_text("queued follow-up");
+    s.keys("tab");
+    s.assert_contains("queued follow-up");
+    s.type_text("stale draft");
+    s.assert_saved_draft("stale draft");
     s.feed(&misalignment_error("turn-1", "null"));
     let popup = s.shot();
     s.assert_has_row("  Chat stopped as a precaution");
@@ -508,6 +506,9 @@ fn misalignment_policy_failure_stops_the_thread_and_renders_once() {
     s.assert_has_row("  2. Agent command center");
     s.assert_has_row("  3. Resume another chat");
     s.assert_absent("stale draft");
+    s.assert_absent("queued follow-up");
+    s.assert_saved_draft("");
+    s.assert_no_turn();
     s.resize(38, 24);
     s.assert_has_row("  Chat stopped as a precaution");
     s.assert_has_row("  We couldn’t confirm the agent was");
@@ -520,51 +521,82 @@ fn misalignment_policy_failure_stops_the_thread_and_renders_once() {
     // oracle: the failed turn completes with the same error and draws nothing new (renders once).
     s.feed(&turn_failed("turn-1", "null"));
     s.assert_same_rows(&popup);
-    // oracle: New chat (Esc, Enter, Enter) sends NewSession; the resume and agents keys open their pickers (not drawn here).
+    s.keys("esc");
+    s.assert_same_rows(&popup);
+    s.keys("enter");
+    kit::assert_same(
+        s.commands_named("StartThread").len(),
+        2,
+        "new chat requests a second thread",
+    );
 }
 
 // ORACLE chatwidget/tests/misalignment_policy_tests.rs:174 misalignment_turn_end_discards_history_search_and_question_drafts kind=snap owner=chat-live snap=misalignment_turn_end_cleared_composer
 #[test]
 fn misalignment_turn_end_discards_history_search_and_question_drafts() {
-    kit::pending(
-        Owner::ChatLive,
-        "no misalignment turn end on the chat screen: the composer's drafts are not discarded by the failure; the remote image and the async question have no feed or key step",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.feed(&turn_note("turn/started", "turn", "inProgress"));
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .message_history(&["earlier prompt"])
+        .live()
+        .open();
+    s.feed(include_str!(
+        "fixtures/chat_approvals_2/q_turn_end_one.jsonl"
+    ));
     s.paste(&"blocked draft ".repeat(200));
-    // oracle: a remote image, a question with an answer (alt+up, paste, alt+down) and history search (ctrl+r) are open too.
+    s.keys("alt+up")
+        .paste("unsubmitted answer")
+        .keys("alt+down");
+    s.keys("ctrl+r e");
+    s.assert_contains("reverse-i-search");
+    s.feed(&turn_failed("turn-1", REVIEW_DETAILS));
+    s.assert_contains("Chat paused as a precaution");
+    s.assert_saved_draft("");
+    s.assert_absent("reverse-i-search");
+    s.assert_absent("unsubmitted answer");
+    // A later turn lifts the lock. The original draft and the preview are both gone,
+    // and reopening the question editor cannot recover the failed turn's answer.
+    s.feed(&turn_note("turn/started", "turn-2", "inProgress"));
     s.keys("alt+up");
-    s.paste("answer");
-    s.keys("alt+down");
-    s.keys("ctrl+r");
-    s.feed(&turn_failed("turn", REVIEW_DETAILS));
-    s.assert_absent("blocked draft");
-    // The oracle's snapshot is the bottom pane alone, its rows compared one by one at any row.
-    s.assert_has_row("› Ask Codex to do anything");
-    s.assert_has_row("  GPT-5.6-Sol default · /tmp/project");
-    s.assert_has_row("  esc esc to edit previous message");
+    s.assert_absent("⇧← to answer");
+    s.assert_contains("Ask Codex to do anything");
+    s.assert_saved_draft("");
+    s.assert_no_turn();
 }
 
 // ORACLE chatwidget/tests/misalignment_policy_tests.rs:256 misalignment_review_requires_current_findings kind=snap owner=chat-live snap=misalignment_review_narrow
 #[test]
 fn misalignment_review_requires_current_findings() {
-    kit::pending(
-        Owner::ChatLive,
-        "no misalignment review action on the chat screen: the 'Chat paused as a precaution' review confirmation is not drawn from the error's findings",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(38, 24).live().open();
     s.feed(&script_of(&[
         turn_note("turn/started", "turn-1", "inProgress"),
         misalignment_error("turn-1", REVIEW_DETAILS),
     ]));
-    // oracle: Enter selects the review action; the confirmation is then shown (set_status_line "test project" is not in the rows).
     s.keys("enter");
-    s.assert_has_row("    Chat paused as a precaution");
-    s.assert_has_row("›");
-    s.assert_has_row("  › 1. Acknowledge findings and");
-    s.assert_has_row("       continue");
-    s.assert_has_row("    2. Back");
-    // oracle: Enter continues the current review (ContinueMisalignment, not drawn); a second Enter sends nothing.
+    s.assert_contains("What we detected");
+    s.assert_contains("Continuation request (quoted)");
+    s.assert_contains_unwrapped("The agent proposed a change outside your instructions.");
+    s.keys("q");
+    s.assert_contains("Chat paused as a precaution");
+    s.assert_contains_unwrapped("Acknowledge findings and continue");
+    // A replacement expires the displayed review. Enter opens the replacement; it cannot
+    // acknowledge the old findings.
+    let latest = REVIEW_DETAILS.replace("requested change only", "new requested change only");
+    s.feed(&misalignment_error("turn-1", &latest));
     s.keys("enter");
+    s.assert_contains("What we detected");
+    s.assert_contains_unwrapped("Continue with the new requested change only.");
+    s.assert_no_turn();
+    s.keys("q enter");
+    s.assert_turn_texts(&["Continue with the new requested change only."]);
+    let starts = s.commands_named("StartTurn");
+    kit::assert_same(starts.len(), 1, "one acknowledged continuation");
+    let acknowledged = starts.iter().any(|request| {
+        request.contains("thread: ThreadId(\"thread-1\")")
+            && request.contains("misalignment_override: Some(")
+    });
+    kit::assert_same(
+        acknowledged,
+        true,
+        "the original thread owns the acknowledged start",
+    );
 }
