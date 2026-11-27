@@ -5,9 +5,7 @@
 //! nothing, and a `/compact` holds the thread busy from the dispatch. The rows are the oracle's:
 //! `tests/oracle/chat_commands_*.rs`.
 
-#![allow(clippy::expect_used)]
-
-use codex_tui_core::app::Command;
+use codex_tui_core::app::{AppEv, Command};
 use codex_tui_core::fixtures::builders::turn_completed;
 use codex_tui_core::screens::{ScreenCommand, chat};
 use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
@@ -67,21 +65,26 @@ fn enter_on_a_hidden_shell_paste_while_a_turn_runs_queues_it() {
     h.wait_for("the queue row", |s| {
         s.contains("↳ [Pasted Content 1006 chars]")
     });
+    assert_eq!(started(&h), ["work"]);
+    let first_turn_completed = || AppEv::Backend(turn_completed(FAKE_THREAD, "turn-1"));
+    h.inject([first_turn_completed()]);
+    h.wait_until("the queued paste to start", |h| started(h).len() >= 2);
+
+    // Check for another submission after the repeated completion has been applied.
+    h.inject([first_turn_completed()]);
+    let mut drained = h.fake.barrier();
+    h.wait_until("the fake to take the commands", |_| drained.passed());
+    assert_eq!(started(&h), ["work".to_owned(), payload]);
     assert!(
-        h.fake
-            .requests()
-            .iter()
-            .all(|r| r["method"] != "turn/steer"),
+        h.fake.commands().iter().all(|command| !matches!(
+            command,
+            Command::Screen {
+                command: ScreenCommand::Chat(chat::Command::Steer { .. }),
+                ..
+            }
+        )),
         "the paste steered the turn"
     );
-    assert_eq!(started(&h), ["work"]);
-    let epoch = h.fake.epoch().expect("attached");
-    h.fake.inject(
-        epoch,
-        codex_tui_core::app::AppEv::Backend(turn_completed(FAKE_THREAD, "turn-1")),
-    );
-    h.t.pump_for(ms(400));
-    assert_eq!(started(&h), ["work".to_owned(), payload]);
 }
 
 /// Tab on a command typed in full completes nothing and runs nothing while the thread is idle
