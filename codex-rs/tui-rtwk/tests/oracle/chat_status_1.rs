@@ -1097,6 +1097,29 @@ fn workspace_member_credits_depleted_prompts_and_sends_credits() {
     s.assert_requests_of("account/sendAddCreditsNudgeEmail", 1);
 }
 
+#[test]
+fn promoted_owner_confirmation_uses_remapped_picker_keys_and_keeps_the_draft() {
+    let limits = limit_snapshot(100, Some("workspace_member_credits_depleted"));
+    for accept in [false, true] {
+        let mut s = Screen::build(Owner::UiPane)
+            .size(40, 16)
+            .keymap(&[("list.accept", "f3"), ("list.cancel", "f2")])
+            .live()
+            .open();
+        s.type_text("draft in progress");
+        s.feed(&format!("{}\n{}\n", rolling(&limits), limit_error(false)));
+        s.wait_for("Yes (y)");
+        s.assert_contains("f3 select");
+        s.assert_contains("f2 back");
+        s.assert_requests_of("account/sendAddCreditsNudgeEmail", 0);
+        s.keys(if accept { "up f3" } else { "f2" });
+        s.assert_absent("Yes (y)");
+        s.assert_requests_of("account/sendAddCreditsNudgeEmail", usize::from(accept));
+        s.assert_composer("draft in progress");
+        s.assert_no_turn();
+    }
+}
+
 // ORACLE chatwidget/tests/status_and_layout.rs:2090 workspace_member_usage_limit_prompts_and_sends_usage_limit kind=snap owner=ui-pane snap=workspace_member_usage_limit_prompt
 #[test]
 fn workspace_member_usage_limit_prompts_and_sends_usage_limit() {

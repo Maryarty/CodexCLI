@@ -73,7 +73,7 @@ const FIND_OVERRIDE_REASON: &str = "a hint override (`ctrl+c quit`) under the in
 const FOCUS_REASON: &str = "the terminal losing and regaining focus (`set_sparkle_terminal_focus`, crossterm's FocusLost/FocusGained): rtwk reports no terminal focus-in/out events (rtwk-gaps.md), so the deadline's behaviour across a focus loss cannot be driven; a running turn on a fresh task (`set_task_running`) has no seed either: a turn that ran ends the fresh task";
 const HELP_STATUS: &str = include_str!("fixtures/pane_footer_1/help_status.jsonl");
 const EXTENSION_NA: &str = "no live producer: the oracle's app never builds a ui_tree status row (only its tests); native wrap/row budget covered by native_wrap_tracks_agent_label_and_content_changes_at_the_same_width and status_survives_hints_feedback_and_queue";
-const ACTIVITY_REASON: &str = "the hint is the footer of the transcript view (`TranscriptFooter`: `ctrl+o t/f4 inspect activity`, interactive or not, with the shortcut key unbound) that the composer shows under the transcript pager: the pager has no such footer yet (the pager task's), the Working row and the activity rows of chunk-status do not draw it";
+const ACTIVITY_REASON: &str = "the oracle supplies `ctrl+o t/f4 inspect activity` as a synthetic TranscriptFooter. The live footer producer uses activity hints while navigating a fold or when there is unseen activity. The remapped live disclosure and shortcut state are tested below; the synthetic passive row and concatenation remain separate";
 const POPUP_REASON: &str = "the status stays under the composer while the popup is open (page test), but the popup's own rows (`/model` descriptions, the selection marker) are the popups chunk's widget and differ from the oracle's Buffer snapshot";
 
 /// The chat screen's status facts (`ScreenEv::Chat(Ev::Status)`), as the host sends them.
@@ -972,6 +972,37 @@ fn passive_activity_keeps_shortcuts_only_when_the_complete_hint_fits() {
     s.resize(40, 24);
     s.assert_contains("ctrl+o t/f4 inspect activity");
     s.assert_absent("? shortcuts");
+}
+
+#[test]
+fn remapped_activity_footer_keeps_its_actions_local_to_the_reader() {
+    const EXEC: &str = r#"{"step":"notify","message":{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","startedAtMs":0,"item":{"type":"commandExecution","id":"inspect","command":"printf build","cwd":"/tmp/project","processId":null,"source":"agent","status":"inProgress","commandActions":[],"aggregatedOutput":null,"exitCode":null,"durationMs":null,"startedAtMs":0,"completedAtMs":null}}}}
+{"step":"notify","message":{"method":"item/commandExecution/outputDelta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"inspect","delta":"one\ntwo\nthree\nfour\nfive\nsix\nseven\n"}}}"#;
+    const BOUND: &[(&str, &str)] = &[("global.focus_activity", "f7")];
+    const UNBOUND: &[(&str, &str)] = &[("global.focus_activity", "")];
+    for (bindings, active) in [(BOUND, true), (UNBOUND, false)] {
+        let mut s = Screen::build(Owner::UiPane)
+            .size(80, 24)
+            .keymap(bindings)
+            .live()
+            .open();
+        s.feed(RUNNING);
+        s.feed(EXEC);
+        s.assert_contains("printf build");
+        s.assert_absent("enter expand");
+        s.resize(40, 24);
+        s.keys("f4");
+        s.assert_absent("enter expand");
+        s.keys("f7");
+        s.assert_present("enter expand", active);
+        if active {
+            s.keys("enter");
+            s.assert_contains("seven");
+            s.keys("esc");
+        }
+        s.type_text("draft continues");
+        s.assert_composer("draft continues");
+    }
 }
 
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:683 fullscreen_plan_indicator_keeps_the_cycle_hint_when_it_fits kind=snap owner=ui-pane snap=fullscreen_plan_cycle_hint
