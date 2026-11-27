@@ -35,7 +35,7 @@ use crate::rpc::ServerError;
 use crate::screens;
 use crate::threads::ToolMention;
 use crate::threads::UserMessage;
-use crate::threads::asks::{ThreadRpc, changed_turn};
+use crate::threads::asks::{ThreadRpc, apply_ide_context, changed_turn};
 
 use std::path::PathBuf;
 
@@ -76,24 +76,8 @@ pub fn client_request(
             None
         }
     }?;
-    let ide_prompt = match command {
-        Command::StartTurn { ide_prompt, .. }
-        | Command::Screen {
-            command: screens::ScreenCommand::Chat(screens::chat::Command::Steer { ide_prompt, .. }),
-            ..
-        } => ide_prompt.as_ref(),
-        _ => None,
-    };
-    if let Some(context) = ide_prompt {
-        match &mut request {
-            ClientRequest::TurnStart { params, .. } => {
-                crate::threads::prepend_ide_context(&mut params.input, context.as_str());
-            }
-            ClientRequest::TurnSteer { params, .. } => {
-                crate::threads::prepend_ide_context(&mut params.input, context.as_str());
-            }
-            _ => {}
-        }
+    if let Some(context) = ide_prompt(command) {
+        apply_ide_context(&mut request, context.as_str());
     }
     Some(request)
 }
@@ -246,6 +230,17 @@ pub fn reply_from_server(
         return Some((*ticket, Reply::feature(answer)));
     }
     reply(command, result.map_err(|error| error.message))
+}
+
+fn ide_prompt(command: &Command) -> Option<&crate::app::effects::IdePrompt> {
+    match command {
+        Command::StartTurn { ide_prompt, .. }
+        | Command::Screen {
+            command: screens::ScreenCommand::Chat(screens::chat::Command::Steer { ide_prompt, .. }),
+            ..
+        } => ide_prompt.as_ref(),
+        _ => None,
+    }
 }
 
 /// The app's launch and input effects are projected onto the same catalog as

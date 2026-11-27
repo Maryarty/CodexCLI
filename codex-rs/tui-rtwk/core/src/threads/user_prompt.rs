@@ -31,7 +31,7 @@ const IDE_REQUEST: &str = "\n## My request for Codex:\n";
 
 /// Apply IDE context to the wire items after they have their attachment and
 /// mention ranges. The caller retains the original user input.
-pub(crate) fn prepend_ide_context(input: &mut Vec<UserInput>, context: &str) {
+pub(super) fn prepend_ide_context(input: &mut Vec<UserInput>, context: &str) {
     let body = context.strip_prefix(IDE_CONTEXT_BEGIN).unwrap_or(context);
     // Delimit the context by length so an identical heading in selected code
     // or in the user's request remains part of its source.
@@ -201,6 +201,33 @@ impl UserPrompt {
     }
 }
 
+/// `text` without CSI sequences and control characters but tabs and
+/// newlines. A lone ESC goes on its own; a CSI sequence that never ends
+/// takes the rest of the text with it.
+pub(crate) fn without_controls(text: &str) -> Cow<'_, str> {
+    let hidden = |ch: char| ch == '\x1b' || ch.is_control() && !matches!(ch, '\n' | '\t');
+    if !text.contains(hidden) {
+        return Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(hidden) {
+        out.push_str(&rest[..at]);
+        let after = &rest[at..];
+        let sequence = after.strip_prefix("\x1b[");
+        rest = match sequence {
+            // a CSI sequence ends at its final byte, `@` to `~`
+            Some(sequence) => match sequence.find(|ch: char| ('@'..='~').contains(&ch)) {
+                Some(end) => &sequence[end + 1..],
+                None => return Cow::Owned(out),
+            },
+            None => &after[after.chars().next().map_or(0, char::len_utf8)..],
+        };
+    }
+    out.push_str(rest);
+    Cow::Owned(out)
+}
+
 #[cfg(test)]
 mod tests {
     use codex_app_server_protocol::{ByteRange, TextElement};
@@ -254,7 +281,11 @@ mod tests {
         );
         let shown = UserPrompt::from_input(&input);
         assert_eq!(shown.text, request);
-        assert_eq!(shown.elements, [image..image + "[Image #1]".len()]);
+        assert_eq!(shown.elements.len(), 1);
+        assert_eq!(
+            shown.elements.first(),
+            Some(&(image..image + "[Image #1]".len()))
+        );
         assert!(shown.images.is_empty());
         assert_eq!(request_text(&input), request);
     }
@@ -278,31 +309,4 @@ mod tests {
         let malformed = "# Context from my IDE setup:\n<!-- Codex IDE context bytes: 10 -->\n短\n## My request for Codex:\nhello";
         assert_eq!(UserPrompt::request_part(malformed), (malformed, 0));
     }
-}
-
-/// `text` without CSI sequences and control characters but tabs and
-/// newlines. A lone ESC goes on its own; a CSI sequence that never ends
-/// takes the rest of the text with it.
-pub(crate) fn without_controls(text: &str) -> Cow<'_, str> {
-    let hidden = |ch: char| ch == '\x1b' || ch.is_control() && !matches!(ch, '\n' | '\t');
-    if !text.contains(hidden) {
-        return Cow::Borrowed(text);
-    }
-    let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(at) = rest.find(hidden) {
-        out.push_str(&rest[..at]);
-        let after = &rest[at..];
-        let sequence = after.strip_prefix("\x1b[");
-        rest = match sequence {
-            // a CSI sequence ends at its final byte, `@` to `~`
-            Some(sequence) => match sequence.find(|ch: char| ('@'..='~').contains(&ch)) {
-                Some(end) => &sequence[end + 1..],
-                None => return Cow::Owned(out),
-            },
-            None => &after[after.chars().next().map_or(0, char::len_utf8)..],
-        };
-    }
-    out.push_str(rest);
-    Cow::Owned(out)
 }

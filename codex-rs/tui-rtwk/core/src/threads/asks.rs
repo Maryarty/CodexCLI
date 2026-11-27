@@ -21,6 +21,16 @@ use codex_protocol::openai_models::ReasoningEffort;
 /// turn's existing input through `ThreadRpc` while it builds the request.
 pub type ThreadAsk = ThreadRpc<UserMessage>;
 
+/// Adds the accepted send's private context after the catalog encoded its attachments.
+pub(crate) fn apply_ide_context(request: &mut wire::ClientRequest, context: &str) {
+    let input = match request {
+        wire::ClientRequest::TurnStart { params, .. } => &mut params.input,
+        wire::ClientRequest::TurnSteer { params, .. } => &mut params.input,
+        _ => return,
+    };
+    super::user_prompt::prepend_ide_context(input, context);
+}
+
 impl TurnsRequest {
     pub(super) fn params(&self) -> wire::ThreadTurnsListParams {
         wire::ThreadTurnsListParams {

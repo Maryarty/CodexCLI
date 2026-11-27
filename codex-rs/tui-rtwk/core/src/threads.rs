@@ -59,7 +59,6 @@ pub use note::{CdRefusal, ModeNote, Note, NoteKey, RemoveNote, Stub, Toggle, Ton
 pub use processes::{Listed, Terminal, WaitStreak};
 pub use queue::{DueCommand, Queued, Ran};
 use queue::{enqueue, send_next};
-pub(crate) use user_prompt::prepend_ide_context;
 pub(crate) use user_prompt::without_controls;
 pub use user_prompt::{Shown, UserPrompt, request_text};
 
