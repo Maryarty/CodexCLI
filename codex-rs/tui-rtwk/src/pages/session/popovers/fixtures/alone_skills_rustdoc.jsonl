@@ -1,6 +1,0 @@
-# `skill_completion_attaches_typed_punctuation` (skill_completion_tests.rs:12): the skill `rustdoc`
-# (`test_skill_metadata`), the composer alone, as the oracle's composer harness has it; the status
-# line is off, so the footer of a draft is the context meter `100% context left`.
-{"step":"seed","seed":"session","thread":"thread-1"}
-{"step":"screen","dir":"chat","ev":{"status":{"items":[]}}}
-{"step":"screen","dir":"popovers","ev":{"mentions":[{"kind":"skill","name":"rustdoc","description":"Example skill used in tests.","insert":"rustdoc","path":"/tmp/rustdoc/SKILL.md"}]}}

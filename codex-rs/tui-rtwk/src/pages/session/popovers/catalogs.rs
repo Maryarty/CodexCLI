@@ -31,10 +31,6 @@ pub fn entries() -> Vec<DebugEntry> {
             "the composer alone, with the skills of the oracle's skill popup tests"
         ),
         catalog!(
-            "alone_skills_rustdoc",
-            "the composer alone, with the skill `rustdoc` of the oracle's typed-punctuation test"
-        ),
-        catalog!(
             "alone_skills_confirmed",
             "the composer alone, with three skills and the picks the host remembers"
         ),
