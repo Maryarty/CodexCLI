@@ -427,38 +427,43 @@ fn folding_a_reasoning_only_page_retains_its_find_and_copy_revision() {
 // ORACLE transcript_view/prompt_header_tests.rs:28 prompt_header_tracks_reading_and_yields_to_visible_prompts_and_short_screens kind=snap owner=chat-live snap=prompt_header_tracks_reading_and_yields_to_visible_prompts_and_short_screens
 #[test]
 fn prompt_header_tracks_reading_and_yields_to_visible_prompts_and_short_screens() {
-    kit::pending(
-        Owner::ChatLive,
-        "rtwk gap G-new-usage-2 (a scrolled ListView does not report which items it shows, so a header pinned to the reading position cannot follow it: wanted `ListController::visible_range()`): the chat draws no pinned prompt header (S10 transcript header) yet; the joined snapshot has bare label lines the kit's snapshot reader does not parse, so each state is compared row by row",
+    // Use the real owned chat, with enough room below the reader for its composer.
+    // Hard paragraph boundaries express the oracle's independent display rows.
+    let question = "Second café question";
+    let response = (0..35)
+        .map(|row| format!("response paragraph {row:02}"))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let turn = kit::replay_turn(
+        "header-turn",
+        serde_json::json!([
+            {"type":"userMessage","id":"prompt","content":[
+                {"type":"text","text":question,"text_elements":[]}
+            ]},
+            {"type":"agentMessage","id":"response","text":response,"phase":"final_answer"}
+        ]),
     );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(30, 5)
-        .script(include_str!(
-            "fixtures/transcript_view_3/header_turns.jsonl"
-        ))
+        .size(68, 16)
+        .owned_transcript()
+        .replay(vec![turn])
         .open();
-    // Latest: the newest prompt is pinned above the newest answer
-    s.assert_row(0, "› Second café question");
-    s.assert_row(1, "seven");
-    s.assert_row(4, "ten");
-    // Earlier answer: reading the first answer pins its prompt
-    s.wheel_up(0, 1, 6);
-    s.assert_row(0, "› First question");
-    s.assert_row(1, "one");
-    s.assert_row(4, "four");
-    // After prepend: an older prompt loaded above has no kit step yet
-    // Prompt visible: a press on the pinned header row jumps to its prompt
-    s.click(0, 0);
-    s.assert_row(0, "› First question");
-    s.assert_row(1, "");
-    s.assert_row(3, "one");
-    s.assert_row(4, "two");
-    // Short screen: three rows show the latest answer without a header
-    s.wheel_down(0, 0, 100);
-    s.resize(30, 3);
-    s.assert_row(0, "eight");
-    s.assert_row(1, "nine");
-    s.assert_row(2, "ten");
+    s.wait(300);
+    s.assert_contains("response paragraph 34");
+    s.assert_text_at(2, 0, question);
+    s.wheel_up(3, 3, 1);
+    s.assert_contains("Back to bottom");
+    s.assert_text_at(2, 0, question);
+
+    s.resize(68, 6);
+    s.assert_absent(question);
+    s.resize(68, 16);
+    s.wait(300);
+    s.assert_text_at(2, 0, question);
+    s.click_text(question);
+    s.wait(300);
+    s.assert_contains("response paragraph 00");
+    s.assert_text_count(question, 1);
 }
 
 // ORACLE transcript_view/prompt_header_tests.rs:92 header_sanitizes_controls_and_truncates_by_display_width kind=snap owner=chat-live snap=header_sanitizes_controls_and_truncates_by_display_width
