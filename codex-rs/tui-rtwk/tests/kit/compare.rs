@@ -6,6 +6,7 @@
 use super::grid::{self, Grid};
 use super::labels;
 use super::oracle_snap::{self, Frame};
+use super::verdict;
 
 fn trim(rows: Vec<String>) -> Vec<String> {
     let mut rows: Vec<String> = rows.into_iter().map(|r| r.trim_end().to_string()).collect();
@@ -160,7 +161,9 @@ fn assert_frame(grid: &Grid, want: &Want<'_>, mut frame: Frame, at: Option<(usiz
                 (0..n).filter(|&i| actual.get(i) != expected.get(i)).count()
             });
         if let Some((actual, expected)) = nearest {
-            oracle_snap::assert_same(&label, &actual, &expected);
+            verdict::screen(&actual, &expected, || {
+                oracle_snap::assert_same(&label, &actual, &expected);
+            });
         }
     }
     if let Some(cursor) = frame.cursor {
@@ -174,11 +177,13 @@ fn assert_frame(grid: &Grid, want: &Want<'_>, mut frame: Frame, at: Option<(usiz
     }
     if frame.styles.is_some() {
         let bad = style_diffs(grid, &frame, row0, col0);
-        assert!(
-            bad.is_empty(),
-            "{label}: cell styles differ from the oracle's (ours vs oracle):\n{}",
-            bad.join("\n")
-        );
+        verdict::screen_styles(|| {
+            assert!(
+                bad.is_empty(),
+                "{label}: cell styles differ from the oracle's (ours vs oracle):\n{}",
+                bad.join("\n")
+            );
+        });
     }
 }
 

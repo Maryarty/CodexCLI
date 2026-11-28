@@ -243,11 +243,13 @@ impl Screen {
             .map(|row| row.trim_end().to_string())
             .collect();
         let have: Vec<String> = self.rows().into_iter().take(want.len()).collect();
-        pretty_assertions::assert_eq!(
-            have,
-            want,
-            "{name}: ours (left) differs from the oracle (right)"
-        );
+        super::verdict::screen(&have.clone(), &want.clone(), || {
+            pretty_assertions::assert_eq!(
+                have,
+                want,
+                "{name}: ours (left) differs from the oracle (right)"
+            );
+        });
     }
 
     /// The rows of frame `frame` of the oracle snapshot `name` (`assert_snap_section`'s header)
@@ -255,18 +257,26 @@ impl Screen {
     /// row of the oracle's test cell the thread's items spell otherwise).
     pub fn assert_snap_frame_except(&self, name: &str, frame: &str, except: &[usize]) {
         let ours = self.rows();
-        for (at, want) in super::snap_rows(name, frame).iter().enumerate() {
-            if except.contains(&at) {
-                continue;
+        let wanted = super::snap_rows(name, frame);
+        let kept: Vec<usize> = (0..wanted.len())
+            .filter(|at| !except.contains(at))
+            .collect();
+        let got_rows: Vec<&str> = kept
+            .iter()
+            .map(|&at| ours.get(at).map_or("", |row| row.trim_end()))
+            .collect();
+        let want_rows: Vec<&str> = kept.iter().map(|&at| wanted[at].as_str()).collect();
+        super::verdict::screen(&got_rows, &want_rows, || {
+            for &at in &kept {
+                let got = ours.get(at).map_or("", |row| row.trim_end());
+                pretty_assertions::assert_eq!(
+                    got,
+                    wanted[at].trim_end(),
+                    "{name} / {frame}: row {at}\n{}",
+                    self.text()
+                );
             }
-            let got = ours.get(at).map_or("", |row| row.trim_end());
-            pretty_assertions::assert_eq!(
-                got,
-                want.trim_end(),
-                "{name} / {frame}: row {at}\n{}",
-                self.text()
-            );
-        }
+        });
     }
 
     /// The rows of the oracle snapshot `name` equal ours from screen row `row`, trailing blanks
@@ -278,10 +288,15 @@ impl Screen {
             "{name}: the popup is not on the screen:\n{}",
             self.text()
         );
-        for (at, want) in super::snap_rows(name, "").iter().enumerate() {
-            let got = ours.get(row + at).map_or("", |r| r.trim_end());
-            pretty_assertions::assert_eq!(got, want.trim_end(), "{name}: row {at}");
-        }
+        let wanted = super::snap_rows(name, "");
+        let got_rows: Vec<&str> = (0..wanted.len())
+            .map(|at| ours.get(row + at).map_or("", |r| r.trim_end()))
+            .collect();
+        super::verdict::screen(&got_rows, &wanted, || {
+            for (at, (got, want)) in got_rows.iter().zip(&wanted).enumerate() {
+                pretty_assertions::assert_eq!(*got, want.trim_end(), "{name}: row {at}");
+            }
+        });
     }
 
     /// The rows, each trimmed and all joined without a separator, hold `text` (a text the
@@ -1131,5 +1146,7 @@ fn row_then(rows: &[String], screen: &str, row: &str, following: &[&str]) {
 pub fn assert_rows_are(got: &[String], want: &[&str]) {
     let got: Vec<&str> = got.iter().map(|row| row.trim_end()).collect();
     let want: Vec<&str> = want.iter().map(|row| row.trim_end()).collect();
-    pretty_assertions::assert_eq!(got, want);
+    super::verdict::screen(&got.clone(), &want.clone(), || {
+        pretty_assertions::assert_eq!(got, want);
+    });
 }

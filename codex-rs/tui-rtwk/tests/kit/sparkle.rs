@@ -158,12 +158,15 @@ impl Screen {
     pub fn assert_layout(&self, name: &str, marker: &str) -> (Vec<String>, Vec<String>) {
         let want = oracle_composer(name, marker);
         let got = composer_rows(&self.rows());
-        pretty_assertions::assert_eq!(
-            bare(&want).join("\n"),
-            bare(&got).join("\n"),
-            "{name} / {marker}: ours (right) differs from the oracle (left) off the dots\n{}",
-            self.text()
-        );
+        let (bare_want, bare_got) = (bare(&want), bare(&got));
+        super::verdict::screen(&bare_got, &bare_want, || {
+            pretty_assertions::assert_eq!(
+                bare_want.join("\n"),
+                bare_got.join("\n"),
+                "{name} / {marker}: ours (right) differs from the oracle (left) off the dots\n{}",
+                self.text()
+            );
+        });
         (want, got)
     }
 
@@ -233,11 +236,13 @@ impl Screen {
             want[at_prompt]
         );
         got[at_prompt] = want[at_prompt].clone();
-        pretty_assertions::assert_eq!(
-            want.join("\n"),
-            got.join("\n"),
-            "{name}: ours (right) differs from the oracle (left)"
-        );
+        super::verdict::screen(&got, want, || {
+            pretty_assertions::assert_eq!(
+                want.join("\n"),
+                got.join("\n"),
+                "{name}: ours (right) differs from the oracle (left)"
+            );
+        });
     }
 
     /// The cursor is on the final row of the screen.

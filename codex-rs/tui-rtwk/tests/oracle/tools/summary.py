@@ -8,6 +8,8 @@
     python3 -I tests/oracle/tools/summary.py --list pending               # pending tests: owner and reason
     python3 -I tests/oracle/tools/summary.py --list stale                 # pending tests that now pass (see --probe)
     python3 -I tests/oracle/tools/summary.py --list stale-real            # ... with a body that asserts something present (un-pend these)
+    python3 -I tests/oracle/tools/summary.py --list delta                 # tests that pass with a small visual delta: owner and what
+    python3 -I tests/oracle/tools/summary.py --list delta-stale           # tests that declare kit::delta but whose screen matches now (remove the marker)
 
 Run a shard (or several) and read the result in one command, safe to run beside
 other agents (each run writes its own junit file, target/nextest/oracle/junit-<run>.xml):
@@ -27,6 +29,10 @@ Verdicts (tests/kit/verdict.rs):
   n/a       passed through kit::na(owner, reason)
   pending   failed with `PENDING[slice]: reason`  (kit::pending / a seed that does not exist)
   todo      failed with `TODO[port]`                (a stub nobody ported yet)
+  delta     passed through kit::delta(owner, what): every functional check passed, only the comparison of
+            the screen with the oracle's rows or cell styles differs, by a small visual delta
+            (docs/rtwk-port/visual-deltas.md). NOT a pass: its own column, the last of the table (the
+            TOTAL line keeps pass n/a pending todo red stale total in positions 2..8, delta is position 9)
   red       any other failure: the screen differs from the oracle, or the test is wrong
   stale     passed while a kit::pending marker was probing; a marker with no code after it (a usage stub)
             passes vacuously: that test is counted `pending`, not stale. A stale test whose body only asserts
@@ -53,6 +59,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CRATE = os.path.normpath(os.path.join(HERE, '..', '..', '..'))
 JUNIT = os.path.join(CRATE, 'target', 'nextest', 'oracle', 'junit.xml')
 KINDS = ['pass', 'n/a', 'pending', 'todo', 'red', 'stale']
+DELTA = 'delta'   # counted after `total`: land.sh reads TOTAL by position
 
 
 def first_line(text):
@@ -159,6 +166,31 @@ def body_kind(shard, test):
     return 'real' if positive else 'absence-only'
 
 
+def declares_delta(shard, test):
+    """Whether `fn <test>` of the shard calls kit::delta( (a passing one without a DELTA line is stale)."""
+    path = os.path.join(CRATE, 'tests', 'oracle', shard + '.rs')
+    if not os.path.exists(path):
+        return False
+    src = open(path, encoding='utf-8').read()
+    m = re.search(r'\bfn %s\s*\(' % re.escape(test), src)
+    if not m:
+        return False
+    start = src.find('{', m.end())
+    end = _match(src, start, '{', '}')
+    if start < 0 or end < 0:
+        return False
+    code, i, body = [], 0, src[start + 1:end]
+    while i < len(body):
+        j = _skip_lexeme(body, i)
+        if j is not None:
+            code.append(' ')
+            i = j
+        else:
+            code.append(body[i])
+            i += 1
+    return bool(re.search(r'\bkit::delta\s*\(', ''.join(code)))
+
+
 def verdicts(path):
     root = ET.parse(path).getroot()
     out = []
@@ -177,6 +209,7 @@ def verdicts(path):
         if failure is None:
             na = re.search(r'N/A\[([\w-]+)\]: (.*)', text)
             probe = re.search(r'PROBE\[([\w-]+)\]: (.*)', text)
+            delta = re.search(r'^DELTA\[([\w-]+)\]: (.*)', text, re.M)
             if probe:
                 kind = body_kind(shard, test)
                 if kind == 'stub':
@@ -190,6 +223,11 @@ def verdicts(path):
                     out.append((shard, test, 'stale', probe.group(1), probe.group(2)))
             elif na:
                 out.append((shard, test, 'n/a', na.group(1), na.group(2)))
+            elif delta:
+                out.append((shard, test, DELTA, delta.group(1), delta.group(2)))
+            elif declares_delta(shard, test):
+                # kit::delta declared, no comparison differed: a plain pass, with a marker to remove
+                out.append((shard, test, 'pass', 'delta-stale', 'kit::delta declared, the screen matches the oracle: remove the marker'))
             else:
                 out.append((shard, test, 'pass', '', ''))
             continue
@@ -265,7 +303,12 @@ def main(argv):
         real_only = want == 'stale-real'
         if real_only:
             want = 'stale'
+        delta_stale = want == 'delta-stale'
+        if delta_stale:
+            want = 'pass'
         for shard, test, kind, owner, why in rows:
+            if delta_stale and owner != 'delta-stale':
+                continue
             if kind == want and not (real_only and why.startswith('{')):
                 print('%s::%s  %s%s' % (shard, test, ('[%s] ' % owner) if owner else '', why))
         return
@@ -273,15 +316,22 @@ def main(argv):
     for shard, test, kind, owner, why in rows:
         per.setdefault(shard, collections.Counter())[kind] += 1
     total = collections.Counter()
-    print('%-24s %5s %5s %7s %5s %5s %6s %6s' % ('shard', 'pass', 'n/a', 'pending', 'todo', 'red', 'stale', 'total'))
+    # pass n/a pending todo red stale total, then delta: land.sh reads TOTAL by position (2..6), new fields go last
+    print('%-24s %5s %5s %7s %5s %5s %6s %6s %6s' % ('shard', 'pass', 'n/a', 'pending', 'todo', 'red', 'stale', 'total', 'delta'))
     for shard, c in sorted(per.items()):
         total.update(c)
         note = '' if sum(c.values()) else '   <- no test of this shard ran (wrong name?)'
-        print('%-24s %5d %5d %7d %5d %5d %6d %6d%s' % ((shard,) + tuple(c[k] for k in KINDS) + (sum(c.values()), note)))
-    print('%-24s %5d %5d %7d %5d %5d %6d %6d' % (('TOTAL',) + tuple(total[k] for k in KINDS) + (sum(total.values()),)))
+        print('%-24s %5d %5d %7d %5d %5d %6d %6d %6d%s' % ((shard,) + tuple(c[k] for k in KINDS) + (sum(c.values()), c[DELTA], note)))
+    print('%-24s %5d %5d %7d %5d %5d %6d %6d %6d' % (('TOTAL',) + tuple(total[k] for k in KINDS) + (sum(total.values()), total[DELTA])))
     owners = collections.Counter(owner for _s, _t, kind, owner, _w in rows if kind == 'pending')
     if owners:
         print('\npending by slice: ' + ', '.join('%s %d' % kv for kv in sorted(owners.items())))
+    deltas = collections.Counter(owner for _s, _t, kind, owner, _w in rows if kind == DELTA)
+    if deltas:
+        print('delta by slice: ' + ', '.join('%s %d' % kv for kv in sorted(deltas.items())))
+    stale = sum(1 for _s, _t, kind, owner, _w in rows if kind == 'pass' and owner == 'delta-stale')
+    if stale:
+        print('stale deltas (kit::delta declared, screen matches; --list delta-stale): %d' % stale)
 
 
 if __name__ == '__main__':
