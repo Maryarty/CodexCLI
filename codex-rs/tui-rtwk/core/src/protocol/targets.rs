@@ -30,6 +30,7 @@ pub(crate) fn notification_thread(notification: &ServerNotification) -> Option<&
         N::ThreadReadStateChanged(n) => &n.thread_id,
         N::ThreadTokenUsageUpdated(n) => &n.thread_id,
         N::TurnStarted(n) => &n.thread_id,
+        N::TurnRuntimeMetrics(n) => &n.thread_id,
         N::TurnCompleted(n) => &n.thread_id,
         N::TurnPlanUpdated(n) => &n.thread_id,
         N::ItemStarted(n) => &n.thread_id,

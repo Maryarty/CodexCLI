@@ -52,6 +52,9 @@ pub(crate) fn project_thread(
         .or_else(|| {
             status::project(notification).map(|(thread, ev)| (thread, ScreenThreadEv::Status(ev)))
         })
+        .or_else(|| {
+            cells::project(notification).map(|(thread, ev)| (thread, ScreenThreadEv::Cells(ev)))
+        })
 }
 
 /// Where a slot shows up in the app.

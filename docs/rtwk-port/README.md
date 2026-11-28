@@ -11,6 +11,7 @@ the design and the references agents read.
 | [ORACLE_REF](ORACLE_REF) | the upstream commit whose `codex-rs/tui` is the oracle |
 | [RTWK_REF](RTWK_REF) | the rtwk commit the port builds against |
 | [BACKEND_REF](BACKEND_REF) | the commit of this repository whose `codex-rs` backend crates the port builds against |
+| [backend-patches.md](backend-patches.md) | the catalog of the patches the backend carries (BACKEND_REF is the tip of their series) and how to move them to a new release |
 | [research/codex-tui-surface.md](research/codex-tui-surface.md) | screens, flows and terminal behaviours of the oracle |
 | [research/codex-tui-features.csv](research/codex-tui-features.csv) | 312 rows: every view, popup, overlay, cell, slash command, keymap group, terminal capability |
 | [research/codex-tui-architecture.md](research/codex-tui-architecture.md) | the oracle's runtime, state, rendering, reuse, tests |
@@ -37,7 +38,12 @@ target (`codex-rs/tui-rtwk/target`). One target shared by all worktrees was
 tried and dropped (2026-11-21): cargo names workspace units by their path
 relative to the workspace, so worktrees overwrote each other's test binaries. `tests/rules/pin.rs` checks that
 all three manifests point into the pin and the pin is at BACKEND_REF. The port
-never edits the backend. After an upstream sync touches `codex-rs` outside
-`tui-rtwk`, move the pin and the file together:
+edits the backend only through the catalogued patches ([backend-patches.md](backend-patches.md),
+person 2026-11-28): BACKEND_REF is the tip of the series in
+`tools/rtwk-port/backend-patches/series` (`tests/rules/backend_patches.rs`). After an upstream
+sync touches `codex-rs` outside `tui-rtwk`, or to a new release,
+`tools/rtwk-port/backend-patches/apply.sh <tag>` carries the series onto it; then move the pin
+and the file together:
 `git -C ~/.cache/codexcli/backend-pin checkout --detach <ref>` and write the
-full commit into BACKEND_REF.
+full commit into BACKEND_REF. Nothing builds a manifest against a pin of another worktree: a
+temporary manifest overlay (paths into a staging checkout) is a local experiment, never committed.
