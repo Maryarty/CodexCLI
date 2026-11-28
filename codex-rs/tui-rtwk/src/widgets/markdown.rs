@@ -21,10 +21,35 @@ use rtwk::provider::Provider;
 use rtwk::{AnyWidget, Cx, Handler, State, StatefulWidget, impl_widget};
 use rtwk_rich::markdown::{
     Block, Definitions, LinkDestinations, MarkdownLinkTap, MarkdownStream, MarkdownTheme,
-    MarkdownView, MdBlock, MdInline, MdList, MdListItem,
+    MarkdownView, MdBlock, MdExtensions, MdInline, MdList, MdListItem,
 };
 
 use codex_tui_core::data::links::LinkDisplay;
+
+/// The Markdown extensions the oracle reads beyond rtwk's default: with `math` (the
+/// `tui.rendering.math` preference) TeX math in dollars (`$..$`, `$$..$$`) and in brackets
+/// (`\(..\)`, `\[..\]`), the four forms of the oracle's `markdown_render/math.rs`. A formula
+/// parses as `MdInline::Math` and the view draws it as Unicode (rtwk-math). Alerts and
+/// footnotes stay off: the oracle reads neither.
+pub fn extensions(math: bool) -> MdExtensions {
+    if math {
+        MdExtensions::MATH | MdExtensions::MATH_BRACKETS
+    } else {
+        MdExtensions::empty()
+    }
+}
+
+/// A stream with no text yet that parses as the oracle reads Markdown (`extensions`).
+pub fn empty_stream(math: bool) -> MarkdownStream {
+    MarkdownStream::with_extensions(extensions(math))
+}
+
+/// A stream that starts with `text`, parsed as the oracle reads Markdown (`extensions`).
+pub fn stream(text: &str, math: bool) -> MarkdownStream {
+    let mut stream = empty_stream(math);
+    stream.add(text);
+    stream
+}
 
 /// A reader's optional activation handler for the links it draws.
 #[derive(Clone, PartialEq)]
@@ -37,7 +62,7 @@ pub fn view(source: &str) -> MarkdownView {
 
 /// `view` with local file links shown relative to the session directory `cwd`.
 pub fn view_in(source: &str, cwd: Option<&str>) -> MarkdownView {
-    let mut stream = MarkdownStream::new(source);
+    let mut stream = stream(source, true);
     let blocks = stream.blocks().to_vec();
     let definitions = stream.definitions().clone();
     MarkdownView::blocks(prepared(&blocks, &definitions, cwd), definitions)

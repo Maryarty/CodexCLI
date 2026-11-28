@@ -35,7 +35,7 @@ use codex_tui_core::app::facts::{Rendering, TuiSettings};
 use codex_tui_core::threads::citations::{Directive, directives, label};
 use codex_tui_core::threads::{inline_vis, stream_preview};
 
-use crate::widgets::markdown::prepared;
+use crate::widgets::markdown::{empty_stream, prepared, stream as parse};
 
 use super::markdown::{LiveTableSource, plain_lists, preferred};
 use super::strings::Strings;
@@ -241,12 +241,24 @@ struct LiveMarkdown {
     parser: LiveParser,
 }
 
-/// The parser input is the visible text after source rewrites and directive masking.
-#[derive(Default)]
+/// The parser input is the visible text after source rewrites and directive masking, parsed as
+/// the oracle reads Markdown (`widgets::markdown::extensions`: math as the preference says).
 struct LiveParser {
     source: String,
+    math: bool,
     stream: MarkdownStream,
     prepared: Option<PreparedBlocks>,
+}
+
+impl Default for LiveParser {
+    fn default() -> Self {
+        LiveParser {
+            source: String::new(),
+            math: true,
+            stream: empty_stream(true),
+            prepared: None,
+        }
+    }
 }
 
 struct PreparedBlocks {
@@ -257,21 +269,32 @@ struct PreparedBlocks {
 }
 
 impl LiveParser {
-    fn update(&mut self, source: &str) {
-        if let Some(delta) = source.strip_prefix(self.source.as_str()) {
-            self.stream.add(delta);
-            self.source.push_str(delta);
-        } else {
-            // A completed fence, a directive or a corrected message can replace old input.
-            self.source.clear();
-            self.source.push_str(source);
-            self.stream = MarkdownStream::new(source);
-            self.prepared = None;
+    fn update(&mut self, source: &str, math: bool) {
+        match source.strip_prefix(self.source.as_str()) {
+            Some(delta) if math == self.math => {
+                self.stream.add(delta);
+                self.source.push_str(delta);
+            }
+            _ => {
+                // A completed fence, a directive, a corrected message or a changed preference
+                // can replace old input.
+                self.source.clear();
+                self.source.push_str(source);
+                self.math = math;
+                self.stream = parse(source, math);
+                self.prepared = None;
+            }
         }
     }
 
-    fn plain_view(&mut self, source: &str, cwd: Option<&str>, lists: bool) -> MarkdownView {
-        self.update(source);
+    fn plain_view(
+        &mut self,
+        source: &str,
+        cwd: Option<&str>,
+        lists: bool,
+        math: bool,
+    ) -> MarkdownView {
+        self.update(source, math);
         let settled = self.stream.settled();
         let definitions = self.stream.definitions().clone();
         let blocks = self.stream.blocks();
@@ -313,7 +336,8 @@ fn prepare(
 }
 
 /// `view` under the user's `tui.rendering` preferences: a disabled table or list renderer keeps
-/// its source text (mermaid and math have no renderer here, so their sources show either way).
+/// its source text (mermaid has no renderer here, so its source shows either way); with `math`
+/// off a formula is not read: its dollars stay text.
 pub fn view_with(
     source: &str,
     live: bool,
@@ -355,9 +379,9 @@ fn render_prepared(
     // The marker characters are the app's: text that holds them is shown as it is.
     if found.is_empty() || lifted.contains([OPEN, CLOSE]) {
         if let Some(live) = live {
-            return live.plain_view(lifted, cwd, rendering.lists);
+            return live.plain_view(lifted, cwd, rendering.lists, rendering.math);
         }
-        let mut stream = MarkdownStream::new(lifted);
+        let mut stream = parse(lifted, rendering.math);
         let definitions = stream.definitions().clone();
         return MarkdownView::blocks(
             prepare(stream.blocks(), &definitions, cwd, rendering.lists),
@@ -383,13 +407,13 @@ fn render_prepared(
     };
     let mut cold;
     let stream = if let Some(live) = live {
-        live.update(&masked);
+        live.update(&masked, rendering.math);
         // Directive substitutions depend on their current source, even if masking preserved the
         // parser input. Keep parser state, but project all the nodes again.
         live.prepared = None;
         &mut live.stream
     } else {
-        cold = MarkdownStream::new(&masked);
+        cold = parse(&masked, rendering.math);
         &mut cold
     };
     let blocks: Vec<_> = stream
@@ -436,7 +460,7 @@ pub fn blocks_of(
 /// The inline nodes of a follow-up's label: its own Markdown, the first
 /// paragraph's inlines; a label that parses to anything else is its text.
 fn label_inlines(label: &str) -> Vec<MdInline> {
-    let mut stream = MarkdownStream::new(label);
+    let mut stream = parse(label, true);
     match stream.blocks() {
         [block] => match block.as_ref() {
             MdBlock::Paragraph(inlines) => inlines.clone(),
@@ -573,15 +597,40 @@ impl Directives<'_> {
         let mut out = Vec::with_capacity(inlines.len());
         let mut text = String::new();
         for inline in inlines {
-            if let MdInline::Text(piece) = inline {
-                text.push_str(piece);
-                continue;
+            match inline {
+                MdInline::Text(piece) => {
+                    text.push_str(piece);
+                    continue;
+                }
+                // a directive splits the text the oracle reads math in: a formula with a marker
+                // in it is not one, its delimiters are the text they were typed as
+                MdInline::Math { source, display } if source.contains(OPEN) => {
+                    text.push_str(&self.unmath(source, *display));
+                    continue;
+                }
+                _ => {}
             }
             self.flush(&mut text, &mut out, read);
             out.push(self.inline(inline, read));
         }
         self.flush(&mut text, &mut out, read);
         out
+    }
+
+    /// The text of a formula (`source` with markers) that holds a directive: its delimiters as
+    /// typed (`\[` and `\(` as the brackets they escape) and the source between them.
+    fn unmath(&self, source: &str, display: bool) -> String {
+        let body = self.restore(source);
+        let forms: [(&str, &str, &str, &str); 2] = if display {
+            [("$$", "$$", "$$", "$$"), ("\\[", "\\]", "[", "]")]
+        } else {
+            [("$", "$", "$", "$"), ("\\(", "\\)", "(", ")")]
+        };
+        let (.., open, close) = forms
+            .iter()
+            .find(|(open, close, ..)| self.source.contains(&format!("{open}{body}{close}")))
+            .unwrap_or(&forms[0]);
+        format!("{open}{source}{close}")
     }
 
     fn flush(&self, text: &mut String, out: &mut Vec<MdInline>, read: bool) {
@@ -658,7 +707,8 @@ impl Directives<'_> {
             },
             MdInline::SoftBreak => MdInline::SoftBreak,
             MdInline::HardBreak => MdInline::HardBreak,
-            // footnote references and math belong to extensions the app does not turn on
+            // footnote references belong to an extension the app does not turn on; a formula
+            // without a marker stays one (`inlines` reads the one with a marker as text)
             other => other.clone(),
         }
     }

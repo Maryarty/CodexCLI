@@ -225,7 +225,8 @@ fn plain(nodes: &[MdInline]) -> String {
             MdInline::Image { .. } => out.push_str(&node.alt()),
             MdInline::Reference { children, .. } => out.push_str(&plain(children)),
             MdInline::SoftBreak | MdInline::HardBreak => out.push(' '),
-            // footnote references and math belong to extensions the app does not turn on
+            // a formula is no label text; footnote references belong to an extension the app
+            // does not turn on
             _ => {}
         }
     }
