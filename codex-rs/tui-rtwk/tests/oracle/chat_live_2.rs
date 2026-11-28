@@ -35,6 +35,9 @@ fn answer(response: &serde_json::Value) -> String {
     )
 }
 
+/// The turn `turn-1` of the live thread starts (`set_task_running(true)`).
+const TURN_STARTED: &str = r#"{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}"#;
+
 /// `set_model` (the config's model in use) and, with `read`, the account read that follows
 /// the status facts' `account_usage`.
 fn model_step(model: &str, read: bool) -> String {
@@ -42,6 +45,60 @@ fn model_step(model: &str, read: bool) -> String {
         "{}\n",
         serde_json::json!({"step": "screen", "dir": "chat", "ev": {"status": {"model": model, "account_usage": read}}})
     )
+}
+
+/// The chat of the oracle's `make_chatwidget_manual` (agents navigation off, the status line of
+/// its footer: the model and the directory) on `model`, with a ChatGPT account whose read says
+/// the Reserve snapshot (`reserve_snapshot`: 5h and weekly windows of `gpt-reserve`).
+fn reserve_chat(width: u16, model: &str, primary: i32, weekly: i32) -> Screen {
+    reserve_chat_in(width, model, primary, weekly, None, None)
+}
+
+/// `reserve_chat` in a terminal whose default colours are `colors` (foreground, background),
+/// the read carrying the banner `upsell` (`update_backend_banner`).
+fn reserve_chat_in(
+    width: u16,
+    model: &str,
+    primary: i32,
+    weekly: i32,
+    colors: Option<(u32, u32)>,
+    upsell: Option<&serde_json::Value>,
+) -> Screen {
+    let open = Screen::build(Owner::ChatLive).size(width, 24).live();
+    let mut s = match colors {
+        Some((fg, bg)) => open.terminal_colors(fg, bg).open(),
+        None => open.open(),
+    };
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}
+{"step":"screen","dir":"status","ev":{"kind":"account","account":{"chat_gpt":{"email":"user@example.com","plan":"plus"}}}}"#);
+    let window = |used: i32, mins: i32| serde_json::json!({"usedPercent": used, "windowDurationMins": mins, "resetsAt": null});
+    let mut response = serde_json::json!({"rateLimits": {
+        "limitId": "base_model_inference", "limitName": "gpt-reserve",
+        "primary": window(primary, 300), "secondary": window(weekly, 10080)}});
+    if let Some(upsell) = upsell {
+        response["rateLimitUpsell"] = upsell.clone();
+    }
+    s.feed(&answer(&response));
+    s.feed(&reserve_status(model));
+    s
+}
+
+/// `set_model`: the status facts of `reserve_chat` on `model`.
+fn reserve_status(model: &str) -> String {
+    format!(
+        "{}\n",
+        serde_json::json!({"step": "screen", "dir": "chat", "ev": {"status": {
+            "model": model, "cwd": "/tmp/project", "items": ["model-with-reasoning", "current-dir"],
+            "account_usage": true}}})
+    )
+}
+
+/// The first screen row that has `text`.
+fn row_with(s: &Screen, text: &str) -> usize {
+    s.rows()
+        .iter()
+        .position(|row| row.contains(text))
+        .unwrap_or_else(|| panic!("no row has `{text}`:\n{}", s.text()))
 }
 
 /// A live chat on `model` whose account read carried `response`: the banner is on screen.
@@ -1539,15 +1596,22 @@ fn luna_reserve_selector_supports_arrows_enter_shortcuts_and_escape_without_losi
 // ORACLE chatwidget/tests/luna_reserve_usage_tests.rs:109 luna_reserve_status_tracks_the_active_model kind=snap owner=chat-live snap=luna_reserve_usage_wide snap=luna_reserve_usage_narrow
 #[test]
 fn luna_reserve_status_tracks_the_active_model() {
-    kit::pending(
-        Owner::ChatLive,
-        "`Luna Reserve default` is the status line the footer shows while the active model is gpt-reserve (chat-status's footer); the selector half is on in luna_reserve_selector_supports_arrows_enter_shortcuts_and_escape_without_losing_draft",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let mut s = reserve_chat(80, "gpt-5.6-sol", 25, 60);
     s.assert_absent("Luna Reserve");
-    s.assert_snap("luna_reserve_usage_wide");
-    s.resize(34, 24);
-    s.assert_snap("luna_reserve_usage_narrow");
+    s.feed(&reserve_status("gpt-reserve"));
+    s.assert_contains("Luna Reserve default");
+    let at = row_with(&s, "› Ask Codex");
+    s.assert_snap_region("luna_reserve_usage_wide", at, 0);
+    // the oracle draws the pane alone, in the rows its `desired_height` asks (five at 34 columns, the first blank):
+    // a status line that has one row is cut by the ellipsis, where the chat's room wraps it
+    s.resize(34, 5);
+    let at = row_with(&s, "› Ask Codex");
+    s.assert_snap_region("luna_reserve_usage_narrow", at, 0);
+    s.resize(80, 24);
+    s.feed(&reserve_status("gpt-5.6-sol"));
+    s.assert_absent("Luna Reserve");
+    s.feed(&reserve_status("gpt-reserve"));
+    s.assert_contains("Luna Reserve");
 }
 
 // ORACLE chatwidget/tests/luna_reserve_usage_tests.rs:141 luna_reserve_usage_survives_banner_dismissal_and_typing_during_a_turn kind=snap owner=chat-live snap=luna_reserve_usage_with_upsell snap=luna_reserve_usage_running
@@ -1555,25 +1619,62 @@ fn luna_reserve_status_tracks_the_active_model() {
 fn luna_reserve_usage_survives_banner_dismissal_and_typing_during_a_turn() {
     kit::pending(
         Owner::ChatLive,
-        "the snapshot holds the selector over the status rows (`Luna Reserve default`, chat-status's footer) and a typed `x` under a running task; the selector rows are the page tests' and the selector oracle test's",
+        "G-new-footer-palette: the selector's frames and the dismissal equal the oracle's (`luna_reserve_usage_with_upsell`, `luna_reserve_usage_running`); its bold title is drawn in the terminal's default foreground (`Reset`), where the oracle sets the terminal's foreground as an RGB (`rgb_color(colors.fg)`) so that no bold default foreground is relied on: the theme's tokens do not carry the terminal's own foreground",
     );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.assert_snap("luna_reserve_usage_with_upsell");
+    let banner = serde_json::json!({
+        "banner_type": "luna_reserve", "presentation": "dismissible",
+        "title": "You\u{2019}re now using Luna, a faster model for simpler tasks.",
+        "description": "Add credits or upgrade to continue using the most advanced models.",
+        "ctas": [{"action": "add_credits", "label": "Add credits"},
+            {"action": "open_pricing_dialog", "label": "Upgrade"}]
+    });
+    let upsell = |colors| {
+        let mut s = reserve_chat_in(80, "gpt-reserve", 48, 20, colors, Some(&banner));
+        s.wait_for("esc to continue working");
+        s
+    };
+    let mut s = upsell(None);
+    let at = row_with(&s, "You\u{2019}re now using Luna");
+    s.assert_snap_region("luna_reserve_usage_with_upsell", at, 0);
     s.keys("esc");
-    s.assert_absent("You’re now using Luna");
-    // The oracle sets a task running here (no kit step yet), then types x and presses left.
+    s.assert_absent("You\u{2019}re now using Luna");
+    s.feed(TURN_STARTED);
     s.type_text("x");
     s.keys("left");
-    s.assert_snap("luna_reserve_usage_running");
+    s.assert_composer("x");
+    let at = row_with(&s, "\u{2022} Working");
+    s.assert_snap_region("luna_reserve_usage_running", at, 0);
+    // the copy is in the terminal's own foreground, not dimmed, under a dark and a light palette
+    for (fg, bg, rgb) in [
+        (0xe6_e6_e6, 0x14_14_14, "Rgb(230,230,230)"),
+        (0x19_19_19, 0xff_ff_ff, "Rgb(25,25,25)"),
+    ] {
+        let s = upsell(Some((fg, bg)));
+        for text in ["You\u{2019}re now using Luna", "Add credits or upgrade"] {
+            s.assert_style(2, row_with(&s, text), &format!("fg={rgb} !dim"));
+        }
+    }
 }
 
 // ORACLE chatwidget/tests/luna_reserve_usage_tests.rs:217 luna_reserve_prompt_preserves_the_composer_palette_on_exit kind=ui owner=chat-live
 #[test]
 fn luna_reserve_prompt_preserves_the_composer_palette_on_exit() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Luna Reserve status on the chat screen and no set_model kit step; the composer row's background must return to the ordinary user-message style when the model leaves gpt-reserve, under two default palettes (no kit call switches the default colours)",
-    );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.assert_absent("Luna Reserve");
+    for (fg, bg) in [(0xe6_e6_e6, 0x14_14_14), (0x19_19_19, 0xff_ff_ff)] {
+        let mut s = reserve_chat_in(80, "gpt-reserve", 25, 60, Some((fg, bg)), None);
+        // the prompt row is on the ordinary user-message surface (a background, the row above
+        // it the same), on the Reserve model and after it leaves
+        let surface = |s: &Screen| {
+            let row = row_with(s, "\u{203a} Ask Codex");
+            let style = |y| s.grid().style(0, y).bg;
+            kit::assert_same(style(row), style(row - 1), "the surface above the prompt");
+            (row, style(row))
+        };
+        let (row, active) = surface(&s);
+        kit::assert_same(active != "Reset", true, "the prompt row has a surface");
+        s.feed(&reserve_status("gpt-5.6-sol"));
+        s.assert_absent("Luna Reserve");
+        let (restored_row, restored) = surface(&s);
+        kit::assert_same(restored_row, row, "the prompt row stays");
+        kit::assert_same(restored, active, "the surface after the model leaves");
+    }
 }

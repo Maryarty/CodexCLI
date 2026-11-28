@@ -74,7 +74,7 @@ const FOCUS_REASON: &str = "G-new-focus: the terminal losing and regaining focus
 const HELP_STATUS: &str = include_str!("fixtures/pane_footer_1/help_status.jsonl");
 const EXTENSION_NA: &str = "no live producer: the oracle's app never builds a ui_tree status row (only its tests); native wrap/row budget covered by native_wrap_tracks_agent_label_and_content_changes_at_the_same_width and status_survives_hints_feedback_and_queue";
 const ACTIVITY_NA: &str = "a state the port cannot have: the oracle supplies `ctrl+o t/f4 inspect activity` as a synthetic TranscriptFooter. The live footer producer uses activity hints while navigating a fold or when there is unseen activity. The remapped live disclosure and shortcut state are tested below; the synthetic passive row and concatenation remain separate";
-const POPUP_REASON: &str = "the status stays under the composer while the popup is open (page test), but the popup's own rows (`/model` descriptions, the selection marker) are the popups chunk's widget and differ from the oracle's Buffer snapshot";
+const POPUP_REASON: &str = "G68: the status stays under the composer while the popup is open (page test), but the popup's own rows (`/model` descriptions, the selection marker) are the popups chunk's widget and differ from the oracle's Buffer snapshot";
 
 /// The chat screen's status facts (`ScreenEv::Chat(Ev::Status)`), as the host sends them.
 fn facts(json: &str) -> String {
@@ -183,10 +183,6 @@ fn interactive_query_keeps_focus_over_underlying_hints_but_empty_override_wins()
     kit::na(Owner::UiPane, FIND_OVERRIDE_NA);
     // the interactive Find footer (cursor at 12) keeps the frame the same when the test sets a
     // hint override (`ctrl+c quit`); an empty override shows the composer's own footer again
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    let expected = s.shot();
-    s.assert_contains("Find: needle");
-    s.assert_same_rows(&expected);
 }
 
 // ---- oracle: bottom_pane/chat_composer/sparkle_tests.rs (19 screen-level tests here; 0 state tests left to ui-pane)
@@ -967,11 +963,6 @@ fn passive_activity_keeps_shortcuts_only_when_the_complete_hint_fits() {
     kit::na(Owner::UiPane, ACTIVITY_NA);
     // the passive activity hint `ctrl+o t/f4 inspect activity` keeps `· ? shortcuts` at 80
     // columns and drops it at 40; an interactive footer or no shortcut key drops it at 80
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    s.assert_contains("ctrl+o t/f4 inspect activity · ? shortcuts");
-    s.resize(40, 24);
-    s.assert_contains("ctrl+o t/f4 inspect activity");
-    s.assert_absent("? shortcuts");
 }
 
 #[test]
