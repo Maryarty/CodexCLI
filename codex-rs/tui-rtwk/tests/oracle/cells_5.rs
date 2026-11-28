@@ -6,7 +6,6 @@
 
 use crate::kit::{self, Owner, Screen};
 
-const DISPLAY_EXEC: &str = "S27 (inline mode, wave W4): the oracle test draws the agent exec cell's `display_lines` (command under `  │ `, output under `  └ ` with its stderr tail); the owned transcript of S11 draws `compact_hyperlink_lines` (`• Ran <first line> …` and the last three output rows), which the port's exec cell matches (tests/pages/cells.rs tool_cells_in_transcript, the pack's cells.md chunk-cells-tool-cells)";
 const PLAN_DISPLAY: &str = "the snapshot is the plan cell's inline `display_lines` (`• Updated Plan`, no count); a plan that fits (no note, three steps or fewer, no clipped step) shows in the chat only compact (`• Updated Plan · 0/2 complete`), the oracle's own transcript view";
 const PLAN_FRAMES: &str = "feature plan cell Full frame (w2-cells, gap G49): the `Compact` frame equals the oracle's (`Snap::labelled`, region at the cell's row); after `+ Show details` the screen has no `• Updated Plan` row to place the `Full` frame at, and the page test records G49 (no break after a slash) in the Full rows (tests/pages/cells.rs plan_update::the_oracle_snapshot_full_rows)";
 const PLAN_URL_TOKENS: &str = "the oracle wraps a URL token whole (adaptive_wrap_hyperlink_lines keeps it on one row even wider than the screen); a grid chat breaks it at the width, so the contiguous literal is never on one row";

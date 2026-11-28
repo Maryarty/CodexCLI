@@ -86,9 +86,9 @@ pub(super) struct Plan {
 }
 
 /// The ranges of `text` as rows `width` cells wide (a blank line is one empty row).
-fn wrap(room: Room, text: &str, width: i32) -> Vec<Range<usize>> {
+fn split_rows(room: Room, text: &str, width: i32) -> Vec<Range<usize>> {
     if text.trim().is_empty() {
-        return vec![0..0];
+        return std::iter::once(0..0).collect();
     }
     break_lines(&room.segmenter, text, width.max(1), TextWrap::Word)
         .into_iter()
@@ -130,6 +130,8 @@ fn lines<'a>(
     strings: &Strings,
 ) -> Box<dyn DoubleEndedIterator<Item = Cow<'a, str>> + 'a> {
     if let Some(retained) = tool.retained_output() {
+        // collected: the labels borrow `strings`, which does not live as long as the tool
+        #[allow(clippy::needless_collect)]
         let labelled: Vec<Cow<'a, str>> = retained
             .lines()
             .map(|line| Cow::Owned(retained_line(line, strings)))
@@ -181,7 +183,7 @@ pub(super) fn plan(
     let command: Vec<&str> = head.command.lines().collect();
     let prefix = 2 + i32::try_from(room.segmenter.width(title)).unwrap_or(0) + 1;
     let first = command.first().copied().unwrap_or_default();
-    let mut first_rows = wrap(room, first, width - prefix).into_iter();
+    let mut first_rows = split_rows(room, first, width - prefix).into_iter();
     let header_range = first_rows.next().unwrap_or(0..0);
     let header = Line {
         src: Src::Command(0),
@@ -198,7 +200,7 @@ pub(super) fn plan(
         })
         .collect();
     for (index, line) in command.iter().enumerate().skip(1) {
-        for range in wrap(room, line, width - GUTTER) {
+        for range in split_rows(room, line, width - GUTTER) {
             continuation.push(Line {
                 src: Src::Command(index),
                 text: line[range.clone()].to_owned(),
@@ -254,7 +256,7 @@ fn preview_output(tool: &ToolActivity, strings: &Strings, room: Room, plan: &mut
         }
         let bounded = &line[..line.floor_char_boundary(PREVIEW_LINE_BYTES)];
         let plain = plain_text(bounded);
-        let ranges = wrap(room, &plain, width);
+        let ranges = split_rows(room, &plain, width);
         if bounded.len() < line.len() || ranges.len() > remaining {
             omitted += 1;
             full = true;
@@ -300,7 +302,7 @@ fn user_output(tool: &ToolActivity, strings: &Strings, room: Room, plan: &mut Pl
         let plain = plain_text(line);
         let at = plan.raw.len();
         plan.raw.push(line.to_owned());
-        for range in wrap(room, &plain, width) {
+        for range in split_rows(room, &plain, width) {
             rows.push(Line {
                 src: Src::Output(at),
                 text: plain[range.clone()].to_owned(),
@@ -313,18 +315,18 @@ fn user_output(tool: &ToolActivity, strings: &Strings, room: Room, plan: &mut Pl
     }
     if let Some(omitted) = omitted {
         let text = omitted_hint(strings, omitted);
-        for range in wrap(room, &text, width) {
+        for range in split_rows(room, &text, width) {
             rows.push(note(text[range].to_owned()));
         }
     }
     for line in &tail {
         push(plan, &mut rows, line);
     }
-    plan.output = truncate_middle(rows, strings, room, omitted);
+    plan.output = cut_middle(rows, strings, room, omitted);
 }
 
 /// Whole screen rows, a head and a tail around one hint (oracle `truncate_lines_middle`).
-fn truncate_middle(
+fn cut_middle(
     rows: Vec<Line>,
     strings: &Strings,
     room: Room,
@@ -333,18 +335,20 @@ fn truncate_middle(
     if rows.len() <= USER_SHELL_LINES {
         return rows;
     }
-    let width = room.width.max(1);
+    let width = room.width - GUTTER;
     let had = usize::from(omitted_hint_count.is_some());
     let estimated = omitted_hint_count.unwrap_or(0) + rows.len().saturating_sub(had);
-    let hint = |count: usize| {
+    // the hint wraps like the output beside it, and the rows it takes come off the budget
+    let hint = |count: usize| -> Vec<Line> {
         let text = omitted_hint(strings, count);
-        let all = format!("{BLANK}{BLANK}{text}");
-        let cost = wrap(room, &all, width).len().max(1);
-        (text, cost)
+        split_rows(room, &text, width)
+            .into_iter()
+            .map(|range| note(text[range].to_owned()))
+            .collect()
     };
-    let (text, cost) = hint(estimated);
+    let cost = hint(estimated).len().max(1);
     if cost >= USER_SHELL_LINES {
-        return vec![note(text)];
+        return hint(estimated);
     }
     let available = USER_SHELL_LINES - cost;
     let head = available / 2;
@@ -352,12 +356,11 @@ fn truncate_middle(
     let head = head.min(rows.len());
     let tail = tail.min(rows.len() - head);
     let additional = rows.len().saturating_sub(head + tail).saturating_sub(had);
-    let (text, _) = hint(omitted_hint_count.unwrap_or(0) + additional);
     let split = rows.len() - tail;
     let mut rows = rows;
     let tail_rows = rows.split_off(split);
     rows.truncate(head);
-    rows.push(note(text));
+    rows.extend(hint(omitted_hint_count.unwrap_or(0) + additional));
     rows.extend(tail_rows);
     rows
 }

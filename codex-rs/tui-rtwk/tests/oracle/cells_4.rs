@@ -19,7 +19,6 @@ const URL_LIKE: &str =
     "example.test/api/v1/projects/alpha-team/releases/2026-02-17/builds/1234567890";
 
 const DISPLAY_MCP: &str = "S27 (inline mode, wave W4): the oracle test draws the MCP cell's `display_lines` (the inline scrollback form: a hyperlinked `Called server.tool(args)` invocation and the result blocks under `  └ `); the owned transcript of S11 draws `compact_hyperlink_lines` (`• Called <tool>` and the last three result rows), which the port's tool cell matches (tests/pages/cells.rs tool_cells_in_transcript, the pack's cells.md chunk-cells-tool-cells)";
-const DISPLAY_EXEC: &str = "S27 (inline mode, wave W4): the oracle test draws the agent exec cell's `display_lines` (command wrapped under `  │ `, output under `  └ `); the owned transcript of S11 draws `compact_hyperlink_lines` (`• Ran <first line> …` and the last three output rows), which the port's exec cell matches (tests/pages/cells.rs tool_cells_in_transcript, the pack's cells.md chunk-cells-tool-cells)";
 const NO_SEED_MCP_RPC: &str = "no seed: the /mcp inventory is an RPC answer the script cannot carry, and S11 draws no MCP inventory cell";
 const HALFWIDTH_HEADER: &str = "G44: rtwk's text engine clusters a halfwidth katakana and its sound mark (`ｶﾞ`) into one cell (TextMode::Graphemes), the oracle counts the mark as its own cell, so the header's directory (`ｶﾞﾊﾟ`x8 and `-project`, 40 oracle cells, 24 in rtwk) fits the 37 columns beside its five-column indent and is not cut to `…` and its tail";
 
