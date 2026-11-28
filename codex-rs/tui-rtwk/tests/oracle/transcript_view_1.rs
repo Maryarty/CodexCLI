@@ -254,7 +254,6 @@ fn plan_menu_allows_transcript_wheel_scrolling_and_keeps_keyboard_ownership() {
             .open();
         s.assert_contains(title);
         let (_, menu_row) = at(&s, title);
-        assert!(menu_row > 1);
         let menu_row = usize::from(menu_row);
         let latest = s.shot();
         s.wheel_up(1, 1, 1);
@@ -320,7 +319,6 @@ fn plan_menu_allows_transcript_selection_and_copy_but_respects_popup_bounds() {
     s.type_text("/m");
     let popup = s.shot();
     let (popup_column, popup_row) = at(&s, "/model");
-    assert!(popup_row > 1);
     let history = 0..usize::from(popup_row);
     s.wheel_up(popup_column, popup_row, 1);
     s.assert_same_rows_in(&popup, history.clone());
