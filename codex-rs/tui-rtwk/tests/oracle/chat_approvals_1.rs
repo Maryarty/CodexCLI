@@ -40,9 +40,9 @@ fn status_row(s: &Screen) -> usize {
 // ORACLE chatwidget/tests/approval_requests.rs:8 exec_approval_emits_proposed_command_and_decision_history kind=snap owner=dialogs-pane
 #[test]
 fn exec_approval_emits_proposed_command_and_decision_history() {
-    kit::pending(
+    kit::delta(
         Owner::DialogsPane,
-        "G-syntax: rows, text and the decision cell equal the oracle; the `$ echo hello world` row is drawn in the oracle's theme colours (echo Rgb(137, 180, 250), the rest Rgb(205, 214, 244), syntect and the bundled theme), the app has no scope data for the theme's base foreground nor a shell command name (`SyntaxPalette` holds only the scopes the screens ask for), rtwk-rich's bash `TokenKind`s are coloured Blue / Reset",
+        "command row syntax colours: ours are rtwk-rich's bash token colours (Blue, Reset), the oracle's are the theme's Rgb(137,180,250) and Rgb(205,214,244); the rows are the oracle's",
     );
     // oracle: the proposed exec request (echo hello world, reason) renders as the modal, no history cell;
     // `y` answers it and the history gets the decision cell.
@@ -68,9 +68,9 @@ fn app_server_exec_approval_request_splits_shell_wrapped_command() {
 // ORACLE chatwidget/tests/approval_requests.rs:98 app_server_write_stdin_approval_renders_terminal_input kind=snap owner=dialogs-pane
 #[test]
 fn app_server_write_stdin_approval_renders_terminal_input() {
-    kit::pending(
+    kit::delta(
         Owner::DialogsPane,
-        "G54: title, `Input:` row and text equal the oracle (the snapshot reader keeps the literal `\\n`); only the hint row's styles differ: the dialog is drawn over the composer's footer and a Text with no colour keeps the fg (245) of the footer cell under it, where the oracle's overlay replaces the pane (fg Reset); rtwk has no explicit reset colour",
+        "hint row colour: ours keeps the footer cell's fg Indexed(245) under the dialog where the oracle's overlay is Reset, one cell bold where the oracle's is dim; the words are the oracle's",
     );
     // oracle: the write_stdin request shows the modal at 80x11; the desktop notification text is not drawn and is not asserted.
     let s = Screen::build(Owner::DialogsPane)

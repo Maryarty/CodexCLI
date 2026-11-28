@@ -225,7 +225,10 @@ fn plain(nodes: &[MdInline]) -> String {
             MdInline::Image { .. } => out.push_str(&node.alt()),
             MdInline::Reference { children, .. } => out.push_str(&plain(children)),
             MdInline::SoftBreak | MdInline::HardBreak => out.push(' '),
-            // footnote references and math belong to extensions the app does not turn on
+            // the oracle reads a formula as the text it was written as, so a label of only a
+            // formula (`[$\alpha$](src/lib.rs)`) has text in it and is no bare path
+            MdInline::Math { source, .. } => out.push_str(source),
+            // footnote references belong to an extension the app does not turn on
             _ => {}
         }
     }

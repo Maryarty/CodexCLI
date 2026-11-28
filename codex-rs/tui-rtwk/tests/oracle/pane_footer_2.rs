@@ -944,9 +944,9 @@ fn oversized_preview_url_visual_wrap_matches_the_oracle() {
 // ORACLE bottom_pane/pending_input_preview.rs:304 narrow_preview_clips_the_overflow_and_edit_hint kind=snap owner=ui-pane snap=render_narrow_preview
 #[test]
 fn narrow_preview_clips_the_overflow_and_edit_hint() {
-    kit::pending(
+    kit::delta(
         Owner::UiPane,
-        "pending(G48): at 4 columns the oracle's wrapper leaves the bullet alone on the first row and starts the header's first word on the next (`•   `, `  Qu`); `Text` with `TextWrap::Word` puts `Qu` beside the bullet (`• Qu`). The preview itself is built (entry chat/render_narrow_preview)",
+        "narrow wrap (G48): at 4 columns the bullet shares the first row with the first word (`• Qu`), the oracle leaves it alone (`•`, then `  Qu`); the letters are the same, in order",
     );
     let s = Screen::build(Owner::UiPane)
         .size(4, 17)

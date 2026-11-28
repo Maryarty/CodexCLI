@@ -6,9 +6,7 @@ use std::sync::Arc;
 use codex_tui_core::app::facts::{Rendering, TuiSettings};
 use codex_tui_core::data::links::web_destination;
 use rtwk::provider::Provider;
-use rtwk_rich::markdown::{
-    Glyphs, LinkDestinations, MarkdownStream, markdown_blocks_lines_with_destinations,
-};
+use rtwk_rich::markdown::{Glyphs, LinkDestinations, markdown_blocks_lines_with_destinations};
 
 use crate::app::theme::Tokens;
 use crate::pages::session::cells::markdown::{keep_tables, plain_lists, preferred};
@@ -27,8 +25,15 @@ fn flow(seg: Measure, text: &str, style: &Style) -> Vec<Line> {
 
 /// Native Markdown rows let the pane replace a whole row at its clipping
 /// boundary and keep the destinations of the surviving spans.
-fn markdown_lines(cx: &mut BuildCx<'_>, source: &str, cwd: &str, lists: bool) -> Vec<Line> {
-    let mut stream = MarkdownStream::new(source);
+/// A formula is drawn when the user's `tui.rendering.math` says so (`rendering.math`).
+fn markdown_lines(
+    cx: &mut BuildCx<'_>,
+    source: &str,
+    cwd: &str,
+    rendering: Rendering,
+) -> Vec<Line> {
+    let (lists, math) = (rendering.lists, rendering.math);
+    let mut stream = markdown::stream(source, math);
     let blocks = stream.blocks().to_vec();
     let definitions = stream.definitions();
     let blocks = if lists { blocks } else { plain_lists(&blocks) };
@@ -143,7 +148,7 @@ fn detail_lines(
     } else {
         keep_tables(&prompt_text)
     };
-    let mut prompt = markdown_lines(cx, &prompt_text, &row.cwd, rendering.lists);
+    let mut prompt = markdown_lines(cx, &prompt_text, &row.cwd, rendering);
     if prompt.len() > 2 {
         prompt.truncate(2);
         prompt[1] = vec![span(strings.elision, &look.dim)];
@@ -180,7 +185,7 @@ fn detail_lines(
             cx,
             &preferred(message, rendering),
             cwd,
-            rendering.lists,
+            rendering,
         ));
     }
     let offline = matches!(

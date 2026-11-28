@@ -142,20 +142,20 @@ fn status_snapshot_includes_monthly_limit() {
 // ORACLE status/tests.rs:1093 status_snapshot_includes_enterprise_monthly_credit_limit kind=snap owner=dialogs-pane snap=status_snapshot_includes_enterprise_monthly_credit_limit snap=status_snapshot_wraps_enterprise_monthly_credit_details_in_narrow_terminal
 #[test]
 fn status_snapshot_includes_enterprise_monthly_credit_limit() {
+    // The narrow half differs in two wraps of one value each: `100% left (1.2K used / 272K)`
+    // breaks before `used` (the oracle's UAX #14 words keep `used / ` together, `TextWrap::Word`
+    // breaks before the `/`: G75), and `(resets 07:08 on 7 May)` breaks before `7 May)` (the
+    // oracle's `textwrap::wrap` is optimal-fit, `TextWrap::Word` is first-fit: G76). The 92-column
+    // half is the oracle's rows.
+    kit::delta(
+        Owner::DialogsPane,
+        "G75 + G76 wrap: at 46 columns the Context window row breaks before `used` where the oracle keeps `used /` whole, and the reset row breaks before `7 May)` (first-fit against optimal-fit); the letters are the same, in order",
+    );
     Screen::build(Owner::DialogsPane)
         .size(92, 24)
         .entry("status", "enterprise_monthly_credit")
         .open()
         .assert_snap("status_snapshot_includes_enterprise_monthly_credit_limit");
-    // The 92-column half above is live; the narrow half differs in two wraps of one value
-    // each: `100% left (1.2K used / 272K)` breaks before `used` (the oracle's UAX #14 words
-    // keep `used / ` together, `TextWrap::Word` breaks before the `/`: G75), and
-    // `(resets 07:08 on 7 May)` breaks before `7 May)` (the oracle's `textwrap::wrap` is
-    // optimal-fit, `TextWrap::Word` is first-fit: G76).
-    kit::pending(
-        Owner::DialogsPane,
-        "G75 + G76: at 46 columns the Context window row breaks before `used` (oracle: UAX #14 keeps `used /` whole) and the reset row breaks before `7 May)` (oracle: optimal-fit wrap); TextWrap::Word breaks before `/` and is first-fit",
-    );
     Screen::build(Owner::DialogsPane)
         .size(46, 40)
         .entry("status", "enterprise_monthly_credit")

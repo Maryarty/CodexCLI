@@ -90,9 +90,13 @@ fn parent_owned_thread_placeholder_snapshot() {
 // ORACLE bottom_pane/chat_composer.rs:5096 light_terminal_palette_renders_light_composer_snapshot kind=snap owner=chat-live snap=light_terminal_palette_composer
 #[test]
 fn light_terminal_palette_renders_light_composer_snapshot() {
-    kit::pending(
+    // G-new-footer-palette stays open: the composer draws the light surface (bg Rgb(244,244,244)
+    // at the prompt row, and the rows and text equal the oracle's); the footer's key hints and
+    // hint text take no colour from the terminal's own foreground and background (the oracle: the
+    // key bold in blend(fg, bg, 0.85) on a light terminal, the hint text a blended grey).
+    kit::delta(
         Owner::ChatLive,
-        "G-new-footer-palette: the composer draws the light surface (bg Rgb(244,244,244) at the prompt row and the rows and text equal the oracle's); the footer's key hints and hint text take no colour from the terminal's own foreground and background (the oracle: the key bold in blend(fg, bg, 0.85) on a light terminal, the hint text in a blended grey; ours: Reset and Indexed(245)), and a blank cell keeps the bold of the glyph before it (the presenter writes it without resetting)",
+        "footer key and hint colours: ours Reset and Indexed(245), the oracle's blend of the terminal's colours (G-new-footer-palette), and a blank cell keeps the bold of the glyph before it; the rows say the same",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(48, 6)

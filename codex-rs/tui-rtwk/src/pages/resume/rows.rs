@@ -338,10 +338,12 @@ impl Rows {
                 .into(),
             Speaker::Assistant => DefaultTextStyle::new(
                 self.look.dim.clone(),
-                crate::widgets::markdown::themed(
-                    crate::pages::session::cells::citation::view(
-                        &line.text, false, cwd, self.cells,
-                    ),
+                // read under the user's `tui.rendering` where it is built (math, tables, lists)
+                crate::pages::session::cells::citation::cited(
+                    &line.text,
+                    false,
+                    cwd,
+                    self.cells,
                     self.markdown.clone(),
                 ),
             )

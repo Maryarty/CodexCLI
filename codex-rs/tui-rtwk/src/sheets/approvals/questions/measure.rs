@@ -16,9 +16,10 @@ pub fn rows(seg: TextSegmenter, text: &str, width: usize) -> usize {
 }
 
 /// The rows of the Markdown `source` at `width` cells, as the view draws it: each block's text,
-/// and the blank row between two blocks.
-pub fn markdown_rows(seg: TextSegmenter, source: &str, width: usize) -> usize {
-    let nodes = nodes_of(source);
+/// and the blank row between two blocks. `math` is the `tui.rendering.math` preference the view
+/// draws under (`widgets::markdown::source`): the formula is measured as the text it is drawn as.
+pub fn markdown_rows(seg: TextSegmenter, source: &str, width: usize, math: bool) -> usize {
+    let nodes = nodes_of(source, math, width);
     if nodes.is_empty() {
         return 0;
     }
@@ -28,12 +29,12 @@ pub fn markdown_rows(seg: TextSegmenter, source: &str, width: usize) -> usize {
         .sum()
 }
 
-fn nodes_of(source: &str) -> Vec<markdown_text::Node> {
-    let mut stream = rtwk_rich::markdown::MarkdownStream::new(source);
+fn nodes_of(source: &str, math: bool, width: usize) -> Vec<markdown_text::Node> {
+    let mut stream = markdown::stream(source, math);
     let blocks = stream.blocks().to_vec();
     let definitions = stream.definitions().clone();
     let blocks = markdown::prepared(&blocks, &definitions, None);
-    markdown_text::nodes(&blocks).unwrap_or_default()
+    markdown_text::nodes_in(&blocks, width).unwrap_or_default()
 }
 
 /// The width of `spans` in cells.
@@ -119,4 +120,21 @@ pub fn truncate(seg: TextSegmenter, spans: Vec<Span>, max: usize) -> Vec<Span> {
         .collect();
     out.push(Span::styled(ellipsis, mark_style));
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::markdown_rows;
+    use crate::widgets::measure::Measure;
+
+    /// A question or a choice with a formula is measured as the text the view draws for it:
+    /// Unicode with the preference on, the source with it off; a display formula is its rows.
+    #[test]
+    fn a_formula_is_measured_as_the_text_the_view_draws() {
+        let seg = Measure::default();
+        let source = "x $\\alpha$ and $\\beta$";
+        assert_eq!(markdown_rows(seg, source, 12, true), 1);
+        assert_eq!(markdown_rows(seg, source, 12, false), 2);
+        assert_eq!(markdown_rows(seg, "$$\\frac{a}{b}$$", 20, true), 3);
+    }
 }

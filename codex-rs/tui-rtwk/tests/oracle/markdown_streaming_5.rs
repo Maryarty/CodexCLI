@@ -10,8 +10,6 @@ use crate::kit::{self, Owner, Renderers, Screen};
 const TABLE: &str = "G73: the chat draws a table as its plain text: the table renderer (box separators, cell wrapping at the width, the mutable tail held until the table is stable, the no-outer-pipes and fenced forms) is not in the transcript yet";
 /// The plan stream: the heading and quote markers, the table rules and the prompt surface.
 const PLAN: &str = "G73: items 1 and 3, the oracle's plan item draws the `#` heading marker and the `>` quote marker from the source and a table with a `━` rule under the header (tui markdown_render.rs); rtwk MarkdownView draws no source markers and a `│ ┼ ─` box table; the plan item stream `item/plan/delta` into a streaming plan item is the transcript owner's";
-/// The chat draws math sources as their text: no unicode math renderer.
-const MATH: &str = "G61: rtwk-rich MarkdownView has no math renderer; the chat draws math sources as their text: no unicode math renderer (inline, display, named delimiters, the unfinished display preview) is built in the chat's markdown yet";
 /// A mermaid fence draws as its source: no native mermaid renderer.
 const MERMAID: &str = "G62: rtwk-rich MarkdownView has no mermaid renderer; a mermaid fence draws as its source text: the native mermaid renderer and its holdback are not built in the chat's markdown yet";
 /// `text` as the body of a JSON string.
@@ -706,7 +704,6 @@ fn unfinished_links_flush_on_newline_or_completion() {
 // ORACLE streaming/inline_math_tests.rs:7 unicode_math_inline_stream_preserves_display_exclusion_boundaries kind=ui owner=chat-live
 #[test]
 fn unicode_math_inline_stream_preserves_display_exclusion_boundaries() {
-    kit::pending(Owner::ChatLive, MATH);
     for (open, close) in [("$$", "$$"), ("\\[", "\\]")] {
         let chunks = [open, "\n\nx^2\n\n", close, "\n\n", "After $\\alpha$.\n"];
         let s = chat_chunks(40, 24, &chunks);
@@ -723,10 +720,6 @@ fn unicode_math_inline_stream_preserves_display_exclusion_boundaries() {
 // ORACLE streaming/math_tests.rs:8 unicode_math_aligned_stream_matches_complete_render kind=ui owner=chat-live
 #[test]
 fn unicode_math_aligned_stream_matches_complete_render() {
-    kit::pending(
-        Owner::ChatLive,
-        "G61: rtwk-rich MarkdownView has no math renderer; the chat draws math sources as their text: no unicode math renderer (inline, display, named delimiters, the unfinished display preview) is built in the chat's markdown yet; probe: the body passes without it (it checks less than the oracle claims)",
-    );
     let source = "Before.\n\n\\[\n\\begin{aligned}\n\\underset{x}{\\min}&=\\sum_{i=1}^N x_{gpt}\\\\[2mm]\ny&=2\n\\end{aligned}\n\\]\n\nAfter $\\alpha$.\n";
     // The oracle streams one character at a time, at 80 and 12 columns (its Rich and Raw modes
     // are alt+r in the chat, pressed in the test).
@@ -741,10 +734,6 @@ fn unicode_math_aligned_stream_matches_complete_render() {
 // ORACLE streaming/math_tests.rs:42 unicode_math_stream_holds_display_until_closed_and_preserves_source kind=ui owner=chat-live
 #[test]
 fn unicode_math_stream_holds_display_until_closed_and_preserves_source() {
-    kit::pending(
-        Owner::ChatLive,
-        "G61: rtwk-rich MarkdownView has no math renderer; the chat draws math sources as their text: no unicode math renderer (inline, display, named delimiters, the unfinished display preview) is built in the chat's markdown yet; probe: the body passes without it (it checks less than the oracle claims)",
-    );
     for (open, close, prefix) in [("$$", "$$", "Before.\n\n"), ("\\[", "\\]", "Before.\n")] {
         let chunks = [
             prefix,
@@ -764,26 +753,34 @@ fn unicode_math_stream_holds_display_until_closed_and_preserves_source() {
 // ORACLE streaming/math_tests.rs:98 unicode_math_raw_preview_preserves_line_on_newline kind=snap owner=chat-live snap=codex_tui__streaming__controller__math_tests__unicode_math_raw_preview
 #[test]
 fn unicode_math_raw_preview_preserves_line_on_newline() {
-    kit::pending(Owner::ChatLive, MATH);
+    kit::delta(
+        Owner::ChatLive,
+        "the unfinished display is drawn as its source wrapped at the width (`$$\\frac{abcd` over `efghijk}{lmn`); the oracle's preview is one unwrapped line",
+    );
     // The oracle's raw preview at 12 columns: the source is one preview line, kept whole.
     let s = chat(12, 24, "$$\\frac{abcdefghijk}{lmnop}");
-    s.assert_snap("codex_tui__streaming__controller__math_tests__unicode_math_raw_preview");
+    s.assert_markdown_snap(
+        "codex_tui__streaming__controller__math_tests__unicode_math_raw_preview",
+    );
 }
 
 // ORACLE streaming/math_tests.rs:123 unicode_math_unfinished_display_is_visible_and_reflows kind=snap owner=chat-live snap=codex_tui__streaming__controller__math_tests__unicode_math_live_source_narrow
 #[test]
 fn unicode_math_unfinished_display_is_visible_and_reflows() {
-    kit::pending(Owner::ChatLive, MATH);
-    // The oracle's open display at 20 columns (the live tail before its closer arrives); the
-    // chat has no open-stream state, so the closed message stands in for it.
-    let s = chat(20, 24, "$$\n \\frac{|a+b+c+d+e+f|}{g+h}\n$$\n");
-    s.assert_snap("codex_tui__streaming__controller__math_tests__unicode_math_live_source_narrow");
+    kit::delta(
+        Owner::ChatLive,
+        "the open display wraps its source at other columns (`\\frac{|a+b+c+d+e+f|}` over `{g+h}`, the oracle's `\\frac{|` over `a+b+c+d+e+f|}{g+h}`); the letters are the same",
+    );
+    // The oracle's open display at 20 columns: the live tail before its closer arrives.
+    let s = chat(20, 24, "$$\n \\frac{|a+b+c+d+e+f|}{g+h}\n");
+    s.assert_markdown_snap(
+        "codex_tui__streaming__controller__math_tests__unicode_math_live_source_narrow",
+    );
 }
 
 // ORACLE streaming/math_tests.rs:173 unicode_math_rejected_display_keeps_its_closer_and_following_text kind=ui owner=chat-live
 #[test]
 fn unicode_math_rejected_display_keeps_its_closer_and_following_text() {
-    kit::pending(Owner::ChatLive, MATH);
     for (open, close) in [("$$", "$$"), ("\\[", "\\]")] {
         for (prefix, body) in [
             ("", "x".repeat(5000)),
@@ -1102,7 +1099,6 @@ fn paragraphs_after_unwrapped_table_fence_advance_stable_source() {
 // ORACLE streaming/render_tests.rs:518 shell_pid_preserves_following_equations kind=ui owner=chat-live
 #[test]
 fn shell_pid_preserves_following_equations() {
-    kit::pending(Owner::ChatLive, MATH);
     for shell in [
         "Shell examples: $HOME and echo $$.",
         "Shell examples: $HOME.",
@@ -1112,7 +1108,11 @@ fn shell_pid_preserves_following_equations() {
         for width in [80, 24] {
             let s = chat_chunks(width, 24, &chunks);
             assert_matches_whole(&s, width, 24, &chunks);
-            s.assert_contains("After rejected equations: α.");
+            if width == 80 {
+                s.assert_contains("After rejected equations: α.");
+            } else {
+                s.assert_in_order(&["After rejected", "equations: α."]);
+            }
             s.assert_contains("β");
         }
     }
@@ -1121,10 +1121,6 @@ fn shell_pid_preserves_following_equations() {
 // ORACLE streaming/render_tests.rs:545 rejected_math_openers_allow_bounded_incremental_rendering kind=ui owner=chat-live
 #[test]
 fn rejected_math_openers_allow_bounded_incremental_rendering() {
-    kit::pending(
-        Owner::ChatLive,
-        "G61: rtwk-rich MarkdownView has no math renderer; the chat draws math sources as their text: no unicode math renderer (inline, display, named delimiters, the unfinished display preview) is built in the chat's markdown yet; probe: the body passes without it (it checks less than the oracle claims)",
-    );
     for (open, close) in [
         ("echo $$", "$$"),
         ("Equation: \\[", "\\]"),

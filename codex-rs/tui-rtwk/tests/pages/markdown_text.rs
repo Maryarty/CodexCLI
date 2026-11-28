@@ -9,6 +9,7 @@
 
 use std::rc::Rc;
 
+use codex_tui_core::app::facts::Rendering;
 use codex_tui_core::ids::{ItemId, TurnId};
 use codex_tui_core::question_reply::QuestionText;
 use codex_tui_core::threads::{Item, ItemKey};
@@ -121,6 +122,18 @@ const CORPUS: &[&str] = &[
     "| **a** | `b` |\n|---|---|\n| [x](http://y.z) | 2 |",
     "# T\n\nintro text\n\n- a\n- b\n\n```sh\nls\n```\n\nbye",
     "[ref]\n\n[ref]: http://x.y",
+    // formulas: what the view draws for them (rtwk-math), a display formula a block of its own
+    "Area $\\pi r^2$ of a circle",
+    "**bold $\\alpha$** text",
+    "# Head $\\alpha$",
+    "- item $x^2$\n- two",
+    "| a | b |\n|---|---|\n| $x$ | 2 |",
+    "bad $\\unknown{x}$ here",
+    "before\n\n$$\\frac{a}{b}$$\n\nafter",
+    "text $$\\frac{a}{b}$$ more",
+    "$$\\frac{a}{b}$$",
+    "> quoted $$x^2$$ here",
+    "- item $$x^2$$ here\n- two",
     "a long paragraph that goes on and on past the sixty columns the message is drawn in, so it wraps",
 ];
 
@@ -506,4 +519,34 @@ mod others {
             );
         }
     }
+}
+
+/// `tui.rendering.math` off: a formula is the source it was written as, in the model that find,
+/// select and copy read too; on, it is what the view draws and the text is found by its words.
+#[test]
+fn a_formula_follows_the_math_preference() {
+    let source = "Area $\\pi r^2$ of a circle";
+    let model = |math: bool| {
+        let model_env = env();
+        let mut reading = Reading::new(&model_env, BULLET);
+        reading.rendering = Rendering {
+            math,
+            ..Rendering::default()
+        };
+        item_text(
+            &Item::Agent {
+                text: source.into(),
+                phase: None,
+                questions: None,
+            },
+            &reading,
+        )
+        .expect("a message with a formula is modelled")
+    };
+    let on = model(true);
+    assert!(on.contains("circle"), "{on:?}");
+    assert!(on.contains('\u{3c0}'), "{on:?}");
+    assert!(!on.contains('$'), "{on:?}");
+    let off = model(false);
+    assert!(off.contains("$\\pi r^2$"), "{off:?}");
 }

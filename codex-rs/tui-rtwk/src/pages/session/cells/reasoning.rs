@@ -45,10 +45,7 @@ impl StatelessWidget for ReasoningCell {
                 1,
                 DefaultTextStyle::new(
                     Style::new().attrs(Attrs::DIM | Attrs::ITALIC),
-                    crate::widgets::markdown::themed(
-                        crate::widgets::markdown::view(&self.summary),
-                        theme,
-                    ),
+                    crate::widgets::markdown::source(&self.summary, theme),
                 ),
             ))
             .into()
