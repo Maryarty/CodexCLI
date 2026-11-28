@@ -83,7 +83,7 @@ fn browsing_search_and_selection_consume_escape_before_mode_exit() {
 fn browsing_footer_adapts_to_width() {
     kit::pending(
         Owner::ChatLive,
-        "no transcript browsing footer: two Esc on the prompt history do not draw the browsing footer (snapshot browsing_footer, 80 and 32 columns); the failed-history retry row needs a failed history load, which no kit call makes",
+        "the browsing row exists (`transcript::browsing`, the chat's footer and the sheet's status row), but the snapshot is the inline transcript overlay (`/ T R A N S C R I P T /` rule, the history state Failed with its `Retry history` row, two glued frames at 80 and 32 columns), not the chat's footer: it needs the compact overlay with the browsing hints seeded from the chat and a failed history load, which no kit call makes",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 8)
@@ -100,7 +100,7 @@ fn browsing_footer_adapts_to_width() {
 fn browsing_details_use_the_remapped_chord_without_cancelling_preview() {
     kit::pending(
         Owner::ChatLive,
-        "no keymap seed: the port reads no key bindings from a config (the keymap slice), so the remapped open_transcript chord (ctrl+x ctrl+t, left f6, enter f6) and the pending-chord reveal are not set",
+        "the chat's browsing row and chord completion take the remapped open_transcript chord (`.keymap` exists), but the test goes on through the pager's own remapped keys (`pager.page_down` on `ctrl+x ctrl+p`, `close_transcript`, `jump_top`) and the pending-chord reveal `Page Down` in the details sheet's footer after the reveal delay, and the history state LoadingOlder on `h`/`Right`: the pager chord table and the pending-chord reveal are not built for the details sheet",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
@@ -245,33 +245,36 @@ fn default_page_up_still_scrolls_the_transcript() {
 // ORACLE app/owned_transcript_input_tests.rs:239 plan_menu_allows_transcript_wheel_scrolling_and_keeps_keyboard_ownership kind=snap owner=chat-live snap=codex_tui__app__owned_transcript__input_tests__plan_prompt_scrolled
 #[test]
 fn plan_menu_allows_transcript_wheel_scrolling_and_keeps_keyboard_ownership() {
-    kit::pending(
-        Owner::ChatLive,
-        "no plan-mode turn in the port's chat: a completed plan item (40 steps) does not open the plan menu, so the menu's wheel scrolling and its keys are not built",
-    );
-    for close in ["esc", "enter"] {
+    let title = "Implement this plan?";
+    for close in ["esc", "ctrl+c", "enter"] {
         let mut s = Screen::build(Owner::ChatLive)
             .size(80, 24)
+            .owned_transcript()
             .script(include_str!("fixtures/transcript_view_1/plan_turn.jsonl"))
             .open();
+        s.assert_contains(title);
+        let (_, menu_row) = at(&s, title);
+        let menu_row = usize::from(menu_row);
         let latest = s.shot();
         s.wheel_up(1, 1, 1);
         s.assert_rows_differ(&latest);
+        s.assert_same_rows_in(&latest, menu_row..24);
         s.wheel_down(1, 1, 1);
         s.assert_same_rows(&latest);
         s.wheel_up(1, 1, 1);
-        if close == "esc" {
-            s.assert_snap("plan_prompt_scrolled");
-        }
+        let reading = s.shot();
         s.keys("pagedown");
         s.assert_contains("› 3.");
+        s.assert_same_rows_in(&reading, 0..menu_row);
         s.keys("pageup");
         s.assert_contains("› 1.");
+        s.assert_same_rows_in(&reading, 0..menu_row);
         s.keys(close);
+        s.assert_absent(title);
         if close == "enter" {
-            s.assert_contains("Implement the plan.");
+            s.assert_turn_texts(&["Implement the plan."]);
         } else {
-            s.assert_absent("Implement the plan.");
+            s.assert_no_turn();
         }
     }
 }
@@ -279,31 +282,50 @@ fn plan_menu_allows_transcript_wheel_scrolling_and_keeps_keyboard_ownership() {
 // ORACLE app/owned_transcript_input_tests.rs:331 plan_menu_allows_transcript_selection_and_copy_but_respects_popup_bounds kind=snap owner=chat-live snap=codex_tui__app__owned_transcript__input_tests__plan_prompt_selection
 #[test]
 fn plan_menu_allows_transcript_selection_and_copy_but_respects_popup_bounds() {
-    kit::pending(
-        Owner::ChatLive,
-        "no plan-mode turn in the port's chat, and no mouse selection of transcript text with copy (ctrl+insert) and the plan menu's popup bounds; the selection snapshot marks the reversed cells, which the screen compare does not read",
-    );
+    let title = "Implement this plan?";
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
+        .owned_transcript()
         .script(include_str!("fixtures/transcript_view_1/plan_turn.jsonl"))
         .open();
+    s.selection_copy_policy(false, false);
+    s.assert_contains(title);
     let before = s.shot();
-    s.wheel_up(1, 20, 1);
+    let (_, menu_row) = at(&s, title);
+    s.wheel_up(1, menu_row, 1);
     s.assert_same_rows(&before);
-    s.wheel_down(1, 20, 1);
+    s.wheel_down(1, menu_row, 1);
     s.assert_same_rows(&before);
-    let (x, y) = at(&s, "Plan step");
-    s.drag(x, y, x + 4, y);
+    let (column, row) = s
+        .rows()
+        .iter()
+        .enumerate()
+        .find_map(|(y, row)| {
+            row.find("Plan step")
+                .map(|byte| (row[..byte].chars().count() as u16, y as u16))
+        })
+        .unwrap_or_else(|| panic!("no visible plan row"));
+    s.drag(column, row, column + 3, row);
+    s.assert_copies_asked(&[]);
     s.keys("ctrl+insert");
-    s.assert_snap("plan_prompt_selection");
+    s.assert_copies_asked(&["Plan"]);
+    s.assert_contains(title);
+    s.keys("ctrl+c");
+    s.assert_copies_asked(&["Plan", "Plan"]);
+    s.assert_contains(title);
+    s.assert_no_turn();
     s.keys("esc");
+    s.assert_absent(title);
     s.type_text("/m");
     let popup = s.shot();
-    let (_, popup_row) = at(&s, "› /model");
-    s.wheel_up(1, popup_row, 1);
-    s.assert_same_rows(&popup);
-    s.wheel_down(1, popup_row, 1);
-    s.assert_same_rows(&popup);
+    let (popup_column, popup_row) = at(&s, "/model");
+    let history = 0..usize::from(popup_row);
+    s.wheel_up(popup_column, popup_row, 1);
+    s.assert_same_rows_in(&popup, history.clone());
+    s.wheel_down(popup_column, popup_row, 1);
+    s.assert_same_rows_in(&popup, history);
+    s.assert_composer("/m");
+    s.assert_no_turn();
 }
 
 // ORACLE app/owned_transcript_input_tests.rs:450 empty_enter_returns_to_latest_with_contextual_hints kind=ui owner=chat-live
@@ -849,18 +871,25 @@ fn slash_picker_overlays_history_without_moving_the_transcript_or_composer() {
 // ORACLE app/owned_transcript_tests.rs:1576 double_escape_browses_prompts_without_reverting_and_explains_editing kind=snap owner=chat-live snap=prompt_navigation
 #[test]
 fn double_escape_browses_prompts_without_reverting_and_explains_editing() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Esc-Esc prompt browsing on the owned transcript at 80x16, no keymap override (open_transcript on ctrl+x h, editor move_left unbound, move_line_start on left h; .keymap is pending in the kit) and no editing explanation row; the prompt_navigation frame is the target",
-    );
+    // the oracle's keymap: `open_transcript` on `ctrl+x h`, the editor's `move_left` unbound and
+    // `move_line_start` on `left h`; the app's owned screen (`set_owned_screen(true)`)
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 16)
-        .script(include_str!("fixtures/transcript_view_1/three.jsonl"))
+        .script(include_str!(
+            "fixtures/transcript_view_1/three_status.jsonl"
+        ))
+        .owned_transcript()
+        .keymap(&[
+            ("editor.move_left", ""),
+            ("editor.move_line_start", "left h"),
+            ("global.open_transcript", "ctrl+x h"),
+        ])
         .open();
     s.keys("esc esc");
     s.keys("ctrl+x h");
     s.keys("ctrl+x h");
     s.keys("left left right");
+    s.default_keymap();
     s.assert_snap("prompt_navigation");
 }
 

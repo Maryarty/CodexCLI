@@ -1,0 +1,6 @@
+# The shortcut overlay's model while a turn runs.
+# Ported from codex-tui footer_shortcuts_running.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":[]}}}
+{"step":"screen","dir":"chat","ev":{"flags":{"collaboration_modes_enabled":false,"voice_command_enabled":true}}}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}

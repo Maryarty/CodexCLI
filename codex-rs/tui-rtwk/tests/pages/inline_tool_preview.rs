@@ -137,3 +137,63 @@ fn a_committed_command_keeps_its_output_and_the_timing_row_in_the_inline_history
     .collect();
     assert!(order.windows(2).all(|pair| pair[0] < pair[1]), "{shown}");
 }
+
+#[test]
+fn a_form_feed_in_command_output_keeps_the_text_after_it_on_its_own_row() {
+    // `parse_ansi` ends a line at `\x0c` as it does at `\n`: the rows are cut from the text the
+    // lines make up, and a multibyte character after the form feed is no cause for a panic, in
+    // the agent's preview and in the output of a user's `!` command alike.
+    let notice = |method: &str, params: serde_json::Value| {
+        AppEv::Backend(BackendEv::Notification(Box::new(
+            serde_json::from_value(serde_json::json!({"method":method,"params":params}))
+                .expect("known app-server notification"),
+        )))
+    };
+    let turn = |running: bool| {
+        serde_json::json!({
+            "id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full",
+            "status": if running { "inProgress" } else { "completed" },
+            "error":null,"startedAt":null,"completedAt":null,"durationMs":null
+        })
+    };
+    for source in ["agent", "userShell"] {
+        let mut h = crate::common::start_driven_with(
+            false,
+            Options::new().mode(ScreenMode::Inline).size(80, 24),
+        );
+        h.connect();
+        h.quiesce();
+        h.inject([
+            notice(
+                "turn/started",
+                serde_json::json!({"threadId":"thread-1","turn":turn(true)}),
+            ),
+            notice(
+                "item/completed",
+                serde_json::json!({"threadId":"thread-1","turnId":"turn-1","completedAtMs":0,
+                "item":{
+                    "type":"commandExecution","id":"call-1","command":"bash -lc 'echo out'",
+                    "cwd":"/tmp/project","processId":null,"source":source,
+                    "status":"completed","commandActions":[],
+                    "aggregatedOutput":"x\u{000c}\u{e9}1234\n","exitCode":0,"durationMs":null
+                }}),
+            ),
+            notice(
+                "turn/completed",
+                serde_json::json!({"threadId":"thread-1","turn":turn(false)}),
+            ),
+        ]);
+        h.advance(1_300);
+        let shown = h.t.screen();
+        let rows: Vec<&str> = shown.lines().map(str::trim_end).collect();
+        let first = rows
+            .iter()
+            .position(|row| row.ends_with("└ x"))
+            .unwrap_or_else(|| panic!("{source}: the first line is on its row: {shown}"));
+        assert!(
+            rows.get(first + 1)
+                .is_some_and(|row| row.ends_with("\u{e9}1234")),
+            "{source}: the text after the form feed is the next row: {shown}"
+        );
+    }
+}

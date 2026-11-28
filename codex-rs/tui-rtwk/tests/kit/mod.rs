@@ -54,7 +54,7 @@ pub use compare::{
 #[allow(unused_imports)]
 pub use env::{ColorDepth, Install, REPLAYED, replay_turn};
 #[allow(unused_imports)]
-pub use expect::{Ask, Turn, assert_rows_are};
+pub use expect::{Ask, Turn, assert_rows_are, assert_snap_lines};
 #[allow(unused_imports)]
 pub use grid::{Grid, check_style, color_name, modifier_name};
 #[allow(unused_imports)]
@@ -75,7 +75,7 @@ pub use labels::{normalize as normalize_rows, normalize_key_names, normalize_lab
 #[allow(unused_imports)]
 pub use replies::{Page, agent_turn, turns_of};
 #[allow(unused_imports)]
-pub use verdict::{Owner, missing, na, pending, todo};
+pub use verdict::{Owner, delta, delta_hits, missing, na, pending, todo};
 #[allow(unused_imports)]
 pub use worktrees::{Checkout, Held};
 
@@ -791,15 +791,20 @@ impl Screen {
     pub fn assert_snap_rows_from(&self, name: &str, from: usize, count: usize, blink: bool) {
         let ours = self.rows();
         let glyph: &[char] = if blink { &['•', '◦'] } else { &[] };
-        for (at, want) in snap_rows(name, "").iter().take(count).enumerate() {
-            let got = ours.get(from + at).map_or("", |r| r.trim_end());
-            pretty_assertions::assert_eq!(
-                got.trim_start_matches(glyph),
-                want.trim_end().trim_start_matches(glyph),
-                "{name}: row {at}\n{}",
-                self.text()
-            );
-        }
+        let want: Vec<String> = snap_rows(name, "").into_iter().take(count).collect();
+        let got: Vec<&str> = (0..want.len())
+            .map(|at| ours.get(from + at).map_or("", |r| r.trim_end()))
+            .collect();
+        verdict::screen(&got, &want, || {
+            for (at, (got, want)) in got.iter().zip(&want).enumerate() {
+                pretty_assertions::assert_eq!(
+                    got.trim_start_matches(glyph),
+                    want.trim_end().trim_start_matches(glyph),
+                    "{name}: row {at}\n{}",
+                    self.text()
+                );
+            }
+        });
     }
 
     /// The oracle drew the chat widget alone (no history, no gap row under the transcript): its
@@ -850,14 +855,21 @@ impl Screen {
     ) {
         let ours = self.rows();
         let want = snap_rows(name, "");
-        for at in rows.filter(|at| !except.contains(at)) {
-            pretty_assertions::assert_eq!(
-                ours[at].trim_end(),
-                want[at].trim_end(),
-                "{name}: row {at}\n{}",
-                self.text()
-            );
-        }
+        let at: Vec<usize> = rows.filter(|at| !except.contains(at)).collect();
+        let (got_rows, want_rows): (Vec<&str>, Vec<&str>) = at
+            .iter()
+            .map(|&at| (ours[at].as_str(), want[at].as_str()))
+            .unzip();
+        verdict::screen(&got_rows, &want_rows, || {
+            for &at in &at {
+                pretty_assertions::assert_eq!(
+                    ours[at].trim_end(),
+                    want[at].trim_end(),
+                    "{name}: row {at}\n{}",
+                    self.text()
+                );
+            }
+        });
     }
 
     /// The first `count` rows of the screen equal the rows `at..at + count` of the oracle's
@@ -865,14 +877,16 @@ impl Screen {
     pub fn assert_snap_state_rows(&self, name: &str, at: usize, count: usize) {
         let ours = self.rows();
         let want = snap_rows(name, "");
-        for row in 0..count {
-            pretty_assertions::assert_eq!(
-                ours[row].trim_end(),
-                want[at + row].trim_end(),
-                "{name} from row {at}, row {row}:\n{}",
-                self.text()
-            );
-        }
+        verdict::screen(&ours[..count], &want[at..at + count], || {
+            for row in 0..count {
+                pretty_assertions::assert_eq!(
+                    ours[row].trim_end(),
+                    want[at + row].trim_end(),
+                    "{name} from row {at}, row {row}:\n{}",
+                    self.text()
+                );
+            }
+        });
     }
 
     /// The oracle presses `keys` `times` times and asserts `text` showed on some row on the way.

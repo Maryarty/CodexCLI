@@ -18,7 +18,7 @@ use rtwk::foundation::{Listenable, ListenableBuilder, VoidCallback};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, SizedBox};
 use rtwk::navigation::Navigator;
 use rtwk::provider::{read, select};
-use rtwk::style::{Span, Style};
+use rtwk::style::Span;
 use rtwk::text::{Text, TextOverflow, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
@@ -34,6 +34,7 @@ use codex_tui_core::threads::{HistoryState, ThreadModel};
 
 use super::TranscriptMode;
 use super::activity_focus::{self, Step as ActivityStep};
+use super::browsing;
 use super::copy::{self, CopyJob, CopyOrigin};
 use super::find;
 use super::find_footer;
@@ -296,6 +297,7 @@ impl State for SheetState {
                     find: find.clone(),
                     detailed,
                     mark: modes.selected(),
+                    modes: modes.clone(),
                     inline_history: false,
                 }
                 .into()
@@ -313,7 +315,7 @@ impl State for SheetState {
             let keymap = keymap.clone();
             let latest = pager::hint(&keymap, PAGER_JUMP_BOTTOM, table.key_end);
             ListenableBuilder::new(Rc::new(listenable), move |_, _| {
-                let browsing = modes.browsing();
+                let browse = modes.browsing();
                 let look = history::Look {
                     accent: accent.clone(),
                     dim: dim.clone(),
@@ -323,10 +325,11 @@ impl State for SheetState {
                 let mut rows = Column::new()
                     .main_axis_size(MainAxisSize::Min)
                     .cross_axis_alignment(CrossAxisAlignment::Stretch);
-                if browsing {
+                if browse {
                     rows = rows
-                        .child(browsing_footer(
+                        .child(browsing::row(
                             table,
+                            browsing::details_label(&keymap),
                             bold.clone(),
                             accent.clone(),
                             dim.clone(),
@@ -656,63 +659,6 @@ fn status(
         } else {
             history::whole(table, &look, &say)
         };
-        Text::rich_line(chosen).overflow(TextOverflow::Clip).into()
-    })
-    .into()
-}
-
-/// The status row while prompts are browsed: the first spelling that fits
-/// the row, whole to bare (`prompt_navigation_footer`'s `first_fitting_line`).
-fn browsing_footer(table: &'static Strings, key: Style, accent: Style, dim: Style) -> AnyWidget {
-    LayoutBuilder::new(move |cx, constraints| {
-        let segmenter = segmenter_of(cx);
-        let [whole, short] = table.browsing_label;
-        let line = |label: &'static str, hints: &[(&'static str, &'static str)]| -> Vec<Span> {
-            let mut spans = vec![Span::styled(label, accent.clone())];
-            for (keys, action) in hints {
-                spans.push(Span::styled(table.hint_joiner, dim.clone()));
-                spans.push(Span::styled(*keys, key.clone()));
-                if !action.is_empty() {
-                    spans.push(Span::styled(table.hint_gap, dim.clone()));
-                    spans.push(Span::styled(*action, dim.clone()));
-                }
-            }
-            spans
-        };
-        let mut full = vec![
-            (table.browsing_scroll_keys, table.browsing_scroll),
-            (table.browsing_prompt_keys, table.browsing_prompts),
-        ];
-        let mut compact = vec![(table.browsing_both_keys, "")];
-        for hints in [&mut full, &mut compact] {
-            hints.push((table.browsing_details_key, table.browsing_details));
-            hints.push((table.browsing_rewind_key, table.browsing_rewind));
-            hints.push((table.key_esc, table.browsing_back));
-        }
-        let rewind = (table.browsing_rewind_key, table.browsing_rewind);
-        let back = (table.key_esc, table.browsing_back);
-        let candidates = [
-            line(whole, &full),
-            line(short, &full),
-            line(short, &compact),
-            line(
-                short,
-                &[(table.browsing_both_keys, ""), rewind, (table.key_esc, "")],
-            ),
-            line(short, &[rewind, back]),
-            line(short, &[back]),
-            line(short, &[(table.key_esc, "")]),
-            line(short, &[]),
-        ];
-        let fits = |spans: &Vec<Span>| {
-            let cells: usize = spans.iter().map(|span| segmenter.width(&span.text)).sum();
-            i32::try_from(cells).unwrap_or(i32::MAX) <= constraints.max_width
-        };
-        let chosen = candidates
-            .iter()
-            .find(|spans| fits(spans))
-            .cloned()
-            .unwrap_or_default();
         Text::rich_line(chosen).overflow(TextOverflow::Clip).into()
     })
     .into()

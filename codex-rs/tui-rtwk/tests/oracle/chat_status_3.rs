@@ -60,10 +60,20 @@ const SUFFIX: &str = "Branch: feature/rollout.";
 /// A bottom popup of the live chat at 100 columns. The oracle renders the popup
 /// alone, so its rows are the last rows of our screen (the bottom pane).
 fn bottom_popup(script: &'static str, command: &str, snap: &str) -> Screen {
-    let mut s = Screen::build(Owner::UiPane)
-        .size(100, 24)
-        .script(script)
-        .open();
+    popup_of(script, command, snap, false)
+}
+
+/// The oracle's test chat has no thread id: the session's start stays unanswered.
+fn bottom_popup_no_thread(script: &'static str, command: &str, snap: &str) -> Screen {
+    popup_of(script, command, snap, true)
+}
+
+fn popup_of(script: &'static str, command: &str, snap: &str, no_thread: bool) -> Screen {
+    let mut open = Screen::build(Owner::UiPane).size(100, 24).script(script);
+    if no_thread {
+        open = open.held_start();
+    }
+    let mut s = open.open();
     s.type_text(command);
     s.keys("enter");
     let (_, rows) = kit::snap_size(snap);
@@ -123,13 +133,10 @@ fn status_line_setup_popup_live_only_snapshot() {
 // ORACLE chatwidget/tests/status_surface_previews.rs:183 status_surface_preview_lines_hardcoded_only_snapshot kind=snap owner=ui-pane snap=status_surface_previews_hardcoded_only
 #[test]
 fn status_surface_preview_lines_hardcoded_only_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "the oracle's test chat has no thread id, so `thread-title` previews its placeholder `thread title`; the harness's chat always holds `thread-1` (the footer and the preview show the id the oracle falls back to). The rest (config permissions, approval, profile, provider, column width) matches.",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(100, 24)
         .script(include_str!("fixtures/chat_status_3/hardcoded_line.jsonl"))
+        .held_start()
         .open();
     // The oracle's two preview lines are the preview rows of the /statusline and /title setup popups.
     s.type_text("/statusline");
@@ -146,11 +153,7 @@ fn status_surface_preview_lines_hardcoded_only_snapshot() {
 // ORACLE chatwidget/tests/status_surface_previews.rs:222 status_line_setup_popup_hardcoded_only_snapshot kind=snap owner=ui-pane snap=status_line_setup_popup_hardcoded_only
 #[test]
 fn status_line_setup_popup_hardcoded_only_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "the oracle's test chat has no thread id, so `thread-title` previews its placeholder `thread title`; the harness's chat always holds `thread-1` (the footer and the preview show the id the oracle falls back to). The rest (config permissions, approval, profile, provider, column width) matches.",
-    );
-    bottom_popup(
+    bottom_popup_no_thread(
         include_str!("fixtures/chat_status_3/hardcoded_status_popup.jsonl"),
         "/statusline",
         "status_line_setup_popup_hardcoded_only",
@@ -251,11 +254,7 @@ fn terminal_title_setup_popup_live_only_snapshot() {
 // ORACLE chatwidget/tests/status_surface_previews.rs:494 terminal_title_setup_popup_hardcoded_only_snapshot kind=snap owner=ui-pane snap=terminal_title_setup_popup_hardcoded_only
 #[test]
 fn terminal_title_setup_popup_hardcoded_only_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "the oracle's test chat has no thread id, so `thread-title` previews its placeholder `thread title`; the harness's chat always holds `thread-1` (the footer and the preview show the id the oracle falls back to). The rest (config permissions, approval, profile, provider, column width) matches.",
-    );
-    bottom_popup(
+    bottom_popup_no_thread(
         include_str!("fixtures/chat_status_3/hardcoded_title_popup.jsonl"),
         "/title",
         "terminal_title_setup_popup_hardcoded_only",
@@ -601,10 +600,6 @@ fn renders_remapped_interrupt_hint() {
 // ORACLE status_indicator_widget.rs:483 hook_status_reflows_without_displacing_controls_or_details kind=snap owner=ui-pane snap=hook_status_reflows_with_background_activity snap=hook_status_reflows_without_background_activity
 #[test]
 fn hook_status_reflows_without_displacing_controls_or_details() {
-    kit::pending(
-        Owner::UiPane,
-        "G44: rtwk's text engine clusters a halfwidth katakana and its sound mark (`ｶﾞ`) into one cell, the oracle counts the mark as its own cell: the hook text `checking 日本語 ｶﾞﾊﾟ policy` is one cell narrower per mark, so the fit width (61 / 124) and the rows at 24 columns differ; the rest of the row (the reflow under the label, the details, the ellipsis) is the oracle's",
-    );
     // The oracle draws the row alone at four widths: the fit width (2 rows), one column less
     // (3 rows), 24 columns (3 rows) and the fit width again.
     for (entry, snap, widths) in [
@@ -622,6 +617,8 @@ fn hook_status_reflows_without_displacing_controls_or_details() {
         let mut s = Screen::build(Owner::UiPane)
             // wider than every frame: a resize to the opening size would blank the screen
             .size(130, 24)
+            // the oracle counts a halfwidth katakana's sound mark as a cell of its own
+            .legacy_text()
             .entry("chat", entry)
             .first_frame()
             .open();

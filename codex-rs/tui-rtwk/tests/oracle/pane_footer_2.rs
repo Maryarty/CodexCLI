@@ -11,33 +11,89 @@ use crate::kit::{self, ColorDepth, Owner, Screen};
 /// ITALIC on blank cells (the indent, the cells after a text); the terminal does not
 /// show an attribute on a blank (G46), so `assert_snap`'s per-cell styles cannot hold
 /// for them.
-/// The one row that differs in the stack snapshots: the footer hint.
-const AGENTS_FOOTER: &str = "rows above the footer equal; the footer hint row differs: the oracle's chat widget has agents navigation off (the app calls `enable_agents_navigation`), ours always has the command center and reads `← for agents` for `? for shortcuts` (needs a kit option or a CommandFlags/StatusFacts flag for it, as chat_status_2's rows)";
-
+/// The one row that differs in the pending-input previews: the footer hint (the oracle's chat has
+/// no agents navigation, the preview entries keep it).
 fn assert_rows_of(s: &Screen, snap: &str) {
     s.assert_snap_head(snap);
 }
 
 fn usage_banner(presentation: &str, description: &str, actions: serde_json::Value) -> Screen {
-    let mut s = Screen::build(Owner::UiPane).size(70, 16).live().open();
+    usage_banner_in(
+        (70, 16),
+        "Usage limit reached",
+        presentation,
+        description,
+        actions,
+    )
+}
+
+fn usage_banner_in(
+    size: (u16, u16),
+    title: &str,
+    presentation: &str,
+    description: &str,
+    actions: serde_json::Value,
+) -> Screen {
+    let open = Screen::build(Owner::UiPane).size(size.0, size.1);
+    banner_on(
+        open.live().open(),
+        r#"{"account_usage":true}"#,
+        title,
+        presentation,
+        description,
+        actions,
+    )
+}
+
+/// The same banner on a fresh session thread with the agents navigation off, as the oracle's
+/// chat widget has it (the footer shows the context meter, not `← for agents`).
+fn usage_banner_on_session(
+    size: (u16, u16),
+    title: &str,
+    presentation: &str,
+    description: &str,
+    actions: serde_json::Value,
+) -> Screen {
+    let open = Screen::build(Owner::UiPane)
+        .size(size.0, size.1)
+        .script(include_str!("fixtures/pane_footer_2/banner_session.jsonl"));
+    // the status facts come whole: the status line stays off with the usage flag
+    banner_on(
+        open.open(),
+        r#"{"items":[],"account_usage":true}"#,
+        title,
+        presentation,
+        description,
+        actions,
+    )
+}
+
+fn banner_on(
+    mut s: Screen,
+    status: &str,
+    title: &str,
+    presentation: &str,
+    description: &str,
+    actions: serde_json::Value,
+) -> Screen {
     s.server_answers(
         "account/rateLimits/read",
         serde_json::json!({
             "rateLimits": {},
             "rateLimitUpsell": {
                 "banner_type": "credits",
-                "title": "Usage limit reached",
+                "title": title,
                 "description": description,
                 "ctas": actions,
                 "presentation": presentation,
             },
         }),
     );
-    s.feed(
-        r#"{"step":"screen","dir":"status","ev":{"kind":"account","account":{"chat_gpt":{"email":"user@example.com","plan":"plus"}}}}
-{"step":"screen","dir":"chat","ev":{"status":{"account_usage":true}}}"#,
-    );
-    s.assert_contains("Usage limit reached");
+    s.feed(&format!(
+        r#"{{"step":"screen","dir":"status","ev":{{"kind":"account","account":{{"chat_gpt":{{"email":"user@example.com","plan":"plus"}}}}}}}}
+{{"step":"screen","dir":"chat","ev":{{"status":{status}}}}}"#
+    ));
+    s.assert_contains(title);
     s
 }
 
@@ -111,15 +167,28 @@ fn effort_ignition_styles_are_safe_on_tiny_and_offset_areas() {
 // ORACLE bottom_pane/effort_ignition_tests.rs:325 effort_ignition_animation_gallery_snapshot kind=snap owner=ui-pane snap=effort_ignition_animation_gallery
 #[test]
 fn effort_ignition_animation_gallery_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "no effort ignition gallery: no entry chat/effort_ignition_gallery (44x3: three styles, MAX and ULTRA, seven times each); the oracle snapshot is a sequence of 42 frames, the kit compares one screen (gap)",
-    );
+    // The oracle prints each frame as a line: its label, then the three rows of the area and
+    // the plane of tinted cells. The entry draws the 42 frames one under the other.
     let s = Screen::build(Owner::UiPane)
-        .size(44, 3)
+        .size(44, 42 * 3)
+        .dark()
         .entry("chat", "effort_ignition_gallery")
         .open();
-    s.assert_snap("effort_ignition_animation_gallery");
+    let mut frames = Vec::new();
+    let mut block = 0;
+    for style in ["wave", "aurora", "pulse"] {
+        for tier in ["MAX", "ULTRA"] {
+            for millis in [0, 180, 420, 720, 1100, 1580, 2050] {
+                let rows = block * 3..block * 3 + 3;
+                block += 1;
+                frames.push(format!(
+                    "{style:8} {tier:5} {millis:4}ms │{}│",
+                    s.frame_with_tint(rows)
+                ));
+            }
+        }
+    }
+    kit::assert_snap_lines("effort_ignition_animation_gallery", &frames);
 }
 
 // ---- oracle: bottom_pane/effort_status_line_tests.rs (3 screen-level tests here; 5 state tests left to ui-pane)
@@ -157,15 +226,25 @@ fn links_follow_the_visible_text_through_the_effort_transition() {
 // ORACLE bottom_pane/effort_status_line_tests.rs:213 transition_frames_snapshot kind=snap owner=ui-pane snap=effort_status_line_transition_frames
 #[test]
 fn transition_frames_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "no effort status-line frames: no entry chat/effort_status_line_frames (32 columns, `gpt-5.4 high · main` to MAX and ULTRA at twelve times each); the oracle snapshot lists frames, the kit compares one screen (gap)",
-    );
+    // The oracle prints twelve frames per tier as lines; the entry draws them one per row.
     let s = Screen::build(Owner::UiPane)
-        .size(32, 1)
+        .size(32, 24)
         .entry("chat", "effort_status_line_frames")
         .open();
-    s.assert_snap("effort_status_line_transition_frames");
+    let rows = s.rows();
+    let mut frames = Vec::new();
+    for (tier, label) in ["MAX", "ULTRA"].into_iter().enumerate() {
+        for (at, millis) in [
+            0, 300, 520, 680, 820, 1050, 1320, 1550, 1800, 2020, 2250, 2500,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let row = rows.get(tier * 12 + at).map_or("", String::as_str);
+            frames.push(format!("{label:5} {millis:4}ms │{row:<32}│"));
+        }
+    }
+    kit::assert_snap_lines("effort_status_line_transition_frames", &frames);
 }
 
 // ---- oracle: bottom_pane/footer.rs (3 screen-level tests here; 1 state tests left to ui-pane)
@@ -189,128 +268,51 @@ fn voice_footer_rendering_preserves_text_and_styles() {
 // ORACLE bottom_pane/footer.rs:1260 footer_snapshots kind=snap owner=ui-pane snap=footer_active_agent_label snap=footer_composer_has_draft_queue_hint_enabled snap=footer_context_tokens_used snap=footer_ctrl_c_quit_idle snap=footer_esc_hint_idle snap=footer_esc_hint_primed snap=footer_mode_indicator_narrow_overlap_hides snap=footer_mode_indicator_running_hides_hint snap=footer_mode_indicator_wide snap=footer_shortcuts_collaboration_modes_enabled snap=footer_shortcuts_context_running snap=footer_shortcuts_default snap=footer_shortcuts_running snap=footer_shortcuts_shift_and_esc snap=footer_status_line_disabled_context_right snap=footer_status_line_enabled_mode_and_ide_context_right snap=footer_status_line_enabled_mode_right snap=footer_status_line_enabled_no_mode_right snap=footer_status_line_overrides_draft_idle snap=footer_status_line_overrides_shortcuts snap=footer_status_line_truncated_with_gap snap=footer_status_line_with_active_agent_label snap=footer_status_line_yields_to_queue_hint
 #[test]
 fn footer_snapshots() {
-    kit::pending(
-        Owner::UiPane,
-        "the oracle builds 23 independent FooterProps combinations. Seven exact native entries are covered by pages::chat_status::the_footer_entries_equal_the_oracle_snapshots; live compact mode, queueing, warnings and IDE receipts have separate tests. The other exact composite rows still need equivalent fixtures",
-    );
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_active_agent_label")
-        .open();
-    s.assert_snap("footer_active_agent_label");
+    // Each oracle snapshot is one `FooterProps` of the oracle's standalone footer; here one entry
+    // draws the real `Footer` (or the overlay's panel) over the model its fixture script makes.
+    let at = |name: &'static str, width: u16, height: u16| {
+        let s = Screen::build(Owner::UiPane)
+            .size(width, height)
+            .entry("chat", name)
+            .open();
+        s.assert_snap(name);
+    };
+    for name in [
+        "footer_shortcuts_default",
+        "footer_shortcuts_context_running",
+        "footer_context_tokens_used",
+        "footer_composer_has_draft_queue_hint_enabled",
+        "footer_ctrl_c_quit_idle",
+        "footer_esc_hint_idle",
+        "footer_esc_hint_primed",
+    ] {
+        at(name, 80, 1);
+    }
+    // the overlay's height is its panel's: the Change mode row makes one more
+    for (name, height) in [
+        ("footer_shortcuts_shift_and_esc", 20),
+        ("footer_shortcuts_collaboration_modes_enabled", 21),
+        ("footer_shortcuts_running", 20),
+    ] {
+        at(name, 80, height);
+    }
+    // `footer_status_line_yields_to_queue_hint`: the composer draws its hint row from
+    // `hint_footer_props`, which takes the status line off the props (the line is the status
+    // surface's rows above), so the row is the queue hint and the meter of any draft kept while a
+    // turn runs.
     let s = Screen::build(Owner::UiPane)
         .size(80, 1)
         .entry("chat", "footer_composer_has_draft_queue_hint_enabled")
         .open();
-    s.assert_snap("footer_composer_has_draft_queue_hint_enabled");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_context_tokens_used")
-        .open();
-    s.assert_snap("footer_context_tokens_used");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_ctrl_c_quit_idle")
-        .open();
-    s.assert_snap("footer_ctrl_c_quit_idle");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_esc_hint_idle")
-        .open();
-    s.assert_snap("footer_esc_hint_idle");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_esc_hint_primed")
-        .open();
-    s.assert_snap("footer_esc_hint_primed");
-    let s = Screen::build(Owner::UiPane)
-        .size(40, 1)
-        .entry("chat", "footer_mode_indicator_narrow_overlap_hides")
-        .open();
-    s.assert_snap("footer_mode_indicator_narrow_overlap_hides");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_mode_indicator_running_hides_hint")
-        .open();
-    s.assert_snap("footer_mode_indicator_running_hides_hint");
-    let s = Screen::build(Owner::UiPane)
-        .size(120, 1)
-        .entry("chat", "footer_mode_indicator_wide")
-        .open();
-    s.assert_snap("footer_mode_indicator_wide");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_shortcuts_collaboration_modes_enabled")
-        .open();
-    s.assert_snap("footer_shortcuts_collaboration_modes_enabled");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_shortcuts_context_running")
-        .open();
-    s.assert_snap("footer_shortcuts_context_running");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_shortcuts_default")
-        .open();
-    s.assert_snap("footer_shortcuts_default");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_shortcuts_running")
-        .open();
-    s.assert_snap("footer_shortcuts_running");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_shortcuts_shift_and_esc")
-        .open();
-    s.assert_snap("footer_shortcuts_shift_and_esc");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_status_line_disabled_context_right")
-        .open();
-    s.assert_snap("footer_status_line_disabled_context_right");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry(
-            "chat",
-            "footer_status_line_enabled_mode_and_ide_context_right",
-        )
-        .open();
-    s.assert_snap("footer_status_line_enabled_mode_and_ide_context_right");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_status_line_enabled_mode_right")
-        .open();
-    s.assert_snap("footer_status_line_enabled_mode_right");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_status_line_enabled_no_mode_right")
-        .open();
-    s.assert_snap("footer_status_line_enabled_no_mode_right");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_status_line_overrides_draft_idle")
-        .open();
-    s.assert_snap("footer_status_line_overrides_draft_idle");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_status_line_overrides_shortcuts")
-        .open();
-    s.assert_snap("footer_status_line_overrides_shortcuts");
-    let s = Screen::build(Owner::UiPane)
-        .size(40, 1)
-        .entry("chat", "footer_status_line_truncated_with_gap")
-        .open();
-    s.assert_snap("footer_status_line_truncated_with_gap");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_status_line_with_active_agent_label")
-        .open();
-    s.assert_snap("footer_status_line_with_active_agent_label");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_status_line_yields_to_queue_hint")
-        .open();
     s.assert_snap("footer_status_line_yields_to_queue_hint");
+    // n/a states of the standalone footer, which the composer never draws: `status_line_value`
+    // of the props replaces the hints in the footer's own row (`footer_status_line_overrides_*`,
+    // `_truncated_with_gap`, `_with_active_agent_label`), and of `active_agent_label`,
+    // `mode_indicator` (right of the hints in the composer's `passive_hints`, left of them in the
+    // standalone footer's `_mode_indicator_*`, `_status_line_*_mode_right`, `_disabled_context_right`,
+    // `_active_agent_label`). The composer strips them (`hint_footer_props`) and draws the status line
+    // as its own rows over the hints (`status_surface.rs`), as the port's page does (chat_status_*,
+    // pane_footer_1).
 }
 
 // ORACLE bottom_pane/footer.rs:1672 footer_status_line_truncates_to_keep_mode_indicator kind=ui owner=ui-pane
@@ -326,7 +328,22 @@ fn footer_status_line_truncates_to_keep_mode_indicator() {
 }
 
 fn footer_pr_link(project: &str) -> Screen {
-    let mut s = Screen::build(Owner::UiPane).size(13, 4).live().open();
+    footer_pr_link_at(project, 13, false, false)
+}
+
+/// The status line `project · PR #42` at `width` columns (the footer indents it two cells).
+/// `legacy` counts a halfwidth katakana and its sound mark as two cells, as the oracle does;
+/// `bidi` has the terminal reorder right-to-left text, so the cells keep the logical order of
+/// the oracle's buffer.
+fn footer_pr_link_at(project: &str, width: u16, legacy: bool, bidi: bool) -> Screen {
+    let mut open = Screen::build(Owner::UiPane).size(width, 4);
+    if legacy {
+        open = open.legacy_text();
+    }
+    if bidi {
+        open = open.bidi_terminal();
+    }
+    let mut s = open.live().open();
     s.feed(
         &serde_json::json!({
             "step": "screen", "dir": "chat", "ev": {
@@ -345,21 +362,39 @@ fn footer_pr_link(project: &str) -> Screen {
 // ORACLE bottom_pane/footer/footer_content_tests.rs:11 clipped_links_keep_their_cells_after_a_halfwidth_katakana_grapheme kind=ui owner=ui-pane
 #[test]
 fn clipped_links_keep_their_cells_after_a_halfwidth_katakana_grapheme() {
-    assert_footer_pr_link("ｶﾞ", "ｶﾞ");
+    // The oracle's line is `ｶﾞ` (a link of its own to the project), ` · `, `PR #42` (the pull
+    // request's link) in 10 cells: the status line indents two more. The app has no link on
+    // the project name (the oracle's app never makes one, only this widget test), so that link
+    // is not drawn here; the rest is the oracle's.
+    let s = footer_pr_link_at("ｶﾞ", 12, true, false);
+    s.assert_row_of("ｶﾞ", &["ｶﾞ · PR #…"], &[]);
+    s.assert_no_link(" · ");
+    s.assert_link("PR #", "https://example.com/pr/42");
     kit::pending(
         Owner::UiPane,
-        "the oracle attaches its own URL to the Katakana project, keeps PR # on the clipped row, and leaves the ellipsis unlinked. The live status line only has a PR destination; the toolkit can give its ellipsis the clipped span's link. The surviving PR cells are verified above",
+        "G74: the ellipsis cell takes the link of the text it cuts (`PR #…` links `…` to the pull request); the oracle's `…` carries no link",
     );
+    s.assert_no_link("…");
 }
 
 // ORACLE bottom_pane/footer/footer_content_tests.rs:35 arabic_prefix_keeps_link_on_the_painted_cells_at_exact_fit_and_overflow kind=ui owner=ui-pane
 #[test]
 fn arabic_prefix_keeps_link_on_the_painted_cells_at_exact_fit_and_overflow() {
-    assert_footer_pr_link("لا", "ال");
+    // `لا · PR #42` is 11 cells (13 with the indent: exact fit) and one cell narrower clips the
+    // link's last characters to `PR #…`. The terminal reorders the Arabic prefix, the cells are
+    // in logical order.
+    let mut s = footer_pr_link_at("لا", 13, false, true);
+    s.assert_row_of("لا", &["لا · PR #42"], &[]);
+    s.assert_no_link("لا · ");
+    s.assert_link("PR #42", "https://example.com/pr/42");
+    s.resize(12, 4);
+    s.assert_row_of("لا", &["لا · PR #…"], &[]);
+    s.assert_link("PR #", "https://example.com/pr/42");
     kit::pending(
         Owner::UiPane,
-        "the live bidi path paints PR #42 on the left of the Arabic prefix. The original snapshot asserts specific PR and ellipsis cell columns in logical order. The surviving PR cells are verified above",
+        "G74: the ellipsis cell takes the link of the text it cuts (`PR #…` links `…` to the pull request); the oracle's `…` carries no link",
     );
+    s.assert_no_link("…");
 }
 
 fn assert_footer_pr_link(project: &str, painted: &str) {
@@ -380,17 +415,10 @@ fn footer_pr_links_follow_native_painted_cells_through_resize() {
 // ORACLE bottom_pane/footer/footer_content_tests.rs:60 prepared_tree_uses_its_natural_width_and_paints_only_the_footer_viewport kind=snap owner=ui-pane snap=prepared_tree_uses_its_natural_width_and_paints_only_the_footer_viewport
 #[test]
 fn prepared_tree_uses_its_natural_width_and_paints_only_the_footer_viewport() {
-    kit::pending(
+    kit::na(
         Owner::UiPane,
-        "no footer link tree: no entry chat/prepared_tree_link (a link with `ok`, `large build` and `a`..`d` lines, painted in the 6x4 viewport at (1,1) of an 8x7 `.` backdrop)",
+        "a state the port cannot have: the oracle's `FooterContent::from(UiTree)` draws an extension's `ui_tree` link node, which no live producer builds (the oracle's app never makes a ui_tree status row, only its tests); the native status line's links and clipping are the tests above and `native_status_wraps_links_within_the_host_budget`",
     );
-    let s = Screen::build(Owner::UiPane)
-        .size(8, 7)
-        .entry("chat", "prepared_tree_link")
-        .open();
-    s.assert_snap("prepared_tree_uses_its_natural_width_and_paints_only_the_footer_viewport");
-    s.assert_text_at(1, 4, "a");
-    s.assert_text_at(2, 4, "…");
 }
 
 // ---- oracle: bottom_pane/mod.rs (32 screen-level tests here; 8 state tests left to ui-pane)
@@ -405,15 +433,20 @@ fn flush_buffered_typing_in_background_and_covering_editors() {
 // ORACLE bottom_pane/mod.rs:2844 inline_banner_snapshot kind=snap owner=ui-pane snap=inline_banner_wrapped_and_truncated
 #[test]
 fn inline_banner_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "no inline banner in the chat: no entry chat/inline_banner_wrapped (44 columns, `Choose how to continue working`, the description repeated eight times, two actions `Open usage settings` and `Notify owner`)",
+    // The oracle draws the bottom pane alone at its desired height (19 rows at 44); the chat
+    // keeps the reader's gap row between the banner and the composer, so it gets one row more
+    // and the rows compare blanks aside.
+    let s = usage_banner_on_session(
+        (44, 20),
+        "Choose how to continue working",
+        "dismissible",
+        &"A long description wraps to fit the available terminal width.\n".repeat(8),
+        serde_json::json!([
+            {"action":"view_usage","label":"Open usage settings"},
+            {"action":"notify_owner","label":"Notify owner"},
+        ]),
     );
-    let s = Screen::build(Owner::UiPane)
-        .size(44, 19)
-        .entry("chat", "inline_banner_wrapped")
-        .open();
-    s.assert_snap("inline_banner_wrapped_and_truncated");
+    s.assert_snap_rows_blanks_aside("inline_banner_wrapped_and_truncated");
 }
 
 // ORACLE bottom_pane/mod.rs:2880 escape_closes_shortcut_help_before_inline_banner kind=ui owner=ui-pane
@@ -617,7 +650,6 @@ fn composer_shown_after_denied_while_task_running() {
 // ORACLE bottom_pane/mod.rs:3574 status_indicator_visible_during_command_execution kind=snap owner=ui-pane snap=status_timer_survives_hidden_row
 #[test]
 fn status_indicator_visible_during_command_execution() {
-    kit::pending(Owner::UiPane, AGENTS_FOOTER);
     let s = Screen::build(Owner::UiPane)
         .size(40, 6)
         .entry("chat", "status_timer_hidden_row")
@@ -650,7 +682,6 @@ fn status_and_composer_fill_height_without_bottom_padding() {
 // ORACLE bottom_pane/mod.rs:3681 status_only_snapshot kind=snap owner=ui-pane snap=status_only_snapshot
 #[test]
 fn status_only_snapshot() {
-    kit::pending(Owner::UiPane, AGENTS_FOOTER);
     let s = Screen::build(Owner::UiPane)
         .size(48, 6)
         .entry("chat", "status_only")
@@ -675,7 +706,6 @@ fn unified_exec_summary_does_not_increase_height_when_status_visible() {
 // ORACLE bottom_pane/mod.rs:3735 status_with_details_and_queued_messages_snapshot kind=snap owner=ui-pane snap=status_with_details_and_queued_messages_snapshot
 #[test]
 fn status_with_details_and_queued_messages_snapshot() {
-    kit::pending(Owner::UiPane, AGENTS_FOOTER);
     let s = Screen::build(Owner::UiPane)
         .size(48, 11)
         .entry("chat", "status_with_details_queued")
@@ -687,7 +717,6 @@ fn status_with_details_and_queued_messages_snapshot() {
 // ORACLE bottom_pane/mod.rs:3773 queued_messages_visible_when_status_hidden_snapshot kind=snap owner=ui-pane snap=queued_messages_visible_when_status_hidden_snapshot
 #[test]
 fn queued_messages_visible_when_status_hidden_snapshot() {
-    kit::pending(Owner::UiPane, AGENTS_FOOTER);
     let s = Screen::build(Owner::UiPane)
         .size(48, 7)
         .entry("chat", "queued_status_hidden")
@@ -699,7 +728,6 @@ fn queued_messages_visible_when_status_hidden_snapshot() {
 // ORACLE bottom_pane/mod.rs:3806 status_and_queued_messages_snapshot kind=snap owner=ui-pane snap=status_and_queued_messages_snapshot
 #[test]
 fn status_and_queued_messages_snapshot() {
-    kit::pending(Owner::UiPane, AGENTS_FOOTER);
     let s = Screen::build(Owner::UiPane)
         .size(48, 9)
         .entry("chat", "status_and_queued")
@@ -835,16 +863,10 @@ fn release_events_are_ignored_for_active_view() {
 // ORACLE bottom_pane/mod.rs:4306 paste_completion_clears_stacked_views_and_restores_composer_input kind=ui owner=ui-pane
 #[test]
 fn paste_completion_clears_stacked_views_and_restores_composer_input() {
-    kit::pending(
+    kit::na(
         Owner::UiPane,
         "the oracle uses two dummy BottomPaneView instances. The upper one's handle_paste unconditionally completes and the test inspects how the lower one is retired. The native production dialogs edit or route paste; there is no equivalent dialog whose paste completes it",
     );
-    let mut s = Screen::build(Owner::UiPane)
-        .size(40, 2)
-        .entry("chat", "paste_under_views")
-        .open();
-    s.paste("hello");
-    s.keys("down");
 }
 
 // ---- oracle: bottom_pane/pending_input_preview.rs (13 screen-level tests here; 0 state tests left to ui-pane)
@@ -1056,7 +1078,7 @@ fn render_multiline_pending_steer_uses_single_prefix_and_truncates() {
 fn light_status_line_corrects_pale_custom_theme_colors() {
     kit::pending(
         Owner::UiPane,
-        "screen feature (status line): no entry chat/light_status_line_pale_theme (42x1: `gpt-5`, `~/code`, `Custom permissions` on a pale custom theme); the kit seeds the terminal colours (`terminal_colors(0x1e1e1e, 0xffffff)`)",
+        "G-new-footer-palette: the separators are the terminal fg/bg blend (Rgb(118,118,118) on a light terminal) and the items' colours the theme's accents made readable on it; the port's tokens are fixed indexed colours, and no entry chat/light_status_line_pale_theme (42x1: `gpt-5`, `~/code`, `Custom permissions` on a pale custom theme) can equal the cells",
     );
     let s = Screen::build(Owner::UiPane)
         .size(42, 1)
@@ -1070,7 +1092,7 @@ fn light_status_line_corrects_pale_custom_theme_colors() {
 fn status_line_theme_colors_at_limited_color_depths() {
     kit::pending(
         Owner::UiPane,
-        "screen feature (status line): no status line entry to draw at colour depths 0 and 1; the kit seeds the depth (`color_depth(ColorDepth::None)`, `Ansi16`) as the oracle child process does with FORCE_COLOR",
+        "G-new-footer-palette: the status line's theme colours (the syntax theme's accents, the dim separators) at the colour depths 0 and 1 (`color_depth(ColorDepth::None)`, `Ansi16`) come from the terminal-derived palette the port lacks",
     );
 }
 
@@ -1078,30 +1100,10 @@ fn status_line_theme_colors_at_limited_color_depths() {
 // ORACLE bottom_pane/tests/actionable_banner_tests.rs:6 promoted_banner_uses_picker_hints_and_preserves_the_draft kind=snap owner=ui-pane
 #[test]
 fn promoted_banner_uses_picker_hints_and_preserves_the_draft() {
-    kit::pending(
+    kit::na(
         Owner::UiPane,
         "the oracle builds a synthetic promoted View usage row. In live code rate_limits.rs promotes the owner-nudge confirmation. The native workspace route, remapped picker and retained draft are tested by chat_status_1::promoted_owner_confirmation_uses_remapped_picker_keys_and_keeps_the_draft",
     );
-    let mut s = Screen::build(Owner::UiPane)
-        .size(40, 6)
-        .keymap(&[("list.accept", "f3"), ("list.cancel", "f2")])
-        .entry("chat", "promoted_action_banner")
-        .open();
-    s.assert_contains("View usage");
-    s.assert_contains("f3 select · f2 back");
-    s.assert_contains("draft in progress");
-    s.assert_snap("promoted_action_banner_40");
-    s.keys("f3");
-    s.assert_absent("View usage");
-    s.assert_contains("draft in progress");
-    let mut s = Screen::build(Owner::UiPane)
-        .size(40, 6)
-        .keymap(&[("list.accept", "f3"), ("list.cancel", "f2")])
-        .entry("chat", "promoted_action_banner")
-        .open();
-    s.keys("f2");
-    s.assert_absent("View usage");
-    s.assert_contains("draft in progress");
 }
 
 // ORACLE bottom_pane/tests/actionable_banner_tests.rs:66 hidden_banner_preserves_input_before_render_and_after_resize kind=snap owner=ui-pane
@@ -1284,28 +1286,10 @@ fn render_many_sessions() {
 // ORACLE bottom_pane/view_stack_tests.rs:45 centered_dialog_retains_backdrop_and_routes_cursor kind=snap owner=ui-pane snap=centered_dialog_retains_backdrop_and_routes_cursor
 #[test]
 fn centered_dialog_retains_backdrop_and_routes_cursor() {
-    kit::pending(
+    kit::na(
         Owner::UiPane,
         "the oracle pairs two dummy renderers and returns invented terminal-cursor coordinates from the centered one. The real centered archive picker owns selection and keeps the backdrop; exact synthetic caret frames remain unverified",
     );
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 9)
-        .entry("chat", "centered_dialog")
-        .open();
-    s.assert_cursor(4, 3);
-    s.assert_snap_section("centered_dialog_retains_backdrop_and_routes_cursor", "80x9");
-    let s = Screen::build(Owner::UiPane)
-        .size(24, 7)
-        .entry("chat", "centered_dialog")
-        .open();
-    s.assert_cursor(2, 2);
-    s.assert_snap_section("centered_dialog_retains_backdrop_and_routes_cursor", "24x7");
-    let s = Screen::build(Owner::UiPane)
-        .size(12, 2)
-        .entry("chat", "centered_dialog")
-        .open();
-    s.assert_cursor(2, 0);
-    s.assert_snap_section("centered_dialog_retains_backdrop_and_routes_cursor", "12x2");
 }
 
 #[test]

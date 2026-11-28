@@ -1396,10 +1396,6 @@ fn select_mode_renders_cursor_and_scannable_footer_hints() {
     s.assert_text_style("alpha", "reversed");
     s.assert_style_in("alpha beta", 6, "!reversed");
     s.assert_contains("y/⌃c copy · enter copy & latest · esc clear · q close");
-    kit::pending(
-        Owner::ChatLive,
-        "needs f-sel-caret-span (port feature: the cell draws the caret grapheme as its own bold-underlined span under the selection area's reversed style): today the cursor's cell inside a marked range (bold underlined reversed on the active end, the rest reversed) and the cursor shown beside the match Find reads (the snapshot's `find` frame keeps it bold underlined at column 5 while `beta` is reversed) are not drawn as the oracle draws them",
-    );
     s.assert_style_in("alpha beta", 5, "bold underlined reversed");
     // find: esc, / then `beta`, advance: the match `beta` is reversed from column 6, the cursor
     // stays where it was, and the find footer shows the query
@@ -1526,10 +1522,6 @@ fn command_c_ignores_release_and_copies_only_an_active_selection() {
 // ORACLE transcript_view/selection_tests.rs:187 enter_on_an_empty_selection_does_not_copy_or_reach_the_composer kind=ui owner=chat-live
 #[test]
 fn enter_on_an_empty_selection_does_not_copy_or_reach_the_composer() {
-    kit::pending(
-        Owner::ChatLive,
-        "G-new-sel-point: a stationary one-click anchor is not exposed by SelectionAreaController, so it cannot own Enter without a selected range",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(32, 12)
         .script(include_str!(
@@ -1539,7 +1531,7 @@ fn enter_on_an_empty_selection_does_not_copy_or_reach_the_composer() {
         .open();
     let row = u16::try_from(s.row_of("select this")).unwrap();
     s.click(3, row);
-    s.keys("enter");
+    s.keys("enter enter");
     s.assert_text_style("select this", "!reversed");
     s.assert_no_turn();
     s.assert_copies_asked(&[]);

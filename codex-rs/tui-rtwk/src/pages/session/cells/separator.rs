@@ -142,7 +142,7 @@ fn stamp(at: NaiveDateTime, facts: Facts<'_>, strings: &Strings) -> String {
 }
 
 /// `Local tools: 3 calls (2.5s) • Inference: ...`: the metrics that are not zero.
-fn metrics_label(metrics: &RuntimeMetrics, strings: &Strings) -> Option<String> {
+pub(super) fn metrics_label(metrics: &RuntimeMetrics, strings: &Strings) -> Option<String> {
     let mut parts = Vec::new();
     let count = |totals: Totals| totals.count.to_string();
     let plural = |count: u64, words: (&'static str, &'static str)| {

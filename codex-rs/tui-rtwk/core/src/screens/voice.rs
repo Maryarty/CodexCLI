@@ -25,11 +25,24 @@ pub const KIND: Kind = Kind::Sheet;
 pub struct Model {
     ordered_legacy_publisher: Option<Address>,
     pub settings: settings::Model,
+    control_owner: Option<Owner>,
 }
 
 impl Model {
     pub(crate) fn legacy_captions_from(&self, address: Address) -> bool {
         self.ordered_legacy_publisher == Some(address)
+    }
+
+    pub(crate) fn control_owner(&self) -> Option<&Owner> {
+        self.control_owner.as_ref()
+    }
+
+    pub fn has_control_owner(&self) -> bool {
+        self.control_owner.is_some()
+    }
+
+    pub(crate) fn set_control_owner(&mut self, owner: Option<Owner>) {
+        self.control_owner = owner;
     }
 }
 
@@ -72,6 +85,19 @@ pub struct Owner {
     pub thread: ThreadId,
     pub address: Address,
     pub call: Ticket,
+    pub attempt: Attempt,
+}
+
+impl Owner {
+    pub fn same_call(&self, other: &Self) -> bool {
+        self.thread == other.thread && self.address == other.address && self.call == other.call
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Attempt {
+    Initial,
+    Retry,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -84,9 +110,11 @@ pub struct AudioCommand {
 pub enum AudioAction {
     ObserveLock,
     Prepare,
+    PrepareRetry { muted: bool },
     Connect(Sdp),
     SetMuted(bool),
     Sample,
+    ReleasePeer,
     Close,
 }
 
@@ -100,19 +128,55 @@ pub struct AudioReport {
 pub enum AudioResult {
     LockStopped(LockStop),
     Prepared(Result<Sdp, String>),
-    Connected(Result<(), String>),
+    Connected(Result<(), ConnectFailure>),
     Muted {
         muted: bool,
         result: Result<(), String>,
     },
     Sampled(Result<Peaks, String>),
+    PeerReleased,
     Closed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConnectFailure {
+    TimedOut(String),
+    Other(String),
+}
+
+impl ConnectFailure {
+    fn message(self) -> String {
+        match self {
+            Self::TimedOut(message) | Self::Other(message) => message,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LockStop {
     Locked,
     MonitorFailed,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CloseReason {
+    Requested,
+    TransportClosed,
+    Other,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RetryReason {
+    Timeout,
+    TransportClosed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Note {
+    Settings(settings::Feedback),
+    Retry(RetryReason),
+    StillStopping,
+    StartupTransportClosed,
 }
 
 /// Peak levels are consumed as meter glyphs; do not emit them in effect logs.
@@ -130,6 +194,8 @@ pub enum ThreadIntent {
     Start,
     SetMuted(bool),
     Stop,
+    AcknowledgeStopping,
+    ReportMuteUnavailable,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -138,7 +204,7 @@ pub enum ThreadEv {
     Started { session: Option<String> },
     Answer(Sdp),
     Error(String),
-    Closed,
+    Closed(CloseReason),
     Audio(AudioReport),
     LocalHostLost,
     Sample,
@@ -179,17 +245,90 @@ struct Negotiating {
     answering: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum Phase {
-    Preparing,
+    Preparing(Preparation),
     Negotiating(Negotiating),
     Active,
-    Stopping {
-        start_pending: bool,
-        stop_pending: bool,
-        accepted: bool,
-        closed: bool,
-    },
+    Stopping(Cleanup),
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Preparation {
+    offer: Option<Sdp>,
+    muted: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Cleanup {
+    backend: BackendRelease,
+    terminal: Terminal,
+    next: AfterCleanup,
+}
+
+/// The thread-only terminal notification and the exact request receipt can arrive in either order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BackendRelease {
+    AwaitStart { closed: bool },
+    AwaitStop { closed: bool },
+    AwaitClosed,
+    StopRefused,
+    Released,
+}
+
+impl BackendRelease {
+    fn closed(self) -> bool {
+        matches!(
+            self,
+            Self::AwaitStart { closed: true } | Self::AwaitStop { closed: true } | Self::Released
+        )
+    }
+
+    fn backend_closed(self) -> Self {
+        match self {
+            Self::AwaitStart { .. } => Self::AwaitStart { closed: true },
+            Self::AwaitStop { .. } => Self::AwaitStop { closed: true },
+            _ => Self::Released,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Terminal {
+    Any,
+    Requested,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AfterCleanup {
+    Stop,
+    Retry { peer_released: bool },
+}
+
+impl Phase {
+    fn backend_closed(&self) -> bool {
+        matches!(self, Self::Stopping(cleanup) if cleanup.backend.closed())
+    }
+
+    fn accepts_close(&self, reason: CloseReason) -> bool {
+        match self {
+            Self::Preparing(_) => false,
+            Self::Stopping(cleanup) if cleanup.terminal == Terminal::Requested => {
+                reason == CloseReason::Requested
+            }
+            _ => true,
+        }
+    }
+
+    fn waiting_to_retry(&self) -> bool {
+        matches!(
+            self,
+            Self::Stopping(Cleanup {
+                next: AfterCleanup::Retry { .. },
+                ..
+            })
+        )
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -213,6 +352,14 @@ struct Call {
     next_sample: Option<Now>,
 }
 
+impl Call {
+    fn accepts_audio(&self, report: &AudioReport) -> bool {
+        self.owner == report.owner
+            || (matches!(report.result, AudioResult::LockStopped(_))
+                && self.owner.same_call(&report.owner))
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ThreadPart {
     call: Option<Call>,
@@ -231,31 +378,37 @@ impl ThreadPart {
     pub fn display(&self) -> Option<Display> {
         let call = self.call.as_ref()?;
         match call.phase {
-            Phase::Preparing | Phase::Negotiating(_) | Phase::Active => Some(Display {
+            Phase::Preparing(_) | Phase::Negotiating(_) | Phase::Active => Some(Display {
                 connecting: call.phase != Phase::Active,
                 muted: call.muted,
                 microphone: call.microphone,
                 speaker: call.speaker,
             }),
-            Phase::Stopping { .. } => None,
+            Phase::Stopping(_) => None,
         }
-    }
-
-    pub fn can_mute(&self) -> bool {
-        self.call
-            .as_ref()
-            .is_some_and(|call| call.phase == Phase::Active)
     }
 
     pub fn control(&self, control: VoiceControl) -> Option<ThreadIntent> {
         match control {
             VoiceControl::Toggle if self.call.is_none() => Some(ThreadIntent::Start),
+            VoiceControl::Toggle
+                if self
+                    .call
+                    .as_ref()
+                    .is_some_and(|call| matches!(call.phase, Phase::Stopping(_))) =>
+            {
+                Some(ThreadIntent::AcknowledgeStopping)
+            }
             VoiceControl::Toggle | VoiceControl::Stop if self.call.is_some() => {
                 Some(ThreadIntent::Stop)
             }
-            VoiceControl::Mute => self.call.as_ref().and_then(|call| {
-                (call.phase == Phase::Active && call.pending_mute.is_none())
-                    .then_some(ThreadIntent::SetMuted(!call.muted))
+            VoiceControl::Mute => self.call.as_ref().and_then(|call| match &call.phase {
+                Phase::Preparing(setup) => Some(ThreadIntent::SetMuted(!setup.muted)),
+                Phase::Stopping(_) => Some(ThreadIntent::ReportMuteUnavailable),
+                Phase::Negotiating(_) | Phase::Active => call
+                    .pending_mute
+                    .is_none()
+                    .then_some(ThreadIntent::SetMuted(!call.muted)),
             }),
             VoiceControl::Toggle | VoiceControl::Stop => None,
         }
@@ -276,19 +429,17 @@ impl ThreadPart {
     }
 
     pub(crate) fn captions_open(&self) -> bool {
-        self.call
-            .as_ref()
-            .is_some_and(|call| !matches!(call.phase, Phase::Stopping { closed: true, .. }))
+        self.call.as_ref().is_some_and(|call| {
+            !matches!(call.phase, Phase::Preparing(_)) && !call.phase.backend_closed()
+        })
     }
 
     pub(crate) fn caption_session(&self, address: Address) -> Option<&str> {
         let call = self.call.as_ref()?;
         (call.owner.address == address
             && matches!(call.captions, Captions::Canonical)
-            && !matches!(
-                call.phase,
-                Phase::Preparing | Phase::Stopping { closed: true, .. }
-            ))
+            && !matches!(call.phase, Phase::Preparing(_))
+            && !call.phase.backend_closed())
         .then_some(call.session.as_str())
     }
 
@@ -296,10 +447,8 @@ impl ThreadPart {
         let call = self.call.as_mut()?;
         if call.owner.address != address
             || !call.started
-            || matches!(
-                call.phase,
-                Phase::Preparing | Phase::Stopping { closed: true, .. }
-            )
+            || matches!(call.phase, Phase::Preparing(_))
+            || call.phase.backend_closed()
         {
             return None;
         }
@@ -335,6 +484,18 @@ impl ThreadPart {
         self.call.as_ref().is_some_and(|call| &call.owner == owner)
     }
 
+    pub(crate) fn accepts_audio(&self, report: &AudioReport) -> bool {
+        self.call
+            .as_ref()
+            .is_some_and(|call| call.accepts_audio(report))
+    }
+
+    pub(crate) fn accepts_close(&self, reason: CloseReason) -> bool {
+        self.call
+            .as_ref()
+            .is_some_and(|call| call.phase.accepts_close(reason))
+    }
+
     pub(crate) fn retire(&mut self, fx: &mut ThreadFx<'_>) {
         if let Some(call) = self.call.take() {
             audio(&call, AudioAction::Close, fx);
@@ -354,7 +515,7 @@ pub(crate) fn apply_intent_on_thread(
                 owner,
                 session,
                 voice: fx.realtime_voice(),
-                phase: Phase::Preparing,
+                phase: Phase::Preparing(Preparation::default()),
                 started: false,
                 captions: if part.history == History::Legacy && fx.ordered_legacy_voice() {
                     Captions::Legacy(Legacy::new())
@@ -372,17 +533,71 @@ pub(crate) fn apply_intent_on_thread(
             part.call = Some(call);
         }
         ThreadIntent::Stop => stop(part, fx),
+        ThreadIntent::AcknowledgeStopping => {
+            if let Some(call) = part.call.as_mut()
+                && call.owner.address == fx.address()
+                && matches!(call.phase, Phase::Stopping(_))
+            {
+                cancel_startup_retry(call, fx);
+                fx.voice_note(Note::StillStopping);
+                advance_cleanup(part, fx);
+            }
+        }
+        ThreadIntent::ReportMuteUnavailable => {
+            if part.call.as_ref().is_some_and(|call| {
+                call.owner.address == fx.address() && matches!(call.phase, Phase::Stopping(_))
+            }) {
+                fx.voice_failure(Failure::VoiceMuteUnavailable);
+            }
+        }
         ThreadIntent::SetMuted(muted) => {
             if let Some(call) = part.call.as_mut()
-                && call.phase == Phase::Active
-                && call.pending_mute.is_none()
-                && call.muted != muted
+                && call.owner.address == fx.address()
             {
-                call.pending_mute = Some(muted);
-                audio(call, AudioAction::SetMuted(muted), fx);
+                match &mut call.phase {
+                    Phase::Preparing(setup) => {
+                        setup.muted = muted;
+                        start_when_prepared(call, fx);
+                    }
+                    Phase::Negotiating(_) | Phase::Active
+                        if call.pending_mute.is_none() && call.muted != muted =>
+                    {
+                        request_mute(call, muted, fx);
+                    }
+                    _ => {}
+                }
             }
         }
         ThreadIntent::Start => {}
+    }
+}
+
+fn request_mute(call: &mut Call, muted: bool, fx: &mut ThreadFx<'_>) {
+    call.pending_mute = Some(muted);
+    audio(call, AudioAction::SetMuted(muted), fx);
+}
+
+fn start_when_prepared(call: &mut Call, fx: &mut ThreadFx<'_>) {
+    let Phase::Preparing(setup) = &mut call.phase else {
+        return;
+    };
+    if call.pending_mute.is_some() || setup.offer.is_none() {
+        return;
+    }
+    if setup.muted != call.muted {
+        // The backend cannot answer, and the peer cannot start capture, before mute is applied.
+        let muted = setup.muted;
+        request_mute(call, muted, fx);
+    } else if let Some(offer) = setup.offer.take() {
+        call.phase = Phase::Negotiating(Negotiating::default());
+        fx.request(
+            Ctx::Start(call.owner.clone()),
+            Command::Start {
+                session: call.session.clone(),
+                offer,
+                voice: call.voice,
+            },
+        );
     }
 }
 
@@ -402,42 +617,113 @@ fn stop(part: &mut ThreadPart, fx: &mut ThreadFx<'_>) {
         return;
     }
     match call.phase {
-        Phase::Preparing => part.retire(fx),
-        Phase::Negotiating(_) | Phase::Active => {
-            audio(call, AudioAction::Close, fx);
-            let start_pending = matches!(
-                call.phase,
-                Phase::Negotiating(Negotiating {
-                    accepted: false,
-                    ..
-                })
-            );
-            call.phase = Phase::Stopping {
-                start_pending,
-                stop_pending: !start_pending,
-                accepted: false,
-                closed: false,
-            };
-            call.next_sample = None;
-            if !start_pending {
+        Phase::Preparing(_) => part.retire(fx),
+        Phase::Negotiating(_) | Phase::Active => begin_cleanup(call, None, fx),
+        Phase::Stopping(_) => {
+            cancel_startup_retry(call, fx);
+            if let Phase::Stopping(cleanup) = &mut call.phase
+                && cleanup.backend == BackendRelease::StopRefused
+            {
+                cleanup.backend = BackendRelease::AwaitStop { closed: false };
                 fx.request(Ctx::Stop(call.owner.clone()), Command::Stop);
             }
         }
-        Phase::Stopping {
-            start_pending: false,
-            stop_pending: false,
-            accepted: false,
-            closed: false,
-        } => {
-            call.phase = Phase::Stopping {
-                start_pending: false,
-                stop_pending: true,
-                accepted: false,
-                closed: false,
-            };
-            fx.request(Ctx::Stop(call.owner.clone()), Command::Stop);
+    }
+    advance_cleanup(part, fx);
+}
+
+fn cancel_startup_retry(call: &mut Call, fx: &mut ThreadFx<'_>) {
+    if let Phase::Stopping(cleanup) = &mut call.phase
+        && matches!(cleanup.next, AfterCleanup::Retry { .. })
+    {
+        cleanup.next = AfterCleanup::Stop;
+        // Keep the backend barrier, even if the user cancels after local peer release.
+        if cleanup.backend != BackendRelease::Released {
+            audio(call, AudioAction::Close, fx);
         }
-        Phase::Stopping { .. } => {}
+    }
+}
+
+fn begin_cleanup(call: &mut Call, retry: Option<RetryReason>, fx: &mut ThreadFx<'_>) {
+    let closed = retry == Some(RetryReason::TransportClosed);
+    let start_pending = matches!(
+        call.phase,
+        Phase::Negotiating(Negotiating {
+            accepted: false,
+            ..
+        })
+    );
+    let terminal = if retry == Some(RetryReason::Timeout) {
+        Terminal::Requested
+    } else {
+        Terminal::Any
+    };
+    let next = if let Some(reason) = retry {
+        // A mute requested while negotiating belongs to the call even if the peer
+        // disappears before acknowledging it. Apply it before the retry can connect.
+        call.muted = call.pending_mute.take().unwrap_or(call.muted);
+        audio(call, AudioAction::ReleasePeer, fx);
+        fx.voice_note(Note::Retry(reason));
+        AfterCleanup::Retry {
+            peer_released: false,
+        }
+    } else {
+        audio(call, AudioAction::Close, fx);
+        AfterCleanup::Stop
+    };
+    let backend = if start_pending {
+        BackendRelease::AwaitStart { closed }
+    } else if closed {
+        BackendRelease::Released
+    } else {
+        fx.request(Ctx::Stop(call.owner.clone()), Command::Stop);
+        BackendRelease::AwaitStop { closed: false }
+    };
+    call.phase = Phase::Stopping(Cleanup {
+        backend,
+        terminal,
+        next,
+    });
+    call.next_sample = None;
+}
+
+fn advance_cleanup(part: &mut ThreadPart, fx: &mut ThreadFx<'_>) {
+    let Some(call) = part.call.as_mut() else {
+        return;
+    };
+    let Phase::Stopping(Cleanup {
+        backend: BackendRelease::Released,
+        next,
+        ..
+    }) = call.phase
+    else {
+        return;
+    };
+    match next {
+        AfterCleanup::Stop => part.retire(fx),
+        AfterCleanup::Retry {
+            peer_released: true,
+        } if call.owner.address == fx.address() => {
+            call.owner.attempt = Attempt::Retry;
+            call.session.push_str(":retry");
+            call.phase = Phase::Preparing(Preparation {
+                offer: None,
+                muted: call.muted,
+            });
+            call.started = false;
+            if let Captions::Legacy(legacy) = &mut call.captions
+                && legacy.ordered()
+            {
+                *legacy = Legacy::new();
+            }
+            audio(call, AudioAction::PrepareRetry { muted: call.muted }, fx);
+        }
+        AfterCleanup::Retry {
+            peer_released: true,
+        } => part.retire(fx),
+        AfterCleanup::Retry {
+            peer_released: false,
+        } => {}
     }
 }
 
@@ -462,32 +748,38 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
                 audio(call, AudioAction::Connect(answer), fx);
             }
         }
-        ThreadEv::Closed => match &mut call.phase {
-            Phase::Negotiating(_) | Phase::Active => part.retire(fx),
-            Phase::Stopping {
-                start_pending,
-                stop_pending,
-                closed,
-                ..
-            } => {
-                if !*start_pending && !*stop_pending {
-                    part.retire(fx);
-                } else {
-                    *closed = true;
-                }
+        ThreadEv::Closed(reason) if call.phase.accepts_close(reason) => match &mut call.phase {
+            Phase::Negotiating(_)
+                if reason == CloseReason::TransportClosed
+                    && call.owner.attempt == Attempt::Initial =>
+            {
+                begin_cleanup(call, Some(RetryReason::TransportClosed), fx);
             }
-            Phase::Preparing => {}
+            Phase::Negotiating(_) | Phase::Active => {
+                if call.phase != Phase::Active && reason == CloseReason::TransportClosed {
+                    fx.voice_note(Note::StartupTransportClosed);
+                }
+                part.retire(fx);
+            }
+            Phase::Stopping(cleanup) => cleanup.backend = cleanup.backend.backend_closed(),
+            Phase::Preparing(_) => {}
         },
-        ThreadEv::Error(error) if matches!(call.phase, Phase::Negotiating(_) | Phase::Active) => {
+        ThreadEv::Closed(_) => {}
+        ThreadEv::Error(error)
+            if matches!(call.phase, Phase::Negotiating(_) | Phase::Active)
+                || call.phase.waiting_to_retry() =>
+        {
             fx.voice_failure(Failure::Message(error));
             stop(part, fx);
         }
         ThreadEv::Error(_) => {}
-        ThreadEv::Audio(report) if call.owner == report.owner => {
+        ThreadEv::Audio(report) if call.accepts_audio(&report) => {
             answer_audio(part, report.result, fx)
         }
         ThreadEv::Audio(_) => {}
-        ThreadEv::LocalHostLost if !matches!(call.phase, Phase::Stopping { .. }) => {
+        ThreadEv::LocalHostLost
+            if !matches!(call.phase, Phase::Stopping(_)) || call.phase.waiting_to_retry() =>
+        {
             fx.voice_failure(Failure::VoiceHostLost);
             stop(part, fx);
         }
@@ -503,6 +795,7 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
         ThreadEv::Retired => part.retire(fx),
         ThreadEv::Transcript(_) => {} // Applied by the thread transcript.
     }
+    advance_cleanup(part, fx);
     activate(part, fx.facts().now());
 }
 
@@ -510,41 +803,40 @@ fn answer_audio(part: &mut ThreadPart, result: AudioResult, fx: &mut ThreadFx<'_
     let Some(call) = part.call.as_mut() else {
         return;
     };
-    match (call.phase, result) {
-        (
-            Phase::Preparing | Phase::Negotiating(_) | Phase::Active,
-            AudioResult::LockStopped(reason),
-        ) => {
+    match (&mut call.phase, result) {
+        (phase, AudioResult::LockStopped(reason))
+            if !matches!(phase, Phase::Stopping(_)) || phase.waiting_to_retry() =>
+        {
             fx.voice_failure(Failure::VoiceLock(reason));
             stop(part, fx);
         }
-        (Phase::Preparing, AudioResult::Prepared(Ok(offer))) => {
-            call.phase = Phase::Negotiating(Negotiating::default());
-            fx.request(
-                Ctx::Start(call.owner.clone()),
-                Command::Start {
-                    session: call.session.clone(),
-                    offer,
-                    voice: call.voice,
-                },
-            );
+        (Phase::Stopping(cleanup), AudioResult::PeerReleased)
+            if matches!(cleanup.next, AfterCleanup::Retry { .. }) =>
+        {
+            cleanup.next = AfterCleanup::Retry {
+                peer_released: true,
+            };
         }
-        (Phase::Negotiating(mut setup), AudioResult::Connected(Ok(()))) if setup.answering => {
+        (Phase::Preparing(setup), AudioResult::Prepared(Ok(offer))) if setup.offer.is_none() => {
+            setup.offer = Some(offer);
+            start_when_prepared(call, fx);
+        }
+        (Phase::Negotiating(setup), AudioResult::Connected(Ok(()))) if setup.answering => {
             setup.connected = true;
-            call.phase = Phase::Negotiating(setup);
         }
         (
-            Phase::Active,
+            phase,
             AudioResult::Muted {
                 muted,
                 result: Ok(()),
             },
-        ) if call.pending_mute == Some(muted) => {
+        ) if !matches!(phase, Phase::Stopping(_)) && call.pending_mute == Some(muted) => {
             call.pending_mute = None;
             call.muted = muted;
             if muted {
                 call.microphone = [0; 6];
             }
+            start_when_prepared(call, fx);
         }
         (Phase::Active, AudioResult::Sampled(Ok(Peaks([microphone, speaker]))))
             if call.next_sample.is_none() =>
@@ -555,18 +847,30 @@ fn answer_audio(part: &mut ThreadPart, result: AudioResult, fx: &mut ThreadFx<'_
             call.speaker[5] = intensity(speaker);
             call.next_sample = Some(fx.facts().now().plus_millis(1000));
         }
-        (Phase::Preparing, AudioResult::Prepared(Err(error))) => {
+        (Phase::Preparing(_), AudioResult::Prepared(Err(error))) => {
             fx.voice_failure(Failure::Message(error));
             part.retire(fx);
         }
-        (Phase::Negotiating(_), AudioResult::Connected(Err(error)))
-        | (
-            Phase::Active,
+        (Phase::Negotiating(setup), AudioResult::Connected(Err(ConnectFailure::TimedOut(_))))
+            if setup.answering && call.owner.attempt == Attempt::Initial =>
+        {
+            begin_cleanup(call, Some(RetryReason::Timeout), fx);
+        }
+        (Phase::Negotiating(setup), AudioResult::Connected(Err(error))) if setup.answering => {
+            fx.voice_failure(Failure::Message(error.message()));
+            stop(part, fx);
+        }
+        (
+            phase,
             AudioResult::Muted {
-                result: Err(error), ..
-            }
-            | AudioResult::Sampled(Err(error)),
-        ) => {
+                muted,
+                result: Err(error),
+            },
+        ) if !matches!(phase, Phase::Stopping(_)) && call.pending_mute == Some(muted) => {
+            fx.voice_failure(Failure::Message(error));
+            stop(part, fx);
+        }
+        (Phase::Active, AudioResult::Sampled(Err(error))) => {
             fx.voice_failure(Failure::Message(error));
             stop(part, fx);
         }
@@ -611,54 +915,40 @@ pub fn apply_reply(
         {
             setup.accepted = true
         }
-        (
-            Ctx::Start(owner),
-            Ok(Reply::Started),
-            Phase::Stopping {
-                start_pending,
-                stop_pending,
-                closed,
-                ..
-            },
-        ) if owner == call.owner && *start_pending => {
-            *start_pending = false;
-            if *closed {
-                part.retire(fx);
-            } else {
-                *stop_pending = true;
-                fx.request(Ctx::Stop(owner), Command::Stop);
+        (Ctx::Start(owner), Ok(Reply::Started), Phase::Stopping(cleanup))
+            if owner == call.owner =>
+        {
+            if let BackendRelease::AwaitStart { closed } = cleanup.backend {
+                cleanup.backend = if closed {
+                    BackendRelease::Released
+                } else {
+                    fx.request(Ctx::Stop(owner), Command::Stop);
+                    BackendRelease::AwaitStop { closed: false }
+                };
             }
         }
-        (
-            Ctx::Stop(owner),
-            Ok(Reply::Stopped),
-            Phase::Stopping {
-                stop_pending,
-                accepted,
-                closed,
-                ..
-            },
-        ) if owner == call.owner && *stop_pending => {
-            *stop_pending = false;
-            if *closed {
-                part.retire(fx);
-            } else {
-                *accepted = true;
+        (Ctx::Stop(owner), Ok(Reply::Stopped), Phase::Stopping(cleanup)) if owner == call.owner => {
+            if let BackendRelease::AwaitStop { closed } = cleanup.backend {
+                cleanup.backend = if closed {
+                    BackendRelease::Released
+                } else {
+                    BackendRelease::AwaitClosed
+                };
             }
         }
-        (
-            Ctx::Stop(owner),
-            Err(error),
-            Phase::Stopping {
-                stop_pending,
-                closed,
-                ..
-            },
-        ) if owner == call.owner && *stop_pending => {
-            *stop_pending = false;
-            fx.voice_failure(Failure::from(error));
-            if *closed {
-                part.retire(fx);
+        (Ctx::Stop(owner), Err(error), Phase::Stopping(cleanup)) if owner == call.owner => {
+            if let BackendRelease::AwaitStop { closed } = cleanup.backend {
+                let cancelled_retry = matches!(cleanup.next, AfterCleanup::Retry { .. });
+                cleanup.next = AfterCleanup::Stop;
+                cleanup.backend = if closed {
+                    BackendRelease::Released
+                } else {
+                    BackendRelease::StopRefused
+                };
+                if cancelled_retry && !closed {
+                    audio(call, AudioAction::Close, fx);
+                }
+                fx.voice_failure(Failure::from(error));
             }
         }
         (Ctx::Start(owner), Err(error), _) if owner == call.owner => {
@@ -667,6 +957,7 @@ pub fn apply_reply(
         }
         _ => {}
     }
+    advance_cleanup(part, fx);
     activate(part, fx.facts().now());
 }
 
@@ -722,7 +1013,14 @@ pub(crate) fn project(notification: &wire::ServerNotification) -> Option<(Thread
             &note.thread_id,
             ThreadEv::Answer(Sdp::new(note.sdp.clone())),
         ),
-        Note::ThreadRealtimeClosed(note) => (&note.thread_id, ThreadEv::Closed),
+        Note::ThreadRealtimeClosed(note) => (
+            &note.thread_id,
+            ThreadEv::Closed(match note.reason.as_deref() {
+                Some("requested") => CloseReason::Requested,
+                Some("transport_closed") => CloseReason::TransportClosed,
+                _ => CloseReason::Other,
+            }),
+        ),
         Note::ThreadRealtimeError(note) => (&note.thread_id, ThreadEv::Error(note.message.clone())),
         _ => return None,
     };

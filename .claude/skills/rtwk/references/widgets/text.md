@@ -53,7 +53,7 @@ SizedBox::new(
 
 Spans in styles of their own: attributes, colors and links, 'text'.bold.fg(…) for short.
 
-- `rtwk::style::Span` (struct) in `crates/rtwk-widgets/src/style/style.rs:296`: Text in one Style, what styled text is made of, its text colors along a Gradient when it has one (Span::gradient) (twk's `Span`).
+- `rtwk::style::Span` (struct) in `crates/rtwk-widgets/src/style/style.rs:297`: Text in one Style, what styled text is made of, its text colors along a Gradient when it has one (Span::gradient) (twk's `Span`).
 - `rtwk::text::Text` (struct) in `crates/rtwk-widgets/src/text/widgets.rs:66`: Text in style merged onto the DefaultTextStyle above it: a string (data), or spans, each in its own style merged onto that one (Text::rich), a span with a gradient (Span::gradient) in its colors grapheme by grapheme, laid out as it would be without.
 
 ### Code

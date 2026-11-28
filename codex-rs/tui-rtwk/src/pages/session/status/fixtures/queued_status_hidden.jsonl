@@ -1,4 +1,5 @@
 # A queued follow-up with no turn running (bottom_pane/mod.rs queued_messages_visible_when_status_hidden_snapshot).
 {"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "chat", "ev": {"facts": {"agents_navigation": false}}}
 {"step": "screen", "dir": "chat", "ev": {"status": {"items": []}}}
 {"step": "screen", "dir": "chat", "ev": {"pending": {"thread": "thread-1", "queued": ["Queued follow-up question"]}}}

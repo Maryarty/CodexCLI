@@ -1,7 +1,7 @@
 # Brief: transcript chunk (owned transcript after tier 1, pager, backtrack; tm `pager`, `backtrack`, "Owned transcript behaviour")
 
 Recon 2026-11-22 (recon-transcript, read-only, no cargo). Paths: `codex-rs/tui-rtwk` (ours), `codex-rs/tui/src` (oracle),
-rtwk pin `~/.cache/codexcli/rtwk-pin-c953` (c953f062; ADR-029: `selection_text` is the twk shape, ItemTexts removed). Tier 1 is the chat-transcript
+rtwk pin `~/.cache/codexcli/rtwk-pin-5001` (5001d2cd9; ADR-029: `selection_text` is the twk shape, ItemTexts removed). Tier 1 is the chat-transcript
 porter's worktree `.claude/worktrees/agent-abe88f2eda1c6d085` at `3aca59434`: follow control, page keys, Esc/Enter back to
 latest, footer hints (`src/pages/session/transcript/{follow,mod,strings}.rs`, `widgets/thread_ui.rs` `Follow`, `tests/pages/transcript_follow.rs`).
 This brief is everything after that, plus the pager and backtrack. It replaces `pager.md`.

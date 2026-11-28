@@ -554,6 +554,8 @@ impl Directives<'_> {
                     rows: table.rows.iter().map(|row| cells(row)).collect(),
                 })
             }
+            // a block of an extension the app does not turn on (alerts)
+            other => other.clone(),
         }
     }
 
@@ -656,6 +658,8 @@ impl Directives<'_> {
             },
             MdInline::SoftBreak => MdInline::SoftBreak,
             MdInline::HardBreak => MdInline::HardBreak,
+            // footnote references and math belong to extensions the app does not turn on
+            other => other.clone(),
         }
     }
 }

@@ -1,5 +1,7 @@
+# The visible usage warning is the rate-limit snapshot's (50% of the Plus 5h window used); the `warning` notification is the hidden diagnostic.
+{"step": "respond", "method": "account/rateLimits/read", "result": {"rateLimits": {"limitId": "codex", "planType": "plus", "primary": {"usedPercent": 49, "windowDurationMins": 300, "resetsAt": null}}}}
+{"step": "screen", "dir": "status", "ev": {"kind": "account", "account": {"chat_gpt": {"email": "user@example.com", "plan": "plus"}}}}
+{"step": "screen", "dir": "chat", "ev": {"status": {"account_usage": true}}}
 {"step":"seed","seed":"session","thread":"thread-1"}
 {"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
 {"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"agent-0","text":"Earlier output","phase":"final_answer","memoryCitation":null,"delivery":null},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}
-{"step":"notify","message":{"method":"warning","params":{"threadId":"thread-1","message":"Hidden diagnostic"}}}
-{"step":"notify","message":{"method":"account/rateLimits/updated","params":{"rateLimits":{"limitId":null,"limitName":null,"normalModelSlug":null,"primary":{"usedPercent":92,"windowDurationMins":60,"resetsAt":null},"secondary":null,"credits":null,"individualLimit":null,"spendControlReached":null,"planType":null,"rateLimitReachedType":null}}}}

@@ -163,6 +163,7 @@ pub struct Strings {
     pub metric_streams: &'static str,
     pub metric_events_received: &'static str,
     pub metric_overhead: &'static str,
+    pub websocket_timing: &'static str,
     pub metric_inference_time: &'static str,
     pub metric_first_token: &'static str,
     pub metric_between_tokens: &'static str,
@@ -220,8 +221,6 @@ pub struct Strings {
     // chatwidget/input_restore.rs `on_interrupted_turn`, history_cell/notices.rs `new_interruption_notice`
     pub interrupted: &'static str,
     pub interrupted_for_steer: &'static str,
-    /// chatwidget/session_flow.rs: the line a thread opens with when Daybreak is on.
-    pub daybreak_on: &'static str,
     pub goal_budget_reached: &'static str,
     /// `You have {n} usage limit reset(s) available. Run /usage to use one.`: before the count,
     /// the noun for one and for more, after it.
@@ -446,6 +445,7 @@ pub const EN: Strings = Strings {
     metric_streams: "{0}: {1} {2} ({3})",
     metric_events_received: "{0} events received ({1})",
     metric_overhead: "Responses API overhead: {0}",
+    websocket_timing: "WebSocket timing: {}",
     metric_inference_time: "Responses API inference: {0}",
     metric_first_token: "TTFT: {0}",
     metric_between_tokens: "TBT: {0}",
@@ -497,7 +497,6 @@ pub const EN: Strings = Strings {
     context_compacted_in: "Context compacted · {}",
     interrupted: "■ Conversation interrupted - use /feedback if something went wrong",
     interrupted_for_steer: "Model interrupted to submit steer instructions.",
-    daybreak_on: crate::oracle_strings::live::SESSION_FLOW_DAYBREAK_IS_ON_FOR_NEW_TURNS,
     goal_budget_reached: "Goal budget reached - the turn was stopped.",
     rate_limit_warning: (
         "Heads up, you have less than ",

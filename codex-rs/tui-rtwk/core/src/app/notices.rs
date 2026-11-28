@@ -148,30 +148,6 @@ pub(super) fn forked_line(
     append(app, thread, Notice::ForkedThread { from, title }, fx);
 }
 
-/// The line of a thread that opens with Daybreak on (oracle `handle_thread_session`: Daybreak is
-/// on for the attached thread and the account may use it), once per thread.
-pub(super) fn daybreak_line(
-    app: &mut CodexApp,
-    thread: &ThreadId,
-    details: &codex_app_server_protocol::Thread,
-    fx: &mut AppFx,
-) {
-    if details.daybreak_enabled != Some(true) || !app.daybreak.eligible {
-        return;
-    }
-    let Some(model) = app.threads.get(thread) else {
-        return;
-    };
-    if model
-        .transcript()
-        .iter()
-        .any(|(_, item)| matches!(item, Item::Notice(Notice::DaybreakOn)))
-    {
-        return;
-    }
-    append(app, thread, Notice::DaybreakOn, fx);
-}
-
 fn append(app: &mut CodexApp, thread: &ThreadId, notice: Notice, fx: &mut AppFx) {
     let ev = ThreadEv::Appended {
         turn: None,

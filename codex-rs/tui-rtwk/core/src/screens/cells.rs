@@ -12,9 +12,11 @@ pub use clock::{ClockFormat, ViewerClock};
 pub use metrics::{RuntimeMetrics, Totals};
 
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
+use codex_app_server_protocol::ServerNotification;
 
 use crate::app::AppFx;
 use crate::ids::{ThreadId, TurnId};
@@ -109,8 +111,7 @@ impl SessionInfo {
             SessionInfo {
                 help: false,
                 tip: if show_tooltips { tip() } else { None },
-                model_changed: (requested != used)
-                    .then(|| (requested.to_owned(), used.to_owned())),
+                model_changed: (requested != used).then(|| (requested.to_owned(), used.to_owned())),
             }
         };
         (info != SessionInfo::default()).then_some(info)
@@ -126,8 +127,6 @@ pub struct Model {
     pub link_display: LinkDisplay,
     /// The viewer's 12/24-hour setting (and zone), for the separator's time.
     pub clock: ViewerClock,
-    /// The runtime metrics of a turn (its id), as the host last reported them.
-    pub runtime_metrics: BTreeMap<TurnId, RuntimeMetrics>,
     /// `show_raw_agent_reasoning` of the config: a reasoning block also shows the model's raw
     /// reasoning after its summary (off, as the oracle's default, until the host says).
     pub show_raw_reasoning: bool,
@@ -161,8 +160,9 @@ pub enum Ev {
     RawReasoning(bool),
     /// How the run started.
     Startup(Startup),
-    /// The totals so far of one turn's runtime metrics (they replace the earlier ones).
+    /// A script's accumulated totals for an exact thread and turn.
     RuntimeMetrics {
+        thread: ThreadId,
         turn: TurnId,
         metrics: RuntimeMetrics,
     },
@@ -179,9 +179,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         Ev::Viewer(clock) => model.clock = clock,
         Ev::RawReasoning(show) => model.show_raw_reasoning = show,
         Ev::Startup(startup) => model.startup = Some(startup),
-        Ev::RuntimeMetrics { turn, metrics } => {
-            model.runtime_metrics.insert(turn, metrics);
-        }
+        Ev::RuntimeMetrics { .. } => {}
     }
 }
 
@@ -193,11 +191,44 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
 /// Per-thread state of this screen: a part of every `ThreadModel`, changed
 /// only by `apply_thread` and `apply_reply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ThreadPart {}
+pub struct ThreadPart {
+    runtime_metrics: Rc<BTreeMap<TurnId, RuntimeMetrics>>,
+}
+
+impl ThreadPart {
+    pub fn metrics(&self, turn: &TurnId) -> Option<&RuntimeMetrics> {
+        self.runtime_metrics.get(turn)
+    }
+}
 
 /// An event of one thread for this screen; a variant of `ThreadEv::Screen`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ThreadEv {}
+pub enum ThreadEv {
+    WebSocketTiming {
+        turn: TurnId,
+        sample: RuntimeMetrics,
+    },
+    SeedMetrics {
+        turn: TurnId,
+        metrics: RuntimeMetrics,
+    },
+}
+
+pub(crate) fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)> {
+    let ServerNotification::TurnRuntimeMetrics(notification) = notification else {
+        return None;
+    };
+    let sample = RuntimeMetrics::from_websocket(notification);
+    (sample != RuntimeMetrics::default()).then(|| {
+        (
+            ThreadId::new(&notification.thread_id),
+            ThreadEv::WebSocketTiming {
+                turn: TurnId::new(&notification.turn_id),
+                sample,
+            },
+        )
+    })
+}
 
 /// The RPCs of this screen: requested with `ThreadFx::request`, which stamps
 /// the thread and the ticket; the shell sends them through `wire`.
@@ -213,8 +244,19 @@ pub enum Reply {}
 pub enum Ctx {}
 
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
-    let _ = (part, fx);
-    match ev {}
+    let _ = fx;
+    let metrics = Rc::make_mut(&mut part.runtime_metrics);
+    match ev {
+        ThreadEv::WebSocketTiming { turn, sample } => {
+            metrics.entry(turn).or_default().observe_websocket(sample);
+        }
+        ThreadEv::SeedMetrics {
+            turn,
+            metrics: totals,
+        } => {
+            metrics.insert(turn, totals);
+        }
+    }
 }
 
 pub fn apply_reply(
@@ -253,14 +295,15 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
             SeedLinkDisplay::LabelOnly => LinkDisplay::LabelOnly,
             SeedLinkDisplay::WithDestination => LinkDisplay::WithDestination,
         }),
-        SeedEv::ViewerClock {
-            format,
-            utc_offset,
-        } => Ev::Viewer(ViewerClock {
-            format,
-            utc_offset,
-        }),
-        SeedEv::RuntimeMetrics { turn, metrics } => Ev::RuntimeMetrics {
+        SeedEv::ViewerClock { format, utc_offset } => {
+            Ev::Viewer(ViewerClock { format, utc_offset })
+        }
+        SeedEv::RuntimeMetrics {
+            thread,
+            turn,
+            metrics,
+        } => Ev::RuntimeMetrics {
+            thread: thread.unwrap_or_else(|| ThreadId::new("thread-1")),
             turn: TurnId::new(turn),
             metrics,
         },
@@ -280,9 +323,17 @@ enum SeedEv {
         utc_offset: Option<i32>,
     },
     RuntimeMetrics {
+        #[serde(default, deserialize_with = "seed_thread")]
+        thread: Option<ThreadId>,
         turn: String,
         metrics: RuntimeMetrics,
     },
+}
+
+/// A seed names its thread as JSON text; the id is made here, at the edge (R13).
+fn seed_thread<'de, D: serde::Deserializer<'de>>(de: D) -> Result<Option<ThreadId>, D::Error> {
+    use serde::Deserialize as _;
+    Ok(Option::<String>::deserialize(de)?.map(ThreadId::new))
 }
 
 #[derive(serde::Deserialize)]

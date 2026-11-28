@@ -22,49 +22,84 @@ use crate::app::debug::EntryOpen;
 
 pub mod strings;
 
+/// What the bottom pane tells the shortcut overlay (the oracle's `FooterProps`): `running` is
+/// the turn, `Queue message` and `Interrupt` for `Send message` and `Quit`; `queue` is
+/// `queue_submissions`, which makes the same `Queue message` of the send key before the session
+/// is configured; `agents`: the empty prompt's `←` opens the agents page here, and the panel names
+/// it when the thread's facts allow it (`hints.agents`); `esc_primed` is `esc_backtrack_hint`: the
+/// first Esc has primed the backtrack, so the edit-last-message row asks for one `esc`;
+/// `enhanced` is `enhanced_keys_supported`: the terminal tells Shift+Enter from Enter, so the
+/// new-line row names it (`⇧enter`); `modes` is `collaboration_modes_enabled`: the `Change mode`
+/// row; `voice` is the `/voice` command being on in this conversation: the `Voice` row.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Panel {
+    pub running: bool,
+    pub agents: bool,
+    pub queue: bool,
+    pub esc_primed: bool,
+    pub enhanced: bool,
+    pub modes: bool,
+    pub voice: bool,
+}
+
+impl Panel {
+    /// The two rows the conversation's flags decide (`collaboration_modes_enabled`,
+    /// `voice_command_enabled` less the side conversation): set from the screens' model where
+    /// the app provides it.
+    pub fn with_flags<S: 'static>(self, cx: &mut Cx<'_, S>) -> Panel {
+        if rtwk::provider::Provider::<codex_tui_core::screens::ScreenStates>::maybe_of(cx, false)
+            .is_none()
+        {
+            return self;
+        }
+        let (modes, voice) =
+            rtwk::provider::select::<codex_tui_core::screens::ScreenStates, _, _>(cx, |states| {
+                let flags = &states.chat.flags;
+                (
+                    flags.collaboration_modes_enabled,
+                    flags.voice_command_enabled && !flags.side_conversation_active,
+                )
+            });
+        Panel {
+            modes,
+            voice,
+            ..self
+        }
+    }
+}
+
 /// The shortcut overlay's body for a bottom pane, and its close hint (the
 /// footer's line while it is open). Oracle: `shortcut_overlay.rs`.
 ///
-/// `running` is the turn: `Queue message` and `Interrupt` for `Send message`
-/// and `Quit`. `agents`: the empty prompt's `←` opens the agents page here, and the panel
-/// names it when the thread's facts allow it (`hints.agents`). The panel is a `Flexible` that outweighs the reader's gap
+/// The panel is a `Flexible` that outweighs the reader's gap
 /// beside it (flex 1, `transcript::follow::gap`): it takes the rows it needs
 /// before the gap's one.
-pub fn shortcut_panel<S: 'static>(
-    cx: &mut Cx<'_, S>,
-    running: bool,
-    agents: bool,
-) -> (AnyWidget, &'static str) {
-    panel_of(cx, running, agents, true)
+pub fn shortcut_panel<S: 'static>(cx: &mut Cx<'_, S>, state: Panel) -> (AnyWidget, &'static str) {
+    panel_of(cx, state, true)
 }
 
 /// `shortcut_panel` in a column of its own kind: the panel takes the rows it has, at most the
 /// room it is given, and what is left is the next child's (the oracle's composer harness, where
 /// the composer fills the area under the overlay and the footer keeps the last row).
-pub fn shortcut_panel_fixed<S: 'static>(
-    cx: &mut Cx<'_, S>,
-    running: bool,
-    agents: bool,
-) -> AnyWidget {
-    panel_of(cx, running, agents, false).0
+pub fn shortcut_panel_fixed<S: 'static>(cx: &mut Cx<'_, S>, state: Panel) -> AnyWidget {
+    panel_of(cx, state, false).0
 }
 
 fn panel_of<S: 'static>(
     cx: &mut Cx<'_, S>,
-    running: bool,
-    agents: bool,
+    state: Panel,
     flexible: bool,
 ) -> (AnyWidget, &'static str) {
     let tokens = crate::app::theme::Tokens::of(cx);
     let s = strings::of(cx);
     let keymap = crate::keymap::keymap(cx);
-    let agents = agents
+    let agents = state.agents
         && rtwk::provider::Provider::<codex_tui_core::screens::ScreenStates>::maybe_of(cx, false)
             .is_some()
         && rtwk::provider::select::<codex_tui_core::screens::ScreenStates, bool, _>(cx, |states| {
             states.chat.facts.agents_navigation
         });
-    let sections = shortcuts::resolve(s, &keymap, running, agents);
+    let sections = shortcuts::resolve(s, &keymap, Panel { agents, ..state });
     (
         shortcuts::panel(s, &tokens, sections, flexible),
         s.shortcuts_close,

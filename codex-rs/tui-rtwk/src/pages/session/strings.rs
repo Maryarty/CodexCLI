@@ -38,6 +38,7 @@ pub(super) fn failure_text(strings: &crate::l10n::strings::Shared, failure: &Fai
             .lock_stop(*reason)
             .to_string(),
         Failure::VoiceHostLost => crate::sheets::voice::strings::EN.host_lost.to_owned(),
+        Failure::VoiceMuteUnavailable => crate::sheets::voice::strings::EN.mute_unavailable.into(),
     }
 }
 
@@ -731,6 +732,15 @@ impl Strings {
             LocalWarning::InvalidTitleItems(items) => {
                 self.invalid_items(self.invalid_title_items, items)
             }
+            LocalWarning::UltraConcurrency(threads) => {
+                let int = |n: usize| Arg::Int(u64::try_from(n).unwrap_or(u64::MAX));
+                Fmt::new(
+                    self.note_ultra,
+                    [int(*threads), int(threads.saturating_sub(1))],
+                    &self.num,
+                )
+                .to_string()
+            }
         }
     }
 
@@ -791,9 +801,7 @@ impl Strings {
             NoteKey::Server(ServerNote::Info(message) | ServerNote::Done(message)) => {
                 message.clone()
             }
-            NoteKey::VoiceSettings(feedback) => {
-                crate::sheets::voice::strings::feedback(feedback).text
-            }
+            NoteKey::Voice(note) => crate::sheets::voice::strings::note(note),
             NoteKey::WorkingDirectory(dir) => text(self.working_directory, dir),
             NoteKey::Rollout(Some(path)) => text(self.rollout, path),
             NoteKey::Rollout(None) => self.rollout_missing.to_string(),

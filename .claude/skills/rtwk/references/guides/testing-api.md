@@ -1,4 +1,4 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk c953f062; do not edit. -->
+<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 5001d2cd; do not edit. -->
 
 # Testing API: rtwk_test
 
@@ -6,7 +6,7 @@
 
 ## Tester
 
-- `rtwk_test::Tester` (struct, `crates/rtwk-test/src/tester.rs:384`) Runs an app under test: the real binding on a terminal in memory (`terminal`), the real parser decoding the bytes of the input, an emulator reconstructing the screen from the bytes of the frames.
+- `rtwk_test::Tester` (struct, `crates/rtwk-test/src/tester.rs:427`) Runs an app under test: the real binding on a terminal in memory (`terminal`), the real parser decoding the bytes of the input, an emulator reconstructing the screen from the bytes of the frames.
 
 #### `Tester`: constructors and associated functions
 
@@ -137,6 +137,7 @@
 - `pub fn fail_on_pending_timers(mut self, on: bool) -> Options` - Whether the test fails when the app, once it is quit and its widgets disposed, leaves a timer of its clock or a ticker running (twk's `testTwk(failOnPendingTimers:)`; on by default).
 - `pub fn fail_on_overflow(mut self, on: bool) -> Options` - Whether the test fails when a flex, a wrap or a grid of the app was overflowed by its children (twk's `testTwk(failOnOverflow:)`; on by default): the warning of the log that the debug marker of the screen shows, named ...
 - `pub fn check_intrinsics(mut self, on: bool) -> Options` - Whether the app's render tree checks the intrinsic sizes of what it lays out (`rtwk_render::RenderTree::set_check_intrinsics`; on by default, as twk_core's own render tests have it): an object whose answer is negative, ...
+- `pub fn scrollback_lines(mut self, lines: usize) -> Options` - How many lines the emulator keeps of what scrolled off the top of its screen, 10 000 by default.
 - `pub fn allow_pending_timers(self) -> Options` - The test means to leave a timer or a ticker running when the app ends: `fail_on_pending_timers` off.
 - `pub fn terminal(mut self, f: impl FnOnce(&mut HeadlessOptions)) -> Options` - Whatever else the terminal is made with: its colors, graphics, multiplexer, notifications, pointer shapes, pauses (see `HeadlessOptions`); its size and clock are the tester's.
 

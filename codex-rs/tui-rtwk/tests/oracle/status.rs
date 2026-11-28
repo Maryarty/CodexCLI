@@ -268,12 +268,19 @@ fn status_snapshot_wraps_in_narrow_terminal() {
 // ORACLE status/tests.rs:1630 status_snapshot_wraps_halfwidth_kana_in_narrow_terminal kind=snap owner=dialogs-pane snap=status_snapshot_truncates_halfwidth_kana_in_narrow_terminal
 #[test]
 fn status_snapshot_wraps_halfwidth_kana_in_narrow_terminal() {
+    // G44 is closed (`legacy_text`: the sound mark is a cell of its own, the rows' widths equal).
+    // What is left: the oracle breaks an oversized token (`ｶﾞﾊﾟ..ﾊﾟ-model`, `ｶﾞﾊﾟ..@example.com`)
+    // at its own break points (before `@`, between kana, never after the hyphen) where
+    // `TextWrap::Word` breaks after the hyphen or by cells; and the account's plan is the free
+    // text `ｶﾞﾊﾟ plan` there, the protocol's plan enum (Unknown) here.
     kit::pending(
         Owner::DialogsPane,
-        "G44: a half-width kana and its sound mark is one cell in rtwk, two in the oracle (the Model, Account, Thread name rows wrap elsewhere); the plan of the oracle's account is the free text `ｶﾞﾊﾟ plan`, ours is the protocol's plan enum (the entry holds Unknown)",
+        "pending(G48): the Model row's oversized token breaks after the hyphen (`ｶﾞﾊﾟｶﾞﾊﾟｶﾞﾊﾟｶﾞﾊﾟ-`), the oracle's does not (`ｶﾞﾊﾟｶﾞﾊﾟｶﾞﾊﾟｶﾞ` / `ﾊﾟ-model`), and the Account row breaks by cells inside `@example.com` where the oracle breaks before `@`; the plan is the free text `ｶﾞﾊﾟ plan` in the oracle, the protocol's plan enum (Unknown) in the entry (a state the port cannot have)",
     );
     Screen::build(Owner::DialogsPane)
         .size(42, 24)
+        // the oracle counts a halfwidth kana's sound mark as a cell of its own
+        .legacy_text()
         .entry("status", "halfwidth_kana_narrow")
         .open()
         .assert_snap("status_snapshot_truncates_halfwidth_kana_in_narrow_terminal");

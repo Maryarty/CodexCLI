@@ -110,6 +110,8 @@ pub enum Item {
         role: voice_transcript::Role,
         text: String,
     },
+    /// A timing sample the server reported during this turn.
+    WebSocketTiming(Rc<screens::cells::RuntimeMetrics>),
     /// An assistant message. `phase` is what the server said about it (oracle
     /// `AgentMarkdownCell::phase`): none for a streamed message or a legacy model, so
     /// callers treat none as "unknown".
@@ -831,19 +833,8 @@ impl Transcript {
             }
         }
         if !older.is_empty() {
-            // the line the session opened with (oracle `handle_thread_session`) stays above the
-            // history its replay follows with
-            let opening = order
-                .iter()
-                .take_while(|key| {
-                    stored
-                        .get(*key)
-                        .is_some_and(|held| matches!(*held.item, Item::Notice(Notice::DaybreakOn)))
-                })
-                .count();
-            let rest = order.split_off(opening);
-            order.append(&mut older);
-            order.extend(rest);
+            older.append(order);
+            *order = older;
         }
     }
 
@@ -920,6 +911,9 @@ pub enum LocalWarning {
     ReviewSteerUnavailable,
     InvalidStatusLineItems(Vec<String>),
     InvalidTitleItems(Vec<String>),
+    /// An Ultra reasoning pick with many agent threads configured
+    /// (`ultra_reasoning_concurrency_warning`): the threads configured.
+    UltraConcurrency(usize),
 }
 
 /// How a turn ended.
@@ -1243,7 +1237,8 @@ impl ThreadEv {
     fn is_notification(&self) -> bool {
         match self {
             Self::Screen(ScreenThreadEv::Chat(screens::chat::ThreadEv::Retry { .. })) => false,
-            Self::Screen(ScreenThreadEv::Voice(screens::voice::ThreadEv::Transcript(_))) => false,
+            Self::Screen(ScreenThreadEv::Voice(screens::voice::ThreadEv::Transcript(_)))
+            | Self::Screen(ScreenThreadEv::Cells(_)) => false,
             // what the user says to the safety state is no news of the server
             Self::Screen(ScreenThreadEv::Chat(screens::chat::ThreadEv::Safety(
                 safety::SafetyEv::Verb(_),
@@ -1301,6 +1296,8 @@ pub enum Failure {
     VoiceLock(screens::voice::LockStop),
     /// The primary terminal's audio executor was interrupted.
     VoiceHostLost,
+    /// The stopped media peer cannot change its microphone state.
+    VoiceMuteUnavailable,
 }
 
 impl From<RpcError> for Failure {
@@ -1920,6 +1917,7 @@ pub struct ThreadFx<'a> {
     registered: Vec<(Ticket, ThreadCtx)>,
     published_name: Option<String>,
     voice_failure: Option<Failure>,
+    voice_note: Option<screens::voice::Note>,
     ordered_legacy_voice: bool,
     realtime_voice: Option<screens::voice::settings::RealtimeVoice>,
     address: Address,
@@ -1951,6 +1949,7 @@ impl<'a> ThreadFx<'a> {
             registered: Vec::new(),
             published_name: None,
             voice_failure: None,
+            voice_note: None,
             ordered_legacy_voice: false,
             realtime_voice: None,
             address: Address::default(),
@@ -2191,6 +2190,7 @@ impl<'a> ThreadFx<'a> {
                 thread: self.thread.clone(),
                 address: self.address,
                 call,
+                attempt: screens::voice::Attempt::Initial,
             },
             session,
         )
@@ -2202,6 +2202,10 @@ impl<'a> ThreadFx<'a> {
 
     pub(crate) fn voice_failure(&mut self, failure: Failure) {
         self.voice_failure = Some(failure);
+    }
+
+    pub(crate) fn voice_note(&mut self, note: screens::voice::Note) {
+        self.voice_note = Some(note);
     }
 
     pub(crate) fn publish_name(&mut self, name: String) {
@@ -2729,6 +2733,9 @@ pub(crate) fn apply_with_receipt(
     }
     if let Some(failure) = fx.voice_failure.take() {
         model.last_error = Some(failure);
+    }
+    if let Some(note) = fx.voice_note.take() {
+        apply_appended(model, None, Item::Note(Note::from(NoteKey::Voice(note))));
     }
     for (ticket, ctx) in std::mem::take(&mut fx.registered) {
         if matches!(
@@ -3365,6 +3372,20 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 .map(|text| Queued::Message(UserMessage::text(text)))
                 .collect();
         }
+        ThreadEv::Screen(ScreenThreadEv::Cells(screens::cells::ThreadEv::WebSocketTiming {
+            turn,
+            sample,
+        })) => {
+            if matches!(&model.turn, TurnState::Running(running) if running.turn == turn) {
+                apply_appended(
+                    model,
+                    Some(turn.clone()),
+                    Item::WebSocketTiming(Rc::new(sample)),
+                );
+                let event = screens::cells::ThreadEv::WebSocketTiming { turn, sample };
+                screens::apply_thread_ev(&mut model.slots, ScreenThreadEv::Cells(event), fx);
+            }
+        }
         ThreadEv::Screen(ScreenThreadEv::Voice(screens::voice::ThreadEv::Transcript(event))) => {
             voice_transcript::apply(model, event, fx);
         }
@@ -3631,7 +3652,14 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 }
                 _ => {}
             }
-            let timing = live_timing(model, &turn, end, timing, fx.now());
+            let timing = live_timing(model, &turn, end, timing, fx.now()).or_else(|| {
+                (end == TurnEnd::Completed && model.slots.cells.metrics(&turn).is_some()).then_some(
+                    TurnTiming {
+                        duration_ms: None,
+                        completed_at: None,
+                    },
+                )
+            });
             model.transcript.remember_timings([(turn.clone(), timing)]);
             let error = safety::on_completed(model, &turn, end == TurnEnd::Failed, error, fx);
             if let Some(fault) = &error {

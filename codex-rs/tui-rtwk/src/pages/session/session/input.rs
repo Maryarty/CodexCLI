@@ -7,6 +7,7 @@ use std::rc::Rc;
 
 use rtwk::binding::{AppBinding, InputListener};
 use rtwk::focus::{Focus, KeyBindings, KeyEventResult, KeyPress};
+use rtwk::gestures::MouseTracker;
 use rtwk::layout::Stack;
 use rtwk::provider::Provider;
 use rtwk::{AnyWidget, Cx, Key};
@@ -14,7 +15,8 @@ use rtwk_core::input::{InputEvent, KeyKind};
 
 use codex_tui_core::keymap::actions::{
     CHAT_INTERRUPT_TURN, CHAT_OPEN_PRESETS, COMPOSER_SUBMIT, GLOBAL_CHANGE_HOST,
-    GLOBAL_SELECT_TRANSCRIPT, PAGER_CLOSE_TRANSCRIPT, VOICE_TOGGLE_VOICE_MUTE,
+    GLOBAL_OPEN_TRANSCRIPT, GLOBAL_SELECT_TRANSCRIPT, PAGER_CLOSE_TRANSCRIPT,
+    VOICE_TOGGLE_VOICE_MUTE,
 };
 use codex_tui_core::keymap::actions::{
     CHAT_NEXT_PERMISSION_MODE, CHAT_PREVIOUS_PERMISSION_MODE, CHAT_TOGGLE_VOICE,
@@ -65,6 +67,7 @@ pub(super) fn install(state: &mut ChatState, workspace: bool, cx: &mut Cx<'_, Ch
     let draft = state.draft.clone();
     let modes = state.modes.clone();
     let selection = state.selection.clone();
+    let mouse = MouseTracker::of(cx);
     let finder = state.find.clone();
     let control = state.control.clone();
     let voice_controls = voice_keys(state);
@@ -164,13 +167,20 @@ pub(super) fn install(state: &mut ChatState, workspace: bool, cx: &mut Cx<'_, Ch
         }
         // browsing the prompts: its keys come first, any other key ends it
         // and goes on to the field
+        // (a chord of `open_transcript` shows the details with browsing going on: its keys are
+        // the leader chords' below)
         if modes.borrow().browsing() {
-            match browse::key(&keymap.borrow(), &key) {
-                Some(step) => {
-                    send(ChatMsg::Browse(step));
-                    return KeyEventResult::Handled;
+            let opens = chords_of(&keymap.borrow(), GLOBAL_OPEN_TRANSCRIPT);
+            let chord = draft.borrow().chord_is_leader()
+                || opens.iter().any(|(prefix, _)| prefix.accepts_press(&key));
+            if !chord {
+                match browse::key(&keymap.borrow(), &key) {
+                    Some(step) => {
+                        send(ChatMsg::Browse(step));
+                        return KeyEventResult::Handled;
+                    }
+                    None => send(ChatMsg::Browse(Browse::Leave)),
                 }
-                None => send(ChatMsg::Browse(Browse::Leave)),
             }
         }
         // The mouse range owns arrows as well as its copy and clear keys while it is held.
@@ -183,6 +193,20 @@ pub(super) fn install(state: &mut ChatState, workspace: bool, cx: &mut Cx<'_, Ch
         {
             send(ChatMsg::Selection(step));
             return KeyEventResult::Handled;
+        }
+        if let Some(mouse) = &mouse
+            && selection.borrow().owns_pointer_point(mouse.presses())
+        {
+            let step = transcript::selection::key(&key);
+            if step != Some(SelectionKey::CopyAndFollow) {
+                selection.borrow().clear_pointer_point();
+            }
+            if matches!(
+                step,
+                Some(SelectionKey::CopyAndFollow | SelectionKey::Clear)
+            ) {
+                return KeyEventResult::Handled;
+            }
         }
         // A detailed reader's close belongs to it before ordinary chat shortcuts. Plain Esc
         // still goes through the editor and the page's Escape ladder.
@@ -209,7 +233,7 @@ pub(super) fn install(state: &mut ChatState, workspace: bool, cx: &mut Cx<'_, Ch
         // (`visible_new_backend_control`), `open_presets` (`Ctrl+X p`) opens the menu of `/presets`
         // where the page is free (`no_modal_or_popup_active`), `select_transcript` (`Ctrl+X [`)
         // begins select mode; all work with a draft in the composer.
-        let (hosts, presets, selects, voice, close, panes) = {
+        let (hosts, presets, selects, voice, close, panes, opens) = {
             let keymap = keymap.borrow();
             if workspace && let Some(action) = super::super::side_pane::single(&keymap, &key) {
                 send(ChatMsg::Workspace(action));
@@ -236,6 +260,11 @@ pub(super) fn install(state: &mut ChatState, workspace: bool, cx: &mut Cx<'_, Ch
                 },
                 if workspace {
                     super::super::side_pane::chords(&keymap)
+                } else {
+                    Vec::new()
+                },
+                if modes.borrow().browsing() {
+                    chords_of(&keymap, GLOBAL_OPEN_TRANSCRIPT)
                 } else {
                     Vec::new()
                 },
@@ -278,6 +307,14 @@ pub(super) fn install(state: &mut ChatState, workspace: bool, cx: &mut Cx<'_, Ch
                 send(ChatMsg::Action(keys::Action::VoiceMute));
                 return KeyEventResult::Handled;
             }
+            if opens
+                .iter()
+                .any(|(prefix, done)| prefix.accepts_press(&first) && done.accepts_press(&key))
+            {
+                draft_now.set_chord(None);
+                send(ChatMsg::Browse(Browse::Details));
+                return KeyEventResult::Handled;
+            }
             if hosts.iter().any(|(_, done)| done.accepts_press(&key)) {
                 draft_now.set_chord(None);
                 send(ChatMsg::Cycle);
@@ -299,6 +336,7 @@ pub(super) fn install(state: &mut ChatState, workspace: bool, cx: &mut Cx<'_, Ch
                 .chain(&selects)
                 .chain(&voice)
                 .chain(&close)
+                .chain(&opens)
                 .any(|(prefix, _)| prefix.accepts_press(&first) && prefix.accepts_press(&key));
             if again
                 || panes.iter().any(|(prefix, _, _)| {
@@ -318,6 +356,10 @@ pub(super) fn install(state: &mut ChatState, workspace: bool, cx: &mut Cx<'_, Ch
                 return KeyEventResult::Ignored;
             }
             draft_now.set_chord(None);
+            // a key that is not the chord's end is an ordinary one: it ends browsing
+            if !opens.is_empty() {
+                send(ChatMsg::Browse(Browse::Leave));
+            }
         }
         if hosts
             .iter()
@@ -325,6 +367,7 @@ pub(super) fn install(state: &mut ChatState, workspace: bool, cx: &mut Cx<'_, Ch
             .chain(&selects)
             .chain(&voice)
             .chain(&close)
+            .chain(&opens)
             .any(|(prefix, _)| prefix.accepts_press(&key))
             || panes
                 .iter()
@@ -537,8 +580,8 @@ pub(super) fn focus(
         }
     }
     let voice_controls =
-        rtwk::provider::select::<codex_tui_core::threads::ThreadModel, bool, _>(cx, |thread| {
-            thread.screen_slots().voice.can_mute()
+        rtwk::provider::select::<codex_tui_core::screens::ScreenStates, bool, _>(cx, |screens| {
+            screens.voice.has_control_owner()
         });
     voice_keys(state).set(voice_controls);
     for (action, key) in keys::presses(keymap) {

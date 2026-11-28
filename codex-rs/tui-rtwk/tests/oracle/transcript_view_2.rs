@@ -52,7 +52,7 @@ fn assert_block(s: &Screen, top: usize, width: usize, rows: std::ops::Range<usiz
 fn navigate_copy_resize_and_exit() {
     kit::pending(
         Owner::ChatLive,
-        "G-new-usage-2: the pinned prompt header (the oracle's first row `› User text > user quote ``` user code ````, transcript_view/prompt_header.rs) is not drawn: the chat's list has no `visible_range()` to say which prompt scrolled off; copy mode, its footer and its keys are built",
+        "small visual delta: the pinned header is missing from this one frame. The owned chat draws it (`pages::transcript_prompt_header`), but not here: after copy mode's seven Up and five Down the first list item in view is the prompt's own (a debug read of `visible_prompt` gives row 1 of three, itself a prompt row; the screen shows `Worked for <1s` at its top, none of the prompt's text), which the port reads as a visible prompt, so the header yields; the oracle pins `› User text > user quote ``` user code ```` over `Latest plan` there. The header is decided by the first visible item, not by the first visible text row of the prompt",
     );
     let mut s = chat(
         include_str!("fixtures/transcript_view_2/copy_nav.jsonl"),
@@ -470,7 +470,7 @@ fn copy_resize_keeps_whole_user_padding_inside_context() {
 fn copy_navigation_keeps_bottom_context_when_prompt_header_appears() {
     kit::pending(
         Owner::ChatLive,
-        "G-new-usage-2: the pinned prompt header (`› First prompt`) that appears when the first prompt scrolls off is not drawn, so `echo target` is not on the row the oracle keeps (5 of 7, the context below it kept)",
+        "small visual delta: copy mode leaves the target two rows higher (row 3, the oracle's row 5). The owned chat draws the pinned header (`pages::transcript_prompt_header`; row 0 is `› First prompt` as the oracle's), but copy mode's reveal of the target moves the list by the least scroll under the reserved row: `echo target` ends on row 3 (the frame), where the oracle keeps the screen put with the context below it and the target on row 5 (5 of 7)",
     );
     let mut s = chat(
         include_str!("fixtures/transcript_view_2/header.jsonl"),
@@ -899,15 +899,30 @@ fn loading_completion_restores_unseen_activity_and_failure_stops_motion() {
 // ORACLE transcript_view/footer_tests.rs:354 passive_footer_keeps_jump_actions_in_one_row kind=snap owner=chat-live snap=compact_navigation_hints
 #[test]
 fn passive_footer_keeps_jump_actions_in_one_row() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no passive navigation footer (jump actions in one row at 26, 38 and 78 columns)",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(78, 3)
-        .script(include_str!("fixtures/transcript_view_2/retained.jsonl"))
-        .open();
-    s.assert_snap("compact_navigation_hints");
+    let name = "compact_navigation_hints";
+    // the oracle's lines per width: LoadingOlder, LoadingBeginning, Failed, Complete, each with
+    // activity unseen. The walk to the beginning (`ctrl+home`) is a page asked for like the
+    // first one, so the loading screen is both of the first two lines.
+    // the oracle's `footer(width)` is the width of the hint row, which the screen indents
+    const FOOTER_INDENT: u16 = 2;
+    for (column, width) in [26, 38, 78].into_iter().enumerate() {
+        for (state, page) in [
+            (0, kit::Page::Loading),
+            (2, kit::Page::Failed),
+            (3, kit::Page::Complete),
+        ] {
+            let mut s = Screen::build(Owner::ChatLive)
+                .size(width + FOOTER_INDENT, 14)
+                .replay(Vec::new())
+                .open();
+            s.at_the_top_of_a_partial_history(15, page);
+            s.live_tail("new output");
+            s.assert_exit_hint(name, column * 4 + state);
+            if state == 0 {
+                s.assert_exit_hint(name, column * 4 + 1);
+            }
+        }
+    }
 }
 
 // ORACLE transcript_view/footer_tests.rs:382 narrow_selection_and_search_keep_complete_exit_hints kind=snap owner=chat-live snap=narrow_selection_and_search_keep_complete_exit_hints
@@ -1052,14 +1067,47 @@ fn activity_focus_keeps_controls_without_passive_hints() {
 // ORACLE transcript_view/footer_tests.rs:565 transcript_footer_keys_remain_distinct_from_prose_and_query_text kind=snap owner=chat-live snap=transcript_footer_keys_remain_distinct_from_prose_and_query_text
 #[test]
 fn transcript_footer_keys_remain_distinct_from_prose_and_query_text() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no footer whose key labels stay distinct from prose and from the find query `Activity`",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 3).live().open();
-    s.keys("ctrl+f");
-    s.type_text("Activity");
-    s.assert_snap("transcript_footer_keys_remain_distinct_from_prose_and_query_text");
+    // the oracle's buffer is the two rows of the footer; here they are the screen's, two cells in
+    let mut s = Screen::build(Owner::ChatLive).size(80, 12).live().open();
+    // the oracle's cell: a summary the query finds
+    s.live_tail("Activity summary");
+    // the chat's key for Find is `find_transcript` (F3)
+    s.keys("f3");
+    s.paste("Activity");
+    s.assert_has_row("  Find: Activity");
+    s.assert_has_row("  enter accept · ⌃p older · ⌃n newer · full transcript · esc cancel");
+    // the snapshot's styles, of the cells that show them (a space shows no modifier, and the
+    // terminal is not told one): the label dim and the query as typed, each key bold and the
+    // words of its action and the prose dim
+    let dim = "fg=Reset bg=Reset dim !bold";
+    let bold = "fg=Reset bg=Reset bold !dim";
+    for offset in 0..=4 {
+        s.assert_style_in("Find: Activity", offset, dim);
+    }
+    for offset in 6..=13 {
+        s.assert_style_in("Find: Activity", offset, "fg=Reset bg=Reset plain");
+    }
+    let hints = "enter accept · ⌃p older · ⌃n newer · full transcript · esc cancel";
+    for (cells, spec) in [
+        (0..=4, bold),
+        (6..=11, dim),
+        (13..=13, dim),
+        (15..=16, bold),
+        (18..=22, dim),
+        (24..=24, dim),
+        (26..=27, bold),
+        (29..=33, dim),
+        (35..=35, dim),
+        (37..=40, dim),
+        (42..=51, dim),
+        (53..=53, dim),
+        (55..=57, bold),
+        (59..=64, dim),
+    ] {
+        for offset in cells {
+            s.assert_style_in(hints, offset, spec);
+        }
+    }
 }
 
 // ---- oracle: transcript_view/input_tests.rs (6 screen-level tests here; 5 state tests left to chat-live)

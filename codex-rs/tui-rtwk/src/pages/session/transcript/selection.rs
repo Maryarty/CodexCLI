@@ -13,22 +13,24 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use rtwk::binding::InputListener;
 use rtwk::focus::{KeyCombo, KeyPress};
 use rtwk::foundation::{Listenable, ListenableBuilder};
-use rtwk::gestures::{Listener, MouseTracker, PointerEvent, SelectionArea};
+use rtwk::gestures::{Listener, MouseTracker, PointerEvent, RenderExcludeSelection, SelectionArea};
 use rtwk::navigation::Route;
-use rtwk::provider::{Provider, read, watch};
+use rtwk::provider::{Provider, read, select, watch};
 use rtwk::scroll::{ScrollMetrics, ScrollNotification, ScrollUpdateNotification};
 use rtwk::style::{Attrs, Style};
 use rtwk::{
     AnyWidget, Cx, NotificationListener, Rebuild, State, StatefulWidget, impl_widget, map_static,
 };
-use rtwk_core::input::Mods;
+use rtwk_core::input::{InputEvent, Mods};
+use rtwk_render::HitTestResult;
 use rtwk_rich::markdown::MarkdownLinkTap;
 
-use codex_tui_core::app::RequestQueue;
 use codex_tui_core::app::effects::{CopyDestination, CopyStatus, PrimaryOwner};
 use codex_tui_core::app::facts::TuiSettings;
+use codex_tui_core::app::{RequestQueue, SessionSlice};
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::threads::ThreadModel;
 
@@ -116,9 +118,6 @@ pub(in crate::pages::session) struct SelectionHost {
     pub follow: Follow,
     pub detailed: bool,
     pub raw: bool,
-    /// Select mode of the thread: while only its caret is shown, the caret's cell is drawn bold
-    /// and underlined as well as reversed (the oracle's `render_select_cursor`).
-    pub caret: bool,
     /// The thread's Find: while it reads a match, Esc is Find's (back to the latest row), not the
     /// area's (let the match go).
     pub find: Finder,
@@ -164,6 +163,7 @@ pub(in crate::pages::session) enum Msg {
     Press(PointerEvent),
     Drag(PointerEvent),
     Release(PointerEvent),
+    CancelPoint,
     Link(MarkdownLinkTap),
 }
 
@@ -175,6 +175,8 @@ pub(in crate::pages::session) struct HostState {
     answered: Option<u64>,
     /// Screen cell and reader position of a press that started without a range.
     empty_press: Option<PressOrigin>,
+    /// A primary press without a drag, paired with its native mouse sequence.
+    point_press: Option<u64>,
     /// Whether the current left press can activate a semantic link when released.
     link_press: Rc<Cell<bool>>,
     /// The native Text callback is delivered after the pointer event's listeners.
@@ -255,8 +257,9 @@ impl State for HostState {
         if old.thread != w.thread || old.selection != w.selection {
             old.selection.set_copy_surface(cx.id(), false);
             w.selection
-                .set_copy_surface(cx.id(), Route::is_current_of(cx));
+                .set_copy_surface(cx.id(), w.copy_route_current(cx));
             self.empty_press = None;
+            self.point_press = None;
             self.link_press.set(false);
             self.link_released = false;
             self.primary_press = false;
@@ -273,12 +276,20 @@ impl State for HostState {
 
     fn activate(&mut self, w: &SelectionHost, cx: &mut Cx<'_, Self>) {
         w.selection
-            .set_copy_surface(cx.id(), Route::is_current_of(cx));
+            .set_copy_surface(cx.id(), w.copy_route_current(cx));
     }
 
     fn did_change_dependencies(&mut self, w: &SelectionHost, cx: &mut Cx<'_, Self>) {
         w.selection
-            .set_copy_surface(cx.id(), Route::is_current_of(cx));
+            .set_copy_surface(cx.id(), w.copy_route_current(cx));
+        let thread = w.thread.clone();
+        let active = select::<SessionSlice, _, _>(cx, move |session| {
+            session.active.as_ref() == Some(&thread)
+        });
+        if !active {
+            self.point_press = None;
+            w.selection.clear_pointer_point();
+        }
         if !read::<TuiSettings, _>(cx).primary_selection || !w.pointer_route_current(cx, true) {
             self.primary_press = false;
             self.primary_scope = None;
@@ -350,6 +361,14 @@ impl State for HostState {
                     } else {
                         PressOrigin::capture(&w.follow, press)
                     };
+                    self.point_press = if self.empty_press.is_some()
+                        && press.modifiers.is_empty()
+                        && w.point_enabled(cx)
+                    {
+                        MouseTracker::of(cx).map(|mouse| mouse.presses())
+                    } else {
+                        None
+                    };
                     self.link_press.set(
                         self.empty_press.is_some()
                             && link_modifiers(press.modifiers)
@@ -362,12 +381,14 @@ impl State for HostState {
             Msg::Drag(pointer) => {
                 if pointer.button == 0 {
                     w.selection.revise_copy_surface(cx.id());
+                    self.point_press = None;
                     self.link_press.set(false);
                 }
                 return Rebuild::No;
             }
             Msg::Release(release) => {
                 if release.button == 0 {
+                    let press = self.point_press.take();
                     let at_origin = self.empty_press.take().is_some_and(|origin| {
                         PressOrigin::capture(&w.follow, release) == Some(origin)
                     });
@@ -377,12 +398,24 @@ impl State for HostState {
                         && w.links_enabled(cx);
                     if at_origin && w.selection.controller().has_selection() {
                         w.selection.controller().clear();
+                    } else if at_origin
+                        && release.modifiers.is_empty()
+                        && let Some(press) = press
+                        && w.point_enabled(cx)
+                    {
+                        hold_clicked_point(w, cx, release, press);
                     }
                 }
                 return Rebuild::No;
             }
+            Msg::CancelPoint => {
+                self.point_press = None;
+                w.selection.clear_pointer_point();
+                return Rebuild::No;
+            }
             Msg::Link(link) => {
                 if std::mem::take(&mut self.link_released) && w.links_enabled(cx) {
+                    w.selection.revise_copy_surface(cx.id());
                     crate::features::open_transcript_link(cx, w.thread.clone(), link.destination);
                 }
                 return Rebuild::No;
@@ -403,11 +436,6 @@ impl State for HostState {
 
     fn build(&self, w: &SelectionHost, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let settings = watch::<TuiSettings, _>(cx);
-        let attrs = if w.caret {
-            Attrs::REVERSE | Attrs::BOLD | Attrs::UNDERLINE
-        } else {
-            Attrs::REVERSE
-        };
         // The child sees the release before the selection area does. A single-cell drag that
         // returned to its origin has an empty range in the oracle, so clear it before copy on
         // release. Presses that selected a word or line keep what their unit selected.
@@ -416,9 +444,11 @@ impl State for HostState {
             .child(w.child.clone());
         // A wheel gesture cancels a possible activation even at the scroll limit.
         let pressed = self.link_press.clone();
+        let cancel = cx.local_sender();
         let child =
             NotificationListener::<ScrollNotification>::new(child).on_notification(move |_| {
                 pressed.set(false);
+                cancel(Msg::CancelPoint);
                 false
             });
         let selection = w.selection.clone();
@@ -440,28 +470,87 @@ impl State for HostState {
         let (find, on_copy) = (w.find.clone(), cx.map(Msg::Copied));
         // the area clears what is selected on Esc where the keys reach it with no focus to start
         // from (the sheet has no composer): the match Find shows is selected, and Esc is Find's
-        // while it is read
-        let area = ListenableBuilder::new(w.find.listenable(), move |_, _| {
+        // while it is read and select mode's while the mode is on (it clears the mark)
+        let caret = super::select::of(&w.find);
+        let changes = <dyn Listenable>::merge([
+            Some(w.find.listenable() as Rc<dyn Listenable>),
+            Some(caret.listenable() as Rc<dyn Listenable>),
+        ]);
+        let area = ListenableBuilder::new(Rc::new(changes), move |_, _| {
             let area = SelectionArea::new(child.clone())
                 // the oracle draws the selection REVERSED on top of the cell's own style
                 // (`transcript_view/selection.rs`; `rendered_selection`)
-                .style(Style::new().attrs(attrs).pen())
+                .style(Style::new().attrs(Attrs::REVERSE).pen())
                 .controller(controller.clone())
                 .copy_on_release(copy_on_select)
                 .on_copy(on_copy.clone());
             // the area's own clear key (Esc) is Find's while Find reads
-            if find.reading() {
+            if find.reading() || caret.active() {
                 area.clear_key(None).into()
             } else {
                 area.into()
             }
         });
-        Listener::new()
+        let reader = Listener::new()
             .on_pointer_down(map_static!(cx, PointerEvent => Msg, Msg::Press))
             .on_pointer_move(map_static!(cx, PointerEvent => Msg, Msg::Drag))
-            .child(area)
-            .into()
+            .child(area);
+        let cancel = cx.local_sender();
+        InputListener::new(reader, move |event| {
+            if matches!(event, InputEvent::Focus(false) | InputEvent::Resize { .. }) {
+                cancel(Msg::CancelPoint);
+            }
+            false
+        })
+        .into()
     }
+}
+
+fn hold_clicked_point(
+    widget: &SelectionHost,
+    cx: &mut Cx<'_, HostState>,
+    event: PointerEvent,
+    press: u64,
+) {
+    let owner = cx.id();
+    let Some(mouse) = MouseTracker::of(cx) else {
+        return;
+    };
+    let selection = widget.selection.clone();
+    let identity = selection.copy_identity();
+    let _ = cx.request_viewport(
+        move |viewport| {
+            if mouse.presses() != press
+                || identity != selection.copy_identity()
+                || !viewport.has_current_layout_size()
+            {
+                return false;
+            }
+            let Some(surface) = viewport.render_object_of(owner) else {
+                return false;
+            };
+            let tree = viewport.render_tree();
+            let mut hits = HitTestResult::new();
+            tree.hit_test(&mut hits, event.screen_x, event.screen_y);
+            let mut selectable = false;
+            for (id, x, y) in hits.iter() {
+                if id == surface {
+                    if selectable {
+                        selection.hold_pointer_point(owner, press);
+                    }
+                    return selectable;
+                }
+                if tree.get::<RenderExcludeSelection>(id).is_some() {
+                    selectable = false;
+                } else if let Some(text) = tree.selectable(id) {
+                    let (start, end) = text.selectable_range_in(tree, id, x, y);
+                    selectable |= start < end;
+                }
+            }
+            false
+        },
+        cx.callback_with(|_, _, _| Rebuild::No),
+    );
 }
 
 fn link_modifiers(modifiers: Mods) -> bool {
@@ -483,6 +572,11 @@ fn take_native_copy(cx: &Cx<'_, HostState>, text: &str) {
 }
 
 impl SelectionHost {
+    fn copy_route_current(&self, cx: &mut Cx<'_, HostState>) -> bool {
+        Route::is_current_of(cx)
+            || crate::sheets::select::plan_route_thread(cx).as_ref() == Some(&self.thread)
+    }
+
     fn copy_origin(&self, cx: &mut Cx<'_, HostState>) -> Option<CopyOrigin> {
         let surface = cx.id();
         CopyOrigin::capture(&self.selection, &self.follow, &self.find, cx)
@@ -496,6 +590,10 @@ impl SelectionHost {
             && !select.active()
             && !select.extending()
             && !copy::mode_of(&self.find).active()
+    }
+
+    fn point_enabled(&self, cx: &mut Cx<'_, HostState>) -> bool {
+        read::<SessionSlice, _>(cx).active.as_ref() == Some(&self.thread) && self.links_enabled(cx)
     }
 
     fn pointer_route_current(&self, cx: &mut Cx<'_, HostState>, listen: bool) -> bool {

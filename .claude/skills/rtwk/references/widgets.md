@@ -211,6 +211,7 @@ The app around it all: the screen modes, a fixed viewport, output kept in the sc
 - Window title (`rtwk::binding::TerminalTitle`): The title of the terminal's window or tab while the app runs; the user's own comes back when it ends.
 - Notifications (`rtwk::binding::AppBinding`): A desktop notification of a title and a body, where the terminal shows one (OSC 9, 777 or 99); nothing where it does not.
 - Cli (`rtwk::cli::Cli`): A command-line tool's console (the Cli widget) as it runs: questions that leave their answer as a line, a spinner, tasks with bars, a traceback.
+- Suspend, edit_text (`rtwk::app::AppCx`, `rtwk::binding::SuspendError`, `rtwk::editor::EditText`): The terminal handed to another program: Ctrl+G sends the draft to the user's editor and takes the text back. A terminal editor has the terminal and the app writes nothing meanwhile, its timer going on; a windowed editor is waited for and the app keeps drawing.
 
 ## Screen readers
 
@@ -238,6 +239,7 @@ Markdown, code, diffs, JSON, big text, QR codes and program output with its colo
 - JsonView (`rtwk_rich::json::JsonView`): JSON, or a JsonValue built in code, as a tree that folds, each kind of value in its color: c copies the path of the value selected, y the value, / filters the keys.
 - BigText (`rtwk_rich::bigtext::BigText`): Text in letters several cells tall, drawn with full or half blocks or with box drawing, in a font of its own.
 - QrCode (`rtwk_rich::qr::QrCode`, `rtwk_rich::qr::QrCodeWidget`): Text as a QR code a phone's camera reads: in half blocks, two modules to a cell, black on white whatever the theme, with as much of the quiet zone around it as the rows allow.
+- Mermaid (`rtwk_rich::markdown::MarkdownView`): A diagram a MarkdownView draws from a mermaid fence, in the colours of the theme: choose the kind (flowchart, sequence, mindmap, pie, kanban and the rest) and one of its examples; narrower than a diagram needs, it falls back to what fits and last to a notice with the source.
 
 ## Images
 

@@ -13,6 +13,7 @@ use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
 
 pub mod activity_focus;
+pub mod browsing;
 mod copy_feedback;
 pub mod find;
 pub mod find_footer;

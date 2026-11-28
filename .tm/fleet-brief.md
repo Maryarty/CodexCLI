@@ -21,6 +21,10 @@ agent file, not here.
   rtwk-gallery pages.
 - What rtwk cannot do: one line in `docs/rtwk-port/rtwk-gaps.md` (the Flutter
   way, the rtwk widget tried, what differs) and the test `pending(Gxx)`.
+- A bug of the oracle (codex-tui) is fixed in the port, never copied (the
+  person, 2026-11-28): the oracle test that pins the bug becomes
+  `kit::na(owner, "oracle bug, fixed in port: <what>")`, and the port gets its
+  own test of the right behaviour.
 - The oracle's files, snapshots and tests for a screen:
   `docs/rtwk-port/refs/codex-registry.csv`. Oracle binary:
   `~/.cache/codexcli/oracle-bin/`.

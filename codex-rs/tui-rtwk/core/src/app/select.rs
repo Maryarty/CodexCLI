@@ -7,7 +7,7 @@
 
 use std::rc::Rc;
 
-use super::{AppCtx, AppFx, CodexApp, Command};
+use super::{AppCtx, AppFx, CodexApp, Command, apply_thread};
 use crate::ids::{BackendId, ThreadId};
 use crate::rpc::{Address, Answer, RpcError};
 use crate::screens::select::collaboration::{Change, PlanWrite, ReasoningScope};
@@ -112,8 +112,10 @@ pub(super) fn intent(app: &mut CodexApp, mut intent: select::Intent, fx: &mut Ap
         }
         return;
     }
-    if let select::Intent::PlanAnswer(answer) = intent {
-        super::session::plan_answer(app, answer, fx);
+    if let select::Intent::PlanAnswer { thread, answer } = intent {
+        if app.session.active.as_ref() == Some(&thread) {
+            super::session::plan_answer(app, answer, fx);
+        }
         return;
     }
     match &mut intent {
@@ -559,10 +561,41 @@ fn drain(app: &mut CodexApp, fx: &mut AppFx) {
     }
     let said = std::mem::take(&mut Rc::make_mut(&mut app.screens).select.notes);
     let thread = app.session.active.clone();
-    for note in said.into_iter().filter(select::Note::in_transcript) {
-        let note = crate::threads::Note::from(crate::threads::NoteKey::Select(note));
-        super::session_note(app, thread.clone(), note, fx);
+    for note in said {
+        if let Some(warning) = hidden_warning_of(&note) {
+            if let Some(thread) = thread.as_ref().filter(|id| app.threads.contains(id)) {
+                hidden_warning(app, thread, warning, fx);
+            }
+        } else if note.in_transcript() {
+            let note = crate::threads::Note::from(crate::threads::NoteKey::Select(note));
+            super::session_note(app, thread.clone(), note, fx);
+        }
     }
+}
+
+/// What the detailed transcript keeps of a note the main one does not show: the Ultra
+/// concurrency warning is a hidden cell of the thread (`add_warning_message`).
+fn hidden_warning_of(note: &select::Note) -> Option<crate::threads::LocalWarning> {
+    match note {
+        select::Note::UltraConcurrency(threads) => {
+            Some(crate::threads::LocalWarning::UltraConcurrency(*threads))
+        }
+        _ => None,
+    }
+}
+
+/// A warning only the detailed transcript shows (`add_warning_message`): an entry of the thread.
+fn hidden_warning(
+    app: &mut CodexApp,
+    thread: &ThreadId,
+    warning: crate::threads::LocalWarning,
+    fx: &mut AppFx,
+) {
+    let ev = ThreadEv::Appended {
+        turn: None,
+        item: crate::threads::Item::LocalWarning(warning),
+    };
+    apply_thread(app, thread, ev, fx);
 }
 
 /// The picks the screen holds, applied: the thread's settings change for its
@@ -726,8 +759,12 @@ fn write_notes_on(
     fx: &mut AppFx,
 ) {
     if app.threads.contains(thread) {
-        for note in said.into_iter().filter(select::Note::in_transcript) {
-            show_owned_note(app, thread.clone(), note, fx);
+        for note in said {
+            if let Some(warning) = hidden_warning_of(&note) {
+                hidden_warning(app, thread, warning, fx);
+            } else if note.in_transcript() {
+                show_owned_note(app, thread.clone(), note, fx);
+            }
         }
     }
 }

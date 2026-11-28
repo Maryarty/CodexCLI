@@ -10,7 +10,7 @@ use codex_tui_core::app::effects::{Ask as Effect, CopyDestination, Done};
 use codex_tui_core::app::{AppEv, BackendEv, Command};
 use codex_tui_core::data::mention::ToolMention;
 use codex_tui_core::screens::select::review::Commit;
-use codex_tui_core::screens::{ScreenCommand, agents, chat, select};
+use codex_tui_core::screens::{ScreenCommand, agents, approvals, chat, select};
 use codex_tui_core::threads::{ReviewTarget, ThreadAsk};
 use rtwk::gestures::MouseTracker;
 use rtwk_core::input::{MouseEvent, MouseKind};
@@ -235,6 +235,33 @@ impl Screen {
         row_then(&self.rows(), &self.text(), row, following);
     }
 
+    /// The screen's rows `rows` as the oracle's animation galleries print a frame: each row's
+    /// glyphs over its width, then the same rows as a plane that reads `.` where a cell keeps the
+    /// terminal's background and `#` where something painted one, the rows joined by `│`.
+    pub fn frame_with_tint(&self, rows: Range<usize>) -> String {
+        let grid = self.grid();
+        let glyphs = rows.clone().map(|y| {
+            (0..grid.width)
+                .map(|x| match grid.cell(x, y).text.as_str() {
+                    "" => " ".to_string(),
+                    text => text.to_string(),
+                })
+                .collect::<String>()
+        });
+        let tint = rows.map(|y| {
+            (0..grid.width)
+                .map(|x| {
+                    if grid.style(x, y).bg == "Reset" {
+                        '.'
+                    } else {
+                        '#'
+                    }
+                })
+                .collect::<String>()
+        });
+        glyphs.chain(tint).collect::<Vec<_>>().join("│")
+    }
+
     /// The first row of the oracle snapshot `name` and the rows under it equal ours, from the
     /// screen's top, trailing blanks cut.
     pub fn assert_snap_head(&self, name: &str) {
@@ -243,11 +270,13 @@ impl Screen {
             .map(|row| row.trim_end().to_string())
             .collect();
         let have: Vec<String> = self.rows().into_iter().take(want.len()).collect();
-        pretty_assertions::assert_eq!(
-            have,
-            want,
-            "{name}: ours (left) differs from the oracle (right)"
-        );
+        super::verdict::screen(&have.clone(), &want.clone(), || {
+            pretty_assertions::assert_eq!(
+                have,
+                want,
+                "{name}: ours (left) differs from the oracle (right)"
+            );
+        });
     }
 
     /// The rows of frame `frame` of the oracle snapshot `name` (`assert_snap_section`'s header)
@@ -255,18 +284,26 @@ impl Screen {
     /// row of the oracle's test cell the thread's items spell otherwise).
     pub fn assert_snap_frame_except(&self, name: &str, frame: &str, except: &[usize]) {
         let ours = self.rows();
-        for (at, want) in super::snap_rows(name, frame).iter().enumerate() {
-            if except.contains(&at) {
-                continue;
+        let wanted = super::snap_rows(name, frame);
+        let kept: Vec<usize> = (0..wanted.len())
+            .filter(|at| !except.contains(at))
+            .collect();
+        let got_rows: Vec<&str> = kept
+            .iter()
+            .map(|&at| ours.get(at).map_or("", |row| row.trim_end()))
+            .collect();
+        let want_rows: Vec<&str> = kept.iter().map(|&at| wanted[at].as_str()).collect();
+        super::verdict::screen(&got_rows, &want_rows, || {
+            for &at in &kept {
+                let got = ours.get(at).map_or("", |row| row.trim_end());
+                pretty_assertions::assert_eq!(
+                    got,
+                    wanted[at].trim_end(),
+                    "{name} / {frame}: row {at}\n{}",
+                    self.text()
+                );
             }
-            let got = ours.get(at).map_or("", |row| row.trim_end());
-            pretty_assertions::assert_eq!(
-                got,
-                want.trim_end(),
-                "{name} / {frame}: row {at}\n{}",
-                self.text()
-            );
-        }
+        });
     }
 
     /// The rows of the oracle snapshot `name` equal ours from screen row `row`, trailing blanks
@@ -278,10 +315,15 @@ impl Screen {
             "{name}: the popup is not on the screen:\n{}",
             self.text()
         );
-        for (at, want) in super::snap_rows(name, "").iter().enumerate() {
-            let got = ours.get(row + at).map_or("", |r| r.trim_end());
-            pretty_assertions::assert_eq!(got, want.trim_end(), "{name}: row {at}");
-        }
+        let wanted = super::snap_rows(name, "");
+        let got_rows: Vec<&str> = (0..wanted.len())
+            .map(|at| ours.get(row + at).map_or("", |r| r.trim_end()))
+            .collect();
+        super::verdict::screen(&got_rows, &wanted, || {
+            for (at, (got, want)) in got_rows.iter().zip(&wanted).enumerate() {
+                pretty_assertions::assert_eq!(*got, want.trim_end(), "{name}: row {at}");
+            }
+        });
     }
 
     /// The rows, each trimmed and all joined without a separator, hold `text` (a text the
@@ -595,6 +637,34 @@ impl Screen {
             panic!("no page of profiles was asked:\n{}", self.text());
         };
         self.answer_request(page, json!({ "data": profiles, "nextCursor": null }));
+    }
+
+    /// The app asked the server to approve one retry of the denied auto review `id` once
+    /// (`thread/approveGuardianDeniedAction`, the oracle's `Op::ApproveGuardianDeniedAction`):
+    /// the assessment it sends back is that review's, and its action holds `action_part`.
+    pub fn assert_denial_approved(&self, id: &str, action_part: &str) {
+        let events: Vec<serde_json::Value> = self
+            .screen_commands()
+            .into_iter()
+            .filter_map(|c| match c {
+                ScreenCommand::Approvals(approvals::Command::ApproveDenied { event }) => {
+                    Some(event)
+                }
+                _ => None,
+            })
+            .collect();
+        let [event] = events.as_slice() else {
+            panic!(
+                "expected one structured approval of the denial `{id}`, got {events:?}:\n{}",
+                self.text()
+            );
+        };
+        pretty_assertions::assert_eq!(event["id"], id, "the denial approved");
+        let action = event["action"].to_string();
+        assert!(
+            action.contains(action_part),
+            "the approved action `{action}` lacks `{action_part}`"
+        );
     }
 
     /// The permission profiles the app asked the thread to change to are `profiles`, in order
@@ -1131,5 +1201,23 @@ fn row_then(rows: &[String], screen: &str, row: &str, following: &[&str]) {
 pub fn assert_rows_are(got: &[String], want: &[&str]) {
     let got: Vec<&str> = got.iter().map(|row| row.trim_end()).collect();
     let want: Vec<&str> = want.iter().map(|row| row.trim_end()).collect();
-    pretty_assertions::assert_eq!(got, want);
+    super::verdict::screen(&got.clone(), &want.clone(), || {
+        pretty_assertions::assert_eq!(got, want);
+    });
+}
+
+/// The lines `got`, one per frame a test took of an animation, equal the lines of the oracle
+/// snapshot `name` (the oracle's test joined its frames under labels of its own), trailing blanks
+/// cut.
+pub fn assert_snap_lines(name: &str, got: &[String]) {
+    let want: Vec<String> = super::snap_rows(name, "")
+        .iter()
+        .map(|line| line.trim_end().to_string())
+        .collect();
+    let have: Vec<String> = got.iter().map(|line| line.trim_end().to_string()).collect();
+    pretty_assertions::assert_eq!(
+        have,
+        want,
+        "{name}: ours (left) differs from the oracle (right)"
+    );
 }

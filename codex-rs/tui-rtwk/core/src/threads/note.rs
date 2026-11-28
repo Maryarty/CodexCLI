@@ -89,8 +89,8 @@ pub enum NoteKey {
     Select(crate::screens::select::Note),
     /// What the server said about its work, in its own words.
     Server(ServerNote),
-    /// Effective voice and local audio preferences after their acknowledged write.
-    VoiceSettings(crate::screens::voice::settings::Feedback),
+    /// Feedback from realtime startup and acknowledged voice settings.
+    Voice(crate::screens::voice::Note),
     /// What a switch of the collaboration mode said.
     Mode(ModeNote),
     /// A line of a feature slice (ADR-012); its words are `src/features/<f>/strings.rs`.
@@ -129,7 +129,11 @@ impl NoteKey {
             NoteKey::Select(note) => note.tone(),
             NoteKey::Feature(note) => crate::features::note_tone(note),
             NoteKey::Server(ServerNote::Done(_)) => Tone::Done,
-            NoteKey::VoiceSettings(feedback) if !feedback.successful() => Tone::Error,
+            NoteKey::Voice(crate::screens::voice::Note::Settings(feedback))
+                if !feedback.successful() =>
+            {
+                Tone::Error
+            }
             NoteKey::Stub(_)
             | NoteKey::ParentOwned
             | NoteKey::ModeBusy
@@ -141,7 +145,7 @@ impl NoteKey {
             | NoteKey::DesktopOpened
             | NoteKey::StoppingTerminals
             | NoteKey::Toggled(..)
-            | NoteKey::VoiceSettings(_)
+            | NoteKey::Voice(_)
             | NoteKey::Mode(_)
             | NoteKey::Server(ServerNote::Info(_)) => Tone::Info,
         }

@@ -190,6 +190,12 @@ impl Tokens {
         Style::new().fg(Color::rgb(0x3b, 0x82, 0xf6))
     }
 
+    /// The oracle's `dark_gray()` text (ratatui `Color::DarkGray`, the terminal's bright black): a
+    /// palette colour, the same on every theme (the "WebSocket timing" row of a turn).
+    pub fn dark_gray(&self) -> Style {
+        Style::new().fg(Color::BRIGHT_BLACK)
+    }
+
     pub(crate) fn history_prompt_mark(&self) -> Style {
         self.data.text.clone().attrs(Attrs::BOLD | Attrs::DIM)
     }

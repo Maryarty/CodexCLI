@@ -492,6 +492,14 @@ impl Screen {
         self
     }
 
+    /// The user's bindings are the defaults again, as the oracle's tests set
+    /// `app.keymap = RuntimeKeymap::defaults()` between the keys and the frame.
+    pub fn default_keymap(&mut self) -> &mut Screen {
+        self.h.set_keymap(&[]);
+        self.h.advance(100);
+        self
+    }
+
     /// Answer the last clipboard read that actually reached the fake host.
     pub fn clipboard_image(&mut self, path: &std::path::Path) -> &mut Screen {
         let read = clipboard_reads(&self.h)

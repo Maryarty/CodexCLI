@@ -198,13 +198,16 @@ pub(super) fn slot(state: &ChatState, w: &Chat, cx: &mut Cx<'_, ChatState>, fram
                 cloud_wait::Hint::of(&frame.session, chat_strings),
             );
             if line == Line::Passive {
-                transcript::follow::footer(
+                let passive = transcript::follow::footer(
                     cx,
                     w.ui.follow.clone(),
                     w.ui.selection.clone(),
                     state.draft_empty && !w.ui.modes.primed(),
                     footer,
-                )
+                );
+                // while prompts are browsed the mode's keys are the footer
+                // (`prompt_navigation_footer`); Find, a selection and copy mode wrap it
+                transcript::browsing::footer(cx, w.ui.modes.clone(), passive)
             } else {
                 footer
             }

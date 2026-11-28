@@ -78,7 +78,8 @@ fn block(block: &Block, cwd: Option<&str>) -> Block {
                 rows: table.rows.iter().map(|row| cells(row)).collect(),
             }))
         }
-        MdBlock::CodeBlock(_) | MdBlock::ThematicBreak => Arc::clone(block),
+        // a code block, a rule, and a block of an extension the app does not turn on (alerts)
+        _ => Arc::clone(block),
     }
 }
 
@@ -224,6 +225,8 @@ fn plain(nodes: &[MdInline]) -> String {
             MdInline::Image { .. } => out.push_str(&node.alt()),
             MdInline::Reference { children, .. } => out.push_str(&plain(children)),
             MdInline::SoftBreak | MdInline::HardBreak => out.push(' '),
+            // footnote references and math belong to extensions the app does not turn on
+            _ => {}
         }
     }
     out

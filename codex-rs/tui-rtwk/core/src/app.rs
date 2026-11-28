@@ -1227,6 +1227,7 @@ impl CodexApp {
         assert_eq!(self.threads.blank().id(), &ThreadId::default());
         let mut seen: Vec<Ticket> = self.outgoing.tickets().collect();
         seen.extend(self.host_outgoing.tickets());
+        let mut voice_owner = None;
         for (id, model) in self.threads.iter() {
             assert_eq!(model.id(), id, "a model under another thread's key");
             if let TurnState::Running(running) = model.turn() {
@@ -1237,7 +1238,11 @@ impl CodexApp {
                 );
             }
             seen.extend(model.outgoing().tickets());
+            if let Some(owner) = model.screen_slots().voice.owner() {
+                assert!(voice_owner.replace(owner).is_none());
+            }
         }
+        assert_eq!(voice_owner, self.screens.voice.control_owner());
         let total = seen.len();
         seen.sort();
         seen.dedup();
@@ -2040,8 +2045,8 @@ fn apply_event(
                     && (!needs_proof || ordered_legacy_publisher)
                 {
                     let event = match voice {
-                        screens::voice::ThreadEv::Closed if needs_proof => {
-                            threads::voice_transcript::ThreadEvent::LegacyClosed.into()
+                        screens::voice::ThreadEv::Closed(reason) if needs_proof => {
+                            threads::voice_transcript::ThreadEvent::LegacyClosed(reason).into()
                         }
                         _ => ThreadEv::Screen(voice.into()),
                     };
@@ -2277,6 +2282,10 @@ fn apply_event(
                 match app.screens.agents.owners.get(thread) {
                     Some(owner) if *owner != origin => return,
                     Some(_) => {}
+                    // A timing sample is evidence about an already known turn.
+                    None if matches!(&*notification, ServerNotification::TurnRuntimeMetrics(_)) => {
+                        return;
+                    }
                     None => {
                         Rc::make_mut(&mut app.screens)
                             .agents
@@ -2567,12 +2576,13 @@ fn apply_event(
         } if origin == BackendId::default() => {
             let owner = &report.owner;
             let thread = owner.thread.clone();
+            let call = app
+                .threads
+                .get(&thread)
+                .map(|model| &model.screen_slots().voice);
             if app.address(owner.address.backend) == owner.address
                 && app.screens.agents.owner_of(thread.as_str()) == owner.address.backend
-                && app
-                    .threads
-                    .get(&thread)
-                    .is_some_and(|model| model.screen_slots().voice.owns(owner))
+                && call.is_some_and(|call| call.accepts_audio(&report))
             {
                 apply_thread(
                     app,
@@ -2580,7 +2590,11 @@ fn apply_event(
                     ThreadEv::Screen(screens::voice::ThreadEv::Audio(report).into()),
                     fx,
                 );
-            } else if matches!(&report.result, screens::voice::AudioResult::Prepared(Ok(_))) {
+            } else if matches!(&report.result, screens::voice::AudioResult::Prepared(Ok(_)))
+                && !call
+                    .and_then(screens::voice::ThreadPart::owner)
+                    .is_some_and(|current| current.same_call(owner))
+            {
                 fx.host(effects::Ask::Audio(screens::voice::AudioCommand {
                     owner: report.owner,
                     action: screens::voice::AudioAction::Close,
@@ -2632,6 +2646,19 @@ fn apply_event(
                 }
                 ScreenEv::Chat(chat::Ev::Status(facts)) if facts.account_usage => {
                     reset::startup(app, fx);
+                }
+                ScreenEv::Cells(screens::cells::Ev::RuntimeMetrics {
+                    thread,
+                    turn,
+                    metrics,
+                }) => {
+                    let ev = ThreadEv::Screen(ScreenThreadEv::Cells(
+                        screens::cells::ThreadEv::SeedMetrics {
+                            turn: turn.clone(),
+                            metrics: *metrics,
+                        },
+                    ));
+                    apply_thread(app, thread, ev, fx);
                 }
                 // The details under a thread's status row are the thread's.
                 ScreenEv::Chat(chat::Ev::Details { thread, details }) => {
@@ -2830,8 +2857,8 @@ fn voice_settings_note(
         thread,
         ThreadEv::Appended {
             turn: None,
-            item: threads::Item::Note(threads::Note::from(threads::NoteKey::VoiceSettings(
-                feedback,
+            item: threads::Item::Note(threads::Note::from(threads::NoteKey::Voice(
+                screens::voice::Note::Settings(feedback),
             ))),
         },
         fx,
@@ -3675,6 +3702,9 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             command,
             intent,
         })) => session_intent(app, thread, command, intent, fx),
+        Intent::Screen(ScreenIntent::Chat(chat::Intent::ControlVoice { thread, control })) => {
+            session::voice_control(app, Some(thread), control, fx);
+        }
         Intent::Screen(ScreenIntent::Chat(chat::Intent::Note { thread, note })) => {
             session_note(app, thread, note, fx)
         }
@@ -4901,7 +4931,6 @@ fn attach_thread_with_metadata(
             ThreadEv::Screen(ScreenThreadEv::Chat(chat::metadata(details))),
             fx,
         );
-        notices::daybreak_line(app, thread, details, fx);
         notices::forked_line(app, thread, details, fx);
     }
     Rc::make_mut(&mut app.screens)
@@ -5025,13 +5054,16 @@ fn apply_thread_with_receipt(
     fx: &mut AppFx,
     receipt: SubmitReceipt,
 ) {
-    let ev = if matches!(
+    let starts_voice = matches!(
         &ev,
         ThreadEv::ScreenIntent(ScreenThreadIntent::Voice(
             screens::voice::ThreadIntent::Start
         ))
-    ) && !app.voice_host_ready()
-    {
+    );
+    if starts_voice && app.screens.voice.control_owner().is_some() {
+        return;
+    }
+    let ev = if starts_voice && !app.voice_host_ready() {
         ThreadEv::Failure(Failure::VoiceHostLost)
     } else {
         ev
@@ -5085,6 +5117,13 @@ fn apply_thread_with_receipt(
                 )),
             receipt,
         );
+        let owner = model.screen_slots().voice.owner();
+        let previous = app.screens.voice.control_owner();
+        if owner != previous.filter(|previous| &previous.thread == thread) {
+            Rc::make_mut(&mut app.screens)
+                .voice
+                .set_control_owner(owner.cloned());
+        }
         crate::features::revalidate_rate_offer(&mut app.features, model.view());
     }
     for (servers, message) in std::mem::take(&mut fx.mcp_warnings) {

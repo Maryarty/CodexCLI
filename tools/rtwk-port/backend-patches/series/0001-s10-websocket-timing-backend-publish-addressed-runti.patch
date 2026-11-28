@@ -1,0 +1,497 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: admin <vasiliy.cherniavskiy@gmail.com>
+Date: Sat, 28 Nov 2026 08:37:21 +0000
+Subject: [PATCH] s10-websocket-timing-backend: publish addressed runtime
+ timing deltas
+
+
+diff --git a/codex-rs/app-server-protocol/src/protocol/common.rs b/codex-rs/app-server-protocol/src/protocol/common.rs
+index 52ed76c60687defce3f3405148ff15b44769d433..47788d9f2aa11fb01e348aa36835942697ed6ad9 100644
+--- a/codex-rs/app-server-protocol/src/protocol/common.rs
++++ b/codex-rs/app-server-protocol/src/protocol/common.rs
+@@ -2081,6 +2081,8 @@ server_notification_definitions! {
+     ThreadSettingsUpdated => "thread/settings/updated" (v2::ThreadSettingsUpdatedNotification),
+     ThreadTokenUsageUpdated => "thread/tokenUsage/updated" (v2::ThreadTokenUsageUpdatedNotification),
+     TurnStarted => "turn/started" (v2::TurnStartedNotification),
++    #[experimental("turn/runtimeMetrics")]
++    TurnRuntimeMetrics => "turn/runtimeMetrics" (v2::TurnRuntimeMetricsNotification),
+     HookStarted => "hook/started" (v2::HookStartedNotification),
+     TurnCompleted => "turn/completed" (v2::TurnCompletedNotification),
+     HookCompleted => "hook/completed" (v2::HookCompletedNotification),
+diff --git a/codex-rs/app-server-protocol/src/protocol/v2/turn.rs b/codex-rs/app-server-protocol/src/protocol/v2/turn.rs
+index 28c00a3e6176c41d120f6fdb41d243eddb516a54..c223e2720ceaa0218442da8311ce2b346937344f 100644
+--- a/codex-rs/app-server-protocol/src/protocol/v2/turn.rs
++++ b/codex-rs/app-server-protocol/src/protocol/v2/turn.rs
+@@ -620,6 +620,33 @@ pub struct TurnCompletedNotification {
+     pub turn: Turn,
+ }
+ 
++/// A partial Responses WebSocket sample for a live turn. All values are milliseconds.
++#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
++#[serde(rename_all = "camelCase")]
++#[ts(export_to = "v2/")]
++pub struct TurnRuntimeMetricsNotification {
++    pub thread_id: String,
++    pub turn_id: String,
++    #[serde(skip_serializing_if = "Option::is_none")]
++    #[ts(optional)]
++    pub overhead_ms: Option<f64>,
++    #[serde(skip_serializing_if = "Option::is_none")]
++    #[ts(optional)]
++    pub inference_time_ms: Option<f64>,
++    #[serde(skip_serializing_if = "Option::is_none")]
++    #[ts(optional)]
++    pub iapi_ttft_ms: Option<f64>,
++    #[serde(skip_serializing_if = "Option::is_none")]
++    #[ts(optional)]
++    pub service_ttft_ms: Option<f64>,
++    #[serde(skip_serializing_if = "Option::is_none")]
++    #[ts(optional)]
++    pub iapi_tbt_ms: Option<f64>,
++    #[serde(skip_serializing_if = "Option::is_none")]
++    #[ts(optional)]
++    pub service_tbt_ms: Option<f64>,
++}
++
+ #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+ #[serde(rename_all = "camelCase")]
+ #[ts(export_to = "v2/")]
+diff --git a/codex-rs/app-server/src/bespoke_event_handling.rs b/codex-rs/app-server/src/bespoke_event_handling.rs
+index 485f8e144532ffcb67f89b48aeaaf8a7388f7b58..7af164e18ff9e83505e2ba791618e2e9aff37cb4 100644
+--- a/codex-rs/app-server/src/bespoke_event_handling.rs
++++ b/codex-rs/app-server/src/bespoke_event_handling.rs
+@@ -83,6 +83,7 @@ use codex_app_server_protocol::TurnItemsView;
+ use codex_app_server_protocol::TurnModerationMetadataNotification;
+ use codex_app_server_protocol::TurnPlanStep;
+ use codex_app_server_protocol::TurnPlanUpdatedNotification;
++use codex_app_server_protocol::TurnRuntimeMetricsNotification;
+ use codex_app_server_protocol::TurnStartedNotification;
+ use codex_app_server_protocol::TurnStatus;
+ use codex_app_server_protocol::WarningNotification;
+@@ -189,6 +190,21 @@ pub(crate) async fn apply_bespoke_event_handling(
+                 .send_server_notification(ServerNotification::TurnStarted(notification))
+                 .await;
+         }
++        EventMsg::TurnRuntimeMetrics(metrics) => {
++            let notification = TurnRuntimeMetricsNotification {
++                thread_id: conversation_id.to_string(),
++                turn_id: event_turn_id,
++                overhead_ms: metrics.overhead_ms,
++                inference_time_ms: metrics.inference_time_ms,
++                iapi_ttft_ms: metrics.iapi_ttft_ms,
++                service_ttft_ms: metrics.service_ttft_ms,
++                iapi_tbt_ms: metrics.iapi_tbt_ms,
++                service_tbt_ms: metrics.service_tbt_ms,
++            };
++            outgoing
++                .send_server_notification(ServerNotification::TurnRuntimeMetrics(notification))
++                .await;
++        }
+         EventMsg::TurnComplete(turn_complete_event) => {
+             // All per-thread requests are bound to a turn, so abort them.
+             outgoing.abort_pending_server_requests().await;
+diff --git a/codex-rs/app-server/src/notification_media.rs b/codex-rs/app-server/src/notification_media.rs
+index 1e3d3d91c1743ca1f6e4da1d4f5699fd53874807..71f7035f9cc71f7170a30a5a2f2f1c5bcb74d2e8 100644
+--- a/codex-rs/app-server/src/notification_media.rs
++++ b/codex-rs/app-server/src/notification_media.rs
+@@ -79,6 +79,7 @@ pub(crate) fn without_notification_media(notification: ServerNotification) -> Se
+         | ServerNotification::ThreadSettingsUpdated(_)
+         | ServerNotification::ThreadTokenUsageUpdated(_)
+         | ServerNotification::TurnStarted(_)
++        | ServerNotification::TurnRuntimeMetrics(_)
+         | ServerNotification::HookStarted(_)
+         | ServerNotification::TurnCompleted(_)
+         | ServerNotification::HookCompleted(_)
+diff --git a/codex-rs/codex-api/src/common.rs b/codex-rs/codex-api/src/common.rs
+index 3942f3aa69cebd29fa0a708b8ae04aacb1c558d4..1bf41c228c9f472257bb9cd0104845bcad6e44ad 100644
+--- a/codex-rs/codex-api/src/common.rs
++++ b/codex-rs/codex-api/src/common.rs
+@@ -8,6 +8,7 @@ use codex_protocol::protocol::ModelVerification;
+ use codex_protocol::protocol::RateLimitSnapshot;
+ use codex_protocol::protocol::TokenUsage;
+ use codex_protocol::protocol::TurnModerationMetadataEvent;
++use codex_protocol::protocol::TurnRuntimeMetrics;
+ use codex_protocol::protocol::W3cTraceContext;
+ use codex_protocol::turn_input::CyberAccessProgram;
+ use codex_protocol::turn_input::PromptCacheTtl;
+@@ -27,6 +28,8 @@ use tokio::sync::oneshot;
+ 
+ pub const WS_REQUEST_HEADER_TRACEPARENT_CLIENT_METADATA_KEY: &str = "ws_request_header_traceparent";
+ pub const WS_REQUEST_HEADER_TRACESTATE_CLIENT_METADATA_KEY: &str = "ws_request_header_tracestate";
++pub const X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER: &str =
++    "x-responsesapi-include-timing-metrics";
+ 
+ /// Explicit per-request access selection using the Responses API wire values.
+ #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+@@ -129,6 +132,7 @@ pub enum ResponseEvent {
+     ModelVerifications(Vec<ModelVerification>),
+     /// Emitted when the server includes moderation metadata for first-party turn presentation.
+     TurnModerationMetadata(TurnModerationMetadataEvent),
++    RuntimeMetrics(TurnRuntimeMetrics),
+     /// Action-bound Guardian evidence for request-scoped consumers, not model history.
+     GuardianAssessment(crate::guardian_assessment::GuardianAssessment),
+     /// Emitted when `X-Reasoning-Included: true` is present on the response,
+diff --git a/codex-rs/codex-api/src/endpoint/responses_websocket.rs b/codex-rs/codex-api/src/endpoint/responses_websocket.rs
+index bced460a6b65fe74798b1744844cb29896e1102b..66c2a4035ab9070b24275b66d5381b13173959d2 100644
+--- a/codex-rs/codex-api/src/endpoint/responses_websocket.rs
++++ b/codex-rs/codex-api/src/endpoint/responses_websocket.rs
+@@ -22,6 +22,7 @@ use bytes::Bytes;
+ use codex_client::TransportError;
+ use codex_http_client::HttpClientFactory;
+ use codex_http_client::RetryAfter;
++use codex_protocol::protocol::TurnRuntimeMetrics;
+ use codex_websocket_client::WebSocketConnection;
+ use codex_websocket_client::WebSocketConnector;
+ use futures::FutureExt;
+@@ -32,6 +33,7 @@ use http::StatusCode;
+ use serde::Deserialize;
+ use serde_json::Value;
+ use serde_json::map::Map as JsonMap;
++use serde_json::value::RawValue;
+ use std::future::Future;
+ use std::sync::Arc;
+ use std::sync::OnceLock;
+@@ -231,6 +233,7 @@ struct ResponsesWebsocketTimingLogContext {
+     previous_response_id: Option<String>,
+     request_start_ms: Option<String>,
+     warmup: bool,
++    include_timing_metrics: bool,
+     connection_reused: bool,
+ }
+ 
+@@ -241,6 +244,7 @@ pub struct ResponsesWebsocketConnection {
+     idle_timeout: Duration,
+     server_reasoning_included: bool,
+     server_model: Option<String>,
++    include_timing_metrics: bool,
+     telemetry: Option<Arc<dyn WebsocketTelemetry>>,
+ }
+ 
+@@ -262,6 +266,7 @@ impl ResponsesWebsocketConnection {
+         idle_timeout: Duration,
+         server_reasoning_included: bool,
+         server_model: Option<String>,
++        include_timing_metrics: bool,
+         telemetry: Option<Arc<dyn WebsocketTelemetry>>,
+     ) -> Self {
+         let routing_affinity = stream.routing_affinity.take();
+@@ -270,6 +275,7 @@ impl ResponsesWebsocketConnection {
+             idle_timeout,
+             server_reasoning_included,
+             server_model,
++            include_timing_metrics,
+             telemetry,
+             routing_affinity,
+         }
+@@ -326,6 +332,7 @@ impl ResponsesWebsocketConnection {
+                 .and_then(|metadata| metadata.get(WS_STREAM_REQUEST_START_MS_CLIENT_METADATA_KEY))
+                 .cloned(),
+             warmup: ws_request.generate == Some(false),
++            include_timing_metrics: self.include_timing_metrics,
+             connection_reused,
+         };
+         let request_text = serialize_websocket_request(&request)?;
+@@ -956,11 +963,20 @@ async fn run_websocket_response_stream(
+                     }
+                     continue;
+                 }
+-                emit_responses_websocket_timing_event(
+-                    event.kind(),
+-                    text.as_str(),
+-                    timing_log_context,
+-                );
++                if event.kind() == RESPONSES_WEBSOCKET_TIMING_KIND {
++                    emit_responses_websocket_timing_event(text.as_str(), timing_log_context);
++                    if timing_log_context.include_timing_metrics
++                        && !timing_log_context.warmup
++                        && interruption.is_none()
++                        && completion.is_none()
++                        && let Some(metrics) = parse_websocket_timing(text.as_str())
++                    {
++                        let _ = tx_event
++                            .send(Ok(ResponseEvent::RuntimeMetrics(metrics)))
++                            .await;
++                    }
++                    continue;
++                }
+                 if event.kind() == "codex.response.metadata"
+                     && let Some(etag) =
+                         event
+@@ -1060,15 +1076,35 @@ async fn run_websocket_response_stream(
+     Ok(())
+ }
+ 
++fn parse_websocket_timing(payload: &str) -> Option<TurnRuntimeMetrics> {
++    #[derive(Deserialize)]
++    struct TimingFrame<'a> {
++        #[serde(borrow)]
++        timing_metrics: std::collections::HashMap<String, &'a RawValue>,
++    }
++
++    let frame = serde_json::from_str::<TimingFrame<'_>>(payload).ok()?;
++    let ms = |name: &str| {
++        // Parse each raw number independently so a single invalid measurement does not
++        // discard a sibling, including when a number exceeds the finite float range.
++        let value = frame.timing_metrics.get(name)?.get().parse::<f64>().ok()?;
++        (value.is_finite() && value >= 0.0).then_some(value)
++    };
++    let sample = TurnRuntimeMetrics {
++        overhead_ms: ms("responses_duration_excl_engine_and_client_tool_time_ms"),
++        inference_time_ms: ms("engine_service_total_ms"),
++        iapi_ttft_ms: ms("engine_iapi_ttft_total_ms"),
++        service_ttft_ms: ms("engine_service_ttft_total_ms"),
++        iapi_tbt_ms: ms("engine_iapi_tbt_across_engine_calls_ms"),
++        service_tbt_ms: ms("engine_service_tbt_across_engine_calls_ms"),
++    };
++    (sample != TurnRuntimeMetrics::default()).then_some(sample)
++}
++
+ fn emit_responses_websocket_timing_event(
+-    kind: &str,
+     payload: &str,
+     context: &ResponsesWebsocketTimingLogContext,
+ ) {
+-    if kind != RESPONSES_WEBSOCKET_TIMING_KIND {
+-        return;
+-    }
+-
+     // This full payload is excluded from always-on sinks. Opt in with
+     // `RUST_LOG='codex_api::responses_websocket_timing=trace'`.
+     tracing::event!(
+@@ -1158,6 +1194,37 @@ mod tests {
+     use std::collections::HashMap;
+     use std::sync::Arc;
+ 
++    #[test]
++    fn websocket_timing_keeps_valid_siblings_and_rejects_empty_samples() {
++        let payload = r#"{
++            "type":"responsesapi.websocket_timing",
++            "timing_metrics":{
++                "responses_duration_excl_engine_and_client_tool_time_ms":0,
++                "engine_service_total_ms":-1,
++                "engine_iapi_ttft_total_ms":"12",
++                "engine_service_ttft_total_ms":1e309,
++                "engine_iapi_tbt_across_engine_calls_ms":2.5,
++                "engine_service_tbt_across_engine_calls_ms":null
++            }
++        }"#;
++        assert_eq!(
++            parse_websocket_timing(payload),
++            Some(TurnRuntimeMetrics {
++                overhead_ms: Some(0.0),
++                iapi_tbt_ms: Some(2.5),
++                ..TurnRuntimeMetrics::default()
++            }),
++        );
++        assert_eq!(
++            parse_websocket_timing(r#"{"timing_metrics":{"engine_service_total_ms":-1}}"#),
++            None
++        );
++        assert_eq!(
++            parse_websocket_timing(r#"{"timing_metrics":{"unrelated":42}}"#),
++            None
++        );
++    }
++
+     #[test]
+     fn direct_serialization_preserves_websocket_request_payload() {
+         let api_request = ResponsesApiRequest {
+diff --git a/codex-rs/codex-api/src/endpoint/responses_websocket/connector.rs b/codex-rs/codex-api/src/endpoint/responses_websocket/connector.rs
+index cd4fc604c1a9e1ccfc64ac0f1f98cf54a4066712..171e8a3e93aa2eb61050a0b87d88c56f14ba8c32 100644
+--- a/codex-rs/codex-api/src/endpoint/responses_websocket/connector.rs
++++ b/codex-rs/codex-api/src/endpoint/responses_websocket/connector.rs
+@@ -8,6 +8,7 @@ use super::merge_request_headers;
+ use crate::ApiError;
+ use crate::RESPONSES_PATH;
+ use crate::WebsocketTelemetry;
++use crate::X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER;
+ use codex_websocket_client::WebSocketConnector;
+ use http::HeaderMap;
+ use std::sync::Arc;
+@@ -36,6 +37,9 @@ impl ResponsesWebsocketClient {
+             .map_err(|err| ApiError::Stream(format!("failed to build websocket URL: {err}")))?;
+         let headers = merge_request_headers(&self.provider.headers, extra_headers, default_headers);
+         let headers = self.auth.apply_auth_headers(headers).await?;
++        let include_timing_metrics = headers
++            .get(X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER)
++            .is_some_and(|value| value == "true");
+         let (stream, _response, server_reasoning_included, server_model) =
+             connect_websocket(ws_url, headers, connector, turn_state)
+                 .await
+@@ -45,6 +49,7 @@ impl ResponsesWebsocketClient {
+             self.provider.stream_idle_timeout,
+             server_reasoning_included,
+             server_model,
++            include_timing_metrics,
+             telemetry,
+         ))
+     }
+diff --git a/codex-rs/codex-api/src/lib.rs b/codex-rs/codex-api/src/lib.rs
+index 23bf38193cccdc42429ab59f56c7961f96e4cec0..70d01a5849549d61472e4c585caa6e4c29789036 100644
+--- a/codex-rs/codex-api/src/lib.rs
++++ b/codex-rs/codex-api/src/lib.rs
+@@ -57,6 +57,7 @@ pub use crate::common::StreamOptions;
+ pub use crate::common::TextControls;
+ pub use crate::common::WS_REQUEST_HEADER_TRACEPARENT_CLIENT_METADATA_KEY;
+ pub use crate::common::WS_REQUEST_HEADER_TRACESTATE_CLIENT_METADATA_KEY;
++pub use crate::common::X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER;
+ pub use crate::common::create_text_param_for_request;
+ pub use crate::common::response_create_client_metadata;
+ pub use crate::endpoint::ImageRequestError;
+diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
+index 5913d07c70efe46806837a1266a43ca4b9d3f844..88bb5de75d714d99f7c65f6987e3f644e0f4fd4c 100644
+--- a/codex-rs/core/src/client.rs
++++ b/codex-rs/core/src/client.rs
+@@ -167,8 +167,7 @@ pub const X_CODEX_PARENT_THREAD_ID_HEADER: &str = "x-codex-parent-thread-id";
+ pub const X_CODEX_WINDOW_ID_HEADER: &str = "x-codex-window-id";
+ pub const X_OPENAI_MEMGEN_REQUEST_HEADER: &str = "x-openai-memgen-request";
+ pub const X_OPENAI_SUBAGENT_HEADER: &str = "x-openai-subagent";
+-pub const X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER: &str =
+-    "x-responsesapi-include-timing-metrics";
++pub use codex_api::X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER;
+ const X_CODEX_WS_STREAM_REQUEST_START_MS_CLIENT_METADATA_KEY: &str =
+     "x-codex-ws-stream-request-start-ms";
+ const WS_REQUEST_HEADER_RESPONSES_LITE_CLIENT_METADATA_KEY: &str =
+diff --git a/codex-rs/core/src/guardian/response_resampling.rs b/codex-rs/core/src/guardian/response_resampling.rs
+index f5a671cb1438470a56e4c3cebe47bc0d037e1a0a..afb3f92b635045318edeb44ac91f52f25f8ba7db 100644
+--- a/codex-rs/core/src/guardian/response_resampling.rs
++++ b/codex-rs/core/src/guardian/response_resampling.rs
+@@ -105,6 +105,7 @@ impl ResponseResampling {
+             | ResponseEvent::GuardianAssessment(_)
+             | ResponseEvent::ServerReasoningIncluded(_)
+             | ResponseEvent::RateLimits(_)
++            | ResponseEvent::RuntimeMetrics(_)
+             | ResponseEvent::ModelsEtag(_) => {}
+         }
+         Some(event)
+diff --git a/codex-rs/core/src/session/turn.rs b/codex-rs/core/src/session/turn.rs
+index 0d3da231c91717ae2b71c972bce2725a8ed558f2..c39f5b82879e8d2793c0a61073736ffa4385247a 100644
+--- a/codex-rs/core/src/session/turn.rs
++++ b/codex-rs/core/src/session/turn.rs
+@@ -113,6 +113,7 @@ use codex_protocol::protocol::AgentMessageContentDeltaEvent;
+ use codex_protocol::protocol::AgentReasoningSectionBreakEvent;
+ use codex_protocol::protocol::CodexErrorInfo;
+ use codex_protocol::protocol::ErrorEvent;
++use codex_protocol::protocol::Event;
+ use codex_protocol::protocol::EventMsg;
+ use codex_protocol::protocol::HookEventName;
+ use codex_protocol::protocol::HookExecutionMode;
+@@ -2496,6 +2497,7 @@ pub(super) fn realtime_text_for_event(msg: &EventMsg) -> Option<RealtimeEventTex
+         | EventMsg::McpToolCallEnd(_)
+         | EventMsg::ElicitationAbandoned(_)
+         | EventMsg::NetworkApprovalResolved { .. }
++        | EventMsg::TurnRuntimeMetrics(_)
+         | EventMsg::WebSearchBegin(_)
+         | EventMsg::WebSearchEnd(_)
+         | EventMsg::ExecCommandBegin(_)
+@@ -3528,6 +3530,19 @@ async fn try_run_sampling_request(
+                     .refresh_if_new_etag(etag, turn_context.config.http_client_factory())
+                     .await;
+             }
++            ResponseEvent::RuntimeMetrics(metrics) => {
++                if turn_context
++                    .config
++                    .features
++                    .enabled(Feature::RuntimeMetrics)
++                {
++                    sess.deliver_event_raw(Event {
++                        id: turn_context.sub_id.clone(),
++                        msg: EventMsg::TurnRuntimeMetrics(metrics),
++                    })
++                    .await;
++                }
++            }
+             ResponseEvent::Completed {
+                 response_id,
+                 token_usage,
+diff --git a/codex-rs/core/src/turn_timing.rs b/codex-rs/core/src/turn_timing.rs
+index f666d7fcc7e69a54dad4feb2a4b2d3698d4da3b5..cad17a399832e4c59077791a8e2837bae96e7306 100644
+--- a/codex-rs/core/src/turn_timing.rs
++++ b/codex-rs/core/src/turn_timing.rs
+@@ -537,6 +537,7 @@ fn response_event_records_turn_ttft(event: &ResponseEvent) -> bool {
+         | ResponseEvent::Completed { .. }
+         | ResponseEvent::ReasoningSummaryPartAdded { .. }
+         | ResponseEvent::RateLimits(_)
++        | ResponseEvent::RuntimeMetrics(_)
+         | ResponseEvent::ModelsEtag(_) => false,
+     }
+ }
+diff --git a/codex-rs/otel/src/events/session_telemetry.rs b/codex-rs/otel/src/events/session_telemetry.rs
+index 61d6248a6ee52eb6618f2ddede3e9e72ea25bc9d..a90561f26a458bd0241a755c6d62bca958019293 100644
+--- a/codex-rs/otel/src/events/session_telemetry.rs
++++ b/codex-rs/otel/src/events/session_telemetry.rs
+@@ -1468,6 +1468,7 @@ impl SessionTelemetry {
+             ResponseEvent::SafetyBuffering(_) => "safety_buffering".into(),
+             ResponseEvent::ServerReasoningIncluded(_) => "server_reasoning_included".into(),
+             ResponseEvent::RateLimits(_) => "rate_limits".into(),
++            ResponseEvent::RuntimeMetrics(_) => "runtime_metrics".into(),
+             ResponseEvent::ModelsEtag(_) => "models_etag".into(),
+         }
+     }
+diff --git a/codex-rs/protocol/src/protocol.rs b/codex-rs/protocol/src/protocol.rs
+index 8d4b3fe8be6b245f7dddc7fab5c4f33d0d5671af..8268c231d38eb78356a421586e494f60dcf09e82 100644
+--- a/codex-rs/protocol/src/protocol.rs
++++ b/codex-rs/protocol/src/protocol.rs
+@@ -1606,6 +1606,12 @@ pub enum EventMsg {
+     #[serde(rename = "task_started", alias = "turn_started")]
+     TurnStarted(TurnStartedEvent),
+ 
++    /// Live Responses WebSocket measurements carried only within the event channel.
++    #[serde(skip)]
++    #[schemars(skip)]
++    #[ts(skip)]
++    TurnRuntimeMetrics(TurnRuntimeMetrics),
++
+     /// Persistent thread-settings overrides from the correlated submission have
+     /// been applied to the session configuration.
+     ThreadSettingsApplied(ThreadSettingsAppliedEvent),
+@@ -2489,6 +2495,17 @@ pub struct TurnCompleteEvent {
+     pub time_to_first_token_ms: Option<i64>,
+ }
+ 
++/// A partial timing sample emitted by the upstream Responses WebSocket, in milliseconds.
++#[derive(Debug, Clone, Copy, PartialEq, Default)]
++pub struct TurnRuntimeMetrics {
++    pub overhead_ms: Option<f64>,
++    pub inference_time_ms: Option<f64>,
++    pub iapi_ttft_ms: Option<f64>,
++    pub service_ttft_ms: Option<f64>,
++    pub iapi_tbt_ms: Option<f64>,
++    pub service_tbt_ms: Option<f64>,
++}
++
+ #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]
+ pub struct TurnStartedEvent {
+     /// Provenance of a regular turn, persisted before startup work can be suspended.
+diff --git a/codex-rs/rollout-trace/src/protocol_event.rs b/codex-rs/rollout-trace/src/protocol_event.rs
+index 58481aacb1cdc53cffe365a85a1be1d6dec05487..660ad79ab5c6b98ee853e34b03a1ddd71c88e9fb 100644
+--- a/codex-rs/rollout-trace/src/protocol_event.rs
++++ b/codex-rs/rollout-trace/src/protocol_event.rs
+@@ -423,6 +423,7 @@ pub(crate) fn tool_runtime_trace_event(event: &EventMsg) -> Option<ToolRuntimeTr
+         | EventMsg::ElicitationRequest(_)
+         | EventMsg::ElicitationAbandoned(_)
+         | EventMsg::NetworkApprovalResolved { .. }
++        | EventMsg::TurnRuntimeMetrics(_)
+         | EventMsg::ApplyPatchApprovalRequest(_)
+         | EventMsg::GuardianAssessment(_)
+         | EventMsg::DeprecationNotice(_)
+@@ -505,6 +506,7 @@ pub(crate) fn wrapped_protocol_event_type(event: &EventMsg) -> Option<&'static s
+         | EventMsg::ElicitationRequest(_)
+         | EventMsg::ElicitationAbandoned(_)
+         | EventMsg::NetworkApprovalResolved { .. }
++        | EventMsg::TurnRuntimeMetrics(_)
+         | EventMsg::ApplyPatchApprovalRequest(_)
+         | EventMsg::GuardianAssessment(_)
+         | EventMsg::DeprecationNotice(_)
+diff --git a/codex-rs/rollout/src/policy.rs b/codex-rs/rollout/src/policy.rs
+index e62c4232045679fb77ff5eefbc889ae6d157749c..27bdc00011f698797509e65d84763325d7c3353e 100644
+--- a/codex-rs/rollout/src/policy.rs
++++ b/codex-rs/rollout/src/policy.rs
+@@ -200,6 +200,7 @@ fn persisted_event_msg(
+         | EventMsg::ElicitationRequest(_)
+         | EventMsg::ElicitationAbandoned(_)
+         | EventMsg::NetworkApprovalResolved { .. }
++        | EventMsg::TurnRuntimeMetrics(_)
+         | EventMsg::ApplyPatchApprovalRequest(_)
+         | EventMsg::StreamError(_)
+         | EventMsg::PatchApplyBegin(_)

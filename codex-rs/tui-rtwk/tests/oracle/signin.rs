@@ -42,7 +42,7 @@ fn api_key_entry_snapshots() {
     let s = open("api_key_entry", 80, 14);
     s.assert_snap("api_key_entry");
     let s = open("api_key_entry", 40, 14);
-    kit::pending(
+    kit::delta(
         Owner::Onboarding,
         "G48: rtwk's `TextWrap::Word` breaks after the hyphen of `usage-based` (`> Use your own OpenAI API key for usage-` / `based billing`); the oracle's `Paragraph` wraps at blanks only (`... for` / `usage-based billing`), and no `TextWrap` breaks at blanks only",
     );

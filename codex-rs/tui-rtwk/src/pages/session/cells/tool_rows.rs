@@ -97,16 +97,7 @@ pub fn ansi_row(index: usize, line: &str, tokens: &Tokens, wrap: bool, clip: usi
     } else {
         compact_output(line, clip)
     };
-    let mut spans: Vec<Span> = Vec::new();
-    for (index, parsed) in rtwk::ansi::parse_ansi(&line).into_iter().enumerate() {
-        if index != 0 {
-            spans.push(Span::new(LINE_BREAK));
-        }
-        spans.extend(parsed.into_iter().map(|mut span| {
-            span.style.attrs |= Attrs::DIM;
-            span
-        }));
-    }
+    let spans = ansi_spans(&line);
     let body = Text::rich(spans);
     branch_row(
         index,
@@ -130,18 +121,30 @@ pub(super) fn compact_output(line: &str, clip: usize) -> std::borrow::Cow<'_, st
     }
 }
 
-/// What [`ansi_row`] shows of `line`, wrapped: its lines with the colour codes taken out.
+/// The spans `line` shows with its own SGR colours, every span dimmed (oracle
+/// `dimmed_output_line`): the lines [`parse_ansi`](rtwk::ansi::parse_ansi) reads (it ends one at
+/// `\n`, `\x0b` and `\x0c`) one `LINE_BREAK` apart, the text [`plain_text`] is.
+pub fn ansi_spans(line: &str) -> Vec<Span> {
+    let mut spans: Vec<Span> = Vec::new();
+    for (index, parsed) in rtwk::ansi::parse_ansi(line).into_iter().enumerate() {
+        if index != 0 {
+            spans.push(Span::new(LINE_BREAK));
+        }
+        spans.extend(parsed.into_iter().map(|mut span| {
+            span.style.attrs |= Attrs::DIM;
+            span
+        }));
+    }
+    spans
+}
+
+/// What [`ansi_row`] shows of `line`, wrapped: its lines with the colour codes taken out. The
+/// byte ranges cut from it are ranges of [`ansi_spans`]' text.
 pub fn plain_text(line: &str) -> String {
-    rtwk::ansi::parse_ansi(line)
-        .into_iter()
-        .map(|spans| {
-            spans
-                .iter()
-                .map(|span| span.text.as_str())
-                .collect::<String>()
-        })
-        .collect::<Vec<_>>()
-        .join(LINE_BREAK)
+    ansi_spans(line)
+        .iter()
+        .map(|span| span.text.as_str())
+        .collect()
 }
 
 /// The lines of a source text (oracle `raw_lines_from_source`): split at

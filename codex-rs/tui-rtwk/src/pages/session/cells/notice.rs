@@ -37,7 +37,6 @@ pub fn texts(notice: &Notice, strings: &Strings, detailed: bool) -> Vec<Part> {
         Notice::InterruptedForSteer => {
             row([strings.bullet, strings.interrupted_for_steer].concat())
         }
-        Notice::DaybreakOn => row([strings.bullet, strings.daybreak_on].concat()),
         Notice::SubmissionUnconfirmed(text) => {
             row([strings.bullet, &unconfirmed_words(text)].concat())
         }
@@ -193,11 +192,6 @@ impl StatelessWidget for NoticeCell {
             Notice::InterruptedForSteer => Text::rich(vec![
                 Span::styled(strings.bullet, tokens.dim()),
                 Span::styled(strings.interrupted_for_steer, Style::new()),
-            ])
-            .into(),
-            Notice::DaybreakOn => Text::rich(vec![
-                Span::styled(strings.bullet, tokens.dim()),
-                Span::styled(strings.daybreak_on, Style::new()),
             ])
             .into(),
             Notice::SubmissionUnconfirmed(text) => Text::rich(vec![

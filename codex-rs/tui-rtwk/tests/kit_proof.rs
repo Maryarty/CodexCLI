@@ -943,3 +943,111 @@ fn a_replay_is_a_resumed_thread_with_recorded_turns() {
     let asked = s.request_params("thread/resume");
     assert_eq!(asked[0]["threadId"], kit::REPLAYED);
 }
+
+// ---- the delta marker (a small visual difference, never a functional one) ----
+//
+// `kit::delta` softens the kit's comparisons of the screen with the oracle's rows and cell styles,
+// per thread (a thread is a test), and only while the rows still say the same words.
+
+const COLLAPSED: &str = "activity_focus_keeps_controls_without_passive_hints";
+
+/// Message of the panic of `f` ("" when it does not panic).
+fn panic_of(f: impl FnOnce()) -> String {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(()) => String::new(),
+        Err(e) => e
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| e.downcast_ref::<&str>().map(|s| (*s).to_string()))
+            .unwrap_or_default(),
+    }
+}
+
+/// A glyph, an indent and a colour are small: the rows that differ only there pass as a delta,
+/// each differing comparison is a hit and a matching one is none.
+#[test]
+fn delta_passes_a_difference_of_glyph_indent_and_colour() {
+    kit::delta(Owner::UiPane, "glyph, indent and dim");
+    // the glyph: `!` for the oracle's `⚠`
+    let glyph = grid_of(40, 3, &put(&["! 5h 8% left"]));
+    kit::assert_snap_on(&glyph, &want("usage_notice_widths", "37 columns"));
+    assert_eq!(kit::delta_hits(), 1);
+    // the indent: one column in
+    let indent = grid_of(40, 3, &put(&[" ⚠ 5h 8% left"]));
+    kit::assert_snap_on(&indent, &want("usage_notice_widths", "37 columns"));
+    assert_eq!(kit::delta_hits(), 2);
+    // the colour: row 1 not dim, the rows as the oracle's
+    let plain = grid_of(32, 3, &put(&["Activity summary", "    + Show details"]));
+    kit::assert_snap_on(&plain, &want(COLLAPSED, "collapsed"));
+    assert_eq!(kit::delta_hits(), 3);
+    // a screen that equals the oracle's is no hit
+    let same = grid_of(40, 3, &put(&["⚠ 5h 8% left"]));
+    kit::assert_snap_on(&same, &want("usage_notice_widths", "37 columns"));
+    assert_eq!(kit::delta_hits(), 3);
+}
+
+/// Other words are not small: the row that says more, less or else fails the test whatever
+/// the marker says, and the failure names the rule.
+#[test]
+fn delta_refuses_rows_that_say_other_things() {
+    kit::delta(Owner::UiPane, "a difference that is not small");
+    let more = grid_of(40, 3, &put(&["⚠ 5h limit: 8% left"]));
+    let message =
+        panic_of(|| kit::assert_snap_on(&more, &want("usage_notice_widths", "37 columns")));
+    assert!(message.contains("kit::delta refused"), "{message}");
+    // a missing row
+    let missing = grid_of(32, 3, &put(&["Activity summary"]));
+    let message = panic_of(|| kit::assert_snap_on(&missing, &want(COLLAPSED, "collapsed")));
+    assert!(message.contains("kit::delta refused"), "{message}");
+    assert_eq!(kit::delta_hits(), 0);
+}
+
+/// The row comparisons that are not a snapshot (`assert_rows_are`) are softened alike, with the
+/// same refusal.
+#[test]
+fn delta_covers_the_literal_rows_of_the_oracle_too() {
+    kit::delta(Owner::UiPane, "a glyph");
+    let ours = vec!["* one".to_string(), "  two".to_string()];
+    kit::assert_rows_are(&ours, &["• one", "two"]);
+    assert_eq!(kit::delta_hits(), 1);
+    assert!(panic_of(|| kit::assert_rows_are(&ours, &["• one", "three"])).contains("refused"));
+}
+
+/// The cursor stays strict under a delta: a cursor elsewhere is not a visual delta.
+#[test]
+fn delta_keeps_the_cursor_strict() {
+    kit::delta(Owner::UiPane, "the rows differ by a glyph");
+    let name = "history_search_pasted_separators";
+    let rows = kit::snap_rows(name, "");
+    let refs: Vec<&str> = rows.iter().map(String::as_str).collect();
+    let left = grid_of(70, 5, &format!("{}\x1b[5;31H\x1b[?25h", put(&refs)));
+    assert!(fails(|| kit::assert_snap_on(&left, &want(name, ""))));
+}
+
+/// A delta says in words what differs.
+#[test]
+#[should_panic(expected = "needs `what`")]
+fn delta_needs_what() {
+    kit::delta(Owner::UiPane, "  ");
+}
+
+/// The marker of one test does not soften another thread's comparison.
+#[test]
+fn without_delta_the_comparison_still_bites() {
+    let glyph = grid_of(40, 3, &put(&["! 5h 8% left"]));
+    assert!(fails(|| kit::assert_snap_on(
+        &glyph,
+        &want("usage_notice_widths", "37 columns")
+    )));
+    assert_eq!(kit::delta_hits(), 0);
+}
+
+/// `delta` softens the comparison of the screen only: a text check of the same test still fails.
+#[test]
+#[should_panic(expected = "the screen has no `a row the status card never draws`")]
+fn delta_never_softens_a_functional_check() {
+    kit::delta(Owner::UiPane, "a glyph");
+    let g = grid_of(40, 3, &put(&["! 5h 8% left"]));
+    kit::assert_snap_on(&g, &want("usage_notice_widths", "37 columns"));
+    g.assert_contains("a row the status card never draws");
+}

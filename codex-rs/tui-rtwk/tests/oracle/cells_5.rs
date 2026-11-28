@@ -685,24 +685,27 @@ fn agent_markdown_cell_survives_insert_history_rewrap() {
 // ORACLE history_cell/warnings_tests.rs:7 usage_warnings_render_in_both_transcripts_including_composites kind=ui owner=chat-live
 #[test]
 fn usage_warnings_render_in_both_transcripts_including_composites() {
-    let s = Screen::build(Owner::ChatLive)
+    // The oracle's `new_visible_warning_event` is the rate-limit snapshot's warning; the port
+    // derives it from `account/rateLimits/updated` (the account read at 49% of the Plus 5h
+    // window, the update at 50%), and its wording is the real one. The `warning` notification is
+    // the hidden diagnostic. The updates come after the read is answered, as the app asks it.
+    let mut s = Screen::build(Owner::ChatLive)
         .size(28, 24)
         .script(include_str!(
             "fixtures/cells_5/usage_warnings_render_in_both_transcripts_including_composites.jsonl"
         ))
         .open();
-    // the usage warning is the rate-limit update's visible `new_visible_warning_event` (the fixture's
-    // last line); the `warning` notification before it is the hidden diagnostic
-    s.assert_in_order(&[
-        "Earlier output",
-        "⚠ Heads up, you have less",
-        "than 10% of your usage",
-        "limit left. Run /status",
-        "for a breakdown.",
-    ]);
-    s.assert_absent("Hidden diagnostic");
-    // Missed: the oracle compares the rich and raw transcripts of the same cell and a composite of
-    // cells (returned values); the raw mode's key is not in the kit yet.
+    s.assert_requests_of("account/rateLimits/read", 1);
+    s.feed(r#"{"step": "notify", "message": {"method": "account/rateLimits/updated", "params": {"rateLimits": {"limitId": "codex", "planType": null, "primary": {"usedPercent": 50, "windowDurationMins": 300, "resetsAt": null}}}}}"#);
+    s.feed(r#"{"step":"notify","message":{"method":"warning","params":{"threadId":"thread-1","message":"Hidden diagnostic"}}}"#);
+    let check = |s: &Screen| {
+        s.assert_in_order(&["Earlier output", "Heads up", "50%", "/status"]);
+        s.assert_absent("Hidden diagnostic");
+    };
+    check(&s);
+    // the raw transcript: the same warning, the diagnostic still hidden
+    s.keys("alt+r");
+    check(&s);
 }
 
 // ORACLE history_cell/warnings_tests.rs:47 warning_count_deduplicates_messages_mcp_summaries_and_composites kind=ui owner=chat-live

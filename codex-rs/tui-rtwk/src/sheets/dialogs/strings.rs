@@ -15,15 +15,15 @@ use rtwk::l10n::msg;
 
 use codex_tui_core::keymap::ActionId;
 use codex_tui_core::keymap::actions::{
-    CHAT_DECREASE_REASONING_EFFORT, CHAT_INCREASE_REASONING_EFFORT,
+    CHAT_DECREASE_REASONING_EFFORT, CHAT_INCREASE_REASONING_EFFORT, CHAT_TOGGLE_VOICE,
     COMPOSER_HISTORY_SEARCH_PREVIOUS, COMPOSER_QUEUE, EDITOR_INSERT_NEWLINE,
     GLOBAL_FIND_TRANSCRIPT, GLOBAL_FOCUS_ACTIVITY, GLOBAL_OPEN_AGENTS, GLOBAL_OPEN_EXTERNAL_EDITOR,
     GLOBAL_OPEN_TRANSCRIPT,
 };
 use codex_tui_core::keymap::fixed::{
-    INTERRUPT_OR_QUIT, PASTE_IMAGE, SELECTION_START, SUBAGENT_NEXT, SUBAGENT_PREVIOUS,
-    TRANSCRIPT_LATEST, TRANSCRIPT_LATEST_ALT, TRANSCRIPT_PAGE_DOWN, TRANSCRIPT_PAGE_UP,
-    TRANSCRIPT_TOP, TRANSCRIPT_TOP_ALT,
+    CYCLE_COLLABORATION_MODE, INTERRUPT_OR_QUIT, PASTE_IMAGE, SELECTION_START, SUBAGENT_NEXT,
+    SUBAGENT_PREVIOUS, TRANSCRIPT_LATEST, TRANSCRIPT_LATEST_ALT, TRANSCRIPT_PAGE_DOWN,
+    TRANSCRIPT_PAGE_UP, TRANSCRIPT_TOP, TRANSCRIPT_TOP_ALT,
 };
 
 use crate::l10n::Lang;
@@ -40,8 +40,11 @@ pub struct Group {
 /// Where the keys of a row of the live overlay come from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Keys {
-    /// Text no platform spells differently (`/`, `esc esc`).
+    /// Text no platform spells differently (`/`).
     Plain(&'static str),
+    /// A key pressed twice (`esc esc`) until the first press has primed the action: then once
+    /// (`Entry::repeat_label`).
+    Repeated(&'static str),
     /// A key the oracle fixes (a named action of `keymap::fixed`), spelt as the platform spells a
     /// hint (`\u{2303}v`).
     Fixed(ActionId),
@@ -232,7 +235,7 @@ pub const EN: Strings = Strings {
                     running: None,
                 },
                 Entry {
-                    keys: Keys::Plain("esc esc"),
+                    keys: Keys::Repeated("esc"),
                     label: "Edit last message",
                     running: None,
                 },
@@ -247,6 +250,11 @@ pub const EN: Strings = Strings {
                     running: Some("Queue message"),
                 },
                 Entry {
+                    keys: Keys::Fixed(CYCLE_COLLABORATION_MODE),
+                    label: "Change mode",
+                    running: None,
+                },
+                Entry {
                     keys: Keys::Bound(CHAT_DECREASE_REASONING_EFFORT),
                     label: "Less reasoning",
                     running: None,
@@ -254,6 +262,11 @@ pub const EN: Strings = Strings {
                 Entry {
                     keys: Keys::Bound(CHAT_INCREASE_REASONING_EFFORT),
                     label: "More reasoning",
+                    running: None,
+                },
+                Entry {
+                    keys: Keys::Bound(CHAT_TOGGLE_VOICE),
+                    label: "Voice",
                     running: None,
                 },
                 Entry {

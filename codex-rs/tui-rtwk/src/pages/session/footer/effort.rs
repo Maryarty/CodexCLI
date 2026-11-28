@@ -194,38 +194,55 @@ impl State for StatusTransitionState {
         let colors = Colors::of(cx);
         let (tier, previous, current) = (w.tier, w.previous.clone(), w.current.clone());
         AnimatedBuilder::new(clock, move |clock, _| {
-            let elapsed = TRANSITION.mul_f64(clock.value());
-            let (previous, current) = (previous.clone(), current.clone());
-            LayoutBuilder::new(move |cx, constraints| {
-                let seg = segmenter_of(cx);
-                let width = usize::try_from(constraints.max_width).unwrap_or(0);
-                let spans = transition_spans(
-                    &Ink {
-                        grade: tier,
-                        label: match tier {
-                            Grade::Max => own.effort_max,
-                            Grade::Ultra => own.effort_ultra,
-                        },
-                        colors,
-                        measure: &|text: &str| seg.width(text),
-                    },
-                    &previous,
-                    &current,
-                    elapsed,
-                    width,
-                );
-                if spans.is_empty() {
-                    return SizedBox::shrink().into();
-                }
-                Text::rich(spans)
-                    .max_lines(Some(1))
-                    .overflow(TextOverflow::Clip)
-                    .into()
-            })
-            .into()
+            frame_row(
+                own,
+                colors,
+                tier,
+                previous.clone(),
+                current.clone(),
+                TRANSITION.mul_f64(clock.value()),
+            )
         })
         .into()
     }
+}
+
+/// The status line `elapsed` into the run (`transition_line_at`): one row, as wide as the room.
+fn frame_row(
+    own: &'static strings::Strings,
+    colors: Colors,
+    tier: Grade,
+    previous: Vec<Span>,
+    current: Vec<Span>,
+    elapsed: Duration,
+) -> AnyWidget {
+    LayoutBuilder::new(move |cx, constraints| {
+        let seg = segmenter_of(cx);
+        let width = usize::try_from(constraints.max_width).unwrap_or(0);
+        let spans = transition_spans(
+            &Ink {
+                grade: tier,
+                label: match tier {
+                    Grade::Max => own.effort_max,
+                    Grade::Ultra => own.effort_ultra,
+                },
+                colors,
+                measure: &|text: &str| seg.width(text),
+            },
+            &previous,
+            &current,
+            elapsed,
+            width,
+        );
+        if spans.is_empty() {
+            return SizedBox::shrink().into();
+        }
+        Text::rich(spans)
+            .max_lines(Some(1))
+            .overflow(TextOverflow::Clip)
+            .into()
+    })
+    .into()
 }
 
 /// The spans of one status line.
@@ -881,9 +898,15 @@ mod entries {
             },
             DebugEntry {
                 name: "effort_status_line_frames",
-                description: "the status line going from high to max",
+                description: "the status line going from high to max and to ultra, twelve frames each",
                 script: IDLE,
-                open: EntryOpen::Route(|_| transition(Grade::Max, line("high"), line("max"))),
+                open: EntryOpen::Route(|_| super::entry_transition_frames()),
+            },
+            DebugEntry {
+                name: "effort_ignition_gallery",
+                description: "every ignition look at both tiers, seven times each, over the draft",
+                script: IDLE,
+                open: EntryOpen::Route(|_| super::entry_ignition_gallery()),
             },
         ]
     }
@@ -951,35 +974,113 @@ fn entry_ignition(tier: Grade, look: Look) -> AnyWidget {
             let band = channels(Tokens::of(cx).prompt_surface(cx, false).bg);
             let (tier, look) = (w.0, w.1);
             AnimatedBuilder::new(clock, move |clock, _| {
-                let elapsed = look.total(tier).mul_f64(clock.value());
-                let mut paint = CustomPaint::new();
-                if let Some(band) = band
-                    && elapsed < look.total(tier)
-                {
-                    paint = paint.painter(IgnitionPaint {
-                        tier,
-                        look,
-                        elapsed,
-                        band,
-                        light: is_light(band),
-                        surface: (0, 0, 0, 0),
-                    });
-                }
-                paint
-                    .child(
-                        rtwk::layout::Column::new()
-                            .cross_axis_alignment(rtwk::layout::CrossAxisAlignment::Start)
-                            .child(Text::line(""))
-                            .child(Text::line(sample::DRAFT))
-                            .child(Text::line("")),
-                    )
-                    .into()
+                ignition_block(band, tier, look, look.total(tier).mul_f64(clock.value()))
             })
             .into()
         }
     }
     Demo(tier, look).into()
 }
+
+/// The three-row composer holding the oracle's draft, `elapsed` into the run of `look`: the
+/// band's tint under it while the run plays.
+fn ignition_block(band: Option<Rgb>, tier: Grade, look: Look, elapsed: Duration) -> AnyWidget {
+    let mut paint = CustomPaint::new();
+    if let Some(band) = band
+        && elapsed < look.total(tier)
+    {
+        paint = paint.painter(IgnitionPaint {
+            tier,
+            look,
+            elapsed,
+            band,
+            light: is_light(band),
+            surface: (0, 0, 0, 0),
+        });
+    }
+    paint
+        .child(
+            rtwk::layout::Column::new()
+                .cross_axis_alignment(rtwk::layout::CrossAxisAlignment::Stretch)
+                .child(Text::line(""))
+                .child(Text::line(sample::DRAFT))
+                .child(Text::line("")),
+        )
+        .into()
+}
+
+/// The oracle's gallery of the ignition (`effort_ignition_animation_gallery`): every look, at
+/// both tiers, at the seven times it prints, one three-row block under the other.
+fn entry_ignition_gallery() -> AnyWidget {
+    #[derive(Clone, PartialEq)]
+    struct Gallery;
+    impl_widget!(stateless eq Gallery);
+    impl rtwk::StatelessWidget for Gallery {
+        fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
+            let band = channels(Tokens::of(cx).prompt_surface(cx, false).bg);
+            let mut column = rtwk::layout::Column::new()
+                .cross_axis_alignment(rtwk::layout::CrossAxisAlignment::Stretch);
+            for look in Look::ALL {
+                for tier in [Grade::Max, Grade::Ultra] {
+                    for millis in IGNITION_TIMES {
+                        // a paint fills the room it is given: three rows each
+                        column = column.child(SizedBox::new(
+                            None,
+                            Some(3),
+                            Some(ignition_block(
+                                band,
+                                tier,
+                                look,
+                                Duration::from_millis(millis),
+                            )),
+                        ));
+                    }
+                }
+            }
+            column.into()
+        }
+    }
+    Gallery.into()
+}
+
+/// The elapsed times the oracle's ignition gallery prints.
+const IGNITION_TIMES: [u64; 7] = [0, 180, 420, 720, 1100, 1580, 2050];
+
+/// The oracle's frames of the status-line transition (`transition_frames_snapshot`): the line
+/// going from `high` to Max, then to Ultra, at twelve times each, one row each.
+fn entry_transition_frames() -> AnyWidget {
+    #[derive(Clone, PartialEq)]
+    struct Frames;
+    impl_widget!(stateless eq Frames);
+    impl rtwk::StatelessWidget for Frames {
+        fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
+            let own = strings::of(cx);
+            let colors = Colors::of(cx);
+            let mut column = rtwk::layout::Column::new()
+                .cross_axis_alignment(rtwk::layout::CrossAxisAlignment::Start);
+            let from = "high";
+            for (tier, to) in [(Grade::Max, "max"), (Grade::Ultra, "ultra")] {
+                for millis in TRANSITION_TIMES {
+                    column = column.child(frame_row(
+                        own,
+                        colors,
+                        tier,
+                        sample_line(&format!("{} {from}", sample::MODEL)),
+                        sample_line(&format!("{} {to}", sample::MODEL)),
+                        Duration::from_millis(millis),
+                    ));
+                }
+            }
+            column.into()
+        }
+    }
+    Frames.into()
+}
+
+/// The elapsed times the oracle's transition snapshot prints.
+const TRANSITION_TIMES: [u64; 12] = [
+    0, 300, 520, 680, 820, 1050, 1320, 1550, 1800, 2020, 2250, 2500,
+];
 
 #[cfg(test)]
 mod tests {

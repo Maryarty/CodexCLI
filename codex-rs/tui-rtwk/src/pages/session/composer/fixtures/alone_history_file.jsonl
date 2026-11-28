@@ -1,0 +1,9 @@
+# The composer with its footer, alone, over a history file of four entries whose rows cannot be
+# read (the host's `history_metadata` answer, then every read failing: the sandbox answers so):
+# the search ends "unavailable", nothing said. A failed single read is a missing row, which each
+# keystroke of the query skips on to the next one; four rows outlast the three keystrokes of "git".
+# Oracle data: chat_composer.rs `footer_mode_history_search_unavailable`
+# (`apply_history_search_result(HistorySearchResult::Unavailable)`: the reads failed).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":[]}}}
+{"step":"screen","dir":"popovers","ev":{"history_metadata":{"log_id":1,"entry_count":4}}}

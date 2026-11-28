@@ -22,6 +22,7 @@ use rtwk::foundation::ValueNotifier;
 use rtwk::gestures::{SelectionPoint, SelectionTarget};
 use rtwk::layout::{CellPainter, CustomPaint};
 use rtwk::navigation::Route;
+use rtwk::provider::Provider;
 use rtwk_core::canvas::Canvas;
 use rtwk_core::style::{Attrs, Pen};
 
@@ -29,7 +30,7 @@ use codex_tui_core::app::effects::{
     Ask, CopyDestination, CopyFormat, CopyStatus, Done, PrimaryOwner,
 };
 use codex_tui_core::app::facts::TuiSettings;
-use codex_tui_core::threads::{Item, ItemKey};
+use codex_tui_core::threads::{Item, ItemKey, ThreadModel};
 
 use super::TranscriptMode;
 use super::find::{Finder, RowTexts};
@@ -94,7 +95,12 @@ impl CopyOrigin {
         find: &Finder,
         cx: &mut Cx<'_, S>,
     ) -> Option<Self> {
-        if !Route::is_current_of(cx) {
+        if !Route::is_current_of(cx)
+            && !crate::sheets::select::plan_route_thread(cx).is_some_and(|thread| {
+                Provider::<ThreadModel>::maybe_of(cx, false)
+                    .is_some_and(|model| model.id() == &thread)
+            })
+        {
             return None;
         }
         let identity = selection.copy_identity()?;
