@@ -1214,6 +1214,9 @@ pub fn daybreak_of(thread: ThreadView<'_>) -> Option<bool> {
     small_cmds::daybreak_of(thread)
 }
 
+/// What the `/daybreak` entry reads of a thread: its setting and the provider it runs on.
+pub use small_cmds::Setting as DaybreakSetting;
+
 /// Whether a resumed session opened with Daybreak enabled.
 pub fn resumed_with_daybreak(thread: ThreadView<'_>) -> bool {
     small_cmds::resumed_with_daybreak(thread)

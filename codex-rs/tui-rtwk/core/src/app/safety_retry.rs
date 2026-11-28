@@ -111,13 +111,19 @@ pub(super) fn begin(app: &mut CodexApp, thread: ThreadId, offer: RetryOffer, fx:
         return;
     }
     if model.screen_slots().chat.daybreak == Some(true)
-        && (!app.daybreak.eligible
-            || app.daybreak.models.iter().any(|entry| {
-                entry.model == offer.model()
-                    && entry
-                        .programs
-                        .is_some_and(|programs| programs.standard && !programs.daybreak)
-            }))
+        && (!app.screens.chat.access.eligible(
+            model.screen_slots().chat.provider.as_deref().or(app
+                .screens
+                .chat
+                .status
+                .provider
+                .as_deref()),
+        ) || app.screens.chat.access.models.iter().any(|entry| {
+            entry.model == offer.model()
+                && entry
+                    .programs
+                    .is_some_and(|programs| programs.standard && !programs.daybreak)
+        }))
     {
         failure(
             app,

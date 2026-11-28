@@ -15,6 +15,7 @@ use rtwk::style::ThemeData;
 use rtwk_core::input::Brightness;
 use rtwk_core::style::Attrs;
 use rtwk_core::style::Color;
+use rtwk_core::style::ColorMode;
 use rtwk_rich::markdown::MarkdownTheme;
 use rtwk_rich::style::{Style as MarkdownStyle, Theme as RichTheme};
 
@@ -110,8 +111,18 @@ impl Tokens {
                 Some(u32::from_be_bytes([0, bg.r(), bg.g(), bg.b()]))
             });
         let Some(terminal) = terminal else {
-            return if history {
-                self.data.surface.clone()
+            // the oracle's fallback for a terminal that did not answer the colour query
+            // (`style::history_prompt_fallback`): the grays of the xterm palette, which the
+            // presenter lowers to 256 colours exactly; none on 16 colours and below, where the
+            // oracle draws the terminal's own
+            let shows_grays = matches!(
+                Provider::<ColorMode>::maybe_of(cx, true).as_deref(),
+                None | Some(ColorMode::TrueColor | ColorMode::Ansi256)
+            );
+            return if history && shows_grays {
+                Style::new()
+                    .fg(Color::rgb(238, 238, 238))
+                    .bg(Color::rgb(68, 68, 68))
             } else {
                 Style::new()
             };

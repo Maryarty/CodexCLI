@@ -765,6 +765,19 @@ impl HostDoors for FakeDoors<'_> {
         })))
     }
 
+    async fn workspace_files(&self, cwd: String, paths: Vec<String>) -> Option<FakeWork> {
+        // the kit's workspaces are real directories (`kit::workspace`): the same check the host
+        // makes, on the files of the test
+        let files = crate::services::workspace_files::files(&cwd, &paths);
+        let request = self.request;
+        Some(FakeWork::Spawn(Box::pin(async move {
+            Some(AppEv::Effect {
+                request,
+                done: Done::WorkspaceFiles(files),
+            })
+        })))
+    }
+
     async fn import(&self, ask: codex_tui_core::screens::import::Request) -> Option<FakeWork> {
         let responder = self.responder()?;
         let (log, ids) = (self.shared.clone(), self.ids.clone());

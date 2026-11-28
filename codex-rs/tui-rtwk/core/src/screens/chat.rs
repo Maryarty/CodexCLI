@@ -36,6 +36,7 @@ use crate::screens::Kind;
 use crate::screens::select::collaboration::{self, ModelChange};
 use crate::threads::ThreadReply;
 use crate::threads::asks::ThreadRpc;
+use crate::threads::daybreak::Access;
 use crate::threads::{LocalWarning, Note, ThreadFx, UserMessage};
 
 pub const NAME: &str = "chat";
@@ -73,6 +74,9 @@ pub struct Model {
     /// The footer's and the status line's other facts: the workspace probes, the side and
     /// agent labels (`facts`).
     pub facts: Facts,
+    /// What the host knows of the account's access programs, the providers that support them
+    /// and the catalog's (`Ev::Access`): the `/daybreak` entry and its checks read it.
+    pub access: Access,
 }
 
 /// The oracle's default list (`DEFAULT_STATUS_LINE_ITEMS`) when the config
@@ -326,6 +330,7 @@ impl Default for Model {
             warned_status_items: false,
             warned_title_items: false,
             facts: Facts::default(),
+            access: Access::default(),
         }
     }
 }
@@ -380,6 +385,8 @@ pub enum Ev {
     SignedIn(bool),
     /// The host read the config and the workspace.
     Status(Box<StatusFacts>),
+    /// The host read the account and the catalog's cyber access programs (`AppEv::Daybreak`).
+    Access(Access),
     /// An app-wide fact of the footer or the status line (`facts`).
     Facts(FactEv),
     /// The history opens with no session heading (`Model::headerless`), set as a fixture does.
@@ -512,6 +519,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             model.status_override.on(&mut facts);
             model.status = Rc::from(facts);
         }
+        Ev::Access(access) => model.access = access,
         Ev::Facts(ev) => model.facts.apply(ev),
         Ev::Headerless(on) => model.headerless = on,
         // the thread owns it (`apply_app` routes it)

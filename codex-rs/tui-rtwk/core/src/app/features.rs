@@ -33,7 +33,7 @@ pub(super) fn view(app: &CodexApp) -> AppView<'_> {
         &app.modes,
         app.transcript_text.as_ref(),
     )
-    .with_access(&app.daybreak)
+    .with_access(&app.screens.chat.access)
     .with_keys(&app.keymap)
     .with_banner(shown_banner(app))
     .with_rates(shown_rates(app))
@@ -86,7 +86,7 @@ pub(super) fn run(
             &app.modes,
             app.transcript_text.as_ref(),
         )
-        .with_access(&app.daybreak)
+        .with_access(&app.screens.chat.access)
         .with_keys(&app.keymap)
         .with_banner(app.session.backend_banners.get(&backend))
         .with_rates(app.session.rate_limits.get(&backend))

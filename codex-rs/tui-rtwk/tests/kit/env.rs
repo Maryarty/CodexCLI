@@ -205,6 +205,12 @@ impl Env {
         })
     }
 
+    /// The colours the app is told its terminal shows (`UiApp::with_color_mode`, which the host
+    /// does from the probe): the `color_depth` of the test, none where it set none.
+    pub(super) fn color_mode(&self) -> Option<ColorMode> {
+        self.depth.map(ColorDepth::mode)
+    }
+
     /// An app event is to be delivered (the app has to be connected first).
     pub(super) fn needs_app(&self) -> bool {
         self.syntax_theme.is_some()
@@ -498,11 +504,13 @@ impl Open {
         self
     }
 
-    /// The host reads an eligible account whose catalog lists, per `(model, standard,
-    /// daybreak)`, the cyber access programs of each model.
+    /// The host reads an eligible account (the `openai` provider supports cyber access programs)
+    /// whose catalog lists, per `(model, standard, daybreak)`, the cyber access programs of each
+    /// model.
     pub fn daybreak(mut self, models: &[(&str, bool, bool)]) -> Open {
         self.env.daybreak = Some(Access {
-            eligible: true,
+            account: true,
+            providers: vec!["openai".to_owned()],
             models: models
                 .iter()
                 .map(|&(model, standard, daybreak)| ModelAccess {

@@ -154,6 +154,14 @@ pub enum ImageRead {
     Unchanged,
 }
 
+/// A file of a workspace that a spoken answer names and the host found safe to link: the path as
+/// the answer wrote it (no `:line` suffix) and the `file:` URL of the file it is.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct WorkspaceFile {
+    pub path: String,
+    pub url: String,
+}
+
 /// Whether the local IDE's successful read included a selection or tabs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IdeReading {
@@ -288,6 +296,13 @@ host_capability_list! {
     /// Read the selection and tabs for one accepted user submission.
     ide_prompt => IdePrompt { thread: ThreadId, cwd: String }
         by thread -> new IdePrompt(Result<Option<IdePrompt>, IdeFailure>);
+    /// Which of the relative `paths` a spoken answer names are regular, safe source files inside
+    /// the local workspace `cwd` (oracle `TrustedWorkspaceFile::validate`: no hidden parts, no
+    /// escape through a link, a source extension). Answered by the files that are, each with its
+    /// `file:` URL; a remote workspace answers none (a session run over ssh is no remote workspace:
+    /// the oracle checks the disk whatever the terminal is).
+    workspace_files => WorkspaceFiles { cwd: String, paths: Vec<String> }
+        -> new WorkspaceFiles(Vec<WorkspaceFile>);
     /// Opens `thread` in the Desktop app (`codex://threads/{id}`, `/app`). Answered by nothing,
     /// or the launch's own failure text.
     open_desktop => OpenDesktop { thread: ThreadId } -> new Opened(Result<(), String>);

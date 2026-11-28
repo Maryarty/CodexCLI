@@ -1,0 +1,6 @@
+# Ported from codex-tui compaction_tests.rs:162: a turn runs; a compaction the server started 12s ago
+# (the oracle moves `started_at_ms` back by 12_000) is the status row's header with its elapsed time.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"agents","ev":{"clock":1000}}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"item/started","params":{"item":{"type":"contextCompaction","id":"compact-1"},"threadId":"thread-1","turnId":"turn-1","startedAtMs":988000}}}

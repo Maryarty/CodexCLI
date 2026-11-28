@@ -5,7 +5,7 @@
 //! drawn for a turn with no duration, no time and no metrics.
 
 use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDate, NaiveDateTime, TimeZone};
-use rtwk::layout::{EdgeInsets, Padding};
+use rtwk::layout::{BoxWidget, EdgeInsets, Padding};
 use rtwk::style::{Attrs, Style};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, LayoutBuilder};
@@ -38,10 +38,15 @@ pub fn completion(
     let label = label(timing, facts, strings)?;
     let row = move |width| {
         let left = if width >= INDENT_FROM { INDENT } else { 0 };
-        // The oracle's text is dim and default-coloured.
+        // The oracle's text is dim and default-coloured, its indent too: the box paints the DIM
+        // under the indent blanks, which a Padding leaves as they are.
+        let dim = Style::new().attrs(Attrs::DIM);
         Padding::new(
-            EdgeInsets::only(left, 1, 0, 0),
-            Text::new(label.clone()).style(Style::new().attrs(Attrs::DIM)),
+            EdgeInsets::only(0, 1, 0, 0),
+            BoxWidget::new()
+                .style(dim.clone())
+                .padding(EdgeInsets::only(left, 0, 0, 0))
+                .child(Text::new(label.clone()).style(dim)),
         )
         .into()
     };

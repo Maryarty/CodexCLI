@@ -27,6 +27,7 @@ use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Handler, State, StatefulWidget, impl_widget};
 use rtwk_core::presenter::CursorShape;
 
+use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::app::{ConnectionState, SessionSlice};
 use codex_tui_core::data::history::Lookup;
 use codex_tui_core::ids::BackendId;
@@ -962,8 +963,10 @@ impl State for ComposerState {
                 mentions::sync(w, &states, cx);
                 // a click or a key of the field ended the row's selection
                 let deselected = w.ui.draft.remote_deselect_on_move(&w.ui.composer);
-                let model = read::<ThreadModel, _>(cx).screen_slots().chat.model.clone();
-                let slash = popup::slash(&states, model.as_deref());
+                let thread = read::<ThreadModel, _>(cx);
+                let model = thread.screen_slots().chat.model.clone();
+                let daybreak = popup::Thread::of(&thread, &read::<TuiSettings, _>(cx));
+                let slash = popup::slash(&states, model.as_deref(), &daybreak);
                 return if self.refresh(w, &states.popovers, &slash, table) || deselected {
                     rtwk::Rebuild::Yes
                 } else {
@@ -1187,10 +1190,12 @@ impl State for ComposerState {
         }
         // the slice of the app's states the composer draws: what the popups list and the host
         // answered (the file, the clipboard's image), the slash popup's commands
-        let model = read::<ThreadModel, _>(cx).screen_slots().chat.model.clone();
+        let thread = read::<ThreadModel, _>(cx);
+        let model = thread.screen_slots().chat.model.clone();
+        let daybreak = popup::Thread::of(&thread, &read::<TuiSettings, _>(cx));
         let Drawn { popovers, slash } = select::<ScreenStates, Drawn, _>(cx, move |states| Drawn {
             popovers: Rc::new(states.popovers.clone()),
-            slash: popup::slash(states, model.as_deref()),
+            slash: popup::slash(states, model.as_deref(), &daybreak),
         });
         let table = strings::of(cx);
         if w.ui.draft.history_waiting() {

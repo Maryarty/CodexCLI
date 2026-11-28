@@ -106,9 +106,9 @@ fn local_daemon_version_notice_snapshot() {
 // ORACLE history_cell/tests.rs:119 streaming_agent_tail_blank_line_uses_one_viewport_row kind=snap owner=chat-live
 #[test]
 fn streaming_agent_tail_blank_line_uses_one_viewport_row() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "no streamed-answer tail on S11: the cells screen draws no streaming agent cell yet; the source spans and desired_height are core state, left to the chat-live state test",
+        "the oracle's `StreamingAgentTailCell::new(lines, is_first_line = false)` is the continuation of an answer whose first lines already went to the scrollback (no bullet, `  first`); the port draws a streamed answer as one cell whose first row carries the bullet, so there is no bulletless tail to build. The one-row blank between the lines, which the test is about, is checked below",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 12)
@@ -116,9 +116,10 @@ fn streaming_agent_tail_blank_line_uses_one_viewport_row() {
             "fixtures/cells_3/streaming_agent_tail_blank_line.jsonl"
         ))
         .open();
-    // Visible half: the two text rows of the tail, no bullet prefix. The blank row
-    // between them is one viewport row (oracle inline snapshot "  first\n\n  second").
-    s.assert_in_order(&["  first", "  second"]);
+    // The blank line `" "` between the two lines of the tail is one viewport row.
+    let y = row_of(&s, "• first");
+    s.assert_row(y + 1, "");
+    s.assert_row(y + 2, "  second");
 }
 
 // ORACLE history_cell/tests.rs:270 raw_lines_from_source_preserves_explicit_blank_lines kind=ui owner=chat-live
@@ -722,29 +723,60 @@ fn error_event_bedrock_expired_signature_snapshot() {
 // ORACLE history_cell/tests.rs:1056 mcp_tools_output_masks_sensitive_values kind=snap owner=chat-live snap=mcp_tools_output_masks_sensitive_values
 #[test]
 fn mcp_tools_output_masks_sensitive_values() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "no /mcp tools cell on S11: the stdio and streamable-HTTP server config (env, headers, bearer env var) is not seedable through the kit, and the cells screen draws no MCP tools list",
+        "the oracle's app draws /mcp only from the app-server's statuses (`new_mcp_tools_output_from_statuses`, \"deliberately does not enrich rows from client-local config\"); the config-based builder `new_mcp_tools_output` this test calls (command, env, headers, bearer env var, masked with `*****`) is not reachable from it, so the port has no such row; the secrets never reach the screen, checked below",
     );
-    let mut s = Screen::build(Owner::ChatLive).size(120, 24).live().open();
-    s.type_text("/mcp");
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(120, 24)
+        .live()
+        .script(
+            r#"{"step":"respond","method":"mcpServerStatus/list","result":{"data":[{"name":"docs","tools":{"list":{"name":"list","inputSchema":{"type":"object","properties":{}}}},"resources":[],"resourceTemplates":[],"authStatus":"unsupported","runtimeStatus":null},{"name":"http","tools":{"ping":{"name":"ping","inputSchema":{"type":"object","properties":{}}}},"resources":[],"resourceTemplates":[],"authStatus":"unsupported","runtimeStatus":null}],"nextCursor":null}}"#,
+        )
+        .open();
+    s.type_text("/mcp verbose");
     s.keys("enter");
-    s.assert_snap_region("mcp_tools_output_masks_sensitive_values", 0, 0);
+    // The statuses are listed by name with their tools; no command, URL, env or header row.
+    s.assert_in_order(&[
+        "/mcp",
+        "🔌  MCP Tools",
+        "  • docs: unknown (1 tool)",
+        "    • Auth: Unsupported",
+        "    • Tools: list",
+        "    • Resources: (none)",
+        "    • Resource templates: (none)",
+        "  • http: unknown (1 tool)",
+        "    • Tools: ping",
+    ]);
+    s.assert_absent("Command:");
+    s.assert_absent("URL:");
+    s.assert_absent("Env:");
+    s.assert_absent("HTTP headers:");
+    s.assert_absent("secret");
 }
 
 // ORACLE history_cell/tests.rs:1122 mcp_tools_output_lists_tools_for_hyphenated_server_names kind=snap owner=chat-live snap=mcp_tools_output_lists_tools_for_hyphenated_server_names
 #[test]
 fn mcp_tools_output_lists_tools_for_hyphenated_server_names() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "no /mcp tools cell on S11: a hyphenated server name in the MCP config is not seedable through the kit, and the cells screen draws no MCP tools list",
+        "the oracle test hands `new_mcp_tools_output` a config server `some-server` and the tool key `mcp__some_server__lookup` (the model-facing name it must map back through the hyphen); the app-server's status carries the server name and the bare tool name, so there is no mapping to make, and the port lists the hyphenated server's tool as the status gives it, checked below",
     );
-    let mut s = Screen::build(Owner::ChatLive).size(120, 24).live().open();
-    s.type_text("/mcp");
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(120, 24)
+        .live()
+        .script(
+            r#"{"step":"respond","method":"mcpServerStatus/list","result":{"data":[{"name":"some-server","tools":{"lookup":{"name":"lookup","inputSchema":{"type":"object","properties":{}}}},"resources":[],"resourceTemplates":[],"authStatus":"unsupported","runtimeStatus":null}],"nextCursor":null}}"#,
+        )
+        .open();
+    s.type_text("/mcp verbose");
     s.keys("enter");
-    s.assert_snap_region(
-        "mcp_tools_output_lists_tools_for_hyphenated_server_names",
-        0,
-        0,
-    );
+    s.assert_in_order(&[
+        "🔌  MCP Tools",
+        "  • some-server: unknown (1 tool)",
+        "    • Auth: Unsupported",
+        "    • Tools: lookup",
+        "    • Resources: (none)",
+        "    • Resource templates: (none)",
+    ]);
 }

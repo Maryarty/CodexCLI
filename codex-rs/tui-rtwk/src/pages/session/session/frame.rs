@@ -17,12 +17,14 @@ use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::chat;
 use codex_tui_core::screens::status::{Account, Figure};
 use codex_tui_core::threads::ThreadModel;
+use codex_tui_core::threads::daybreak::Row;
 use codex_tui_core::threads::hooks::RunningHook;
 
 use crate::app::theme::Tokens;
 use crate::l10n::strings::{self as l10n, Shared};
 use crate::pages::session::activity::Run;
 use crate::pages::session::live::provider_error;
+use crate::pages::session::popup;
 use crate::pages::session::slice::{self, Drawn};
 use crate::pages::session::status_surfaces::StatusContext;
 use crate::pages::session::strings::{self as chat_strings, Strings};
@@ -56,6 +58,8 @@ pub(super) struct Frame {
     pub cost: Option<Figure>,
     /// The plan of the account the server is signed in to.
     pub plan: Option<PlanType>,
+    /// What the `/daybreak` entry offers the thread (none: no entry), for the sparkle.
+    pub daybreak: Option<Row>,
 }
 
 impl Frame {
@@ -102,6 +106,7 @@ impl Frame {
                 Some(Account::ChatGpt { plan, .. }) => plan,
                 Some(Account::ApiKey) | None => None,
             });
+        let daybreak = popup::daybreak_row(cx, &thread);
         Frame {
             tokens,
             thread,
@@ -119,6 +124,7 @@ impl Frame {
             setting_up,
             cost,
             plan,
+            daybreak,
         }
     }
 
@@ -167,6 +173,8 @@ impl ChatState {
         );
         let mut command_flags = drawn.flags;
         command_flags.service_tier_commands_enabled = !tiers.is_empty();
+        command_flags.daybreak_command_description =
+            frame.daybreak.map(crate::features::daybreak_row);
         w.ui.sparkle.know(command_flags, tiers, self.draft_shell);
     }
 }

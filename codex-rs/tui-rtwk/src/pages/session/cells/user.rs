@@ -198,3 +198,49 @@ pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
     };
     below(place.separator && !place.joins_prompt, panel)
 }
+
+/// A spoken prompt (a voice caption of the user; oracle `UserMessagePresentation::Spoken`): the
+/// mark is the red bold of the voice controls and the text is plain, never Markdown. Its rows
+/// carry the surface only under their glyphs (the oracle resolves the line style onto the spans),
+/// and the blank rows above and below are unpainted. Speech transcripts can begin with
+/// whitespace; the mark already supplies its separator.
+///
+/// Flutter: a `Column` of a blank row, a `Row[mark, Expanded(Text)]` and a blank row; the mark and
+/// the text paint the surface themselves, not a `DecoratedBox` around the cell.
+pub fn spoken(text: &str, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
+    let text = text.trim().to_owned();
+    if text.is_empty() {
+        return SizedBox::shrink().into();
+    }
+    let surface = env.prompt_surface.clone();
+    let mark = match surface.bg {
+        Some(bg) => crate::app::theme::voice::recording().bg(bg),
+        None => crate::app::theme::voice::recording(),
+    };
+    let panel = Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(SizedBox::new(None, Some(1), None))
+        .child(
+            Row::new()
+                .cross_axis_alignment(CrossAxisAlignment::Start)
+                .overflow_intended(true)
+                .child(ExcludeSelection::new(SizedBox::new(
+                    Some(2),
+                    Some(1),
+                    Some(
+                        BoxWidget::new()
+                            .style(mark.clone())
+                            .child(Text::line(env.chat.prompt.trim_end()).style(mark))
+                            .into(),
+                    ),
+                )))
+                // one column of the text stays free (oracle: wrap width is width - 3)
+                .child(Expanded::new(
+                    1,
+                    Padding::new(EdgeInsets::only(0, 0, 1, 0), Text::new(text).style(surface)),
+                )),
+        )
+        .child(SizedBox::new(None, Some(1), None));
+    below(place.separator, panel.into())
+}

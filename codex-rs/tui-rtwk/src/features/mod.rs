@@ -334,6 +334,8 @@ pub(crate) use images::{
     watch_readiness as watch_artifact_readiness,
 };
 pub(crate) use pets::{PetIntent, PetPhase, PetVisit, is_pet_disable};
+pub(crate) use small_cmds::strings::row as daybreak_row;
+pub(crate) use spoken_links::link as link_spoken;
 
 /// The action of the security-setup reminder over the composer (its one row opens the page): the
 /// session page that draws the banner names no feature.

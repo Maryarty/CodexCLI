@@ -261,20 +261,10 @@ fn owned_bottom_pane_preserves_draft_cursor_and_read_only_notice() {
 // ORACLE chatwidget/rendering_tests.rs:130 owned_live_history_keeps_all_sources_in_each_presentation kind=snap owner=chat-live
 #[test]
 fn owned_live_history_keeps_all_sources_in_each_presentation() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "no active cell, realtime voice caption or rate-limit hint on the chat screen: the sources the test lists are not fed; the compact, raw and detailed presentations are not screen output",
+        "builds the chat's active cell, the realtime caption cell, the deferred cells and the rate-limit hint as test-only HistoryCell objects with their own compact, raw and detailed lines and reads the widget's line lists; the port keeps none of these sources as cell objects (a spoken caption is a transcript item, the hint a notice item) and its presentations are screens, not line lists",
     );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    // oracle: the inline frame keeps every source, in order, for either latest speaker.
-    s.assert_in_order(&[
-        "active",
-        "deferred first",
-        "deferred second",
-        "user caption",
-        "assistant caption",
-        "rate limit hint",
-    ]);
 }
 
 // ORACLE chatwidget/rendering_tests.rs:232 external_writer_view_shows_notice_instead_of_composer kind=snap owner=chat-live snap=external_writer_view_shows_notice_instead_of_composer
@@ -331,15 +321,13 @@ fn external_writer_notice_uses_current_transcript_shortcut() {
 // ORACLE chatwidget/rendering_tests.rs:311 active_transcript_preserves_clipped_markdown_hyperlinks kind=snap owner=chat-live
 #[test]
 fn active_transcript_preserves_clipped_markdown_hyperlinks() {
-    kit::pending(
-        Owner::ChatLive,
-        "no finished agent message with a markdown link in the transcript on the chat screen: the view draws the streamed answer only, not a completed cell with its OSC 8 link",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(44, 5).live().open();
+    // The oracle clips the active cell at the top of a short area. The port's chat is seven rows:
+    // the composer and its footer take the bottom, the cell's own top rows are scrolled out and
+    // the row above them is the last row of the cell.
+    let mut s = Screen::build(Owner::ChatLive).size(44, 7).live().open();
+    let text = "Earlier content\\n\\n[OSC8 label](https://example.com/)";
     s.feed(&turn_started("turn-1"));
-    s.feed(&item_completed(&agent_item(
-        "Earlier content\\n\\n[OSC8 label](https://example.com/)",
-    )));
+    s.feed(&item_completed(&agent_item(text)));
     // oracle: the clipped area holds the label and its URL, both as OSC 8 links.
     s.assert_has_row("  OSC8 label (https://example.com/)");
     s.assert_link("OSC8 label", "https://example.com/");
@@ -367,27 +355,19 @@ fn initial_session_header_starts_at_the_top_of_the_viewport() {
 // ORACLE chatwidget/rendering_tests.rs:410 active_cell_layout_reuses_heights_without_freezing_animation kind=ui owner=chat-live
 #[test]
 fn active_cell_layout_reuses_heights_without_freezing_animation() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "no counting active cell on the chat screen: a streamed cell whose frame advances on each render has no feed step, so the frame 1 and frame 2 rows are not drawn",
+        "feeds a test-only counting HistoryCell as the active cell and asserts how often its height and lines are asked for while its frame advances; the port has no active-cell object and no layout cache, a streamed answer is redrawn from its text",
     );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    // oracle: the first and the second render show frame 1 and frame 2 of the cell; the call counts are the cache's internals, not drawn.
-    s.assert_contains("frame 1 row 0");
-    s.wait(100);
-    s.assert_contains("frame 2 row 0");
 }
 
 // ORACLE chatwidget/rendering_tests.rs:433 active_cell_layout_preserves_custom_height_and_bottom_scroll kind=snap owner=chat-live snap=cached_active_cell_bottom_scroll
 #[test]
 fn active_cell_layout_preserves_custom_height_and_bottom_scroll() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "no custom-height active cell on the chat screen (three rows in a one-row layout) and no feed step that keeps it scrolled to the bottom",
+        "sets a test-only active cell whose height differs from its line count and reads the cached layout of a two-row viewport; the port has no active-cell object, custom cell height or layout cache",
     );
-    // oracle: the viewport is 80 by 2 rows; it shows the bottom two rows of the cell (frame 2 rows 1 and 2), not row 0.
-    let s = Screen::build(Owner::ChatLive).size(80, 2).live().open();
-    s.assert_snap("cached_active_cell_bottom_scroll");
 }
 
 // ORACLE chatwidget/rendering_tests.rs:466 active_cell_layout_invalidates_width_revision_mode_theme_and_identity kind=ui owner=chat-live
@@ -561,19 +541,37 @@ fn session_header_uses_catalog_display_name_without_changing_model() {
 // ORACLE chatwidget/tests/app_server.rs:108 session_and_settings_sync_server_provider_id kind=snap owner=chat-live snap=daybreak_hidden_after_provider_settings_change
 #[test]
 fn session_and_settings_sync_server_provider_id() {
-    kit::pending(
-        Owner::ChatLive,
-        "no status line, daybreak popup or thread-settings update on the chat screen: the provider in the status line and the daybreak entry are not drawn",
-    );
+    // (the oracle's frame is the bottom pane alone: the chat's top padding row stands above it)
     let (w, h) = oracle_size("daybreak_hidden_after_provider_settings_change", 80);
-    let mut s = Screen::build(Owner::ChatLive).size(w, h).live().open();
+    // an eligible account whose `openai` provider supports the programs, the status line on its
+    // profile and provider items (the oracle's `status_line` setting)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(w, h + 1)
+        .live()
+        .daybreak(&[])
+        .open();
+    // (the host's facts name the config's provider: a thread without a provider of its own runs on it)
+    s.feed(
+        r#"{"step":"screen","dir":"chat","ev":{"status":{"items":["profile","provider"],"provider":"openai"}}}"#,
+    );
     s.type_text("/daybreak");
     s.assert_contains("broader access");
-    s.feed(&thread_settings_updated("gpt-5.4", "server-updated"));
-    // oracle: the status line shows the new provider; the daybreak entry is hidden for it.
-    s.assert_contains("profile: work · provider: server-updated");
+    // the config gains the profile layer, then the server moves the thread to another provider
+    s.feed(
+        r#"{"step":"screen","dir":"chat","ev":{"status":{"items":["profile","provider"],"provider":"openai","profile_name":"work"}}}"#,
+    );
+    // (the oracle's settings are in Plan mode: the footer's indicator)
+    let plan = |provider| {
+        thread_settings_updated("gpt-5.4", provider)
+            .replace(r#""mode":"default""#, r#""mode":"plan""#)
+    };
+    s.feed(&plan("server-updated"));
+    s.wait_for("profile: work · provider: server-updated");
     s.assert_absent("broader access");
-    s.assert_snap("daybreak_hidden_after_provider_settings_change");
+    s.assert_snap_region("daybreak_hidden_after_provider_settings_change", 1, 0);
+    // back on the provider that supports the programs, the entry is listed again
+    s.feed(&plan("openai"));
+    s.assert_contains("broader access");
 }
 
 const RETRY_INPUT: &str = "Summarize this public example.";
@@ -1252,10 +1250,6 @@ fn live_app_server_command_execution_strips_shell_wrapper() {
 // ORACLE chatwidget/tests/app_server.rs:1415 live_app_server_command_output_delta_transcript_snapshot kind=snap owner=chat-live snap=live_app_server_command_output_delta_active snap=live_app_server_command_output_delta_interrupted snap=live_app_server_command_output_delta_transcript
 #[test]
 fn live_app_server_command_output_delta_transcript_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no command cell with streamed output on the chat screen: the chat model keeps only user and agent message items, and the transcript view has no key in the port yet",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.feed(&item_started(&exec_item(
@@ -1273,11 +1267,27 @@ fn live_app_server_command_output_delta_transcript_snapshot() {
         r#"{"threadId":"thread-1","turnId":"turn-1","itemId":"cmd-1","delta":"stderr\n"}"#,
     ));
     // oracle: the active command shows both output lines.
-    s.assert_snap_region("live_app_server_command_output_delta_active", 0, 0);
-    // The transcript view of the same command (live_app_server_command_output_delta_transcript) has no key or step in the port yet.
+    s.assert_snap_region(
+        "live_app_server_command_output_delta_active",
+        row_of(&s, "• Running"),
+        0,
+    );
+    // oracle: the transcript view of the same command is the shell line and the whole output.
+    s.keys("ctrl+t");
+    s.assert_snap_region(
+        "live_app_server_command_output_delta_transcript",
+        row_of(&s, "$ printf"),
+        0,
+    );
+    s.keys("esc");
     s.feed(&turn_completed("turn-1", "interrupted", "[]"));
-    // oracle: the interrupted command in history, its duration shown as <duration>; the kit does not normalise durations yet.
-    s.assert_snap_region("live_app_server_command_output_delta_interrupted", 0, 0);
+    // oracle: the interrupted command in history, its duration shown as <duration>.
+    s.keys("ctrl+t");
+    s.assert_snap_region(
+        "live_app_server_command_output_delta_interrupted",
+        row_of(&s, "$ printf"),
+        0,
+    );
 }
 
 // ORACLE chatwidget/tests/app_server.rs:1466 live_app_server_sub_agent_activity_renders_once kind=snap owner=chat-live snap=app_server_sub_agent_activity_renders_once
@@ -1698,16 +1708,21 @@ fn named_thread_snapshot(id: &str) -> serde_json::Value {
 // ORACLE chatwidget/tests/app_server.rs:2268 thread_name_suggestion_requires_matching_thread_and_request kind=ui owner=chat-live
 #[test]
 fn thread_name_suggestion_requires_matching_thread_and_request() {
-    kit::pending(
-        Owner::ChatLive,
-        "no thread-rename prompt on the chat screen: a rename with a pending name suggestion has no key or feed step, so its loading and suggested rows are not drawn",
-    );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    // oracle: the rename prompt shows Loading until the suggestion for its own thread and request arrives; the others are ignored.
-    s.assert_contains("Loading");
+    // The oracle opens a prompt with a test-only request id and feeds suggestions of another
+    // thread and another request. In the port a suggestion is the answer to the prompt's own
+    // structured turn, so a foreign one cannot arrive: the prompt waits for its answer.
+    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    s.feed(&item_completed(&user_item(
+        r#"[{"type":"text","text":"fix the login timeout","text_elements":[]}]"#,
+    )));
+    s.feed(&item_completed(&agent_item("I raised the timeout.")));
+    s.type_text("/rename").keys("enter");
+    // oracle: the rename prompt shows its loading text until the suggestion arrives.
+    s.assert_contains("Generating a title suggestion");
     s.assert_absent("Wrong");
-    // The matching suggestion (no feed step yet) fills the prompt with its title.
-    s.assert_contains("Ready");
+    // oracle: the matching suggestion fills the prompt with its title and the ready text.
+    s.answer_title(Some("Suggested title"));
+    s.assert_contains("Suggested from this conversation");
     s.assert_contains("Suggested title");
 }
 

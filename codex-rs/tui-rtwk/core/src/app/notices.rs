@@ -173,5 +173,11 @@ pub(super) fn daybreak_of(app: &CodexApp, thread: &ThreadId) -> Daybreak {
         .get(thread)
         .and_then(|model| crate::features::daybreak_of(model.view()))
         .unwrap_or(false);
-    app.daybreak.notice(model, enabled)
+    let provider = slot.and_then(|chat| chat.provider.as_deref()).or(app
+        .screens
+        .chat
+        .status
+        .provider
+        .as_deref());
+    app.screens.chat.access.notice(provider, model, enabled)
 }

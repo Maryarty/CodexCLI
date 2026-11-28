@@ -3,9 +3,6 @@
 
 use codex_tui_core::threads::{Item, voice_transcript::Role};
 use rtwk::AnyWidget;
-use rtwk::gestures::ExcludeSelection;
-use rtwk::layout::{CrossAxisAlignment, Expanded, Row, SizedBox};
-use rtwk::widgets::Text;
 
 use super::dispatch::{CellEnv, Place, below};
 use super::strings::Strings;
@@ -20,6 +17,12 @@ fn mark(role: Role, cells: &Strings, chat: &Chat) -> &'static str {
 }
 
 pub(super) fn texts(role: Role, text: &str, cells: &Strings, chat: &Chat) -> Texts {
+    // a spoken prompt begins after its mark: the whitespace a speech transcript can start with is
+    // not drawn (oracle `UserHistoryCell` Spoken)
+    let text = match role {
+        Role::User => text.trim_start(),
+        Role::Assistant => text,
+    };
     Texts::Exact(vec![
         Part::gutter(mark(role, cells, chat)),
         Part::text(text),
@@ -30,24 +33,20 @@ pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
     let Item::VoiceTranscript { role, text } = item else {
         return AnyWidget::default();
     };
-    let style = match role {
-        Role::User => env.tokens.accent_on(env.prompt_surface),
-        Role::Assistant => env.bullet_style.clone(),
-    };
+    if *role == Role::User {
+        return super::user::spoken(text, env, place);
+    }
     below(
         place.separator,
-        Row::new()
-            .cross_axis_alignment(CrossAxisAlignment::Start)
-            .child(ExcludeSelection::new(SizedBox::new(
-                Some(2),
-                None,
-                Some(
-                    Text::new(mark(*role, env.cells, env.chat))
-                        .style(style)
-                        .into(),
-                ),
-            )))
-            .child(Expanded::new(1, Text::new(text.clone())))
-            .into(),
+        super::spoken::message(
+            text,
+            env.cwd,
+            &super::agent::Look {
+                bullet: env.bullet,
+                bullet_style: env.bullet_style.clone(),
+                markdown: env.markdown,
+                cells: env.cells,
+            },
+        ),
     )
 }

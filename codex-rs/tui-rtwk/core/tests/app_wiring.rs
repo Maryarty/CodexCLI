@@ -1461,7 +1461,8 @@ mod notices {
 
     fn eligible(model: &str, standard: bool, daybreak: bool) -> Access {
         Access {
-            eligible: true,
+            account: true,
+            providers: vec!["openai".to_owned()],
             models: vec![ModelAccess {
                 model: model.to_owned(),
                 programs: Some(Programs { standard, daybreak }),
@@ -1489,6 +1490,7 @@ mod notices {
                 codex_tui_core::screens::chat::Ev::Status(Box::new(
                     codex_tui_core::screens::chat::StatusFacts {
                         model: Some("gpt-5.6".into()),
+                        provider: Some("openai".into()),
                         ..Default::default()
                     },
                 )),

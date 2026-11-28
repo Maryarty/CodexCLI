@@ -49,6 +49,65 @@ pub fn daybreak_of(thread: ThreadView<'_>) -> Option<bool> {
         .or(thread.slots().chat.daybreak)
 }
 
+/// What the `/daybreak` entry and its checks read of one thread (oracle `daybreak_enabled` and
+/// `config.model_provider_id`, which follows the thread's session and its settings updates).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Setting {
+    enabled: bool,
+    provider: Option<String>,
+}
+
+impl Setting {
+    /// The thread's `saved` choice counts while the feature allows it for the signed-in account
+    /// (`set_daybreak_enabled`); the provider is the one the thread runs on, else the config's.
+    pub fn new(
+        saved: Option<bool>,
+        provider: Option<String>,
+        screens: &crate::screens::ScreenStates,
+        tui: &crate::app::facts::TuiSettings,
+    ) -> Setting {
+        let api_key = matches!(
+            screens.status.account,
+            Some(crate::screens::status::Account::ApiKey)
+        );
+        Setting {
+            enabled: saved == Some(true) && tui.daybreak.allows(api_key),
+            provider: provider.or_else(|| screens.chat.status.provider.clone()),
+        }
+    }
+
+    pub fn of(
+        thread: ThreadView<'_>,
+        screens: &crate::screens::ScreenStates,
+        tui: &crate::app::facts::TuiSettings,
+    ) -> Setting {
+        Setting::new(
+            daybreak_of(thread),
+            thread.slots().chat.provider.clone(),
+            screens,
+            tui,
+        )
+    }
+
+    /// The thread's setting is on.
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    /// Oracle `daybreak_account_eligible`.
+    pub fn eligible(&self, access: &crate::threads::daybreak::Access) -> bool {
+        access.eligible(self.provider.as_deref())
+    }
+
+    /// Oracle `daybreak_command_description`.
+    pub fn row(
+        &self,
+        access: &crate::threads::daybreak::Access,
+    ) -> Option<crate::threads::daybreak::Row> {
+        access.row(self.enabled, self.provider.as_deref())
+    }
+}
+
 /// The setting at the thread's first successful resume in this application.
 pub fn resumed_with_daybreak(thread: ThreadView<'_>) -> bool {
     thread
@@ -210,24 +269,19 @@ pub enum Note {
 /// that advertises Daybreak; turned off needs nothing.
 fn daybreak(source: Option<ThreadId>, cx: &mut AppCx<'_>) {
     let view = cx.view();
-    // The command is listed only when the feature is on (`CliDaybreak`).
-    if view
-        .screens()
-        .chat
-        .flags
-        .daybreak_command_description
-        .is_none()
-    {
+    let facts = view.facts();
+    // The command does nothing when the feature is off (`CliDaybreak`).
+    if !facts.tui().daybreak.enabled {
         return;
     }
     let thread = source.filter(|id| view.thread(id).is_some());
-    let enabled = thread
-        .as_ref()
-        .and_then(|id| view.thread(id).and_then(daybreak_of))
-        .unwrap_or(false);
-    if !enabled {
-        let access = view.facts().access();
-        if !access.eligible {
+    let setting = match thread.as_ref().and_then(|id| view.thread(id)) {
+        Some(thread) => Setting::of(thread, view.screens(), facts.tui()),
+        None => Setting::new(None, None, view.screens(), facts.tui()),
+    };
+    if !setting.enabled() {
+        let access = facts.access();
+        if !setting.eligible(access) {
             return cx.note(None, Note::DaybreakNeedsProvider);
         }
         if !access.available() {
@@ -244,7 +298,7 @@ fn daybreak(source: Option<ThreadId>, cx: &mut AppCx<'_>) {
     let Some(thread) = thread else {
         return cx.note(None, Note::DaybreakNoThread);
     };
-    save_daybreak_choice(thread, !enabled, cx);
+    save_daybreak_choice(thread, !setting.enabled(), cx);
 }
 
 fn enable_daybreak_for_refusal(thread: ThreadId, turn: TurnId, cx: &mut AppCx<'_>) {
@@ -264,8 +318,13 @@ fn enable_daybreak_for_refusal(thread: ThreadId, turn: TurnId, cx: &mut AppCx<'_
         || chat.parent_owned
         || daybreak_of(current).unwrap_or(false)
         || current.core().safety().daybreak_refusal() != Some(&turn)
-        || view.facts().access().notice(chat.model.as_deref(), false)
-            != crate::screens::cells::Daybreak::Disabled
+        || view.facts().access().notice(
+            chat.provider
+                .as_deref()
+                .or(view.screens().chat.status.provider.as_deref()),
+            chat.model.as_deref(),
+            false,
+        ) != crate::screens::cells::Daybreak::Disabled
     {
         return;
     }

@@ -1,4 +1,4 @@
-# Ported from codex-tui completion_styling_tests.rs:72, the plain branch: a turn of 125s with no streamed tool output completes.
+# Ported from codex-tui completion_styling_tests.rs:72, the plain branch: a turn of 125s ends with its answer in the completed turn.
 {"step":"seed","seed":"session","thread":"thread-1"}
 {"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
-{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"summary","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":125000}}}}
+{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[{"type":"agentMessage","moderation":null,"id":"answer-1","text":"The change is ready.","phase":"final_answer","memoryCitation":null,"delivery":null,"questions":null,"startedAtMs":null,"completedAtMs":0}],"itemsView":"full","status":"completed","error":null,"startedAt":null,"completedAt":1700000000,"durationMs":125000}}}}

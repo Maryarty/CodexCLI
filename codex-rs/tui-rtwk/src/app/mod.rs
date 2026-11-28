@@ -15,6 +15,7 @@ use codex_tui_core::screens::chat::DesktopNotice;
 use rtwk::GlobalKey;
 use rtwk::app::AppCx;
 use rtwk::editing::TextSelection;
+use rtwk_core::style::ColorMode;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
@@ -58,6 +59,10 @@ pub struct UiState {
     pub start_resume: bool,
     /// The first thread waits for the host's startup checks and prompts.
     pub awaits_facts: bool,
+    /// The colours the terminal shows (`TerminalInfo::color_mode`), as the presenter lowers
+    /// every colour: the surface of a submitted prompt on a terminal that told no background
+    /// follows it (oracle `history_prompt_fallback`). True colour until the host says.
+    pub(super) color_mode: ColorMode,
     /// The host expects a regular local launch: show the draft during the startup checks.
     pub(super) provisional_draft: bool,
     /// The request presenter's model (ADR-002): the kept handle of the
@@ -110,6 +115,7 @@ impl UiApp {
                 start_agents: false,
                 start_resume: false,
                 awaits_facts: false,
+                color_mode: ColorMode::TrueColor,
                 provisional_draft: false,
                 presenter: Presenter::new(),
                 presenters: presenters::Presenters::default(),
@@ -191,6 +197,13 @@ impl UiApp {
     pub fn with_awaited_facts(mut self, on: bool) -> Self {
         self.ui.awaits_facts = on;
         self.with_synced_first_thread()
+    }
+
+    /// The terminal shows `mode`: the colours the views choose between by the terminal's depth
+    /// (`theme::Tokens::prompt_surface`).
+    pub fn with_color_mode(mut self, mode: ColorMode) -> Self {
+        self.ui.color_mode = mode;
+        self
     }
 
     /// Let a regular local launch edit a draft while the host checks whether a prompt is due.

@@ -5,6 +5,7 @@
 //! what is IO, and its answers are the notes of the thread in use. The words are the view's.
 
 use codex_tui_core::app::effects::{Ask, Done};
+use codex_tui_core::app::facts::{DaybreakConfig, TuiSettings};
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Ingress, Intent, apply_app};
 use codex_tui_core::commands::{SessionIntent, SlashCommand};
 use codex_tui_core::features::small_cmds::{
@@ -15,7 +16,7 @@ use codex_tui_core::features::{self, FeatureCommand, FeatureIntent, FeatureNote,
 use codex_tui_core::fixtures::script::build;
 use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
 use codex_tui_core::rpc::{Address, Reply};
-use codex_tui_core::screens::{ScreenIntent, chat};
+use codex_tui_core::screens::{ScreenEv, ScreenIntent, chat};
 use codex_tui_core::threads::daybreak::{Access, ModelAccess, Programs};
 use codex_tui_core::threads::{Item as Entry, Note, NoteKey};
 use pretty_assertions::assert_eq;
@@ -416,9 +417,10 @@ fn ide_read_from_an_old_visit_cannot_light_the_footer_after_returning() {
     assert!(notes(&app).is_empty());
 }
 
-fn access(eligible: bool, daybreak: bool) -> Access {
+fn access(account: bool, daybreak: bool) -> Access {
     Access {
-        eligible,
+        account,
+        providers: vec!["openai".to_owned()],
         models: vec![ModelAccess {
             model: "gpt-x".to_owned(),
             programs: Some(Programs {
@@ -438,22 +440,53 @@ fn daybreak(app: &mut CodexApp) -> AppFx {
     )
 }
 
+/// The app as the host leaves it for an account with `access`: the feature on and the config's
+/// provider named (the thread of the session has none of its own).
+fn daybreak_app(access: Access) -> CodexApp {
+    let mut app = app();
+    run(
+        &mut app,
+        AppEv::Tui(TuiSettings {
+            daybreak: DaybreakConfig {
+                enabled: true,
+                api_key: false,
+            },
+            ..TuiSettings::default()
+        }),
+    );
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Chat(chat::Ev::Status(Box::new(
+            chat::StatusFacts {
+                provider: Some("openai".to_owned()),
+                ..Default::default()
+            },
+        )))),
+    );
+    run(&mut app, AppEv::Daybreak(access));
+    app
+}
+
 #[test]
 fn daybreak_on_without_an_eligible_account_asks_nothing() {
-    let mut app = app();
-    run(&mut app, AppEv::Daybreak(access(false, false)));
+    let mut app = daybreak_app(access(false, false));
     assert!(sent(&daybreak(&mut app)).is_empty());
+    assert_eq!(notes(&app), vec![SmallNote::DaybreakNeedsProvider]);
+}
+
+#[test]
+fn daybreak_with_the_feature_off_does_nothing() {
+    let mut app = app();
+    run(&mut app, AppEv::Daybreak(access(true, true)));
+    assert!(sent(&daybreak(&mut app)).is_empty());
+    assert!(notes(&app).is_empty());
 }
 
 #[test]
 fn daybreak_saves_the_threads_metadata_then_the_default() {
-    let mut app = app();
-    run(&mut app, AppEv::Daybreak(access(true, true)));
+    let mut app = daybreak_app(access(true, true));
     let fx = daybreak(&mut app);
-    // the command is listed only when the feature is on: a fixture without it asks nothing
-    let Some(save) = sent(&fx).into_iter().next() else {
-        return;
-    };
+    let save = one(&fx);
     assert_eq!(save.1, Wanted::SetDaybreak(true));
     let fx = answer(&mut app, &save, serde_json::json!({}));
     let default = one(&fx);

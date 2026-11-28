@@ -4,8 +4,19 @@
 //! wording is the oracle's English until the catalog has these entries.
 
 use codex_tui_core::features::small_cmds::{DaybreakFailure, DefaultFailure, Note};
+use codex_tui_core::threads::daybreak::Row;
 
 const DAYBREAK_NOT_AVAILABLE: &str = "Daybreak is not available for this account. Apply at https://openai.com/form/enterprise-trusted-access-for-cyber/. Learn more at https://help.openai.com/en/articles/20001326.";
+
+/// What the `/daybreak` entry of the command popup says (oracle `daybreak_command_description`).
+pub fn row(row: Row) -> &'static str {
+    match row {
+        Row::Disable => "Disable broader access for cybersecurity work",
+        Row::Enable => "Enable broader access for cybersecurity work",
+        Row::Learn => "Learn about broader access for cybersecurity work",
+        Row::Manage => "Manage broader access for cybersecurity work",
+    }
+}
 
 /// The words of one of the feature's notes.
 pub fn note(note: &Note) -> String {

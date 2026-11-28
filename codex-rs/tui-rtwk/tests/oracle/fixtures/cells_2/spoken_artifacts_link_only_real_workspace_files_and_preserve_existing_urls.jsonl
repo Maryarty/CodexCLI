@@ -1,4 +1,0 @@
-# Oracle data of codex-tui history_cell/messages_tests.rs:345 (the workspace file is a tempdir the kit cannot create) (rust-v0.170.0), as wire steps; the oracle's test data, not the view's.
-{"step":"seed","seed":"session","thread":"thread-1"}
-{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
-{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[{"type":"agentMessage","moderation":null,"id":"msg-1","text":"中 src/lib.rs:42 and https://example.com","phase":"final_answer","memoryCitation":null,"delivery":null,"questions":null,"startedAtMs":null,"completedAtMs":null}],"itemsView":"summary","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":1000}}}}

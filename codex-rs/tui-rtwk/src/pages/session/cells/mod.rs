@@ -27,6 +27,7 @@ pub mod request_input;
 pub mod safety;
 pub mod separator;
 pub mod session_info;
+pub mod spoken;
 pub mod strings;
 pub mod text;
 pub mod tool_call;

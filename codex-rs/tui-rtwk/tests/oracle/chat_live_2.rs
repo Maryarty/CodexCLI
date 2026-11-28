@@ -461,39 +461,50 @@ fn compaction_history_does_not_start_a_timer_or_finish_live_compaction() {
 // ORACLE chatwidget/tests/compaction_tests.rs:162 compaction_snapshot_restores_elapsed_time_and_clears_on_replayed_completion kind=ui owner=chat-live
 #[test]
 fn compaction_snapshot_restores_elapsed_time_and_clears_on_replayed_completion() {
-    kit::pending(
-        Owner::ChatLive,
-        "no replay path in the script (a thread snapshot) and no elapsed time for a compaction started 12s before; the header and the `Context compacted` cell are not built",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.feed(include_str!(
-        "fixtures/chat_live_2/compaction_running.jsonl"
-    ));
-    s.assert_contains("Compacting context");
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/chat_live_2/compaction_snapshot.jsonl"
+        ))
+        .open();
+    // oracle: the header says Compacting context and the elapsed time counts from the server's
+    // start, 12 seconds before.
+    s.assert_contains("Compacting context (12s");
     s.feed(include_str!(
         "fixtures/chat_live_2/compaction_completed.jsonl"
     ));
+    // oracle: the completion clears the compaction, the header is Working again and the history
+    // holds the Context compacted cell.
     s.assert_absent("Compacting context");
     s.assert_contains("Working");
-    s.assert_contains("Context compacted");
+    s.assert_text_count("Context compacted", 1);
 }
 
 // ---- oracle: chatwidget/tests/completion_styling_tests.rs (2 screen-level tests here; 4 state tests left to chat-live)
 // ORACLE chatwidget/tests/completion_styling_tests.rs:72 completion_follows_plain_and_streamed_tool_answers kind=snap owner=chat-live snap=completion_after_plain_answer snap=completion_after_streamed_tool_answer
 #[test]
 fn completion_follows_plain_and_streamed_tool_answers() {
-    kit::pending(
-        Owner::ChatLive,
-        "no script step for the completed turn's final separator (`Worked for` duration, completion time) nor for a streamed command execution before the answer; the plain answer is expressible",
-    );
-    let s = Screen::build(Owner::ChatLive)
+    // The history rows of the turn: its answer (and the command before it) and the separator.
+    let plain = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!("fixtures/chat_live_2/completion_plain.jsonl"))
         .open();
-    s.assert_snap("completion_after_plain_answer");
-    // The oracle's streamed branch adds an echo command with its output and the answer
-    // `The change is ready.`, then completes the turn with the same separator.
-    s.assert_snap("completion_after_streamed_tool_answer");
+    plain.assert_snap_region(
+        "completion_after_plain_answer",
+        row_of(&plain, "• The change is ready."),
+        0,
+    );
+    let streamed = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/chat_live_2/completion_streamed.jsonl"
+        ))
+        .open();
+    streamed.assert_snap_region(
+        "completion_after_streamed_tool_answer",
+        row_of(&streamed, "• Ran echo ready"),
+        0,
+    );
 }
 
 // ORACLE chatwidget/tests/completion_styling_tests.rs:255 completion_snapshot_normalization_preserves_clock_only_message_lines kind=snap owner=chat-live snap=completion_like_transcript_text
@@ -509,12 +520,28 @@ fn completion_snapshot_normalization_preserves_clock_only_message_lines() {
 // ORACLE chatwidget/tests/config_errors_tests.rs:4 chained_config_error_wraps_in_history_snapshot kind=snap owner=chat-live snap=chained_config_error_wraps_in_history_snapshot
 #[test]
 fn chained_config_error_wraps_in_history_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no script step for a UI error message (a failed save of the default model, `config/batchWrite failed`) in the history; the error cell is not built",
+    // The oracle adds the error cell itself; here the server refuses the write of the default
+    // model with the chained message and the app words it as the save failure.
+    let mut s = Screen::build(Owner::ChatLive).size(56, 24).live().open();
+    let catalog = include_str!("fixtures/chat_commands_2/speed_catalog.json").trim();
+    s.feed(&format!(
+        r#"{{"step":"respond","method":"model/list","result":{catalog}}}
+{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"gpt-5.2"}}}}}}"#
+    ));
+    s.server_answers("thread/settings/update", serde_json::json!({}));
+    s.server_refuses(
+        "config/batchWrite",
+        None,
+        "config/batchWrite failed in TUI: Invalid configuration: features.fast_mode=true is not supported; allowed set [fast_mode=false]",
     );
-    let s = Screen::build(Owner::ChatLive).size(56, 8).live().open();
-    s.assert_snap("chained_config_error_wraps_in_history_snapshot");
+    s.type_text("/model").keys("enter");
+    s.keys("enter").keys("enter");
+    // oracle: the error wraps at 56 columns under its marker.
+    s.assert_snap_region(
+        "chained_config_error_wraps_in_history_snapshot",
+        row_of(&s, "■ Failed to save default model"),
+        0,
+    );
 }
 
 // ---- oracle: chatwidget/tests/goal_validation.rs (2 screen-level tests here; 4 state tests left to chat-live)
@@ -1541,14 +1568,15 @@ fn replayed_in_progress_turn_marks_task_running() {
 // ORACLE chatwidget/tests/list_spacing_tests.rs:9 list_spacing_streams_compact_then_reflows_on_completion_or_interruption kind=snap owner=chat-live
 #[test]
 fn list_spacing_streams_compact_then_reflows_on_completion_or_interruption() {
+    // The oracle streams a four-item numbered list at 26 or 28 cells (Plan mode: a proposed
+    // plan), interrupted or completed, in owned and retained transcript modes; the snapshot
+    // holds every stage. Its `Completed` stage separates the items by a blank row where one
+    // wraps and the `Wide` stage (100 cells) keeps them compact: the list spacing the source
+    // is laid out with at the width, which the port's Markdown cannot draw.
     kit::pending(
         Owner::ChatLive,
-        "no seed for the transcript mode (fullscreen transcript, alternate screen) or the Plan collaboration mode, and no streamed numbered list; the joined snapshot (12 stages, labelled `owned=.., plan=..`) has no section form in the kit (kit gap)",
+        "G73: item 2, the oracle reflows a completed list at the width of the cell, blank rows between the items of a list that wraps (chatwidget list_spacing_tests, markdown_render.rs:1084) and compact when none does; rtwk's MarkdownView has no list spacing option (a list is tight or loose by its source), and the kit has no section form for the 12 joined stages",
     );
-    // The oracle streams a four-item numbered list at 26 or 28 cells, interrupted or completed,
-    // in owned and retained transcript modes; the snapshot holds every stage.
-    let s = Screen::build(Owner::ChatLive).size(28, 24).live().open();
-    s.assert_contains("1. One");
 }
 
 // ---- oracle: chatwidget/tests/luna_reserve_usage_tests.rs (4 screen-level tests here; 0 state tests left to chat-live)

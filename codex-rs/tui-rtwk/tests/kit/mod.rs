@@ -43,6 +43,7 @@ mod tail;
 mod usage;
 mod verdict;
 mod view;
+mod workspace;
 mod worktrees;
 
 #[allow(unused_imports)]
@@ -76,6 +77,8 @@ pub use labels::{normalize as normalize_rows, normalize_key_names, normalize_lab
 pub use replies::{Page, agent_turn, turns_of};
 #[allow(unused_imports)]
 pub use verdict::{Owner, delta, delta_hits, missing, na, pending, todo};
+#[allow(unused_imports)]
+pub use workspace::{Workspace, workspace};
 #[allow(unused_imports)]
 pub use worktrees::{Checkout, Held};
 

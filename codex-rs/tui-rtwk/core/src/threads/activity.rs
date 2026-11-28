@@ -20,6 +20,9 @@ pub struct ToolActivity {
     pub output: Option<String>,
     retained_output: Option<Arc<RetainedOutput>>,
     output_lines: Option<OutputLines>,
+    /// The app's clock (epoch milliseconds) when a shell command was seen to start: what an
+    /// interrupted command's duration counts from (oracle `ExecCall::start_time`).
+    pub started_ms: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -67,6 +70,7 @@ impl ToolActivity {
             output,
             retained_output,
             output_lines,
+            started_ms: None,
         }
     }
 

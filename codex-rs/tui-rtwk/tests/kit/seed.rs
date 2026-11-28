@@ -361,11 +361,16 @@ impl Open {
         let launch = self.launch.clone();
         let first_login = self.first_login;
         let clock = self.clock;
+        let color_mode = self.env.color_mode();
         let h = crate::common::start_driven_mode(
             debug,
             self.env.options(self.width, self.height),
             self.quittable,
             move |app| {
+                let app = match color_mode {
+                    Some(mode) => app.with_color_mode(mode),
+                    None => app,
+                };
                 let app = match launch {
                     Some(start) => app.with_start_session(start),
                     None => app,

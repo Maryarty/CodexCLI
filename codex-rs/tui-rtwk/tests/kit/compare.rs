@@ -159,6 +159,17 @@ fn assert_frame_rows(
         format!("{} / {}", want.name, want.frame)
     };
     let (row0, col0) = at.unwrap_or((0, 0));
+    // The oracle's tests replace a measured duration with `<duration>` or `[duration]` and the
+    // moment of a completion with `[completion time]`: a row of ours that holds one in the same
+    // place reads as that placeholder.
+    for (offset, row) in frame.rows.iter_mut().enumerate() {
+        if PLACEHOLDERS.iter().any(|p| row.contains(p)) {
+            let ours = grid.row(row0 + offset, col0, grid.width, false);
+            if fills(row, ours.trim_end()) {
+                *row = ours.trim_end().to_string();
+            }
+        }
+    }
     // A locator that found no row (`position(..)` unwrapped to MAX) is a wrong region, not a diff.
     assert!(
         row0 <= grid.rows(false).len() && col0 <= usize::from(u16::MAX),
@@ -205,6 +216,71 @@ fn assert_frame_rows(
             );
         });
     }
+}
+
+/// What the oracle's snapshots write in place of a measured duration and of a moment.
+const PLACEHOLDERS: [&str; 3] = ["<duration>", "[duration]", "[completion time]"];
+
+/// The length of the duration `text` starts with, as the elapsed formatter words it: `<1s`,
+/// `250ms`, `1.50s`, `5s`, `2m 5s`, `1h 2m 3s`.
+fn duration_len(text: &str) -> Option<usize> {
+    let number = |at: usize| {
+        text[at..]
+            .bytes()
+            .take_while(u8::is_ascii_digit)
+            .count()
+            .checked_sub(1)
+            .map(|n| at + n + 1)
+    };
+    if text.starts_with("<1s") {
+        return Some(3);
+    }
+    let mut at = number(0)?;
+    if text[at..].starts_with("ms") {
+        return Some(at + 2);
+    }
+    if text[at..].starts_with('.') {
+        at = number(at + 1)?;
+        return text[at..].starts_with('s').then_some(at + 1);
+    }
+    if text[at..].starts_with('s') {
+        return Some(at + 1);
+    }
+    for unit in ["h ", "m "] {
+        if text[at..].starts_with(unit) {
+            at = number(at + 2)?;
+        }
+    }
+    text[at..].starts_with('s').then_some(at + 1)
+}
+
+/// Whether `ours` is the oracle's row with its placeholders replaced.
+fn fills(oracle: &str, ours: &str) -> bool {
+    let (mut oracle, mut ours) = (oracle, ours);
+    while let Some((at, placeholder)) = PLACEHOLDERS
+        .iter()
+        .filter_map(|p| oracle.find(p).map(|at| (at, *p)))
+        .min()
+    {
+        let Some(rest) = ours.strip_prefix(&oracle[..at]) else {
+            return false;
+        };
+        oracle = &oracle[at + placeholder.len()..];
+        let taken = if placeholder == "[completion time]" {
+            // up to what the oracle's row says next
+            match oracle {
+                "" => rest.len(),
+                _ => rest.find(oracle).unwrap_or(0),
+            }
+        } else {
+            duration_len(rest).unwrap_or(0)
+        };
+        if taken == 0 {
+            return false;
+        }
+        ours = &rest[taken..];
+    }
+    oracle == ours
 }
 
 /// The part of a full-area frame that a dialog as tall as its content shows: the

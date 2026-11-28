@@ -651,7 +651,7 @@ async fn run(
     // And what words a refused cybersecurity request: the account's access and the catalog.
     let cyber = crate::facts::CyberPolicy::of(&config);
     inflight.push(Box::pin(crate::facts::daybreak(
-        cyber,
+        cyber.clone(),
         ids.clone(),
         sender(handle.clone()),
     )));
@@ -979,7 +979,7 @@ async fn run(
             &mut inflight,
         );
         inflight.push(Box::pin(crate::facts::daybreak(
-            cyber,
+            cyber.clone(),
             ids.clone(),
             sender(handle.clone()),
         )));
@@ -1364,6 +1364,22 @@ fn local_workspace(environments: Option<&EnvironmentManager>) -> bool {
     })
 }
 
+/// The `paths` a spoken answer names that are files of the workspace `cwd`. The oracle checks the
+/// disk whatever the terminal is (`annotate_spoken_artifacts`): a session run over ssh still
+/// works in a directory this process reads. Only the workspace of a remote environment cannot be
+/// resolved here (none).
+fn workspace_file_answers(
+    environments: Option<&EnvironmentManager>,
+    cwd: &str,
+    paths: &[String],
+) -> Vec<codex_tui_core::app::effects::WorkspaceFile> {
+    if local_workspace(environments) {
+        codex_tui_rtwk::services::workspace_files::files(cwd, paths)
+    } else {
+        Vec::new()
+    }
+}
+
 impl HostDoors for ConnectionDoors {
     type Out = Outcome;
 
@@ -1391,6 +1407,11 @@ impl HostDoors for ConnectionDoors {
             Default::default()
         };
         Some(Outcome::Effect(Done::ImageSnapshot(snapshot), None))
+    }
+
+    async fn workspace_files(&self, cwd: String, paths: Vec<String>) -> Option<Outcome> {
+        let files = workspace_file_answers(self.artifact_environments.as_deref(), &cwd, &paths);
+        Some(Outcome::Effect(Done::WorkspaceFiles(files), None))
     }
 
     async fn startup(&self, ask: codex_tui_core::screens::onboarding::Ask) -> Option<Outcome> {
@@ -1748,6 +1769,29 @@ pub(crate) async fn resolve(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn spoken_paths_of_a_local_workspace_are_answered_and_a_missing_workspace_has_none()
+    -> anyhow::Result<()> {
+        use std::io::Write as _;
+
+        let dir = tempfile::tempdir()?;
+        std::fs::create_dir_all(dir.path().join("src"))?;
+        std::fs::File::create(dir.path().join("src/lib.rs"))?.write_all(b"fn example() {}\n")?;
+        let cwd = dir.path().to_string_lossy().into_owned();
+        let paths = ["src/lib.rs".to_owned(), "src/missing.rs".to_owned()];
+        let local = EnvironmentManager::default_for_tests();
+        let files = workspace_file_answers(Some(&local), &cwd, &paths);
+        assert_eq!(
+            files
+                .iter()
+                .map(|file| file.path.as_str())
+                .collect::<Vec<_>>(),
+            ["src/lib.rs"]
+        );
+        assert!(workspace_file_answers(None, &cwd, &paths).is_empty());
+        Ok(())
+    }
 
     #[tokio::test]
     async fn attached_preparation_ack_requires_both_items_in_its_own_rollout() -> anyhow::Result<()>
