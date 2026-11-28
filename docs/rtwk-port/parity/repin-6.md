@@ -18,19 +18,14 @@ crates `rtwk-math` and the mermaid ones are optional features of `rtwk-rich`, of
    - `widgets/markdown/inlines.rs` `block` and `plain`, `pages/session/transcript/markdown_text.rs`
      `block` and `push`: a wildcard arm (kept as is / not modelled / no text); the app turns
      none of those extensions on, so no node reaches them. Committed.
-   - `pages/session/cells/citation.rs` `block` (:521) and `inline` (:618): the same two arms
-     (`other => other.clone()`). **NOT committed: the file is in the area of
-     `f-cells-exec-mcp` (a live claim), so this is a Need.** The patch, to apply once the
-     claim is free (or by that task, which owns the file):
-     `            // a block of an extension the app does not turn on (alerts)` /
-     `            other => other.clone(),` as the last arm of `fn block`, and
-     `            // footnote references and math belong to extensions the app does not turn on` /
-     `            other => other.clone(),` as the last arm of `fn inline`.
-   Nothing else breaks: with those two arms in a scratch checkout (not the branch),
+   - `pages/session/cells/citation.rs` `block` and `inline`: the same two arms
+     (`other => other.clone()`), committed once the claim of `f-cells-exec-mcp` on the file was
+     cleared (orch27); the area of this task was widened to that file.
+   Nothing else breaks: with those two arms on the branch,
    `check --all-targets` and `clippy --workspace --all-targets -D warnings` are clean.
    No workaround around rtwk was written (R15).
-3. Tests red from the new rtwk: none found in the scoped runs (scratch checkout with the
-   citation arms): `--test rules` 184 of 184; `--test screens --test pages` filtered to
+3. Tests red from the new rtwk: none found in the scoped runs (measured in a scratch checkout
+   before the citation arms were on the branch): `--test rules` 184 of 184; `--test screens --test pages` filtered to
    markdown, transcript, cells, composer, select, wrap, rtwk_g: 693 of 693; the lib tests of
    the same words 59 of 59; oracle shards `markdown_streaming_1..5`, `composer_1..4`,
    `composer_popups`, `textarea`, `pager`, `transcript_view_1..5`, `cells_1..5`, `guards`:
@@ -85,5 +80,5 @@ G62 need the port to turn the features on.
 
 ## State of the branch
 
-`codex/f-rtwk` tip builds only with the two `citation.rs` arms (Need above): the lib
-fails with E0004 at `cells/citation.rs:521` and `:618` until then.
+`codex/f-rtwk` tip builds and passes: `check`, strict `clippy --workspace --all-targets -D warnings`
+and `--test rules` (184 of 184) are green with the two `citation.rs` arms in.
