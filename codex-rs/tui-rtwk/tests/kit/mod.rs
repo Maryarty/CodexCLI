@@ -54,7 +54,7 @@ pub use compare::{
 #[allow(unused_imports)]
 pub use env::{ColorDepth, Install, REPLAYED, replay_turn};
 #[allow(unused_imports)]
-pub use expect::{Ask, Turn, assert_rows_are};
+pub use expect::{Ask, Turn, assert_rows_are, assert_snap_lines};
 #[allow(unused_imports)]
 pub use grid::{Grid, check_style, color_name, modifier_name};
 #[allow(unused_imports)]

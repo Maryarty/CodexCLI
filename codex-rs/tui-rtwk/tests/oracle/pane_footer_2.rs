@@ -34,10 +34,48 @@ fn usage_banner_in(
     description: &str,
     actions: serde_json::Value,
 ) -> Screen {
-    let mut s = Screen::build(Owner::UiPane)
+    let open = Screen::build(Owner::UiPane).size(size.0, size.1);
+    banner_on(
+        open.live().open(),
+        r#"{"account_usage":true}"#,
+        title,
+        presentation,
+        description,
+        actions,
+    )
+}
+
+/// The same banner on a fresh session thread with the agents navigation off, as the oracle's
+/// chat widget has it (the footer shows the context meter, not `← for agents`).
+fn usage_banner_on_session(
+    size: (u16, u16),
+    title: &str,
+    presentation: &str,
+    description: &str,
+    actions: serde_json::Value,
+) -> Screen {
+    let open = Screen::build(Owner::UiPane)
         .size(size.0, size.1)
-        .live()
-        .open();
+        .script(include_str!("fixtures/pane_footer_2/banner_session.jsonl"));
+    // the status facts come whole: the status line stays off with the usage flag
+    banner_on(
+        open.open(),
+        r#"{"items":[],"account_usage":true}"#,
+        title,
+        presentation,
+        description,
+        actions,
+    )
+}
+
+fn banner_on(
+    mut s: Screen,
+    status: &str,
+    title: &str,
+    presentation: &str,
+    description: &str,
+    actions: serde_json::Value,
+) -> Screen {
     s.server_answers(
         "account/rateLimits/read",
         serde_json::json!({
@@ -51,10 +89,10 @@ fn usage_banner_in(
             },
         }),
     );
-    s.feed(
-        r#"{"step":"screen","dir":"status","ev":{"kind":"account","account":{"chat_gpt":{"email":"user@example.com","plan":"plus"}}}}
-{"step":"screen","dir":"chat","ev":{"status":{"account_usage":true}}}"#,
-    );
+    s.feed(&format!(
+        r#"{{"step":"screen","dir":"status","ev":{{"kind":"account","account":{{"chat_gpt":{{"email":"user@example.com","plan":"plus"}}}}}}}}
+{{"step":"screen","dir":"chat","ev":{{"status":{status}}}}}"#
+    ));
     s.assert_contains(title);
     s
 }
@@ -129,15 +167,28 @@ fn effort_ignition_styles_are_safe_on_tiny_and_offset_areas() {
 // ORACLE bottom_pane/effort_ignition_tests.rs:325 effort_ignition_animation_gallery_snapshot kind=snap owner=ui-pane snap=effort_ignition_animation_gallery
 #[test]
 fn effort_ignition_animation_gallery_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "no effort ignition gallery: no entry chat/effort_ignition_gallery (44x3: three styles, MAX and ULTRA, seven times each); the oracle snapshot is a sequence of 42 frames, the kit compares one screen (gap)",
-    );
+    // The oracle prints each frame as a line: its label, then the three rows of the area and
+    // the plane of tinted cells. The entry draws the 42 frames one under the other.
     let s = Screen::build(Owner::UiPane)
-        .size(44, 3)
+        .size(44, 42 * 3)
+        .dark()
         .entry("chat", "effort_ignition_gallery")
         .open();
-    s.assert_snap("effort_ignition_animation_gallery");
+    let mut frames = Vec::new();
+    let mut block = 0;
+    for style in ["wave", "aurora", "pulse"] {
+        for tier in ["MAX", "ULTRA"] {
+            for millis in [0, 180, 420, 720, 1100, 1580, 2050] {
+                let rows = block * 3..block * 3 + 3;
+                block += 1;
+                frames.push(format!(
+                    "{style:8} {tier:5} {millis:4}ms │{}│",
+                    s.frame_with_tint(rows)
+                ));
+            }
+        }
+    }
+    kit::assert_snap_lines("effort_ignition_animation_gallery", &frames);
 }
 
 // ---- oracle: bottom_pane/effort_status_line_tests.rs (3 screen-level tests here; 5 state tests left to ui-pane)
@@ -175,15 +226,25 @@ fn links_follow_the_visible_text_through_the_effort_transition() {
 // ORACLE bottom_pane/effort_status_line_tests.rs:213 transition_frames_snapshot kind=snap owner=ui-pane snap=effort_status_line_transition_frames
 #[test]
 fn transition_frames_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "no effort status-line frames: no entry chat/effort_status_line_frames (32 columns, `gpt-5.4 high · main` to MAX and ULTRA at twelve times each); the oracle snapshot lists frames, the kit compares one screen (gap)",
-    );
+    // The oracle prints twelve frames per tier as lines; the entry draws them one per row.
     let s = Screen::build(Owner::UiPane)
-        .size(32, 1)
+        .size(32, 24)
         .entry("chat", "effort_status_line_frames")
         .open();
-    s.assert_snap("effort_status_line_transition_frames");
+    let rows = s.rows();
+    let mut frames = Vec::new();
+    for (tier, label) in ["MAX", "ULTRA"].into_iter().enumerate() {
+        for (at, millis) in [
+            0, 300, 520, 680, 820, 1050, 1320, 1550, 1800, 2020, 2250, 2500,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let row = rows.get(tier * 12 + at).map_or("", String::as_str);
+            frames.push(format!("{label:5} {millis:4}ms │{row:<32}│"));
+        }
+    }
+    kit::assert_snap_lines("effort_status_line_transition_frames", &frames);
 }
 
 // ---- oracle: bottom_pane/footer.rs (3 screen-level tests here; 1 state tests left to ui-pane)
@@ -346,12 +407,11 @@ fn flush_buffered_typing_in_background_and_covering_editors() {
 // ORACLE bottom_pane/mod.rs:2844 inline_banner_snapshot kind=snap owner=ui-pane snap=inline_banner_wrapped_and_truncated
 #[test]
 fn inline_banner_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "the oracle draws the bottom pane alone at its desired height (19 rows at 44): no gap row between the banner and the composer, `agents_navigation` off and a fresh `100% context left`. The live chat keeps the composer gap (`composer_gap`) so its banner has a row less (the hint's second row `· type to continue` is lost), its footer is `← for agents · ? for shortcuts` and a resumed thread has no meter. The banner's rows up to the hint's first row equal the snapshot (the hint now wraps at the width less its left indent)",
-    );
-    let s = usage_banner_in(
-        (44, 19),
+    // The oracle draws the bottom pane alone at its desired height (19 rows at 44); the chat
+    // keeps the reader's gap row between the banner and the composer, so it gets one row more
+    // and the rows compare blanks aside.
+    let s = usage_banner_on_session(
+        (44, 20),
         "Choose how to continue working",
         "dismissible",
         &"A long description wraps to fit the available terminal width.\n".repeat(8),
@@ -360,7 +420,7 @@ fn inline_banner_snapshot() {
             {"action":"notify_owner","label":"Notify owner"},
         ]),
     );
-    s.assert_snap("inline_banner_wrapped_and_truncated");
+    s.assert_snap_rows_blanks_aside("inline_banner_wrapped_and_truncated");
 }
 
 // ORACLE bottom_pane/mod.rs:2880 escape_closes_shortcut_help_before_inline_banner kind=ui owner=ui-pane
