@@ -105,6 +105,7 @@ impl ResponseResampling {
             | ResponseEvent::GuardianAssessment(_)
             | ResponseEvent::ServerReasoningIncluded(_)
             | ResponseEvent::RateLimits(_)
+            | ResponseEvent::RuntimeMetrics(_)
             | ResponseEvent::ModelsEtag(_) => {}
         }
         Some(event)

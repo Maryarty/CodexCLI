@@ -83,6 +83,7 @@ use codex_app_server_protocol::TurnItemsView;
 use codex_app_server_protocol::TurnModerationMetadataNotification;
 use codex_app_server_protocol::TurnPlanStep;
 use codex_app_server_protocol::TurnPlanUpdatedNotification;
+use codex_app_server_protocol::TurnRuntimeMetricsNotification;
 use codex_app_server_protocol::TurnStartedNotification;
 use codex_app_server_protocol::TurnStatus;
 use codex_app_server_protocol::WarningNotification;
@@ -187,6 +188,21 @@ pub(crate) async fn apply_bespoke_event_handling(
             };
             outgoing
                 .send_server_notification(ServerNotification::TurnStarted(notification))
+                .await;
+        }
+        EventMsg::TurnRuntimeMetrics(metrics) => {
+            let notification = TurnRuntimeMetricsNotification {
+                thread_id: conversation_id.to_string(),
+                turn_id: event_turn_id,
+                overhead_ms: metrics.overhead_ms,
+                inference_time_ms: metrics.inference_time_ms,
+                iapi_ttft_ms: metrics.iapi_ttft_ms,
+                service_ttft_ms: metrics.service_ttft_ms,
+                iapi_tbt_ms: metrics.iapi_tbt_ms,
+                service_tbt_ms: metrics.service_tbt_ms,
+            };
+            outgoing
+                .send_server_notification(ServerNotification::TurnRuntimeMetrics(notification))
                 .await;
         }
         EventMsg::TurnComplete(turn_complete_event) => {

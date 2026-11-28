@@ -1468,6 +1468,7 @@ impl SessionTelemetry {
             ResponseEvent::SafetyBuffering(_) => "safety_buffering".into(),
             ResponseEvent::ServerReasoningIncluded(_) => "server_reasoning_included".into(),
             ResponseEvent::RateLimits(_) => "rate_limits".into(),
+            ResponseEvent::RuntimeMetrics(_) => "runtime_metrics".into(),
             ResponseEvent::ModelsEtag(_) => "models_etag".into(),
         }
     }

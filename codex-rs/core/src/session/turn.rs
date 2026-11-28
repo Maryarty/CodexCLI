@@ -113,6 +113,7 @@ use codex_protocol::protocol::AgentMessageContentDeltaEvent;
 use codex_protocol::protocol::AgentReasoningSectionBreakEvent;
 use codex_protocol::protocol::CodexErrorInfo;
 use codex_protocol::protocol::ErrorEvent;
+use codex_protocol::protocol::Event;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::HookEventName;
 use codex_protocol::protocol::HookExecutionMode;
@@ -2496,6 +2497,7 @@ pub(super) fn realtime_text_for_event(msg: &EventMsg) -> Option<RealtimeEventTex
         | EventMsg::McpToolCallEnd(_)
         | EventMsg::ElicitationAbandoned(_)
         | EventMsg::NetworkApprovalResolved { .. }
+        | EventMsg::TurnRuntimeMetrics(_)
         | EventMsg::WebSearchBegin(_)
         | EventMsg::WebSearchEnd(_)
         | EventMsg::ExecCommandBegin(_)
@@ -3527,6 +3529,19 @@ async fn try_run_sampling_request(
                     .models_manager
                     .refresh_if_new_etag(etag, turn_context.config.http_client_factory())
                     .await;
+            }
+            ResponseEvent::RuntimeMetrics(metrics) => {
+                if turn_context
+                    .config
+                    .features
+                    .enabled(Feature::RuntimeMetrics)
+                {
+                    sess.deliver_event_raw(Event {
+                        id: turn_context.sub_id.clone(),
+                        msg: EventMsg::TurnRuntimeMetrics(metrics),
+                    })
+                    .await;
+                }
             }
             ResponseEvent::Completed {
                 response_id,

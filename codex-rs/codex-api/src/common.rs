@@ -8,6 +8,7 @@ use codex_protocol::protocol::ModelVerification;
 use codex_protocol::protocol::RateLimitSnapshot;
 use codex_protocol::protocol::TokenUsage;
 use codex_protocol::protocol::TurnModerationMetadataEvent;
+use codex_protocol::protocol::TurnRuntimeMetrics;
 use codex_protocol::protocol::W3cTraceContext;
 use codex_protocol::turn_input::CyberAccessProgram;
 use codex_protocol::turn_input::PromptCacheTtl;
@@ -27,6 +28,8 @@ use tokio::sync::oneshot;
 
 pub const WS_REQUEST_HEADER_TRACEPARENT_CLIENT_METADATA_KEY: &str = "ws_request_header_traceparent";
 pub const WS_REQUEST_HEADER_TRACESTATE_CLIENT_METADATA_KEY: &str = "ws_request_header_tracestate";
+pub const X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER: &str =
+    "x-responsesapi-include-timing-metrics";
 
 /// Explicit per-request access selection using the Responses API wire values.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -129,6 +132,7 @@ pub enum ResponseEvent {
     ModelVerifications(Vec<ModelVerification>),
     /// Emitted when the server includes moderation metadata for first-party turn presentation.
     TurnModerationMetadata(TurnModerationMetadataEvent),
+    RuntimeMetrics(TurnRuntimeMetrics),
     /// Action-bound Guardian evidence for request-scoped consumers, not model history.
     GuardianAssessment(crate::guardian_assessment::GuardianAssessment),
     /// Emitted when `X-Reasoning-Included: true` is present on the response,

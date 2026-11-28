@@ -1606,6 +1606,12 @@ pub enum EventMsg {
     #[serde(rename = "task_started", alias = "turn_started")]
     TurnStarted(TurnStartedEvent),
 
+    /// Live Responses WebSocket measurements carried only within the event channel.
+    #[serde(skip)]
+    #[schemars(skip)]
+    #[ts(skip)]
+    TurnRuntimeMetrics(TurnRuntimeMetrics),
+
     /// Persistent thread-settings overrides from the correlated submission have
     /// been applied to the session configuration.
     ThreadSettingsApplied(ThreadSettingsAppliedEvent),
@@ -2487,6 +2493,17 @@ pub struct TurnCompleteEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(type = "number | null", optional)]
     pub time_to_first_token_ms: Option<i64>,
+}
+
+/// A partial timing sample emitted by the upstream Responses WebSocket, in milliseconds.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct TurnRuntimeMetrics {
+    pub overhead_ms: Option<f64>,
+    pub inference_time_ms: Option<f64>,
+    pub iapi_ttft_ms: Option<f64>,
+    pub service_ttft_ms: Option<f64>,
+    pub iapi_tbt_ms: Option<f64>,
+    pub service_tbt_ms: Option<f64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]

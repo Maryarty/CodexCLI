@@ -8,6 +8,7 @@ use super::merge_request_headers;
 use crate::ApiError;
 use crate::RESPONSES_PATH;
 use crate::WebsocketTelemetry;
+use crate::X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER;
 use codex_websocket_client::WebSocketConnector;
 use http::HeaderMap;
 use std::sync::Arc;
@@ -36,6 +37,9 @@ impl ResponsesWebsocketClient {
             .map_err(|err| ApiError::Stream(format!("failed to build websocket URL: {err}")))?;
         let headers = merge_request_headers(&self.provider.headers, extra_headers, default_headers);
         let headers = self.auth.apply_auth_headers(headers).await?;
+        let include_timing_metrics = headers
+            .get(X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER)
+            .is_some_and(|value| value == "true");
         let (stream, _response, server_reasoning_included, server_model) =
             connect_websocket(ws_url, headers, connector, turn_state)
                 .await
@@ -45,6 +49,7 @@ impl ResponsesWebsocketClient {
             self.provider.stream_idle_timeout,
             server_reasoning_included,
             server_model,
+            include_timing_metrics,
             telemetry,
         ))
     }

@@ -22,6 +22,7 @@ use bytes::Bytes;
 use codex_client::TransportError;
 use codex_http_client::HttpClientFactory;
 use codex_http_client::RetryAfter;
+use codex_protocol::protocol::TurnRuntimeMetrics;
 use codex_websocket_client::WebSocketConnection;
 use codex_websocket_client::WebSocketConnector;
 use futures::FutureExt;
@@ -32,6 +33,7 @@ use http::StatusCode;
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::map::Map as JsonMap;
+use serde_json::value::RawValue;
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -231,6 +233,7 @@ struct ResponsesWebsocketTimingLogContext {
     previous_response_id: Option<String>,
     request_start_ms: Option<String>,
     warmup: bool,
+    include_timing_metrics: bool,
     connection_reused: bool,
 }
 
@@ -241,6 +244,7 @@ pub struct ResponsesWebsocketConnection {
     idle_timeout: Duration,
     server_reasoning_included: bool,
     server_model: Option<String>,
+    include_timing_metrics: bool,
     telemetry: Option<Arc<dyn WebsocketTelemetry>>,
 }
 
@@ -262,6 +266,7 @@ impl ResponsesWebsocketConnection {
         idle_timeout: Duration,
         server_reasoning_included: bool,
         server_model: Option<String>,
+        include_timing_metrics: bool,
         telemetry: Option<Arc<dyn WebsocketTelemetry>>,
     ) -> Self {
         let routing_affinity = stream.routing_affinity.take();
@@ -270,6 +275,7 @@ impl ResponsesWebsocketConnection {
             idle_timeout,
             server_reasoning_included,
             server_model,
+            include_timing_metrics,
             telemetry,
             routing_affinity,
         }
@@ -326,6 +332,7 @@ impl ResponsesWebsocketConnection {
                 .and_then(|metadata| metadata.get(WS_STREAM_REQUEST_START_MS_CLIENT_METADATA_KEY))
                 .cloned(),
             warmup: ws_request.generate == Some(false),
+            include_timing_metrics: self.include_timing_metrics,
             connection_reused,
         };
         let request_text = serialize_websocket_request(&request)?;
@@ -956,11 +963,20 @@ async fn run_websocket_response_stream(
                     }
                     continue;
                 }
-                emit_responses_websocket_timing_event(
-                    event.kind(),
-                    text.as_str(),
-                    timing_log_context,
-                );
+                if event.kind() == RESPONSES_WEBSOCKET_TIMING_KIND {
+                    emit_responses_websocket_timing_event(text.as_str(), timing_log_context);
+                    if timing_log_context.include_timing_metrics
+                        && !timing_log_context.warmup
+                        && interruption.is_none()
+                        && completion.is_none()
+                        && let Some(metrics) = parse_websocket_timing(text.as_str())
+                    {
+                        let _ = tx_event
+                            .send(Ok(ResponseEvent::RuntimeMetrics(metrics)))
+                            .await;
+                    }
+                    continue;
+                }
                 if event.kind() == "codex.response.metadata"
                     && let Some(etag) =
                         event
@@ -1060,15 +1076,35 @@ async fn run_websocket_response_stream(
     Ok(())
 }
 
+fn parse_websocket_timing(payload: &str) -> Option<TurnRuntimeMetrics> {
+    #[derive(Deserialize)]
+    struct TimingFrame<'a> {
+        #[serde(borrow)]
+        timing_metrics: std::collections::HashMap<String, &'a RawValue>,
+    }
+
+    let frame = serde_json::from_str::<TimingFrame<'_>>(payload).ok()?;
+    let ms = |name: &str| {
+        // Parse each raw number independently so a single invalid measurement does not
+        // discard a sibling, including when a number exceeds the finite float range.
+        let value = frame.timing_metrics.get(name)?.get().parse::<f64>().ok()?;
+        (value.is_finite() && value >= 0.0).then_some(value)
+    };
+    let sample = TurnRuntimeMetrics {
+        overhead_ms: ms("responses_duration_excl_engine_and_client_tool_time_ms"),
+        inference_time_ms: ms("engine_service_total_ms"),
+        iapi_ttft_ms: ms("engine_iapi_ttft_total_ms"),
+        service_ttft_ms: ms("engine_service_ttft_total_ms"),
+        iapi_tbt_ms: ms("engine_iapi_tbt_across_engine_calls_ms"),
+        service_tbt_ms: ms("engine_service_tbt_across_engine_calls_ms"),
+    };
+    (sample != TurnRuntimeMetrics::default()).then_some(sample)
+}
+
 fn emit_responses_websocket_timing_event(
-    kind: &str,
     payload: &str,
     context: &ResponsesWebsocketTimingLogContext,
 ) {
-    if kind != RESPONSES_WEBSOCKET_TIMING_KIND {
-        return;
-    }
-
     // This full payload is excluded from always-on sinks. Opt in with
     // `RUST_LOG='codex_api::responses_websocket_timing=trace'`.
     tracing::event!(
@@ -1157,6 +1193,37 @@ mod tests {
     use serde_json::value::to_raw_value;
     use std::collections::HashMap;
     use std::sync::Arc;
+
+    #[test]
+    fn websocket_timing_keeps_valid_siblings_and_rejects_empty_samples() {
+        let payload = r#"{
+            "type":"responsesapi.websocket_timing",
+            "timing_metrics":{
+                "responses_duration_excl_engine_and_client_tool_time_ms":0,
+                "engine_service_total_ms":-1,
+                "engine_iapi_ttft_total_ms":"12",
+                "engine_service_ttft_total_ms":1e309,
+                "engine_iapi_tbt_across_engine_calls_ms":2.5,
+                "engine_service_tbt_across_engine_calls_ms":null
+            }
+        }"#;
+        assert_eq!(
+            parse_websocket_timing(payload),
+            Some(TurnRuntimeMetrics {
+                overhead_ms: Some(0.0),
+                iapi_tbt_ms: Some(2.5),
+                ..TurnRuntimeMetrics::default()
+            }),
+        );
+        assert_eq!(
+            parse_websocket_timing(r#"{"timing_metrics":{"engine_service_total_ms":-1}}"#),
+            None
+        );
+        assert_eq!(
+            parse_websocket_timing(r#"{"timing_metrics":{"unrelated":42}}"#),
+            None
+        );
+    }
 
     #[test]
     fn direct_serialization_preserves_websocket_request_payload() {
