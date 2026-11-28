@@ -117,6 +117,7 @@ fn server_notification_requires_delivery(notification: &ServerNotification) -> b
         ServerNotification::ProcessOutputDelta(_)
             | ServerNotification::ProcessExited(_)
             | ServerNotification::TurnCompleted(_)
+            | ServerNotification::TurnRuntimeMetrics(_)
             | ServerNotification::ThreadQueueChanged(_)
             | ServerNotification::ThreadSettingsUpdated(_)
             | ServerNotification::ThreadAttachmentUpdated(_)
@@ -914,6 +915,7 @@ mod tests {
     use codex_app_server_protocol::Turn;
     use codex_app_server_protocol::TurnCompletedNotification;
     use codex_app_server_protocol::TurnItemsView;
+    use codex_app_server_protocol::TurnRuntimeMetricsNotification;
     use codex_app_server_protocol::TurnStatus;
     use codex_core::config::ConfigBuilder;
     use futures::FutureExt;
@@ -1172,6 +1174,18 @@ mod tests {
                     completed_at: Some(0),
                     duration_ms: None,
                 },
+            })
+        ));
+        assert!(server_notification_requires_delivery(
+            &ServerNotification::TurnRuntimeMetrics(TurnRuntimeMetricsNotification {
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                overhead_ms: None,
+                inference_time_ms: None,
+                iapi_ttft_ms: Some(12.0),
+                service_ttft_ms: None,
+                iapi_tbt_ms: None,
+                service_tbt_ms: None,
             })
         ));
         assert!(server_notification_requires_delivery(

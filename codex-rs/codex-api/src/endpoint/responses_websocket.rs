@@ -965,8 +965,11 @@ async fn run_websocket_response_stream(
                 }
                 if event.kind() == RESPONSES_WEBSOCKET_TIMING_KIND {
                     emit_responses_websocket_timing_event(text.as_str(), timing_log_context);
+                    // A reused socket can still carry frames from its previous response.
+                    // Only the current response's creation opens its timing window.
                     if timing_log_context.include_timing_metrics
                         && !timing_log_context.warmup
+                        && response_id.is_some()
                         && interruption.is_none()
                         && completion.is_none()
                         && let Some(metrics) = parse_websocket_timing(text.as_str())

@@ -141,6 +141,7 @@ mod review;
 #[path = "rollout_compress_tests.rs"]
 mod rollout_compress;
 mod rollout_migration;
+mod runtime_metrics;
 mod safety_check_downgrade;
 #[cfg(not(target_os = "windows"))]
 mod selected_capability_stack;
