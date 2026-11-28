@@ -20,6 +20,7 @@
 mod inlines;
 pub(crate) mod math;
 
+use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
@@ -129,14 +130,46 @@ enum Content {
     Source(String),
 }
 
+/// What a build of a [`Markdown`] over source text parsed: the same text under the same
+/// preference parses to the same view, so a rebuild of a mounted widget (its parent rebuilt, a
+/// theme or a link fact changed) takes it again instead of parsing a long prompt once more.
+struct TextParse {
+    text: String,
+    math: bool,
+    view: MarkdownView,
+}
+
 #[doc(hidden)]
-pub struct MarkdownState;
+#[derive(Default)]
+pub struct MarkdownState {
+    parsed: RefCell<Option<TextParse>>,
+}
+
+impl MarkdownState {
+    /// The view of `text` under the math preference `math`, parsed once for as long as both stay.
+    fn view_of(&self, text: &str, math: bool) -> MarkdownView {
+        let mut parsed = self.parsed.borrow_mut();
+        if let Some(last) = parsed.as_ref()
+            && last.math == math
+            && last.text == text
+        {
+            return last.view.clone();
+        }
+        let view = view(text, math);
+        *parsed = Some(TextParse {
+            text: text.to_string(),
+            math,
+            view: view.clone(),
+        });
+        view
+    }
+}
 
 impl StatefulWidget for Markdown {
     type State = MarkdownState;
 
     fn create_state(&self) -> MarkdownState {
-        MarkdownState
+        MarkdownState::default()
     }
 }
 
@@ -159,7 +192,7 @@ impl State for MarkdownState {
         let schemes = BTreeSet::from(["http".to_string(), "https".to_string()]);
         let parsed = match &widget.content {
             Content::View(parsed) => parsed.clone(),
-            Content::Source(text) => view(text, math_preference(cx)),
+            Content::Source(text) => self.view_of(text, math_preference(cx)),
         };
         let markdown = parsed
             .theme(widget.theme.clone())
@@ -221,7 +254,7 @@ mod tests {
     use rtwk::provider::Provider;
     use rtwk_rich::markdown::MarkdownTheme;
 
-    use super::{source, view};
+    use super::{MarkdownState, source, view};
 
     fn rows_of(widget: impl Into<rtwk::AnyWidget>) -> Vec<String> {
         let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(30, 12));
@@ -262,6 +295,68 @@ mod tests {
         );
         assert_eq!(rows_of(view("see $\\alpha$", true)), ["see α"]);
         assert_eq!(rows_of(view("see $\\alpha$", false)), ["see $\\alpha$"]);
+    }
+
+    /// A rebuild of a mounted widget takes the parse of the same text under the same preference
+    /// (the blocks are the same allocation); a new text or a new preference parses again.
+    #[test]
+    fn a_rebuild_takes_the_parse_of_the_same_text_and_a_change_parses_again() {
+        use std::rc::Rc;
+
+        let state = MarkdownState::default();
+        let blocks = |view: rtwk_rich::markdown::MarkdownView| view.blocks.expect("parsed blocks");
+        let first = blocks(state.view_of("see $\\alpha$", true));
+        let again = blocks(state.view_of("see $\\alpha$", true));
+        assert!(Rc::ptr_eq(&first, &again));
+        let other_text = blocks(state.view_of("see $\\beta$", true));
+        assert!(!Rc::ptr_eq(&first, &other_text));
+        let other_math = blocks(state.view_of("see $\\beta$", false));
+        assert!(!Rc::ptr_eq(&other_text, &other_math));
+        let kept = blocks(state.view_of("see $\\beta$", false));
+        assert!(Rc::ptr_eq(&other_math, &kept));
+    }
+
+    /// A widget replaced by one of the same type over another text draws the other text, and a
+    /// change of the preference under it draws the formula the other way.
+    #[test]
+    fn a_mounted_source_widget_follows_its_text_and_the_preference() {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(30, 12));
+        let settings = |math: bool| TuiSettings {
+            rendering: Rendering {
+                math,
+                ..Rendering::default()
+            },
+            ..TuiSettings::default()
+        };
+        let drawn = |t: &rtwk_test::Tester| -> Vec<String> {
+            t.screen()
+                .lines()
+                .map(|line| line.trim_end().to_string())
+                .filter(|line| !line.is_empty())
+                .collect()
+        };
+        let mount = |t: &mut rtwk_test::Tester, text: &str, math: bool| {
+            t.pump_widget(
+                Provider::value(settings(math)).child(source(text, MarkdownTheme::default())),
+            );
+        };
+        mount(&mut t, "see $\\alpha$", true);
+        assert_eq!(drawn(&t), ["see α"]);
+        mount(&mut t, "see $\\beta$", true);
+        assert_eq!(drawn(&t), ["see β"]);
+        mount(&mut t, "see $\\beta$", false);
+        assert_eq!(drawn(&t), ["see $\\beta$"]);
+    }
+
+    /// A local link whose label is only a formula has text in it: the oracle reads the formula as
+    /// the text it was written as, so the label shows (as the formula) before the path.
+    #[test]
+    fn a_local_link_labelled_by_a_formula_shows_the_label_and_the_path() {
+        assert_eq!(
+            rows("[$\\alpha$](/repo/src/lib.rs)"),
+            ["α (/repo/src/lib.rs)"]
+        );
+        assert_eq!(rows("[ ](/repo/src/lib.rs)"), ["/repo/src/lib.rs"]);
     }
 
     #[test]
