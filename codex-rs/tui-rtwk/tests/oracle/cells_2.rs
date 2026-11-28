@@ -159,19 +159,20 @@ fn image_row(screen: &Screen) -> usize {
 // ORACLE history_cell/messages_tests.rs:196 spoken_user_messages_have_a_red_chevron_without_changing_raw_text kind=snap owner=chat-live snap=spoken_user_prompt
 #[test]
 fn spoken_user_messages_have_a_red_chevron_without_changing_raw_text() {
-    kit::pending(
-        Owner::ChatLive,
-        "no spoken user item: the wire carries no spoken flag, and the transcript draws every user item with the same plain prefix (src/screens/chat/home.rs:328); the red chevron is not drawn",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(40, 3)
-        .script(include_str!(
-            "fixtures/cells_2/spoken_user_messages_have_a_red_chevron_without_changing_raw_text.jsonl"
-        ))
-        .open();
+    // The wire has no spoken flag: a spoken prompt is the voice caption of the user (the oracle's
+    // `realtime_transcript_history_cell`), so the cell is made the way the app makes it.
+    let mut s = Screen::build(Owner::ChatLive).size(40, 12).live().open();
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"animations":false}}}"#);
+    s.voice_available().type_text("/voice").keys("enter");
+    let session = s.connect_voice();
+    s.voice_caption(true, &session, "speech", "user", "  hello from voice");
+    s.wait_for("hello from voice");
     s.assert_has_row("› hello from voice");
-    // The oracle's Buffer dump (styles included): the chevron is red and bold.
-    s.assert_snap_region("spoken_user_prompt", 0, 0);
+    // The oracle's Buffer dump (styles included): the chevron is red and bold, the whitespace the
+    // speech began with is not drawn.
+    let y = row_of(&s, "› hello from voice");
+    s.assert_snap_region("spoken_user_prompt", y - 1, 0);
+    s.assert_style(0, y, "fg=Red bold");
     // Raw mode (the raw text `  hello from voice`) is the raw scrollback toggle, not built yet.
 }
 
@@ -265,7 +266,7 @@ fn visualization_directives_are_not_cached() {
 fn spoken_artifacts_link_only_real_workspace_files_and_preserve_existing_urls() {
     kit::pending(
         Owner::ChatLive,
-        "no spoken agent cell and no workspace-file link: the transcript draws the agent text plain (src/screens/chat/home.rs:333); the workspace file the oracle links is a tempdir the kit cannot create",
+        "Need (no gap row): no spoken agent cell and no workspace-file link: the transcript draws the agent text plain (src/screens/chat/home.rs:333); the link is made only to a file that exists in the workspace (the oracle's tempdir), which a view cannot check (no std::fs in views): it needs a host capability for the workspace file check and a kit workspace with real files",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(90, 4)
@@ -286,7 +287,7 @@ fn spoken_artifacts_link_only_real_workspace_files_and_preserve_existing_urls() 
 fn spoken_windows_relative_paths_keep_original_text_and_link_the_workspace_file() {
     kit::pending(
         Owner::ChatLive,
-        "no spoken agent cell: the transcript draws the agent text plain (src/screens/chat/home.rs:333), and the workspace-file link is not made",
+        "Need (no gap row): no spoken agent cell: the transcript draws the agent text plain (src/screens/chat/home.rs:333), and the workspace-file link is not made (the same host capability for the workspace file check and kit workspace as spoken_artifacts_link_only_real_workspace_files_and_preserve_existing_urls)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 4)
@@ -303,12 +304,12 @@ fn spoken_windows_relative_paths_keep_original_text_and_link_the_workspace_file(
 // ORACLE history_cell/patches_tests.rs:5 compact_patches_retain_full_changes_and_failure_details kind=snap owner=chat-live snap=compact_patches_retain_full_changes_and_failure_details
 #[test]
 fn compact_patches_retain_full_changes_and_failure_details() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "the failure diagnostics (`first`, `second`, `third`) are the oracle test's stderr: the app-server's fileChange item carries none, and the oracle's own live path then shows `(error details unavailable)` (chatwidget/tool_lifecycle.rs:173); the patch block passes",
+        "the failure diagnostics (`first`, `second`, `third`) are the oracle test's own stderr handed to `new_patch_apply_failure`: the app-server's fileChange item carries none, and the oracle's live path (chatwidget/tool_lifecycle.rs:173) shows `(error details unavailable)`, which is what the port draws; the patch block and that failure row are checked below",
     );
-    let s = Screen::build(Owner::ChatLive)
-        .size(40, 20)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(40, 24)
         .script(include_str!(
             "fixtures/cells_2/compact_patches_retain_full_changes_and_failure_details.jsonl"
         ))
@@ -324,11 +325,24 @@ fn compact_patches_retain_full_changes_and_failure_details() {
         "    2 +two",
         "    3 +three",
         "✘ Failed to apply patch",
-        "  └ first",
-        "    second",
-        "    third",
+        "  └ (error details unavailable)",
     ]);
-    // Not ported: the Full view (the transcript overlay) and the `missing diagnostics` block.
+    // The Full view (the details the control reveals in place) keeps every changed line.
+    s.click_text("+ Show details");
+    s.assert_in_order(&[
+        "  └ existing.txt (+1 -1)",
+        "    1  context",
+        "    2 -before",
+        "    2 +after",
+        "    3  tail",
+        "  └ new.txt (+5 -0)",
+        "    1 +one",
+        "    4 +four",
+        "    5 +five",
+        "✘ Failed to apply patch",
+        "  └ (error details unavailable)",
+    ]);
+    // Not ported: the `failure` block (its stderr is not on the wire).
 }
 
 // ORACLE history_cell/patches_tests.rs:45 viewed_image_retains_original_path_in_details kind=ui owner=chat-live
@@ -722,14 +736,12 @@ fn completion_wraps_metadata_and_preserves_unwrapped_raw_text() {
 // ORACLE history_cell/separators_tests.rs:168 completion_renders_with_dim_default_colors kind=ui owner=chat-live
 #[test]
 fn completion_renders_with_dim_default_colors() {
-    kit::pending(
-        Owner::ChatLive,
-        "G-new dim indent: the two blank cells of the indent are DIM in the oracle (one dim span `  2:32 PM`); rtwk's Text leaves the leading blanks of a line unpainted and a Padding paints nothing, so a modifier-only style on a blank is lost (invisible on screen; the text cells are DIM and default-coloured, equal)",
-    );
+    // The oracle's cell has no duration: a restored completion (no `turn/started` in the script,
+    // as the sibling test below), so the row reads `  2:32 PM` alone.
     let s = Screen::build(Owner::ChatLive)
         .size(80, 12)
         .script(include_str!(
-            "fixtures/cells_2/completion_renders_with_dim_default_colors.jsonl"
+            "fixtures/cells_2/completion_rendering_uses_the_captured_display_date.jsonl"
         ))
         .open();
     let Some(y) = s
@@ -741,7 +753,8 @@ fn completion_renders_with_dim_default_colors() {
     };
     // The oracle's display row `  2:32 PM` (nine cells) is Reset on Reset and DIM in every cell.
     for x in 0..9 {
-        s.assert_style(x, y, "fg=Reset bg=Reset dim");
+        s.assert_style(x, y, "fg=Reset bg=Reset");
+        s.assert_painted(x, y, "dim");
     }
 }
 

@@ -160,7 +160,7 @@ impl Transcript {
     /// The turn ended without its commands: each that still runs is a failed one, exit code 1 if
     /// the server said none (oracle `ExecCell::mark_failed`). A background terminal's own
     /// command is left running: the terminal outlives the turn.
-    pub(super) fn fail_running(&mut self, turn: &TurnId) {
+    pub(super) fn fail_running(&mut self, turn: &TurnId, now_ms: i64) {
         let running: Vec<ItemKey> = self
             .order
             .iter()
@@ -184,8 +184,18 @@ impl Transcript {
                 continue;
             }
             tool.status = ToolStatus::Failed;
-            if let ToolKind::Shell { exit_code, .. } = &mut tool.kind {
+            let elapsed = tool.started_ms.map_or(0, |started| {
+                u64::try_from(now_ms.saturating_sub(started)).unwrap_or(0)
+            });
+            if let ToolKind::Shell {
+                exit_code,
+                duration_ms,
+                ..
+            } = &mut tool.kind
+            {
                 *exit_code = Some(exit_code.filter(|code| *code != 0).unwrap_or(1));
+                // the time it ran until the turn ended (oracle `mark_failed`)
+                duration_ms.get_or_insert(elapsed);
             }
             self.item_revision += 1;
             self.activity_revision += 1;

@@ -831,8 +831,19 @@ impl Transcript {
             }
         }
         if !older.is_empty() {
-            older.append(order);
-            *order = older;
+            // the line the session opened with (oracle `handle_thread_session`) stays above the
+            // history its replay follows with
+            let opening = order
+                .iter()
+                .take_while(|key| {
+                    stored
+                        .get(*key)
+                        .is_some_and(|held| matches!(*held.item, Item::Notice(Notice::DaybreakOn)))
+                })
+                .count();
+            let rest = order.split_off(opening);
+            order.append(&mut older);
+            order.extend(rest);
         }
     }
 
@@ -2021,6 +2032,11 @@ impl<'a> ThreadFx<'a> {
     /// The app's clock, epoch seconds (0 until the host has said).
     fn now(&self) -> i64 {
         self.facts.map_or(0, |facts| facts.now().secs())
+    }
+
+    /// The same in milliseconds.
+    fn now_millis(&self) -> i64 {
+        self.facts.map_or(0, |facts| facts.now().millis())
     }
 
     /// The same, with the wording of a cyber refusal at this moment.
@@ -3418,7 +3434,19 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         }
         ThreadEv::HookStarted { id, message } => hooks::started(model, id, message),
         ThreadEv::HookEnded { id, turn, item } => hooks::ended(model, &id, turn, item),
-        ThreadEv::ItemStarted { key, item, receipt } => {
+        ThreadEv::ItemStarted {
+            key,
+            mut item,
+            receipt,
+        } => {
+            // A shell command is timed from when it was seen to start (oracle `start_time`).
+            if let Item::Tool(tool) = &mut item
+                && tool.status == ToolStatus::Running
+                && matches!(tool.kind, ToolKind::Shell { .. })
+                && model.transcript.item(&key).is_none()
+            {
+                Arc::make_mut(tool).started_ms = Some(fx.now_millis());
+            }
             if matches!(&item, Item::Tool(tool) if tool.status == ToolStatus::Running
                 && matches!(tool.kind, ToolKind::Shell { .. }))
             {
@@ -3741,7 +3769,7 @@ fn end_turn(model: &mut ThreadModel, turn: TurnId, end: TurnEnd, fx: &mut Thread
     }
     model.transcript.finish_streams(&turn);
     if end != TurnEnd::Completed {
-        model.transcript.fail_running(&turn);
+        model.transcript.fail_running(&turn, fx.now_millis());
     }
     model.completed_items.retain(|key| key.turn != turn);
     let ends_running = matches!(&model.turn, TurnState::Running(running) if running.turn == turn);

@@ -111,7 +111,12 @@ impl Tokens {
             });
         let Some(terminal) = terminal else {
             return if history {
-                self.data.surface.clone()
+                // the oracle's fallback for a terminal that did not answer the colour query
+                // (`style::history_prompt_fallback`, true colour; the presenter lowers it to
+                // the terminal's depth, the exact grays of the xterm palette)
+                Style::new()
+                    .fg(Color::rgb(238, 238, 238))
+                    .bg(Color::rgb(68, 68, 68))
             } else {
                 Style::new()
             };

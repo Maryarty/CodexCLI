@@ -135,6 +135,7 @@ pub(super) struct Env {
     /// The resumed thread's own status is `active` (a thread that is really running).
     replay_active: bool,
     replay_paginated: bool,
+    replay_daybreak: bool,
     /// The goal the server holds for the resumed thread (`thread/goal/get`).
     goal: Option<serde_json::Value>,
     /// What the host announces to the first conversation.
@@ -291,6 +292,7 @@ impl Env {
             let turns = turns.clone();
             let active = self.replay_active;
             let paginated = self.replay_paginated;
+            let daybreak = self.replay_daybreak;
             let goal = self.goal.clone();
             h.fake
                 .respond(move |request| match request["method"].as_str() {
@@ -298,6 +300,9 @@ impl Env {
                         let mut response = resume_response(REPLAYED, &turns, active);
                         if paginated {
                             response["thread"]["historyMode"] = serde_json::json!("paginated");
+                        }
+                        if daybreak {
+                            response["thread"]["daybreakEnabled"] = serde_json::json!(true);
                         }
                         Some(Ok(response))
                     }
@@ -413,6 +418,19 @@ impl Open {
     /// `replay_thread_turns` / `initial_messages`.
     pub fn replay(mut self, turns: Vec<serde_json::Value>) -> Open {
         self.env.replay = Some(turns);
+        self
+    }
+
+    /// The thread [`Open::replay`] resumes has Daybreak on (its `daybreakEnabled`), and the
+    /// account may use it (the oracle's `CliDaybreak` feature with a ChatGPT sign-in).
+    pub fn replay_daybreak(mut self) -> Open {
+        self.env.replay_daybreak = true;
+        if self.env.daybreak.is_none() {
+            self.env.daybreak = Some(Access {
+                eligible: true,
+                models: Vec::new(),
+            });
+        }
         self
     }
 

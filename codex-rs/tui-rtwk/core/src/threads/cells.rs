@@ -240,6 +240,9 @@ pub enum Notice {
         from: String,
         title: Option<String>,
     },
+    /// The thread opened with Daybreak on (oracle `handle_thread_session`: `Daybreak is on for
+    /// new turns.`, once per attached thread).
+    DaybreakOn,
     EnteredReview(String),
     ExitedReview(String),
     /// Esc or Ctrl+C ended the turn (`new_interruption_notice`).
