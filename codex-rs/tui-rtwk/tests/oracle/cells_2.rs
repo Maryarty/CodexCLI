@@ -264,40 +264,66 @@ fn visualization_directives_are_not_cached() {
 // ORACLE history_cell/messages_tests.rs:345 spoken_artifacts_link_only_real_workspace_files_and_preserve_existing_urls kind=snap owner=chat-live
 #[test]
 fn spoken_artifacts_link_only_real_workspace_files_and_preserve_existing_urls() {
-    kit::pending(
-        Owner::ChatLive,
-        "Need (no gap row): no spoken agent cell and no workspace-file link: the transcript draws the agent text plain (src/screens/chat/home.rs:333); the link is made only to a file that exists in the workspace (the oracle's tempdir), which a view cannot check (no std::fs in views): it needs a host capability for the workspace file check and a kit workspace with real files",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(90, 4)
-        .script(include_str!(
-            "fixtures/cells_2/spoken_artifacts_link_only_real_workspace_files_and_preserve_existing_urls.jsonl"
-        ))
+    // The oracle's workspace is a tempdir with `src/lib.rs`; a spoken answer is the assistant's
+    // voice caption (`new_spoken`).
+    let workspace = kit::workspace(&[("src/lib.rs", "fn example() {}\n")]);
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(90, 12)
+        .workspace(&workspace)
+        .live()
         .open();
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"animations":false}}}"#);
+    s.voice_available().type_text("/voice").keys("enter");
+    let session = s.connect_voice();
+    s.voice_caption(
+        true,
+        &session,
+        "speech",
+        "assistant",
+        "中 src/lib.rs:42 and https://example.com",
+    );
+    s.wait_for("• 中 src/lib.rs:42 and https://example.com");
+    s.wait_for_link("src/lib.rs:42", &workspace.url("src/lib.rs"));
     s.assert_has_row("• 中 src/lib.rs:42 and https://example.com");
     s.assert_link("https://example.com", "https://example.com");
     s.assert_text_style("src/lib.rs:42", "underlined");
-    // Not ported: the `src/lib.rs:42` link destination is the canonical file URL of the
-    // tempdir workspace (the oracle's expected_destination); the ordinary cell's link and
-    // the bare `src/lib.rs` link (1 link at width 40) need a non-spoken seed the wire lacks.
+    // only a file the workspace has is linked: the oracle validates the path on the disk
+    s.voice_caption(
+        true,
+        &session,
+        "speech-2",
+        "assistant",
+        "see src/missing.rs:7 and src/lib.rs",
+    );
+    s.wait_for("see src/missing.rs:7 and src/lib.rs");
+    s.wait_for_link("src/lib.rs", &workspace.url("src/lib.rs"));
+    s.assert_no_link("src/missing.rs:7");
 }
 
 // ORACLE history_cell/messages_tests.rs:416 spoken_windows_relative_paths_keep_original_text_and_link_the_workspace_file kind=snap owner=chat-live snap=spoken_windows_relative_paths_keep_original_text_and_link_the_workspace_file
 #[test]
 fn spoken_windows_relative_paths_keep_original_text_and_link_the_workspace_file() {
-    kit::pending(
-        Owner::ChatLive,
-        "Need (no gap row): no spoken agent cell: the transcript draws the agent text plain (src/screens/chat/home.rs:333), and the workspace-file link is not made (the same host capability for the workspace file check and kit workspace as spoken_artifacts_link_only_real_workspace_files_and_preserve_existing_urls)",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(80, 4)
-        .script(include_str!(
-            "fixtures/cells_2/spoken_windows_relative_paths_keep_original_text_and_link_the_workspace_file.jsonl"
-        ))
+    let workspace = kit::workspace(&[("src/lib.rs", "fn example() {}\n")]);
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 12)
+        .workspace(&workspace)
+        .live()
         .open();
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"animations":false}}}"#);
+    s.voice_available().type_text("/voice").keys("enter");
+    let session = s.connect_voice();
+    s.voice_caption(
+        true,
+        &session,
+        "speech",
+        "assistant",
+        "Updated src\\lib.rs:42",
+    );
+    s.wait_for("• Updated src\\lib.rs:42");
+    // the text keeps its backslash, the link is the one file URL of the workspace
+    s.wait_for_link("src\\lib.rs:42", &workspace.url("src/lib.rs"));
     s.assert_has_row("• Updated src\\lib.rs:42");
     s.assert_text_style("src\\lib.rs:42", "underlined");
-    // Not ported: the link destination is the canonical file URL of the tempdir workspace.
 }
 
 // ---- oracle: history_cell/patches_tests.rs (3 screen-level tests here; 1 state tests left to chat-live)

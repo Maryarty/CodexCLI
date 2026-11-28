@@ -541,19 +541,37 @@ fn session_header_uses_catalog_display_name_without_changing_model() {
 // ORACLE chatwidget/tests/app_server.rs:108 session_and_settings_sync_server_provider_id kind=snap owner=chat-live snap=daybreak_hidden_after_provider_settings_change
 #[test]
 fn session_and_settings_sync_server_provider_id() {
-    kit::pending(
-        Owner::ChatLive,
-        "Need (no gap row): the host never sets `flags.daybreak_command_description` (the `/daybreak` entry is never listed: the popup row is the oracle's `daybreak_command_description` of the thread's Daybreak state, the account and the catalog), and the account's eligibility is one host fact (`Access::eligible`) where the oracle's follows the thread's provider (`supports_cyber_access_programs` of the provider a `thread/settings/updated` names); the status line (`profile: work · provider: server-updated`) needs the config profile fact",
-    );
+    // (the oracle's frame is the bottom pane alone: the chat's top padding row stands above it)
     let (w, h) = oracle_size("daybreak_hidden_after_provider_settings_change", 80);
-    let mut s = Screen::build(Owner::ChatLive).size(w, h).live().open();
+    // an eligible account whose `openai` provider supports the programs, the status line on its
+    // profile and provider items (the oracle's `status_line` setting)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(w, h + 1)
+        .live()
+        .daybreak(&[])
+        .open();
+    // (the host's facts name the config's provider: a thread without a provider of its own runs on it)
+    s.feed(
+        r#"{"step":"screen","dir":"chat","ev":{"status":{"items":["profile","provider"],"provider":"openai"}}}"#,
+    );
     s.type_text("/daybreak");
     s.assert_contains("broader access");
-    s.feed(&thread_settings_updated("gpt-5.4", "server-updated"));
-    // oracle: the status line shows the new provider; the daybreak entry is hidden for it.
-    s.assert_contains("profile: work · provider: server-updated");
+    // the config gains the profile layer, then the server moves the thread to another provider
+    s.feed(
+        r#"{"step":"screen","dir":"chat","ev":{"status":{"items":["profile","provider"],"provider":"openai","profile_name":"work"}}}"#,
+    );
+    // (the oracle's settings are in Plan mode: the footer's indicator)
+    let plan = |provider| {
+        thread_settings_updated("gpt-5.4", provider)
+            .replace(r#""mode":"default""#, r#""mode":"plan""#)
+    };
+    s.feed(&plan("server-updated"));
+    s.wait_for("profile: work · provider: server-updated");
     s.assert_absent("broader access");
-    s.assert_snap("daybreak_hidden_after_provider_settings_change");
+    s.assert_snap_region("daybreak_hidden_after_provider_settings_change", 1, 0);
+    // back on the provider that supports the programs, the entry is listed again
+    s.feed(&plan("openai"));
+    s.assert_contains("broader access");
 }
 
 const RETRY_INPUT: &str = "Summarize this public example.";

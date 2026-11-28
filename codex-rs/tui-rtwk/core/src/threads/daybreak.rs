@@ -23,17 +23,57 @@ pub struct ModelAccess {
     pub programs: Option<Programs>,
 }
 
-/// What the host knows about the account and the catalog (`AppEv::Daybreak`).
+/// What the host knows about the account, the providers and the catalog (`AppEv::Daybreak`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Access {
-    /// The feature is on, the provider supports cyber access programs, and the account is a
-    /// ChatGPT sign-in or an API key (oracle `daybreak_account_eligible`).
-    pub eligible: bool,
+    /// The feature is on and the account is a ChatGPT sign-in or an API key (the account half of
+    /// oracle `daybreak_account_eligible`; the provider half is `providers`).
+    pub account: bool,
+    /// The configured providers that support cyber access programs
+    /// (`supports_cyber_access_programs`). A thread is eligible by the provider it runs on, which
+    /// a `thread/started` or a `thread/settings/updated` names, not by the config's own.
+    pub providers: Vec<String>,
     /// The model catalog (`model/list`).
     pub models: Vec<ModelAccess>,
 }
 
+/// What the `/daybreak` entry offers (oracle `daybreak_command_description`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Row {
+    /// The thread's setting is on: turn it off.
+    Disable,
+    /// The catalog advertises Daybreak.
+    Enable,
+    /// No model of the catalog does.
+    Learn,
+    /// The catalog says nothing yet.
+    Manage,
+}
+
 impl Access {
+    /// Oracle `daybreak_account_eligible` for a thread that runs on `provider`: the account half
+    /// and the provider's support. A thread whose provider is not known is not eligible.
+    pub fn eligible(&self, provider: Option<&str>) -> bool {
+        self.account
+            && provider.is_some_and(|id| self.providers.iter().any(|supported| supported == id))
+    }
+
+    /// Oracle `daybreak_command_description`: the entry is listed when the thread's setting is
+    /// on, or when the account is eligible for the thread's provider.
+    pub fn row(&self, enabled: bool, provider: Option<&str>) -> Option<Row> {
+        if enabled {
+            Some(Row::Disable)
+        } else if !self.eligible(provider) {
+            None
+        } else {
+            Some(match self.availability() {
+                Some(true) => Row::Enable,
+                Some(false) => Row::Learn,
+                None => Row::Manage,
+            })
+        }
+    }
+
     /// Oracle `daybreak::available`: some model of the catalog advertises Daybreak.
     pub fn available(&self) -> bool {
         self.models
@@ -65,10 +105,10 @@ impl Access {
 const ASTRA: [&str; 2] = ["gpt-6-astra", "gpt-6-astra-wm"];
 
 impl Access {
-    /// Oracle `notice_for_setting` with `can_enable_daybreak = self.eligible`, for a thread on
-    /// `model` whose own setting is `enabled`.
-    pub fn notice(&self, model: Option<&str>, enabled: bool) -> Daybreak {
-        if !self.eligible {
+    /// Oracle `notice_for_setting` with `can_enable_daybreak` the account's eligibility for
+    /// `provider`, for a thread on `model` whose own setting is `enabled`.
+    pub fn notice(&self, provider: Option<&str>, model: Option<&str>, enabled: bool) -> Daybreak {
+        if !self.eligible(provider) {
             return Daybreak::Apply;
         }
         if enabled {

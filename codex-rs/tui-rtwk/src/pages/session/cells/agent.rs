@@ -116,7 +116,15 @@ pub fn message_filled(
 }
 
 fn plain(source: &str, live: bool, cwd: Option<&str>, look: &Look<'_>) -> AnyWidget {
-    let markdown = citation::cited(source, live, cwd, look.cells, look.markdown.clone());
+    framed(
+        citation::cited(source, live, cwd, look.cells, look.markdown.clone()),
+        look,
+    )
+}
+
+/// `body` after the bullet, one column free at its right: the frame of every message of the
+/// assistant (a spoken one draws its own body in it).
+pub fn framed(markdown: AnyWidget, look: &Look<'_>) -> AnyWidget {
     Row::new()
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .spacing(1)

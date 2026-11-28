@@ -651,7 +651,7 @@ async fn run(
     // And what words a refused cybersecurity request: the account's access and the catalog.
     let cyber = crate::facts::CyberPolicy::of(&config);
     inflight.push(Box::pin(crate::facts::daybreak(
-        cyber,
+        cyber.clone(),
         ids.clone(),
         sender(handle.clone()),
     )));
@@ -979,7 +979,7 @@ async fn run(
             &mut inflight,
         );
         inflight.push(Box::pin(crate::facts::daybreak(
-            cyber,
+            cyber.clone(),
             ids.clone(),
             sender(handle.clone()),
         )));
@@ -1391,6 +1391,18 @@ impl HostDoors for ConnectionDoors {
             Default::default()
         };
         Some(Outcome::Effect(Done::ImageSnapshot(snapshot), None))
+    }
+
+    async fn workspace_files(&self, cwd: String, paths: Vec<String>) -> Option<Outcome> {
+        let local = local_workspace(self.artifact_environments.as_deref());
+        let ssh =
+            std::env::var_os("SSH_TTY").is_some() || std::env::var_os("SSH_CONNECTION").is_some();
+        let files = if local && !ssh {
+            codex_tui_rtwk::services::workspace_files::files(&cwd, &paths)
+        } else {
+            Vec::new()
+        };
+        Some(Outcome::Effect(Done::WorkspaceFiles(files), None))
     }
 
     async fn startup(&self, ask: codex_tui_core::screens::onboarding::Ask) -> Option<Outcome> {

@@ -5,11 +5,15 @@
 
 use rtwk::editing::Suggestion;
 
+use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::commands::{
     CommandFlags, CommandPopup, CommandPopupFlags, ServiceTierCommand, SlashCommandItem,
 };
+use codex_tui_core::features::DaybreakSetting;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::composer::{TriggerKind, trigger};
+use codex_tui_core::threads::ThreadModel;
+use codex_tui_core::threads::daybreak::Row;
 
 use super::strings::Strings;
 
@@ -23,10 +27,32 @@ pub const ROWS: usize = codex_tui_core::commands::MAX_POPUP_ROWS;
 pub struct Slash {
     tiers: Vec<ServiceTierCommand>,
     flags: CommandFlags,
+    /// What the `/daybreak` entry offers; none lists no entry.
+    daybreak: Option<Row>,
+}
+
+/// What the thread says of Daybreak: the choice it holds and the provider it runs on
+/// (`DaybreakSetting`), with the `[tui]` settings that gate the choice. The entry is derived at
+/// the draw, not copied into the command flags, so it follows the thread's provider.
+#[derive(Clone, Debug)]
+pub struct Thread {
+    saved: Option<bool>,
+    provider: Option<String>,
+    tui: TuiSettings,
+}
+
+impl Thread {
+    pub fn of(thread: &ThreadModel, tui: &TuiSettings) -> Thread {
+        Thread {
+            saved: codex_tui_core::features::daybreak_of(thread.view()),
+            provider: thread.screen_slots().chat.provider.clone(),
+            tui: *tui,
+        }
+    }
 }
 
 /// The slice of `states` the popup draws for a thread whose model is `model`.
-pub fn slash(states: &ScreenStates, model: Option<&str>) -> Slash {
+pub fn slash(states: &ScreenStates, model: Option<&str>, thread: &Thread) -> Slash {
     let tiers = codex_tui_core::screens::chat::facts::tier_commands(
         &states.chat.status,
         model,
@@ -35,7 +61,13 @@ pub fn slash(states: &ScreenStates, model: Option<&str>) -> Slash {
     );
     let mut flags = states.chat.flags;
     flags.service_tier_commands_enabled = !tiers.is_empty();
-    Slash { tiers, flags }
+    let daybreak = DaybreakSetting::new(thread.saved, thread.provider.clone(), states, &thread.tui)
+        .row(&states.chat.access);
+    Slash {
+        tiers,
+        flags,
+        daybreak,
+    }
 }
 
 /// The suggestions for `before`, the composer's text up to the caret.
@@ -47,7 +79,9 @@ pub fn suggestions(slash: &Slash, strings: &Strings, before: &str) -> Vec<Sugges
 }
 
 fn commands(slash: &Slash, strings: &Strings, before: &str) -> Vec<Suggestion> {
-    let mut popup = CommandPopup::new(CommandPopupFlags::from(slash.flags), slash.tiers.clone());
+    let mut flags = slash.flags;
+    flags.daybreak_command_description = slash.daybreak.map(crate::features::daybreak_row);
+    let mut popup = CommandPopup::new(CommandPopupFlags::from(flags), slash.tiers.clone());
     popup.on_composer_text_change(before.to_string());
     popup
         .rows()

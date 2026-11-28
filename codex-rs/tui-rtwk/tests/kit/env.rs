@@ -498,11 +498,13 @@ impl Open {
         self
     }
 
-    /// The host reads an eligible account whose catalog lists, per `(model, standard,
-    /// daybreak)`, the cyber access programs of each model.
+    /// The host reads an eligible account (the `openai` provider supports cyber access programs)
+    /// whose catalog lists, per `(model, standard, daybreak)`, the cyber access programs of each
+    /// model.
     pub fn daybreak(mut self, models: &[(&str, bool, bool)]) -> Open {
         self.env.daybreak = Some(Access {
-            eligible: true,
+            account: true,
+            providers: vec!["openai".to_owned()],
             models: models
                 .iter()
                 .map(|&(model, standard, daybreak)| ModelAccess {

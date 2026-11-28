@@ -966,8 +966,6 @@ pub struct CodexApp {
     ide_submissions: ide_submit::State,
     /// Notices announced before any conversation exists.
     pending_notices: Vec<threads::Notice>,
-    /// The Daybreak facts (`AppEv::Daybreak`).
-    daybreak: threads::daybreak::Access,
     /// The moment the shell last told (`AppEv::Clock`).
     now: Now,
     /// What renders a conversation as the Markdown of `/export` (the cells' text is the UI's).
@@ -1061,7 +1059,6 @@ impl CodexApp {
             effects: effects::Effects::default(),
             ide_submissions: ide_submit::State::default(),
             pending_notices: Vec::new(),
-            daybreak: threads::daybreak::Access::default(),
             now: Now::default(),
             transcript_text: None,
             modes: Vec::new(),
@@ -2548,7 +2545,11 @@ fn apply_event(
         }
         AppEv::Keymap(keymap) => app.keymap = Rc::new(*keymap),
         AppEv::Announce(notice) => notices::announce(app, notice, fx),
-        AppEv::Daybreak(access) => app.daybreak = access,
+        AppEv::Daybreak(access) => chat::apply(
+            &mut Rc::make_mut(&mut app.screens).chat,
+            chat::Ev::Access(access),
+            fx,
+        ),
         AppEv::Clock(now) => features::clock(app, now, fx),
         AppEv::Tui(settings) => app.tui = settings,
         AppEv::Presets(slots) => select::event(app, crate::screens::select::Ev::Dials(slots), fx),
@@ -5112,7 +5113,7 @@ fn apply_thread_with_receipt(
                     app.now,
                     &app.tui,
                     &app.screens.status,
-                    &app.daybreak,
+                    &app.screens.chat.access,
                     &app.keymap,
                 )),
             receipt,

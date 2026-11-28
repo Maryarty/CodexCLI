@@ -114,7 +114,8 @@ enum core/src/rpc.rs Answer 8
 # s24-pets-live-picker: local catalog, static sprite and confirmed pet preference.
 # s25-voice-settings-lock: desktop locking is an audio observation; the unused writer-lock
 # placeholder is removed. A settings capability reads and persists sound/voice on their owners.
-list core/src/app/effects.rs host_capability_list 34
+# f-cells-live-turn: the files a spoken answer names, checked by the host (`workspace_files`).
+list core/src/app/effects.rs host_capability_list 35
 # The framework's own hub: what a feature can say (`Out`) and the generated root's variants that
 # are no feature's. A new one is a decision with an ADR-012 paragraph (a hook is added only for
 # a thread or app lifecycle fact, never for one producer and one consumer), and raises its line.

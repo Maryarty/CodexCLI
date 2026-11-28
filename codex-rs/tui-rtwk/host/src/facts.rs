@@ -441,12 +441,13 @@ fn keymap_of(config: &TuiKeymap, workspace: bool) -> Result<Keymap, String> {
 }
 
 /// What the config says of cyber access programs (oracle `daybreak_feature_enabled` and the
-/// provider's support); the account decides the rest.
-#[derive(Clone, Copy, Debug)]
+/// providers' support); the account decides the rest, and the thread's provider which of the
+/// providers counts.
+#[derive(Clone, Debug)]
 pub struct CyberPolicy {
     pub(crate) daybreak: DaybreakConfig,
-    /// The configured provider supports cyber access programs.
-    provider: bool,
+    /// The configured providers that support cyber access programs.
+    providers: Vec<String>,
 }
 
 impl CyberPolicy {
@@ -460,22 +461,26 @@ impl CyberPolicy {
                     .features
                     .enabled(codex_features::Feature::ApiKeyCyberAccessPrograms),
             },
-            provider: config
-                .model_providers
-                .get(&config.model_provider_id)
-                .is_some_and(|provider| {
-                    provider.supports_cyber_access_programs(&config.model_provider_id)
-                }),
+            providers: {
+                let mut providers: Vec<String> = config
+                    .model_providers
+                    .iter()
+                    .filter(|(id, provider)| provider.supports_cyber_access_programs(id))
+                    .map(|(id, _)| id.clone())
+                    .collect();
+                providers.sort();
+                providers
+            },
         }
     }
 
-    /// Oracle `daybreak_account_eligible`: the feature is on (for an API key only with its own
-    /// flag too), the provider supports the programs, and the account is a ChatGPT sign-in or an
-    /// API key.
-    fn eligible(self, account: Option<&Account>) -> bool {
+    /// The account half of oracle `daybreak_account_eligible`: the feature is on (for an API key
+    /// only with its own flag too) and the account is a ChatGPT sign-in or an API key. The
+    /// provider half is `Access::eligible`'s, by the provider the thread runs on.
+    fn account(&self, account: Option<&Account>) -> bool {
         let chatgpt = matches!(account, Some(Account::Chatgpt { .. }));
         let api_key = matches!(account, Some(Account::ApiKey {}));
-        self.daybreak.allows(api_key) && self.provider && (chatgpt || api_key)
+        self.daybreak.allows(api_key) && (chatgpt || api_key)
     }
 }
 
@@ -517,7 +522,7 @@ where
     let account = serde_json::from_value::<GetAccountResponse>(account)
         .ok()?
         .account;
-    if !policy.eligible(account.as_ref()) {
+    if !policy.account(account.as_ref()) {
         return Some(AppEv::Daybreak(Access::default()));
     }
     let mut models = Vec::new();
@@ -542,7 +547,8 @@ where
         }
     }
     Some(AppEv::Daybreak(Access {
-        eligible: true,
+        account: true,
+        providers: policy.providers,
         models: model_access(&models),
     }))
 }
@@ -644,7 +650,11 @@ mod tests {
                 enabled: feature,
                 api_key,
             },
-            provider,
+            providers: if provider {
+                vec!["openai".to_owned()]
+            } else {
+                Vec::new()
+            },
         }
     }
 
@@ -680,22 +690,18 @@ mod tests {
     }
 
     #[test]
-    fn cyber_access_needs_the_feature_the_provider_and_a_signed_in_account() {
+    fn cyber_access_needs_the_feature_and_a_signed_in_account() {
         let key = Account::ApiKey {};
         let chatgpt = chatgpt();
-        assert!(policy(true, false, true).eligible(Some(&chatgpt)));
+        assert!(policy(true, false, true).account(Some(&chatgpt)));
         assert!(
-            !policy(false, false, true).eligible(Some(&chatgpt)),
+            !policy(false, false, true).account(Some(&chatgpt)),
             "feature off"
         );
-        assert!(
-            !policy(true, false, false).eligible(Some(&chatgpt)),
-            "provider"
-        );
-        assert!(!policy(true, false, true).eligible(None), "no account");
+        assert!(!policy(true, false, true).account(None), "no account");
         // an API key needs its own flag too
-        assert!(!policy(true, false, true).eligible(Some(&key)));
-        assert!(policy(true, true, true).eligible(Some(&key)));
+        assert!(!policy(true, false, true).account(Some(&key)));
+        assert!(policy(true, true, true).account(Some(&key)));
     }
 
     /// A server whose `account/read` says `account` and whose `model/list` is two pages.
@@ -755,7 +761,8 @@ mod tests {
         assert_eq!(
             access,
             Access {
-                eligible: true,
+                account: true,
+                providers: vec!["openai".to_owned()],
                 models: vec![
                     ModelAccess {
                         model: "gpt-6-astra".into(),

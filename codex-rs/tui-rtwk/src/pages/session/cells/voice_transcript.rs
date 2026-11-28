@@ -3,9 +3,6 @@
 
 use codex_tui_core::threads::{Item, voice_transcript::Role};
 use rtwk::AnyWidget;
-use rtwk::gestures::ExcludeSelection;
-use rtwk::layout::{CrossAxisAlignment, Expanded, Row, SizedBox};
-use rtwk::widgets::Text;
 
 use super::dispatch::{CellEnv, Place, below};
 use super::strings::Strings;
@@ -39,21 +36,17 @@ pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
     if *role == Role::User {
         return super::user::spoken(text, env, place);
     }
-    let style = env.bullet_style.clone();
     below(
         place.separator,
-        Row::new()
-            .cross_axis_alignment(CrossAxisAlignment::Start)
-            .child(ExcludeSelection::new(SizedBox::new(
-                Some(2),
-                None,
-                Some(
-                    Text::new(mark(*role, env.cells, env.chat))
-                        .style(style)
-                        .into(),
-                ),
-            )))
-            .child(Expanded::new(1, Text::new(text.clone())))
-            .into(),
+        super::spoken::message(
+            text,
+            env.cwd,
+            &super::agent::Look {
+                bullet: env.bullet,
+                bullet_style: env.bullet_style.clone(),
+                markdown: env.markdown,
+                cells: env.cells,
+            },
+        ),
     )
 }

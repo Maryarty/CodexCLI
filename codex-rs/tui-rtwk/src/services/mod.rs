@@ -27,3 +27,4 @@ pub mod remote;
 pub mod shell;
 pub mod startup;
 pub mod transcript_file;
+pub mod workspace_files;
