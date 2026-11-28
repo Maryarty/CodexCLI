@@ -756,6 +756,12 @@ fn runtime_metrics_websocket_timing_logs_and_final_separator_sums_totals() {
         "WebSocket timing: TTFT: 80ms (iapi)",
         "TTFT: 80ms (iapi) • TBT: 50ms (service)",
     ]);
+
+    let mut interrupted = Screen::build(Owner::UiPane).size(100, 24).live().open();
+    let ended = turn_ended("interrupted").replace(r#""durationMs":null"#, r#""durationMs":2000"#);
+    interrupted.feed(&format!("{TURN}\n{first}\n{ended}"));
+    interrupted.assert_text_count("TTFT: 120ms (iapi)", 1);
+    interrupted.assert_contains("WebSocket timing: TTFT: 120ms (iapi) • TBT: 50ms (service)");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4959 multiple_agent_messages_in_single_turn_emit_multiple_headers kind=ui owner=ui-pane

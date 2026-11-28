@@ -1923,7 +1923,11 @@ impl State for ViewportState {
             let timing_facts = |turn| super::cells::separator::Facts {
                 today,
                 clock,
-                metrics: metrics.metrics(turn),
+                metrics: if transcript.is_completed(turn) {
+                    metrics.metrics(turn)
+                } else {
+                    None
+                },
             };
             let fold = match &row.kind {
                 Kind::Tools(group) if !group.is_lone_search(transcript) => {
