@@ -1,0 +1,8 @@
+# The composer with its footer, alone, on a blank draft of one thread (no turn), and the skill
+# `rustdoc` to mention (test_skill_metadata in skill_completion_tests.rs).
+# Oracle data: bottom_pane/chat_composer.rs `snapshot_composer_state_with_width`
+# (a fresh ChatComposer: no status line, so the context meter stands in the
+# footer, `100% context left` while the window is unknown).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":[]}}}
+{"step":"screen","dir":"popovers","ev":{"mentions":[{"kind":"skill","name":"rustdoc","description":"Example skill used in tests.","insert":"rustdoc","path":"/tmp/rustdoc/SKILL.md"}]}}

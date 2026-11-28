@@ -311,6 +311,29 @@ fn the_help_rows_follow_the_keymap_and_the_running_turn() {
     running.assert_absent("Send message");
 }
 
+/// The help's Esc row names the pair (`esc esc  Edit last message`) while Esc is not primed, and
+/// no key sequence shows it primed (`esc  Edit last message`, the oracle composer's
+/// `set_esc_backtrack_hint`): the `?` that opens the help is input between the two Escs, which
+/// ends the pair (`cancel_primed_browsing_for_event`) before the help is built.
+#[test]
+fn the_help_that_opens_after_the_first_esc_ends_the_pair() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 30)
+        .script(include_str!("../kit/fixtures/answered.jsonl"))
+        .open();
+    s.wait_for("• Hello there");
+    s.keys("?");
+    s.assert_contains("esc esc  Edit last message");
+    s.keys("esc");
+    s.assert_absent("Keyboard shortcuts");
+    s.keys("esc");
+    s.assert_contains("esc again to edit previous message");
+    s.keys("?");
+    s.assert_contains("Keyboard shortcuts");
+    s.assert_contains("esc esc  Edit last message");
+    s.assert_absent("esc again to edit previous message");
+}
+
 /// `escape_closes_shortcut_help_before_inline_banner`: with the help open Esc puts the help
 /// away and the banner stays; the next Esc dismisses the banner. (The shard's entry,
 /// `chat/inline_banner_short`, is the chat page's to register; this is the same keys on the

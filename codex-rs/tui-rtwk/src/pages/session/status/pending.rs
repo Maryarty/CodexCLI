@@ -96,9 +96,11 @@ impl StatelessWidget for PendingInput {
             }
             let seg = segmenter_of(cx);
             let width = usize::try_from(constraints.max_width).unwrap_or(0);
+            // the rows the pane leaves are all it shows: the oracle cuts the preview at the room
             let mut column = Column::new()
                 .main_axis_size(MainAxisSize::Min)
-                .cross_axis_alignment(CrossAxisAlignment::Stretch);
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .overflow_intended(true);
             let dim = super::dim();
             let mut first = true;
             let mut section = |column: Column, header: Vec<Span>, rows: Vec<AnyWidget>| {

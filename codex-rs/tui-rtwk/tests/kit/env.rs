@@ -15,6 +15,8 @@
 //!   is `ColorDepth::None`, `1` is `Ansi16`, `2` is `Ansi256`, `3` is
 //!   `TrueColor`); the app's colours come down to them as they are written.
 //! - `legacy_text()`: a terminal without grapheme clustering (`TextMode::Legacy`).
+//! - `bidi_terminal()`: a terminal that reorders right-to-left text itself (`BidiReordering::Terminal`):
+//!   the cells hold the text in logical order, as the oracle's buffer does.
 //! - `notifications()`: a terminal that shows OSC 9 notifications (what the app tells it to
 //!   notify is `Screen::notifications()`).
 //! - `syntax_theme(name)`: the config's `[tui] theme` (the highlight theme in
@@ -58,7 +60,7 @@ use codex_tui_rtwk::services::startup::UpdateAction;
 use rtwk::binding::ScreenMode;
 use rtwk_core::graphics::GraphicsProtocol;
 use rtwk_core::style::ColorMode;
-use rtwk_core::terminal::NotificationProtocol;
+use rtwk_core::terminal::{BidiReordering, NotificationProtocol};
 use rtwk_core::unicode::TextMode;
 use rtwk_test::Options;
 
@@ -123,6 +125,7 @@ pub(super) struct Env {
     palette: Vec<(u8, u32)>,
     depth: Option<ColorDepth>,
     legacy_text: bool,
+    bidi_terminal: bool,
     notifications: bool,
     kitty: bool,
     vars: Vec<(&'static str, &'static str)>,
@@ -176,11 +179,12 @@ impl Env {
         for (name, value) in &self.vars {
             options = options.env(name, value);
         }
-        let (fg, palette, depth, legacy, notifications) = (
+        let (fg, palette, depth, legacy, bidi, notifications) = (
             self.foreground,
             self.palette.clone(),
             self.depth,
             self.legacy_text,
+            self.bidi_terminal,
             self.notifications,
         );
         options.terminal(move |terminal| {
@@ -191,6 +195,9 @@ impl Env {
             }
             if legacy {
                 terminal.text_mode = TextMode::Legacy;
+            }
+            if bidi {
+                terminal.bidi = BidiReordering::Terminal;
             }
             if notifications {
                 terminal.notifications = NotificationProtocol::Osc9;
@@ -375,6 +382,13 @@ impl Open {
     /// `UnicodeWidthStr` counts them.
     pub fn legacy_text(mut self) -> Open {
         self.env.legacy_text = true;
+        self
+    }
+
+    /// A terminal that reorders right-to-left text itself (`BidiReordering::Terminal`): the cells
+    /// hold the text in logical order, as the oracle's buffer does.
+    pub fn bidi_terminal(mut self) -> Open {
+        self.env.bidi_terminal = true;
         self
     }
 

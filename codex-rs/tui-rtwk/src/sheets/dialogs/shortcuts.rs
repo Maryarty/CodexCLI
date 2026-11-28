@@ -16,12 +16,15 @@ use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx};
 use std::rc::Rc;
 
+use super::Panel;
 use super::dialog::{Msg, SmallDialogState};
 use super::strings::{Keys, Strings};
 use crate::app::theme::Tokens;
-use crate::keymap::{bind_fixed, label, stroke_for, stroke_label};
-use codex_tui_core::keymap::actions::GLOBAL_OPEN_AGENTS;
-use codex_tui_core::keymap::fixed;
+use crate::keymap::{bind_fixed, binding_label, label, newline_binding, stroke_for, stroke_label};
+use codex_tui_core::keymap::actions::{
+    CHAT_TOGGLE_VOICE, COMPOSER_QUEUE, EDITOR_INSERT_NEWLINE, GLOBAL_OPEN_AGENTS,
+};
+use codex_tui_core::keymap::fixed::{self, CYCLE_COLLABORATION_MODE};
 use codex_tui_core::keymap::{Keymap, Stroke};
 
 /// The two pages of the shortcut overlay (`bottom_pane/shortcut_overlay.rs`: `ShortcutView`):
@@ -152,10 +155,24 @@ pub(super) struct Resolved {
     rows: Vec<(String, &'static str)>,
 }
 
+/// The key the new-line row names (`footer_insert_newline_key`).
+fn newline_label(keymap: &Keymap, enhanced: bool) -> Option<String> {
+    newline_binding(&keymap.bindings(EDITOR_INSERT_NEWLINE), enhanced).map(binding_label)
+}
+
 /// The columns of `bindings` (`shortcut_overlay.rs`): a row whose action is
 /// unbound is left out, `Send message` and `Quit` turn into `Queue message`
 /// and `Interrupt` while a turn runs.
-pub(super) fn resolve(s: &Strings, keymap: &Keymap, running: bool, agents: bool) -> Vec<Resolved> {
+pub(super) fn resolve(s: &Strings, keymap: &Keymap, state: Panel) -> Vec<Resolved> {
+    let Panel {
+        running,
+        agents,
+        queue,
+        esc_primed,
+        enhanced,
+        modes,
+        voice,
+    } = state;
     let spell = |stroke: &Stroke| stroke_label(stroke);
     s.shortcut_sections
         .iter()
@@ -166,6 +183,11 @@ pub(super) fn resolve(s: &Strings, keymap: &Keymap, running: bool, agents: bool)
                 .filter_map(|entry| {
                     let keys = match entry.keys {
                         Keys::Plain(text) => text.to_string(),
+                        // `repeat_label`: the primed backtrack takes one more press, not two
+                        Keys::Repeated(text) if esc_primed => text.to_string(),
+                        Keys::Repeated(text) => format!("{text} {text}"),
+                        // `Change mode` is a row while the collaboration modes are on
+                        Keys::Fixed(id) if id == CYCLE_COLLABORATION_MODE && !modes => return None,
                         Keys::Fixed(id) => spell(&stroke_for(id)?),
                         Keys::FixedPair(a, b) => format!(
                             "{}{}{}",
@@ -177,10 +199,21 @@ pub(super) fn resolve(s: &Strings, keymap: &Keymap, running: bool, agents: bool)
                         Keys::Bound(id) if agents && id == GLOBAL_OPEN_AGENTS => {
                             stroke_label(&stroke_for(fixed::OPEN_AGENTS_FROM_LEFT)?)
                         }
+                        Keys::Bound(id) if id == EDITOR_INSERT_NEWLINE => {
+                            newline_label(keymap, enhanced)?
+                        }
+                        // `Voice` is a row while `/voice` is a command of this conversation
+                        Keys::Bound(id) if id == CHAT_TOGGLE_VOICE && !voice => return None,
                         Keys::Bound(id) => label(keymap, id)?,
                     };
-                    let action = match (running, entry.running) {
-                        (true, Some(running)) => running,
+                    // the send key queues while a turn runs or the session is not configured
+                    let action = match (entry.running, running) {
+                        (Some(queued), true) => queued,
+                        (Some(queued), false)
+                            if queue && entry.keys == Keys::Bound(COMPOSER_QUEUE) =>
+                        {
+                            queued
+                        }
                         _ => entry.label,
                     };
                     Some((keys, action))

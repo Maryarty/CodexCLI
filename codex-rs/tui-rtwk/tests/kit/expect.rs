@@ -235,6 +235,33 @@ impl Screen {
         row_then(&self.rows(), &self.text(), row, following);
     }
 
+    /// The screen's rows `rows` as the oracle's animation galleries print a frame: each row's
+    /// glyphs over its width, then the same rows as a plane that reads `.` where a cell keeps the
+    /// terminal's background and `#` where something painted one, the rows joined by `│`.
+    pub fn frame_with_tint(&self, rows: Range<usize>) -> String {
+        let grid = self.grid();
+        let glyphs = rows.clone().map(|y| {
+            (0..grid.width)
+                .map(|x| match grid.cell(x, y).text.as_str() {
+                    "" => " ".to_string(),
+                    text => text.to_string(),
+                })
+                .collect::<String>()
+        });
+        let tint = rows.map(|y| {
+            (0..grid.width)
+                .map(|x| {
+                    if grid.style(x, y).bg == "Reset" {
+                        '.'
+                    } else {
+                        '#'
+                    }
+                })
+                .collect::<String>()
+        });
+        glyphs.chain(tint).collect::<Vec<_>>().join("│")
+    }
+
     /// The first row of the oracle snapshot `name` and the rows under it equal ours, from the
     /// screen's top, trailing blanks cut.
     pub fn assert_snap_head(&self, name: &str) {
@@ -1177,4 +1204,20 @@ pub fn assert_rows_are(got: &[String], want: &[&str]) {
     super::verdict::screen(&got.clone(), &want.clone(), || {
         pretty_assertions::assert_eq!(got, want);
     });
+}
+
+/// The lines `got`, one per frame a test took of an animation, equal the lines of the oracle
+/// snapshot `name` (the oracle's test joined its frames under labels of its own), trailing blanks
+/// cut.
+pub fn assert_snap_lines(name: &str, got: &[String]) {
+    let want: Vec<String> = super::snap_rows(name, "")
+        .iter()
+        .map(|line| line.trim_end().to_string())
+        .collect();
+    let have: Vec<String> = got.iter().map(|line| line.trim_end().to_string()).collect();
+    pretty_assertions::assert_eq!(
+        have,
+        want,
+        "{name}: ours (left) differs from the oracle (right)"
+    );
 }

@@ -1,5 +1,6 @@
 # Working at 42 s (bottom_pane/mod.rs status_indicator_visible_during_command_execution).
 {"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "chat", "ev": {"facts": {"agents_navigation": false}}}
 {"step": "screen", "dir": "chat", "ev": {"status": {"items": []}}}
 {"step": "screen", "dir": "agents", "ev": {"clock": 1700000042}}
 {"step": "notify", "message": {"method": "turn/started", "params": {"threadId": "thread-1", "turn": {"id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "full", "status": "inProgress", "error": null, "startedAt": 1700000000, "completedAt": null, "durationMs": null}}}}

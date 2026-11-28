@@ -64,6 +64,26 @@ fn sent(h: &Harness) -> Vec<String> {
         .collect()
 }
 
+/// `queue_submissions`: before the session is configured the send key queues the draft, so the
+/// shortcut help says `Queue message` for it and not `Send message` (no turn runs, so `Quit`
+/// stays `Quit`).
+#[test]
+fn the_help_names_the_send_key_as_queueing_before_the_thread_starts() {
+    let mut h = starting();
+    h.t.type_text("?");
+    h.wait_for("the help", |s| s.contains("Keyboard shortcuts"));
+    let screen = h.t.screen();
+    assert!(screen.contains("Queue message"), "{screen}");
+    assert!(!screen.contains("Send message"), "{screen}");
+    assert!(!screen.contains("Interrupt"), "{screen}");
+    // the help stays open over the start: its send row is the session's again
+    start_thread(&mut h);
+    let screen = h.t.screen();
+    assert!(screen.contains("Keyboard shortcuts"), "{screen}");
+    assert!(screen.contains("Send message"), "{screen}");
+    assert!(!screen.contains("Queue message"), "{screen}");
+}
+
 #[test]
 fn a_draft_typed_while_the_thread_starts_survives_the_start() {
     let mut h = starting();

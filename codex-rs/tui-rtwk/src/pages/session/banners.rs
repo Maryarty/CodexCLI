@@ -435,13 +435,14 @@ fn banner_block(
     .into()
 }
 
+/// The hint line of the selection view the oracle's banner is (`SelectionView`'s footer hint): two
+/// cells in from the left, the whole width to the right.
 fn banner_hint(hint: &str, tokens: &theme::Tokens, rows: usize) -> AnyWidget {
-    inset(
-        Text::new(hint.to_owned())
-            .style(tokens.dim())
-            .max_lines(Some(rows))
-            .into(),
-    )
+    let text: AnyWidget = Text::new(hint.to_owned())
+        .style(tokens.dim())
+        .max_lines(Some(rows))
+        .into();
+    Padding::new(EdgeInsets::only(2, 0, 0, 0), text).into()
 }
 
 /// The viewer's clock and the host's zone and time, which the banner's `{time}` is read in.

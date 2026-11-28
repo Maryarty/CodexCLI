@@ -108,6 +108,15 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             }),
         },
         DebugEntry {
+            name: "alone_skills",
+            description: "the composer with its key footer and the skill `rustdoc` to mention (`$`)",
+            script: include_str!("fixtures/alone_skills.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                alone::Alone::new(ui).into()
+            }),
+        },
+        DebugEntry {
             name: "alone_agents",
             description: "the composer with its key footer, the agents page reachable (`← for agents`)",
             script: include_str!("fixtures/alone.jsonl"),
@@ -168,6 +177,68 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             name: "alone_plan_queue",
             description: "the composer with its key footer in Plan mode while a turn runs",
             script: include_str!("fixtures/alone_plan_queue.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                alone::Alone::new(ui).into()
+            }),
+        },
+        DebugEntry {
+            name: "alone_esc_hint",
+            description: "the composer with its key footer, the Esc backtrack primed (`esc again to edit previous message`)",
+            script: include_str!("fixtures/alone.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                alone::Alone::new(ui).esc_hint().enhanced_keys().into()
+            }),
+        },
+        DebugEntry {
+            name: "alone_quit",
+            description: "the composer with its key footer under the quit hint `⌃c again to quit` for a second",
+            script: include_str!("fixtures/alone.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                alone::Alone::new(ui).quit_hint().into()
+            }),
+        },
+        DebugEntry {
+            name: "alone_queue_submissions",
+            description: "the composer with its key footer, the send key queueing (the overlay says `Queue message`)",
+            script: include_str!("fixtures/alone.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                alone::Alone::new(ui)
+                    .queue_submissions()
+                    .enhanced_keys()
+                    .into()
+            }),
+        },
+        DebugEntry {
+            name: "alone_esc_after_overlay",
+            description: "the composer with its key footer: the Esc hint is primed right after the shortcut overlay opens",
+            script: include_str!("fixtures/alone.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                alone::Alone::new(ui)
+                    .esc_hint_after_overlay()
+                    .enhanced_keys()
+                    .into()
+            }),
+        },
+        DebugEntry {
+            name: "alone_shell_status",
+            description: "the composer with a status line `gpt-5.4 high fast · ~/code/codex-1 · Context 0% used` over its hints",
+            script: include_str!("fixtures/alone_status.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                alone::Alone::new(ui)
+                    .status_line("gpt-5.4 high fast · ~/code/codex-1 · Context 0% used")
+                    .into()
+            }),
+        },
+        DebugEntry {
+            name: "alone_history_file",
+            description: "the composer with its key footer and a history file of two rows that are not read yet",
+            script: include_str!("fixtures/alone_history_file.jsonl"),
             open: EntryOpen::Route(|seeded: &Seeded| {
                 let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
                 alone::Alone::new(ui).into()

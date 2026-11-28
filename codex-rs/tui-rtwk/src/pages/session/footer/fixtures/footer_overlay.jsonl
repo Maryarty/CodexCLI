@@ -1,0 +1,5 @@
+# The shortcut overlay's model: modes off, `/voice` on (the oracle's default key hints name f8).
+# Ported from codex-tui footer_shortcuts_shift_and_esc.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":[]}}}
+{"step":"screen","dir":"chat","ev":{"flags":{"collaboration_modes_enabled":false,"voice_command_enabled":true}}}
