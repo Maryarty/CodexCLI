@@ -14,6 +14,9 @@ use crate::threads::{
     voice_transcript::{History, Legacy, Page, ThreadEvent},
 };
 
+pub mod settings;
+pub use settings::Intent;
+
 pub const NAME: &str = "voice";
 pub const ID: &str = "S25";
 pub const KIND: Kind = Kind::Sheet;
@@ -21,6 +24,7 @@ pub const KIND: Kind = Kind::Sheet;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
     ordered_legacy_publisher: Option<Address>,
+    pub settings: settings::Model,
 }
 
 impl Model {
@@ -34,18 +38,14 @@ pub enum Ev {
     OrderedLegacyPublisher(Address),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Intent {}
-
 pub fn apply(model: &mut Model, ev: Ev, _: &mut AppFx) {
     match ev {
         Ev::OrderedLegacyPublisher(address) => model.ordered_legacy_publisher = Some(address),
     }
 }
 
-pub fn apply_intent(_: &mut Model, intent: Intent, _: &mut AppFx) {
-    match intent {}
-}
+// The app captures the active thread's physical address before issuing a settings request.
+pub fn apply_intent(_: &mut Model, _: Intent, _: &mut AppFx) {}
 
 /// SDP can contain private ICE addresses and credentials.
 #[derive(Clone, PartialEq, Eq)]
@@ -146,9 +146,15 @@ pub enum ThreadEv {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
-    Start { session: String, offer: Sdp },
+    Start {
+        session: String,
+        offer: Sdp,
+        voice: Option<settings::RealtimeVoice>,
+    },
     Stop,
-    ReadTimeline { cursor: Option<String> },
+    ReadTimeline {
+        cursor: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -195,6 +201,7 @@ enum Captions {
 struct Call {
     owner: Owner,
     session: String,
+    voice: Option<settings::RealtimeVoice>,
     phase: Phase,
     started: bool,
     captions: Captions,
@@ -341,6 +348,7 @@ pub(crate) fn apply_intent_on_thread(
             let call = Call {
                 owner,
                 session,
+                voice: fx.realtime_voice(),
                 phase: Phase::Preparing,
                 started: false,
                 captions: if part.history == History::Legacy && fx.ordered_legacy_voice() {
@@ -503,6 +511,7 @@ fn answer_audio(part: &mut ThreadPart, result: AudioResult, fx: &mut ThreadFx<'_
                 Command::Start {
                     session: call.session.clone(),
                     offer,
+                    voice: call.voice,
                 },
             );
         }
@@ -650,10 +659,15 @@ pub fn apply_reply(
 fn ask(command: &Command, thread: &ThreadId) -> crate::threads::ThreadAsk {
     use crate::threads::ThreadAsk;
     match command {
-        Command::Start { session, offer } => ThreadAsk::RealtimeStart {
+        Command::Start {
+            session,
+            offer,
+            voice,
+        } => ThreadAsk::RealtimeStart {
             thread: thread.clone(),
             session: session.clone(),
             offer: offer.clone(),
+            voice: *voice,
         },
         Command::Stop => ThreadAsk::RealtimeStop {
             thread: thread.clone(),

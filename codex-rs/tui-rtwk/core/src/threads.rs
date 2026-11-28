@@ -1908,6 +1908,7 @@ pub struct ThreadFx<'a> {
     published_name: Option<String>,
     voice_failure: Option<Failure>,
     ordered_legacy_voice: bool,
+    realtime_voice: Option<screens::voice::settings::RealtimeVoice>,
     address: Address,
     /// The app's arbitration for the completed turn carried by this event.
     prompt_priority: screens::chat::plan_mode::PromptPriority,
@@ -1938,6 +1939,7 @@ impl<'a> ThreadFx<'a> {
             published_name: None,
             voice_failure: None,
             ordered_legacy_voice: false,
+            realtime_voice: None,
             address: Address::default(),
             prompt_priority: screens::chat::plan_mode::PromptPriority::Ordinary,
             daybreak: Daybreak::Apply,
@@ -1956,6 +1958,18 @@ impl<'a> ThreadFx<'a> {
 
     pub(crate) fn ordered_legacy_voice(&self) -> bool {
         self.ordered_legacy_voice
+    }
+
+    pub(crate) fn with_realtime_voice(
+        mut self,
+        voice: Option<screens::voice::settings::RealtimeVoice>,
+    ) -> Self {
+        self.realtime_voice = voice;
+        self
+    }
+
+    pub(crate) fn realtime_voice(&self) -> Option<screens::voice::settings::RealtimeVoice> {
+        self.realtime_voice
     }
 
     pub(crate) fn with_cloud(mut self, cloud: bool) -> Self {

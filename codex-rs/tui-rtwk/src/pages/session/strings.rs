@@ -776,6 +776,9 @@ impl Strings {
         match key {
             NoteKey::Command(notice) => self.notice(notice),
             NoteKey::Server(message) | NoteKey::ServerDone(message) => message.clone(),
+            NoteKey::VoiceSettings(feedback) => {
+                crate::sheets::voice::strings::feedback(feedback).text
+            }
             NoteKey::WorkingDirectory(dir) => text(self.working_directory, dir),
             NoteKey::Rollout(Some(path)) => text(self.rollout, path),
             NoteKey::Rollout(None) => self.rollout_missing.to_string(),

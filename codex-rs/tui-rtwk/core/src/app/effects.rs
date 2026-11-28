@@ -325,6 +325,8 @@ host_capability_list! {
     /// Microphone capture and speaker playback of voice (oracle `voice.rs`, `audio_device.rs`).
     /// Listed for the voice package; the host answers it with its audio executor.
     audio => Audio(command: crate::screens::voice::AudioCommand) -> new Audio(crate::screens::voice::AudioReport);
+    /// Machine-local audio settings and the originating backend's voice preference.
+    voice_settings => VoiceSettings(request: crate::screens::voice::settings::Request) -> new VoiceSettings(crate::screens::voice::settings::Report);
     /// Read a terminal pet catalog or static frame, or persist the local selection.
     pet => Pet(ask: crate::screens::pets::AssetAsk) -> new Pet(crate::screens::pets::AssetDone);
     /// Suspends the process to the shell (Ctrl+Z, oracle `tui/job_control.rs`); the answer comes
@@ -337,9 +339,6 @@ host_capability_list! {
     screen_mode => ScreenMode { alternate: bool } -> new ScreenModeSet(Result<(), String>);
     /// The terminal's default colors (oracle `terminal_palette.rs`), `None` when it did not say.
     probe => Probe -> new Probed(Option<TerminalColors>);
-    /// The lock a session holds while it is the one in use (oracle `session_lock`): taken, or
-    /// released. Answered by nothing, or why it could not be taken (another process holds it).
-    session_lock => SessionLock { thread: ThreadId, held: bool } -> new Locked(Result<(), String>);
     /// Run a startup step. Its screen owns the continuation through a possible restart.
     startup => Startup { ask: onboarding::Ask };
     /// Detect or import settings under the import screen's ticket.

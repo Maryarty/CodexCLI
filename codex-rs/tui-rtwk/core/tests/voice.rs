@@ -228,6 +228,118 @@ fn offered(app: &mut CodexApp, prepared: &AppFx) -> (AppFx, String) {
     )
 }
 
+#[test]
+fn voice_preference_changes_the_next_call_only_after_the_effective_write_receipt() {
+    use codex_tui_core::screens::ScreenIntent;
+    use voice::settings::{
+        Answer, Catalog, Change, Feedback, Intent as SettingsIntent, Operation,
+        RealtimeVoice as Voice, Report,
+    };
+
+    let mut app = ready();
+    let thread = ThreadId::new("thread-1");
+    let intent_ev = |intent| AppEv::Intent(Intent::Screen(ScreenIntent::Voice(intent)));
+    let request = |fx: &AppFx| {
+        fx.commands()
+            .iter()
+            .find_map(|command| match command.host_ask() {
+                Some(Ask::VoiceSettings(request)) => Some(request.clone()),
+                _ => None,
+            })
+            .expect("issued settings request")
+    };
+    let receipt = |request, answer| AppEv::Effect {
+        request: 0,
+        done: Done::VoiceSettings(Report {
+            request,
+            result: Ok(answer),
+        }),
+    };
+    let catalog = |current| Catalog {
+        voices: vec![Voice::Juniper, Voice::Maple],
+        current: Some(current),
+    };
+    let listed = run(
+        &mut app,
+        intent_ev(SettingsIntent::Read {
+            thread: thread.clone(),
+            operation: Operation::ReadCatalog,
+        }),
+    );
+    let queried = request(&listed);
+    assert_eq!(
+        app.dispatch_route(&listed.commands()[0], None),
+        Some((queried.origin.address.backend, Some(queried.origin.address)))
+    );
+    run(
+        &mut app,
+        receipt(queried.clone(), Answer::Catalog(catalog(Voice::Juniper))),
+    );
+    let saved = run(
+        &mut app,
+        intent_ev(SettingsIntent::Persist {
+            origin: queried.origin,
+            change: Change::Voice(Voice::Maple),
+        }),
+    );
+    let write = request(&saved);
+    let pending_call = preparing(&mut app);
+    run(
+        &mut app,
+        receipt(
+            write.clone(),
+            Answer::VoiceSaved {
+                catalog: catalog(Voice::Maple),
+                warning: None,
+            },
+        ),
+    );
+    assert_eq!(
+        app.screens()
+            .voice
+            .settings
+            .snapshot(&thread)
+            .expect("settings")
+            .feedback,
+        Some(Feedback::VoiceSaved(Voice::Maple))
+    );
+    let (start, _) = offered(&mut app, &pending_call);
+    assert!(
+        matches!(wire(&start).1, wire::ClientRequest::ThreadRealtimeStart { params, .. } if params.voice == Some(Voice::Juniper))
+    );
+    run(&mut app, ack(&start));
+    run(&mut app, closed("thread-1"));
+    let next = preparing(&mut app);
+    let (start, _) = offered(&mut app, &next);
+    assert!(
+        matches!(wire(&start).1, wire::ClientRequest::ThreadRealtimeStart { params, .. } if params.voice == Some(Voice::Maple))
+    );
+
+    let backend = write.origin.address.backend;
+    let epoch = write.origin.address.epoch;
+    app.ingest(Ingress::transport_replaced(backend, epoch, epoch.next()))
+        .expect("transport replaced");
+    run(
+        &mut app,
+        receipt(
+            write,
+            Answer::VoiceSaved {
+                catalog: catalog(Voice::Juniper),
+                warning: None,
+            },
+        ),
+    );
+    assert!(
+        app.screens()
+            .voice
+            .settings
+            .snapshot(&thread)
+            .expect("retired settings")
+            .catalog
+            .is_none()
+    );
+}
+
 fn display(app: &CodexApp) -> Option<voice::Display> {
     app.active_thread().screen_slots().voice.display()
 }
@@ -509,6 +621,58 @@ fn open_thread(app: &mut CodexApp, id: &str, backend: BackendId, paginated: bool
     );
     assert_eq!(app.session().active, Some(ThreadId::new(id)));
     resumed
+}
+
+#[test]
+fn desktop_media_and_devices_use_primary_services_but_voice_catalog_uses_the_thread_owner() {
+    use codex_tui_core::screens::ScreenIntent;
+    use voice::settings::{Intent as SettingsIntent, Operation};
+
+    let mut app = ready();
+    let secondary = BackendId(1);
+    app.attach_backend(secondary);
+    apply_app_from(&mut app, secondary, AppEv::Connected, &mut AppFx::default());
+    open_thread(&mut app, "thread-2", secondary, true);
+    let prepare = preparing_for(&mut app, "thread-2");
+    assert_eq!(host(&prepare).0.owner.address.backend, secondary);
+    assert!(
+        prepare
+            .commands()
+            .iter()
+            .all(|command| app.dispatch_route(command, None) == Some((BackendId::default(), None)))
+    );
+    let settings = |app: &mut CodexApp, operation| {
+        run(
+            app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Voice(SettingsIntent::Read {
+                thread: ThreadId::new("thread-2"),
+                operation,
+            }))),
+        )
+    };
+    let local = settings(&mut app, Operation::ReadAudio);
+    assert_eq!(
+        app.dispatch_route(&local.commands()[0], None),
+        Some((BackendId::default(), None))
+    );
+    let server = settings(&mut app, Operation::ReadCatalog);
+    assert!(
+        matches!(app.dispatch_route(&server.commands()[0], None), Some((owner, Some(address))) if owner == secondary && address.backend == secondary)
+    );
+    let stopped = intent_for(&mut app, "thread-2", ThreadIntent::Stop);
+    let close = stopped
+        .commands()
+        .iter()
+        .find(|cmd| {
+            cmd.host_ask().is_some_and(
+                |ask| matches!(ask, Ask::Audio(audio) if audio.action == AudioAction::Close),
+            )
+        })
+        .expect("local close");
+    assert_eq!(
+        app.dispatch_route(close, None),
+        Some((BackendId::default(), None))
+    );
 }
 
 #[test]

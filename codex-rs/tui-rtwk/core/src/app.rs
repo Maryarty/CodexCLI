@@ -1305,6 +1305,21 @@ impl CodexApp {
         }
         let address = match command {
             Command::Effect {
+                ask: effects::Ask::VoiceSettings(request),
+                ..
+            } => {
+                if !self.screens.voice.settings.issued(request)
+                    || self.voice_settings_origin(&request.origin.thread).as_ref()
+                        != Some(&request.origin)
+                {
+                    return None;
+                }
+                if request.operation.local() {
+                    return Some((BackendId::default(), None));
+                }
+                request.origin.address
+            }
+            Command::Effect {
                 request,
                 ask:
                     effects::Ask::GitSummary {
@@ -1346,6 +1361,19 @@ impl CodexApp {
         }
     }
 
+    fn voice_settings_origin(&self, thread: &ThreadId) -> Option<screens::voice::settings::Origin> {
+        let backend = self.screens.agents.owner_of(thread.as_str());
+        if self.session.connections.get(&backend) != Some(&ConnectionState::Connected) {
+            return None;
+        }
+        let cwd = self.threads.get(thread)?.screen_slots().chat.cwd.clone();
+        Some(screens::voice::settings::Origin {
+            thread: thread.clone(),
+            address: self.address(backend),
+            cwd,
+        })
+    }
+
     fn local_side_storage(&self, backend: BackendId) -> Option<LocalSideStorage> {
         self.local_side_storage
             .filter(|(address, _)| *address == self.address(backend))
@@ -1381,9 +1409,9 @@ impl CodexApp {
                 ..
             } => address.backend,
             Command::Effect {
-                ask: effects::Ask::Audio(command),
+                ask: effects::Ask::Audio(_),
                 ..
-            } => command.owner.address.backend,
+            } => BackendId::default(),
             Command::RejectRequest { key }
             | Command::ResolveRequest { key, .. }
             | Command::Effect {
@@ -1518,6 +1546,10 @@ impl CodexApp {
         features::retire_rate_offer(self, backend);
         features::retire_workspace_effects(self, backend);
         git_summary::retire(self, backend);
+        Rc::make_mut(&mut self.screens)
+            .voice
+            .settings
+            .retire(backend);
         detach_threads(self, backend, fx);
         self.fail_in_flight(backend);
         select::retire_permission_writes(self, backend, fx);
@@ -2468,9 +2500,15 @@ fn apply_event(
             done: effects::Done::IdePrompt(reading),
         } => ide_submit::answered(app, request, reading),
         AppEv::Effect {
-            done: effects::Done::Audio(report),
+            done: effects::Done::VoiceSettings(report),
             ..
         } => {
+            finish_voice_settings(app, origin, transport, report, fx);
+        }
+        AppEv::Effect {
+            done: effects::Done::Audio(report),
+            ..
+        } if origin == BackendId::default() => {
             let owner = &report.owner;
             let thread = owner.thread.clone();
             if app.address(owner.address.backend) == owner.address
@@ -2669,6 +2707,66 @@ fn apply_event(
                 }
             }
         }
+    }
+}
+
+fn finish_voice_settings(
+    app: &mut CodexApp,
+    backend: BackendId,
+    transport: Option<Address>,
+    mut report: screens::voice::settings::Report,
+    fx: &mut AppFx,
+) {
+    use screens::voice::settings::{Change, Intent, Operation, Problem};
+    let issued = &report.request.origin;
+    let expected = if report.request.operation.local() {
+        BackendId::default()
+    } else {
+        issued.address.backend
+    };
+    if backend != expected
+        || (!report.request.operation.local()
+            && transport.is_some_and(|address| address != issued.address))
+    {
+        return;
+    }
+    let thread = issued.thread.clone();
+    let current = app
+        .voice_settings_origin(&thread)
+        .filter(|current| current == issued);
+    if current.is_none() {
+        report.result = Err(Problem::ConnectionLost);
+    }
+    let refresh = match &report.request.operation {
+        Operation::Persist(Change::Device { kind, .. }) => Some(*kind),
+        _ => None,
+    };
+    let Some(feedback) = Rc::make_mut(&mut app.screens).voice.settings.finish(report) else {
+        return;
+    };
+    apply_thread(
+        app,
+        &thread,
+        ThreadEv::Appended {
+            turn: None,
+            item: threads::Item::Note(threads::Note::from(threads::NoteKey::VoiceSettings(
+                feedback,
+            ))),
+        },
+        fx,
+    );
+    if let (Some(kind), Some(current)) = (refresh, current)
+        && app.session.active.as_ref() == Some(&thread)
+        && let Some(request) = Rc::make_mut(&mut app.screens).voice.settings.begin(
+            app.mint.next(),
+            current,
+            Intent::Read {
+                thread,
+                operation: Operation::ListDevices(kind),
+            },
+        )
+    {
+        fx.host(effects::Ask::VoiceSettings(request));
     }
 }
 
@@ -3507,6 +3605,21 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             host_asks::step(app, fx, |screens, fx| {
                 screens::apply_intent(screens, intent, fx)
             });
+        }
+        Intent::Screen(ScreenIntent::Voice(intent)) => {
+            if let Some(origin) = app
+                .session
+                .active
+                .as_ref()
+                .and_then(|thread| app.voice_settings_origin(thread))
+                && let Some(request) = Rc::make_mut(&mut app.screens).voice.settings.begin(
+                    app.mint.next(),
+                    origin,
+                    intent,
+                )
+            {
+                fx.host(effects::Ask::VoiceSettings(request));
+            }
         }
         Intent::Screen(intent) => screens::apply_intent(Rc::make_mut(&mut app.screens), intent, fx),
         Intent::Feature(intent) => features::intent(app, intent, fx),
@@ -4821,12 +4934,23 @@ fn apply_thread_with_receipt(
         .filter(|restricted| restricted.address == address)
         .map(|restricted| &restricted.models);
     if let Some(model) = app.threads.get_mut(thread) {
+        let realtime_voice = match &ev {
+            ThreadEv::ScreenIntent(ScreenThreadIntent::Voice(
+                screens::voice::ThreadIntent::Start,
+            )) => app
+                .screens
+                .voice
+                .settings
+                .voice(address, model.screen_slots().chat.cwd.as_ref()),
+            _ => None,
+        };
         threads::apply_with_receipt(
             model,
             ev,
             &mut ThreadFx::new(thread, fx, &mut app.mint)
                 .addressed(address)
                 .with_legacy_voice(app.screens.voice.legacy_captions_from(address))
+                .with_realtime_voice(realtime_voice)
                 .with_prompt_priority(priority)
                 .with_image_restrictions(image_restrictions)
                 .stamped(daybreak)

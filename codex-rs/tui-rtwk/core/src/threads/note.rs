@@ -92,6 +92,8 @@ pub enum NoteKey {
     /// What the server said when its work finished, in its own words
     /// (`modelProvider/authRecoveryCompleted`).
     ServerDone(String),
+    /// Effective voice and local audio preferences after their acknowledged write.
+    VoiceSettings(crate::screens::voice::settings::Feedback),
     /// What a switch of the collaboration mode said.
     Mode(ModeNote),
     /// A line of a feature slice (ADR-012); its words are `src/features/<f>/strings.rs`.
@@ -122,6 +124,7 @@ impl NoteKey {
             NoteKey::Select(note) => note.tone(),
             NoteKey::Feature(note) => crate::features::note_tone(note),
             NoteKey::ServerDone(_) => Tone::Done,
+            NoteKey::VoiceSettings(feedback) if !feedback.successful() => Tone::Error,
             NoteKey::Stub(_)
             | NoteKey::ParentOwned
             | NoteKey::ModeBusy
@@ -133,6 +136,7 @@ impl NoteKey {
             | NoteKey::DesktopOpened
             | NoteKey::StoppingTerminals
             | NoteKey::Toggled(..)
+            | NoteKey::VoiceSettings(_)
             | NoteKey::Mode(_)
             | NoteKey::Server(_) => Tone::Info,
         }

@@ -17,6 +17,7 @@ use futures::future::{AbortHandle, AbortRegistration, Abortable};
 use tokio::sync::watch;
 
 mod session_lock;
+pub(crate) mod settings;
 
 #[derive(Default)]
 pub(crate) struct Audio(Mutex<Slot>);
@@ -206,21 +207,19 @@ impl Audio {
             (entry.prepare.take()?, entry.ready.subscribe())
         };
         ready.wait_for(|ready| *ready).await.ok()?;
-        let selection = config
-            .map(|config| AudioDeviceSelection {
-                microphone: config.realtime_audio.microphone.clone(),
-                speaker: config.realtime_audio.speaker.clone(),
-                channel: config
-                    .realtime_audio
-                    .microphone_channel
-                    .as_ref()
-                    .map(|channels| channels.as_slice().to_vec()),
-            })
-            .unwrap_or_default();
-        let offer = blocking(move || RealtimeWebrtcSession::start(registration, selection))
-            .await
-            .ok_or_else(|| "The audio helper failed to prepare.".to_owned())
-            .and_then(|result| result.map_err(|error| error.to_string()));
+        let offer = async {
+            let configured = settings::read_local(config).await?;
+            let selection = AudioDeviceSelection {
+                microphone: configured.microphone,
+                speaker: configured.speaker,
+                channel: configured.channels,
+            };
+            blocking(move || RealtimeWebrtcSession::start(registration, selection))
+                .await
+                .ok_or_else(|| "The audio helper failed to prepare.".to_owned())?
+                .map_err(|error| error.to_string())
+        }
+        .await;
         let mut slot = self.lock();
         let Some(entry) = slot.entry.as_mut().filter(|entry| &entry.owner == owner) else {
             if let Ok(offer) = offer {
