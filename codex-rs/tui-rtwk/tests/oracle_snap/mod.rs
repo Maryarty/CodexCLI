@@ -526,6 +526,22 @@ fn parse_frame(name: String, lines: &[String]) -> Frame {
         frame.cursor = Some(cursor);
         lines.remove(0);
     }
+    // `scroll: 1` and `cursor: Some((x, y))` (or `cursor: (x, y)`, `cursor: None`) above the rows: a
+    // textarea test formats its state into the snapshot before the backend's rows. They say where
+    // the view scrolled and where the caret is, they are no rows of the screen.
+    while let Some(first) = lines.first() {
+        if first
+            .strip_prefix("scroll: ")
+            .is_some_and(|n| n.trim().parse::<usize>().is_ok())
+        {
+            lines.remove(0);
+        } else if let Some(cursor) = parse_state_cursor(first) {
+            frame.cursor = Some(cursor);
+            lines.remove(0);
+        } else {
+            break;
+        }
+    }
     let mut rows = Vec::new();
     let mut hidden = Vec::new();
     for line in lines {
@@ -540,6 +556,22 @@ fn parse_frame(name: String, lines: &[String]) -> Frame {
     frame.rows = rows.into_iter().map(|r| r.trim_end().to_string()).collect();
     frame.hidden = hidden;
     frame
+}
+
+/// `cursor: Some((0, 1))`, `cursor: (62, 0)` or `cursor: None`: the caret a textarea test wrote
+/// into its snapshot with the lower-case label (`parse_cursor` reads the backend's `Cursor:`).
+fn parse_state_cursor(line: &str) -> Option<Option<(usize, usize)>> {
+    let rest = line.trim().strip_prefix("cursor: ")?;
+    if rest == "None" {
+        return Some(None);
+    }
+    let nums = rest
+        .strip_prefix("Some(")
+        .and_then(|r| r.strip_suffix(')'))
+        .unwrap_or(rest);
+    let nums = nums.strip_prefix('(')?.strip_suffix(')')?;
+    let (x, y) = nums.split_once(", ")?;
+    Some(Some((x.parse().ok()?, y.parse().ok()?)))
 }
 
 /// `Cursor: Some((31, 4))` or `Cursor: None`.

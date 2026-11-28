@@ -639,17 +639,24 @@ fn multiple_file_citations_render_without_interpreting_encoded_source() {
 // ORACLE markdown_render/file_citations_tests.rs:162 file_citations_preserve_adjacent_entities_and_escaped_punctuation kind=ui owner=chat-live
 #[test]
 fn file_citations_preserve_adjacent_entities_and_escaped_punctuation() {
-    kit::pending(
-        Owner::ChatLive,
-        "G61: MarkdownView has no math renderer, so the first assertion (`$\\alpha$…$\\beta$` as `α/tmp/$x$/report.mdβ`) is drawn as source; the entity and escape cases hold (tests/pages/cells.rs citations)",
-    );
+    // The oracle's first case has no cwd; the other two run in its temp dir.
+    let bare = Screen::build(Owner::ChatLive)
+        .markdown(80, 40)
+        .agent_says(r"$\alpha$:codex-file-citation{path=/tmp/$x$/report.md}$\beta$")
+        .open();
+    bare.assert_contains("α/tmp/$x$/report.mdβ");
+    let temp = std::env::temp_dir();
+    let cwd = temp
+        .to_str()
+        .expect("a temp dir path")
+        .trim_end_matches('/');
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 40)
         .script(include_str!(
             "fixtures/markdown_streaming_1/file_citations_preserve_adjacent_entities_and_escaped_punctuation.jsonl"
         ))
+        .cwd(cwd)
         .open();
-    s.assert_contains("α/tmp/$x$/report.mdβ");
     s.assert_contains("Préface &first&amp;.txt🙂second.txt<fin>");
     s.assert_contains("[first.txt]*second.txt!");
 }
@@ -768,7 +775,7 @@ fn list_spacing_preserves_links_and_source_when_removing_separators() {
 fn unicode_math_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "G61: the chat has no math renderer: LaTeX display and inline math are drawn as their source",
+        "G-math-subset: rtwk-math draws `\\begin{matrix}a&b\\end{matrix}` as `[a, b]`, the oracle's subset keeps it as source (`Unsupported: $\\begin{matrix}a&b\\end{matrix}$.`); the rest of the screen (centred display blocks, no blank row around a block) is a spacing delta",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 60)
@@ -776,15 +783,17 @@ fn unicode_math_snapshot() {
             "fixtures/markdown_streaming_1/unicode_math_snapshot.jsonl"
         ))
         .open();
-    s.assert_snap("codex_tui__markdown_render__math__display_tests__unicode_math_snapshot");
+    s.assert_markdown_snap(
+        "codex_tui__markdown_render__math__display_tests__unicode_math_snapshot",
+    );
 }
 
 // ORACLE markdown_render/math_display_tests.rs:72 issue_48403_renders_zero_and_multiline_display kind=snap owner=chat-live snap=codex_tui__markdown_render__math__display_tests__issue_48403_renders_zero_and_multiline_display
 #[test]
 fn issue_48403_renders_zero_and_multiline_display() {
-    kit::pending(
+    kit::delta(
         Owner::ChatLive,
-        "G61: the chat has no math renderer: the zero and multiline display formula is drawn as its source",
+        "display formula centred by rtwk-rich and spaced as rtwk-math lays it (`Fₙ(s) ∧`, `(R(∧T)`), no blank row between the paragraph and the formula; the rows say the same",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 60)
@@ -792,7 +801,7 @@ fn issue_48403_renders_zero_and_multiline_display() {
             "fixtures/markdown_streaming_1/issue_48403_renders_zero_and_multiline_display.jsonl"
         ))
         .open();
-    s.assert_snap("codex_tui__markdown_render__math__display_tests__issue_48403_renders_zero_and_multiline_display");
+    s.assert_markdown_snap("codex_tui__markdown_render__math__display_tests__issue_48403_renders_zero_and_multiline_display");
 }
 
 // ORACLE markdown_render/math_display_tests.rs:87 unicode_math_schrodinger_equation_snapshot kind=snap owner=chat-live snap=codex_tui__markdown_render__math__display_tests__unicode_math_schrodinger_equation_snapshot
@@ -800,7 +809,7 @@ fn issue_48403_renders_zero_and_multiline_display() {
 fn unicode_math_schrodinger_equation_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "G61: the chat has no math renderer: the display equation is drawn as its source",
+        "G-math-block: rtwk-rich finds math after the block structure, so the lone `=` lines inside `\\[ .. \\]` are setext underlines: the formula is drawn as two headings of its source",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(100, 60)
@@ -808,7 +817,7 @@ fn unicode_math_schrodinger_equation_snapshot() {
             "fixtures/markdown_streaming_1/unicode_math_schrodinger_equation_snapshot.jsonl"
         ))
         .open();
-    s.assert_snap("codex_tui__markdown_render__math__display_tests__unicode_math_schrodinger_equation_snapshot");
+    s.assert_markdown_snap("codex_tui__markdown_render__math__display_tests__unicode_math_schrodinger_equation_snapshot");
 }
 
 // ORACLE markdown_render/math_display_tests.rs:101 unicode_math_optimization_model kind=snap owner=chat-live snap=codex_tui__markdown_render__math__display_tests__unicode_math_optimization_model
@@ -816,7 +825,7 @@ fn unicode_math_schrodinger_equation_snapshot() {
 fn unicode_math_optimization_model() {
     kit::pending(
         Owner::ChatLive,
-        "G61: the chat has no math renderer: the boxed aligned model is drawn with its LaTeX commands",
+        "G-math-subset: rtwk-math has no `\\boxed`, `\\underset` or `\\substack`: the boxed aligned model stays source (the oracle draws it and the test asserts no backslash is left)",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(240, 60)
@@ -825,7 +834,7 @@ fn unicode_math_optimization_model() {
         ))
         .open();
     s.assert_absent("\\");
-    s.assert_snap(
+    s.assert_markdown_snap(
         "codex_tui__markdown_render__math__display_tests__unicode_math_optimization_model",
     );
 }
@@ -833,20 +842,22 @@ fn unicode_math_optimization_model() {
 // ORACLE markdown_render/math_display_tests.rs:141 unicode_math_display_limits kind=snap owner=chat-live snap=codex_tui__markdown_render__math__display_tests__unicode_math_display_limits
 #[test]
 fn unicode_math_display_limits() {
+    kit::pending(
+        Owner::ChatLive,
+        "G-math-subset: rtwk-math has no `\\underset` or `\\overset`: those formulas stay source where the oracle draws `minimize` under its arguments and `def` over `=`",
+    );
     // The oracle also asserts that `render` returns equal output for two source spellings and
     // None for invalid scripts, and that a backticked display formula renders the same as the
     // bare one: internal results and equalities, not drawn; the snapshot is the visible half.
-    kit::pending(
-        Owner::ChatLive,
-        "G61: the chat has no math renderer: display limits are drawn as their source",
-    );
     let s = Screen::build(Owner::ChatLive)
         .markdown(100, 60)
         .script(include_str!(
             "fixtures/markdown_streaming_1/unicode_math_display_limits.jsonl"
         ))
         .open();
-    s.assert_snap("codex_tui__markdown_render__math__display_tests__unicode_math_display_limits");
+    s.assert_markdown_snap(
+        "codex_tui__markdown_render__math__display_tests__unicode_math_display_limits",
+    );
 }
 
 // ORACLE markdown_render/math_display_tests.rs:192 unicode_math_grouped_scripts_and_annotations kind=snap owner=chat-live snap=codex_tui__markdown_render__math__display_tests__unicode_math_grouped_scripts_and_annotations
@@ -854,7 +865,7 @@ fn unicode_math_display_limits() {
 fn unicode_math_grouped_scripts_and_annotations() {
     kit::pending(
         Owner::ChatLive,
-        "G61: the chat has no math renderer: inline grouped scripts and annotations are drawn as their source",
+        "G-math-subset: rtwk-math has no `\\underset` or `\\overset`: `\\(\\underset{i\\in I}{\\min} x_i\\)` stays source where the oracle draws `(min)_{i∈ I} xᵢ`; `x_{gpt}` is drawn `x_(gpt)` (the oracle keeps the source)",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(100, 60)
@@ -862,44 +873,57 @@ fn unicode_math_grouped_scripts_and_annotations() {
             "fixtures/markdown_streaming_1/unicode_math_grouped_scripts_and_annotations.jsonl"
         ))
         .open();
-    s.assert_snap("codex_tui__markdown_render__math__display_tests__unicode_math_grouped_scripts_and_annotations");
+    s.assert_markdown_snap("codex_tui__markdown_render__math__display_tests__unicode_math_grouped_scripts_and_annotations");
 }
 
 // ORACLE markdown_render/math_display_tests.rs:202 integral_limits_and_parenthesized_matrices kind=snap owner=chat-live snap=codex_tui__markdown_render__math__display_tests__integral_limits_and_parenthesized_matrices
 #[test]
 fn integral_limits_and_parenthesized_matrices() {
-    // The oracle also asserts each formula at width 10 renders as its backticked form: two
-    // renders compared, not drawn; the snapshot is the visible half.
     kit::pending(
         Owner::ChatLive,
-        "G61: the chat has no math renderer: integral limits and parenthesized matrices are drawn as their source",
+        "G-math-subset: rtwk-math reads `\\\\[2pt]` as a row gap and drops it, the oracle draws `[2pt]` as a cell (words differ); the rest of the screen is a spacing delta",
     );
+    // The oracle also asserts each formula at width 10 renders as its backticked form: two
+    // renders compared, not drawn; the snapshot is the visible half.
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 60)
         .script(include_str!(
             "fixtures/markdown_streaming_1/integral_limits_and_parenthesized_matrices.jsonl"
         ))
         .open();
-    s.assert_snap("codex_tui__markdown_render__math__display_tests__integral_limits_and_parenthesized_matrices");
+    s.assert_markdown_snap("codex_tui__markdown_render__math__display_tests__integral_limits_and_parenthesized_matrices");
 }
 
 // ORACLE markdown_render/math_display_tests.rs:220 unicode_math_aligned_fraction_and_narrow_fallback kind=snap owner=chat-live snap=codex_tui__markdown_render__math__display_tests__unicode_math_aligned_fraction_and_narrow_fallback
 #[test]
 fn unicode_math_aligned_fraction_and_narrow_fallback() {
-    // The oracle snapshot joins a Wide render (width 80) and a Narrow one (width 12) under two
-    // labels: one screen cannot show both widths, and no kit call takes one labelled part of a
-    // joined snapshot: kit gap, reported.
     kit::pending(
         Owner::ChatLive,
-        "G61: the chat has no math renderer: the aligned fraction is drawn as its source at width 80 and 12",
+        "G-math-subset: rtwk-math draws the subscript group of `y_{gpt}` on a row below the `y`, the oracle keeps `y_{gpt}` on its row as source (the letters come in another order)",
     );
-    let s = Screen::build(Owner::ChatLive)
-        .markdown(80, 60)
-        .script(include_str!(
-            "fixtures/markdown_streaming_1/unicode_math_aligned_fraction_and_narrow_fallback.jsonl"
-        ))
-        .open();
-    s.assert_snap("codex_tui__markdown_render__math__display_tests__unicode_math_aligned_fraction_and_narrow_fallback");
+    // The oracle snapshot joins a Wide render (width 80) and a Narrow one (width 12) under two
+    // labels: one screen per width, each compared with its labelled part.
+    const NAME: &str = "codex_tui__markdown_render__math__display_tests__unicode_math_aligned_fraction_and_narrow_fallback";
+    let script = include_str!(
+        "fixtures/markdown_streaming_1/unicode_math_aligned_fraction_and_narrow_fallback.jsonl"
+    );
+    let labels = ["Wide", "Narrow"];
+    for (width, label) in [(80, "Wide"), (12, "Narrow")] {
+        let s = Screen::build(Owner::ChatLive)
+            .markdown(width, 60)
+            .script(script)
+            .open();
+        let at = s
+            .rows()
+            .iter()
+            .position(|row| !row.trim().is_empty())
+            .unwrap_or(0);
+        s.snap(NAME)
+            .labelled(&labels)
+            .frame(label)
+            .at(at, 0)
+            .assert();
+    }
 }
 
 // ORACLE markdown_render/math_display_tests.rs:235 unicode_math_aligned_preserves_fraction_geometry kind=snap owner=chat-live snap=codex_tui__markdown_render__math__display_tests__unicode_math_aligned_preserves_fraction_geometry
@@ -907,7 +931,7 @@ fn unicode_math_aligned_fraction_and_narrow_fallback() {
 fn unicode_math_aligned_preserves_fraction_geometry() {
     kit::pending(
         Owner::ChatLive,
-        "G61: the chat has no math renderer: aligned fractions are drawn as their source",
+        "G-math-block: the oracle reads the spaced source (a line of only a space inside `\\[ .. \\]`) as the same formula; rtwk-rich's block parser ends the paragraph at that line and the display stays source (the first screen is a spacing delta of the snapshot: centred, `x = 1`, no blank row between blocks)",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 60)
@@ -915,7 +939,7 @@ fn unicode_math_aligned_preserves_fraction_geometry() {
             "fixtures/markdown_streaming_1/unicode_math_aligned_preserves_fraction_geometry.jsonl"
         ))
         .open();
-    s.assert_snap("codex_tui__markdown_render__math__display_tests__unicode_math_aligned_preserves_fraction_geometry");
+    s.assert_markdown_snap("codex_tui__markdown_render__math__display_tests__unicode_math_aligned_preserves_fraction_geometry");
     let spaced = Screen::build(Owner::ChatLive)
         .markdown(80, 60)
         .script(include_str!(
@@ -929,36 +953,33 @@ fn unicode_math_aligned_preserves_fraction_geometry() {
 #[test]
 fn unicode_math_structured_bounds_and_invalid_input() {
     // The oracle's `render` results (the 252-character width, the None cases) are internal; the
-    // visible half is the sixteen-row aligned block, drawn as sixteen `x =1` rows.
-    kit::pending(
-        Owner::ChatLive,
-        "G61: the chat has no math renderer: the sixteen-row aligned block is drawn as its LaTeX source",
-    );
+    // visible half is the sixteen-row aligned block, drawn as sixteen `x = 1` rows.
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 40)
         .script(include_str!(
             "fixtures/markdown_streaming_1/unicode_math_structured_bounds_and_invalid_input.jsonl"
         ))
         .open();
-    s.assert_in_order(&["x =1"; 16]);
+    // rtwk-math spaces the `=` of `x&=1` on both sides (`x = 1`); the oracle draws `x =1`.
+    s.assert_in_order(&["x = 1"; 16]);
 }
 
 // ORACLE markdown_render/math_display_tests.rs:313 unicode_math_narrow_layout_stays_meaningful kind=snap owner=chat-live snap=codex_tui__markdown_render__math__display_tests__unicode_math_narrow_layout_stays_meaningful
 #[test]
 fn unicode_math_narrow_layout_stays_meaningful() {
+    kit::delta(
+        Owner::ChatLive,
+        "the width-12 fraction is spaced by rtwk-math (`a + b`, the oracle's `a+b`); the rows say the same",
+    );
     // The oracle also asserts the backticked and bare forms render the same at widths 80 and 14,
     // and that a too-wide fraction stays source: equalities of two renders, not drawn.
-    kit::pending(
-        Owner::ChatLive,
-        "G61: the chat has no math renderer: at width 12 a display fraction is drawn as its source, wrapped as text",
-    );
     let s = Screen::build(Owner::ChatLive)
         .markdown(12, 60)
         .script(include_str!(
             "fixtures/markdown_streaming_1/unicode_math_narrow_layout_stays_meaningful.jsonl"
         ))
         .open();
-    s.assert_snap("codex_tui__markdown_render__math__display_tests__unicode_math_narrow_layout_stays_meaningful");
+    s.assert_markdown_snap("codex_tui__markdown_render__math__display_tests__unicode_math_narrow_layout_stays_meaningful");
 }
 
 // ORACLE markdown_render/math_display_tests.rs:355 unicode_math_nested_fractions_and_oversized_pending_stay_source kind=ui owner=chat-live
@@ -966,10 +987,6 @@ fn unicode_math_narrow_layout_stays_meaningful() {
 fn unicode_math_nested_fractions_and_oversized_pending_stay_source() {
     // The oracle's `render` is None for nested fractions and its pending offset for a 5000-character
     // display is internal. The visible half: the nested fractions stay as typed source.
-    kit::pending(
-        Owner::ChatLive,
-        "G61: the chat has no math renderer: nested fractions are drawn as their source; the oversized pending display is not built; probe: the body passes without it (it checks less than the oracle claims)",
-    );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)
         .script(include_str!(

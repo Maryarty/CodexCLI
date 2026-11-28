@@ -582,15 +582,17 @@ fn visible_rows_fill_inherited_styles_without_painting_outside_the_viewport() {
 // ORACLE transcript_view/prompt_style_tests.rs:51 prompt_margin_and_blank_background_survive_resize_without_changing_copy kind=snap owner=chat-live snap=codex_tui__transcript_view__text__prompt_style_tests__prompt_margin_narrow
 #[test]
 fn prompt_margin_and_blank_background_survive_resize_without_changing_copy() {
-    kit::pending(
+    // the oracle draws the transcript view alone: the prompt wrapped at 20 columns, no composer
+    kit::delta(
         Owner::ChatLive,
-        "the chat draws no prompt margin and blank background at 20 columns yet: the snapshot is a Buffer dump of the prompt layout",
+        "with no terminal palette the prompt block is the theme's surface (background Indexed(234), default foreground), the oracle's view fills Rgb(68,68,68) with Rgb(238,238,238); the rows are the oracle's",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(60, 8)
         .script(include_str!(
             "fixtures/transcript_view_3/prompt_margin.jsonl"
         ))
+        .view_only()
         .open();
     s.resize(20, 8);
     s.assert_snap("prompt_margin_narrow");

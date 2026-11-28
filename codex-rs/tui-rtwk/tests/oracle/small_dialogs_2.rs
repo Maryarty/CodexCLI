@@ -726,7 +726,7 @@ fn warnings_keep_current_and_next_without_dismissing_unvisited_pages() {
 fn warning_links_preserve_destinations_when_wrapped_and_scrolled() {
     kit::pending(
         Owner::DialogsPane,
-        "no seed: the warnings viewer draws no OSC 8 destination on a wrapped URL yet",
+        "pending(G49): after f2 the viewer opens and its words are the oracle's, two rows differ: the URL wraps at the width (`https://github.com/openai/co` / `dex/pull/12345?diff=split`), where the oracle breaks after `/` and `?` (`TextWrap::Word` never breaks after a slash), and the title is cut with an ellipsis (`MCP · e…`) where the oracle clips at the cell (`MCP · ex`; G-new-ellipsis-1)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(32, 9)
@@ -734,6 +734,8 @@ fn warning_links_preserve_destinations_when_wrapped_and_scrolled() {
             "fixtures/small_dialogs_2/warnings_wrapped_url.jsonl"
         ))
         .open();
+    // the viewer opens on f2 (the screen before it is the chat with the `⚠ 2 · f2` footer)
+    s.keys("f2");
     s.assert_snap("warnings_wrapped_url");
     // every linked cell carries the URL as its destination
     s.assert_link(

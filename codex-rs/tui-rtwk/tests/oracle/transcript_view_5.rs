@@ -311,13 +311,13 @@ fn offsets_can_reach_rows_after_u16_limit() {
 // ORACLE transcript_view/text_tests.rs:190 aligned_text_excludes_synthetic_leading_columns kind=snap owner=chat-live snap=wide
 #[test]
 fn aligned_text_excludes_synthetic_leading_columns() {
-    kit::pending(
+    // The oracle's test has no snapshot (`wide` is the Mentions popup's snapshot, which the
+    // name suffix-matches): it asks `TextLayout::link_at` and `position_at` of one right-aligned
+    // hyperlinked line at eight columns.
+    kit::na(
         Owner::ChatLive,
-        "no right-aligned hyperlinked entry ('wide') at eight columns: no script shape and no transcript cell yet",
+        "state test of the oracle's TextLayout (link_at / position_at of a right-aligned hyperlinked line at 8 columns), no screen snapshot; rtwk uses one render object to paint and to give selection offsets, a right-aligned Text with an inset is exercised in selection_units",
     );
-    let s = Screen::build(Owner::ChatLive).size(8, 1).live().open();
-    s.assert_snap("wide");
-    s.assert_link("wide", "https://example.com");
 }
 
 // ORACLE transcript_view/text_tests.rs:234 selected_revision_rewraps_both_directions_with_styles_and_indents kind=ui owner=chat-live
@@ -1225,13 +1225,17 @@ fn history_prefetch_counts_rows_in_preceding_entries() {
 // ORACLE transcript_view_tests.rs:1289 user_prompt_has_a_background_without_a_terminal_palette kind=snap owner=chat-live snap=user_prompt_has_a_background_without_a_terminal_palette
 #[test]
 fn user_prompt_has_a_background_without_a_terminal_palette() {
-    kit::pending(
+    // the oracle draws the transcript view alone: the prompt's rows, no composer under them
+    kit::delta(
         Owner::ChatLive,
-        "the chat draws user prompts without a background block when the terminal has no palette yet",
+        "the transcript sits at the bottom of the list, the oracle's view from the top; with no terminal palette the prompt block is the theme's surface (background Indexed(234), default foreground), the oracle's view fills Rgb(68,68,68) with Rgb(238,238,238)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(32, 8)
-        .script(include_str!("fixtures/transcript_view_5/one_prompt.jsonl"))
+        .script(include_str!(
+            "fixtures/transcript_view_5/prompt_with_image.jsonl"
+        ))
+        .view_only()
         .open();
     s.assert_snap("user_prompt_has_a_background_without_a_terminal_palette");
 }

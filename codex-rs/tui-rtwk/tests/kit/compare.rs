@@ -122,7 +122,27 @@ pub fn assert_dialog(grid: &Grid, want: &Want<'_>) {
     assert_frame(grid, want, frame, at);
 }
 
-fn assert_frame(grid: &Grid, want: &Want<'_>, mut frame: Frame, at: Option<(usize, usize)>) {
+fn assert_frame(grid: &Grid, want: &Want<'_>, frame: Frame, at: Option<(usize, usize)>) {
+    assert_frame_rows(grid, want, frame, at, None);
+}
+
+/// `assert_snap` for a snapshot the oracle drew as the text alone, of which ours is the rows
+/// from `want.at` to the end of `grid`: ours may be shorter or longer than the snapshot (a
+/// blank row between blocks, a wrap), and all of its rows are compared.
+pub fn assert_snap_rows_to_end(grid: &Grid, want: &Want<'_>) {
+    let frame = oracle_snap::frame(&oracle_snap::find(want.name), want.frame);
+    let row0 = want.at.map_or(0, |(row, _)| row);
+    let rows = grid.height.saturating_sub(row0);
+    assert_frame_rows(grid, want, frame, want.at, Some(rows));
+}
+
+fn assert_frame_rows(
+    grid: &Grid,
+    want: &Want<'_>,
+    mut frame: Frame,
+    at: Option<(usize, usize)>,
+    rows: Option<usize>,
+) {
     // The oracle's tests replace its own version with `<VERSION>` before they snapshot; the
     // port's heading says the version of this build.
     if let Some(version) = codex_tui_rtwk::services::cli_help::VERSION
@@ -148,9 +168,9 @@ fn assert_frame(grid: &Grid, want: &Want<'_>, mut frame: Frame, at: Option<(usiz
     );
     // A wide glyph is one char in the oracle's Debug rows and a glyph and a
     // space in its buffer-to-text rows: one compare, either convention.
-    let mut tries = vec![compare_rows(grid, &frame, at, false)];
+    let mut tries = vec![compare_rows(grid, &frame, at, rows, false)];
     if grid.has_wide() && tries[0].is_err() {
-        tries.push(compare_rows(grid, &frame, at, true));
+        tries.push(compare_rows(grid, &frame, at, rows, true));
     }
     if tries.iter().all(Result::is_err) {
         let nearest = tries
@@ -216,16 +236,17 @@ fn compare_rows(
     grid: &Grid,
     frame: &Frame,
     at: Option<(usize, usize)>,
+    rows: Option<usize>,
     wide_space: bool,
 ) -> Result<(), Rows> {
     let expected = frame.rows.clone();
     let (row0, col0) = at.unwrap_or((0, 0));
     let width = frame.area.map_or(grid.width, |(w, _)| col0 + w);
-    let count = match (at, frame.area) {
+    let count = rows.unwrap_or(match (at, frame.area) {
         (Some(_), Some((_, h))) => h,
         (Some(_), None) => expected.len(),
         (None, _) => grid.height,
-    };
+    });
     let actual = trim(labels::normalize(
         (row0..(row0 + count).min(grid.height))
             .map(|y| grid.row(y, col0, width, wide_space))

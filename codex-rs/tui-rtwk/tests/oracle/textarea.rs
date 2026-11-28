@@ -188,7 +188,6 @@ fn full_non_final_lines_reserve_visible_cursor_rows() {
 // ORACLE bottom_pane/textarea.rs:3897 full_non_final_line_cursor_snapshot kind=snap owner=chat-live snap=textarea_full_non_final_line_has_a_visible_cursor_row
 #[test]
 fn full_non_final_line_cursor_snapshot() {
-    kit::pending(Owner::ChatLive, WRAP);
     // oracle: "abad\nef" with the caret on byte 4 (the newline) in a 4x3 rect: the snapshot shows the cursor row.
     let mut s = draft(4, 3, "abad\nef");
     step(&mut s, 7, 4);
@@ -198,7 +197,10 @@ fn full_non_final_line_cursor_snapshot() {
 // ORACLE bottom_pane/textarea.rs:3916 trailing_spaces_wrap_without_letting_the_cursor_escape kind=snap owner=chat-live snap=textarea_trailing_spaces_wrap_without_cursor_overflow
 #[test]
 fn trailing_spaces_wrap_without_letting_the_cursor_escape() {
-    kit::pending(Owner::ChatLive, WRAP);
+    kit::pending(
+        Owner::ChatLive,
+        "pending(G65): the rows match; the caret after eight trailing spaces in the 5-column rect is at (0, 1), the oracle's at (2, 2): rtwk's TextArea hangs the space run where the oracle's wrap puts it on its own rows (the snapshot's `cursor:` is checked strictly)",
+    );
     // oracle: "abad" and eight spaces in a 5x3 rect, the caret at the end: three rows, the caret stays inside.
     let s = draft(5, 3, "abad        ");
     s.assert_snap("textarea_trailing_spaces_wrap_without_cursor_overflow");
@@ -207,7 +209,6 @@ fn trailing_spaces_wrap_without_letting_the_cursor_escape() {
 // ORACLE bottom_pane/textarea.rs:3936 separator_after_full_line_hangs_before_following_text kind=snap owner=chat-live snap=textarea_separator_after_full_line_hangs_before_following_text
 #[test]
 fn separator_after_full_line_hangs_before_following_text() {
-    kit::pending(Owner::ChatLive, WRAP);
     // oracle: "abad a" in a 4x2 rect with the caret at the end is at (1, 1); the same holds for the three other texts.
     let s = draft(4, 2, "abad a");
     s.assert_cursor(1, 1);
@@ -231,7 +232,6 @@ fn breakable_unicode_space_hangs_before_following_text() {
 // ORACLE bottom_pane/textarea.rs:3986 leading_space_reflows_across_following_wrapped_fragments kind=snap owner=chat-live snap=textarea_leading_space_reflows_across_following_wrapped_fragments
 #[test]
 fn leading_space_reflows_across_following_wrapped_fragments() {
-    kit::pending(Owner::ChatLive, WRAP);
     // oracle: "abad abcde wxyz" in a 4x5 rect: the carets 11, 14 and 15 are at (0, 3), (3, 3) and (0, 4).
     let mut s = draft(4, 5, "abad abcde wxyz");
     let mut at = 15;
@@ -305,7 +305,6 @@ fn space_runs_hang_before_later_text() {
 // ORACLE bottom_pane/textarea.rs:4100 full_final_line_scrolls_to_its_visible_cursor_row kind=snap owner=chat-live snap=textarea_full_final_line_scrolls_to_visible_cursor_row
 #[test]
 fn full_final_line_scrolls_to_its_visible_cursor_row() {
-    kit::pending(Owner::ChatLive, WRAP);
     // oracle: "abcdefgh" in a 4x2 rect with the caret at the end: the view scrolls to the caret's row; the snapshot shows the scroll and the cursor.
     let s = draft(4, 2, "abcdefgh");
     s.assert_snap("textarea_full_final_line_scrolls_to_visible_cursor_row");
@@ -350,7 +349,6 @@ fn render_highlights_apply_style_without_mutating_text() {
 // ORACLE bottom_pane/textarea.rs:4235 tabs_render_as_spaces_and_align_with_cursor_snapshot kind=snap owner=chat-live snap=textarea_tabs_render_as_spaces_and_align_with_cursor
 #[test]
 fn tabs_render_as_spaces_and_align_with_cursor_snapshot() {
-    kit::pending(Owner::ChatLive, WRAP);
     // oracle: a line with tabs and an emoji in a 100x1 terminal: the tabs draw as spaces and the caret aligns with them (the snapshot).
     let s = draft(
         100,
