@@ -10,7 +10,7 @@ use codex_tui_core::app::effects::{Ask as Effect, CopyDestination, Done};
 use codex_tui_core::app::{AppEv, BackendEv, Command};
 use codex_tui_core::data::mention::ToolMention;
 use codex_tui_core::screens::select::review::Commit;
-use codex_tui_core::screens::{ScreenCommand, agents, chat, select};
+use codex_tui_core::screens::{ScreenCommand, agents, approvals, chat, select};
 use codex_tui_core::threads::{ReviewTarget, ThreadAsk};
 use rtwk::gestures::MouseTracker;
 use rtwk_core::input::{MouseEvent, MouseKind};
@@ -610,6 +610,34 @@ impl Screen {
             panic!("no page of profiles was asked:\n{}", self.text());
         };
         self.answer_request(page, json!({ "data": profiles, "nextCursor": null }));
+    }
+
+    /// The app asked the server to approve one retry of the denied auto review `id` once
+    /// (`thread/approveGuardianDeniedAction`, the oracle's `Op::ApproveGuardianDeniedAction`):
+    /// the assessment it sends back is that review's, and its action holds `action_part`.
+    pub fn assert_denial_approved(&self, id: &str, action_part: &str) {
+        let events: Vec<serde_json::Value> = self
+            .screen_commands()
+            .into_iter()
+            .filter_map(|c| match c {
+                ScreenCommand::Approvals(approvals::Command::ApproveDenied { event }) => {
+                    Some(event)
+                }
+                _ => None,
+            })
+            .collect();
+        let [event] = events.as_slice() else {
+            panic!(
+                "expected one structured approval of the denial `{id}`, got {events:?}:\n{}",
+                self.text()
+            );
+        };
+        pretty_assertions::assert_eq!(event["id"], id, "the denial approved");
+        let action = event["action"].to_string();
+        assert!(
+            action.contains(action_part),
+            "the approved action `{action}` lacks `{action_part}`"
+        );
     }
 
     /// The permission profiles the app asked the thread to change to are `profiles`, in order

@@ -508,15 +508,40 @@ fn permission_shortcuts_cycle_builtin_modes() {
 // ORACLE chatwidget/tests/permission_shortcuts_tests.rs:116 permission_shortcuts_respect_managed_mode_requirements kind=snap owner=dialogs-pane
 #[test]
 fn permission_shortcuts_respect_managed_mode_requirements() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no managed-mode requirements seed (allowed reviewers, required models, allowed profiles) in the live chat and no unavailable-mode notice in the port",
+    // oracle: `make_chatwidget_manual` with the `Approve for me` feature on, the auto reviewer, the `:workspace`
+    // profile (on-request approvals) and the model `chat.current_model()`; the three requirement sets each leave
+    // no other mode than the current one, so F8 shows the notice instead of submitting a forbidden mode. The oracle
+    // swaps the discovery's requirements in one chat; the port reads the catalog once, so each set has its own chat.
+    let model = "gpt-5";
+    let facts = format!(
+        r#"{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"{model}","approval_policy":"on-request","profile":"workspace","permission_profile":":workspace","auto_review":true,"permissions":{{"guardian":true,"auto_available":true}}}}}}}}"#
     );
-    // three requirement sets: each one, F8 shows the notice `permission_shortcut_no_alternative` (a history cell)
-    for _requirements in 0..3 {
-        let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+    let profiles = serde_json::json!([
+        {"id": ":read-only", "description": null, "allowed": true},
+        {"id": ":workspace", "description": null, "allowed": true},
+        {"id": ":danger-full-access", "description": null, "allowed": true},
+    ]);
+    for requirements in [
+        serde_json::json!({"allowedApprovalsReviewers": ["auto_review"]}),
+        serde_json::json!({"autoReview": {"requiredOnModels": [model]}}),
+        serde_json::json!({"allowedPermissionProfiles": {":workspace": false, ":read-only": false}}),
+    ] {
+        let mut s = Screen::build(Owner::DialogsPane)
+            .size(80, 24)
+            .keymap(&[("chat.next_permission_mode", "f8")])
+            .live()
+            .open();
+        s.feed(&facts);
+        // the catalog is not held yet: the first F8 asks for it (the picker shows `Loading`), the second one cycles
         s.keys("f8");
-        s.assert_snap_region("permission_shortcut_no_alternative", 0, 0);
+        s.answer_permission_catalog(requirements, profiles.clone());
+        s.keys("esc f8");
+        s.assert_snap_region(
+            "permission_shortcut_no_alternative",
+            s.row_of("No other permission modes are available."),
+            0,
+        );
+        s.assert_permission_updates(&[]);
     }
 }
 

