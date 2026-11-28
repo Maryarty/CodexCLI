@@ -334,6 +334,32 @@ fn yes_while_a_turn_runs_is_refused() {
     assert!(notes(&app).contains(&NoteKey::ModeBusy));
 }
 
+#[test]
+fn a_plan_answer_for_another_thread_cannot_apply_to_the_visible_plan() {
+    use codex_tui_core::screens::chat::plan_mode::Answer;
+    use codex_tui_core::screens::select::Intent as SelectIntent;
+    use codex_tui_core::screens::ScreenIntent;
+
+    let mut app = planning();
+    notification(&mut app, turn_completed(T, "turn-1"));
+    for answer in [Answer::Implement, Answer::ImplementFresh] {
+        let fx = run(
+            &mut app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Select(SelectIntent::PlanAnswer {
+                thread: ThreadId::new("previous-thread"),
+                answer,
+            }))),
+        );
+        assert!(started(&fx).is_empty());
+        assert!(
+            fx.commands()
+                .iter()
+                .all(|command| !matches!(command, Command::StartThread { .. }))
+        );
+        assert_eq!(mode(&app), ModeKind::Plan);
+    }
+}
+
 /// The row that clears the context starts a new thread, hands it the plan, and the prompt the
 /// server prepared starts its work.
 #[test]
@@ -350,7 +376,13 @@ fn clearing_the_context_hands_the_plan_to_a_fresh_thread() {
             AppEv::Intent(Intent::Screen(ScreenIntent::Select(intent))),
         )
     };
-    let fx = select(&mut app, SelectIntent::PlanAnswer(Answer::ImplementFresh));
+    let fx = select(
+        &mut app,
+        SelectIntent::PlanAnswer {
+            thread: ThreadId::new(T),
+            answer: Answer::ImplementFresh,
+        },
+    );
     let ticket = fx
         .commands()
         .iter()
