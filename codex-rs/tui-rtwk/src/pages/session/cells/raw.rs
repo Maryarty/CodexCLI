@@ -4,7 +4,7 @@
 //! Markdown, so the terminal's own selection copies clean text.
 //!
 //! The rows of an item are [`lines`]; an item with no raw form here (its
-//! rows are not text of its own: the shell, patch, plan-update, collab and
+//! rows are not text of its own: the patch, plan-update, collab and
 //! approval cells, the notices) draws as it does in rich mode.
 //!
 //! Flutter: the cell is picked by a flag the way a `ListView.builder` picks
@@ -109,6 +109,14 @@ pub fn run_lines(
     let Item::Tool(first) = item else {
         return lines(item, strings);
     };
+    // the shell calls of the run: the cell's own detailed rows, plain
+    if matches!(first.kind, ToolKind::Shell { .. }) {
+        let calls: Vec<&ToolActivity> = std::iter::once(first)
+            .chain(rest)
+            .map(Arc::as_ref)
+            .collect();
+        return Some(super::exec::raw_lines(&calls, strings));
+    }
     if !first.is_computer_activity() {
         return lines(item, strings);
     }

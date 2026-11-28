@@ -41,8 +41,8 @@ pub(super) fn has_control(
     inline: bool,
 ) -> bool {
     match first.kind {
-        ToolKind::Shell { .. } => exec::has_control(first, strings, room),
-        ToolKind::Mcp(ref call) => !inline || !tool_call::uses_inline_display(call),
+        ToolKind::Shell { .. } => exec::has_control(first, strings, room, inline),
+        ToolKind::Mcp(_) => !inline,
         ToolKind::Dynamic(_) => true,
     }
 }
@@ -80,10 +80,16 @@ impl ActivityStamp {
 }
 
 impl ToolRow {
-    /// A compact shell reads the actual layout width before building its disclosure.
+    /// A compact shell reads the actual layout width before building its disclosure. The inline
+    /// viewport already knows it (`inline_room`): there the row needs no `LayoutBuilder`, whose
+    /// height the terminal history cannot measure before its first layout (a committed
+    /// command lost its last rows).
     pub(super) fn measured(self) -> AnyWidget {
         if self.detailed || !matches!(self.first.kind, ToolKind::Shell { .. }) {
             return self.into();
+        }
+        if let Some(room) = self.inline_room {
+            return Provider::value(room).child(AnyWidget::from(self)).into();
         }
         let tool: AnyWidget = self.into();
         LayoutBuilder::new(move |cx, bounds| {

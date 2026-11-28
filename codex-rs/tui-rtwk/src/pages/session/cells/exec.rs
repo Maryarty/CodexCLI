@@ -19,6 +19,8 @@ use crate::app::theme::Tokens;
 use crate::pages::session::strings::{INLINE_GAP, LINE_BREAK, MORE};
 use crate::widgets::dots::dots_spans_kept;
 
+mod display;
+
 use super::exploration;
 use super::strings::Strings;
 use super::text::{self, Part, Room};
@@ -46,11 +48,22 @@ pub fn parts(
     if detailed {
         return Parts::Plain(detailed_shells(calls, strings, tokens, syntax), None);
     }
-    let Some(head) = Headline::of(calls, strings) else {
+    let Some(mut head) = Headline::of(calls, strings) else {
         return Parts::Plain(AnyWidget::default(), None);
     };
+    // the scrollback's exploration (`display_lines`) counts no exits and offers no control
+    if env.inline && head.exploring {
+        head.exits = None;
+    }
     let (status, exploring, failed) = (head.status, head.exploring, head.failed);
     let tool = calls[0];
+    if !expanded && display::applies(&head, tool, env.inline) {
+        let plan = display::plan(tool, &head, strings, room);
+        let disclosure = (!env.inline && plan.hidden).then(|| strings.show_details.to_owned());
+        return Parts::Rows(display::rows(
+            &plan, &head, tool, tokens, syntax, disclosure,
+        ));
+    }
     let mut header = vec![Span::styled(head.title.to_string(), tokens.bold())];
     if exploring {
         if let Some(exits) = &head.exits {
@@ -103,6 +116,8 @@ pub fn parts(
     }
     let disclosure = if expanded {
         Some(strings.hide_details.to_owned())
+    } else if env.inline && exploring {
+        None
     } else {
         closed_disclosure(&head, hidden, strings, room)
     };
@@ -299,7 +314,14 @@ pub(in crate::pages::session) fn has_control(
     tool: &ToolActivity,
     strings: &Strings,
     room: Room,
+    inline: bool,
 ) -> bool {
+    if let Some(head) = Headline::of(&[tool], strings)
+        && display::applies(&head, tool, inline)
+    {
+        // the scrollback spelling names its hidden lines and has no control of its own
+        return !inline && display::plan(tool, &head, strings, room).hidden;
+    }
     has_command_control(tool) || has_output_control(tool, None, strings, room)
 }
 
@@ -442,18 +464,27 @@ impl<'a> Headline<'a> {
 /// (`text_contract` holds them to the mounted cell): the detailed transcript's form, or the
 /// expanded one (what Find reads of a cell it opens), or the compact shell output tail.
 pub fn texts(calls: &[&ToolActivity], env: &text::Env<'_>) -> Option<Vec<Part>> {
-    texts_at(calls, env, Room::default())
+    texts_at(calls, env, Room::default(), false)
 }
 
 pub(super) fn texts_at(
     calls: &[&ToolActivity],
     env: &text::Env<'_>,
     room: Room,
+    inline: bool,
 ) -> Option<Vec<Part>> {
     let strings = env.cells;
-    let head = Headline::of(calls, strings)?;
+    let mut head = Headline::of(calls, strings)?;
     if env.detailed {
         return Some(detailed_texts(calls, strings));
+    }
+    if inline && head.exploring {
+        head.exits = None;
+    }
+    if !env.expanded && display::applies(&head, calls[0], inline) {
+        let plan = display::plan(calls[0], &head, strings, room);
+        let disclosure = (!inline && plan.hidden).then(|| strings.show_details.to_owned());
+        return Some(display::texts(&plan, room, disclosure));
     }
     // the `…` of the header's cut is a node whether the room cuts it or not (`dots_spans_kept`)
     let mut parts = vec![
@@ -464,7 +495,9 @@ pub(super) fn texts_at(
     if !env.expanded {
         if head.exploring {
             parts.extend(exploration::texts(calls, strings, text_room(room)));
-            parts.push(Part::gutter(strings.show_details));
+            if !inline {
+                parts.push(Part::gutter(strings.show_details));
+            }
             return Some(parts);
         }
         let tool = calls[0];
@@ -501,13 +534,35 @@ pub(super) fn texts_at(
     Some(parts)
 }
 
+/// The code of the exit line a finished call draws in the detailed transcript (oracle
+/// `CommandOutput::from_execution`: the server's for a completed call, 0 when it says none; the
+/// nonzero one of a call that did not complete, 1 when it says none), drawn when the call has
+/// a duration or did not exit 0. `None` while it runs.
+fn result_code(call: &ToolActivity) -> Option<i32> {
+    let ToolKind::Shell {
+        exit_code,
+        duration_ms,
+        ..
+    } = &call.kind
+    else {
+        return None;
+    };
+    let code = match call.status {
+        ToolStatus::Running => return None,
+        ToolStatus::Completed => exit_code.unwrap_or_default(),
+        ToolStatus::Failed | ToolStatus::Declined => {
+            exit_code.filter(|code| *code != 0).unwrap_or(1)
+        }
+    };
+    (duration_ms.is_some() || code != 0).then_some(code)
+}
+
 /// The parts of [`detailed_shells`].
 fn detailed_texts(calls: &[&ToolActivity], strings: &Strings) -> Vec<Part> {
     let mut parts = Vec::new();
     for call in calls {
         let ToolKind::Shell {
             command,
-            exit_code,
             duration_ms,
             ..
         } = &call.kind
@@ -530,7 +585,7 @@ fn detailed_texts(calls: &[&ToolActivity], strings: &Strings) -> Vec<Part> {
         if !output.is_empty() {
             parts.push(Part::text(output.as_ref()));
         }
-        if let Some(code) = *exit_code {
+        if let Some(code) = result_code(call) {
             let mut result = if code == 0 {
                 strings.exit_ok.to_owned()
             } else {
@@ -552,6 +607,56 @@ fn detailed_texts(calls: &[&ToolActivity], strings: &Strings) -> Vec<Part> {
     parts
 }
 
+/// The raw lines of the shell calls of a run (oracle `ExecCell::raw_lines`: the detailed
+/// transcript's rows, plain, without the reasoning between the calls): each call's prompt and
+/// command (a later line of the command under four spaces), its whole output and its exit line,
+/// a blank row between the calls.
+pub fn raw_lines(calls: &[&ToolActivity], strings: &Strings) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for call in calls {
+        let ToolKind::Shell {
+            command,
+            duration_ms,
+            ..
+        } = &call.kind
+        else {
+            continue;
+        };
+        if !lines.is_empty() {
+            lines.push(String::new());
+        }
+        let source = command_text(command);
+        let code = Highlighter::new(language_named("bash"), &source);
+        for index in 0..code.line_count() {
+            lines.push(if index == 0 {
+                format!("{} {}", strings.shell_prompt, code.line(index))
+            } else {
+                format!("    {}", code.line(index))
+            });
+        }
+        lines.extend(super::raw::source_lines(&detailed_output(call, strings)));
+        if let Some(code) = result_code(call) {
+            let mut result = if code == 0 {
+                strings.exit_ok.to_owned()
+            } else {
+                format!(
+                    "{}{}",
+                    strings.exit_failed,
+                    strings.label(strings.exit_status, &code.to_string())
+                )
+            };
+            if let Some(millis) = *duration_ms {
+                result.push_str(&format!(
+                    " \u{2022} {}",
+                    format_duration(Duration::from_millis(millis))
+                ));
+            }
+            lines.push(result);
+        }
+    }
+    lines
+}
+
 /// The detailed transcript's shell calls: the command after its prompt, the
 /// whole output, the exit line.
 fn detailed_shells(
@@ -567,7 +672,6 @@ fn detailed_shells(
     for call in calls {
         let ToolKind::Shell {
             command,
-            exit_code,
             duration_ms,
             ..
         } = &call.kind
@@ -602,7 +706,7 @@ fn detailed_shells(
         if !output.is_empty() {
             detail = detail.child(Text::new(output.into_owned()));
         }
-        if let Some(code) = *exit_code {
+        if let Some(code) = result_code(call) {
             let mut result = if code == 0 {
                 vec![Span::styled(
                     strings.exit_ok,

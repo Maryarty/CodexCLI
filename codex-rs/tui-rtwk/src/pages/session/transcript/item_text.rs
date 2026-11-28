@@ -10,7 +10,7 @@
 //! the same text and width rules as their mounted forms.
 
 use codex_tui_core::app::facts::Rendering;
-use codex_tui_core::threads::{Item, Notice, ToolActivity, Transcript};
+use codex_tui_core::threads::{Item, Notice, ToolActivity, ToolKind, Transcript};
 use rtwk_rich::markdown::{Block, MarkdownView};
 
 use super::markdown_text;
@@ -19,7 +19,7 @@ use crate::pages::session::cells::citation::blocks_of;
 use crate::pages::session::cells::text::{
     CardFigure, Env, Gap, Part, ReadContext, Room, Texts, texts_at, tool_texts,
 };
-use crate::pages::session::cells::{agent, raw, session_info};
+use crate::pages::session::cells::{agent, exec, raw, session_info};
 
 /// What the texts are read with: the cells' own `Env`, and what the cells that hold Markdown draw
 /// it with (the session's directory, the user's `tui.rendering`, raw output mode, raw reasoning).
@@ -145,7 +145,7 @@ pub fn row_parts(transcript: &Transcript, row: &Row, reading: &Reading<'_>) -> O
         return None;
     }
     let (_, item) = transcript.get(row.range.start)?;
-    if !reading.raw && matches!(item, Item::Tool(_)) {
+    if matches!(item, Item::Tool(_)) {
         let calls: Vec<&ToolActivity> = row
             .range
             .clone()
@@ -154,6 +154,27 @@ pub fn row_parts(transcript: &Transcript, row: &Row, reading: &Reading<'_>) -> O
                 _ => None,
             })
             .collect();
+        // raw mode draws the shell calls as their plain detailed rows, a `Text` per line
+        if reading.raw {
+            if !matches!(
+                calls.first().map(|tool| &tool.kind),
+                Some(ToolKind::Shell { .. })
+            ) {
+                return mounted_parts(item, reading);
+            }
+            return Some(
+                exec::raw_lines(&calls, reading.env.cells)
+                    .into_iter()
+                    .map(|line| {
+                        Part::text(if line.is_empty() {
+                            reading.env.cells.gap.to_owned()
+                        } else {
+                            line
+                        })
+                    })
+                    .collect(),
+            );
+        }
         let opened;
         let env = if reading.revealed {
             opened = opened_env(reading.env);

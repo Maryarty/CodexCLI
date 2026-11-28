@@ -239,7 +239,7 @@ pub(crate) fn texts_at(item: &Item, env: &Env<'_>, cx: &ReadContext<'_>) -> Text
         }
         Item::PlanUpdate(update) => Texts::Exact(plan_update::texts(
             update,
-            env.detailed,
+            env.detailed || cx.inline,
             env.expanded,
             cells,
         )),
@@ -278,7 +278,7 @@ pub(crate) fn tool_texts(
 ) -> Option<Vec<Part>> {
     let first = *calls.first()?;
     match &first.kind {
-        ToolKind::Shell { .. } => exec::texts_at(calls, env, room),
+        ToolKind::Shell { .. } => exec::texts_at(calls, env, room, inline),
         ToolKind::Mcp(_) if first.is_computer_activity() => {
             let group: Vec<_> = calls
                 .iter()

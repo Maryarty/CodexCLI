@@ -2,15 +2,17 @@
 
 use codex_tui_core::screens::chat::{SessionHeader, StatusFacts};
 use codex_tui_core::screens::status::Profile;
-use rtwk::AnyWidget;
 use rtwk::layout::{Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding};
-use rtwk::style::{Attrs, Span};
-use rtwk::text::TextOverflow;
+use rtwk::style::{Attrs, Span, Style};
+use rtwk::text::{TextOverflow, segmenter_of};
 use rtwk::widgets::Text;
+use rtwk::{AnyWidget, LayoutBuilder};
 
 use crate::app::theme::Tokens;
+use crate::pages::agents::path::center_truncate_path;
 use crate::services::cli_help;
 
+use super::cells::text::Room;
 use super::strings::Strings;
 
 /// The chat is the startup draft (`startup_draft_renderable`): the session has not started, so
@@ -28,11 +30,15 @@ pub(super) fn startup_dir<'a>(thread_cwd: Option<&'a str>, facts: &'a StatusFact
         .unwrap_or("loading")
 }
 
+/// The heading. `inline_room` is the width the inline viewport already knows: there the
+/// directory row needs no `LayoutBuilder`, whose height the terminal history cannot measure
+/// before its first layout (a committed heading lost its last row).
 pub(super) fn header(
     cwd: &str,
     facts: &StatusFacts,
     tokens: &Tokens,
     strings: &Strings,
+    inline_room: Option<Room>,
 ) -> AnyWidget {
     let dim = tokens.dim().attrs(Attrs::DIM);
     let mut title = vec![
@@ -57,13 +63,12 @@ pub(super) fn header(
                 .overflow(TextOverflow::Ellipsis),
         ))
         .child(Padding::new(
-            EdgeInsets::only(5, 0, 0, 0),
-            Text::line(super::status_surfaces::display_dir(
-                cwd,
-                facts.home_directory.as_deref(),
-            ))
-            .overflow(TextOverflow::EllipsisMiddle)
-            .style(dim.clone()),
+            EdgeInsets::only(DIRECTORY_INDENT, 0, 0, 0),
+            directory(
+                super::status_surfaces::display_dir(cwd, facts.home_directory.as_deref()),
+                dim.clone(),
+                inline_room,
+            ),
         ));
     if yolo(facts) {
         column = column.child(Padding::new(
@@ -93,6 +98,26 @@ pub(super) fn with_daybreak(header: AnyWidget, tokens: &Tokens, bullet: &str) ->
         .child(header)
         .child(Padding::new(EdgeInsets::only(0, 1, 0, 1), notice))
         .into()
+}
+
+/// The columns the directory row starts after (its indent under the title).
+const DIRECTORY_INDENT: i32 = 5;
+
+/// The directory in the room the heading leaves it: cut by whole path segments (oracle
+/// `format_directory`, `center_truncate_path`). The inline viewport's room is known (the row is
+/// built at once); elsewhere the row measures its width at layout.
+fn directory(text: String, style: Style, inline_room: Option<Room>) -> AnyWidget {
+    let row = move |seg, width: i32| -> AnyWidget {
+        let room = usize::try_from(width).unwrap_or(0);
+        Text::line(center_truncate_path(seg, &text, room))
+            .overflow(TextOverflow::Ellipsis)
+            .style(style.clone())
+            .into()
+    };
+    if let Some(room) = inline_room {
+        return row(room.segmenter, room.width - DIRECTORY_INDENT);
+    }
+    LayoutBuilder::new(move |cx, constraints| row(segmenter_of(cx), constraints.max_width)).into()
 }
 
 /// The transcript's raw session heading (oracle `SessionHeaderHistoryCell::raw_lines`).

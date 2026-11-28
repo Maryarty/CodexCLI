@@ -18,11 +18,6 @@ fn mcp_row(s: &Screen) -> usize {
 const URL_LIKE: &str =
     "example.test/api/v1/projects/alpha-team/releases/2026-02-17/builds/1234567890";
 
-const DISPLAY_MCP: &str = "S27 (inline mode, wave W4): the oracle test draws the MCP cell's `display_lines` (the inline scrollback form: a hyperlinked `Called server.tool(args)` invocation and the result blocks under `  └ `); the owned transcript of S11 draws `compact_hyperlink_lines` (`• Called <tool>` and the last three result rows), which the port's tool cell matches (tests/pages/cells.rs tool_cells_in_transcript, the pack's cells.md chunk-cells-tool-cells)";
-const DISPLAY_EXEC: &str = "S27 (inline mode, wave W4): the oracle test draws the agent exec cell's `display_lines` (command wrapped under `  │ `, output under `  └ `); the owned transcript of S11 draws `compact_hyperlink_lines` (`• Ran <first line> …` and the last three output rows), which the port's exec cell matches (tests/pages/cells.rs tool_cells_in_transcript, the pack's cells.md chunk-cells-tool-cells)";
-const NO_SEED_MCP_RPC: &str = "no seed: the /mcp inventory is an RPC answer the script cannot carry, and S11 draws no MCP inventory cell";
-const HALFWIDTH_HEADER: &str = "G44: rtwk's text engine clusters a halfwidth katakana and its sound mark (`ｶﾞ`) into one cell (TextMode::Graphemes), the oracle counts the mark as its own cell, so the header's directory (`ｶﾞﾊﾟ`x8 and `-project`, 40 oracle cells, 24 in rtwk) fits the 37 columns beside its five-column indent and is not cut to `…` and its tail";
-
 // ---- oracle: history_cell/tests.rs (39 screen-level tests here; 3 state tests left to chat-live)
 // ORACLE history_cell/tests.rs:1162 mcp_tools_output_from_statuses_renders_status_only_servers kind=snap owner=chat-live snap=mcp_tools_output_from_statuses_renders_status_only_servers
 #[test]
@@ -271,9 +266,9 @@ fn web_search_history_cell_transcript_snapshot() {
 // ORACLE history_cell/tests.rs:1491 active_mcp_tool_call_snapshot kind=snap owner=chat-live snap=active_mcp_tool_call_snapshot
 #[test]
 fn active_mcp_tool_call_snapshot() {
-    kit::pending(Owner::ChatLive, DISPLAY_MCP);
     let s = Screen::build(Owner::ChatLive)
         .size(80, 18)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_4/active_mcp_tool_call_snapshot.jsonl"
         ))
@@ -284,11 +279,15 @@ fn active_mcp_tool_call_snapshot() {
 // ORACLE history_cell/tests.rs:1512 code_mode_tool_call_uses_title_and_preserves_full_transcript kind=snap owner=chat-live
 #[test]
 fn code_mode_tool_call_uses_title_and_preserves_full_transcript() {
-    kit::pending(Owner::ChatLive, DISPLAY_MCP);
+    kit::pending(
+        Owner::ChatLive,
+        "G-new-wrap-hyphen-indent: the history half (40 columns, the display form) equals the oracle's; the transcript half wraps the long result line with textwrap's four-cell continuation indent and a break after `chunk-` before a digit (`{\"chunk_id\":\"chunk-` / `    1\",\"output\":...`), which rtwk's Text cannot (no hanging indent; UAX 14 allows no break between a hyphen and a digit)",
+    );
     // Inline snapshot of the oracle: history at 40 columns, then the transcript at 180.
     // The long output rows are asserted by their fragments.
     let mut s = Screen::build(Owner::ChatLive)
         .size(40, 22)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_4/code_mode_tool_call_uses_title_and_preserves_full_transcript.jsonl"
         ))
@@ -311,10 +310,10 @@ fn code_mode_tool_call_uses_title_and_preserves_full_transcript() {
 // ORACLE history_cell/tests.rs:1563 code_mode_tool_call_preserves_failure_details kind=snap owner=chat-live
 #[test]
 fn code_mode_tool_call_preserves_failure_details() {
-    kit::pending(Owner::ChatLive, DISPLAY_MCP);
     // Inline snapshot of the oracle: history at 80 columns, then the transcript at 120.
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 18)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_4/code_mode_tool_call_preserves_failure_details.jsonl"
         ))
@@ -334,7 +333,6 @@ fn code_mode_tool_call_preserves_failure_details() {
 // ORACLE history_cell/tests.rs:1601 mcp_inventory_loading_snapshot kind=snap owner=chat-live snap=mcp_inventory_loading_snapshot
 #[test]
 fn mcp_inventory_loading_snapshot() {
-    kit::pending(Owner::ChatLive, NO_SEED_MCP_RPC);
     let mut s = Screen::build(Owner::ChatLive).size(80, 6).live().open();
     s.type_text("/mcp");
     s.keys("enter");
@@ -344,7 +342,6 @@ fn mcp_inventory_loading_snapshot() {
 // ORACLE history_cell/tests.rs:1609 mcp_inventory_loading_without_animations_is_stable kind=ui owner=chat-live
 #[test]
 fn mcp_inventory_loading_without_animations_is_stable() {
-    kit::pending(Owner::ChatLive, NO_SEED_MCP_RPC);
     let mut s = Screen::build(Owner::ChatLive).size(80, 6).live().open();
     s.type_text("/mcp");
     s.keys("enter");
@@ -369,9 +366,9 @@ fn thread_recap_loading_without_animations_snapshot() {
 // ORACLE history_cell/tests.rs:1627 completed_mcp_tool_call_success_snapshot kind=snap owner=chat-live snap=completed_mcp_tool_call_success_snapshot
 #[test]
 fn completed_mcp_tool_call_success_snapshot() {
-    kit::pending(Owner::ChatLive, DISPLAY_MCP);
     let s = Screen::build(Owner::ChatLive)
         .size(80, 18)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_4/completed_mcp_tool_call_success_snapshot.jsonl"
         ))
@@ -386,9 +383,9 @@ fn completed_mcp_tool_call_success_snapshot() {
 // ORACLE history_cell/tests.rs:1657 completed_mcp_tool_call_image_after_text_snapshot kind=snap owner=chat-live snap=completed_mcp_tool_call_image_after_text_snapshot
 #[test]
 fn completed_mcp_tool_call_image_after_text_snapshot() {
-    kit::pending(Owner::ChatLive, DISPLAY_MCP);
     let s = Screen::build(Owner::ChatLive)
         .size(80, 20)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_4/completed_mcp_tool_call_image_after_text_snapshot.jsonl"
         ))
@@ -403,9 +400,9 @@ fn completed_mcp_tool_call_image_after_text_snapshot() {
 // ORACLE history_cell/tests.rs:1688 completed_mcp_tool_call_accepts_data_url_image_blocks kind=snap owner=chat-live snap=completed_mcp_tool_call_accepts_data_url_image_blocks
 #[test]
 fn completed_mcp_tool_call_accepts_data_url_image_blocks() {
-    kit::pending(Owner::ChatLive, DISPLAY_MCP);
     let s = Screen::build(Owner::ChatLive)
         .size(80, 20)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_4/completed_mcp_tool_call_accepts_data_url_image_blocks.jsonl"
         ))
@@ -420,9 +417,9 @@ fn completed_mcp_tool_call_accepts_data_url_image_blocks() {
 // ORACLE history_cell/tests.rs:1717 completed_mcp_tool_call_multiple_image_blocks_snapshot kind=snap owner=chat-live snap=completed_mcp_tool_call_multiple_image_blocks_snapshot
 #[test]
 fn completed_mcp_tool_call_multiple_image_blocks_snapshot() {
-    kit::pending(Owner::ChatLive, DISPLAY_MCP);
     let s = Screen::build(Owner::ChatLive)
         .size(80, 20)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_4/completed_mcp_tool_call_multiple_image_blocks_snapshot.jsonl"
         ))
@@ -437,9 +434,9 @@ fn completed_mcp_tool_call_multiple_image_blocks_snapshot() {
 // ORACLE history_cell/tests.rs:1745 completed_mcp_tool_call_error_snapshot kind=snap owner=chat-live snap=completed_mcp_tool_call_error_snapshot
 #[test]
 fn completed_mcp_tool_call_error_snapshot() {
-    kit::pending(Owner::ChatLive, DISPLAY_MCP);
     let s = Screen::build(Owner::ChatLive)
         .size(80, 18)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_4/completed_mcp_tool_call_error_snapshot.jsonl"
         ))
@@ -454,9 +451,9 @@ fn completed_mcp_tool_call_error_snapshot() {
 // ORACLE history_cell/tests.rs:1768 completed_mcp_tool_call_multiple_outputs_snapshot kind=snap owner=chat-live snap=completed_mcp_tool_call_multiple_outputs_snapshot
 #[test]
 fn completed_mcp_tool_call_multiple_outputs_snapshot() {
-    kit::pending(Owner::ChatLive, DISPLAY_MCP);
     let s = Screen::build(Owner::ChatLive)
         .size(48, 22)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_4/completed_mcp_tool_call_multiple_outputs_snapshot.jsonl"
         ))
@@ -471,9 +468,9 @@ fn completed_mcp_tool_call_multiple_outputs_snapshot() {
 // ORACLE history_cell/tests.rs:1808 completed_mcp_tool_call_wrapped_outputs_snapshot kind=snap owner=chat-live snap=completed_mcp_tool_call_wrapped_outputs_snapshot
 #[test]
 fn completed_mcp_tool_call_wrapped_outputs_snapshot() {
-    kit::pending(Owner::ChatLive, DISPLAY_MCP);
     let s = Screen::build(Owner::ChatLive)
         .size(40, 26)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_4/completed_mcp_tool_call_wrapped_outputs_snapshot.jsonl"
         ))
@@ -488,9 +485,9 @@ fn completed_mcp_tool_call_wrapped_outputs_snapshot() {
 // ORACLE history_cell/tests.rs:1840 completed_mcp_tool_call_multiple_outputs_inline_snapshot kind=snap owner=chat-live snap=completed_mcp_tool_call_multiple_outputs_inline_snapshot
 #[test]
 fn completed_mcp_tool_call_multiple_outputs_inline_snapshot() {
-    kit::pending(Owner::ChatLive, DISPLAY_MCP);
     let s = Screen::build(Owner::ChatLive)
         .size(120, 20)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_4/completed_mcp_tool_call_multiple_outputs_inline_snapshot.jsonl"
         ))
@@ -529,14 +526,17 @@ fn session_header_indicates_yolo_mode() {
 // ORACLE history_cell/tests.rs:1909 session_header_truncates_halfwidth_directory kind=snap owner=chat-live snap=session_header_halfwidth_directory
 #[test]
 fn session_header_truncates_halfwidth_directory() {
-    kit::pending(Owner::ChatLive, HALFWIDTH_HEADER);
     let s = Screen::build(Owner::ChatLive)
         .size(42, 24)
+        .legacy_text()
         .script(include_str!(
             "fixtures/cells_4/session_header_truncates_halfwidth_directory.jsonl"
         ))
         .open();
-    s.assert_snap_region("session_header_halfwidth_directory", 0, 0);
+    // The oracle dumps the buffer of an unprobed terminal (every colour Reset); the rows are its
+    // own, the heading's title stays bold.
+    s.assert_snap_rows_at("session_header_halfwidth_directory", 0);
+    s.assert_text_style("OpenAI Codex", "bold");
 }
 
 // ORACLE history_cell/tests.rs:1976 coalesces_sequential_reads_within_one_call kind=snap owner=chat-live snap=coalesces_sequential_reads_within_one_call
@@ -610,9 +610,9 @@ fn explored_row(screen: &Screen) -> usize {
 // ORACLE history_cell/tests.rs:2107 multiline_command_wraps_with_extra_indent_on_subsequent_lines kind=snap owner=chat-live snap=multiline_command_wraps_with_extra_indent_on_subsequent_lines
 #[test]
 fn multiline_command_wraps_with_extra_indent_on_subsequent_lines() {
-    kit::pending(Owner::ChatLive, DISPLAY_EXEC);
     let s = Screen::build(Owner::ChatLive)
         .size(28, 20)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_4/multiline_command_wraps_with_extra_indent_on_subsequent_lines.jsonl"
         ))
@@ -643,9 +643,9 @@ fn single_line_command_compact_when_fits() {
 // ORACLE history_cell/tests.rs:2158 single_line_command_wraps_with_four_space_continuation kind=snap owner=chat-live snap=single_line_command_wraps_with_four_space_continuation
 #[test]
 fn single_line_command_wraps_with_four_space_continuation() {
-    kit::pending(Owner::ChatLive, DISPLAY_EXEC);
     let s = Screen::build(Owner::ChatLive)
         .size(24, 20)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_4/single_line_command_wraps_with_four_space_continuation.jsonl"
         ))
@@ -660,9 +660,9 @@ fn single_line_command_wraps_with_four_space_continuation() {
 // ORACLE history_cell/tests.rs:2181 single_line_command_over_highlight_limit_uses_plain_text_fallback kind=snap owner=chat-live snap=single_line_command_over_highlight_limit_uses_plain_text_fallback
 #[test]
 fn single_line_command_over_highlight_limit_uses_plain_text_fallback() {
-    kit::pending(Owner::ChatLive, DISPLAY_EXEC);
     let s = Screen::build(Owner::ChatLive)
         .size(24, 22)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_4/single_line_command_over_highlight_limit_uses_plain_text_fallback.jsonl"
         ))

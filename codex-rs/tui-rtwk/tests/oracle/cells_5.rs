@@ -6,10 +6,8 @@
 
 use crate::kit::{self, Owner, Screen};
 
-const DISPLAY_EXEC: &str = "S27 (inline mode, wave W4): the oracle test draws the agent exec cell's `display_lines` (command under `  │ `, output under `  └ ` with its stderr tail); the owned transcript of S11 draws `compact_hyperlink_lines` (`• Ran <first line> …` and the last three output rows), which the port's exec cell matches (tests/pages/cells.rs tool_cells_in_transcript, the pack's cells.md chunk-cells-tool-cells)";
-const PLAN_DISPLAY: &str = "the snapshot is the plan cell's inline `display_lines` (`• Updated Plan`, no count); a plan that fits (no note, three steps or fewer, no clipped step) shows in the chat only compact (`• Updated Plan · 0/2 complete`), the oracle's own transcript view";
-const PLAN_FRAMES: &str = "feature plan cell Full frame (w2-cells, gap G49): the `Compact` frame equals the oracle's (`Snap::labelled`, region at the cell's row); after `+ Show details` the screen has no `• Updated Plan` row to place the `Full` frame at, and the page test records G49 (no break after a slash) in the Full rows (tests/pages/cells.rs plan_update::the_oracle_snapshot_full_rows)";
-const PLAN_URL_TOKENS: &str = "the oracle wraps a URL token whole (adaptive_wrap_hyperlink_lines keeps it on one row even wider than the screen); a grid chat breaks it at the width, so the contiguous literal is never on one row";
+const PLAN_FRAMES: &str = "G49: the Full frame (the inline viewport) breaks `retry/backoff` where the oracle breaks after the slash (`retry/` / `backoff`); the Compact frame equals the oracle's";
+const PLAN_URL_TOKENS: &str = "G-urltoken: the oracle wraps a URL token whole (adaptive_wrap_hyperlink_lines keeps it on one row even wider than the screen); TextWrap::Word breaks it after a hyphen or a slash, so the contiguous literal is never on one row";
 
 /// The row of the transcript's first cell: the oracle's snapshot is the bare cell, the chat
 /// draws its bottom pane under the transcript, so the cell is looked up by its bullet.
@@ -25,9 +23,9 @@ fn first_cell_row(screen: &Screen) -> usize {
 // ORACLE history_cell/tests.rs:2205 multiline_command_without_wrap_uses_branch_then_eight_spaces kind=snap owner=chat-live snap=multiline_command_without_wrap_uses_branch_then_eight_spaces
 #[test]
 fn multiline_command_without_wrap_uses_branch_then_eight_spaces() {
-    kit::pending(Owner::ChatLive, DISPLAY_EXEC);
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_5/multiline_command_without_wrap_uses_branch_then_eight_spaces.jsonl"
         ))
@@ -42,9 +40,9 @@ fn multiline_command_without_wrap_uses_branch_then_eight_spaces() {
 // ORACLE history_cell/tests.rs:2228 multiline_command_both_lines_wrap_with_correct_prefixes kind=snap owner=chat-live snap=multiline_command_both_lines_wrap_with_correct_prefixes
 #[test]
 fn multiline_command_both_lines_wrap_with_correct_prefixes() {
-    kit::pending(Owner::ChatLive, DISPLAY_EXEC);
     let s = Screen::build(Owner::ChatLive)
         .size(28, 24)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_5/multiline_command_both_lines_wrap_with_correct_prefixes.jsonl"
         ))
@@ -59,9 +57,9 @@ fn multiline_command_both_lines_wrap_with_correct_prefixes() {
 // ORACLE history_cell/tests.rs:2252 stderr_tail_more_than_five_lines_snapshot kind=snap owner=chat-live snap=stderr_tail_more_than_five_lines_snapshot
 #[test]
 fn stderr_tail_more_than_five_lines_snapshot() {
-    kit::pending(Owner::ChatLive, DISPLAY_EXEC);
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_5/stderr_tail_more_than_five_lines_snapshot.jsonl"
         ))
@@ -76,9 +74,9 @@ fn stderr_tail_more_than_five_lines_snapshot() {
 // ORACLE history_cell/tests.rs:2294 ran_cell_multiline_with_stderr_snapshot kind=snap owner=chat-live snap=ran_cell_multiline_with_stderr_snapshot
 #[test]
 fn ran_cell_multiline_with_stderr_snapshot() {
-    kit::pending(Owner::ChatLive, DISPLAY_EXEC);
     let s = Screen::build(Owner::ChatLive)
         .size(28, 24)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_5/ran_cell_multiline_with_stderr_snapshot.jsonl"
         ))
@@ -282,12 +280,17 @@ fn render_uses_wrapping_for_long_url_like_line() {
 #[test]
 fn plan_update_with_note_and_wrapping_snapshot() {
     kit::pending(Owner::ChatLive, PLAN_FRAMES);
-    // The chat shows the snapshot's `Compact` rendering; its control reveals the `Full` one.
-    let mut s = Screen::build(Owner::ChatLive)
+    // The owned transcript shows the snapshot's `Compact` rendering; the inline viewport prints
+    // the `Full` one (the oracle's `display_lines`).
+    let script = include_str!("fixtures/cells_5/plan_update_with_note_and_wrapping_snapshot.jsonl");
+    let compact = Screen::build(Owner::ChatLive)
         .size(32, 24)
-        .script(include_str!(
-            "fixtures/cells_5/plan_update_with_note_and_wrapping_snapshot.jsonl"
-        ))
+        .script(script)
+        .open();
+    let full = Screen::build(Owner::ChatLive)
+        .size(32, 40)
+        .inline(&[])
+        .script(script)
         .open();
     // the oracle test joined the two renders under its own labels
     let labels = ["Compact", "Full"];
@@ -297,27 +300,25 @@ fn plan_update_with_note_and_wrapping_snapshot() {
             .position(|row| row.starts_with("• Updated Plan"))
             .unwrap_or(usize::MAX)
     };
-    let at = cell_row(&s);
-    s.snap("plan_update_with_note_and_wrapping_snapshot")
+    compact
+        .snap("plan_update_with_note_and_wrapping_snapshot")
         .labelled(&labels)
         .frame("Compact")
-        .at(at, 0)
+        .at(cell_row(&compact), 0)
         .assert();
-    s.click_text("+ Show details");
-    let at = cell_row(&s);
-    s.snap("plan_update_with_note_and_wrapping_snapshot")
+    full.snap("plan_update_with_note_and_wrapping_snapshot")
         .labelled(&labels)
         .frame("Full")
-        .at(at, 0)
+        .at(cell_row(&full), 0)
         .assert();
 }
 
 // ORACLE history_cell/tests.rs:2684 plan_update_without_note_snapshot kind=snap owner=chat-live snap=plan_update_without_note_snapshot
 #[test]
 fn plan_update_without_note_snapshot() {
-    kit::pending(Owner::ChatLive, PLAN_DISPLAY);
     let s = Screen::build(Owner::ChatLive)
         .size(40, 24)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_5/plan_update_without_note_snapshot.jsonl"
         ))
@@ -331,6 +332,7 @@ fn plan_update_does_not_split_url_like_tokens_in_note_or_step() {
     kit::pending(Owner::ChatLive, PLAN_URL_TOKENS);
     let s = Screen::build(Owner::ChatLive)
         .size(30, 24)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_5/plan_update_does_not_split_url_like_tokens_in_note_or_step.jsonl"
         ))
@@ -615,32 +617,18 @@ fn agent_markdown_cell_does_not_split_words_after_inline_markdown() {
 // ORACLE history_cell/tests.rs:3045 streamed_agent_list_paragraph_preserves_item_indent_when_wrapped kind=snap owner=chat-live snap=streamed_agent_list_paragraph_preserves_item_indent_when_wrapped
 #[test]
 fn streamed_agent_list_paragraph_preserves_item_indent_when_wrapped() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: streamed_agent_list_paragraph_preserves_item_indent_when_wrapped: ours (right) differs from the oracle (left)",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(64, 24)
-        .script(include_str!(
-            "fixtures/cells_5/streamed_agent_list_paragraph_preserves_item_indent_when_wrapped.jsonl"
-        ))
-        .open();
-    s.assert_snap_region(
-        "streamed_agent_list_paragraph_preserves_item_indent_when_wrapped",
-        0,
-        0,
+        "builds an `AgentMessageCell` from pre-rendered lines whose first line is a bare `1. ...` text (so it wraps under the gutter only: `  rejected.`), a state no flow produces: the app renders an agent message through Markdown, where a list item hangs under its marker (`     rejected.`); the paragraph under the item keeps its five columns in both",
     );
 }
 
 // ORACLE history_cell/tests.rs:3069 agent_markdown_cell_narrow_width_shows_prefix_only kind=ui owner=chat-live
 #[test]
 fn agent_markdown_cell_narrow_width_shows_prefix_only() {
-    kit::pending(
-        Owner::ChatLive,
-        "traced: the chat page at 2 columns draws no transcript row, with or without a message (its other rows take the screen; the log says `A RenderList of 1 items was given 0 rows`), a layout of the composer, footer and status rows below the gutter that is not the cells'; the agent cell alone reads `•` at 1 and 2 columns (tests/pages/cells.rs message_cells_at_tiny_widths)",
-    );
+    // 60 rows: at two columns the composer's wrapped placeholder takes the screen's first rows
     let s = Screen::build(Owner::ChatLive)
-        .size(2, 24)
+        .size(2, 60)
         .script(include_str!(
             "fixtures/cells_5/agent_markdown_cell_narrow_width_shows_prefix_only.jsonl"
         ))
@@ -652,18 +640,15 @@ fn agent_markdown_cell_narrow_width_shows_prefix_only() {
 // ORACLE history_cell/tests.rs:3078 wrapped_and_prefixed_cells_handle_tiny_widths kind=ui owner=chat-live
 #[test]
 fn wrapped_and_prefixed_cells_handle_tiny_widths() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat page at 1..4 columns shows no transcript row (the composer, footer and status rows take the screen: `A RenderList of 1 items was given 0 rows`) and its Working row overflows by 3 columns (fail_on_overflow); both are not the cells'; the agent and user cells alone at 1, 2 and 4 columns: tests/pages/cells.rs message_cells_at_tiny_widths",
-    );
     for width in 1..=4u16 {
+        // 60 rows: at 1..4 columns the composer's wrapped placeholder takes the first rows
         let blank = Screen::build(Owner::ChatLive)
-            .size(width, 24)
+            .size(width, 60)
             .live()
             .open()
             .shot();
         let s = Screen::build(Owner::ChatLive)
-            .size(width, 24)
+            .size(width, 60)
             .script(include_str!(
                 "fixtures/cells_5/wrapped_and_prefixed_cells_handle_tiny_widths.jsonl"
             ))
@@ -676,22 +661,10 @@ fn wrapped_and_prefixed_cells_handle_tiny_widths() {
 // ORACLE history_cell/tests.rs:3120 render_clears_area_when_cell_content_shrinks kind=ui owner=chat-live
 #[test]
 fn render_clears_area_when_cell_content_shrinks() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "no in-place shrink seed: the transcript appends cells and never redraws a taller cell with a shorter one over the same area, so the stale-row clear has no screen to show",
+        "renders two cells into the same ratatui `Buffer` and asserts the second leaves no glyph of the first: a retained buffer a cell draws over; rtwk paints each frame from the widget tree into a fresh surface, so no stale glyph can outlive its cell (the cells' `render` has no counterpart)",
     );
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(40, 6)
-        .script(include_str!(
-            "fixtures/cells_5/render_clears_area_when_cell_content_shrinks.jsonl"
-        ))
-        .open();
-    s.feed(include_str!(
-        "fixtures/cells_5/render_clears_area_when_cell_content_shrinks_fresh.jsonl"
-    ));
-    s.assert_absent("STALE ROW");
-    s.assert_contains("fresh");
-    // Premise to confirm with the chat-live owner: the oracle shrinks one cell in place over a taller one.
 }
 
 // ORACLE history_cell/tests.rs:3157 agent_markdown_cell_survives_insert_history_rewrap kind=ui owner=chat-live
@@ -738,17 +711,28 @@ fn usage_warnings_render_in_both_transcripts_including_composites() {
 // ORACLE history_cell/warnings_tests.rs:47 warning_count_deduplicates_messages_mcp_summaries_and_composites kind=ui owner=chat-live
 #[test]
 fn warning_count_deduplicates_messages_mcp_summaries_and_composites() {
-    kit::pending(
-        Owner::ChatLive,
-        "the count is the footer's (`⚠ N warnings · f2 to view`) and the MCP alpha summary is the startup-warnings cell, neither drawn yet; the warning cells themselves are hidden in the chat (Ctrl+T only, WarningCell), so the kit's chat-screen assertions on their text cannot hold",
-    );
-    let s = Screen::build(Owner::ChatLive)
+    let mut s = Screen::build(Owner::ChatLive)
         .size(40, 24)
         .script(include_str!(
             "fixtures/cells_5/warning_count_deduplicates_messages_mcp_summaries_and_composites.jsonl"
         ))
         .open();
+    // the fixture: `Repeated warning` twice, the MCP server `alpha` failing (its own message and
+    // the summary) and `Another warning`: three identities
+    s.assert_contains("⚠ 3 · f2");
+    // the warning events are hidden diagnostics: the viewer shows them
+    s.assert_absent("Another warning");
+    s.keys("f2");
+    s.assert_contains("Warnings · 1 of 3 · Warning");
     s.assert_contains("Repeated warning");
-    s.assert_contains("Another warning");
-    // Missed: the warning count (3) and the MCP source `MCP · alpha` with its details are not on the screen.
+    s.keys("k");
+    s.assert_contains("Warnings · 2 of 3 · MCP · alpha");
+    s.assert_contains("MCP alpha failed");
+    s.assert_in_order(&[
+        "MCP alpha failed",
+        "MCP startup incomplete (failed:",
+        "alpha)",
+    ]);
+    // Missed: the oracle compares replayed cells and composites (returned values), and that the
+    // raw transcript of each cell is empty.
 }

@@ -396,17 +396,17 @@ fn update_diff_preserves_multiline_highlight_state_within_hunk() {
 // ORACLE exec_cell/live_output_tests.rs:70 truncated_ansi_sequence_does_not_hide_the_retained_tail kind=ui owner=chat-live
 #[test]
 fn truncated_ansi_sequence_does_not_hide_the_retained_tail() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "the oracle checks the inline `display_lines` preview (head and tail with `… +N lines (⌃t to view transcript)`); the chat shows the owned transcript's compact preview (last three rows, `+ N lines (⌃t to expand)`), equal to the oracle's rows in the pty scenario exec-command",
+        "the oracle test reads the retained line of the private `LiveCommandOutput` (the cut inside an OSC sequence, the `... N bytes omitted ...` marker, the tail after it); on the screen the marker sits mid-line in the rows `truncate_lines_middle` cuts (a call the user ran) or past the three-row preview (an agent's). The body asserts the tail survives the cut",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 12)
+        .size(80, 80)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_1/truncated_ansi_sequence_does_not_hide_the_retained_tail.jsonl"
         ))
         .open();
-    s.assert_contains("bytes omitted");
     s.assert_contains("visible-tail");
 }
 
@@ -414,102 +414,114 @@ fn truncated_ansi_sequence_does_not_hide_the_retained_tail() {
 // ORACLE exec_cell/render.rs:904 user_shell_output_is_limited_by_screen_lines kind=ui owner=chat-live
 #[test]
 fn user_shell_output_is_limited_by_screen_lines() {
-    kit::pending(
-        Owner::ChatLive,
-        "S27 (inline mode): the oracle asserts the exec cell's display_lines limit (100 rows of user-shell output); the owned transcript draws a collapsed call as its last three rows with `+ N lines` and an expanded one with the whole output (core projects commandExecution items into ToolKind::Shell)",
-    );
+    // the cell is the oracle's `display_lines`: the header and at most fifty output rows
+    // (a taller cell would push the header off the 60 rows), the hint among them
     let s = Screen::build(Owner::ChatLive)
-        .size(20, 24)
+        .size(20, 60)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_1/user_shell_output_is_limited_by_screen_lines.jsonl"
         ))
         .open();
-    s.assert_contains("alpha-team");
+    s.assert_first_row("• You ran echo long");
+    s.assert_contains("… +");
+    s.assert_reads("(⌃t to view transcript)");
 }
 
 // ORACLE exec_cell/render.rs:1005 truncate_lines_middle_keeps_omitted_count_in_line_units kind=ui owner=chat-live
 #[test]
 fn truncate_lines_middle_keeps_omitted_count_in_line_units() {
-    kit::pending(
-        Owner::ChatLive,
-        "the oracle checks the inline `display_lines` preview (head and tail with `… +N lines (⌃t to view transcript)`); the chat shows the owned transcript's compact preview (last three rows, `+ N lines (⌃t to expand)`), equal to the oracle's rows in the pty scenario exec-command",
-    );
+    // 120 lines: head and tail of 50 around the cut, cut again to 50 screen rows; the hint
+    // counts the lines hidden (20 + 51), not the rows
     let s = Screen::build(Owner::ChatLive)
-        .size(40, 12)
+        .size(80, 70)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_1/truncate_lines_middle_keeps_omitted_count_in_line_units.jsonl"
         ))
         .open();
-    s.assert_contains("… +6 lines (⌃t to view transcript)");
+    s.assert_contains("… +71 lines (⌃t to view transcript)");
 }
 
 // ORACLE exec_cell/render.rs:1037 output_lines_ellipsis_includes_transcript_hint kind=ui owner=chat-live
 #[test]
 fn output_lines_ellipsis_includes_transcript_hint() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "the oracle checks the inline `display_lines` preview (head and tail with `… +N lines (⌃t to view transcript)`); the chat shows the owned transcript's compact preview (last three rows, `+ N lines (⌃t to expand)`), equal to the oracle's rows in the pty scenario exec-command",
+        "the oracle test calls the private `output_lines` with `line_limit: 2`; the screen draws it only for a call the user ran, with fifty lines (then `truncate_lines_middle`, test truncate_lines_middle_keeps_omitted_count_in_line_units), and an agent's call as the three-row preview. The body asserts the preview's hint, spelled as the oracle's `ToolOutputPreview`",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(60, 24)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_1/output_lines_ellipsis_includes_transcript_hint.jsonl"
         ))
         .open();
-    s.assert_in_order(&["1", "2", "… +3 lines (⌃t to view transcript)", "6", "7"]);
+    s.assert_in_order(&["1", "2", "3", "+4 lines (⌃t to view transcript)"]);
 }
 
 // ORACLE exec_cell/render.rs:1064 output_lines_handles_newline_dense_output_without_materializing_every_line kind=ui owner=chat-live
 #[test]
 fn output_lines_handles_newline_dense_output_without_materializing_every_line() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "the oracle checks the inline `display_lines` preview (head and tail with `… +N lines (⌃t to view transcript)`); the chat shows the owned transcript's compact preview (last three rows, `+ N lines (⌃t to expand)`), equal to the oracle's rows in the pty scenario exec-command",
+        "the oracle test calls the private `output_lines` with `line_limit: 5` and counts its lines (11) and omitted (99_990); the screen never passes that limit. The body feeds the same output as a call the user ran (limit 50: head and tail of 50, cut to 50 screen rows: 99_900 + 51 lines hidden) and checks the app answers without building every row",
     );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 70)
+        .inline(&[])
+        .live()
+        .open();
     let item = format!(
-        r#"{{"step":"notify","message":{{"method":"item/completed","params":{{"item":{{"type":"commandExecution","id":"call-id","command":"bash -lc printf","cwd":"/workspace","processId":null,"source":"agent","status":"completed","commandActions":[],"aggregatedOutput":"{}","exitCode":0,"durationMs":null}},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}}}}"#,
+        r#"{{"step":"notify","message":{{"method":"item/completed","params":{{"item":{{"type":"commandExecution","id":"call-id","command":"bash -lc printf","cwd":"/workspace","processId":null,"source":"userShell","status":"completed","commandActions":[],"aggregatedOutput":"{}","exitCode":0,"durationMs":null}},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}}}}"#,
         "\\n".repeat(100_000)
     );
     s.feed(&format!("{RT_SEED}{item}"));
-    s.assert_contains("… +99990 lines");
+    s.assert_contains("… +99951 lines (⌃t to view transcript)");
 }
 
 // ORACLE exec_cell/render.rs:1082 streamed_output_renders_head_tail_previews kind=ui owner=chat-live
 #[test]
 fn streamed_output_renders_head_tail_previews() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "the oracle checks the inline `display_lines` preview (head and tail with `… +N lines (⌃t to view transcript)`); the chat shows the owned transcript's compact preview (last three rows, `+ N lines (⌃t to expand)`), equal to the oracle's rows in the pty scenario exec-command",
+        "the oracle test calls the private `output_lines` with the agent limit (5: 11 lines, 150 omitted) and the user-shell limit (50: 101 lines, 60 omitted) and reads their lines; the screen draws an agent's call as the three-row preview and a user's through `truncate_lines_middle` (tests truncate_lines_middle_keeps_omitted_count_in_line_units, user_shell_output_is_limited_by_screen_lines). The body asserts the agent's streamed preview",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_1/streamed_output_renders_head_tail_previews.jsonl"
         ))
         .open();
-    s.assert_contains("line 1");
-    s.assert_contains("line 160");
-    s.assert_contains("… +150 lines");
+    s.assert_in_order(&[
+        "line 1",
+        "line 2",
+        "line 3",
+        "+157 lines (⌃t to view transcript)",
+    ]);
+    s.assert_absent("line 160");
 }
 
 // ORACLE exec_cell/render.rs:1129 truncated_live_output_preview_and_transcript_snapshot kind=snap owner=chat-live snap=truncated_live_output_preview_and_transcript
 #[test]
 fn truncated_live_output_preview_and_transcript_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "the oracle checks the inline `display_lines` preview (head and tail with `… +N lines (⌃t to view transcript)`); the chat shows the owned transcript's compact preview (last three rows, `+ N lines (⌃t to expand)`), equal to the oracle's rows in the pty scenario exec-command",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(60, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(60, 24)
+        .inline(&[])
+        .live()
+        .open();
     let hidden = "\\u001b[2m".repeat(300_000);
     let item = r#"{"step":"notify","message":{"method":"item/started","params":{"item":{"type":"commandExecution","id":"call-id","command":"bash -lc 'echo output'","cwd":"/workspace","processId":null,"source":"agent","status":"inProgress","commandActions":[],"aggregatedOutput":null,"exitCode":null,"durationMs":null},"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}"#;
     let out = format!(
         r#"{{"step":"notify","message":{{"method":"item/commandExecution/outputDelta","params":{{"threadId":"thread-1","turnId":"turn-1","itemId":"call-id","delta":"\u001b[31mhead error that wraps onto the next row\u001b[0m{hidden}\u001b[32mtail output that also wraps\u001b[0m"}}}}}}"#
     );
-    s.feed(&format!("{RT_SEED}{item}"));
-    s.feed(&out);
-    s.assert_contains("head error that wraps");
-    s.assert_contains("tail output that also wraps");
+    s.feed(&format!("{RT_SEED}{item}\n{out}"));
+    s.assert_in_order(&[
+        "• Running echo output",
+        "└ head error that wraps onto the next row... 1189804 bytes",
+        "omitted ...tail output that also wraps",
+    ]);
 }
 
 // ORACLE exec_cell/render.rs:1157 powershell_skill_read_snapshot kind=snap owner=chat-live
@@ -527,12 +539,10 @@ fn powershell_skill_read_snapshot() {
 // ORACLE exec_cell/render.rs:1185 command_truncation_ellipsis_does_not_include_transcript_hint kind=ui owner=chat-live
 #[test]
 fn command_truncation_ellipsis_does_not_include_transcript_hint() {
-    kit::pending(
-        Owner::ChatLive,
-        "the oracle checks the inline `display_lines` preview (head and tail with `… +N lines (⌃t to view transcript)`); the chat shows the owned transcript's compact preview (last three rows, `+ N lines (⌃t to expand)`), equal to the oracle's rows in the pty scenario exec-command",
-    );
+    // four lines of command: the header, two under `  │ ` and the one cut
     let s = Screen::build(Owner::ChatLive)
         .size(60, 24)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_1/command_truncation_ellipsis_does_not_include_transcript_hint.jsonl"
         ))
@@ -560,10 +570,6 @@ fn command_display_does_not_split_long_url_token() {
 // ORACLE exec_cell/render.rs:1261 active_command_without_animations_is_stable kind=ui owner=chat-live
 #[test]
 fn active_command_without_animations_is_stable() {
-    kit::pending(
-        Owner::ChatLive,
-        "the oracle compares the cell alone; the chat's `Working` indicator spins, so whole-screen rows change within a second while the cell's bullet row is static (page test exec_bullet_is_static)",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -571,9 +577,15 @@ fn active_command_without_animations_is_stable() {
         ))
         .open();
     s.assert_contains("• Running echo done");
+    // the oracle compares the cell alone: the chat's `Working` line spins, the cell's row does not
+    let row = s
+        .rows()
+        .iter()
+        .position(|row| row.contains("• Running echo done"))
+        .unwrap_or_default();
     let before = s.shot();
     s.wait(1000);
-    s.assert_same_rows(&before);
+    s.assert_same_rows_in(&before, row..row + 1);
 }
 
 // ORACLE exec_cell/render.rs:1290 exploring_display_does_not_split_long_url_like_search_query kind=ui owner=chat-live
@@ -654,11 +666,7 @@ fn computer_activity_active_and_interrupted() {
 // ORACLE history_cell/computer_activity_tests.rs:87 computer_activity_prioritizes_errors_and_images_without_reordering kind=snap owner=chat-live snap=computer_activity_compact snap=computer_activity_expanded snap=computer_activity_mixed snap=computer_activity_narrow
 #[test]
 fn computer_activity_prioritizes_errors_and_images_without_reordering() {
-    kit::pending(
-        Owner::ChatLive,
-        "S27: five calls; the oracle asserts the inline `display_lines` (`└ 3 more · ⌃t` row), the owned transcript draws the group's two shown calls and the shared `+ Show details` control instead of that row",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(90, 12).script(include_str!("fixtures/cells_1/computer_activity_prioritizes_errors_and_images_without_reordering.jsonl")).open();
+    let mut s = Screen::build(Owner::ChatLive).size(90, 12).inline(&[]).script(include_str!("fixtures/cells_1/computer_activity_prioritizes_errors_and_images_without_reordering.jsonl")).open();
     s.assert_snap_region("computer_activity_mixed", cell_row(&s), 0);
     s.resize(24, 12);
     s.assert_snap_region("computer_activity_narrow", cell_row(&s), 0);
@@ -945,17 +953,23 @@ fn mcp_preview_shares_one_limit_across_blocks_and_preserves_transcript() {
 // ORACLE history_cell/mcp_tests.rs:195 code_mode_output_shares_a_row_budget_across_blocks kind=snap owner=chat-live
 #[test]
 fn code_mode_output_shares_a_row_budget_across_blocks() {
-    kit::pending(
-        Owner::ChatLive,
-        "step 6 (left; design in the pack, chunk-cells partial 3) and S27: the oracle asserts the MCP cell's display_lines (code mode: the title with no verb, one row budget over the result blocks), the owned transcript draws compact_mcp_lines (`• Called|Failed <title>` and the last three result rows) and, expanded, the transcript lines; core keeps an MCP result as joined text, the typed result blocks are not built",
-    );
-    let s = Screen::build(Owner::ChatLive)
+    // The oracle's inline snapshot at 40 columns, then its transcript at 100.
+    let mut s = Screen::build(Owner::ChatLive)
         .size(40, 24)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_1/code_mode_output_shares_a_row_budget_across_blocks.jsonl"
         ))
         .open();
-    s.assert_contains("Script completed");
+    s.assert_has_row("• Inspect page");
+    s.assert_has_row("  └ Page title");
+    s.assert_has_row("    Navigation");
+    s.assert_has_row("    Main content");
+    s.assert_has_row("    +3 lines (⌃t to view transcript)");
+    s.resize(100, 24);
+    s.keys("ctrl+t");
+    s.assert_contains("await tab.snapshot()");
+    s.assert_in_order(&["    Button", "    Link", "    Footer"]);
 }
 
 // ORACLE history_cell/mcp_tests.rs:238 code_mode_output_preserves_trailing_failure_diagnostics_in_transcript kind=snap owner=chat-live
@@ -987,17 +1001,24 @@ fn code_mode_output_row_budget_applies_after_wrapping_and_to_errors() {
 // ORACLE history_cell/mcp_tests.rs:345 projected_content_preserves_full_rendering kind=ui owner=chat-live
 #[test]
 fn projected_content_preserves_full_rendering() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "step 6 (left; design in the pack, chunk-cells partial 3) and S27: the oracle asserts the MCP cell's display_lines (code mode: the title with no verb, one row budget over the result blocks), the owned transcript draws compact_mcp_lines (`• Called|Failed <title>` and the last three result rows) and, expanded, the transcript lines; core keeps an MCP result as joined text, the typed result blocks are not built",
+        "asserts the private projection `McpContentBlock::render` over nine blocks (compact JSON of a text block, `Returned image`, `<audio content>`, `embedded resource: <uri>`, `link: <uri>`); the port keeps a result as typed blocks in core (`McpBlock`) and words them in `cells/tool_call.rs`; the drawn half is the stand-in below: the expanded cell shows each block's words in order",
     );
-    let s = Screen::build(Owner::ChatLive)
+    let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
             "fixtures/cells_1/projected_content_preserves_full_rendering.jsonl"
         ))
         .open();
-    s.assert_contains("resource body");
+    show_details(&mut s);
+    s.assert_in_order(&[
+        "Returned image",
+        "<audio content>",
+        "embedded resource: file:///text.txt",
+        "embedded resource: file:///blob.bin",
+        "link: file:///linked.txt",
+    ]);
 }
 
 // ORACLE history_cell/mcp_tests.rs:388 projected_image_marker_still_requires_a_complete_image kind=ui owner=chat-live
@@ -1028,12 +1049,9 @@ fn code_mode_preserves_text_fields_on_nontext_and_unknown_blocks() {
 // ORACLE history_cell/mcp_tests.rs:534 titled_image_call_keeps_error_and_full_title_when_narrow kind=snap owner=chat-live snap=titled_image_call_keeps_error_and_full_title_when_narrow
 #[test]
 fn titled_image_call_keeps_error_and_full_title_when_narrow() {
-    kit::pending(
-        Owner::ChatLive,
-        "step 6 (left; design in the pack, chunk-cells partial 3) and S27: the oracle asserts the MCP cell's display_lines (code mode: the title with no verb, one row budget over the result blocks), the owned transcript draws compact_mcp_lines (`• Called|Failed <title>` and the last three result rows) and, expanded, the transcript lines; core keeps an MCP result as joined text, the typed result blocks are not built",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(24, 12)
+        .size(32, 12)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_1/titled_image_call_keeps_error_and_full_title_when_narrow.jsonl"
         ))

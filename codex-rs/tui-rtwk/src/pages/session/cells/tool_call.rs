@@ -19,6 +19,8 @@ use codex_tui_core::threads::{
 
 use crate::app::theme::Tokens;
 
+mod display;
+
 use super::strings::{INVOCATION_CLOSE, INVOCATION_DOT, INVOCATION_OPEN, Strings};
 use super::text::{Env as TextEnv, Part, Room};
 use super::tool_rows::{
@@ -45,6 +47,12 @@ pub fn mcp(call: &McpCall, env: &Env<'_>, inline_room: Option<Room>) -> Parts {
             body: Vec::new(),
             disclosure: Some(strings.hide_details.to_owned()),
         });
+    }
+    if let Some(room) = inline_room
+        && display::applies(call, true)
+    {
+        let plan = display::plan(call, strings, text_room(room));
+        return Parts::Rows(display::rows(call, &plan, tokens));
     }
     let preview = mcp_preview(call, strings, inline_room.map(text_room));
     let mut spans = Vec::new();
@@ -84,14 +92,8 @@ struct McpPreview {
     disclosure: Option<String>,
 }
 
-pub(in crate::pages::session) fn uses_inline_display(call: &McpCall) -> bool {
-    call.result_kind() == McpResultKind::NodeRepl
-}
-
 fn mcp_preview(call: &McpCall, strings: &Strings, inline: Option<Room>) -> McpPreview {
-    if let Some(room) = inline
-        && uses_inline_display(call)
-    {
+    if let Some(room) = inline {
         return inline_preview(call, strings, room.after(BRANCH));
     }
     if call.result_kind() == McpResultKind::NodeRepl
@@ -502,6 +504,9 @@ pub(super) fn mcp_texts(call: &McpCall, env: &TextEnv<'_>, room: Room, inline: b
     let s = env.cells;
     let room = text_room(room);
     let expanded = env.detailed || env.expanded;
+    if !expanded && display::applies(call, inline) {
+        return display::texts(&display::plan(call, s, room), room);
+    }
     let mut parts = vec![Part::gutter(BULLET)];
     if expanded {
         parts.extend(transcript_parts(call, s, room));

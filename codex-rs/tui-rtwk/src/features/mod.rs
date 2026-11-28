@@ -390,6 +390,12 @@ pub fn report_subagents<S: 'static>(
     );
 }
 
+/// The row the transcript's tail shows while `/mcp` waits for the inventory (oracle
+/// `McpInventoryLoadingCell`).
+pub fn mcp_inventory_loading() -> AnyWidget {
+    mcp_inventory::cell::LoadingCell.into()
+}
+
 pub fn offer_enable_subagents<S: 'static>(cx: &mut Cx<'_, S>, hs: &Hs) {
     use codex_tui_core::features::settings::{Intent, Which};
 

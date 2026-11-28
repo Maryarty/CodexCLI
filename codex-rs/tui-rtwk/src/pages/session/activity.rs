@@ -247,6 +247,13 @@ impl StatelessWidget for StatusSlot {
             let thread = run.id.clone();
             select::<FeatureStates, bool, _>(cx, move |features| features.recap.generating(&thread))
         };
+        // `/mcp` asked: the oracle's `McpInventoryLoadingCell` stands there until the answer
+        let inventory_loading = {
+            let thread = run.id.clone();
+            select::<FeatureStates, bool, _>(cx, move |features| {
+                features.mcp_inventory.loading(Some(&thread)).is_some()
+            })
+        };
         let owner = run.id.clone();
         let (backend, now, facts) = select::<ScreenStates, _, _>(cx, move |states| {
             (
@@ -411,7 +418,12 @@ impl StatelessWidget for StatusSlot {
         // the hook line and the terminals' line stand in for a missing activity row
         let hook_line = run.hook.as_deref().filter(|_| !working);
         let terminals_line = run.terminals > 0 && !working;
-        if status.is_none() && hook_line.is_none() && !terminals_line && !run.pending && !recapping
+        if status.is_none()
+            && hook_line.is_none()
+            && !terminals_line
+            && !run.pending
+            && !recapping
+            && !inventory_loading
         {
             return SizedBox::shrink().into();
         }
@@ -428,6 +440,12 @@ impl StatelessWidget for StatusSlot {
             column = column.child(NoticeCell {
                 notice: Notice::RecapLoading,
             });
+        }
+        if inventory_loading {
+            if !run.transcript_empty || recapping {
+                column = column.child(blank());
+            }
+            column = column.child(crate::features::mcp_inventory_loading());
         }
         if let Some(status) = status {
             if !run.transcript_empty {
@@ -792,7 +810,8 @@ impl State for ActivityState {
                     );
                 }
             }
-            let mut line = Row::new().spacing(1);
+            // a window of one column cuts the blank after the bullet: a clip is meant
+            let mut line = Row::new().spacing(1).overflow_intended(true);
             if let Some(bullet) = &bullet {
                 line = line.child(bullet.clone());
             }

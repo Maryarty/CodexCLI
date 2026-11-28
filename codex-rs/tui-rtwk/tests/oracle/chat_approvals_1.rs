@@ -170,15 +170,51 @@ fn exec_approval_decision_truncates_multiline_and_long_commands() {
 // ORACLE chatwidget/tests/exec_flow.rs:6 external_writer_snapshot_freezes_active_command_and_mcp_rows kind=snap owner=dialogs-pane
 #[test]
 fn external_writer_snapshot_freezes_active_command_and_mcp_rows() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-live, not approvals): no external-writer thread view on the chat screen: the active exec row and the MCP row are not frozen on show",
-    );
-    // oracle: with a running command (sleep 5) or a running MCP call, showing the external writer thread
-    // freezes the active row (no animation); the rendered rows are the snapshot.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: a running exec `sleep 5` (call-running), then the external writer thread shown; and the MCP variant
-    s.assert_snap("external_writer_snapshot_freezes_active_command_and_mcp_rows");
+    // oracle: with a running command (sleep 5) or a running MCP call, showing the external writer
+    // thread freezes the active row (no animation, the turn no longer running); the rendered rows
+    // are the snapshot, the two renders joined by `---`. The thread is shown read-only (the server
+    // refuses the resume) with the in-flight call of its recorded history.
+    let name = "external_writer_snapshot_freezes_active_command_and_mcp_rows";
+    let exec = serde_json::json!({
+        "type": "commandExecution", "id": "call-running", "pluginId": null, "scriptPath": null,
+        "command": "bash -lc 'sleep 5'", "cwd": "/tmp/project", "processId": null,
+        "source": "agent", "status": "inProgress",
+        "commandActions": [{"type": "unknown", "command": "sleep 5"}],
+        "aggregatedOutput": null, "exitCode": null, "durationMs": null,
+        "startedAtMs": 0, "completedAtMs": null
+    });
+    let mcp = serde_json::json!({
+        "type": "mcpToolCall", "id": "mcp-running", "server": "server", "tool": "tool",
+        "status": "inProgress", "arguments": null, "appContext": null,
+        "mcpAppUiResourceUri": null, "mcpAppUi": null, "pluginId": null, "readOnlyHint": null,
+        "result": null, "error": null, "durationMs": null
+    });
+    for (at, item) in [(0, exec), (1, mcp)] {
+        let mut turn = kit::replay_turn("turn-1", serde_json::json!([item]));
+        turn["status"] = serde_json::json!("inProgress");
+        turn["completedAt"] = serde_json::Value::Null;
+        turn["durationMs"] = serde_json::Value::Null;
+        let mut s = Screen::build(Owner::DialogsPane)
+            .size(80, 24)
+            .inline(&[])
+            .foreign_writer("thread-foreign")
+            .live()
+            .open();
+        s.history_page(vec![turn], None);
+        s.assert_contains("This conversation is open in another app");
+        s.assert_absent("Working");
+        if at == 0 {
+            s.snap(name)
+                .cut(at)
+                .at(cell_at(&s, "• Running sleep 5"), 0)
+                .assert();
+        } else {
+            // the oracle's call has `arguments: None` (`server.tool()`), which the server's item
+            // cannot say: its `arguments` is a JSON value, and the null the item carries reads
+            // `(null)` in the oracle's own app path too (`tool_lifecycle.rs` `Some(arguments)`)
+            s.assert_has_row("• Calling server.tool(null)");
+        }
+    }
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:51 replayed_background_terminals_belong_to_the_displayed_thread kind=snap owner=dialogs-pane
@@ -231,14 +267,24 @@ fn replayed_background_terminals_belong_to_the_displayed_thread() {
 // ORACLE chatwidget/tests/exec_flow.rs:95 replayed_command_completion_preserves_tracking_without_duplicate_starts kind=ui owner=dialogs-pane
 #[test]
 fn replayed_command_completion_preserves_tracking_without_duplicate_starts() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no exec history cell for a replayed command completion on the chat screen (the completed cat replay is not drawn)",
-    );
-    // oracle: a replayed completion of a unified-exec startup writes one history cell and no duplicate start.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: a unified exec startup `cat replay` (process-replay), then its completed item as ThreadSnapshot
+    // oracle: a replayed completion of a unified-exec startup writes one history cell and no
+    // duplicate start; no command and no terminal stays tracked.
+    let item = serde_json::json!({
+        "type": "commandExecution", "id": "call-replay", "pluginId": null, "scriptPath": null,
+        "command": "cat replay", "cwd": "/tmp/project", "processId": "process-replay",
+        "source": "unifiedExecStartup", "status": "completed",
+        "commandActions": [{"type": "unknown", "command": "cat replay"}],
+        "aggregatedOutput": null, "exitCode": null, "durationMs": null,
+        "startedAtMs": 0, "completedAtMs": 0
+    });
+    let s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .replay(vec![kit::replay_turn("turn-1", serde_json::json!([item]))])
+        .open();
     s.assert_in_order(&["• Ran cat replay", "└ (no output)"]);
+    s.assert_text_count("• Ran cat replay", 1);
+    s.assert_absent("• Running");
+    s.assert_absent("background terminal");
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:168 failed_exploration_keeps_overlapping_commands_active_until_all_finish kind=snap owner=dialogs-pane
@@ -307,40 +353,114 @@ fn exploration_nonzero_exits_remain_visible_beside_successful_reads() {
 // ORACLE chatwidget/tests/exec_flow.rs:258 exploration_reasoning_during_followup_command_stays_ordered kind=snap owner=dialogs-pane
 #[test]
 fn exploration_reasoning_during_followup_command_stays_ordered() {
-    kit::pending(
-        Owner::DialogsPane,
-        "S27 INLINE FORM (display_lines of the scrollback): the oracle snapshot is the inline stream (`$ ls`, output, `✓ • 5ms`, reasoning `• ...` rows), not the compact cell the chat screen owns (`• Explored / └ List ls / Read file.txt`); needs the inline history writer (S27)",
-    );
     // oracle: `ls` then reasoning "Read the file next.", `cat file.txt` with reasoning "Waiting for the file.";
-    // the active transcript keeps that order.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().script(include_str!("fixtures/chat_approvals_1/exploration_reasoning_during_followup_command_stays_ordered.jsonl")).open();
-    // needs feed: begin+end ls (file.txt), reasoning delta+final, begin cat file.txt, reasoning delta+final, end cat file.txt
-    s.assert_snap("exploration_reasoning_during_followup_command_stays_ordered");
+    // the active transcript keeps that order. The snapshot is `active_cell_transcript_lines`: the
+    // detailed transcript (Ctrl+T).
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .live()
+        .script(include_str!(
+            "fixtures/chat_approvals_1/exploration_reasoning_during_followup_command_stays_ordered.jsonl"
+        ))
+        .open();
+    s.keys("ctrl+t");
+    s.assert_snap_region(
+        "exploration_reasoning_during_followup_command_stays_ordered",
+        cell_at(&s, "$ ls"),
+        0,
+    );
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:274 adjacent_exploration_groups_across_reasoning_live_and_replayed kind=snap owner=dialogs-pane
 #[test]
 fn adjacent_exploration_groups_across_reasoning_live_and_replayed() {
-    kit::pending(
-        Owner::DialogsPane,
-        "S27 INLINE FORM: the live and replayed screens are compared in the Compact, Expanded and Raw inline forms of the scrollback (display_lines/transcript/raw_lines); the owned compact exploration cell matches its oracle rows, the other forms need the inline history writer (S27)",
+    // oracle: the live and the replayed screens render the same Compact (the inline stream), Expanded
+    // (the detailed transcript) and Raw text.
+    let script = include_str!(
+        "fixtures/chat_approvals_1/adjacent_exploration_groups_across_reasoning_live_and_replayed.jsonl"
     );
-    // oracle: the live and the replayed screens render the same Compact, Expanded and Raw text.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().script(include_str!("fixtures/chat_approvals_1/adjacent_exploration_groups_across_reasoning_live_and_replayed.jsonl")).open();
-    // needs feed: the five commands (ls missing 1, cat index.html, echo boundary, cat later.txt, cat final.txt) with reasoning between them, live and replayed
-    s.assert_snap("adjacent_exploration_groups_across_reasoning_live_and_replayed");
+    let labels = ["Compact:", "Expanded:", "Raw:"];
+    let name = "adjacent_exploration_groups_across_reasoning_live_and_replayed";
+    let compact = Screen::build(Owner::DialogsPane)
+        .size(80, 60)
+        .inline(&[])
+        .live()
+        .script(script)
+        .open();
+    compact
+        .snap(name)
+        .labelled(&labels)
+        .frame("Compact:")
+        .at(cell_at(&compact, "• Explored"), 0)
+        .assert();
+    let mut expanded = Screen::build(Owner::DialogsPane)
+        .size(80, 60)
+        .live()
+        .script(script)
+        .open();
+    expanded.keys("ctrl+t");
+    expanded
+        .snap(name)
+        .labelled(&labels)
+        .frame("Expanded:")
+        .at(cell_at(&expanded, "$ ls missing"), 0)
+        .assert();
+    let mut raw = Screen::build(Owner::DialogsPane)
+        .size(80, 60)
+        .live()
+        .script(script)
+        .open();
+    raw.keys("alt+r");
+    raw.snap(name)
+        .labelled(&labels)
+        .frame("Raw:")
+        .at(cell_at(&raw, "$ ls missing"), 0)
+        .assert();
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:378 replayed_commands_preserve_individual_output_and_failure_status kind=snap owner=dialogs-pane
 #[test]
 fn replayed_commands_preserve_individual_output_and_failure_status() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-cells, not approvals): no replayed command cells with their own output and status marks on the chat screen (✓ and ✗ (7), ✗ (1))",
-    );
-    // oracle: four replayed command cells keep their own output; the failed and declined ones keep their status.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: replay_thread_turns of the four command items (first, second, failure exit 7, declined)
+    // oracle: four replayed command cells keep their own output; the failed and declined ones keep
+    // their status. The snapshot is the cells' detailed transcript (Ctrl+T), one per command.
+    let command = |id: &str, output: &str, source: &str, status: &str, exit: serde_json::Value| {
+        serde_json::json!({
+            "type": "commandExecution", "id": id, "pluginId": null, "scriptPath": null,
+            "command": format!("printf {output}"), "cwd": "/tmp/project", "processId": null,
+            "source": source, "status": status, "commandActions": [],
+            "aggregatedOutput": format!("{output}\n"), "exitCode": exit, "durationMs": 5,
+            "startedAtMs": null, "completedAtMs": null
+        })
+    };
+    let items = serde_json::json!([
+        command("call-first", "first", "agent", "completed", 0.into()),
+        command(
+            "call-second",
+            "second",
+            "unifiedExecStartup",
+            "completed",
+            0.into()
+        ),
+        command(
+            "call-failed",
+            "failure",
+            "unifiedExecStartup",
+            "failed",
+            7.into()
+        ),
+        command(
+            "call-declined",
+            "declined",
+            "agent",
+            "declined",
+            serde_json::Value::Null
+        ),
+    ]);
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 40)
+        .replay(vec![kit::replay_turn("turn-1", items)])
+        .open();
+    s.keys("ctrl+t");
     s.assert_in_order(&[
         "$ printf first",
         "first",
@@ -535,14 +655,74 @@ fn unified_exec_wait_before_streamed_agent_message_snapshot() {
 // ORACLE chatwidget/tests/exec_flow.rs:895 final_worked_for_uses_cumulative_turn_duration_snapshot kind=snap owner=dialogs-pane snap=final_worked_for_uses_cumulative_turn_duration
 #[test]
 fn final_worked_for_uses_cumulative_turn_duration_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "OTHER CHUNK (chunk-live, not approvals): no 'Worked for 2m 5s' final separator drawn on the chat screen (cumulative turn duration, with and without a duration)",
-    );
-    // oracle: the final separator says "Worked for 2m 5s" from the cumulative turn time; both duration cases share one snapshot.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: turn started, exec `echo preparing` (call-1, exit 0), status timer 125 s, final answer "Final response.", turn completed with 125000 ms (and with none)
-    s.assert_snap("final_worked_for_uses_cumulative_turn_duration");
+    // oracle: the final separator says "Worked for 2m 5s" from the cumulative turn time (the
+    // server's duration, or the status timer's 125 s when it timed none); both duration cases
+    // share one snapshot (`[duration] • [completion time]`: the clock part is the test's own).
+    let notify = |method: &str, params: serde_json::Value| {
+        serde_json::json!({"step": "notify", "message": {"method": method, "params": params}})
+            .to_string()
+    };
+    let now = kit::unix_now();
+    for duration in [serde_json::json!(125_000), serde_json::Value::Null] {
+        let mut s = Screen::build(Owner::DialogsPane)
+            .size(80, 24)
+            .inline(&[])
+            .live()
+            .open();
+        s.feed(&format!("{{\"step\":\"clock\",\"secs\":{now}}}"));
+        s.feed(&notify(
+            "turn/started",
+            serde_json::json!({"threadId": "thread-1", "turn": {
+                "id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "full",
+                "status": "inProgress", "error": null, "startedAt": now, "completedAt": null,
+                "durationMs": null}}),
+        ));
+        let exec = |status: &str, output: serde_json::Value, exit: serde_json::Value| {
+            serde_json::json!({
+                "type": "commandExecution", "id": "call-1", "pluginId": null, "scriptPath": null,
+                "command": "bash -lc 'echo preparing'", "cwd": "/tmp/project", "processId": null,
+                "source": "agent", "status": status,
+                "commandActions": [{"type": "unknown", "command": "echo preparing"}],
+                "aggregatedOutput": output, "exitCode": exit, "durationMs": null,
+                "startedAtMs": null, "completedAtMs": null
+            })
+        };
+        s.feed(&notify(
+            "item/started",
+            serde_json::json!({"item": exec("inProgress", serde_json::Value::Null, serde_json::Value::Null),
+                "threadId": "thread-1", "turnId": "turn-1", "startedAtMs": 0}),
+        ));
+        s.feed(&completed_item(&exec(
+            "completed",
+            "preparing\n".into(),
+            0.into(),
+        )));
+        s.feed(&format!("{{\"step\":\"clock\",\"secs\":{}}}", now + 125));
+        s.feed(&notify(
+            "item/agentMessage/delta",
+            serde_json::json!({"threadId": "thread-1", "turnId": "turn-1", "itemId": "msg-final",
+                "delta": "Final response.\n"}),
+        ));
+        s.feed(&completed_item(&serde_json::json!({
+            "type": "agentMessage", "moderation": null, "id": "msg-final",
+            "text": "Final response.", "phase": "final_answer", "memoryCitation": null,
+            "delivery": null, "questions": null, "startedAtMs": null, "completedAtMs": null
+        })));
+        s.feed(&notify(
+            "turn/completed",
+            serde_json::json!({"threadId": "thread-1", "turn": {
+                "id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "full",
+                "status": "completed", "error": null, "startedAt": null, "completedAt": null,
+                "durationMs": duration}}),
+        ));
+        s.wait(1200);
+        s.assert_in_order(&[
+            "• Ran echo preparing",
+            "└ preparing",
+            "• Final response.",
+            "Worked for 2m 5s",
+        ]);
+    }
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:983 unified_exec_waiting_multiple_empty_snapshots kind=snap owner=dialogs-pane snap=unified_exec_waiting_multiple_empty_after
