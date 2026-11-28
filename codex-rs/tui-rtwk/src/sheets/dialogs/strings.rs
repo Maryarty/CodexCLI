@@ -40,8 +40,11 @@ pub struct Group {
 /// Where the keys of a row of the live overlay come from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Keys {
-    /// Text no platform spells differently (`/`, `esc esc`).
+    /// Text no platform spells differently (`/`).
     Plain(&'static str),
+    /// A key pressed twice (`esc esc`) until the first press has primed the action: then once
+    /// (`Entry::repeat_label`).
+    Repeated(&'static str),
     /// A key the oracle fixes (a named action of `keymap::fixed`), spelt as the platform spells a
     /// hint (`\u{2303}v`).
     Fixed(ActionId),
@@ -232,7 +235,7 @@ pub const EN: Strings = Strings {
                     running: None,
                 },
                 Entry {
-                    keys: Keys::Plain("esc esc"),
+                    keys: Keys::Repeated("esc"),
                     label: "Edit last message",
                     running: None,
                 },

@@ -704,7 +704,8 @@ fn found(result: ThreadSearchResult) -> Found {
 /// `{"tasks":[{thread,title,cwd?,snippet?}]}`,
 /// `{"file_matches":{"query":"q","matches":[{path,dir?,score?,indices?}]}}`,
 /// `{"mention_usage":["path"]}` and
-/// `{"history":["..."]}` (oldest first).
+/// `{"history":["..."]}` (oldest first) and
+/// `{"history_metadata":{"log_id":1,"entry_count":2}}` (a file whose rows are not read yet).
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum SeedEv {
@@ -713,6 +714,7 @@ enum SeedEv {
     FileMatches(SeedFileMatches),
     MentionUsage(Vec<String>),
     History(Vec<String>),
+    HistoryMetadata { log_id: u64, entry_count: usize },
 }
 
 #[derive(Clone, Debug, serde::Deserialize)]
@@ -777,6 +779,13 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
         .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
     Ok(match seed {
         SeedEv::History(history) => Ev::History(history),
+        SeedEv::HistoryMetadata {
+            log_id,
+            entry_count,
+        } => Ev::HistoryMetadata {
+            log_id,
+            entry_count,
+        },
         SeedEv::Mentions(mentions) => Ev::Mentions(
             mentions
                 .into_iter()

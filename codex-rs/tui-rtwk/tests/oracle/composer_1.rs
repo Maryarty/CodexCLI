@@ -6,7 +6,6 @@
 
 use crate::kit::{self, Owner, Screen};
 
-const NO_FOOTER: &str = "the composer footer modes are not built: no key or seed sets the esc backtrack hint, the quit shortcut hint, queue submissions, the status line or the shortcut overlay, and the footer draws none of them";
 const NO_FILES: &str = "the oracle draws these with `Feature::MentionsV2` off, where `@` opens the legacy file popup (a bare `loading...` list under the draft); the port is the default mode (V2 on: the unified popup with its header and tabs) and does not carry the legacy popup (decided: MentionsV2 off is not ported)";
 
 /// The composer alone with its footer at `width` by `height`: the oracle's
@@ -142,58 +141,65 @@ fn footer_flash_expires_and_falls_back_to_hint_override() {
 // ORACLE bottom_pane/chat_composer.rs:5294 footer_mode_snapshots kind=snap owner=chat-live snap=footer_mode_ctrl_c_quit snap=footer_mode_ctrl_c_then_esc_hint snap=footer_mode_esc_hint_backtrack snap=footer_mode_esc_hint_from_overlay snap=footer_mode_hidden_while_typing snap=footer_mode_history_search snap=footer_mode_history_search_unavailable snap=footer_mode_overlay_then_external_esc_hint snap=footer_mode_shell_command_absorbs_bang snap=footer_mode_shell_command_escape_exits_empty_mode snap=footer_mode_shortcut_overlay snap=footer_mode_shortcut_overlay_queue_submissions
 #[test]
 fn footer_mode_snapshots() {
-    kit::pending(Owner::ChatLive, NO_FOOTER);
-    // Each oracle snapshot is the bare composer; the setups without a key (an esc hint, a quit
-    // hint, queue submissions, a status line, a history result) have no path yet.
-    let mut s = Screen::build(Owner::ChatLive).size(100, 21).live().open();
+    // Each oracle snapshot is the bare composer with one setter or key before it: the composer
+    // alone, its entries holding the setters (`esc_backtrack_hint`, `queue_submissions`, the
+    // quit hint, the status line).
+    let at = |height: u16, entry: &'static str| {
+        Screen::build(Owner::ChatLive)
+            .size(100, height)
+            .entry("composer", entry)
+            .open()
+    };
+
+    let mut s = at(21, "alone_esc_hint");
     s.keys("?");
     s.assert_snap("footer_mode_shortcut_overlay");
 
-    let mut s = Screen::build(Owner::ChatLive).size(100, 21).live().open();
+    let mut s = at(21, "alone_queue_submissions");
     s.keys("?");
     s.assert_snap("footer_mode_shortcut_overlay_queue_submissions");
 
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
-    s.keys("ctrl+c");
+    let s = at(9, "alone_quit");
     s.assert_snap("footer_mode_ctrl_c_quit");
 
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
-    s.keys("ctrl+c esc");
+    let mut s = at(9, "alone_quit");
+    s.keys("esc");
     s.assert_snap("footer_mode_ctrl_c_then_esc_hint");
 
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    let mut s = at(9, "alone");
     s.keys("? esc");
     s.assert_snap("footer_mode_esc_hint_from_overlay");
 
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    let mut s = at(9, "alone_esc_hint");
     s.keys("esc");
     s.assert_snap("footer_mode_esc_hint_backtrack");
 
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    let mut s = at(9, "alone_esc_after_overlay");
     s.keys("?");
     s.assert_snap("footer_mode_overlay_then_external_esc_hint");
 
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    let mut s = at(9, "alone");
     s.type_text("h");
     s.assert_snap("footer_mode_hidden_while_typing");
 
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    let mut s = at(9, "alone");
     s.type_text("cargo test").keys("enter");
     s.keys("ctrl+r");
     s.type_text("c");
     s.assert_snap("footer_mode_history_search");
 
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    // the file's rows cannot be read: the search gives up without saying `no match`
+    let mut s = at(9, "alone_history_file");
     s.type_text("draft");
     s.keys("ctrl+r");
     s.type_text("git");
     s.assert_snap("footer_mode_history_search_unavailable");
 
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    let mut s = at(9, "alone_shell_status");
     s.type_text("!git status");
     s.assert_snap("footer_mode_shell_command_absorbs_bang");
 
-    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    let mut s = at(9, "alone_shell_status");
     s.type_text("!").keys("esc");
     s.assert_snap("footer_mode_shell_command_escape_exits_empty_mode");
 }

@@ -119,6 +119,22 @@ pub fn name_of_binding(binding: &Binding) -> Option<String> {
     KeyCombo::parse_sequence(&name, None).ok().map(|_| name)
 }
 
+/// The binding the new-line row of the shortcut overlay names (`footer_insert_newline_key`):
+/// Shift+Enter where the terminal reports it apart from Enter and it is bound, else the first
+/// binding that is not a plain Enter.
+pub fn newline_binding(bindings: &[Binding], enhanced: bool) -> Option<&Binding> {
+    let single = |mods| Binding::Single(Stroke::new(Key::Enter, mods));
+    let shifted = single(Mods::SHIFT);
+    if enhanced && let Some(found) = bindings.iter().find(|binding| **binding == shifted) {
+        return Some(found);
+    }
+    let plain = single(Mods::NONE);
+    bindings
+        .iter()
+        .find(|binding| **binding != plain)
+        .or(bindings.first())
+}
+
 /// The names of an action's bindings, single keys first, then chords: what
 /// `KeyBindings::new` takes, each paired with the action's handler.
 pub fn names(keymap: &Keymap, id: ActionId) -> Vec<String> {

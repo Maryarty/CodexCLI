@@ -6,6 +6,10 @@
 use crate::app::AppEv;
 use crate::app::CodexApp;
 use crate::app::Ingress;
+use crate::data::history::Lookup;
+use crate::app::effects::Ask;
+use crate::screens::ScreenEv;
+use crate::screens::popovers;
 use crate::fixtures::script::ScriptError;
 use crate::fixtures::script::build;
 
@@ -26,9 +30,37 @@ impl Sandbox {
         &self.app
     }
 
-    /// Applies `ev` under the model's epoch; the effects are dropped.
+    /// Applies `ev` under the model's epoch; the effects are dropped, except that a read of the
+    /// message history file fails (the file is not there to read: the search ends "unavailable").
     pub fn send(&mut self, ev: AppEv) {
-        let epoch = self.app.epoch();
-        drop(self.app.ingest(Ingress::new(epoch, ev)));
+        let mut queue = std::collections::VecDeque::from([ev]);
+        while let Some(ev) = queue.pop_front() {
+            let epoch = self.app.epoch();
+            let Some(fx) = self.app.ingest(Ingress::new(epoch, ev)) else {
+                continue;
+            };
+            for command in fx.commands() {
+                if let Some(Ask::Popovers {
+                    ask: popovers::Ask::Lookup(lookup),
+                    ..
+                }) = command.host_ask()
+                {
+                    queue.push_back(AppEv::Screen(ScreenEv::Popovers(failed(lookup))));
+                }
+            }
+        }
+    }
+}
+
+fn failed(lookup: &Lookup) -> popovers::Ev {
+    match *lookup {
+        Lookup::Entry { log_id, offset } => popovers::Ev::HistoryEntry {
+            log_id,
+            offset,
+            text: None,
+        },
+        Lookup::Batch { log_id, end_offset } => {
+            popovers::Ev::HistoryBatchFailed { log_id, end_offset }
+        }
     }
 }

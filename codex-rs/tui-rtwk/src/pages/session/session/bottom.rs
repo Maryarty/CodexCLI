@@ -27,7 +27,7 @@ use crate::pages::session::status::QuestionSummary;
 use crate::pages::session::status_surfaces::{line_interests, raise};
 use crate::pages::session::transcript;
 use crate::sheets::approvals::PendingThreadsBanner;
-use crate::sheets::dialogs::shortcut_panel;
+use crate::sheets::dialogs::{Panel, shortcut_panel};
 use crate::sheets::pets::ambient;
 use crate::sheets::select::hud;
 use crate::widgets::status_line::{SEPARATOR, status_spans, thread_color};
@@ -55,7 +55,25 @@ pub(super) fn body(
             &w.ui.draft,
             &crate::keymap::keymap(cx),
         );
-    let (panel, _) = shortcut_panel(cx, running, agents);
+    // `set_esc_backtrack_hint`: the primed backtrack with a prompt to edit; `queue_submissions`:
+    // the startup draft is queued until the session is configured
+    let esc_primed = w.ui.modes.primed()
+        && codex_tui_core::screens::backtrack::Targets::of(
+            thread.transcript(),
+            thread.can_load_history(),
+        )
+        .count
+            > 0;
+    let overlay = Panel {
+        running,
+        agents,
+        queue: startup,
+        esc_primed,
+        // the terminal's keyboard protocol is not a fact a widget can read yet: Shift+Enter is
+        // never named here
+        enhanced: false,
+    };
+    let (panel, _) = shortcut_panel(cx, overlay);
     let chat_strings = frame.chat_strings;
     let Slot {
         composer,
