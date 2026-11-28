@@ -82,7 +82,7 @@ command center bypassed ADR-003 and hit "thread already has an active writer").
   call over ~4 min (`~/.cache/rtwk/bgrun.sh`). Read big files in ranges.
 - Each checkout builds in its own target (`codex-rs/tui-rtwk/target`; a shared
   target was dropped 2026-11-21: worktrees overwrote each other's test
-  binaries). Backend crates come from `~/.cache/codexcli/backend-pin`
+  binaries). Backend crates come from `~/.cache/codexcli/backend-pin-<BACKEND_REF[..8]>`
   (docs/rtwk-port/README.md), the same paths everywhere. acargo picks kache for
   a checkout with no target yet (since 2026-11-22) and keeps sccache for one
   that already has a target; both hit across checkouts. Never set

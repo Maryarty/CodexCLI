@@ -79,15 +79,15 @@ workspace = true
 [dependencies]
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-codex-app-server-protocol = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/app-server-protocol" }
-codex-config = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/config" }
-codex-file-search = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/file-search" }
-codex-message-history = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/message-history" }
-codex-protocol = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/protocol" }
-codex-shell-command = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/shell-command" }
+codex-app-server-protocol = { path = "/Users/admin/.cache/codexcli/backend-pin-e8ddca3f/codex-rs/app-server-protocol" }
+codex-config = { path = "/Users/admin/.cache/codexcli/backend-pin-e8ddca3f/codex-rs/config" }
+codex-file-search = { path = "/Users/admin/.cache/codexcli/backend-pin-e8ddca3f/codex-rs/file-search" }
+codex-message-history = { path = "/Users/admin/.cache/codexcli/backend-pin-e8ddca3f/codex-rs/message-history" }
+codex-protocol = { path = "/Users/admin/.cache/codexcli/backend-pin-e8ddca3f/codex-rs/protocol" }
+codex-shell-command = { path = "/Users/admin/.cache/codexcli/backend-pin-e8ddca3f/codex-rs/shell-command" }
 codex-tui-core = { path = "core" }
-codex-utils-path = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/utils/path-utils" }
-codex-utils-elapsed = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/utils/elapsed" }
+codex-utils-path = { path = "/Users/admin/.cache/codexcli/backend-pin-e8ddca3f/codex-rs/utils/path-utils" }
+codex-utils-elapsed = { path = "/Users/admin/.cache/codexcli/backend-pin-e8ddca3f/codex-rs/utils/elapsed" }
 rtwk = { workspace = true }
 rtwk-core = { workspace = true }
 rtwk-render = { workspace = true }

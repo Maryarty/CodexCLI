@@ -150,7 +150,8 @@ if [ "$verbatim" = 1 ]; then
 elif [ "$gen_status" = ok ] || [ "$gen_status" = skipped ]; then
   cat << NEXT
 next, for the port (docs/rtwk-port/README.md "Backend pin"):
-  git -C ~/.cache/codexcli/backend-pin checkout --detach $tip   # a flag day: every worktree moves with BACKEND_REF
+  git -C ~/.cache/codexcli/backend-pin worktree add --detach ~/.cache/codexcli/backend-pin-${tip:0:8} $tip   # a new pin directory, no flag day
+  point the backend paths of tui-rtwk/{,core/,host/}Cargo.toml at backend-pin-${tip:0:8}
   echo $tip > docs/rtwk-port/BACKEND_REF
   update the BP rows of docs/rtwk-port/backend-patches.md (base, commits, tip), and export.sh $sha $tip when the patch changed
 NEXT

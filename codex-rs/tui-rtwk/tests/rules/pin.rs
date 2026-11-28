@@ -121,7 +121,7 @@ fn the_patch_tables_are_codex_rs_s_verbatim() {
 }
 
 /// The backend pin (docs/rtwk-port/README.md): every codex backend crate is a
-/// path dependency into ONE checkout, `~/.cache/codexcli/backend-pin`, never
+/// path dependency into ONE checkout, `~/.cache/codexcli/backend-pin-<BACKEND_REF[..8]>`, never
 /// `../..` of the worktree, so every worktree names the same backend packages
 /// at the same paths and sccache serves them to each worktree's own target.
 fn backend_paths() -> Vec<(String, PathBuf)> {
@@ -157,16 +157,24 @@ fn backend_ref() -> String {
         .to_string()
 }
 
-const BACKEND_PIN: &str = "/.cache/codexcli/backend-pin/codex-rs/";
+/// The pin of `BACKEND_REF` is its own directory (as the rtwk pin is): a new backend is a
+/// new directory, so a worktree still on the old `BACKEND_REF` keeps building on the old one.
+fn backend_pin() -> String {
+    format!(
+        "/.cache/codexcli/backend-pin-{}/codex-rs/",
+        &backend_ref()[..8]
+    )
+}
 
 #[test]
 fn every_backend_dependency_is_a_path_into_the_backend_pin() {
     let paths = backend_paths();
     assert!(paths.len() >= 10, "the backend crates: {paths:?}");
+    let pin = backend_pin();
     for (line, path) in &paths {
         assert!(
-            path.is_absolute() && path.to_string_lossy().contains(BACKEND_PIN),
-            "{line}: a backend crate is a path into ~{BACKEND_PIN}, not into this worktree"
+            path.is_absolute() && path.to_string_lossy().contains(&pin),
+            "{line}: a backend crate is a path into ~{pin}, not into this worktree"
         );
     }
 }
@@ -175,7 +183,8 @@ fn every_backend_dependency_is_a_path_into_the_backend_pin() {
 fn the_backend_pin_is_at_the_commit_backend_ref_names() {
     let (_, first) = backend_paths().into_iter().next().expect("a backend crate");
     let s = first.to_string_lossy().into_owned();
-    let root = PathBuf::from(&s[..s.find(BACKEND_PIN).expect("pin") + BACKEND_PIN.len()]);
+    let pin = backend_pin();
+    let root = PathBuf::from(&s[..s.find(&pin).expect("pin") + pin.len()]);
     let out = Command::new("git")
         .arg("-C")
         .arg(&root)

@@ -103,9 +103,10 @@ until upstream publishes a per-turn timing event; then this row is dropped (dele
    release's schema and SDK generators and commits what changed. It prints what did not land
    (the patch, the conflicted files, `git apply --check` of the rest) and exits 1 then; fix the
    patch on a backend branch and rerun with another `--worktree`/`--branch`.
-2. Build the port against the new tip: move the backend pin
-   (`git -C ~/.cache/codexcli/backend-pin checkout --detach <tip>`; a flag day, every worktree
-   moves with `BACKEND_REF`), write `<tip>` into `docs/rtwk-port/BACKEND_REF`, and fix the
+2. Build the port against the new tip: a new backend pin directory
+   (`git -C ~/.cache/codexcli/backend-pin worktree add --detach ~/.cache/codexcli/backend-pin-<tip[..8]> <tip>`,
+   named in the three manifests; no flag day, a worktree still on the old `BACKEND_REF` keeps the
+   old directory), write `<tip>` into `docs/rtwk-port/BACKEND_REF`, and fix the
    exhaustive matches the release added (`notification_thread` and friends).
 3. `tools/rtwk-port/backend-patches/export.sh <new base> <tip>` rewrites `series/` (files,
    `BASE`, `TIP`); then edit the BP rows above (base, tip, commits, series files).
@@ -136,10 +137,10 @@ until upstream publishes a per-turn timing event; then this row is dropped (dele
 
 ## Known gaps
 
-- `BACKEND_REF` moves the shared pin: until `git -C ~/.cache/codexcli/backend-pin checkout --detach
-  <BACKEND_REF>` is run, `pin.rs` is red and the port does not build (it names
-  `TurnRuntimeMetrics`). A worktree that does not carry the port's arm in
-  `core/src/protocol/targets.rs` does not build once the pin moved: land the move with the merge.
+- A backend pin is a directory per `BACKEND_REF` (`~/.cache/codexcli/backend-pin-<8 digits>`,
+  named in the manifests; `pin.rs` checks the manifests and that the directory is at
+  `BACKEND_REF`), so a worktree that has not merged the port's arm in
+  `core/src/protocol/targets.rs` keeps building on the old directory until it merges.
 - The ratatui `codex-rs/tui` (the oracle's source) does not compile against a patched backend
   (two exhaustive matches, `chatwidget/protocol.rs` and `app/app_server_event_targets.rs`); the
   oracle binary (`~/.cache/codexcli/oracle-bin`) is built from the unpatched `ORACLE_REF`.

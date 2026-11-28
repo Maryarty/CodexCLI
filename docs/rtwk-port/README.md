@@ -30,8 +30,9 @@ crate's manifest paths and in the checkout, together.
 
 Backend pin: the codex backend crates (`codex-core`, `codex-protocol`,
 `codex-app-server-*` and the rest) are path dependencies on one fixed checkout,
-`/Users/admin/.cache/codexcli/backend-pin` (a detached worktree of this
-repository at the commit in [BACKEND_REF](BACKEND_REF)), not on `../..` of each
+`/Users/admin/.cache/codexcli/backend-pin-e8ddca3f` (a detached worktree of this
+repository at the commit in [BACKEND_REF](BACKEND_REF); the directory carries the first 8 digits
+of the ref, as the rtwk pin does, so a new backend is a new directory and no flag day), not on `../..` of each
 worktree. Every worktree then names the same backend packages at the same absolute
 paths, so sccache (in `acargo`) serves the backend to each worktree's own
 target (`codex-rs/tui-rtwk/target`). One target shared by all worktrees was
@@ -44,6 +45,6 @@ person 2026-11-28): BACKEND_REF is the tip of the series in
 sync touches `codex-rs` outside `tui-rtwk`, or to a new release,
 `tools/rtwk-port/backend-patches/apply.sh <tag>` carries the series onto it; then move the pin
 and the file together:
-`git -C ~/.cache/codexcli/backend-pin checkout --detach <ref>` and write the
-full commit into BACKEND_REF. Nothing builds a manifest against a pin of another worktree: a
+`git -C ~/.cache/codexcli/backend-pin worktree add --detach ~/.cache/codexcli/backend-pin-<ref[..8]> <ref>`, the manifest paths and the
+full commit in BACKEND_REF. Nothing builds a manifest against a pin of another worktree: a
 temporary manifest overlay (paths into a staging checkout) is a local experiment, never committed.
