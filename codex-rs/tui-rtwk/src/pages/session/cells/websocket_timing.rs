@@ -4,7 +4,7 @@
 use codex_tui_core::screens::cells::RuntimeMetrics;
 use codex_tui_core::threads::Item;
 use rtwk::AnyWidget;
-use rtwk::style::{Color, Span, Style};
+use rtwk::style::Span;
 use rtwk::widgets::Text;
 
 use super::dispatch::{CellEnv, Place, below};
@@ -27,7 +27,7 @@ pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
         place.separator,
         Text::rich(vec![
             Span::styled(env.cells.bullet, env.tokens.dim()),
-            Span::styled(line, Style::new().fg(Color::BRIGHT_BLACK)),
+            Span::styled(line, env.tokens.dark_gray()),
         ])
         .into(),
     )

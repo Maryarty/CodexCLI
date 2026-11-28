@@ -303,7 +303,7 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
             turn,
             metrics,
         } => Ev::RuntimeMetrics {
-            thread: ThreadId::new(thread.as_deref().unwrap_or("thread-1")),
+            thread: thread.unwrap_or_else(|| ThreadId::new("thread-1")),
             turn: TurnId::new(turn),
             metrics,
         },
@@ -323,10 +323,17 @@ enum SeedEv {
         utc_offset: Option<i32>,
     },
     RuntimeMetrics {
-        thread: Option<String>,
+        #[serde(default, deserialize_with = "seed_thread")]
+        thread: Option<ThreadId>,
         turn: String,
         metrics: RuntimeMetrics,
     },
+}
+
+/// A seed names its thread as JSON text; the id is made here, at the edge (R13).
+fn seed_thread<'de, D: serde::Deserializer<'de>>(de: D) -> Result<Option<ThreadId>, D::Error> {
+    use serde::Deserialize as _;
+    Ok(Option::<String>::deserialize(de)?.map(ThreadId::new))
 }
 
 #[derive(serde::Deserialize)]
