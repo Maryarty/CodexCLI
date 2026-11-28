@@ -1,0 +1,86 @@
+diff --git a/codex-rs/tui-rtwk/Cargo.toml b/codex-rs/tui-rtwk/Cargo.toml
+index a520ed0db6..e8700bcba7 100644
+--- a/codex-rs/tui-rtwk/Cargo.toml
++++ b/codex-rs/tui-rtwk/Cargo.toml
+@@ -91,7 +91,7 @@ codex-utils-elapsed = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-r
+ rtwk = { workspace = true }
+ rtwk-core = { workspace = true }
+ rtwk-render = { workspace = true }
+-rtwk-rich = { workspace = true }
++rtwk-rich = { workspace = true, features = ["math", "mermaid"] }
+ rtwk-tokio = { workspace = true }
+ futures = { version = "0.3", default-features = false }
+ # The clipboard image read (services/clipboard/read): the oracle's own features.
+diff --git a/codex-rs/tui-rtwk/src/pages/session/cells/citation.rs b/codex-rs/tui-rtwk/src/pages/session/cells/citation.rs
+index 5f1fb610dc..a7e8c14ae9 100644
+--- a/codex-rs/tui-rtwk/src/pages/session/cells/citation.rs
++++ b/codex-rs/tui-rtwk/src/pages/session/cells/citation.rs
+@@ -28,7 +28,7 @@ use rtwk::widgets::Text;
+ use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
+ use rtwk_rich::markdown::{
+     Block, Definitions, MarkdownStream, MarkdownTheme, MarkdownView, MdBlock, MdCodeBlock,
+-    MdInline, MdList, MdListItem, MdTable,
++    MdExtensions, MdInline, MdList, MdListItem, MdTable,
+ };
+ 
+ use codex_tui_core::app::facts::{Rendering, TuiSettings};
+@@ -265,7 +265,7 @@ impl LiveParser {
+             // A completed fence, a directive or a corrected message can replace old input.
+             self.source.clear();
+             self.source.push_str(source);
+-            self.stream = MarkdownStream::new(source);
++            self.stream = markdown_stream(source);
+             self.prepared = None;
+         }
+     }
+@@ -299,6 +299,16 @@ impl LiveParser {
+     }
+ }
+ 
++fn extensions() -> MdExtensions {
++    MdExtensions::MATH | MdExtensions::MATH_BRACKETS
++}
++
++fn markdown_stream(source: &str) -> MarkdownStream {
++    let mut stream = MarkdownStream::with_extensions(extensions());
++    stream.add(source);
++    stream
++}
++
+ fn prepare(
+     blocks: &[Block],
+     definitions: &Definitions,
+@@ -357,7 +367,7 @@ fn render_prepared(
+         if let Some(live) = live {
+             return live.plain_view(lifted, cwd, rendering.lists);
+         }
+-        let mut stream = MarkdownStream::new(lifted);
++        let mut stream = markdown_stream(lifted);
+         let definitions = stream.definitions().clone();
+         return MarkdownView::blocks(
+             prepare(stream.blocks(), &definitions, cwd, rendering.lists),
+@@ -389,7 +399,7 @@ fn render_prepared(
+         live.prepared = None;
+         &mut live.stream
+     } else {
+-        cold = MarkdownStream::new(&masked);
++        cold = markdown_stream(&masked);
+         &mut cold
+     };
+     let blocks: Vec<_> = stream
+diff --git a/codex-rs/tui-rtwk/src/widgets/markdown.rs b/codex-rs/tui-rtwk/src/widgets/markdown.rs
+index 3d32be32e9..500b1b7c2f 100644
+--- a/codex-rs/tui-rtwk/src/widgets/markdown.rs
++++ b/codex-rs/tui-rtwk/src/widgets/markdown.rs
+@@ -96,8 +96,10 @@ impl State for MarkdownState {
+             .view
+             .clone()
+             .theme(widget.theme.clone())
++            .extensions(rtwk_rich::markdown::MdExtensions::MATH | rtwk_rich::markdown::MdExtensions::MATH_BRACKETS)
+             .hyperlink_schemes(schemes)
+-            .link_destinations(destinations);
++            .link_destinations(destinations)
++            .mermaid(rtwk_rich::markdown::MermaidOptions::new());
+         if let Some(taps) = Provider::<LinkTaps>::maybe_of(cx, true) {
+             markdown.on_link_tap(taps.0.clone()).into()
+         } else {

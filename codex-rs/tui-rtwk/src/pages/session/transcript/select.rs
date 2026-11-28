@@ -8,8 +8,8 @@
 //! it the rows (`RowTexts`, the transcript as the list's selection reads it) and shows it by
 //! asking the selection area for the caret's grapheme, or the marked range (`show`), and the
 //! footer says what the keys do (`hints`). Nothing here is drawn: the area paints the range
-//! REVERSED as the oracle does, and the host paints the caret's cell bold and underlined too
-//! (`caret`).
+//! REVERSED as the oracle does, and the caret's cell reversed, bold and underlined as a decoration
+//! (`decorate`; the oracle's `render_select_cursor`).
 //!
 //! Positions are a row of the list (oldest first) and a byte of its text; a caret stops on the
 //! lines of the text that are not gutters. The oracle moves over display rows (a wrapped line is
@@ -30,8 +30,9 @@ use std::rc::Rc;
 use rtwk::editing::TextBuffer;
 use rtwk::focus::{KeyCombo, KeyPress};
 use rtwk::foundation::ValueNotifier;
-use rtwk::gestures::SelectionTarget;
-use rtwk::render::RenderId;
+use rtwk::gestures::{SelectionDecoration, SelectionTarget};
+use rtwk::render::{Pen, RenderId};
+use rtwk::style::{Attrs, Style};
 
 use codex_tui_core::keymap::actions::{
     GLOBAL_SELECT_TRANSCRIPT, PAGER_HALF_PAGE_DOWN, PAGER_HALF_PAGE_UP, PAGER_JUMP_BOTTOM,
@@ -197,6 +198,9 @@ struct Data {
     rows: Option<Rc<RowTexts>>,
     /// What the area was last asked to select, and the revision of the rows it was asked on.
     shown: Option<(Pos, Pos, u64)>,
+    /// The caret's cell the area was last asked to decorate: where it starts, where it ends, and
+    /// the revision of the rows it was asked on.
+    decorated: Option<(Pos, usize, u64)>,
     /// The list's render object, once a selection of it has told it.
     list: Option<RenderId>,
     /// The caret moved: the pane scrolls it into view.
@@ -244,6 +248,7 @@ impl Default for Select {
                 follow: None,
                 rows: None,
                 shown: None,
+                decorated: None,
                 list: None,
                 reveal: false,
                 watched: false,
@@ -335,12 +340,6 @@ impl Select {
     /// Whether a range is marked.
     pub fn marked(&self) -> bool {
         self.0.data.borrow().mark.is_some()
-    }
-
-    /// Whether the caret alone is shown (no mark): the host draws its cell bold and underlined.
-    pub fn caret(&self) -> bool {
-        let data = self.0.data.borrow();
-        data.active && data.mark.is_none()
     }
 
     /// `select_transcript`: the mode begins where the reader is; the caret is placed with the
@@ -762,6 +761,49 @@ impl Select {
         }
     }
 
+    /// The caret's cell, bold and underlined whatever else is selected (the oracle's
+    /// `render_select_cursor`): the area draws the pen over the cell's text and the selection's
+    /// REVERSED over both. `rows` is what the pane reads, none where it reads nothing; the
+    /// mode being off, the decoration is let go. Asked only when the cell or the rows changed.
+    ///
+    /// Flutter: a `TextSpan` of the caret's grapheme in `SelectableRegion`'s second highlight.
+    pub fn decorate(&self, rows: Option<&Rc<RowTexts>>, selection: &TextSelection) {
+        let rows = rows.filter(|_| self.active());
+        let wanted = rows.and_then(|rows| {
+            self.cursor_cell(rows)
+                .map(|(cursor, end)| (cursor, end, rows.revision_of()))
+        });
+        {
+            let mut data = self.0.data.borrow_mut();
+            if data.decorated == wanted {
+                return;
+            }
+            data.decorated = wanted;
+        }
+        let decorations = match (wanted, rows) {
+            (Some((cursor, end, _)), Some(rows)) => vec![
+                SelectionDecoration::new(
+                    SelectionTarget::of(rows),
+                    cursor.offset..end,
+                    caret_pen(),
+                )
+                .item(cursor.row),
+            ],
+            _ => Vec::new(),
+        };
+        selection.controller().set_decorations(decorations);
+    }
+
+    /// Where the caret's grapheme starts and ends, none on an empty line.
+    fn cursor_cell(&self, rows: &RowTexts) -> Option<(Pos, usize)> {
+        let cursor = self.0.data.borrow().cursor;
+        let line = lines(rows).into_iter().find(|line| {
+            line.row == cursor.row && (line.start..=line.end).contains(&cursor.offset)
+        })?;
+        let end = grapheme_end(rows.row_text(cursor.row), cursor.offset, line.end);
+        (end > cursor.offset).then_some((cursor, end))
+    }
+
     /// Shows what the mode holds in the selection area: the caret's grapheme or the marked range
     /// (a range across rows is a selection of the list as a whole: its object is learned from the
     /// first selection of it, so a range across rows shows from the second frame on).
@@ -1020,6 +1062,15 @@ fn grapheme_end(text: &str, offset: usize, end: usize) -> usize {
         .character_end_after(offset)
         .min(end)
         .max(offset)
+}
+
+/// What the caret's cell is drawn in whatever else is selected: the oracle's `render_select_cursor`
+/// patches reversed, bold and underlined on it, so it stays reversed while Find shows a match
+/// elsewhere.
+fn caret_pen() -> Pen {
+    Style::new()
+        .attrs(Attrs::REVERSE | Attrs::BOLD | Attrs::UNDERLINE)
+        .pen()
 }
 
 /// The start of the last grapheme of `line` (its start where it is empty).

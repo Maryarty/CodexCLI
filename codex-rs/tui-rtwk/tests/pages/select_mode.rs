@@ -140,3 +140,43 @@ fn find_inside_select_mode_lands_the_caret_on_the_match() {
     s.keys("v l l l");
     s.assert_text_style("beta", "reversed");
 }
+
+/// The transcript view alone (no composer): the keys reach the sheet, not a draft.
+fn view() -> Screen {
+    Screen::build(Owner::ChatLive)
+        .size(64, 7)
+        .script(FOOTER)
+        .view_only()
+        .open()
+}
+
+#[test]
+fn the_caret_cell_is_bold_underlined_and_reversed_over_a_mark_and_alone() {
+    let mut s = view();
+    s.keys("leader [");
+    s.assert_style_in("gamma", 0, "bold underlined reversed");
+    s.assert_style_in("gamma", 1, "!reversed");
+    s.keys("g v right right");
+    s.assert_style_in("alpha beta", 0, "reversed");
+    s.assert_style_in("alpha beta", 1, "reversed");
+    s.assert_style_in("alpha beta", 2, "bold underlined reversed");
+    s.assert_style_in("alpha beta", 3, "!reversed");
+    s.keys("left");
+    s.assert_style_in("alpha beta", 1, "bold underlined reversed");
+    s.assert_style_in("alpha beta", 2, "!reversed");
+}
+
+#[test]
+fn esc_clears_the_mark_and_the_footer_follows_in_the_view_alone() {
+    let mut s = view();
+    s.keys("leader [");
+    s.keys("g v right");
+    s.assert_contains("y/⌃c copy");
+    s.keys("esc");
+    s.assert_contains("arrows/hjkl move");
+    s.assert_absent("y/⌃c copy");
+    s.assert_style_in("alpha beta", 0, "!reversed");
+    s.assert_style_in("alpha beta", 1, "bold underlined reversed");
+    s.keys("esc");
+    s.assert_absent("arrows/hjkl move");
+}

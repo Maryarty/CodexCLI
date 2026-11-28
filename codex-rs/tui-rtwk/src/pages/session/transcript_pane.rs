@@ -1831,8 +1831,11 @@ impl State for ViewportState {
                         .ensure_index_visible(texts.index_of(row));
                 }
             }
+            // the caret stays where it was while Find reads and a mark is made
+            caret.decorate(Some(texts), &widget.selection);
         } else {
             *self.texts.borrow_mut() = None;
+            caret.decorate(None, &widget.selection);
         }
         if !search.active() {
             disclosed.set_found(None);
@@ -2167,7 +2170,6 @@ impl State for ViewportState {
             follow: widget.follow.clone(),
             detailed,
             raw,
-            caret: caret.caret(),
             find: widget.find.clone(),
         };
         let tail_news = TailNews {
