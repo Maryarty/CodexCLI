@@ -666,11 +666,7 @@ fn computer_activity_active_and_interrupted() {
 // ORACLE history_cell/computer_activity_tests.rs:87 computer_activity_prioritizes_errors_and_images_without_reordering kind=snap owner=chat-live snap=computer_activity_compact snap=computer_activity_expanded snap=computer_activity_mixed snap=computer_activity_narrow
 #[test]
 fn computer_activity_prioritizes_errors_and_images_without_reordering() {
-    kit::pending(
-        Owner::ChatLive,
-        "S27: five calls; the oracle asserts the inline `display_lines` (`└ 3 more · ⌃t` row), the owned transcript draws the group's two shown calls and the shared `+ Show details` control instead of that row",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(90, 12).script(include_str!("fixtures/cells_1/computer_activity_prioritizes_errors_and_images_without_reordering.jsonl")).open();
+    let mut s = Screen::build(Owner::ChatLive).size(90, 12).inline(&[]).script(include_str!("fixtures/cells_1/computer_activity_prioritizes_errors_and_images_without_reordering.jsonl")).open();
     s.assert_snap_region("computer_activity_mixed", cell_row(&s), 0);
     s.resize(24, 12);
     s.assert_snap_region("computer_activity_narrow", cell_row(&s), 0);
@@ -957,17 +953,23 @@ fn mcp_preview_shares_one_limit_across_blocks_and_preserves_transcript() {
 // ORACLE history_cell/mcp_tests.rs:195 code_mode_output_shares_a_row_budget_across_blocks kind=snap owner=chat-live
 #[test]
 fn code_mode_output_shares_a_row_budget_across_blocks() {
-    kit::pending(
-        Owner::ChatLive,
-        "step 6 (left; design in the pack, chunk-cells partial 3) and S27: the oracle asserts the MCP cell's display_lines (code mode: the title with no verb, one row budget over the result blocks), the owned transcript draws compact_mcp_lines (`• Called|Failed <title>` and the last three result rows) and, expanded, the transcript lines; core keeps an MCP result as joined text, the typed result blocks are not built",
-    );
-    let s = Screen::build(Owner::ChatLive)
+    // The oracle's inline snapshot at 40 columns, then its transcript at 100.
+    let mut s = Screen::build(Owner::ChatLive)
         .size(40, 24)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_1/code_mode_output_shares_a_row_budget_across_blocks.jsonl"
         ))
         .open();
-    s.assert_contains("Script completed");
+    s.assert_has_row("• Inspect page");
+    s.assert_has_row("  └ Page title");
+    s.assert_has_row("    Navigation");
+    s.assert_has_row("    Main content");
+    s.assert_has_row("    +3 lines (⌃t to view transcript)");
+    s.resize(100, 24);
+    s.keys("ctrl+t");
+    s.assert_contains("await tab.snapshot()");
+    s.assert_in_order(&["    Button", "    Link", "    Footer"]);
 }
 
 // ORACLE history_cell/mcp_tests.rs:238 code_mode_output_preserves_trailing_failure_diagnostics_in_transcript kind=snap owner=chat-live
@@ -999,17 +1001,24 @@ fn code_mode_output_row_budget_applies_after_wrapping_and_to_errors() {
 // ORACLE history_cell/mcp_tests.rs:345 projected_content_preserves_full_rendering kind=ui owner=chat-live
 #[test]
 fn projected_content_preserves_full_rendering() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "step 6 (left; design in the pack, chunk-cells partial 3) and S27: the oracle asserts the MCP cell's display_lines (code mode: the title with no verb, one row budget over the result blocks), the owned transcript draws compact_mcp_lines (`• Called|Failed <title>` and the last three result rows) and, expanded, the transcript lines; core keeps an MCP result as joined text, the typed result blocks are not built",
+        "asserts the private projection `McpContentBlock::render` over nine blocks (compact JSON of a text block, `Returned image`, `<audio content>`, `embedded resource: <uri>`, `link: <uri>`); the port keeps a result as typed blocks in core (`McpBlock`) and words them in `cells/tool_call.rs`; the drawn half is the stand-in below: the expanded cell shows each block's words in order",
     );
-    let s = Screen::build(Owner::ChatLive)
+    let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
             "fixtures/cells_1/projected_content_preserves_full_rendering.jsonl"
         ))
         .open();
-    s.assert_contains("resource body");
+    show_details(&mut s);
+    s.assert_in_order(&[
+        "Returned image",
+        "<audio content>",
+        "embedded resource: file:///text.txt",
+        "embedded resource: file:///blob.bin",
+        "link: file:///linked.txt",
+    ]);
 }
 
 // ORACLE history_cell/mcp_tests.rs:388 projected_image_marker_still_requires_a_complete_image kind=ui owner=chat-live
@@ -1040,12 +1049,9 @@ fn code_mode_preserves_text_fields_on_nontext_and_unknown_blocks() {
 // ORACLE history_cell/mcp_tests.rs:534 titled_image_call_keeps_error_and_full_title_when_narrow kind=snap owner=chat-live snap=titled_image_call_keeps_error_and_full_title_when_narrow
 #[test]
 fn titled_image_call_keeps_error_and_full_title_when_narrow() {
-    kit::pending(
-        Owner::ChatLive,
-        "step 6 (left; design in the pack, chunk-cells partial 3) and S27: the oracle asserts the MCP cell's display_lines (code mode: the title with no verb, one row budget over the result blocks), the owned transcript draws compact_mcp_lines (`• Called|Failed <title>` and the last three result rows) and, expanded, the transcript lines; core keeps an MCP result as joined text, the typed result blocks are not built",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(24, 12)
+        .size(32, 12)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_1/titled_image_call_keeps_error_and_full_title_when_narrow.jsonl"
         ))

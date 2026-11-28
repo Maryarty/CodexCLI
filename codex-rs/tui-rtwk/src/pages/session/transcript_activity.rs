@@ -42,7 +42,7 @@ pub(super) fn has_control(
 ) -> bool {
     match first.kind {
         ToolKind::Shell { .. } => exec::has_control(first, strings, room, inline),
-        ToolKind::Mcp(ref call) => !inline || !tool_call::uses_inline_display(call),
+        ToolKind::Mcp(_) => !inline,
         ToolKind::Dynamic(_) => true,
     }
 }

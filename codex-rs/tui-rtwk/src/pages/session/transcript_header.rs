@@ -4,11 +4,13 @@ use codex_tui_core::screens::chat::{SessionHeader, StatusFacts};
 use codex_tui_core::screens::status::Profile;
 use rtwk::AnyWidget;
 use rtwk::layout::{Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding};
-use rtwk::style::{Attrs, Span};
-use rtwk::text::TextOverflow;
+use rtwk::style::{Attrs, Span, Style};
+use rtwk::text::{TextOverflow, segmenter_of};
 use rtwk::widgets::Text;
+use rtwk::LayoutBuilder;
 
 use crate::app::theme::Tokens;
+use crate::pages::agents::path::center_truncate_path;
 use crate::services::cli_help;
 
 use super::strings::Strings;
@@ -58,12 +60,10 @@ pub(super) fn header(
         ))
         .child(Padding::new(
             EdgeInsets::only(5, 0, 0, 0),
-            Text::line(super::status_surfaces::display_dir(
-                cwd,
-                facts.home_directory.as_deref(),
-            ))
-            .overflow(TextOverflow::EllipsisMiddle)
-            .style(dim.clone()),
+            directory(
+                super::status_surfaces::display_dir(cwd, facts.home_directory.as_deref()),
+                dim.clone(),
+            ),
         ));
     if yolo(facts) {
         column = column.child(Padding::new(
@@ -77,6 +77,19 @@ pub(super) fn header(
         ));
     }
     column.into()
+}
+
+/// The directory in the room the heading leaves it: cut by whole path segments (oracle
+/// `format_directory`, `center_truncate_path`), measured at layout.
+fn directory(text: String, style: Style) -> AnyWidget {
+    LayoutBuilder::new(move |cx, constraints| {
+        let room = usize::try_from(constraints.max_width).unwrap_or(0);
+        Text::line(center_truncate_path(segmenter_of(cx), &text, room))
+            .overflow(TextOverflow::Ellipsis)
+            .style(style.clone())
+            .into()
+    })
+    .into()
 }
 
 /// The transcript's raw session heading (oracle `SessionHeaderHistoryCell::raw_lines`).
