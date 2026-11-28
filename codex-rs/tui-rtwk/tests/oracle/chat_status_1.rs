@@ -921,6 +921,35 @@ fn completed_plan_table_with_full_payload_replaces_the_live_tail() {
     s.assert_absent("Verify");
 }
 
+#[test]
+fn native_nonempty_plan_layout_control() {
+    for width in [24, 40, 64, 80, 120] {
+        let mut s = Screen::build(Owner::UiPane)
+            .size(80, 24)
+            .inline(&["$ prior shell command"])
+            .script(RUNNING)
+            .open();
+        plan_delta(&mut s, PLAN_TABLE);
+        finish_plan_table(&mut s, PLAN_TABLE);
+        s.resize(width, 24);
+        s.feed(TURN_ENDED);
+        let lines: Vec<_> = s.scrollback().into_iter().chain(s.rows()).collect();
+        kit::assert_same(
+            lines.iter().filter(|line| line.contains("Verify")).count(),
+            1,
+            "one committed plan table",
+        );
+        kit::assert_same(
+            lines
+                .iter()
+                .filter(|line| line.contains("$ prior shell command"))
+                .count(),
+            1,
+            "previous shell output remains in terminal history",
+        );
+    }
+}
+
 // ORACLE chatwidget/tests/status_and_layout.rs:839 rate_limit_usage_warnings_early_threshold_is_scoped_and_deduplicated kind=snap owner=ui-pane
 #[test]
 fn rate_limit_usage_warnings_early_threshold_is_scoped_and_deduplicated() {
