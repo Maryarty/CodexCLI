@@ -307,28 +307,69 @@ fn exploration_nonzero_exits_remain_visible_beside_successful_reads() {
 // ORACLE chatwidget/tests/exec_flow.rs:258 exploration_reasoning_during_followup_command_stays_ordered kind=snap owner=dialogs-pane
 #[test]
 fn exploration_reasoning_during_followup_command_stays_ordered() {
-    kit::pending(
-        Owner::DialogsPane,
-        "S27 INLINE FORM (display_lines of the scrollback): the oracle snapshot is the inline stream (`$ ls`, output, `✓ • 5ms`, reasoning `• ...` rows), not the compact cell the chat screen owns (`• Explored / └ List ls / Read file.txt`); needs the inline history writer (S27)",
-    );
     // oracle: `ls` then reasoning "Read the file next.", `cat file.txt` with reasoning "Waiting for the file.";
-    // the active transcript keeps that order.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().script(include_str!("fixtures/chat_approvals_1/exploration_reasoning_during_followup_command_stays_ordered.jsonl")).open();
-    // needs feed: begin+end ls (file.txt), reasoning delta+final, begin cat file.txt, reasoning delta+final, end cat file.txt
-    s.assert_snap("exploration_reasoning_during_followup_command_stays_ordered");
+    // the active transcript keeps that order. The snapshot is `active_cell_transcript_lines`: the
+    // detailed transcript (Ctrl+T).
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .live()
+        .script(include_str!(
+            "fixtures/chat_approvals_1/exploration_reasoning_during_followup_command_stays_ordered.jsonl"
+        ))
+        .open();
+    s.keys("ctrl+t");
+    s.assert_snap_region(
+        "exploration_reasoning_during_followup_command_stays_ordered",
+        cell_at(&s, "$ ls"),
+        0,
+    );
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:274 adjacent_exploration_groups_across_reasoning_live_and_replayed kind=snap owner=dialogs-pane
 #[test]
 fn adjacent_exploration_groups_across_reasoning_live_and_replayed() {
-    kit::pending(
-        Owner::DialogsPane,
-        "S27 INLINE FORM: the live and replayed screens are compared in the Compact, Expanded and Raw inline forms of the scrollback (display_lines/transcript/raw_lines); the owned compact exploration cell matches its oracle rows, the other forms need the inline history writer (S27)",
+    // oracle: the live and the replayed screens render the same Compact (the inline stream), Expanded
+    // (the detailed transcript) and Raw text.
+    let script = include_str!(
+        "fixtures/chat_approvals_1/adjacent_exploration_groups_across_reasoning_live_and_replayed.jsonl"
     );
-    // oracle: the live and the replayed screens render the same Compact, Expanded and Raw text.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().script(include_str!("fixtures/chat_approvals_1/adjacent_exploration_groups_across_reasoning_live_and_replayed.jsonl")).open();
-    // needs feed: the five commands (ls missing 1, cat index.html, echo boundary, cat later.txt, cat final.txt) with reasoning between them, live and replayed
-    s.assert_snap("adjacent_exploration_groups_across_reasoning_live_and_replayed");
+    let labels = ["Compact:", "Expanded:", "Raw:"];
+    let name = "adjacent_exploration_groups_across_reasoning_live_and_replayed";
+    let compact = Screen::build(Owner::DialogsPane)
+        .size(80, 60)
+        .inline(&[])
+        .live()
+        .script(script)
+        .open();
+    compact
+        .snap(name)
+        .labelled(&labels)
+        .frame("Compact:")
+        .at(cell_at(&compact, "• Explored"), 0)
+        .assert();
+    let mut expanded = Screen::build(Owner::DialogsPane)
+        .size(80, 60)
+        .live()
+        .script(script)
+        .open();
+    expanded.keys("ctrl+t");
+    expanded
+        .snap(name)
+        .labelled(&labels)
+        .frame("Expanded:")
+        .at(cell_at(&expanded, "$ ls missing"), 0)
+        .assert();
+    let mut raw = Screen::build(Owner::DialogsPane)
+        .size(80, 60)
+        .live()
+        .script(script)
+        .open();
+    raw.keys("alt+r");
+    raw.snap(name)
+        .labelled(&labels)
+        .frame("Raw:")
+        .at(cell_at(&raw, "$ ls missing"), 0)
+        .assert();
 }
 
 // ORACLE chatwidget/tests/exec_flow.rs:378 replayed_commands_preserve_individual_output_and_failure_status kind=snap owner=dialogs-pane

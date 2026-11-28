@@ -48,9 +48,13 @@ pub fn parts(
     if detailed {
         return Parts::Plain(detailed_shells(calls, strings, tokens, syntax), None);
     }
-    let Some(head) = Headline::of(calls, strings) else {
+    let Some(mut head) = Headline::of(calls, strings) else {
         return Parts::Plain(AnyWidget::default(), None);
     };
+    // the scrollback's exploration (`display_lines`) counts no exits and offers no control
+    if env.inline && head.exploring {
+        head.exits = None;
+    }
     let (status, exploring, failed) = (head.status, head.exploring, head.failed);
     let tool = calls[0];
     if !expanded && display::applies(&head, tool, env.inline) {
@@ -112,6 +116,8 @@ pub fn parts(
     }
     let disclosure = if expanded {
         Some(strings.hide_details.to_owned())
+    } else if env.inline && exploring {
+        None
     } else {
         closed_disclosure(&head, hidden, strings, room)
     };
@@ -468,9 +474,12 @@ pub(super) fn texts_at(
     inline: bool,
 ) -> Option<Vec<Part>> {
     let strings = env.cells;
-    let head = Headline::of(calls, strings)?;
+    let mut head = Headline::of(calls, strings)?;
     if env.detailed {
         return Some(detailed_texts(calls, strings));
+    }
+    if inline && head.exploring {
+        head.exits = None;
     }
     if !env.expanded && display::applies(&head, calls[0], inline) {
         let plan = display::plan(calls[0], &head, strings, room);
@@ -486,7 +495,9 @@ pub(super) fn texts_at(
     if !env.expanded {
         if head.exploring {
             parts.extend(exploration::texts(calls, strings, text_room(room)));
-            parts.push(Part::gutter(strings.show_details));
+            if !inline {
+                parts.push(Part::gutter(strings.show_details));
+            }
             return Some(parts);
         }
         let tool = calls[0];
@@ -572,6 +583,57 @@ fn detailed_texts(calls: &[&ToolActivity], strings: &Strings) -> Vec<Part> {
         }
     }
     parts
+}
+
+/// The raw lines of the shell calls of a run (oracle `ExecCell::raw_lines`: the detailed
+/// transcript's rows, plain, without the reasoning between the calls): each call's prompt and
+/// command (a later line of the command under four spaces), its whole output and its exit line,
+/// a blank row between the calls.
+pub fn raw_lines(calls: &[&ToolActivity], strings: &Strings) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for call in calls {
+        let ToolKind::Shell {
+            command,
+            exit_code,
+            duration_ms,
+            ..
+        } = &call.kind
+        else {
+            continue;
+        };
+        if !lines.is_empty() {
+            lines.push(String::new());
+        }
+        let source = command_text(command);
+        let code = Highlighter::new(language_named("bash"), &source);
+        for index in 0..code.line_count() {
+            lines.push(if index == 0 {
+                format!("{} {}", strings.shell_prompt, code.line(index))
+            } else {
+                format!("    {}", code.line(index))
+            });
+        }
+        lines.extend(super::raw::source_lines(&detailed_output(call, strings)));
+        if let Some(code) = *exit_code {
+            let mut result = if code == 0 {
+                strings.exit_ok.to_owned()
+            } else {
+                format!(
+                    "{}{}",
+                    strings.exit_failed,
+                    strings.label(strings.exit_status, &code.to_string())
+                )
+            };
+            if let Some(millis) = *duration_ms {
+                result.push_str(&format!(
+                    " \u{2022} {}",
+                    format_duration(Duration::from_millis(millis))
+                ));
+            }
+            lines.push(result);
+        }
+    }
+    lines
 }
 
 /// The detailed transcript's shell calls: the command after its prompt, the
