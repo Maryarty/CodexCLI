@@ -810,7 +810,8 @@ impl State for ActivityState {
                     );
                 }
             }
-            let mut line = Row::new().spacing(1);
+            // a window of one column cuts the blank after the bullet: a clip is meant
+            let mut line = Row::new().spacing(1).overflow_intended(true);
             if let Some(bullet) = &bullet {
                 line = line.child(bullet.clone());
             }

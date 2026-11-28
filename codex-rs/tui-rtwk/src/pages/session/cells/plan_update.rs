@@ -311,7 +311,8 @@ pub fn view(item: &Item, env: &CellEnv<'_>, place: &Place) -> AnyWidget {
         place.separator,
         PlanUpdateCell {
             update: update.clone(),
-            detailed: env.detailed,
+            // the inline viewport prints the oracle's `display_lines`: the full form, no control
+            detailed: env.detailed || place.inline_room.is_some(),
         }
         .into(),
     )

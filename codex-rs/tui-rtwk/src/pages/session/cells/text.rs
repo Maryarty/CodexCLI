@@ -235,7 +235,7 @@ pub(crate) fn texts_at(item: &Item, env: &Env<'_>, cx: &ReadContext<'_>) -> Text
         }
         Item::PlanUpdate(update) => Texts::Exact(plan_update::texts(
             update,
-            env.detailed,
+            env.detailed || cx.inline,
             env.expanded,
             cells,
         )),

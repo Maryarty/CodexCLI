@@ -647,6 +647,9 @@ pub struct AppFx {
     /// `run_main_inner` returning it), or a feature ended it (`AppCx::end_app`).
     pub(crate) ends: bool,
     pub(crate) desktop_notice: Option<chat::DesktopNotice>,
+    /// What MCP startup warned of in this step: the servers it names and the message, for the
+    /// warning count and the viewer (`WarningId::McpServer`).
+    pub(crate) mcp_warnings: Vec<(Vec<String>, String)>,
     /// The nearest moment the app wants the clock told (`AppEv::Clock`), as of the end of the
     /// step: the shell keeps one timer for it.
     pub(crate) wake: Option<Wake>,
@@ -5082,6 +5085,9 @@ fn apply_thread_with_receipt(
             receipt,
         );
         crate::features::revalidate_rate_offer(&mut app.features, model.view());
+    }
+    for (servers, message) in std::mem::take(&mut fx.mcp_warnings) {
+        screens::dialogs::retain_mcp(&mut Rc::make_mut(&mut app.screens).dialogs, &servers, &message);
     }
     reset::settle_hint(app, thread, fx);
 }

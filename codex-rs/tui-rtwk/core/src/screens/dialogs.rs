@@ -143,6 +143,56 @@ fn apply_retained(model: &mut Model, entries: Vec<Warning>) {
     }
 }
 
+/// The source label of a server's warnings (`WarningId::McpServer`).
+fn mcp_source(server: &str) -> String {
+    format!("MCP \u{b7} {server}")
+}
+
+/// The servers an MCP startup warning names and its message, in the oracle's words
+/// (`chatwidget/mcp_startup.rs`).
+pub fn mcp_entry(warning: &crate::screens::chat::McpWarning) -> (Vec<String>, String) {
+    use crate::screens::chat::McpWarning;
+    match warning {
+        McpWarning::Failed { server, error } => (
+            vec![server.clone()],
+            error
+                .clone()
+                .unwrap_or_else(|| format!("MCP client for `{server}` failed to start")),
+        ),
+        McpWarning::Interrupted { servers } => (
+            servers.clone(),
+            format!(
+                "MCP startup interrupted. The following servers were not initialized: {}",
+                servers.join(", ")
+            ),
+        ),
+        McpWarning::Incomplete { servers } => (
+            servers.clone(),
+            format!("MCP startup incomplete (failed: {})", servers.join(", ")),
+        ),
+    }
+}
+
+/// An MCP startup warning is retained once per server, its messages joined by a blank line
+/// (`warning_entries`): the footer counts the affected servers, not the summary rows.
+pub fn retain_mcp(model: &mut Model, servers: &[String], message: &str) {
+    for server in servers {
+        let source = mcp_source(server);
+        match model.retained.iter_mut().find(|held| held.source == source) {
+            Some(held) => {
+                if !held.details.contains(message) {
+                    held.details.push_str("\n\n");
+                    held.details.push_str(message);
+                }
+            }
+            None => model.retained.push(Warning {
+                source,
+                details: message.to_owned(),
+            }),
+        }
+    }
+}
+
 /// One warning of the viewer (`history_cell::WarningEntry`): where it comes
 /// from and its full text.
 #[derive(Clone, Debug, PartialEq, Eq)]

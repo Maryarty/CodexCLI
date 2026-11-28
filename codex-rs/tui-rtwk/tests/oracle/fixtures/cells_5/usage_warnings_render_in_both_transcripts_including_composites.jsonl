@@ -1,5 +1,5 @@
 {"step":"seed","seed":"session","thread":"thread-1"}
 {"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
 {"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"agent-0","text":"Earlier output","phase":"final_answer","memoryCitation":null,"delivery":null},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}
-{"step":"notify","message":{"method":"warning","params":{"threadId":"thread-1","message":"Only 8% of your 5h limit remains. Run /status for details."}}}
 {"step":"notify","message":{"method":"warning","params":{"threadId":"thread-1","message":"Hidden diagnostic"}}}
+{"step":"notify","message":{"method":"account/rateLimits/updated","params":{"rateLimits":{"limitId":null,"limitName":null,"normalModelSlug":null,"primary":{"usedPercent":92,"windowDurationMins":60,"resetsAt":null},"secondary":null,"credits":null,"individualLimit":null,"spendControlReached":null,"planType":null,"rateLimitReachedType":null}}}}
