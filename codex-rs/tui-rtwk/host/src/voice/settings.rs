@@ -13,7 +13,7 @@ use codex_realtime_webrtc::{AudioDeviceKind, VoiceHost};
 use codex_tui_core::protocol::config::config_write;
 use codex_tui_core::screens::voice::settings::{
     Answer, Audio, AudioOutcome, Catalog, Change, Device, DeviceKind, Operation, Problem,
-    RealtimeVoice, Report, Request,
+    RealtimeVoice, Report, Request, catalog_request,
 };
 use codex_utils_absolute_path::AbsolutePathBuf;
 
@@ -73,12 +73,7 @@ async fn voices(
     link: &Server<'_>,
 ) -> Result<codex_protocol::protocol::RealtimeVoicesList, TypedRequestError> {
     link.handle
-        .request_typed::<wire::ThreadRealtimeListVoicesResponse>(
-            wire::ClientRequest::ThreadRealtimeListVoices {
-                request_id: link.ids.next(),
-                params: wire::ThreadRealtimeListVoicesParams {},
-            },
-        )
+        .request_typed::<wire::ThreadRealtimeListVoicesResponse>(catalog_request(link.ids.next()))
         .await
         .map(|reply| reply.voices)
 }

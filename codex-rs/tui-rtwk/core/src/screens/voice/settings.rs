@@ -4,10 +4,18 @@ use std::collections::BTreeMap;
 use std::num::NonZeroU16;
 use std::rc::Rc;
 
+use codex_app_server_protocol as wire;
 pub use codex_protocol::protocol::RealtimeVoice;
 
 use crate::ids::{BackendId, ThreadId, Ticket};
 use crate::rpc::Address;
+
+pub fn catalog_request(request_id: wire::RequestId) -> wire::ClientRequest {
+    wire::ClientRequest::ThreadRealtimeListVoices {
+        request_id,
+        params: wire::ThreadRealtimeListVoicesParams {},
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Origin {
@@ -355,16 +363,15 @@ impl Model {
 
     pub(crate) fn finish(&mut self, report: Report) -> Completion {
         let request = &report.request;
-        let was_write;
-        if self.read.as_ref() == Some(request) {
+        let was_write = if self.read.as_ref() == Some(request) {
             self.read = None;
-            was_write = false;
+            false
         } else if self.write.as_ref() == Some(request) {
             self.write = None;
-            was_write = true;
+            true
         } else {
             return Completion::default();
-        }
+        };
         let feedback = self.apply_report(report);
         let next = if was_write { self.release_read() } else { None };
         Completion { feedback, next }

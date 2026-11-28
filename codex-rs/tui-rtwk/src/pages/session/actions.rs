@@ -15,7 +15,7 @@ use codex_tui_core::features::FeatureStates;
 use codex_tui_core::ids::Cwd;
 use codex_tui_core::screens::composer::{self, ShellLine};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, popovers};
-use codex_tui_core::threads::{Failure, Note, NoteKey, Ran, ThreadModel, Toggle};
+use codex_tui_core::threads::{Note, NoteKey, Ran, ThreadModel, Toggle};
 
 use crate::app::view::Hs;
 use crate::features;
@@ -26,19 +26,7 @@ use crate::pages::session::open::{note_opened, open};
 /// The chat screen of one thread's controllers.
 use super::session_page::*;
 
-/// The words of a typed failure.
-pub(super) fn failure_text(strings: &crate::l10n::strings::Shared, failure: &Failure) -> String {
-    match failure {
-        Failure::Message(message) => strings.error(message).to_string(),
-        Failure::Lagged(skipped) => strings.lagged(*skipped).to_string(),
-        Failure::Stopped => strings.chat.server_stopped.to_string(),
-        Failure::ReplyMismatch => strings.chat.reply_mismatch.to_string(),
-        Failure::VoiceLock(reason) => crate::sheets::voice::strings::EN
-            .lock_stop(*reason)
-            .to_string(),
-        Failure::VoiceHostLost => crate::sheets::voice::strings::EN.host_lost.to_owned(),
-    }
-}
+pub(super) use super::strings::failure_text;
 
 /// The composer's prompt, as wide as its text: a trailing blank is a cell.
 pub(super) fn prompt(text: &'static str, style: Style) -> AnyWidget {

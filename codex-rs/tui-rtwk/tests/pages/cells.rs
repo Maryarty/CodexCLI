@@ -3835,15 +3835,20 @@ mod text_contract {
 
     #[test]
     fn a_note_is_one_text_with_its_mark_in_front() {
-        use codex_tui_core::threads::{Note, NoteKey, Tone};
+        use codex_tui_core::threads::{Note, NoteKey, ServerNote, Tone};
         for (tone, key) in [
             (Tone::Info, NoteKey::WorkingDirectory("/work".into())),
             (Tone::Info, NoteKey::DesktopOpened),
-            (Tone::Done, NoteKey::ServerDone("Recovered".into())),
             (Tone::Error, NoteKey::Rollout(None)),
         ] {
             agrees(Item::Note(Note { tone, key }));
         }
+        let progress = Note::from(NoteKey::Server(ServerNote::Info("Recovering".into())));
+        let completion = Note::from(NoteKey::Server(ServerNote::Done("Recovered".into())));
+        assert_eq!(progress.tone, Tone::Info);
+        assert_eq!(completion.tone, Tone::Done);
+        agrees(Item::Note(progress));
+        agrees(Item::Note(completion));
     }
 
     #[test]

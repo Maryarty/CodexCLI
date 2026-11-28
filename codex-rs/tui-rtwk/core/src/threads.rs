@@ -56,7 +56,7 @@ pub use decision::ReviewLine;
 pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
 pub use live_output::{OutputLine, RetainedOutput};
 pub use message::{LocalImage, TaskRef, ToolMention, UserMessage};
-pub use note::{CdRefusal, ModeNote, Note, NoteKey, RemoveNote, Stub, Toggle, Tone};
+pub use note::{CdRefusal, ModeNote, Note, NoteKey, RemoveNote, ServerNote, Stub, Toggle, Tone};
 pub use processes::{Listed, Terminal, WaitStreak};
 pub use queue::{DueCommand, Queued, Ran};
 use queue::{enqueue, send_next};
@@ -2304,14 +2304,18 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
             ThreadId::new(&n.thread_id),
             ThreadEv::Appended {
                 turn: None,
-                item: Item::Note(Note::from(NoteKey::Server(n.message.clone()))),
+                item: Item::Note(Note::from(NoteKey::Server(ServerNote::Info(
+                    n.message.clone(),
+                )))),
             },
         )),
         ServerNotification::AuthRecoveryCompleted(n) => Some((
             ThreadId::new(&n.thread_id),
             ThreadEv::Appended {
                 turn: None,
-                item: Item::Note(Note::from(NoteKey::ServerDone(n.message.clone()))),
+                item: Item::Note(Note::from(NoteKey::Server(ServerNote::Done(
+                    n.message.clone(),
+                )))),
             },
         )),
         ServerNotification::ItemStarted(n) => item_upsert(&n.thread_id, &n.turn_id, &n.item, false)

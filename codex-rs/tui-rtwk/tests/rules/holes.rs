@@ -490,6 +490,10 @@ const THREAD_RPCS: &[(&str, &[&str])] = &[
     ("ThreadDelete", CORE_THREAD),
     ("ThreadSectionMove", CORE_THREAD),
     // read-only lists
+    (
+        "ThreadRealtimeListVoices",
+        &["core/src/screens/voice/settings.rs"],
+    ),
     ("ThreadList", CORE_THREAD),
     ("ThreadLoadedList", CORE_THREAD),
     ("ThreadSearch", CORE_THREAD),

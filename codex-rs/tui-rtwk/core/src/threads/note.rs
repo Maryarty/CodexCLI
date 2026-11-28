@@ -87,17 +87,22 @@ pub enum NoteKey {
     /// What a picker (`/model`, `/permissions`, `/apps`) said after a pick or
     /// an answer (`select::Note`).
     Select(crate::screens::select::Note),
-    /// What the server said while it worked, in its own words (`modelProvider/authRecoveryStarted`).
-    Server(String),
-    /// What the server said when its work finished, in its own words
-    /// (`modelProvider/authRecoveryCompleted`).
-    ServerDone(String),
+    /// What the server said about its work, in its own words.
+    Server(ServerNote),
     /// Effective voice and local audio preferences after their acknowledged write.
     VoiceSettings(crate::screens::voice::settings::Feedback),
     /// What a switch of the collaboration mode said.
     Mode(ModeNote),
     /// A line of a feature slice (ADR-012); its words are `src/features/<f>/strings.rs`.
     Feature(crate::features::FeatureNote),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ServerNote {
+    /// `modelProvider/authRecoveryStarted`.
+    Info(String),
+    /// `modelProvider/authRecoveryCompleted`.
+    Done(String),
 }
 
 /// What `/plan` and the mode switches said (`apply_plan_slash_command`,
@@ -123,7 +128,7 @@ impl NoteKey {
             NoteKey::Command(notice) if !notice.is_info() => Tone::Error,
             NoteKey::Select(note) => note.tone(),
             NoteKey::Feature(note) => crate::features::note_tone(note),
-            NoteKey::ServerDone(_) => Tone::Done,
+            NoteKey::Server(ServerNote::Done(_)) => Tone::Done,
             NoteKey::VoiceSettings(feedback) if !feedback.successful() => Tone::Error,
             NoteKey::Stub(_)
             | NoteKey::ParentOwned
@@ -138,7 +143,7 @@ impl NoteKey {
             | NoteKey::Toggled(..)
             | NoteKey::VoiceSettings(_)
             | NoteKey::Mode(_)
-            | NoteKey::Server(_) => Tone::Info,
+            | NoteKey::Server(ServerNote::Info(_)) => Tone::Info,
         }
     }
 }
