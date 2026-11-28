@@ -123,7 +123,21 @@ pub(super) fn describe_channels(channels: Option<&[NonZeroU16]>) -> String {
     )
 }
 
-pub(crate) fn feedback(feedback: &Feedback) -> Span {
+pub(crate) fn note(note: &codex_tui_core::screens::voice::Note) -> String {
+    use codex_tui_core::screens::voice::{Note, RetryReason};
+    match note {
+        Note::Settings(settings) => feedback(settings).text,
+        Note::Retry(RetryReason::Timeout) => {
+            "Voice connection timed out. Retrying once after cleanup.".into()
+        }
+        Note::Retry(RetryReason::TransportClosed) => {
+            "Voice connection closed during startup. Retrying once.".into()
+        }
+        Note::StartupTransportClosed => "Voice conversation ended: transport_closed".into(),
+    }
+}
+
+pub(super) fn feedback(feedback: &Feedback) -> Span {
     match feedback {
         Feedback::VoiceSaved(voice) => Span::new(
             format!("Voice set to {}. {}", voice.wire_name(), EN.applies_to_next),

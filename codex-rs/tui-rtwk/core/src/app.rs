@@ -2037,8 +2037,8 @@ fn apply_event(
                     && (!needs_proof || ordered_legacy_publisher)
                 {
                     let event = match voice {
-                        screens::voice::ThreadEv::Closed if needs_proof => {
-                            threads::voice_transcript::ThreadEvent::LegacyClosed.into()
+                        screens::voice::ThreadEv::Closed(reason) if needs_proof => {
+                            threads::voice_transcript::ThreadEvent::LegacyClosed(reason).into()
                         }
                         _ => ThreadEv::Screen(voice.into()),
                     };
@@ -2564,12 +2564,13 @@ fn apply_event(
         } if origin == BackendId::default() => {
             let owner = &report.owner;
             let thread = owner.thread.clone();
+            let call = app
+                .threads
+                .get(&thread)
+                .map(|model| &model.screen_slots().voice);
             if app.address(owner.address.backend) == owner.address
                 && app.screens.agents.owner_of(thread.as_str()) == owner.address.backend
-                && app
-                    .threads
-                    .get(&thread)
-                    .is_some_and(|model| model.screen_slots().voice.owns(owner))
+                && call.is_some_and(|call| call.accepts_audio(&report))
             {
                 apply_thread(
                     app,
@@ -2577,7 +2578,11 @@ fn apply_event(
                     ThreadEv::Screen(screens::voice::ThreadEv::Audio(report).into()),
                     fx,
                 );
-            } else if matches!(&report.result, screens::voice::AudioResult::Prepared(Ok(_))) {
+            } else if matches!(&report.result, screens::voice::AudioResult::Prepared(Ok(_)))
+                && !call
+                    .and_then(screens::voice::ThreadPart::owner)
+                    .is_some_and(|current| current.same_call(owner))
+            {
                 fx.host(effects::Ask::Audio(screens::voice::AudioCommand {
                     owner: report.owner,
                     action: screens::voice::AudioAction::Close,
@@ -2827,8 +2832,8 @@ fn voice_settings_note(
         thread,
         ThreadEv::Appended {
             turn: None,
-            item: threads::Item::Note(threads::Note::from(threads::NoteKey::VoiceSettings(
-                feedback,
+            item: threads::Item::Note(threads::Note::from(threads::NoteKey::Voice(
+                screens::voice::Note::Settings(feedback),
             ))),
         },
         fx,

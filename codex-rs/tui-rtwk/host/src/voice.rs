@@ -6,11 +6,12 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use codex_core::config::Config;
 use codex_realtime_webrtc::{
-    AudioDeviceSelection, RealtimeWebrtcSession, RealtimeWebrtcSessionHandle,
+    AudioDeviceSelection, ConnectionError, RealtimeWebrtcSession, RealtimeWebrtcSessionHandle,
 };
 use codex_tui_core::ids::{BackendId, ConnEpoch, ThreadId, Ticket};
 use codex_tui_core::screens::voice::{
-    AudioAction, AudioCommand, AudioReport, AudioResult, LockStop, Owner, Peaks, Sdp,
+    Attempt, AudioAction, AudioCommand, AudioReport, AudioResult, ConnectFailure, LockStop, Owner,
+    Peaks, Sdp,
 };
 use codex_tui_rtwk::services::agents::workspace::blocking;
 use futures::FutureExt;
@@ -36,17 +37,38 @@ struct Slot {
 
 struct Entry {
     owner: Owner,
-    abort: AbortHandle,
-    prepare: Option<AbortRegistration>,
     abort_monitor: AbortHandle,
     monitor: Option<AbortRegistration>,
     ready: watch::Sender<bool>,
+    selection: Option<AudioDeviceSelection>,
+    peer: Option<Peer>,
+}
+
+struct Peer {
+    abort: AbortHandle,
+    prepare: Option<AbortRegistration>,
     handle: Option<RealtimeWebrtcSessionHandle>,
 }
 
 impl Drop for Entry {
     fn drop(&mut self) {
         self.abort_monitor.abort();
+    }
+}
+
+impl Peer {
+    fn new() -> Self {
+        let (abort, registration) = AbortHandle::new_pair();
+        Self {
+            abort,
+            prepare: Some(registration),
+            handle: None,
+        }
+    }
+}
+
+impl Drop for Peer {
+    fn drop(&mut self) {
         self.abort.abort();
         if let Some(handle) = &self.handle {
             handle.close();
@@ -75,30 +97,49 @@ impl Slot {
     }
 
     fn reserve(&mut self, owner: &Owner) -> Option<&mut Entry> {
-        if self.retired(owner) {
+        if owner.attempt != Attempt::Initial || self.retired(owner) {
             return None;
         }
         let entry = self.entry.get_or_insert_with(|| {
-            let (abort, prepare) = AbortHandle::new_pair();
             let (abort_monitor, monitor) = AbortHandle::new_pair();
             Entry {
                 owner: owner.clone(),
-                abort,
-                prepare: Some(prepare),
                 abort_monitor,
                 monitor: Some(monitor),
                 ready: watch::channel(false).0,
-                handle: None,
+                selection: None,
+                peer: Some(Peer::new()),
             }
         });
         (&entry.owner == owner).then_some(entry)
+    }
+
+    fn prepare(&mut self, owner: &Owner) -> Option<&mut Entry> {
+        if owner.attempt == Attempt::Initial {
+            return self.reserve(owner);
+        }
+        // A retry can use only the still-observed logical call with its original peer released.
+        // It cannot claim empty audio services, reread device settings, or revive a closed call.
+        let entry = self
+            .entry
+            .as_mut()
+            .filter(|entry| entry.owner.same_call(owner))?;
+        if &entry.owner == owner {
+            return Some(entry);
+        }
+        if entry.peer.is_some() || entry.selection.is_none() {
+            return None;
+        }
+        entry.owner = owner.clone();
+        entry.peer = Some(Peer::new());
+        Some(entry)
     }
 
     fn stop(&mut self, owner: &Owner) -> bool {
         if self
             .entry
             .as_ref()
-            .is_some_and(|entry| &entry.owner == owner)
+            .is_some_and(|entry| entry.owner.same_call(owner))
         {
             self.retire(owner);
             self.entry = None;
@@ -148,7 +189,12 @@ impl Audio {
                 }
                 AudioResult::LockStopped(self.observe(&owner, session_lock::observe()).await?)
             }
-            AudioAction::Prepare => AudioResult::Prepared(self.prepare(&owner, config).await?),
+            AudioAction::Prepare => {
+                AudioResult::Prepared(self.prepare(&owner, config, false).await?)
+            }
+            AudioAction::PrepareRetry { muted } => {
+                AudioResult::Prepared(self.prepare(&owner, config, muted).await?)
+            }
             AudioAction::Connect(answer) => {
                 AudioResult::Connected(self.connect(&owner, answer).await?)
             }
@@ -171,6 +217,12 @@ impl Audio {
                         ]))
                     }
                 })
+            }
+            AudioAction::ReleasePeer => {
+                let mut slot = self.lock();
+                let entry = slot.entry.as_mut().filter(|entry| entry.owner == owner)?;
+                drop(entry.peer.take()?);
+                AudioResult::PeerReleased
             }
             AudioAction::Close => {
                 self.close(&owner);
@@ -214,54 +266,83 @@ impl Audio {
         self.lock().stop(owner).then_some(reason)
     }
 
-    async fn prepare(&self, owner: &Owner, config: Option<&Config>) -> Option<Result<Sdp, String>> {
+    async fn prepare(
+        &self,
+        owner: &Owner,
+        config: Option<&Config>,
+        muted: bool,
+    ) -> Option<Result<Sdp, String>> {
         if !RealtimeWebrtcSession::is_supported() {
             return Some(Err(
                 "Voice requires a Codex package with a compatible audio helper.".into(),
             ));
         }
-        let (registration, mut ready) = {
+        let (registration, mut ready, previous) = {
             let mut slot = self.lock();
             if slot.retired(owner) {
                 return None;
             }
-            let Some(entry) = slot.reserve(owner) else {
+            let Some(entry) = slot.prepare(owner) else {
                 return Some(Err(
                     "A local voice call already owns the audio devices.".into()
                 ));
             };
-            (entry.prepare.take()?, entry.ready.subscribe())
+            (
+                entry.peer.as_mut()?.prepare.take()?,
+                entry.ready.subscribe(),
+                entry.selection.clone(),
+            )
         };
         // Fix the input for this explicit call before waiting on the desktop snapshot. A settings
         // write during negotiation only affects a subsequent call.
-        let configured = {
-            let _edit = self.local_settings.lock().await;
-            settings::read_local(config).await
+        let configured = match previous {
+            Some(selection) => Ok(selection),
+            None => {
+                let _edit = self.local_settings.lock().await;
+                settings::read_local(config)
+                    .await
+                    .map(|configured| AudioDeviceSelection {
+                        microphone: configured.microphone,
+                        speaker: configured.speaker,
+                        channel: configured.channels,
+                    })
+            }
         };
         ready.wait_for(|ready| *ready).await.ok()?;
         let offer = async {
-            let configured = configured?;
-            let selection = AudioDeviceSelection {
-                microphone: configured.microphone,
-                speaker: configured.speaker,
-                channel: configured.channels,
-            };
-            blocking(move || RealtimeWebrtcSession::start(registration, selection))
-                .await
-                .ok_or_else(|| "The audio helper failed to prepare.".to_owned())?
-                .map_err(|error| error.to_string())
+            let selection = configured?;
+            blocking({
+                let selection = selection.clone();
+                move || {
+                    let offer = RealtimeWebrtcSession::start(registration, selection)?;
+                    if muted && let Err(error) = offer.handle.set_microphone_muted(true) {
+                        offer.handle.close();
+                        return Err(error);
+                    }
+                    Ok(offer)
+                }
+            })
+            .await
+            .ok_or_else(|| "The audio helper failed to prepare.".to_owned())?
+            .map(|offer| (offer, selection))
+            .map_err(|error| error.to_string())
         }
         .await;
         let mut slot = self.lock();
-        let Some(entry) = slot.entry.as_mut().filter(|entry| &entry.owner == owner) else {
-            if let Ok(offer) = offer {
+        let Some(entry) = slot
+            .entry
+            .as_mut()
+            .filter(|entry| &entry.owner == owner && entry.peer.is_some())
+        else {
+            if let Ok((offer, _)) = offer {
                 offer.handle.close();
             }
             return None;
         };
         Some(match offer {
-            Ok(offer) => {
-                entry.handle = Some(offer.handle);
+            Ok((offer, selection)) => {
+                entry.selection = Some(selection);
+                entry.peer.as_mut()?.handle = Some(offer.handle);
                 Ok(Sdp::new(offer.offer_sdp))
             }
             Err(error) => {
@@ -271,12 +352,19 @@ impl Audio {
         })
     }
 
-    async fn connect(&self, owner: &Owner, answer: Sdp) -> Option<Result<(), String>> {
+    async fn connect(&self, owner: &Owner, answer: Sdp) -> Option<Result<(), ConnectFailure>> {
         let handle = self.handle(owner)?;
         let connected = blocking(move || handle.apply_answer_sdp(answer.into_inner()))
             .await
-            .ok_or_else(|| "The audio helper failed to connect.".to_owned())
-            .and_then(|result| result.map_err(|error| error.to_string()));
+            .ok_or_else(|| ConnectFailure::Other("The audio helper failed to connect.".into()))
+            .and_then(|result| {
+                result.map_err(|error| match error {
+                    ConnectionError::NegotiationTimedOut => {
+                        ConnectFailure::TimedOut(error.to_string())
+                    }
+                    _ => ConnectFailure::Other(error.to_string()),
+                })
+            });
         self.handle(owner)?;
         Some(connected)
     }
@@ -286,11 +374,16 @@ impl Audio {
             .entry
             .as_ref()
             .filter(|entry| &entry.owner == owner)
-            .and_then(|entry| entry.handle.clone())
+            .and_then(|entry| entry.peer.as_ref()?.handle.clone())
     }
 
     fn close(&self, owner: &Owner) {
         let mut slot = self.lock();
+        if slot.entry.as_ref().is_some_and(|entry| {
+            entry.owner.same_call(owner) && owner.attempt < entry.owner.attempt
+        }) {
+            return;
+        }
         if !slot.stop(owner) {
             slot.retire(owner);
         }
@@ -400,5 +493,86 @@ mod tests {
         assert!(audio.lock().reserve(&next).is_some());
         drop(current);
         assert!(audio.lock().reserve(&next).is_none());
+    }
+
+    #[tokio::test]
+    async fn retry_reuses_the_device_snapshot_and_lock_even_with_old_peer_callbacks() {
+        let [first] = owners();
+        let audio = Audio::default();
+        let mut retry = first.clone();
+        retry.attempt = Attempt::Retry;
+        let (locked, signal) = tokio::sync::oneshot::channel();
+        let activation: session_lock::Activation = Box::pin(async move { Ok(signal.await?) });
+        let mut monitor = Box::pin(audio.observe(&first, async { Ok(activation) }));
+        assert!(monitor.as_mut().now_or_never().is_none());
+        let selection = AudioDeviceSelection {
+            microphone: Some("original microphone".into()),
+            ..Default::default()
+        };
+        let old_abort = {
+            let mut slot = audio.lock();
+            let entry = slot.reserve(&first).expect("original owner");
+            entry.selection = Some(selection.clone());
+            entry.peer.as_ref().expect("original peer").abort.clone()
+        };
+        assert!(audio.lock().prepare(&retry).is_none());
+        let released = audio
+            .run(
+                AudioCommand {
+                    owner: first.clone(),
+                    action: AudioAction::ReleasePeer,
+                },
+                None,
+            )
+            .await
+            .expect("peer release receipt");
+        assert_eq!(released.result, AudioResult::PeerReleased);
+        assert!(old_abort.is_aborted());
+
+        let new_abort = {
+            let mut slot = audio.lock();
+            let entry = slot
+                .prepare(&retry)
+                .expect("retained call owns the fresh peer");
+            assert_eq!(entry.selection.as_ref(), Some(&selection));
+            assert!(*entry.ready.borrow());
+            assert!(
+                entry.monitor.is_none(),
+                "the previous observer is still running"
+            );
+            entry.peer.as_ref().expect("fresh peer").abort.clone()
+        };
+        audio.close(&first);
+        assert!(!new_abort.is_aborted());
+        locked.send(()).expect("desktop locked");
+        assert_eq!(monitor.await, Some(LockStop::Locked));
+        assert!(new_abort.is_aborted());
+        assert!(audio.lock().prepare(&retry).is_none());
+    }
+
+    #[tokio::test]
+    async fn stop_before_queued_retry_never_reserves_audio_again() {
+        let [first] = owners();
+        let audio = Audio::default();
+        let mut retry = first.clone();
+        retry.attempt = Attempt::Retry;
+        audio
+            .lock()
+            .reserve(&first)
+            .expect("initial lease")
+            .selection = Some(AudioDeviceSelection::default());
+        audio
+            .run(
+                AudioCommand {
+                    owner: first,
+                    action: AudioAction::ReleasePeer,
+                },
+                None,
+            )
+            .await
+            .expect("peer released");
+        audio.close(&retry);
+        assert!(audio.lock().prepare(&retry).is_none());
+        assert!(audio.lock().retired(&retry));
     }
 }

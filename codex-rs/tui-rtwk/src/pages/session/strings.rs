@@ -791,9 +791,7 @@ impl Strings {
             NoteKey::Server(ServerNote::Info(message) | ServerNote::Done(message)) => {
                 message.clone()
             }
-            NoteKey::VoiceSettings(feedback) => {
-                crate::sheets::voice::strings::feedback(feedback).text
-            }
+            NoteKey::Voice(note) => crate::sheets::voice::strings::note(note),
             NoteKey::WorkingDirectory(dir) => text(self.working_directory, dir),
             NoteKey::Rollout(Some(path)) => text(self.rollout, path),
             NoteKey::Rollout(None) => self.rollout_missing.to_string(),

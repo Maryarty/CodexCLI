@@ -3,11 +3,15 @@
 
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::effects::{Ask, Done};
+use codex_tui_core::app::{BackendEv, Command};
+use codex_tui_core::protocol::reply;
 use codex_tui_core::screens::voice::settings::{
     Answer, Audio, AudioOutcome, Catalog, Change, Device, DeviceKind, Operation, Problem,
     RealtimeVoice as Voice, Report, Request,
 };
-use codex_tui_core::screens::{ScreenEv, chat};
+use codex_tui_core::screens::voice::{AudioAction, AudioReport, AudioResult, ConnectFailure, Sdp};
+use codex_tui_core::screens::{ScreenCommand, ScreenEv, chat, voice};
+use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
 
 use crate::common::{Harness, slot, start};
 
@@ -182,4 +186,166 @@ fn voice_settings_show_device_failure_and_back_reopens_the_sound_menu() {
     h.wait_for("the devices parent", |screen| {
         screen.contains("Sound devices")
     });
+}
+
+fn voice_command(h: &mut Harness, accepts: impl Fn(&Command) -> bool) -> Command {
+    let find = |h: &Harness| h.fake.commands().into_iter().rev().find(&accepts);
+    h.wait_until("the recorded voice call command", |h| find(h).is_some());
+    let Some(command) = find(h) else {
+        panic!("voice call command missing")
+    };
+    command
+}
+
+fn voice_audio(h: &mut Harness, accepts: impl Fn(&AudioAction) -> bool) -> Command {
+    voice_command(
+        h,
+        |command| matches!(command.host_ask(), Some(Ask::Audio(audio)) if accepts(&audio.action)),
+    )
+}
+
+fn audio_receipt(command: &Command, result: AudioResult) -> AppEv {
+    let Command::Effect {
+        ask: Ask::Audio(audio),
+        request,
+        ..
+    } = command
+    else {
+        panic!("audio command")
+    };
+    AppEv::Effect {
+        request: *request,
+        done: Done::Audio(AudioReport {
+            owner: audio.owner.clone(),
+            result,
+        }),
+    }
+}
+
+fn voice_notice(method: &str, params: serde_json::Value) -> AppEv {
+    let Ok(notification) =
+        serde_json::from_value(serde_json::json!({ "method": method, "params": params }))
+    else {
+        panic!("pinned voice notification")
+    };
+    AppEv::Backend(BackendEv::Notification(Box::new(notification)))
+}
+
+fn voice_ack(command: &Command) -> AppEv {
+    let Some((ticket, reply)) = reply(command, Ok(serde_json::json!({}))) else {
+        panic!("pinned voice RPC")
+    };
+    AppEv::Reply(ticket, reply)
+}
+
+fn answer_voice_offer(
+    h: &mut Harness,
+    prepared: &Command,
+    prior_session: Option<&str>,
+) -> (String, Command) {
+    h.inject([audio_receipt(
+        prepared,
+        AudioResult::Prepared(Ok(Sdp::new("offer".into()))),
+    )]);
+    let start = voice_command(h, |command| {
+        matches!(command,
+        Command::Screen { command: ScreenCommand::Voice(voice::Command::Start { session, .. }), .. }
+        if Some(session.as_str()) != prior_session)
+    });
+    let Command::Screen {
+        command: ScreenCommand::Voice(voice::Command::Start { session, .. }),
+        ..
+    } = &start
+    else {
+        panic!("voice start")
+    };
+    h.inject([
+        voice_ack(&start),
+        voice_notice("thread/realtime/started", serde_json::json!({"threadId": FAKE_THREAD, "realtimeSessionId": session, "version": "v3"})),
+        voice_notice("thread/realtime/sdp", serde_json::json!({"threadId": FAKE_THREAD, "sdp": "answer"})),
+    ]);
+    let Some(Ask::Audio(prepared)) = prepared.host_ask() else {
+        panic!("preparing voice")
+    };
+    let connect = voice_command(h, |command| {
+        matches!(command.host_ask(),
+        Some(Ask::Audio(audio)) if audio.owner == prepared.owner && matches!(audio.action, AudioAction::Connect(_)))
+    });
+    (session.clone(), connect)
+}
+
+#[test]
+fn voice_f8_visibly_retries_once_after_cleanup_and_connects_without_losing_the_draft() {
+    for timed_out in [true, false] {
+        let mut h = start();
+        crate::chat::chat_with_history(&mut h);
+        h.t.type_text("keep my draft");
+        h.press("f8");
+        let prepared = voice_audio(&mut h, |action| *action == AudioAction::Prepare);
+        let (previous_session, connect) = answer_voice_offer(&mut h, &prepared, None);
+        let (notice, event) = if timed_out {
+            (
+                "Voice connection timed out. Retrying once after cleanup.",
+                audio_receipt(
+                    &connect,
+                    AudioResult::Connected(Err(ConnectFailure::TimedOut("timeout".into()))),
+                ),
+            )
+        } else {
+            (
+                "Voice connection closed during startup. Retrying once.",
+                voice_notice(
+                    "thread/realtime/closed",
+                    serde_json::json!({"threadId": FAKE_THREAD, "reason": "transport_closed"}),
+                ),
+            )
+        };
+        h.inject([event]);
+        let release = voice_audio(&mut h, |action| *action == AudioAction::ReleasePeer);
+        h.wait_for("the original retry notice", |screen| {
+            screen.contains(notice)
+        });
+        h.inject([audio_receipt(&release, AudioResult::PeerReleased)]);
+        let is_stop = |command: &Command| {
+            matches!(
+                command,
+                Command::Screen {
+                    command: ScreenCommand::Voice(voice::Command::Stop),
+                    ..
+                }
+            )
+        };
+        if timed_out {
+            let stop = voice_command(&mut h, is_stop);
+            h.inject([voice_notice(
+                "thread/realtime/closed",
+                serde_json::json!({"threadId": FAKE_THREAD, "reason": "requested"}),
+            )]);
+            h.settle();
+            assert!(!h.fake.commands().iter().any(is_retry));
+            h.inject([voice_ack(&stop)]);
+        }
+        let retry = voice_command(&mut h, is_retry);
+        if !timed_out {
+            assert!(!h.fake.commands().iter().any(is_stop));
+        }
+        let (next_session, connect) = answer_voice_offer(&mut h, &retry, Some(&previous_session));
+        assert_ne!(next_session, previous_session);
+        h.inject([audio_receipt(&connect, AudioResult::Connected(Ok(())))]);
+        h.wait_for("the retry listening with the draft", |screen| {
+            screen.contains("voice ● listen") && screen.contains("keep my draft")
+        });
+        assert_eq!(
+            h.fake
+                .commands()
+                .iter()
+                .filter(|command| is_retry(command))
+                .count(),
+            1
+        );
+    }
+}
+
+fn is_retry(command: &Command) -> bool {
+    matches!(command.host_ask(), Some(Ask::Audio(audio)) if matches!(audio.action, AudioAction::PrepareRetry { .. }))
 }
