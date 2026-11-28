@@ -1,0 +1,274 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: admin <vasiliy.cherniavskiy@gmail.com>
+Date: Sat, 28 Nov 2026 08:42:38 +0000
+Subject: [PATCH] s10-websocket-timing-backend: preserve timing across embedded
+ backpressure
+
+
+diff --git a/codex-rs/app-server/src/in_process.rs b/codex-rs/app-server/src/in_process.rs
+index a0d03a9de1e2363e11c9ffa6cce8cfa9c86ce4ae..922ca7bdecec0c03dbb1cc6cf695f9fc7c472399 100644
+--- a/codex-rs/app-server/src/in_process.rs
++++ b/codex-rs/app-server/src/in_process.rs
+@@ -117,6 +117,7 @@ fn server_notification_requires_delivery(notification: &ServerNotification) -> b
+         ServerNotification::ProcessOutputDelta(_)
+             | ServerNotification::ProcessExited(_)
+             | ServerNotification::TurnCompleted(_)
++            | ServerNotification::TurnRuntimeMetrics(_)
+             | ServerNotification::ThreadQueueChanged(_)
+             | ServerNotification::ThreadSettingsUpdated(_)
+             | ServerNotification::ThreadAttachmentUpdated(_)
+@@ -914,6 +915,7 @@ mod tests {
+     use codex_app_server_protocol::Turn;
+     use codex_app_server_protocol::TurnCompletedNotification;
+     use codex_app_server_protocol::TurnItemsView;
++    use codex_app_server_protocol::TurnRuntimeMetricsNotification;
+     use codex_app_server_protocol::TurnStatus;
+     use codex_core::config::ConfigBuilder;
+     use futures::FutureExt;
+@@ -1174,6 +1176,18 @@ mod tests {
+                 },
+             })
+         ));
++        assert!(server_notification_requires_delivery(
++            &ServerNotification::TurnRuntimeMetrics(TurnRuntimeMetricsNotification {
++                thread_id: "thread-1".to_string(),
++                turn_id: "turn-1".to_string(),
++                overhead_ms: None,
++                inference_time_ms: None,
++                iapi_ttft_ms: Some(12.0),
++                service_ttft_ms: None,
++                iapi_tbt_ms: None,
++                service_tbt_ms: None,
++            })
++        ));
+         assert!(server_notification_requires_delivery(
+             &ServerNotification::ThreadQueueChanged(ThreadQueueChangedNotification {
+                 thread_id: "thread-1".to_string(),
+diff --git a/codex-rs/app-server/tests/suite/v2/mod.rs b/codex-rs/app-server/tests/suite/v2/mod.rs
+index d8ba076fc53426a19fddab0826a5634c084e47dd..58c8df806bcb06bb7e726f68b6f0342922bd1958 100644
+--- a/codex-rs/app-server/tests/suite/v2/mod.rs
++++ b/codex-rs/app-server/tests/suite/v2/mod.rs
+@@ -141,6 +141,7 @@ mod review;
+ #[path = "rollout_compress_tests.rs"]
+ mod rollout_compress;
+ mod rollout_migration;
++mod runtime_metrics;
+ mod safety_check_downgrade;
+ #[cfg(not(target_os = "windows"))]
+ mod selected_capability_stack;
+diff --git a/codex-rs/app-server/tests/suite/v2/runtime_metrics.rs b/codex-rs/app-server/tests/suite/v2/runtime_metrics.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..64174820ea30cc2a4d8bee4f9ce0c3b9b4cc9467
+--- /dev/null
++++ b/codex-rs/app-server/tests/suite/v2/runtime_metrics.rs
+@@ -0,0 +1,194 @@
++use anyhow::Result;
++use app_test_support::MockResponsesConfig;
++use app_test_support::TestAppServer;
++use codex_app_server_protocol::ClientInfo;
++use codex_app_server_protocol::InitializeCapabilities;
++use codex_app_server_protocol::JSONRPCMessage;
++use codex_app_server_protocol::ThreadStartParams;
++use codex_app_server_protocol::TurnStartParams;
++use codex_app_server_protocol::TurnStartResponse;
++use codex_app_server_protocol::UserInput;
++use codex_features::Feature;
++use core_test_support::responses;
++use core_test_support::skip_if_no_network;
++use pretty_assertions::assert_eq;
++use serde_json::Value;
++use serde_json::json;
++use std::collections::BTreeMap;
++use std::time::Duration;
++use tempfile::TempDir;
++use tokio::time::timeout;
++
++const READ_TIMEOUT: Duration = Duration::from_secs(20);
++const METHOD: &str = "turn/runtimeMetrics";
++
++#[test_case::test_case(true, true, false; "enabled")]
++#[test_case::test_case(false, true, false; "feature_disabled")]
++#[test_case::test_case(true, false, false; "legacy_client")]
++#[test_case::test_case(true, true, true; "method_opt_out")]
++#[tokio::test]
++async fn websocket_runtime_metrics_follow_the_owning_turn(
++    feature: bool,
++    experimental_api: bool,
++    opt_out: bool,
++) -> Result<()> {
++    skip_if_no_network!(Ok(()));
++    let sample = |iapi_ttft| {
++        json!({
++            "type": "responsesapi.websocket_timing",
++            "timing_metrics": {
++                "responses_duration_excl_engine_and_client_tool_time_ms": 14,
++                "engine_service_total_ms": -1,
++                "engine_iapi_ttft_total_ms": iapi_ttft,
++                "engine_service_ttft_total_ms": "120",
++                "engine_iapi_tbt_across_engine_calls_ms": 0,
++                "engine_service_tbt_across_engine_calls_ms": 2.5
++            }
++        })
++    };
++    let connection = |response_id: &str, iapi_ttft| {
++        let warmup_id = format!("{response_id}-warmup");
++        vec![
++            vec![
++                responses::ev_response_created(&warmup_id),
++                sample(999),
++                responses::ev_completed(&warmup_id),
++            ],
++            vec![
++                sample(888),
++                responses::ev_response_created(response_id),
++                sample(iapi_ttft),
++                json!({
++                    "type": "responsesapi.websocket_timing",
++                    "timing_metrics": { "engine_service_total_ms": -1 }
++                }),
++                responses::ev_assistant_message(response_id, "Done"),
++                responses::ev_completed(response_id),
++            ],
++        ]
++    };
++    let websocket = responses::start_websocket_server(vec![
++        connection("first", 120),
++        connection("second", 220),
++    ])
++    .await;
++    let mut release_first = Some(websocket.gate_response_event(&sample(120)));
++    let home = TempDir::new()?;
++    MockResponsesConfig::new(&websocket.uri().replacen("ws://", "http://", 1))
++        .with_provider_config("supports_websockets = true")
++        .with_features(&BTreeMap::from([(Feature::RuntimeMetrics, feature)]))
++        .write(home.path())?;
++    let mut app = TestAppServer::builder()
++        .with_codex_home(home.path())
++        .build()
++        .await?;
++    let initialized = timeout(
++        READ_TIMEOUT,
++        app.initialize_with_capabilities(
++            ClientInfo {
++                name: "runtime-metrics-test".to_string(),
++                title: None,
++                version: "0.0.0".to_string(),
++            },
++            Some(InitializeCapabilities {
++                experimental_api,
++                opt_out_notification_methods: opt_out.then(|| vec![METHOD.to_string()]),
++                ..Default::default()
++            }),
++        ),
++    )
++    .await??;
++    assert!(matches!(initialized, JSONRPCMessage::Response(_)));
++
++    let mut expected = BTreeMap::new();
++    for label in ["first", "second"] {
++        let thread = timeout(READ_TIMEOUT, app.start_thread(ThreadStartParams::default()))
++            .await??
++            .thread;
++        let request = app
++            .send_turn_start_request(TurnStartParams {
++                thread_id: thread.id.clone(),
++                input: vec![UserInput::Text {
++                    text: label.to_string(),
++                    text_elements: Vec::new(),
++                }],
++                ..Default::default()
++            })
++            .await?;
++        let response: TurnStartResponse =
++            timeout(READ_TIMEOUT, app.read_response(request)).await??;
++        expected.insert(thread.id, (response.turn.id, label));
++        if label == "first" {
++            // The next thread has a distinct WebSocket while this response is still streaming.
++            timeout(READ_TIMEOUT, websocket.wait_for_request(0, 1)).await?;
++        }
++    }
++
++    let expected_visible = feature && experimental_api && !opt_out;
++    let mut lifecycle = BTreeMap::<String, Vec<String>>::new();
++    let mut completed = Vec::new();
++    timeout(READ_TIMEOUT, async {
++        while completed.len() < 2 {
++            let JSONRPCMessage::Notification(notification) = app.read_next_message().await? else {
++                continue;
++            };
++            let method = notification.method.as_str();
++            if !matches!(method, "turn/started" | METHOD | "turn/completed") {
++                continue;
++            }
++            let params = notification.params.unwrap_or(Value::Null);
++            let thread_id = params["threadId"].as_str().expect("thread ID");
++            let (turn_id, label) = &expected[thread_id];
++            if method == METHOD {
++                assert_eq!(
++                    params,
++                    json!({
++                        "threadId": thread_id,
++                        "turnId": turn_id,
++                        "overheadMs": 14.0,
++                        "iapiTtftMs": if *label == "first" { 120.0 } else { 220.0 },
++                        "iapiTbtMs": 0.0,
++                        "serviceTbtMs": 2.5
++                    })
++                );
++            } else {
++                assert_eq!(params["turn"]["id"], *turn_id);
++            }
++            lifecycle
++                .entry(thread_id.to_string())
++                .or_default()
++                .push(method.to_string());
++            if method == "turn/completed" {
++                assert_eq!(params["turn"]["status"], "completed");
++                completed.push(*label);
++                if *label == "second" {
++                    release_first
++                        .take()
++                        .expect("second completes once")
++                        .send(())
++                        .expect("first sample is waiting");
++                }
++            }
++        }
++        Ok::<_, anyhow::Error>(())
++    })
++    .await??;
++    assert_eq!(completed, ["second", "first"]);
++    let expected_lifecycle = if expected_visible {
++        vec!["turn/started", METHOD, "turn/completed"]
++    } else {
++        vec!["turn/started", "turn/completed"]
++    };
++    for methods in lifecycle.into_values() {
++        assert_eq!(methods, expected_lifecycle);
++    }
++    assert_eq!(websocket.handshakes().len(), 2);
++    for handshake in websocket.handshakes() {
++        assert_eq!(
++            handshake.header("x-responsesapi-include-timing-metrics"),
++            feature.then(|| "true".to_string())
++        );
++    }
++    websocket.shutdown().await;
++    Ok(())
++}
+diff --git a/codex-rs/codex-api/src/endpoint/responses_websocket.rs b/codex-rs/codex-api/src/endpoint/responses_websocket.rs
+index 66c2a4035ab9070b24275b66d5381b13173959d2..e75310842de228ffcd0eb98d0e9192fbf534c6f5 100644
+--- a/codex-rs/codex-api/src/endpoint/responses_websocket.rs
++++ b/codex-rs/codex-api/src/endpoint/responses_websocket.rs
+@@ -965,8 +965,11 @@ async fn run_websocket_response_stream(
+                 }
+                 if event.kind() == RESPONSES_WEBSOCKET_TIMING_KIND {
+                     emit_responses_websocket_timing_event(text.as_str(), timing_log_context);
++                    // A reused socket can still carry frames from its previous response.
++                    // Only the current response's creation opens its timing window.
+                     if timing_log_context.include_timing_metrics
+                         && !timing_log_context.warmup
++                        && response_id.is_some()
+                         && interruption.is_none()
+                         && completion.is_none()
+                         && let Some(metrics) = parse_websocket_timing(text.as_str())

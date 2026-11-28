@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: admin <vasiliy.cherniavskiy@gmail.com>
+Date: Sat, 28 Nov 2026 08:51:21 +0000
+Subject: [PATCH] s10-websocket-timing-backend: exercise legacy thread start
+ without experimental params
+
+
+diff --git a/codex-rs/app-server/tests/suite/v2/runtime_metrics.rs b/codex-rs/app-server/tests/suite/v2/runtime_metrics.rs
+index 64174820ea30cc2a4d8bee4f9ce0c3b9b4cc9467..da00b45b7ff1146c8c48ae3d71877d9a8327cfa0 100644
+--- a/codex-rs/app-server/tests/suite/v2/runtime_metrics.rs
++++ b/codex-rs/app-server/tests/suite/v2/runtime_metrics.rs
+@@ -5,6 +5,7 @@ use codex_app_server_protocol::ClientInfo;
+ use codex_app_server_protocol::InitializeCapabilities;
+ use codex_app_server_protocol::JSONRPCMessage;
+ use codex_app_server_protocol::ThreadStartParams;
++use codex_app_server_protocol::ThreadStartResponse;
+ use codex_app_server_protocol::TurnStartParams;
+ use codex_app_server_protocol::TurnStartResponse;
+ use codex_app_server_protocol::UserInput;
+@@ -74,12 +75,14 @@ async fn websocket_runtime_metrics_follow_the_owning_turn(
+     .await;
+     let mut release_first = Some(websocket.gate_response_event(&sample(120)));
+     let home = TempDir::new()?;
++    let project = TempDir::new()?;
+     MockResponsesConfig::new(&websocket.uri().replacen("ws://", "http://", 1))
+         .with_provider_config("supports_websockets = true")
+         .with_features(&BTreeMap::from([(Feature::RuntimeMetrics, feature)]))
+         .write(home.path())?;
+     let mut app = TestAppServer::builder()
+         .with_codex_home(home.path())
++        .without_auto_env()
+         .build()
+         .await?;
+     let initialized = timeout(
+@@ -102,9 +105,14 @@ async fn websocket_runtime_metrics_follow_the_owning_turn(
+ 
+     let mut expected = BTreeMap::new();
+     for label in ["first", "second"] {
+-        let thread = timeout(READ_TIMEOUT, app.start_thread(ThreadStartParams::default()))
+-            .await??
+-            .thread;
++        let request = app
++            .send_thread_start_request(ThreadStartParams {
++                cwd: Some(project.path().display().to_string()),
++                ..Default::default()
++            })
++            .await?;
++        let ThreadStartResponse { thread, .. } =
++            timeout(READ_TIMEOUT, app.read_response(request)).await??;
+         let request = app
+             .send_turn_start_request(TurnStartParams {
+                 thread_id: thread.id.clone(),

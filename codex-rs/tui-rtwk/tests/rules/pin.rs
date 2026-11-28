@@ -191,3 +191,79 @@ fn the_backend_pin_is_at_the_commit_backend_ref_names() {
     );
     assert_eq!(head.trim(), backend_ref());
 }
+
+// ---- the backend patch catalog (docs/rtwk-port/backend-patches.md) ----
+//
+// The backend pin is upstream plus the patch series of `tools/rtwk-port/backend-patches/series`,
+// so `BACKEND_REF` is the tip of that series and the catalog names it. Moving the pin without the
+// series (or the series without the catalog) fails here, so a backend update never loses a patch
+// silently.
+
+fn repo_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+fn read_repo(path: &str) -> String {
+    std::fs::read_to_string(repo_root().join(path)).expect(path)
+}
+
+fn commit_of(path: &str) -> String {
+    let text = read_repo(path).trim().to_string();
+    assert!(
+        text.len() == 40 && text.bytes().all(|b| b.is_ascii_hexdigit()),
+        "{path} holds one full commit id, got {text:?}"
+    );
+    text
+}
+
+fn series_files() -> Vec<String> {
+    let dir = repo_root().join("tools/rtwk-port/backend-patches/series");
+    let mut names: Vec<String> = std::fs::read_dir(&dir)
+        .expect("the series directory")
+        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+        .filter(|name| name.ends_with(".patch"))
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn backend_ref_is_the_tip_of_the_patch_series() {
+    assert_eq!(
+        commit_of("docs/rtwk-port/BACKEND_REF"),
+        commit_of("tools/rtwk-port/backend-patches/series/TIP"),
+        "BACKEND_REF moves with the series: apply.sh, then export.sh <base> <tip> (backend-patches.md)"
+    );
+}
+
+#[test]
+fn the_catalog_names_the_base_the_tip_and_every_patch_of_the_series() {
+    let catalog = read_repo("docs/rtwk-port/backend-patches.md");
+    for (what, path) in [
+        ("base", "tools/rtwk-port/backend-patches/series/BASE"),
+        ("tip", "tools/rtwk-port/backend-patches/series/TIP"),
+    ] {
+        let sha = commit_of(path);
+        assert!(catalog.contains(&sha), "the catalog lacks the {what} {sha}");
+    }
+    let patches = series_files();
+    assert!(!patches.is_empty(), "the series holds patch files");
+    for name in &patches {
+        assert!(
+            catalog.contains(name.as_str()),
+            "the catalog lacks the series file {name}"
+        );
+    }
+}
+
+#[test]
+fn the_series_files_are_numbered_without_a_gap() {
+    for (index, name) in series_files().iter().enumerate() {
+        let want = format!("{:04}-", index + 1);
+        assert!(
+            name.starts_with(&want),
+            "{name} should be number {}: export.sh numbers from 1",
+            index + 1
+        );
+    }
+}
