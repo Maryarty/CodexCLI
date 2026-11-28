@@ -141,6 +141,7 @@ pub(crate) fn tui_settings(config: &Config) -> TuiSettings {
             .features
             .enabled(codex_features::Feature::TuiWorkspace),
         sidebar_width_percent: config.tui_sidebar_width_percent,
+        daybreak: crate::facts::CyberPolicy::of(config).daybreak,
         rendering: Rendering {
             mermaid: rendering.mermaid,
             math: rendering.math,

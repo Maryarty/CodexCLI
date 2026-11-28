@@ -129,9 +129,11 @@ fn activating_a_passive_transcript_does_not_take_enter_from_its_draft() {
     let row = lines
         .iter()
         .position(|line| line.contains("PARENT-HISTORY"))
-        .expect("passive parent history is visible");
+        .unwrap_or_else(|| panic!("passive parent history is missing: {}", h.t.screen()));
     let x = column(&h, "PARENT-HISTORY") + 1;
-    h.t.click(u16::try_from(x).unwrap(), u16::try_from(row).unwrap());
+    let x = u16::try_from(x).unwrap_or_else(|error| panic!("invalid pane column: {error}"));
+    let row = u16::try_from(row).unwrap_or_else(|error| panic!("invalid pane row: {error}"));
+    h.t.click(x, row);
     h.advance(200);
     assert!(h.t.cursor().0 < split);
     h.press("enter");

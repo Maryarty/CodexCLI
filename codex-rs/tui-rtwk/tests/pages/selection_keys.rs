@@ -21,7 +21,8 @@ fn enter_reaches_the_composer_after_leaving_a_clicked_transcript_point() {
             .draft("draft stays here")
             .open();
         s.selection_copy_policy(false, false);
-        let row = u16::try_from(s.row_of("select this")).unwrap();
+        let row = u16::try_from(s.row_of("select this"))
+            .unwrap_or_else(|error| panic!("transcript row outside the test terminal: {error}"));
         s.click(3, row);
         s.keys("enter");
         s.assert_no_turn();

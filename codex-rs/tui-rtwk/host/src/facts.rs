@@ -18,6 +18,7 @@ use codex_config::ConfigLayerSource;
 use codex_config::types::{NotificationCondition, Notifications, TuiKeymap};
 use codex_core::config::Config;
 use codex_tui_core::app::AppEv;
+use codex_tui_core::app::facts::DaybreakConfig;
 use codex_tui_core::keymap::{Keymap, KeymapSpec};
 use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::ScreenEv;
@@ -443,10 +444,7 @@ fn keymap_of(config: &TuiKeymap, workspace: bool) -> Result<Keymap, String> {
 /// provider's support); the account decides the rest.
 #[derive(Clone, Copy, Debug)]
 pub struct CyberPolicy {
-    /// `Feature::CliDaybreak`.
-    feature: bool,
-    /// `Feature::ApiKeyCyberAccessPrograms`: an API-key account may use the programs.
-    api_key: bool,
+    pub(crate) daybreak: DaybreakConfig,
     /// The configured provider supports cyber access programs.
     provider: bool,
 }
@@ -454,12 +452,14 @@ pub struct CyberPolicy {
 impl CyberPolicy {
     pub fn of(config: &Config) -> Self {
         Self {
-            feature: config
-                .features
-                .enabled(codex_features::Feature::CliDaybreak),
-            api_key: config
-                .features
-                .enabled(codex_features::Feature::ApiKeyCyberAccessPrograms),
+            daybreak: DaybreakConfig {
+                enabled: config
+                    .features
+                    .enabled(codex_features::Feature::CliDaybreak),
+                api_key: config
+                    .features
+                    .enabled(codex_features::Feature::ApiKeyCyberAccessPrograms),
+            },
             provider: config
                 .model_providers
                 .get(&config.model_provider_id)
@@ -475,10 +475,7 @@ impl CyberPolicy {
     fn eligible(self, account: Option<&Account>) -> bool {
         let chatgpt = matches!(account, Some(Account::Chatgpt { .. }));
         let api_key = matches!(account, Some(Account::ApiKey {}));
-        self.feature
-            && (chatgpt || !api_key || self.api_key)
-            && self.provider
-            && (chatgpt || api_key)
+        self.daybreak.allows(api_key) && self.provider && (chatgpt || api_key)
     }
 }
 
@@ -643,8 +640,10 @@ mod tests {
     }
     fn policy(feature: bool, api_key: bool, provider: bool) -> CyberPolicy {
         CyberPolicy {
-            feature,
-            api_key,
+            daybreak: DaybreakConfig {
+                enabled: feature,
+                api_key,
+            },
             provider,
         }
     }
@@ -654,6 +653,30 @@ mod tests {
             "type": "chatgpt", "email": null, "planType": "plus"
         }))
         .expect("a ChatGPT account")
+    }
+
+    #[tokio::test]
+    async fn startup_tui_facts_read_the_daybreak_feature_flags_before_account_discovery() {
+        let dir = tempfile::tempdir().expect("a directory");
+        for (enabled, api_key) in [(false, true), (true, false)] {
+            let config = codex_core::config::ConfigBuilder::default()
+                .codex_home(dir.path().to_path_buf())
+                .fallback_cwd(Some(dir.path().to_path_buf()))
+                .cli_overrides(vec![
+                    ("features.cli_daybreak".into(), enabled.into()),
+                    (
+                        "features.api_key_cyber_access_programs".into(),
+                        api_key.into(),
+                    ),
+                ])
+                .build()
+                .await
+                .expect("a config");
+            let policy = crate::effects::tui_settings(&config).daybreak;
+            assert_eq!(policy, DaybreakConfig { enabled, api_key });
+            assert_eq!(policy.allows(false), enabled);
+            assert!(!policy.allows(true));
+        }
     }
 
     #[test]
