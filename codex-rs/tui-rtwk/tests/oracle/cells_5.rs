@@ -10,7 +10,6 @@ const DISPLAY_EXEC: &str = "S27 (inline mode, wave W4): the oracle test draws th
 const PLAN_DISPLAY: &str = "the snapshot is the plan cell's inline `display_lines` (`• Updated Plan`, no count); a plan that fits (no note, three steps or fewer, no clipped step) shows in the chat only compact (`• Updated Plan · 0/2 complete`), the oracle's own transcript view";
 const PLAN_FRAMES: &str = "feature plan cell Full frame (w2-cells, gap G49): the `Compact` frame equals the oracle's (`Snap::labelled`, region at the cell's row); after `+ Show details` the screen has no `• Updated Plan` row to place the `Full` frame at, and the page test records G49 (no break after a slash) in the Full rows (tests/pages/cells.rs plan_update::the_oracle_snapshot_full_rows)";
 const PLAN_URL_TOKENS: &str = "the oracle wraps a URL token whole (adaptive_wrap_hyperlink_lines keeps it on one row even wider than the screen); a grid chat breaks it at the width, so the contiguous literal is never on one row";
-const WARNING_CELL: &str = "the visible usage warning is the rate-limit snapshot's (rate_limits.rs `new_visible_warning_event`), which the port does not derive from `account/rateLimits/updated` yet; a `warning` notification is the hidden diagnostic (WarningCell, Ctrl+T only), while the kit feeds one and expects it on the chat screen";
 
 /// The row of the transcript's first cell: the oracle's snapshot is the bare cell, the chat
 /// draws its bottom pane under the transcript, so the cell is looked up by its bullet.
@@ -713,16 +712,27 @@ fn agent_markdown_cell_survives_insert_history_rewrap() {
 // ORACLE history_cell/warnings_tests.rs:7 usage_warnings_render_in_both_transcripts_including_composites kind=ui owner=chat-live
 #[test]
 fn usage_warnings_render_in_both_transcripts_including_composites() {
-    kit::pending(Owner::ChatLive, WARNING_CELL);
-    let s = Screen::build(Owner::ChatLive)
+    // The oracle's `new_visible_warning_event` is the rate-limit snapshot's warning; the port
+    // derives it from `account/rateLimits/updated` (the account read at 49% of the Plus 5h
+    // window, the update at 50%), and its wording is the real one. The `warning` notification is
+    // the hidden diagnostic. The updates come after the read is answered, as the app asks it.
+    let mut s = Screen::build(Owner::ChatLive)
         .size(28, 24)
         .script(include_str!(
             "fixtures/cells_5/usage_warnings_render_in_both_transcripts_including_composites.jsonl"
         ))
         .open();
-    s.assert_in_order(&["Earlier output", "Only 8%", "remains.", "details."]);
-    s.assert_absent("Hidden diagnostic");
-    // Missed: the oracle compares the rich and raw transcripts of the same cell; the raw mode's key is not in the kit yet.
+    s.assert_requests_of("account/rateLimits/read", 1);
+    s.feed(r#"{"step": "notify", "message": {"method": "account/rateLimits/updated", "params": {"rateLimits": {"limitId": "codex", "planType": null, "primary": {"usedPercent": 50, "windowDurationMins": 300, "resetsAt": null}}}}}"#);
+    s.feed(r#"{"step":"notify","message":{"method":"warning","params":{"threadId":"thread-1","message":"Hidden diagnostic"}}}"#);
+    let check = |s: &Screen| {
+        s.assert_in_order(&["Earlier output", "Heads up", "50%", "/status"]);
+        s.assert_absent("Hidden diagnostic");
+    };
+    check(&s);
+    // the raw transcript: the same warning, the diagnostic still hidden
+    s.keys("alt+r");
+    check(&s);
 }
 
 // ORACLE history_cell/warnings_tests.rs:47 warning_count_deduplicates_messages_mcp_summaries_and_composites kind=ui owner=chat-live
