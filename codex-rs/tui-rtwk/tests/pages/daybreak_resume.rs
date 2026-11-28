@@ -38,8 +38,16 @@ fn assert_notice(screen: &str, enabled: bool) {
         "{screen}"
     );
     if let Some(notice) = screen.find(NOTICE) {
-        assert!(screen.find("OpenAI Codex").unwrap() < notice, "{screen}");
-        assert!(notice < screen.find(HISTORY).unwrap(), "{screen}");
+        assert!(
+            screen
+                .find("OpenAI Codex")
+                .is_some_and(|header| header < notice),
+            "{screen}"
+        );
+        assert!(
+            screen.find(HISTORY).is_some_and(|history| notice < history),
+            "{screen}"
+        );
     }
 }
 
@@ -48,7 +56,7 @@ fn metadata(id: &str, enabled: bool) -> AppEv {
         serde_json::from_value(json!({
             "method": "thread/started", "params": { "thread": reply(id, enabled)["thread"] },
         }))
-        .unwrap(),
+        .unwrap_or_else(|error| panic!("invalid thread metadata fixture: {error}")),
     ))
 }
 
@@ -95,7 +103,10 @@ fn opening_saved_threads_keeps_the_notice_with_the_original_resume() {
     });
     let listed = ["daybreak-on", "daybreak-off"]
         .into_iter()
-        .map(|id| serde_json::from_value(reply(id, id == "daybreak-on")["thread"].clone()).unwrap())
+        .map(|id| {
+            serde_json::from_value(reply(id, id == "daybreak-on")["thread"].clone())
+                .unwrap_or_else(|error| panic!("invalid listed thread fixture: {error}"))
+        })
         .collect();
     h.inject([AppEv::Screen(ScreenEv::Agents(agents::Ev::Listed(
         agents::Page {
