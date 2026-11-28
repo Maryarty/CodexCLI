@@ -2556,7 +2556,7 @@ fn apply_event(
             done: effects::Done::VoiceSettings(report),
             ..
         } => {
-            finish_voice_settings(app, origin, transport, report, fx);
+            finish_voice_settings(app, origin, transport, *report, fx);
         }
         AppEv::Effect {
             done: effects::Done::Audio(report),

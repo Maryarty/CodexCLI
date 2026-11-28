@@ -50,7 +50,7 @@ fn request(h: &mut Harness, accepts: impl Fn(&Operation) -> bool) -> Request {
 fn answer(h: &mut Harness, request: Request, result: Result<Answer, Problem>) {
     h.inject([AppEv::Effect {
         request: 0,
-        done: Done::VoiceSettings(Report { request, result }),
+        done: Done::VoiceSettings(Box::new(Report { request, result })),
     }]);
 }
 

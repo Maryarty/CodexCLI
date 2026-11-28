@@ -326,7 +326,7 @@ host_capability_list! {
     /// Listed for the voice package; the host answers it with its audio executor.
     audio => Audio(command: crate::screens::voice::AudioCommand) -> new Audio(crate::screens::voice::AudioReport);
     /// Machine-local audio settings and the originating backend's voice preference.
-    voice_settings => VoiceSettings(request: crate::screens::voice::settings::Request) -> new VoiceSettings(crate::screens::voice::settings::Report);
+    voice_settings => VoiceSettings(request: crate::screens::voice::settings::Request) -> new VoiceSettings(Box<crate::screens::voice::settings::Report>);
     /// Read a terminal pet catalog or static frame, or persist the local selection.
     pet => Pet(ask: crate::screens::pets::AssetAsk) -> new Pet(crate::screens::pets::AssetDone);
     /// Suspends the process to the shell (Ctrl+Z, oracle `tui/job_control.rs`); the answer comes

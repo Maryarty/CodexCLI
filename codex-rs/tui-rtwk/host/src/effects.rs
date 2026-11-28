@@ -354,7 +354,7 @@ impl HostDoors for Own<'_> {
             .audio
             .settings(request, self.effects.config.as_deref())
             .await?;
-        Some(Outcome::Effect(Done::VoiceSettings(report), None))
+        Some(Outcome::Effect(Done::VoiceSettings(Box::new(report)), None))
     }
 
     async fn pet(&self, ask: codex_tui_core::screens::pets::AssetAsk) -> Option<Self::Out> {

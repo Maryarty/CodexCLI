@@ -250,10 +250,10 @@ fn voice_preference_changes_the_next_call_only_after_the_effective_write_receipt
     };
     let receipt = |request, answer| AppEv::Effect {
         request: 0,
-        done: Done::VoiceSettings(Report {
+        done: Done::VoiceSettings(Box::new(Report {
             request,
             result: Ok(answer),
-        }),
+        })),
     };
     let catalog = |current| Catalog {
         voices: vec![Voice::Juniper, Voice::Maple],
@@ -778,7 +778,7 @@ fn catalog_and_audio_reads_requested_in_another_thread_survive_a_pending_voice_w
     };
     let answer = |request, result| AppEv::Effect {
         request: 0,
-        done: Done::VoiceSettings(Report { request, result }),
+        done: Done::VoiceSettings(Box::new(Report { request, result })),
     };
     let catalog = |current| Catalog {
         voices: vec![Voice::Cove, Voice::Sol],

@@ -1372,7 +1372,7 @@ impl HostDoors for ConnectionDoors {
         request: codex_tui_core::screens::voice::settings::Request,
     ) -> Option<Outcome> {
         let report = crate::voice::settings::run_server(request, &self.handle, &self.ids).await?;
-        Some(Outcome::Effect(Done::VoiceSettings(report), None))
+        Some(Outcome::Effect(Done::VoiceSettings(Box::new(report)), None))
     }
 
     async fn image_snapshot(
