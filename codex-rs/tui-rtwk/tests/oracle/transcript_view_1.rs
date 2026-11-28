@@ -83,7 +83,7 @@ fn browsing_search_and_selection_consume_escape_before_mode_exit() {
 fn browsing_footer_adapts_to_width() {
     kit::pending(
         Owner::ChatLive,
-        "no transcript browsing footer: two Esc on the prompt history do not draw the browsing footer (snapshot browsing_footer, 80 and 32 columns); the failed-history retry row needs a failed history load, which no kit call makes",
+        "the browsing row exists (`transcript::browsing`, the chat's footer and the sheet's status row), but the snapshot is the inline transcript overlay (`/ T R A N S C R I P T /` rule, the history state Failed with its `Retry history` row, two glued frames at 80 and 32 columns), not the chat's footer: it needs the compact overlay with the browsing hints seeded from the chat and a failed history load, which no kit call makes",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 8)
@@ -100,7 +100,7 @@ fn browsing_footer_adapts_to_width() {
 fn browsing_details_use_the_remapped_chord_without_cancelling_preview() {
     kit::pending(
         Owner::ChatLive,
-        "no keymap seed: the port reads no key bindings from a config (the keymap slice), so the remapped open_transcript chord (ctrl+x ctrl+t, left f6, enter f6) and the pending-chord reveal are not set",
+        "the chat's browsing row and chord completion take the remapped open_transcript chord (`.keymap` exists), but the test goes on through the pager's own remapped keys (`pager.page_down` on `ctrl+x ctrl+p`, `close_transcript`, `jump_top`) and the pending-chord reveal `Page Down` in the details sheet's footer after the reveal delay, and the history state LoadingOlder on `h`/`Right`: the pager chord table and the pending-chord reveal are not built for the details sheet",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
@@ -871,18 +871,25 @@ fn slash_picker_overlays_history_without_moving_the_transcript_or_composer() {
 // ORACLE app/owned_transcript_tests.rs:1576 double_escape_browses_prompts_without_reverting_and_explains_editing kind=snap owner=chat-live snap=prompt_navigation
 #[test]
 fn double_escape_browses_prompts_without_reverting_and_explains_editing() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Esc-Esc prompt browsing on the owned transcript at 80x16, no keymap override (open_transcript on ctrl+x h, editor move_left unbound, move_line_start on left h; .keymap is pending in the kit) and no editing explanation row; the prompt_navigation frame is the target",
-    );
+    // the oracle's keymap: `open_transcript` on `ctrl+x h`, the editor's `move_left` unbound and
+    // `move_line_start` on `left h`; the app's owned screen (`set_owned_screen(true)`)
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 16)
-        .script(include_str!("fixtures/transcript_view_1/three.jsonl"))
+        .script(include_str!(
+            "fixtures/transcript_view_1/three_status.jsonl"
+        ))
+        .owned_transcript()
+        .keymap(&[
+            ("editor.move_left", ""),
+            ("editor.move_line_start", "left h"),
+            ("global.open_transcript", "ctrl+x h"),
+        ])
         .open();
     s.keys("esc esc");
     s.keys("ctrl+x h");
     s.keys("ctrl+x h");
     s.keys("left left right");
+    s.default_keymap();
     s.assert_snap("prompt_navigation");
 }
 

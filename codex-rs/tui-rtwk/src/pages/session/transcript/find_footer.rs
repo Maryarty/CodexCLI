@@ -244,7 +244,7 @@ pub fn slot_in<S: 'static>(
 ) -> AnyWidget {
     let table = strings::of(cx);
     let tokens = Tokens::of(cx);
-    let (dim, bold) = (tokens.dim(), tokens.bold());
+    let (dim, bold) = (history::plain_dim(), tokens.bold());
     let finder = finder.clone();
     let keymap = crate::keymap::keymap(cx);
     let normal = select_hints(
@@ -327,7 +327,7 @@ pub fn slot_in<S: 'static>(
 /// holds the focus and takes the typing, the paste and the keys of Find without drawing.
 pub fn unseen_query<S: 'static>(cx: &mut Cx<'_, S>, finder: &Finder) -> AnyWidget {
     let table = strings::of(cx);
-    let dim = Tokens::of(cx).dim();
+    let dim = history::plain_dim();
     let finder = finder.clone();
     ListenableBuilder::new(finder.listenable(), move |_, _| {
         if finder.mode() == Mode::Editing {

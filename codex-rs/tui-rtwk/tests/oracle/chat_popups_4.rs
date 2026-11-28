@@ -739,10 +739,6 @@ fn model_reasoning_selection_popup_applies_custom_effort() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:3878 ultra_reasoning_selection_warns_for_high_multi_agent_concurrency kind=snap owner=dialogs-pane snap=ultra_reasoning_selection_high_multi_agent_concurrency_warning
 #[test]
 fn ultra_reasoning_selection_warns_for_high_multi_agent_concurrency() {
-    kit::pending(
-        Owner::DialogsPane,
-        "the warning is a cell of the detailed transcript only (`add_warning_message`, visible_in_transcript: false): the transcript pager (S16) is not ported, and the select drain drops the note instead of recording it as a hidden warning of the thread",
-    );
     let model = with_efforts(
         "gpt-5.5",
         &[("high", "High reasoning"), ("ultra", "Ultra reasoning")],
@@ -758,11 +754,13 @@ fn ultra_reasoning_selection_warns_for_high_multi_agent_concurrency() {
     s.keys("down");
     s.keys("enter");
     s.keys("enter");
-    // the transcript pager shows the cell
+    // the detailed transcript shows the cell, and the main one does not
+    s.assert_absent("Ultra reasoning may proactively");
     s.keys("ctrl+t");
+    let at = s.row_of("⚠ Ultra reasoning may proactively");
     s.assert_snap_region(
         "ultra_reasoning_selection_high_multi_agent_concurrency_warning",
-        0,
+        at,
         0,
     );
 }

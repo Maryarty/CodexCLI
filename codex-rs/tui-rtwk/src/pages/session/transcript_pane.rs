@@ -1380,6 +1380,7 @@ impl State for ViewportState {
             .as_deref()
             .or(facts.cwd.as_deref());
         let raw = select::<ScreenStates, _, _>(cx, |states| states.chat.raw_output);
+        let headerless = select::<ScreenStates, _, _>(cx, |states| states.chat.headerless);
         let session = live.screen_slots().chat.session_header.as_deref();
         let header = if let Some(session) = session.filter(|_| raw) {
             let display_name = session.model.as_ref().and_then(|slug| {
@@ -1404,7 +1405,7 @@ impl State for ViewportState {
             session
                 .map(|session| session.cwd.as_str())
                 .or(facts.cwd.as_deref())
-                .filter(|cwd| !cwd.is_empty())
+                .filter(|cwd| !cwd.is_empty() && !headerless)
                 .map(|cwd| super::transcript_header::header(cwd, &facts, &tokens, table))
         }
         .map(|header| {
@@ -1439,7 +1440,10 @@ impl State for ViewportState {
         } else {
             Self::rows(&self.held_layout, &thread, detailed, collapse, &activity)
         };
-        let reverse = !thread.read_only() && header.is_none();
+        // the list starts at the top with the heading as its first item, and with none when the
+        // chat is seeded headerless (the oracle's chat of a test has no heading cell and its
+        // history opens at the top all the same)
+        let reverse = !thread.read_only() && header.is_none() && !headerless;
         let header = header.filter(|_| !can_load);
         let lead = usize::from(header.is_some());
         // while Find is open or select mode is on the list reads its rows as text: the scan runs
@@ -1900,9 +1904,10 @@ impl State for ViewportState {
             let place = Place {
                 inline_room: inline.then_some(room),
                 separator,
-                // only the detailed transcript (oracle `TranscriptView`) draws prompts with no
-                // turn between them as one block; the chat keeps each prompt's own rows
-                joins_prompt: detailed
+                // only the owned transcript and the detailed one (oracle `TranscriptView`) draw
+                // prompts with no turn between them as one block; the chat keeps each prompt's
+                // own rows
+                joins_prompt: (detailed || owned)
                     && {
                         // the nearest prompt or cell above that draws rows (a blank prompt draws none)
                         let drawn = (0..index).rev().find(|above| {

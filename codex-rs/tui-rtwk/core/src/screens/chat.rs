@@ -64,6 +64,10 @@ pub struct Model {
     pub status_override: StatusOverride,
     /// What the status line shows, read by the host (config, cwd, git).
     pub status: Rc<StatusFacts>,
+    /// The history opens with no session heading, whatever directory the status names: the
+    /// oracle's chat of a test is built without a configured session, so it has no
+    /// `SessionHeaderHistoryCell`. A script seeds it (`Ev::Headerless`).
+    pub headerless: bool,
     warned_status_items: bool,
     warned_title_items: bool,
     /// The footer's and the status line's other facts: the workspace probes, the side and
@@ -318,6 +322,7 @@ impl Default for Model {
             raw_output: false,
             status_override: StatusOverride::default(),
             status: Rc::default(),
+            headerless: false,
             warned_status_items: false,
             warned_title_items: false,
             facts: Facts::default(),
@@ -377,6 +382,8 @@ pub enum Ev {
     Status(Box<StatusFacts>),
     /// An app-wide fact of the footer or the status line (`facts`).
     Facts(FactEv),
+    /// The history opens with no session heading (`Model::headerless`), set as a fixture does.
+    Headerless(bool),
     /// The details under `thread`'s status row, set as a fixture does (the
     /// app routes it to the thread, which owns the fact).
     Details {
@@ -506,6 +513,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             model.status = Rc::from(facts);
         }
         Ev::Facts(ev) => model.facts.apply(ev),
+        Ev::Headerless(on) => model.headerless = on,
         // the thread owns it (`apply_app` routes it)
         Ev::Details { .. } | Ev::Pending { .. } | Ev::ProviderError { .. } => {}
     }
@@ -1491,7 +1499,8 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 /// The seed form of this screen's events:
 /// `{"flags":{"voice_command_enabled":true}}` (the named gates switch on, the
 /// others keep their defaults), `{"service_tiers":[{id,name,description}]}`,
-/// `{"signed_in":false}`, `{"status":{StatusFacts}}`, `{"facts":{"cwd":"/w"}}` (`FactEv`).
+/// `{"signed_in":false}`, `{"status":{StatusFacts}}`, `{"facts":{"cwd":"/w"}}` (`FactEv`),
+/// `{"headerless":true}` (the history opens with no session heading).
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum SeedEv {
@@ -1500,6 +1509,7 @@ enum SeedEv {
     SignedIn(bool),
     Status(Box<StatusFacts>),
     Facts(FactEv),
+    Headerless(bool),
     Details(SeedDetails),
     Pending {
         thread: String,
@@ -1591,6 +1601,7 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
         SeedEv::SignedIn(on) => Ev::SignedIn(on),
         SeedEv::Status(facts) => Ev::Status(facts),
         SeedEv::Facts(ev) => Ev::Facts(ev),
+        SeedEv::Headerless(on) => Ev::Headerless(on),
         SeedEv::Pending { thread, pending } => Ev::Pending { thread, pending },
         SeedEv::ProviderError { thread, error } => Ev::ProviderError { thread, error },
         SeedEv::Details(d) => {
