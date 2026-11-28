@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::future::Future;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use codex_core::config::Config;
 use codex_realtime_webrtc::{
@@ -23,7 +23,7 @@ pub(crate) mod settings;
 #[derive(Default)]
 pub(crate) struct Audio {
     slot: Mutex<Slot>,
-    local_settings: tokio::sync::Mutex<()>,
+    local_settings: Arc<tokio::sync::Mutex<()>>,
 }
 
 #[derive(Default)]
@@ -132,17 +132,7 @@ impl Audio {
         request: codex_tui_core::screens::voice::settings::Request,
         config: Option<&Config>,
     ) -> Option<codex_tui_core::screens::voice::settings::Report> {
-        use codex_tui_core::screens::voice::settings::Operation;
-        let _edit = if matches!(
-            request.operation,
-            Operation::ReadAudio | Operation::Persist(_)
-        ) && request.operation.local()
-        {
-            Some(self.local_settings.lock().await)
-        } else {
-            None
-        };
-        settings::run_local(request, config).await
+        settings::run_local(request, config, &self.local_settings).await
     }
 
     pub(crate) async fn run(

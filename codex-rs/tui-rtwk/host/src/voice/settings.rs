@@ -1,6 +1,7 @@
 //! Voice preferences are server-owned; audio preferences belong to the client machine.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use codex_app_server_client::{AppServerRequestHandle, TypedRequestError};
 use codex_app_server_protocol as wire;
@@ -16,20 +17,31 @@ use codex_tui_core::screens::voice::settings::{
 };
 use codex_utils_absolute_path::AbsolutePathBuf;
 
+use codex_tui_rtwk::services::agents::workspace::blocking;
 use codex_tui_rtwk::services::backend::rpc::Ids;
+use tokio::sync::{Mutex, OwnedMutexGuard};
 
-pub(super) async fn run_local(request: Request, config: Option<&Config>) -> Option<Report> {
+pub(super) async fn run_local(
+    request: Request,
+    config: Option<&Config>,
+    gate: &Arc<Mutex<()>>,
+) -> Option<Report> {
     let result = match &request.operation {
         Operation::ReadCatalog | Operation::Persist(Change::Voice(_)) => return None,
-        Operation::ReadAudio => read_local(config)
-            .await
-            .map(Answer::Audio)
-            .map_err(Problem::ReadAudio),
+        Operation::ReadAudio => {
+            let _guard = gate.lock().await;
+            read_local(config)
+                .await
+                .map(Answer::Audio)
+                .map_err(Problem::ReadAudio)
+        }
         Operation::ListDevices(kind) => list_devices(*kind).await.map(|devices| Answer::Devices {
             kind: *kind,
             devices,
         }),
-        Operation::Persist(change) => save_audio(config, change).await,
+        Operation::Persist(change) => {
+            save_audio(config, change, Arc::clone(gate).lock_owned().await).await
+        }
     };
     Some(Report { request, result })
 }
@@ -234,7 +246,11 @@ fn edit(field: &str, value: Option<toml_edit::Item>) -> ConfigEdit {
     }
 }
 
-async fn save_audio(config: Option<&Config>, change: &Change) -> Result<Answer, Problem> {
+async fn save_audio(
+    config: Option<&Config>,
+    change: &Change,
+    guard: OwnedMutexGuard<()>,
+) -> Result<Answer, Problem> {
     let config = config.ok_or_else(|| Problem::WriteAudio("local config is unavailable".into()))?;
     let mut edits = Vec::new();
     match change {
@@ -270,11 +286,13 @@ async fn save_audio(config: Option<&Config>, change: &Change) -> Result<Answer, 
         }
         Change::Voice(_) => return Err(Problem::UnmatchedAnswer),
     }
-    ConfigEditsBuilder::for_config(config)
-        .with_edits(edits)
-        .apply()
+    let builder = ConfigEditsBuilder::for_config(config).with_edits(edits);
+    // If the connection goes away while writing, the blocking edit may finish independently.
+    // Its guard stays with it, so a later read cannot see the old setting as the result.
+    let (written, _guard) = blocking(move || (builder.apply_blocking(), guard))
         .await
-        .map_err(|err| Problem::WriteAudio(err.to_string()))?;
+        .ok_or_else(|| Problem::WriteAudio("local config update was interrupted".into()))?;
+    written.map_err(|err| Problem::WriteAudio(err.to_string()))?;
     let audio = read_local(Some(config))
         .await
         .map_err(Problem::ReadSavedAudio)?;
@@ -307,6 +325,7 @@ mod tests {
     async fn audio_selection_is_durable_and_changing_input_clears_its_channels() {
         let home = tempfile::tempdir().expect("codex home");
         let path = home.path().join(codex_config::CONFIG_TOML_FILE);
+        let gate = Arc::new(Mutex::new(()));
         let config = ConfigBuilder::default()
             .codex_home(home.path().to_path_buf())
             .build()
@@ -317,7 +336,12 @@ mod tests {
             name: Some("USB Interface".into()),
         };
         assert!(matches!(
-            save_audio(Some(&config), &selected).await,
+            save_audio(
+                Some(&config),
+                &selected,
+                Arc::clone(&gate).lock_owned().await
+            )
+            .await,
             Ok(Answer::AudioSaved {
                 outcome: AudioOutcome::Applied,
                 ..
@@ -329,7 +353,7 @@ mod tests {
             channels: channels.clone(),
         };
         assert!(matches!(
-            save_audio(Some(&config), &subset).await,
+            save_audio(Some(&config), &subset, Arc::clone(&gate).lock_owned().await).await,
             Ok(Answer::AudioSaved {
                 outcome: AudioOutcome::Applied,
                 ..
@@ -355,7 +379,12 @@ mod tests {
             name: None,
         };
         assert!(matches!(
-            save_audio(Some(&config), &fallback).await,
+            save_audio(
+                Some(&config),
+                &fallback,
+                Arc::clone(&gate).lock_owned().await
+            )
+            .await,
             Ok(Answer::AudioSaved {
                 outcome: AudioOutcome::Applied,
                 ..
@@ -366,7 +395,7 @@ mod tests {
             Audio::default()
         );
         assert_eq!(
-            save_audio(Some(&config), &subset).await,
+            save_audio(Some(&config), &subset, Arc::clone(&gate).lock_owned().await).await,
             Err(Problem::InputChanged)
         );
     }
