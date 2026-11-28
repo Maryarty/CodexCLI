@@ -69,6 +69,20 @@ fn only_a_plain_primary_press_jumps_to_the_prompt() {
     s.assert_no_turn();
 }
 
+/// In the select mode the mouse is the text selection's (oracle `handle_selection_mouse`): a
+/// plain press of the header does not jump.
+#[test]
+fn a_plain_press_in_select_mode_does_not_jump() {
+    let mut s = reader(vec![turn("recent", QUESTION, "response", 35)]);
+    s.wait(300);
+    s.keys("ctrl+x [");
+    s.assert_text_at(2, 0, QUESTION);
+    s.click(4, 0);
+    s.wait(300);
+    s.assert_contains("response paragraph 34");
+    s.assert_absent("response paragraph 00");
+}
+
 #[test]
 fn a_held_range_and_copy_preserve_the_pinned_question() {
     let mut s = reader(vec![turn("recent", QUESTION, "response", 35)]);

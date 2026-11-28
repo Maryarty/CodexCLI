@@ -2178,9 +2178,10 @@ impl State for ViewportState {
                     find: widget.find.clone(),
                     modes: widget.modes.clone(),
                 },
-                // a plain press ends a range, Find and the modes before it jumps; only the
-                // reader that marks a prompt of its own (browsing) keeps the header still
-                widget.mark.is_none(),
+                // a plain press ends a range, Find and the modes before it jumps; the reader
+                // that marks a prompt of its own (browsing) and the select mode (its mouse is
+                // the text selection's, oracle `handle_selection_mouse`) keep the header still
+                widget.mark.is_none() && !caret.active(),
             )
         });
         let pane = LayoutBuilder::new(move |_, bounds| {

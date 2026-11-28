@@ -40,7 +40,8 @@ impl Target {
 
 /// What a plain press of the header lets go of before it jumps: the range or the copy target
 /// under it, Find, a fold in focus (oracle `end_selection`, `cancel_search`,
-/// `clear_activity_focus`). The select mode's caret stays, as the oracle keeps its select mode.
+/// `clear_activity_focus`). The select mode's caret stays: it never reaches here, since in
+/// select mode the header takes no press (the oracle gives the mouse to the selection).
 #[derive(Clone, PartialEq)]
 pub(super) struct Held {
     pub selection: TextSelection,
@@ -84,7 +85,7 @@ pub(super) struct Reader {
     pub follow: Follow,
     pub held: Held,
     /// The header takes a press: a reader that browses the prompts (the one marked is the
-    /// reader's place) does not.
+    /// reader's place) and the select mode do not.
     pub interactive: bool,
     pub room: (i32, i32),
 }
