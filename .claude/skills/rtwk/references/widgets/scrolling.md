@@ -53,7 +53,7 @@ fn paragraphs(cx: &mut Cx<'_>, controller: ScrollController, shown: Option<usize
 
 What scrolls a viewport: here one of the page's own, a ruler that tells the scrollable how long it is as it is laid out.
 
-- `rtwk::scroll::Scrollable` (struct) in `crates/rtwk-scroll/src/scrollable.rs:1170`: Scrolls the viewport viewport_builder builds along scroll_direction: the keys while it has the focus, the wheel over it, its controller and Scrollable::ensure_visible.
+- `rtwk::scroll::Scrollable` (struct) in `crates/rtwk-scroll/src/scrollable.rs:1192`: Scrolls the viewport viewport_builder builds along scroll_direction: the keys while it has the focus, the wheel over it, its controller and Scrollable::ensure_visible.
 
 ### Code
 
@@ -149,7 +149,7 @@ fn ruler(controller: ScrollController) -> Scrollable {
 
 Items built as they come into view, however many there are; the wheel and the keys scroll it. Separated, reversed as a chat, or kept on what it shows as items come before it, or selected with the mouse as one text.
 
-- `rtwk::scroll::ListView` (struct) in `crates/rtwk-scroll/src/list_view.rs:405`: A list of item_count items one below another, each as wide as the list and as tall as it likes, or item_extent rows, in a window that scrolls (a Scrollable: keys, the wheel, controller).
+- `rtwk::scroll::ListView` (struct) in `crates/rtwk-scroll/src/list_view.rs:406`: A list of item_count items one below another, each as wide as the list and as tall as it likes, or item_extent rows, in a window that scrolls (a Scrollable: keys, the wheel, controller).
 
 ### Code
 
@@ -263,7 +263,7 @@ fn log(controller: &LogController) -> LayoutBuilder {
 
 A bar by the scrollable below it, its thumb where the window is; the thumb dragged and the track clicked scroll it.
 
-- `rtwk::scroll::Scrollbar` (struct) in `crates/rtwk-scroll/src/scrollbar.rs:145`: Shows how far the outermost Scrollable inside its child is scrolled, as a thumb on a track beside it, and scrolls it with the mouse.
+- `rtwk::scroll::Scrollbar` (struct) in `crates/rtwk-scroll/src/scrollbar.rs:144`: Shows how far the outermost Scrollable inside its child is scrolled, as a thumb on a track beside it, and scrolls it with the mouse.
 
 ### Code
 

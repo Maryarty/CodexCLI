@@ -1,7 +1,7 @@
 <!-- Written by `cargo xtask skill-references` from docs/guide; do not edit. -->
 # The `rtwk` command line
 
-<!-- not rtwk: Try Cargo -->
+<!-- not rtwk: Try Cargo Click -->
 
 `rtwk` is the developer tool of the framework: it starts projects, runs and
 watches apps, records and replays sessions and makes tests of them. Install
@@ -27,13 +27,17 @@ printed to stdout and exits with 0.
 | `shell` | Serves this terminal to a local application | 0 when stopped with Ctrl+C or the app ends; 1 |
 | `record` | Records a command to asciicast v2 | the command's status; 128 + n by a signal; 127 when it cannot be started |
 | `play` | Replays a recording; a small player on a terminal | 0; 130 for Ctrl+C; 1 |
-| `tape` | Runs a Tape script, writing asciicast or SVG; `--check` runs it as a test | 0; 1 when a `Wait` times out or the tape cannot be read; 127 when the program cannot be started; 128 + n by a signal |
+| `tape` | Runs a Tape script, writing asciicast or SVG; `--check` runs it as a test; with `Run <app binary>`, `Wait Widget`, `Wait Text` and `Click` look into a driven app (design) | 0; 1 when a `Wait` times out or the tape cannot be read; 127 when the program cannot be started; 128 + n by a signal |
 | `decode` | Names the sequences, keys and frames of a recording or trace | 0; 1 when a file cannot be read or is neither |
+| `trace <file>` | Shows a driver trace: the steps, a step's facts, log and screens (`--step`, `--failed`, `--frames`, `--tree`, `--sequences`, `--frame`) | 0; 1 when the trace cannot be read, is no driver trace, or has no such step or frame (or `--frame` has no cast); 2 for a wrong command line |
+| `mcp` | Serves an MCP server on stdio that lets a coding agent drive an app ([guide](mcp.md)) | 0 when the client ends the session; 1 when stdio fails; 2 for a wrong command line |
+| `agents` | Writes the rtwk skill and a block of `AGENTS.md` into a project for coding agents, below (`-C <dir>`, `--dry-run`) | 0; 1 when it cannot write (no `Cargo.toml`, a file where a directory of the skill belongs, an `AGENTS.md` that is not UTF-8 or has its markers wrong); 2 for a wrong command line |
 | `test-from-cast` | Writes a test of a recording, below | 0; 1 when the recording cannot be read, the files cannot be written, the package lacks the dev-dependencies or the run that writes the screen files fails (the test and the recording stay); 2 for a wrong command line |
 | `doctor` | Reports the terminal and the project setup, below (`-C <dir>`, `--json`) | 0; 1 when the rtwk crates of `Cargo.lock` differ in version or source, or the rustc is older than a `rust-version`; 2 for a wrong command line |
 
-`record`, `play`, `tape` and `shell` need Unix for their terminal and
-pseudo-terminal parts; `decode` and `test-from-cast` run anywhere.
+`record`, `play`, `tape`, `shell` and `mcp` need Unix for their terminal and
+pseudo-terminal parts; `decode`, `trace`, `agents` and `test-from-cast` run
+anywhere.
 
 ## Typing a recording into a command: `rtwk record --replay`
 
@@ -86,10 +90,14 @@ kitty keyboard, graphics, links, the size of a cell; how long it took to answer;
 a multiplexer; a remote terminal; plain output), then the project: the rustc and
 the highest `rust-version` the project's packages and the rtwk crates declare,
 the rtwk crates of the project's `Cargo.lock` (their versions and where they come
-from) and an app that is running in the project's `target/rtwk` (its local log
-and shell, and whether they take a connection). Where stdin or stdout is not a
-terminal (a pipe, an agent), only the project part is reported, and `terminal` is
-`null` in the JSON.
+from), an app that is running in the project's `target/rtwk` (its local log
+and shell, and whether they take a connection) and, where the project names an
+rtwk crate, the skill for agents (`agents skill`: `not installed`, `current`, or
+`older than this rtwk` with the number of files that `rtwk agents` rewrites; a
+file the project changed is named and kept; the JSON has `agents` with `stale`,
+`edited` and `missing`, `null` where the project names no rtwk crate). Where
+stdin or stdout is not a terminal (a pipe, an agent), only the project part is
+reported, and `terminal` is `null` in the JSON.
 
 The rtwk crates of a project must be one release from one source; **the exit
 code is 1** where two versions or two sources are in the lock, or the rustc is
@@ -98,6 +106,54 @@ and is no failure. The JSON has `agree` (the crates are one release) and `ok`
 (what the exit code says), and its Terminal part is the one twk's `doctor --json`
 prints. rtwk's own terminal answers XTVERSION `rtwk-term <version>`; the design is
 dev-doctor.md.
+
+## Teaching a coding agent rtwk: `rtwk agents`
+
+```bash
+rtwk agents                # in the project (or below it)
+rtwk agents -C ../app      # for the project the directory is in
+rtwk agents --dry-run      # say what it would do, write nothing
+```
+
+It writes, into the project (the nearest directory at or above the current
+one that has a `Cargo.lock`, else a `Cargo.toml`; `-C <dir>` starts from
+another):
+
+- the rtwk skill, the one packed into this `rtwk`, whole, to
+  `.agents/skills/rtwk` and `.claude/skills/rtwk`, as copies: no links, so a
+  checkout works on a machine that has no `rtwk` and on Windows;
+- a short block in `AGENTS.md`, between the markers `<!-- rtwk:agents begin -->`
+  and `<!-- rtwk:agents end -->`: appended after the project's own text (which
+  it never touches), or replaced where a block is already there;
+- a manifest, `.rtwk-agents.json`, in each skill directory: it lists each file
+  it wrote with a hash of what it wrote, which is how a second run tells a file
+  of the pack that changed (the pack is newer: written over) from one the
+  project edited (left alone and named).
+
+The output has a line for each part of the write, naming what it did to the
+files: `wrote`, `changed`, `added`, `left … as it is` or `kept … not as it
+wrote them` (edited by the project); a run that finds everything as this rtwk has it says so and
+changes no file. A project's own files in the skill directories are never
+removed; files of an older pack that this one drops are removed only where the
+manifest lists them and they are unchanged, and a directory that this empties
+goes with them.
+
+A link where a file of the skill belongs, or on the way to one inside a skill
+directory, is the project's: it is kept as not written by `rtwk agents`, and
+nothing is written through it. A skill directory that is itself a link (one
+skill shared by `.agents` and `.claude`, say) is written into as any other. A
+directory where a file of the pack belongs, a file where
+a directory belongs, an `AGENTS.md` that is not UTF-8 text, or one with markers
+that are not one `begin` before one `end`, are refused **before anything is
+written**, with exit 1. A `Cargo.toml` is needed (no `Cargo.toml`, or one with
+neither `[package]` nor `[workspace]`, is exit 1); where it names no rtwk crate
+(its dependency tables, of any target, and the `Cargo.lock` as well) `rtwk
+agents` says so on stderr and writes anyway.
+
+`rtwk doctor` says whether the skill is current (see above). The skill is
+`skills/rtwk/` of the repository, packed into the crate by `cargo xtask
+agents-pack` (checked by `cargo xtask check`); the design is
+dev-agents.md.
 
 ## A test from a recording
 

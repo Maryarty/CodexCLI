@@ -397,7 +397,7 @@ impl_widget!(stateful GatePad);
 
 Text selected with the mouse as in a terminal, and copied to the clipboard: drag over it, or click twice or three times; a painted Selectable is selected in too, and a drag past its edge scrolls it.
 
-- `rtwk::gestures::SelectionArea` (struct) in `crates/rtwk-widgets/src/gestures/selection.rs:564`: Lets the paragraphs below it be selected with the left button, as in a terminal, and copies what is selected.
+- `rtwk::gestures::SelectionArea` (struct) in `crates/rtwk-widgets/src/gestures/selection.rs:671`: Lets the paragraphs below it be selected with the left button, as in a terminal, and copies what is selected.
 
 ### Code
 
@@ -544,7 +544,7 @@ impl_widget!(stateful Selecting);
 Data dragged from a widget with the mouse and dropped on another that accepts it.
 
 - `rtwk::gestures::Draggable` (struct) in `crates/rtwk-widgets/src/gestures/drag_drop.rs:371`: Drags `data` from its child with the left button, to drop it on a DragTarget.
-- `rtwk::gestures::DragTarget` (struct) in `crates/rtwk-widgets/src/gestures/drag_drop.rs:1088`: Takes the data of a Draggable dropped on it: shows what `builder` builds, again as a drag comes over it and leaves.
+- `rtwk::gestures::DragTarget` (struct) in `crates/rtwk-widgets/src/gestures/drag_drop.rs:1098`: Takes the data of a Draggable dropped on it: shows what `builder` builds, again as a drag comes over it and leaves.
 
 ### Code
 

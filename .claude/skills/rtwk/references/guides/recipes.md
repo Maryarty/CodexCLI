@@ -1,4 +1,4 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk c953f062; do not edit. Source: tools/rtwk-port/skill/recipes.src.md. -->
+<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 5001d2cd; do not edit. Source: tools/rtwk-port/skill/recipes.src.md. -->
 # Recipes for the tui-rtwk port
 
 Each recipe is a whole module with its test, compiled and run against the pin by
