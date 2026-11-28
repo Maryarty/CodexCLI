@@ -28,7 +28,7 @@ use crate::pages::session::strings::INLINE_GAP;
 use super::super::strings::Strings;
 use super::super::text::{Part, Room};
 use super::super::tool_call::text_room;
-use super::super::tool_rows::{BRANCH, BULLET, Rows, glyph_row, plain_text};
+use super::super::tool_rows::{BRANCH, BULLET, Rows, ansi_spans, glyph_row, plain_text};
 use super::{Headline, PREVIEW_LINE_BYTES, PREVIEW_LINES, retained_line};
 
 /// Lines of the command under its header (oracle `command_continuation_max_lines`).
@@ -408,20 +408,7 @@ pub(super) fn rows(
             .collect()
     };
     let dim = tokens.dim().attrs(Attrs::DIM);
-    let raw: Vec<Vec<Span>> = plan
-        .raw
-        .iter()
-        .map(|line| {
-            rtwk::ansi::parse_ansi(line)
-                .into_iter()
-                .flatten()
-                .map(|mut span| {
-                    span.style.attrs |= Attrs::DIM;
-                    span
-                })
-                .collect()
-        })
-        .collect();
+    let raw: Vec<Vec<Span>> = plan.raw.iter().map(|line| ansi_spans(line)).collect();
     let paint = |line: &Line| -> Vec<Span> {
         match line.src {
             Src::Command(index) => slice(&command_spans(index), &line.range),

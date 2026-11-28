@@ -107,6 +107,7 @@ pub(super) fn pane(state: &ChatState, w: &Chat, frame: &Frame, inline_draft: boo
             facts,
             &frame.tokens,
             frame.chat_strings,
+            None,
         );
         // a region as tall as the heading, or the heading at the top of the transcript's room
         if inline_draft {

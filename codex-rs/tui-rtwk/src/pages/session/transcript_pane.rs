@@ -1395,7 +1395,15 @@ impl State for ViewportState {
                 .map(|session| session.cwd.as_str())
                 .or(facts.cwd.as_deref())
                 .filter(|cwd| !cwd.is_empty())
-                .map(|cwd| super::transcript_header::header(cwd, &facts, &tokens, table))
+                .map(|cwd| {
+                    super::transcript_header::header(
+                        cwd,
+                        &facts,
+                        &tokens,
+                        table,
+                        inline.then_some(room),
+                    )
+                })
         }
         .map(|header| header.with_key(Key::value("session header")));
         let markdown = tokens.transcript_markdown(cx);
