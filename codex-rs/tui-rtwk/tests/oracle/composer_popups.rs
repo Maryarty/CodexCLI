@@ -522,15 +522,11 @@ fn fallback_completions_keep_the_draft_cursor_and_footer_anchored() {
 // ORACLE bottom_pane/chat_composer/skill_completion_tests.rs:12 skill_completion_attaches_typed_punctuation_snapshot kind=snap owner=chat-nav-pane snap=skill_completion_attaches_typed_punctuation
 #[test]
 fn skill_completion_attaches_typed_punctuation_snapshot() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "f-footer-hints: the row `› 请用 $rustdoc》` matches; the oracle's footer of a non-empty draft is `100% context left` at the right, ours the page's key hints",
-    );
+    // the oracle's snapshot is the composer alone (a fresh `ChatComposer`, no status line): the
+    // composer's debug entry, with the skill `rustdoc` to mention
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(100, 9)
-        .script(include_str!(
-            "fixtures/composer_popups/skills_rustdoc.jsonl"
-        ))
+        .entry("composer", "alone_skills")
         .open();
     s.type_text("请用 $ru").keys("enter");
     s.type_text("》");
