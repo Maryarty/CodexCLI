@@ -138,7 +138,7 @@ pub(super) fn pet(state: &ChatState, w: &Chat, frame: &Frame) -> ambient::Pet {
     }
 }
 
-/// The patch prompt leaves the transcript's pointer input available. The composer
+/// Patch and plan prompts leave the transcript's pointer input available. The composer
 /// beneath the prompt keeps its widgets and draft while its pointer input is off.
 #[derive(Clone, PartialEq)]
 struct Bottom {
@@ -150,7 +150,10 @@ impl_widget!(stateless eq Bottom);
 impl StatelessWidget for Bottom {
     fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
         IgnorePointer::new()
-            .ignoring(crate::sheets::approvals::patch_route_active(cx))
+            .ignoring(
+                crate::sheets::approvals::patch_route_active(cx)
+                    || crate::sheets::select::plan_route_thread(cx).is_some(),
+            )
             .child(self.child.clone())
             .into()
     }

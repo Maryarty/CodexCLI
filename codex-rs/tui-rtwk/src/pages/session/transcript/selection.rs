@@ -260,7 +260,7 @@ impl State for HostState {
         if old.thread != w.thread || old.selection != w.selection {
             old.selection.set_copy_surface(cx.id(), false);
             w.selection
-                .set_copy_surface(cx.id(), Route::is_current_of(cx));
+                .set_copy_surface(cx.id(), w.copy_route_current(cx));
             self.empty_press = None;
             self.point_press = None;
             self.link_press.set(false);
@@ -279,12 +279,12 @@ impl State for HostState {
 
     fn activate(&mut self, w: &SelectionHost, cx: &mut Cx<'_, Self>) {
         w.selection
-            .set_copy_surface(cx.id(), Route::is_current_of(cx));
+            .set_copy_surface(cx.id(), w.copy_route_current(cx));
     }
 
     fn did_change_dependencies(&mut self, w: &SelectionHost, cx: &mut Cx<'_, Self>) {
         w.selection
-            .set_copy_surface(cx.id(), Route::is_current_of(cx));
+            .set_copy_surface(cx.id(), w.copy_route_current(cx));
         let thread = w.thread.clone();
         let active = select::<SessionSlice, _, _>(cx, move |session| {
             session.active.as_ref() == Some(&thread)
@@ -575,6 +575,11 @@ fn take_native_copy(cx: &Cx<'_, HostState>, text: &str) {
 }
 
 impl SelectionHost {
+    fn copy_route_current(&self, cx: &mut Cx<'_, HostState>) -> bool {
+        Route::is_current_of(cx)
+            || crate::sheets::select::plan_route_thread(cx).as_ref() == Some(&self.thread)
+    }
+
     fn copy_origin(&self, cx: &mut Cx<'_, HostState>) -> Option<CopyOrigin> {
         let surface = cx.id();
         CopyOrigin::capture(&self.selection, &self.follow, &self.find, cx)

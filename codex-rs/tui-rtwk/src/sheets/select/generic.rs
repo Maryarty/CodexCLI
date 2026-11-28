@@ -9,11 +9,17 @@
 
 use std::rc::Rc;
 
+use rtwk::focus::{Focus, FocusOnKeyEventCallback};
+use rtwk::gestures::Listener;
+use rtwk::layout::{Align, Alignment};
+use rtwk::navigation::{Navigator, Route, RouteBehavior, RouteSettings};
 use rtwk::overlay::{DialogOptions, DialogResult, close_dialog, show_dialog};
+use rtwk::prelude::HitTestBehavior;
 use rtwk::provider::read;
-use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::semantics::BlockSemantics;
+use rtwk::{AnyWidget, BuildCx, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::app::{AutoReview, Intent as AppIntent};
+use codex_tui_core::app::{AutoReview, Intent as AppIntent, SessionSlice};
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::chat::plan_mode::Answer;
@@ -39,6 +45,68 @@ pub enum Purpose {
 pub struct ListSheet {
     pub list: Rc<List>,
     pub purpose: Purpose,
+}
+
+const PLAN_ROUTE: &str = "/plan-implementation";
+
+struct PlanRoute {
+    list: Rc<List>,
+    key: FocusOnKeyEventCallback,
+}
+
+impl RouteBehavior for PlanRoute {
+    fn build(&self, _: &mut BuildCx<'_>) -> AnyWidget {
+        let key = self.key.clone();
+        let picker = Focus::new(ListSheet {
+            list: self.list.clone(),
+            purpose: Purpose::PlanImplementation,
+        })
+        .can_request_focus(false)
+        .on_key_event(move |node, press| key(node, press));
+        BlockSemantics::new(Align::new(
+            Alignment::BOTTOM_CENTER,
+            Listener::new()
+                .behavior(HitTestBehavior::Opaque)
+                .child(picker),
+        ))
+        .into()
+    }
+
+    fn opaque(&self) -> bool {
+        false
+    }
+}
+
+fn is_plan_route(route: &Route) -> bool {
+    route.settings().name.as_deref() == Some(PLAN_ROUTE)
+}
+
+/// The answer pane owns keys and the space it occupies. The uncovered history takes mouse input.
+pub(crate) fn plan_route_thread<S>(cx: &mut Cx<'_, S>) -> Option<ThreadId> {
+    let page = Route::maybe_of(cx)?;
+    if page.is_current() {
+        return None;
+    }
+    let nav = page.navigator()?;
+    nav.routes().last().and_then(plan_thread).cloned()
+}
+
+fn plan_thread(route: &Route) -> Option<&ThreadId> {
+    if is_plan_route(route) {
+        route.settings().arguments()
+    } else {
+        None
+    }
+}
+
+fn close(cx: &mut Cx<'_, ListSheetState>) {
+    if let Some(route) = Route::maybe_of(cx).filter(is_plan_route)
+        && let Some(nav) = route.navigator()
+    {
+        nav.remove_route(&route);
+    } else {
+        close_dialog::<_, ()>(cx, None);
+    }
 }
 
 /// The picker's list vocabulary as the sheet's working copy (the picker brick's own type, not
@@ -72,6 +140,11 @@ fn answer(cx: &mut Cx<'_, ListSheetState>, purpose: &Purpose, id: &str) {
     let hs = read::<Hs, _>(cx);
     match purpose {
         Purpose::PlanImplementation => {
+            if let Some(owner) = Route::maybe_of(cx).as_ref().and_then(plan_thread).cloned()
+                && read::<SessionSlice, _>(cx).active.as_ref() != Some(&owner)
+            {
+                return;
+            }
             if let Some(answer) = Answer::of_row(id) {
                 cx.emit(&hs.screen, ScreenIntent::Select(Intent::PlanAnswer(answer)));
             }
@@ -106,12 +179,12 @@ impl State for ListSheetState {
                     return Rebuild::Yes;
                 }
                 answer(cx, &w.purpose, &id);
-                close_dialog::<_, ()>(cx, None);
+                close(cx);
             }
             Event::Secondary(id) => {
                 if self.list.find(&id).is_some_and(|item| !item.is_disabled()) {
                     answer(cx, &w.purpose, &id);
-                    close_dialog::<_, ()>(cx, None);
+                    close(cx);
                 }
             }
             Event::Toggle(id) => {
@@ -124,10 +197,10 @@ impl State for ListSheetState {
             }
             Event::Confirm => {
                 if self.list.multi {
-                    close_dialog::<_, ()>(cx, None);
+                    close(cx);
                 }
             }
-            Event::Cancel => close_dialog::<_, ()>(cx, None),
+            Event::Cancel => close(cx),
             // Only the plugin browser asks for these (`Picker::extras`).
             Event::Tab(_) | Event::Hot(_) => return Rebuild::No,
         }
@@ -155,5 +228,23 @@ pub fn pick<S>(cx: &mut Cx<'_, S>, list: List, purpose: Purpose) -> DialogResult
             use_root_navigator: false,
             ..crate::sheets::sheet_options()
         },
+    )
+}
+
+pub(crate) fn pick_plan<S>(
+    cx: &mut Cx<'_, S>,
+    thread: ThreadId,
+    list: List,
+    key: FocusOnKeyEventCallback,
+) -> DialogResult<()> {
+    Navigator::push(
+        cx,
+        Route::with_settings(
+            PlanRoute {
+                list: Rc::new(list),
+                key,
+            },
+            RouteSettings::named(PLAN_ROUTE).with_arguments(thread),
+        ),
     )
 }
