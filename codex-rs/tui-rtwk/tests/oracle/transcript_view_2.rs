@@ -52,7 +52,7 @@ fn assert_block(s: &Screen, top: usize, width: usize, rows: std::ops::Range<usiz
 fn navigate_copy_resize_and_exit() {
     kit::pending(
         Owner::ChatLive,
-        "G-new-usage-2: the pinned prompt header (the oracle's first row `› User text > user quote ``` user code ````, transcript_view/prompt_header.rs) is not drawn: the chat's list has no `visible_range()` to say which prompt scrolled off; copy mode, its footer and its keys are built",
+        "small visual delta: the pinned header is missing from this one frame. The owned chat draws it (`pages::transcript_prompt_header`), but not here: after copy mode's seven Up and five Down the first list item in view is the prompt's own (a debug read of `visible_prompt` gives row 1 of three, itself a prompt row; the screen shows `Worked for <1s` at its top, none of the prompt's text), which the port reads as a visible prompt, so the header yields; the oracle pins `› User text > user quote ``` user code ```` over `Latest plan` there. The header is decided by the first visible item, not by the first visible text row of the prompt",
     );
     let mut s = chat(
         include_str!("fixtures/transcript_view_2/copy_nav.jsonl"),
@@ -470,7 +470,7 @@ fn copy_resize_keeps_whole_user_padding_inside_context() {
 fn copy_navigation_keeps_bottom_context_when_prompt_header_appears() {
     kit::pending(
         Owner::ChatLive,
-        "G-new-usage-2: the pinned prompt header (`› First prompt`) that appears when the first prompt scrolls off is not drawn, so `echo target` is not on the row the oracle keeps (5 of 7, the context below it kept)",
+        "small visual delta: copy mode leaves the target two rows higher (row 3, the oracle's row 5). The owned chat draws the pinned header (`pages::transcript_prompt_header`; row 0 is `› First prompt` as the oracle's), but copy mode's reveal of the target moves the list by the least scroll under the reserved row: `echo target` ends on row 3 (the frame), where the oracle keeps the screen put with the context below it and the target on row 5 (5 of 7)",
     );
     let mut s = chat(
         include_str!("fixtures/transcript_view_2/header.jsonl"),

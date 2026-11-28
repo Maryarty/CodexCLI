@@ -65,6 +65,9 @@ use super::transcript_activity::{ActivityStamp, has_control};
 #[path = "transcript/inline_history.rs"]
 mod inline_history;
 
+#[path = "transcript/prompt_header.rs"]
+mod prompt_header;
+
 /// The transcript with a prompt marked (Flutter: a `ListView` whose item
 /// `selected: true` is drawn highlighted and scrolled into view when it
 /// changes): the nth prompt a browsing sheet offers, reversed in its body.
@@ -77,6 +80,8 @@ pub(super) struct Pane {
     pub find: Finder,
     pub detailed: bool,
     pub mark: Option<usize>,
+    /// The thread's modes: the owned reader's pinned prompt ends a copy mode before it jumps.
+    pub modes: Modes,
     /// Only the active session page exports history. Reading sheets retain their whole list.
     pub inline_history: bool,
 }
@@ -136,6 +141,7 @@ pub(super) enum Bookmark {
 struct ListRows {
     keys: Rc<Vec<ItemKey>>,
     rows: Rc<[Row]>,
+    prompts: Option<Rc<[usize]>>,
     lead: usize,
     reverse: bool,
 }
@@ -1287,6 +1293,11 @@ impl State for ViewportState {
         let inline_region = binding
             .as_ref()
             .is_some_and(|binding| binding.mode() == ScreenMode::Inline);
+        let owned = widget.inline_history
+            && binding
+                .as_ref()
+                .is_some_and(|binding| binding.mode() == ScreenMode::Fullscreen)
+            && select::<TuiSettings, _, _>(cx, |settings| settings.transcript_owned);
         let inline = inline_region && !widget.detailed;
         let inline_history = inline && widget.inline_history;
         let scrollback_history =
@@ -1835,13 +1846,24 @@ impl State for ViewportState {
         // where a row went when rows came in above it (an older page joined): the list keeps the
         // row the reader is at on its line (Flutter's `findChildIndexCallback`)
         let item_keys = thread.transcript().item_keys();
+        let prompts = owned.then(|| {
+            self.list_rows
+                .borrow()
+                .as_ref()
+                .filter(|list| Rc::ptr_eq(&list.rows, &rows) && Rc::ptr_eq(&list.keys, &item_keys))
+                .and_then(|list| list.prompts.clone())
+                .unwrap_or_else(|| prompt_header::prompt_rows(&rows, thread.transcript()))
+        });
+        let prompt_context = prompts.as_ref().is_some_and(|prompts| !prompts.is_empty());
         let list_rows = Rc::new(ListRows {
             keys: item_keys.clone(),
             rows: rows.clone(),
+            prompts,
             lead,
             reverse,
         });
         *self.list_rows.borrow_mut() = Some(list_rows.clone());
+        let prompt_context = prompt_context.then(|| (thread.clone(), list_rows.clone()));
         let bookmarks = search.held(PresentationBookmarks::default);
         bookmarks.0.pane.set(Some((cx.id(), detailed)));
         if let Some(binding) = AppBinding::maybe_of(cx)
@@ -2145,19 +2167,57 @@ impl State for ViewportState {
             caret: caret.caret(),
             find: widget.find.clone(),
         };
-        let tail_news: AnyWidget = TailNews {
+        let tail_news = TailNews {
             item: tail,
             follow: widget.follow.clone(),
-            child: host.into(),
-        }
-        .into();
+            child: host.clone().into(),
+        };
         let width = self.width;
         let changed = cx.local_sender();
+        let prompt_context = prompt_context.map(|(thread, rows)| {
+            (
+                thread,
+                rows,
+                self.list_keys[usize::from(reverse)].clone(),
+                widget.follow.clone(),
+                prompt_header::Held {
+                    selection: widget.selection.clone(),
+                    find: widget.find.clone(),
+                    modes: widget.modes.clone(),
+                },
+                // a plain press ends a range, Find and the modes before it jumps; the reader
+                // that marks a prompt of its own (browsing) and the select mode (its mouse is
+                // the text selection's, oracle `handle_selection_mouse`) keep the header still
+                widget.mark.is_none() && !caret.active(),
+            )
+        });
         let pane = LayoutBuilder::new(move |_, bounds| {
             if Some(bounds.max_width) != width {
                 changed(Msg::Room(bounds.max_width));
             }
-            tail_news.clone()
+            if let Some((thread, rows, list, follow, held, interactive)) = &prompt_context {
+                let child = prompt_header::Reader {
+                    child: host.child.clone(),
+                    list: list.clone(),
+                    rows: rows.clone(),
+                    thread: thread.clone(),
+                    follow: follow.clone(),
+                    held: held.clone(),
+                    interactive: *interactive,
+                    room: (bounds.max_width, bounds.max_height),
+                };
+                TailNews {
+                    child: SelectionHost {
+                        child: child.into(),
+                        ..host.clone()
+                    }
+                    .into(),
+                    ..tail_news.clone()
+                }
+                .into()
+            } else {
+                tail_news.clone().into()
+            }
         });
         if !inline_history {
             return pane.into();

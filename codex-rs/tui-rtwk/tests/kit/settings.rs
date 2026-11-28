@@ -270,10 +270,11 @@ impl Screen {
 
     /// The clipboard policy for mouse selections.
     pub fn selection_copy_policy(&mut self, copy_on_select: bool, deselect_after_copy: bool) {
+        let settings = self.h.t.read_app(|app: &UiApp| app.core.tui());
         self.h.inject([AppEv::Tui(TuiSettings {
             copy_on_select,
             deselect_after_copy,
-            ..TuiSettings::default()
+            ..settings
         })]);
     }
 
