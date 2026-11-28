@@ -296,6 +296,7 @@ impl State for SheetState {
                     find: find.clone(),
                     detailed,
                     mark: modes.selected(),
+                    modes: modes.clone(),
                     inline_history: false,
                 }
                 .into()

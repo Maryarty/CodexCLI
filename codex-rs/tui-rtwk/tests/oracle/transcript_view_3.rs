@@ -429,6 +429,18 @@ fn folding_a_reasoning_only_page_retains_its_find_and_copy_revision() {
 fn prompt_header_tracks_reading_and_yields_to_visible_prompts_and_short_screens() {
     // Use the real owned chat, with enough room below the reader for its composer.
     // Hard paragraph boundaries express the oracle's independent display rows.
+    //
+    // The oracle's body is five cells (two prompts, one of them blank `\u{7}`, and two answers)
+    // drawn by the bare view at 30x5 and 30x3, checked row by row. The chat keeps four rows for
+    // its composer and footer, and the header takes a pane of at least four rows, so those sizes
+    // cannot show it: this is one turn at 68x16 with a 35-paragraph answer. What the single turn
+    // leaves out is covered by `pages::transcript_prompt_header`: the header of the earlier turn
+    // across paging and resize (`the_header_follows_the_visible_turn_across_scroll_and_resize`:
+    // two turns), the page inserted before it (`a_page_inserted_before_the_header_does_not_change_the_clicked_prompt`),
+    // the short screen (`the_owned_reader_does_not_pin_a_visible_prompt_or_take_the_short_viewport`),
+    // and a press that ends a range, Find or copy mode first (`a_plain_press_*`). The blank
+    // prompt is skipped by `user::is_blank`; the control sequence in a prompt waits with
+    // `header_sanitizes_controls_and_truncates_by_display_width` below.
     let question = "Second café question";
     let response = (0..35)
         .map(|row| format!("response paragraph {row:02}"))
@@ -471,7 +483,7 @@ fn prompt_header_tracks_reading_and_yields_to_visible_prompts_and_short_screens(
 fn header_sanitizes_controls_and_truncates_by_display_width() {
     kit::pending(
         Owner::ChatLive,
-        "rtwk gap G-new-usage-2 (a scrolled ListView does not report which items it shows, so a header pinned to the reading position cannot follow it: wanted `ListController::visible_range()`): the chat draws no pinned header row, so the sanitized and truncated header line (the oracle's line helper) is not on any screen yet",
+        "the owned chat draws the pinned header (`pages::transcript_prompt_header`), but this body is the oracle's bare view at 18x4, where the header is row 0 of a view that has every row: the chat keeps its composer and footer on those rows (the frame: `› Ask Codex to do`, `← for agents`), the pane has none, and the header needs four (`enough_room`). The kit has no bare view with the owned reader: `view_only` is the Ctrl+T sheet, which pins no header",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(18, 4)
@@ -488,7 +500,7 @@ fn header_sanitizes_controls_and_truncates_by_display_width() {
 fn pinned_prompt_matches_the_original_prompt_style() {
     kit::pending(
         Owner::ChatLive,
-        "rtwk gap G-new-usage-2 (a scrolled ListView does not report which items it shows, so a header pinned to the reading position cannot follow it: wanted `ListController::visible_range()`): the chat draws no pinned prompt header, and the kit cannot compare the style of two cells: the header's style is written as the oracle's prompt style",
+        "the owned chat draws the pinned header (`pages::transcript_prompt_header`), but this body is the oracle's bare view at 30x7: the chat's composer and footer take four of the seven rows, so the pane is three rows, below the four the header needs, and row 0 is `Worked for` (the frame). The style itself is the prompt surface the header paints (`Tokens::prompt_surface`); no page test reads the cells of the header yet",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(30, 7)
@@ -505,7 +517,7 @@ fn pinned_prompt_matches_the_original_prompt_style() {
 fn mouse_selection_preserves_header_reservation_at_turn_boundaries() {
     kit::pending(
         Owner::ChatLive,
-        "rtwk gap G-new-usage-2 (a scrolled ListView does not report which items it shows, so a header pinned to the reading position cannot follow it: wanted `ListController::visible_range()`): the chat draws no pinned header and no header reservation at a turn boundary; a mouse selection of the header row is not built",
+        "the owned chat reserves the header row (`pages::transcript_prompt_header`, the header is out of the selection), but this body is the oracle's bare view at 40x6 to 15x8 and presses its bottom row `height - 1`: in the chat that row is the footer, whose `← for agents` hint opens the agents page (the frame: `Agent command center`), and the pane is under the four rows the header needs. The oracle's mouse selection of the transcript's last row has no screen row in the chat at these sizes",
     );
     for (width, height) in [(40, 6), (40, 7), (40, 8), (15, 6), (15, 7), (15, 8)] {
         let mut s = Screen::build(Owner::ChatLive)

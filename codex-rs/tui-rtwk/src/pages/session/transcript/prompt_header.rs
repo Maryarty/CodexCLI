@@ -17,11 +17,13 @@ use rtwk::{AnyWidget, Cx, Eid, GlobalKey, Key, Rebuild, State, StatefulWidget, i
 use rtwk_render::objects::list::ListParentData;
 use rtwk_render::objects::stack::StackFit;
 
-use super::{ListRows, Row, with_render_list};
+use super::{
+    Finder, ListRows, Modes, Row, TextSelection, activity_focus, copying, select, with_render_list,
+};
 use crate::app::theme::Tokens;
 use crate::pages::session::cells::user;
 use crate::pages::session::strings;
-use crate::widgets::thread_ui::Follow;
+use crate::widgets::thread_ui::{Follow, Input};
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(super) struct Target {
@@ -36,6 +38,43 @@ impl Target {
     }
 }
 
+/// What a plain press of the header lets go of before it jumps: the range or the copy target
+/// under it, Find, a fold in focus (oracle `end_selection`, `cancel_search`,
+/// `clear_activity_focus`). The select mode's caret stays, as the oracle keeps its select mode.
+#[derive(Clone, PartialEq)]
+pub(super) struct Held {
+    pub selection: TextSelection,
+    pub find: Finder,
+    pub modes: Modes,
+}
+
+impl Held {
+    /// Lets go of all of it, and tells whether anything was held: the list then builds again
+    /// before the jump (the live rows in place of a retained revision, Find's footer gone).
+    fn release(&self) -> bool {
+        let (copier, caret) = (copying::mode_of(&self.find), select::of(&self.find));
+        let activity = activity_focus::of(&self.find);
+        let held = self.find.active()
+            || self.selection.held()
+            || copier.active()
+            || caret.extending()
+            || activity.focused();
+        // Find closes where the reader is: the jump below is the only move, no way back
+        // (`cancel_search` restores a position that `jump_to_entry` replaces at once).
+        self.find.accepted();
+        if copier.active() {
+            copier.leave();
+            self.modes.hold(Input::Plain);
+        }
+        caret.end_extension();
+        if !caret.active() {
+            self.selection.controller().clear();
+        }
+        activity.leave();
+        held
+    }
+}
+
 #[derive(Clone)]
 pub(super) struct Reader {
     pub child: AnyWidget,
@@ -43,6 +82,9 @@ pub(super) struct Reader {
     pub rows: Rc<ListRows>,
     pub thread: Rc<ThreadModel>,
     pub follow: Follow,
+    pub held: Held,
+    /// The header takes a press: a reader that browses the prompts (the one marked is the
+    /// reader's place) does not.
     pub interactive: bool,
     pub room: (i32, i32),
 }
@@ -60,6 +102,7 @@ impl PartialEq for Reader {
             && Rc::ptr_eq(&self.rows, &other.rows)
             && Rc::ptr_eq(&self.thread, &other.thread)
             && self.follow == other.follow
+            && self.held == other.held
             && self.interactive == other.interactive
             && self.room == other.room
             && self.child == other.child
@@ -80,6 +123,9 @@ pub(super) struct ReaderState {
 pub(super) enum Msg {
     ReadViewport,
     Jump(Target, PointerEvent),
+    /// The jump of a press that let go of a range, Find or a mode first: the frame it asked for
+    /// has built the list again.
+    Go(Target),
     Align(Target, u64),
 }
 
@@ -92,6 +138,25 @@ impl StatefulWidget for Reader {
 }
 
 impl_widget!(stateful eq Reader);
+
+impl ReaderState {
+    /// Scrolls the owned list to the prompt of `target`, and aligns its top once laid out.
+    fn go(&self, target: &Target, w: &Reader, cx: &mut Cx<'_, Self>) {
+        let Some(logical) = w.rows.logical_index(&Key::value(target.prompt.clone())) else {
+            return;
+        };
+        w.follow.cancel_beginning();
+        w.follow.scroll().jump_to_index(w.rows.list_index(logical));
+        if w.rows.reverse
+            && let Some(binding) = AppBinding::maybe_of(cx)
+        {
+            let (target, moves) = (target.clone(), w.follow.moves());
+            binding.add_post_frame_callback(
+                cx.map(move |_: Duration| Msg::Align(target.clone(), moves)),
+            );
+        }
+    }
+}
 
 impl State for ReaderState {
     type Widget = Reader;
@@ -153,19 +218,28 @@ impl State for ReaderState {
                 {
                     return Rebuild::No;
                 }
-                let Some(logical) = w.rows.logical_index(&Key::value(target.prompt.clone())) else {
-                    return Rebuild::No;
-                };
-                w.follow.cancel_beginning();
-                w.follow.scroll().jump_to_index(w.rows.list_index(logical));
-                if w.rows.reverse
+                // The oracle ends the range, cancels Find and clears the fold's focus first. The
+                // list then reads its live rows and the jump is made over them, not over a
+                // revision the range retained.
+                if w.held.release()
                     && let Some(binding) = AppBinding::maybe_of(cx)
                 {
-                    let moves = w.follow.moves();
                     binding.add_post_frame_callback(
-                        cx.map(move |_: Duration| Msg::Align(target.clone(), moves)),
+                        cx.map(move |_: Duration| Msg::Go(target.clone())),
                     );
+                    return Rebuild::No;
                 }
+                self.go(&target, w, cx);
+            }
+            Msg::Go(target) => {
+                if !w.interactive
+                    || !w.enough_room()
+                    || !target.current(&w.thread)
+                    || !Route::maybe_of(cx).is_none_or(|route| route.is_current())
+                {
+                    return Rebuild::No;
+                }
+                self.go(&target, w, cx);
             }
             Msg::Align(target, moves) => {
                 if !w.interactive
