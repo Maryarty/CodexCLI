@@ -1575,10 +1575,6 @@ fn ambient_pet_stays_hidden_until_a_pet_is_selected() {
 // ORACLE chatwidget/tests/status_and_layout.rs:2815 ambient_pet_screen_bottom_anchor_uses_terminal_bottom kind=ui owner=ui-pane
 #[test]
 fn ambient_pet_screen_bottom_anchor_uses_terminal_bottom() {
-    kit::pending(
-        Owner::UiPane,
-        "rtwk inline graphics are clipped to the active viewport; the physical bottom cannot be addressed when the viewport ends earlier",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(80, 24)
         .kitty()

@@ -1396,10 +1396,6 @@ fn select_mode_renders_cursor_and_scannable_footer_hints() {
     s.assert_text_style("alpha", "reversed");
     s.assert_style_in("alpha beta", 6, "!reversed");
     s.assert_contains("y/⌃c copy · enter copy & latest · esc clear · q close");
-    kit::pending(
-        Owner::ChatLive,
-        "needs f-sel-caret-span (port feature: the cell draws the caret grapheme as its own bold-underlined span under the selection area's reversed style): today the cursor's cell inside a marked range (bold underlined reversed on the active end, the rest reversed) and the cursor shown beside the match Find reads (the snapshot's `find` frame keeps it bold underlined at column 5 while `beta` is reversed) are not drawn as the oracle draws them",
-    );
     s.assert_style_in("alpha beta", 5, "bold underlined reversed");
     // find: esc, / then `beta`, advance: the match `beta` is reversed from column 6, the cursor
     // stays where it was, and the find footer shows the query

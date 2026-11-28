@@ -118,9 +118,6 @@ pub(in crate::pages::session) struct SelectionHost {
     pub follow: Follow,
     pub detailed: bool,
     pub raw: bool,
-    /// Select mode of the thread: while only its caret is shown, the caret's cell is drawn bold
-    /// and underlined as well as reversed (the oracle's `render_select_cursor`).
-    pub caret: bool,
     /// The thread's Find: while it reads a match, Esc is Find's (back to the latest row), not the
     /// area's (let the match go).
     pub find: Finder,
@@ -439,11 +436,6 @@ impl State for HostState {
 
     fn build(&self, w: &SelectionHost, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let settings = watch::<TuiSettings, _>(cx);
-        let attrs = if w.caret {
-            Attrs::REVERSE | Attrs::BOLD | Attrs::UNDERLINE
-        } else {
-            Attrs::REVERSE
-        };
         // The child sees the release before the selection area does. A single-cell drag that
         // returned to its origin has an empty range in the oracle, so clear it before copy on
         // release. Presses that selected a word or line keep what their unit selected.
@@ -478,17 +470,22 @@ impl State for HostState {
         let (find, on_copy) = (w.find.clone(), cx.map(Msg::Copied));
         // the area clears what is selected on Esc where the keys reach it with no focus to start
         // from (the sheet has no composer): the match Find shows is selected, and Esc is Find's
-        // while it is read
-        let area = ListenableBuilder::new(w.find.listenable(), move |_, _| {
+        // while it is read and select mode's while the mode is on (it clears the mark)
+        let caret = super::select::of(&w.find);
+        let changes = <dyn Listenable>::merge([
+            Some(w.find.listenable() as Rc<dyn Listenable>),
+            Some(caret.listenable() as Rc<dyn Listenable>),
+        ]);
+        let area = ListenableBuilder::new(Rc::new(changes), move |_, _| {
             let area = SelectionArea::new(child.clone())
                 // the oracle draws the selection REVERSED on top of the cell's own style
                 // (`transcript_view/selection.rs`; `rendered_selection`)
-                .style(Style::new().attrs(attrs).pen())
+                .style(Style::new().attrs(Attrs::REVERSE).pen())
                 .controller(controller.clone())
                 .copy_on_release(copy_on_select)
                 .on_copy(on_copy.clone());
             // the area's own clear key (Esc) is Find's while Find reads
-            if find.reading() {
+            if find.reading() || caret.active() {
                 area.clear_key(None).into()
             } else {
                 area.into()
