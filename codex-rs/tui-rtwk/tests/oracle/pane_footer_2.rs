@@ -11,8 +11,8 @@ use crate::kit::{self, ColorDepth, Owner, Screen};
 /// ITALIC on blank cells (the indent, the cells after a text); the terminal does not
 /// show an attribute on a blank (G46), so `assert_snap`'s per-cell styles cannot hold
 /// for them.
-/// The one row that differs in the stack snapshots: the footer hint.
-
+/// The one row that differs in the pending-input previews: the footer hint (the oracle's chat has
+/// no agents navigation, the preview entries keep it).
 fn assert_rows_of(s: &Screen, snap: &str) {
     s.assert_snap_head(snap);
 }
