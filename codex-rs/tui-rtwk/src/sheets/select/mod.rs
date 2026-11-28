@@ -39,6 +39,7 @@ pub use quick::hud;
 
 pub use centered::{centered, route as centered_route};
 pub use generic::{Purpose, pick};
+pub(crate) use generic::{pick_plan, plan_route_thread};
 
 /// A debug entry of a `/permissions` page: the script's model has asked for the menu, the sheet
 /// of the show is built from it (`permissions::seeded`).

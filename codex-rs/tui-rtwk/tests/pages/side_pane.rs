@@ -107,6 +107,43 @@ fn width_writes(h: &Harness) -> Vec<(u64, u64)> {
 }
 
 #[test]
+fn activating_a_passive_transcript_does_not_take_enter_from_its_draft() {
+    let mut h = workspace(true, true);
+    h.inject([
+        AppEv::Backend(turn_started(FAKE_THREAD, "parent-turn")),
+        AppEv::Backend(agent_completed(
+            FAKE_THREAD,
+            "parent-turn",
+            "parent-transcript",
+            "PARENT-HISTORY",
+        )),
+        AppEv::Backend(turn_completed(FAKE_THREAD, "parent-turn")),
+    ]);
+    h.advance(200);
+    let split = divider(&h);
+    h.press("f12 h");
+    h.t.type_text("parent draft");
+    h.press("f12 s");
+    assert!(h.t.cursor().0 > split);
+    let lines = h.t.lines();
+    let row = lines
+        .iter()
+        .position(|line| line.contains("PARENT-HISTORY"))
+        .expect("passive parent history is visible");
+    let x = column(&h, "PARENT-HISTORY") + 1;
+    h.t.click(u16::try_from(x).unwrap(), u16::try_from(row).unwrap());
+    h.advance(200);
+    assert!(h.t.cursor().0 < split);
+    h.press("enter");
+    h.advance(120);
+    assert!(h.fake.commands().iter().any(|command| matches!(
+        command,
+        Command::StartTurn { thread, message, .. }
+            if thread.as_str() == FAKE_THREAD && message.text == "parent draft"
+    )));
+}
+
+#[test]
 fn docked_streams_and_submissions_stay_with_their_thread() {
     let mut h = workspace(true, true);
     let split = divider(&h);

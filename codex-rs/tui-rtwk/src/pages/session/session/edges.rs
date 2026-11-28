@@ -169,7 +169,12 @@ impl ChatState {
             // before goes out, once.
             Edge::Ready => self.startup_ready(w, cx),
             Edge::Plan => {
-                plan_mode::ask(cx);
+                let send = cx.local_sender();
+                plan_mode::ask(cx, move || {
+                    send(super::ChatMsg::Selection(
+                        super::super::transcript::selection::Key::Copy,
+                    ));
+                });
                 Rebuild::No
             }
             // The thread was archived or deleted (`/archive`, `/delete`): the chat is empty again
