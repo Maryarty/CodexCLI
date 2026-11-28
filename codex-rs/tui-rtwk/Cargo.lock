@@ -4023,6 +4023,7 @@ dependencies = [
  "pulldown-cmark",
  "rtwk",
  "rtwk-core",
+ "rtwk-math",
  "rtwk-render",
  "rtwk-rich",
  "rtwk-term",

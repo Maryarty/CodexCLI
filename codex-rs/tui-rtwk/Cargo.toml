@@ -9,6 +9,7 @@ members = ["host", "core"]
 [workspace.dependencies]
 rtwk = { path = "/Users/admin/.cache/codexcli/rtwk-pin-5001/crates/rtwk" }
 rtwk-core = { path = "/Users/admin/.cache/codexcli/rtwk-pin-5001/crates/rtwk-core" }
+rtwk-math = { path = "/Users/admin/.cache/codexcli/rtwk-pin-5001/crates/rtwk-math" }
 rtwk-render = { path = "/Users/admin/.cache/codexcli/rtwk-pin-5001/crates/rtwk-render" }
 rtwk-rich = { path = "/Users/admin/.cache/codexcli/rtwk-pin-5001/crates/rtwk-rich" }
 rtwk-term = { path = "/Users/admin/.cache/codexcli/rtwk-pin-5001/crates/rtwk-term" }
@@ -90,6 +91,7 @@ codex-utils-path = { path = "/Users/admin/.cache/codexcli/backend-pin-e8ddca3f/c
 codex-utils-elapsed = { path = "/Users/admin/.cache/codexcli/backend-pin-e8ddca3f/codex-rs/utils/elapsed" }
 rtwk = { workspace = true }
 rtwk-core = { workspace = true }
+rtwk-math = { workspace = true }
 rtwk-render = { workspace = true }
 # `math`: the Markdown extensions `MdExtensions::MATH` and `MATH_BRACKETS` (`$..$`, `$$..$$`,
 # `\(..\)`, `\[..\]` parse as `MdInline::Math`, which the view draws as Unicode with rtwk-math):
