@@ -4,6 +4,60 @@
 use crate::kit::{Owner, Screen};
 
 #[test]
+fn enter_reaches_the_composer_after_leaving_a_clicked_transcript_point() {
+    for clear in [
+        "composer",
+        "blank",
+        "wheel",
+        "drag back",
+        "escape",
+        "focus out",
+    ] {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(32, 12)
+            .script(include_str!(
+                "../oracle/fixtures/transcript_view_4/sl_enter_empty.jsonl"
+            ))
+            .draft("draft stays here")
+            .open();
+        s.selection_copy_policy(false, false);
+        let row = u16::try_from(s.row_of("select this"))
+            .unwrap_or_else(|error| panic!("transcript row outside the test terminal: {error}"));
+        s.click(3, row);
+        s.keys("enter");
+        s.assert_no_turn();
+        match clear {
+            "composer" => {
+                s.click_text("draft stays here");
+            }
+            "blank" => {
+                s.click(25, row);
+            }
+            "wheel" => {
+                s.wheel_down(3, row, 1);
+            }
+            "drag back" => {
+                s.wait(400);
+                s.mouse_down(3, row)
+                    .mouse_drag(8, row)
+                    .mouse_drag(3, row)
+                    .mouse_up(3, row);
+            }
+            "escape" => {
+                s.keys("escape");
+            }
+            "focus out" => {
+                s.focus_out().wait(100);
+            }
+            _ => unreachable!(),
+        }
+        s.keys("enter");
+        s.assert_turn_texts(&["draft stays here"]);
+        s.assert_copies_asked(&[]);
+    }
+}
+
+#[test]
 fn an_immediate_copy_answer_preserves_the_same_text_selected_in_another_row() {
     let mut s = Screen::build(Owner::ChatLive)
         .size(42, 12)

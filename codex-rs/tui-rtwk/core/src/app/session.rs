@@ -4,6 +4,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread};
+use crate::commands::VoiceControl;
 use crate::ids::{BackendId, ThreadId};
 use crate::rpc::Answer;
 use crate::screens::onboarding::TrustCancel;
@@ -353,22 +354,41 @@ pub(super) fn session_intent(
             let current = Current::from_facts(&app.screens.chat.status);
             super::select::intent(app, Intent::OpenPermissions(current), fx);
         }
-        S::VoiceControl(control) => {
-            let thread = source.or_else(|| app.session.active.clone());
-            if let Some(thread) = thread
-                && let Some(intent) = app
-                    .threads
-                    .get(&thread)
-                    .and_then(|model| model.screen_slots().voice.control(control))
-            {
-                apply_thread(
-                    app,
-                    &thread,
-                    ThreadEv::ScreenIntent(ScreenThreadIntent::Voice(intent)),
-                    fx,
-                );
-            }
-        }
+        S::VoiceControl(control) => voice_control(app, source, control, fx),
+    }
+}
+
+/// Chat keys and slash commands act on the single local call even if its thread is parked.
+pub(super) fn voice_control(
+    app: &mut CodexApp,
+    source: Option<ThreadId>,
+    control: VoiceControl,
+    fx: &mut AppFx,
+) {
+    let owner = app.screens.voice.control_owner();
+    let thread = owner
+        .map(|owner| owner.thread.clone())
+        .or(source)
+        .or_else(|| app.session.active.clone());
+    let Some(thread) = thread else { return };
+    let Some(model) = app.threads.get(&thread) else {
+        return;
+    };
+    let voice = &model.screen_slots().voice;
+    if let Some(owner) = owner
+        && (!voice.owns(owner)
+            || app.address(owner.address.backend) != owner.address
+            || app.screens.agents.owner_of(thread.as_str()) != owner.address.backend)
+    {
+        return;
+    }
+    if let Some(intent) = voice.control(control) {
+        apply_thread(
+            app,
+            &thread,
+            ThreadEv::ScreenIntent(ScreenThreadIntent::Voice(intent)),
+            fx,
+        );
     }
 }
 

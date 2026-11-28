@@ -79,6 +79,22 @@ pub(super) fn header(
     column.into()
 }
 
+/// The resume-time notice belongs below the header and above recorded turns.
+pub(super) fn with_daybreak(header: AnyWidget, tokens: &Tokens, bullet: &str) -> AnyWidget {
+    use crate::oracle_strings::live::SESSION_FLOW_DAYBREAK_IS_ON_FOR_NEW_TURNS;
+
+    let notice = Text::rich([
+        Span::styled(bullet.to_owned(), tokens.dim()),
+        Span::new(SESSION_FLOW_DAYBREAK_IS_ON_FOR_NEW_TURNS),
+    ]);
+    Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(header)
+        .child(Padding::new(EdgeInsets::only(0, 1, 0, 1), notice))
+        .into()
+}
+
 /// The transcript's raw session heading (oracle `SessionHeaderHistoryCell::raw_lines`).
 pub(super) fn raw_header(
     session: &SessionHeader,

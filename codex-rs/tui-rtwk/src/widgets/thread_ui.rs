@@ -206,6 +206,7 @@ struct Selected {
     controller: SelectionAreaController,
     held: Rc<ValueNotifier<bool>>,
     copy_state: Rc<Cell<CopySelectionState>>,
+    pointer_point: Cell<Option<(CopySelectionState, u64)>>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -257,6 +258,7 @@ impl Default for TextSelection {
             controller,
             held,
             copy_state,
+            pointer_point: Cell::new(None),
         }))
     }
 }
@@ -313,6 +315,22 @@ impl TextSelection {
             controller: Rc::downgrade(&self.0.copy_state),
             state,
         })
+    }
+
+    /// A real transcript click holds Enter even before there is a native range.
+    pub fn hold_pointer_point(&self, surface: Eid, press: u64) {
+        let state = self.0.copy_state.get();
+        if state.surface == Some(surface) && !self.held() {
+            self.0.pointer_point.set(Some((state, press)));
+        }
+    }
+
+    pub fn owns_pointer_point(&self, press: u64) -> bool {
+        self.0.pointer_point.get() == Some((self.0.copy_state.get(), press))
+    }
+
+    pub fn clear_pointer_point(&self) {
+        self.0.pointer_point.set(None);
     }
 }
 

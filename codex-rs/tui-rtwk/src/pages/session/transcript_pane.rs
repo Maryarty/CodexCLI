@@ -1397,7 +1397,14 @@ impl State for ViewportState {
                 .filter(|cwd| !cwd.is_empty())
                 .map(|cwd| super::transcript_header::header(cwd, &facts, &tokens, table))
         }
-        .map(|header| header.with_key(Key::value("session header")));
+        .map(|header| {
+            let header = if codex_tui_core::features::resumed_with_daybreak(live.view()) {
+                super::transcript_header::with_daybreak(header, &tokens, &bullet)
+            } else {
+                header
+            };
+            header.with_key(Key::value("session header"))
+        });
         let markdown = tokens.transcript_markdown(cx);
         let thread_id = thread.id().clone();
         let can_load = live.can_load_history();

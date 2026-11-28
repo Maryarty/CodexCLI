@@ -882,19 +882,26 @@ fn user_message(id: &str, text: &str, more: serde_json::Value) -> serde_json::Va
 // ORACLE chatwidget/tests/history_replay.rs:18 resumed_initial_messages_render_history kind=snap owner=chat-live
 #[test]
 fn resumed_initial_messages_render_history() {
-    kit::pending(
-        Owner::ChatLive,
-        "no thread session with daybreak on the chat screen: the 'Daybreak is on for new turns.' line the oracle's session hydration draws after the header is not drawn",
-    );
-    let s = resumed(vec![kit::replay_turn(
+    let turn = kit::replay_turn(
         "turn-1",
         serde_json::json!([
             user_message("user-1", "hello from user", serde_json::json!([])),
             {"type": "agentMessage", "id": "assistant-1", "text": "assistant reply", "phase": null, "memoryCitation": null}
         ]),
-    )]);
-    // oracle: the history rows alone, the header first.
-    s.assert_snap_region("resumed_daybreak_banner", 0, 0);
+    );
+    let s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .replay(vec![turn])
+        .replay_daybreak()
+        .live()
+        .open();
+    s.assert_in_order(&[
+        "OpenAI Codex",
+        "Daybreak is on for new turns.",
+        "hello from user",
+        "assistant reply",
+    ]);
+    s.assert_text_count("Daybreak is on for new turns.", 1);
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:130 replayed_failed_turns_preserve_overload_warnings_between_retries kind=snap owner=chat-live

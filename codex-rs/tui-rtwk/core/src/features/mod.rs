@@ -1214,6 +1214,11 @@ pub fn daybreak_of(thread: ThreadView<'_>) -> Option<bool> {
     small_cmds::daybreak_of(thread)
 }
 
+/// Whether a resumed session opened with Daybreak enabled.
+pub fn resumed_with_daybreak(thread: ThreadView<'_>) -> bool {
+    small_cmds::resumed_with_daybreak(thread)
+}
+
 // The app owns turn completion and account boundaries. The slice owns the offer and its
 // eligibility; expose its operations through the feature list.
 pub(crate) use rate_limit_prompt::{

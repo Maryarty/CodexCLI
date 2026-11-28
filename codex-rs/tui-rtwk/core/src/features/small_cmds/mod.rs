@@ -49,6 +49,13 @@ pub fn daybreak_of(thread: ThreadView<'_>) -> Option<bool> {
         .or(thread.slots().chat.daybreak)
 }
 
+/// The setting at the thread's first successful resume in this application.
+pub fn resumed_with_daybreak(thread: ThreadView<'_>) -> bool {
+    thread
+        .parts()
+        .is_some_and(|parts| parts.small_cmds.resume_daybreak == Some(true))
+}
+
 /// The thread is not kept (`config.ephemeral`): it has no metadata to save a choice in.
 pub fn ephemeral(thread: ThreadView<'_>) -> bool {
     thread.slots().chat.ephemeral
@@ -77,6 +84,8 @@ pub enum Intent {
 pub enum ThreadIntent {
     /// The choice `/daybreak` saved for the thread.
     Daybreak(bool),
+    /// The setting when the session attached, for its opening context.
+    ResumeDaybreak(bool),
 }
 
 /// What the feature keeps per thread: the Daybreak choice `/daybreak` saved, which the thread's
@@ -84,6 +93,7 @@ pub enum ThreadIntent {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ThreadPart {
     daybreak: Option<bool>,
+    resume_daybreak: Option<bool>,
 }
 
 impl ThreadPart {
@@ -393,8 +403,27 @@ impl Feature for SmallCmds {
     }
 
     fn thread_intent(part: &mut ThreadPart, intent: ThreadIntent, _cx: &mut ThreadCx<'_, '_>) {
-        let ThreadIntent::Daybreak(enabled) = intent;
-        part.daybreak = Some(enabled);
+        match intent {
+            ThreadIntent::Daybreak(enabled) => part.daybreak = Some(enabled),
+            ThreadIntent::ResumeDaybreak(enabled) => {
+                part.resume_daybreak.get_or_insert(enabled);
+            }
+        }
+    }
+
+    fn on_resumed(_state: &mut State, id: &ThreadId, cx: &mut AppCx<'_>) {
+        let view = cx.view();
+        if let Some(thread) = view.active_thread().filter(|thread| thread.id() == id)
+            && !view.screens().chat.flags.side_conversation_active
+        {
+            let facts = view.facts();
+            let api_key = matches!(
+                facts.status().account,
+                Some(crate::screens::status::Account::ApiKey)
+            );
+            let enabled = facts.tui().daybreak.allows(api_key) && daybreak_of(thread) == Some(true);
+            cx.thread(id, ThreadIntent::ResumeDaybreak(enabled));
+        }
     }
 
     fn note_tone(note: &Note) -> Tone {

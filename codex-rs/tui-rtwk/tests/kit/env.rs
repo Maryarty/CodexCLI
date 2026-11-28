@@ -135,6 +135,7 @@ pub(super) struct Env {
     /// The resumed thread's own status is `active` (a thread that is really running).
     replay_active: bool,
     replay_paginated: bool,
+    replay_daybreak: bool,
     /// The goal the server holds for the resumed thread (`thread/goal/get`).
     goal: Option<serde_json::Value>,
     /// What the host announces to the first conversation.
@@ -291,6 +292,7 @@ impl Env {
             let turns = turns.clone();
             let active = self.replay_active;
             let paginated = self.replay_paginated;
+            let daybreak = self.replay_daybreak;
             let goal = self.goal.clone();
             h.fake
                 .respond(move |request| match request["method"].as_str() {
@@ -298,6 +300,9 @@ impl Env {
                         let mut response = resume_response(REPLAYED, &turns, active);
                         if paginated {
                             response["thread"]["historyMode"] = serde_json::json!("paginated");
+                        }
+                        if daybreak {
+                            response["thread"]["daybreakEnabled"] = serde_json::json!(true);
                         }
                         Some(Ok(response))
                     }
@@ -419,6 +424,17 @@ impl Open {
     /// The pinned server's indexed history exposes a canonical realtime timeline.
     pub fn replay_paginated(mut self) -> Open {
         self.env.replay_paginated = true;
+        self
+    }
+
+    /// The feature is on and the resume response holds the saved preference.
+    pub fn replay_daybreak(mut self) -> Open {
+        self.env.replay_daybreak = true;
+        self.env
+            .tui
+            .get_or_insert_with(TuiSettings::default)
+            .daybreak
+            .enabled = true;
         self
     }
 

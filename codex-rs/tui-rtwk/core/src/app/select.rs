@@ -112,8 +112,10 @@ pub(super) fn intent(app: &mut CodexApp, mut intent: select::Intent, fx: &mut Ap
         }
         return;
     }
-    if let select::Intent::PlanAnswer(answer) = intent {
-        super::session::plan_answer(app, answer, fx);
+    if let select::Intent::PlanAnswer { thread, answer } = intent {
+        if app.session.active.as_ref() == Some(&thread) {
+            super::session::plan_answer(app, answer, fx);
+        }
         return;
     }
     match &mut intent {

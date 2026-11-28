@@ -841,7 +841,10 @@ pub struct QueueOpen {
 pub enum Intent {
     /// The answer of the plan-implementation question (`chat::plan_mode::Answer`): the question
     /// is a list of the sheet's own (`sheets/select/generic.rs`), only its answer is the domain's.
-    PlanAnswer(crate::screens::chat::plan_mode::Answer),
+    PlanAnswer {
+        thread: ThreadId,
+        answer: crate::screens::chat::plan_mode::Answer,
+    },
     /// `/model`: the quick menu on the catalog held (`Loading models…` while
     /// it is empty), and the catalog is asked for again: the request is
     /// `Catalog::pending`.
@@ -1179,7 +1182,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         // The app writes the config (`app/select.rs`); the directory follows the saved write. The
         // dialog of the app shows its switch at once, the screen keeps no copy of it.
         // The answer is acted on by the app (`app/select.rs`); the screen keeps no record of it.
-        Intent::PlanAnswer(_)
+        Intent::PlanAnswer { .. }
         | Intent::Settle(_)
         | Intent::OpenQueueDialog(_)
         | Intent::RetryOwnedPermissions(_)

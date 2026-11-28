@@ -7,6 +7,7 @@ use std::rc::Rc;
 
 use rtwk::binding::{AppBinding, InputListener};
 use rtwk::focus::{Focus, KeyBindings, KeyEventResult, KeyPress};
+use rtwk::gestures::MouseTracker;
 use rtwk::layout::Stack;
 use rtwk::provider::Provider;
 use rtwk::{AnyWidget, Cx, Key};
@@ -65,6 +66,7 @@ pub(super) fn install(state: &mut ChatState, workspace: bool, cx: &mut Cx<'_, Ch
     let draft = state.draft.clone();
     let modes = state.modes.clone();
     let selection = state.selection.clone();
+    let mouse = MouseTracker::of(cx);
     let finder = state.find.clone();
     let control = state.control.clone();
     let voice_controls = voice_keys(state);
@@ -183,6 +185,20 @@ pub(super) fn install(state: &mut ChatState, workspace: bool, cx: &mut Cx<'_, Ch
         {
             send(ChatMsg::Selection(step));
             return KeyEventResult::Handled;
+        }
+        if let Some(mouse) = &mouse
+            && selection.borrow().owns_pointer_point(mouse.presses())
+        {
+            let step = transcript::selection::key(&key);
+            if step != Some(SelectionKey::CopyAndFollow) {
+                selection.borrow().clear_pointer_point();
+            }
+            if matches!(
+                step,
+                Some(SelectionKey::CopyAndFollow | SelectionKey::Clear)
+            ) {
+                return KeyEventResult::Handled;
+            }
         }
         // A detailed reader's close belongs to it before ordinary chat shortcuts. Plain Esc
         // still goes through the editor and the page's Escape ladder.
@@ -537,8 +553,8 @@ pub(super) fn focus(
         }
     }
     let voice_controls =
-        rtwk::provider::select::<codex_tui_core::threads::ThreadModel, bool, _>(cx, |thread| {
-            thread.screen_slots().voice.can_mute()
+        rtwk::provider::select::<codex_tui_core::screens::ScreenStates, bool, _>(cx, |screens| {
+            screens.voice.has_control_owner()
         });
     voice_keys(state).set(voice_controls);
     for (action, key) in keys::presses(keymap) {
