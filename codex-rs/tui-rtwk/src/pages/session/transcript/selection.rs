@@ -13,9 +13,10 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use rtwk::binding::InputListener;
 use rtwk::focus::{KeyCombo, KeyPress};
 use rtwk::foundation::{Listenable, ListenableBuilder};
-use rtwk::gestures::{Listener, MouseTracker, PointerEvent, SelectionArea};
+use rtwk::gestures::{Listener, MouseTracker, PointerEvent, RenderExcludeSelection, SelectionArea};
 use rtwk::navigation::Route;
 use rtwk::provider::{Provider, read, watch};
 use rtwk::scroll::{ScrollMetrics, ScrollNotification, ScrollUpdateNotification};
@@ -23,7 +24,8 @@ use rtwk::style::{Attrs, Style};
 use rtwk::{
     AnyWidget, Cx, NotificationListener, Rebuild, State, StatefulWidget, impl_widget, map_static,
 };
-use rtwk_core::input::Mods;
+use rtwk_core::input::{InputEvent, Mods};
+use rtwk_render::HitTestResult;
 use rtwk_rich::markdown::MarkdownLinkTap;
 
 use codex_tui_core::app::RequestQueue;
@@ -164,6 +166,7 @@ pub(in crate::pages::session) enum Msg {
     Press(PointerEvent),
     Drag(PointerEvent),
     Release(PointerEvent),
+    CancelPoint,
     Link(MarkdownLinkTap),
 }
 
@@ -175,6 +178,8 @@ pub(in crate::pages::session) struct HostState {
     answered: Option<u64>,
     /// Screen cell and reader position of a press that started without a range.
     empty_press: Option<PressOrigin>,
+    /// A primary press without a drag, paired with its native mouse sequence.
+    point_press: Option<u64>,
     /// Whether the current left press can activate a semantic link when released.
     link_press: Rc<Cell<bool>>,
     /// The native Text callback is delivered after the pointer event's listeners.
@@ -257,6 +262,7 @@ impl State for HostState {
             w.selection
                 .set_copy_surface(cx.id(), Route::is_current_of(cx));
             self.empty_press = None;
+            self.point_press = None;
             self.link_press.set(false);
             self.link_released = false;
             self.primary_press = false;
@@ -350,6 +356,11 @@ impl State for HostState {
                     } else {
                         PressOrigin::capture(&w.follow, press)
                     };
+                    self.point_press = if self.empty_press.is_some() && press.modifiers.is_empty() {
+                        MouseTracker::of(cx).map(|mouse| mouse.presses())
+                    } else {
+                        None
+                    };
                     self.link_press.set(
                         self.empty_press.is_some()
                             && link_modifiers(press.modifiers)
@@ -362,12 +373,14 @@ impl State for HostState {
             Msg::Drag(pointer) => {
                 if pointer.button == 0 {
                     w.selection.revise_copy_surface(cx.id());
+                    self.point_press = None;
                     self.link_press.set(false);
                 }
                 return Rebuild::No;
             }
             Msg::Release(release) => {
                 if release.button == 0 {
+                    let press = self.point_press.take();
                     let at_origin = self.empty_press.take().is_some_and(|origin| {
                         PressOrigin::capture(&w.follow, release) == Some(origin)
                     });
@@ -377,12 +390,24 @@ impl State for HostState {
                         && w.links_enabled(cx);
                     if at_origin && w.selection.controller().has_selection() {
                         w.selection.controller().clear();
+                    } else if at_origin
+                        && release.modifiers.is_empty()
+                        && let Some(press) = press
+                        && w.links_enabled(cx)
+                    {
+                        hold_clicked_point(w, cx, release, press);
                     }
                 }
                 return Rebuild::No;
             }
+            Msg::CancelPoint => {
+                self.point_press = None;
+                w.selection.clear_pointer_point();
+                return Rebuild::No;
+            }
             Msg::Link(link) => {
                 if std::mem::take(&mut self.link_released) && w.links_enabled(cx) {
+                    w.selection.revise_copy_surface(cx.id());
                     crate::features::open_transcript_link(cx, w.thread.clone(), link.destination);
                 }
                 return Rebuild::No;
@@ -416,9 +441,11 @@ impl State for HostState {
             .child(w.child.clone());
         // A wheel gesture cancels a possible activation even at the scroll limit.
         let pressed = self.link_press.clone();
+        let cancel = cx.local_sender();
         let child =
             NotificationListener::<ScrollNotification>::new(child).on_notification(move |_| {
                 pressed.set(false);
+                cancel(Msg::CancelPoint);
                 false
             });
         let selection = w.selection.clone();
@@ -456,12 +483,66 @@ impl State for HostState {
                 area.into()
             }
         });
-        Listener::new()
+        let reader = Listener::new()
             .on_pointer_down(map_static!(cx, PointerEvent => Msg, Msg::Press))
             .on_pointer_move(map_static!(cx, PointerEvent => Msg, Msg::Drag))
-            .child(area)
-            .into()
+            .child(area);
+        let cancel = cx.local_sender();
+        InputListener::new(reader, move |event| {
+            if matches!(event, InputEvent::Focus(false) | InputEvent::Resize { .. }) {
+                cancel(Msg::CancelPoint);
+            }
+            false
+        })
+        .into()
     }
+}
+
+fn hold_clicked_point(
+    widget: &SelectionHost,
+    cx: &mut Cx<'_, HostState>,
+    event: PointerEvent,
+    press: u64,
+) {
+    let owner = cx.id();
+    let Some(mouse) = MouseTracker::of(cx) else {
+        return;
+    };
+    let selection = widget.selection.clone();
+    let identity = selection.copy_identity();
+    let _ = cx.request_viewport(
+        move |viewport| {
+            if mouse.presses() != press
+                || identity != selection.copy_identity()
+                || !viewport.has_current_layout_size()
+            {
+                return false;
+            }
+            let Some(surface) = viewport.render_object_of(owner) else {
+                return false;
+            };
+            let tree = viewport.render_tree();
+            let mut hits = HitTestResult::new();
+            tree.hit_test(&mut hits, event.screen_x, event.screen_y);
+            let mut selectable = false;
+            for (id, x, y) in hits.iter() {
+                if id == surface {
+                    if selectable {
+                        selection.hold_pointer_point(owner, press);
+                    }
+                    return selectable;
+                }
+                if tree.get::<RenderExcludeSelection>(id).is_some() {
+                    selectable = false;
+                } else if let Some(text) = tree.selectable(id) {
+                    let (start, end) = text.selectable_range_in(tree, id, x, y);
+                    selectable |= start < end;
+                }
+            }
+            false
+        },
+        cx.callback_with(|_, _, _| Rebuild::No),
+    );
 }
 
 fn link_modifiers(modifiers: Mods) -> bool {
