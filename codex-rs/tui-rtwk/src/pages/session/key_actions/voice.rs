@@ -1,11 +1,11 @@
-//! Starts or stops the voice call belonging to the thread that handled the key.
+//! Asks the app to control its live voice call, using this thread for a new call.
 
 use rtwk::Cx;
 
+use codex_tui_core::app::Intent;
 use codex_tui_core::commands::VoiceControl;
 use codex_tui_core::keymap::ActionId;
 use codex_tui_core::keymap::actions::CHAT_TOGGLE_VOICE;
-use codex_tui_core::screens::ScreenThreadIntent;
 use codex_tui_core::threads::ThreadModel;
 
 use super::{KeyAction, Keyed};
@@ -23,10 +23,11 @@ impl KeyAction for Voice {
 
 pub(super) fn control(cx: &mut Cx<'_, ChatState>, keyed: &Keyed<'_>, action: VoiceControl) {
     let thread = rtwk::provider::read::<ThreadModel, _>(cx);
-    if let Some(intent) = thread.screen_slots().voice.control(action) {
-        cx.emit(
-            &keyed.hs.thread_screen,
-            (thread.id().clone(), ScreenThreadIntent::Voice(intent)),
-        );
-    }
+    cx.emit(
+        &keyed.hs.intent,
+        Intent::ControlVoice {
+            thread: thread.id().clone(),
+            control: action,
+        },
+    );
 }

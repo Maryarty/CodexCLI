@@ -173,7 +173,7 @@ fn voice_early_close_keeps_the_logical_call_owned_until_it_can_retry() {
                 .screen_slots()
                 .voice
                 .control(VoiceControl::Toggle),
-            Some(ThreadIntent::Stop)
+            Some(ThreadIntent::AcknowledgeStopping)
         );
         assert_eq!(host(&cleanup).0.action, AudioAction::ReleasePeer);
         assert_eq!(host(&cleanup).0.owner, host(&prepared).0.owner);
@@ -380,6 +380,76 @@ fn voice_retry_cleanup_cancels_on_manual_stop_lock_rpc_refusal_or_connection_los
                 ))
         );
         assert!(display(&app).is_none());
+    }
+}
+
+#[test]
+fn voice_controls_from_another_backend_follow_the_live_owner_until_cleanup_finishes() {
+    use codex_tui_core::commands::{SessionIntent, SlashCommand, VoiceControl};
+    use codex_tui_core::screens::{ScreenIntent, chat};
+
+    for cancel_with_slash in [false, true] {
+        let mut app = ready();
+        let parked = preparing(&mut app);
+        let (start, session) = offered(&mut app, &parked);
+        run(&mut app, ack(&start));
+        run(&mut app, started("thread-1", &session));
+        let connect = run(&mut app, answer("thread-1"));
+
+        let secondary = BackendId(1);
+        app.attach_backend(secondary);
+        apply_app_from(&mut app, secondary, AppEv::Connected, &mut AppFx::default());
+        open_thread(&mut app, "thread-2", secondary, true);
+        let selected = ThreadId::new("thread-2");
+        let key = |control| {
+            AppEv::Intent(Intent::ControlVoice {
+                thread: selected.clone(),
+                control,
+            })
+        };
+        assert!(app.screens().voice.can_mute());
+        let mute = run(&mut app, key(VoiceControl::Mute));
+        assert_eq!(host(&mute).0.action, AudioAction::SetMuted(true));
+        assert_eq!(host(&mute).0.owner, host(&parked).0.owner);
+        assert!(
+            intent_for(&mut app, selected.as_str(), ThreadIntent::Start)
+                .commands()
+                .is_empty()
+        );
+        let cleanup = run(
+            &mut app,
+            media(
+                &connect,
+                AudioResult::Connected(Err(ConnectFailure::TimedOut("timed out".into()))),
+            ),
+        );
+        let cancel = if cancel_with_slash {
+            AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
+                thread: Some(selected.clone()),
+                command: SlashCommand::Voice,
+                intent: SessionIntent::VoiceControl(VoiceControl::Stop),
+            })))
+        } else {
+            key(VoiceControl::Toggle)
+        };
+        let stopped = run(&mut app, cancel);
+        assert_eq!(host(&stopped).0.action, AudioAction::Close);
+        assert_eq!(host(&stopped).0.owner, host(&parked).0.owner);
+        assert_eq!(app.session().active.as_ref(), Some(&selected));
+        assert!(display(&app).is_none());
+        run(&mut app, ack(&cleanup));
+        run(&mut app, media(&cleanup, AudioResult::PeerReleased));
+        let released = run(&mut app, closed_because("thread-1", "requested"));
+        assert_eq!(host(&released).0.action, AudioAction::Close);
+        let new_call = run(&mut app, key(VoiceControl::Toggle));
+        assert_eq!(host(&new_call).0.owner.thread, selected);
+        assert_eq!(host(&new_call).0.owner.address.backend, secondary);
+        let stale = run(
+            &mut app,
+            media(&parked, AudioResult::LockStopped(LockStop::Locked)),
+        );
+        assert!(stale.commands().is_empty());
+        assert!(display(&app).is_some_and(|display| display.connecting));
     }
 }
 

@@ -283,6 +283,19 @@ fn voice_f8_visibly_retries_once_after_cleanup_and_connects_without_losing_the_d
         h.press("f8");
         let prepared = voice_audio(&mut h, |action| *action == AudioAction::Prepare);
         let (previous_session, connect) = answer_voice_offer(&mut h, &prepared, None);
+        h.press("f9");
+        let mute = voice_audio(&mut h, |action| *action == AudioAction::SetMuted(true));
+        let muted = audio_receipt(
+            &mute,
+            AudioResult::Muted {
+                muted: true,
+                result: Ok(()),
+            },
+        );
+        if !timed_out {
+            h.inject([muted.clone()]);
+            h.settle();
+        }
         let (notice, event) = if timed_out {
             (
                 "Voice connection timed out. Retrying once after cleanup.",
@@ -306,15 +319,6 @@ fn voice_f8_visibly_retries_once_after_cleanup_and_connects_without_losing_the_d
             screen.contains(notice)
         });
         h.inject([audio_receipt(&release, AudioResult::PeerReleased)]);
-        let is_stop = |command: &Command| {
-            matches!(
-                command,
-                Command::Screen {
-                    command: ScreenCommand::Voice(voice::Command::Stop),
-                    ..
-                }
-            )
-        };
         if timed_out {
             let stop = voice_command(&mut h, is_stop);
             h.inject([voice_notice(
@@ -326,14 +330,21 @@ fn voice_f8_visibly_retries_once_after_cleanup_and_connects_without_losing_the_d
             h.inject([voice_ack(&stop)]);
         }
         let retry = voice_command(&mut h, is_retry);
+        assert!(matches!(
+            retry.host_ask(),
+            Some(Ask::Audio(audio)) if audio.action == AudioAction::PrepareRetry { muted: true }
+        ));
+        if timed_out {
+            h.inject([muted]);
+        }
         if !timed_out {
             assert!(!h.fake.commands().iter().any(is_stop));
         }
         let (next_session, connect) = answer_voice_offer(&mut h, &retry, Some(&previous_session));
         assert_ne!(next_session, previous_session);
         h.inject([audio_receipt(&connect, AudioResult::Connected(Ok(())))]);
-        h.wait_for("the retry listening with the draft", |screen| {
-            screen.contains("voice ● listen") && screen.contains("keep my draft")
+        h.wait_for("the retry muted with the draft", |screen| {
+            screen.contains("voice ◌ muted") && screen.contains("keep my draft")
         });
         assert_eq!(
             h.fake
@@ -344,6 +355,61 @@ fn voice_f8_visibly_retries_once_after_cleanup_and_connects_without_losing_the_d
             1
         );
     }
+}
+
+#[test]
+fn voice_f8_cancels_a_parked_retry_and_reports_that_the_call_is_still_stopping() {
+    let mut h = start();
+    crate::chat::chat_with_history(&mut h);
+    h.t.type_text("keep my draft");
+    h.press("f8");
+    let prepared = voice_audio(&mut h, |action| *action == AudioAction::Prepare);
+    let (_, connect) = answer_voice_offer(&mut h, &prepared, None);
+    h.inject([audio_receipt(
+        &connect,
+        AudioResult::Connected(Err(ConnectFailure::TimedOut("timeout".into()))),
+    )]);
+    let release = voice_audio(&mut h, |action| *action == AudioAction::ReleasePeer);
+    let stop = voice_command(&mut h, is_stop);
+    h.wait_for("the parked retry", |screen| {
+        screen.contains("Voice connection timed out. Retrying once after cleanup.")
+    });
+    h.press("f8");
+    h.wait_for(
+        "the original stopping notice and retained draft",
+        |screen| {
+            screen.contains("Voice conversation is still stopping.")
+                && screen.contains("keep my draft")
+        },
+    );
+    h.inject([
+        voice_ack(&stop),
+        voice_notice(
+            "thread/realtime/closed",
+            serde_json::json!({"threadId": FAKE_THREAD, "reason": "requested"}),
+        ),
+        audio_receipt(&release, AudioResult::PeerReleased),
+    ]);
+    h.settle();
+    assert!(!h.fake.commands().iter().any(is_retry));
+    assert_eq!(
+        h.fake
+            .commands()
+            .iter()
+            .filter(|command| is_stop(command))
+            .count(),
+        1
+    );
+}
+
+fn is_stop(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::Screen {
+            command: ScreenCommand::Voice(voice::Command::Stop),
+            ..
+        }
+    )
 }
 
 fn is_retry(command: &Command) -> bool {

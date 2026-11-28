@@ -133,6 +133,7 @@ pub(crate) fn note(note: &codex_tui_core::screens::voice::Note) -> String {
         Note::Retry(RetryReason::TransportClosed) => {
             "Voice connection closed during startup. Retrying once.".into()
         }
+        Note::StillStopping => "Voice conversation is still stopping.".into(),
         Note::StartupTransportClosed => "Voice conversation ended: transport_closed".into(),
     }
 }

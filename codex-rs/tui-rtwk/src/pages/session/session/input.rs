@@ -537,8 +537,8 @@ pub(super) fn focus(
         }
     }
     let voice_controls =
-        rtwk::provider::select::<codex_tui_core::threads::ThreadModel, bool, _>(cx, |thread| {
-            thread.screen_slots().voice.can_mute()
+        rtwk::provider::select::<codex_tui_core::screens::ScreenStates, bool, _>(cx, |screens| {
+            screens.voice.can_mute()
         });
     voice_keys(state).set(voice_controls);
     for (action, key) in keys::presses(keymap) {

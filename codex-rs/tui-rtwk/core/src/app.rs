@@ -254,6 +254,10 @@ pub enum Intent {
         thread: ThreadId,
         intent: ScreenThreadIntent,
     },
+    ControlVoice {
+        thread: ThreadId,
+        control: crate::commands::VoiceControl,
+    },
     /// Move the empty conversation to the next connected backend (oracle:
     /// `CycleNewConversationBackend`).
     CycleBackend,
@@ -1224,6 +1228,7 @@ impl CodexApp {
         assert_eq!(self.threads.blank().id(), &ThreadId::default());
         let mut seen: Vec<Ticket> = self.outgoing.tickets().collect();
         seen.extend(self.host_outgoing.tickets());
+        let mut voice_owner = None;
         for (id, model) in self.threads.iter() {
             assert_eq!(model.id(), id, "a model under another thread's key");
             if let TurnState::Running(running) = model.turn() {
@@ -1234,7 +1239,11 @@ impl CodexApp {
                 );
             }
             seen.extend(model.outgoing().tickets());
+            if let Some(owner) = model.screen_slots().voice.owner() {
+                assert!(voice_owner.replace(owner).is_none());
+            }
         }
+        assert_eq!(voice_owner, self.screens.voice.control_owner());
         let total = seen.len();
         seen.sort();
         seen.dedup();
@@ -3665,6 +3674,9 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
         }
         Intent::Effect { request, ask } => fx.commands.push(effects::command(request, ask)),
         Intent::CancelRequests => cancel_requests(app, fx),
+        Intent::ControlVoice { thread, control } => {
+            session::voice_control(app, Some(thread), control, fx);
+        }
         Intent::Screen(ScreenIntent::Resume(intent)) => resume_picker(app, intent, fx),
         // The page the command line opened instead of a thread was left.
         Intent::Screen(ScreenIntent::Onboarding(
@@ -5026,13 +5038,16 @@ fn apply_thread_with_receipt(
     fx: &mut AppFx,
     receipt: SubmitReceipt,
 ) {
-    let ev = if matches!(
+    let starts_voice = matches!(
         &ev,
         ThreadEv::ScreenIntent(ScreenThreadIntent::Voice(
             screens::voice::ThreadIntent::Start
         ))
-    ) && !app.voice_host_ready()
-    {
+    );
+    if starts_voice && app.screens.voice.control_owner().is_some() {
+        return;
+    }
+    let ev = if starts_voice && !app.voice_host_ready() {
         ThreadEv::Failure(Failure::VoiceHostLost)
     } else {
         ev
@@ -5086,6 +5101,10 @@ fn apply_thread_with_receipt(
                 )),
             receipt,
         );
+        let voice = &model.screen_slots().voice;
+        if app.screens.voice.controls_changed(thread, voice) {
+            Rc::make_mut(&mut app.screens).voice.update_controls(voice);
+        }
         crate::features::revalidate_rate_offer(&mut app.features, model.view());
     }
     reset::settle_hint(app, thread, fx);
