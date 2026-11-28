@@ -415,6 +415,10 @@ pub enum Intent {
         command: SlashCommand,
         intent: SessionIntent,
     },
+    ControlVoice {
+        thread: ThreadId,
+        control: crate::commands::VoiceControl,
+    },
     /// A user shell command (`!cmd`) for the thread shown when it was submitted.
     Shell {
         thread: Option<ThreadId>,
@@ -513,7 +517,10 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
     match intent {
         // the app routes these to the thread (`apply_app`); the screen keeps nothing
-        Intent::Session { .. } | Intent::Shell { .. } | Intent::Safety { .. } => {}
+        Intent::Session { .. }
+        | Intent::ControlVoice { .. }
+        | Intent::Shell { .. }
+        | Intent::Safety { .. } => {}
         Intent::Note { thread: None, note } => model.notes.push(note),
         Intent::RawOutput(enabled) => model.raw_output = enabled,
         Intent::StatusOverride(set) => {

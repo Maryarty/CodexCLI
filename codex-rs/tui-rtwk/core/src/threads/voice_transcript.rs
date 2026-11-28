@@ -126,7 +126,7 @@ pub enum ThreadEvent {
         caption: FlatCaption,
         show_user_preview: bool,
     },
-    LegacyClosed,
+    LegacyClosed(voice::CloseReason),
     LostLegacyOrder,
     Supported(History),
     Read {
@@ -149,11 +149,13 @@ pub(super) fn apply(model: &mut ThreadModel, event: ThreadEvent, fx: &mut Thread
                 .read_voice_history(oldest, more_history, fx);
         }
         ThreadEvent::LoadOlder => model.core.transcript.load_older_voice_history(fx),
-        ThreadEvent::LegacyClosed => {
-            if let Some((session, legacy)) = model.slots.voice.legacy_captions(fx.address) {
+        ThreadEvent::LegacyClosed(reason) => {
+            if model.slots.voice.accepts_close(reason)
+                && let Some((session, legacy)) = model.slots.voice.legacy_captions(fx.address)
+            {
                 model.core.transcript.seal_legacy_captions(session, legacy);
             }
-            voice::apply_thread(&mut model.slots.voice, voice::ThreadEv::Closed, fx);
+            voice::apply_thread(&mut model.slots.voice, voice::ThreadEv::Closed(reason), fx);
         }
         ThreadEvent::LostLegacyOrder => {
             if model.slots.voice.lose_legacy_order() {

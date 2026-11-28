@@ -52,6 +52,7 @@ pub struct Strings {
     pub channel_hint: &'static str,
     pub pending: &'static str,
     pub host_lost: &'static str,
+    pub mute_unavailable: &'static str,
 }
 
 /// English: the oracle's text (the slice names the oracle file per group).
@@ -90,6 +91,7 @@ pub const EN: Strings = Strings {
     channel_hint: "space toggle · enter save · esc cancel",
     pending: "Checking voice settings…",
     host_lost: "Voice stopped because the local audio service was interrupted.",
+    mute_unavailable: "Start voice mode before muting the microphone.",
 };
 
 pub(super) fn device_label(kind: DeviceKind) -> &'static str {
@@ -123,7 +125,22 @@ pub(super) fn describe_channels(channels: Option<&[NonZeroU16]>) -> String {
     )
 }
 
-pub(crate) fn feedback(feedback: &Feedback) -> Span {
+pub(crate) fn note(note: &codex_tui_core::screens::voice::Note) -> String {
+    use codex_tui_core::screens::voice::{Note, RetryReason};
+    match note {
+        Note::Settings(settings) => feedback(settings).text,
+        Note::Retry(RetryReason::Timeout) => {
+            "Voice connection timed out. Retrying once after cleanup.".into()
+        }
+        Note::Retry(RetryReason::TransportClosed) => {
+            "Voice connection closed during startup. Retrying once.".into()
+        }
+        Note::StillStopping => "Voice conversation is still stopping.".into(),
+        Note::StartupTransportClosed => "Voice conversation ended: transport_closed".into(),
+    }
+}
+
+pub(super) fn feedback(feedback: &Feedback) -> Span {
     match feedback {
         Feedback::VoiceSaved(voice) => Span::new(
             format!("Voice set to {}. {}", voice.wire_name(), EN.applies_to_next),

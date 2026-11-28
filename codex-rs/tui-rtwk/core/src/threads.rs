@@ -1290,6 +1290,8 @@ pub enum Failure {
     VoiceLock(screens::voice::LockStop),
     /// The primary terminal's audio executor was interrupted.
     VoiceHostLost,
+    /// The stopped media peer cannot change its microphone state.
+    VoiceMuteUnavailable,
 }
 
 impl From<RpcError> for Failure {
@@ -1909,6 +1911,7 @@ pub struct ThreadFx<'a> {
     registered: Vec<(Ticket, ThreadCtx)>,
     published_name: Option<String>,
     voice_failure: Option<Failure>,
+    voice_note: Option<screens::voice::Note>,
     ordered_legacy_voice: bool,
     realtime_voice: Option<screens::voice::settings::RealtimeVoice>,
     address: Address,
@@ -1940,6 +1943,7 @@ impl<'a> ThreadFx<'a> {
             registered: Vec::new(),
             published_name: None,
             voice_failure: None,
+            voice_note: None,
             ordered_legacy_voice: false,
             realtime_voice: None,
             address: Address::default(),
@@ -2175,6 +2179,7 @@ impl<'a> ThreadFx<'a> {
                 thread: self.thread.clone(),
                 address: self.address,
                 call,
+                attempt: screens::voice::Attempt::Initial,
             },
             session,
         )
@@ -2186,6 +2191,10 @@ impl<'a> ThreadFx<'a> {
 
     pub(crate) fn voice_failure(&mut self, failure: Failure) {
         self.voice_failure = Some(failure);
+    }
+
+    pub(crate) fn voice_note(&mut self, note: screens::voice::Note) {
+        self.voice_note = Some(note);
     }
 
     pub(crate) fn publish_name(&mut self, name: String) {
@@ -2713,6 +2722,9 @@ pub(crate) fn apply_with_receipt(
     }
     if let Some(failure) = fx.voice_failure.take() {
         model.last_error = Some(failure);
+    }
+    if let Some(note) = fx.voice_note.take() {
+        apply_appended(model, None, Item::Note(Note::from(NoteKey::Voice(note))));
     }
     for (ticket, ctx) in std::mem::take(&mut fx.registered) {
         if matches!(

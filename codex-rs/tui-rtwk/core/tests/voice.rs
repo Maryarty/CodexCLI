@@ -13,7 +13,8 @@ use codex_tui_core::protocol::{client_request, reply};
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::screens::{ScreenThreadIntent, voice};
 use voice::{
-    AudioAction, AudioCommand, AudioReport, AudioResult, LockStop, Peaks, Sdp, ThreadIntent,
+    Attempt, AudioAction, AudioCommand, AudioReport, AudioResult, ConnectFailure, LockStop, Peaks,
+    Sdp, ThreadIntent,
 };
 
 fn ready() -> CodexApp {
@@ -124,6 +125,13 @@ fn closed(thread: &str) -> AppEv {
     )
 }
 
+fn closed_because(thread: &str, reason: &str) -> AppEv {
+    note(
+        "thread/realtime/closed",
+        serde_json::json!({ "threadId": thread, "reason": reason }),
+    )
+}
+
 fn answer(thread: &str) -> AppEv {
     note(
         "thread/realtime/sdp",
@@ -133,6 +141,351 @@ fn answer(thread: &str) -> AppEv {
 
 fn preparing(app: &mut CodexApp) -> AppFx {
     preparing_for(app, "thread-1")
+}
+
+#[test]
+fn voice_early_close_keeps_the_logical_call_owned_until_it_can_retry() {
+    use codex_tui_core::commands::{SessionIntent, SlashCommand, VoiceControl};
+    use codex_tui_core::screens::{ScreenEv, ScreenIntent, chat};
+
+    for had_ack in [false, true] {
+        let mut app = ready();
+        run(
+            &mut app,
+            AppEv::Screen(ScreenEv::Chat(chat::Ev::VoiceAvailable(true))),
+        );
+        let prepared = run(
+            &mut app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
+                thread: Some(ThreadId::new("thread-1")),
+                command: SlashCommand::Voice,
+                intent: SessionIntent::VoiceControl(VoiceControl::Toggle),
+            }))),
+        );
+        let (start, previous_session) = offered(&mut app, &prepared);
+        if had_ack {
+            run(&mut app, ack(&start));
+        }
+        // A backend transport can close before the pinned Started notification arrives.
+        let cleanup = run(&mut app, closed_because("thread-1", "transport_closed"));
+        assert_eq!(
+            app.active_thread()
+                .screen_slots()
+                .voice
+                .control(VoiceControl::Toggle),
+            Some(ThreadIntent::AcknowledgeStopping)
+        );
+        assert_eq!(host(&cleanup).0.action, AudioAction::ReleasePeer);
+        assert_eq!(host(&cleanup).0.owner, host(&prepared).0.owner);
+        assert!(
+            cleanup.commands().iter().all(|command| client_request(
+                command,
+                wire::RequestId::Integer(1),
+                None
+            )
+            .is_none())
+        );
+
+        let released = run(&mut app, media(&cleanup, AudioResult::PeerReleased));
+        let retried = if had_ack {
+            released
+        } else {
+            assert!(released.commands().is_empty());
+            run(&mut app, ack(&start))
+        };
+        assert_retry(&prepared, &retried);
+        let (new_start, new_session) = offered(&mut app, &retried);
+        assert_ne!(previous_session, new_session);
+        run(&mut app, ack(&new_start));
+        let ended = run(&mut app, closed_because("thread-1", "transport_closed"));
+        assert_eq!(host(&ended).0.action, AudioAction::Close);
+        assert!(display(&app).is_none());
+    }
+}
+
+fn timed_out(app: &mut CodexApp, accepted_start: bool) -> (AppFx, AppFx, AppFx) {
+    let prepared = preparing(app);
+    let (start, session) = offered(app, &prepared);
+    if accepted_start {
+        run(app, ack(&start));
+    }
+    run(app, started("thread-1", &session));
+    let connect = run(app, answer("thread-1"));
+    let cleanup = run(
+        app,
+        media(
+            &connect,
+            AudioResult::Connected(Err(ConnectFailure::TimedOut(
+                "negotiation timed out".into(),
+            ))),
+        ),
+    );
+    assert_eq!(host(&cleanup).0.action, AudioAction::ReleasePeer);
+    (start, connect, cleanup)
+}
+
+fn assert_retry(previous: &AppFx, next: &AppFx) {
+    let before = &host(previous).0.owner;
+    let mut expected = before.clone();
+    expected.attempt = Attempt::Retry;
+    assert_eq!(host(next).0.owner, expected);
+    assert_eq!(
+        host(next).0.action,
+        AudioAction::PrepareRetry { muted: false }
+    );
+    assert_eq!(
+        next.commands()
+            .iter()
+            .filter(|command| matches!(command.host_ask(), Some(Ask::Audio(_))))
+            .count(),
+        1,
+        "the original lock observer remains registered"
+    );
+}
+
+#[test]
+fn voice_timeout_waits_for_the_exact_backend_and_peer_cleanup_and_retries_once() {
+    for first_stop_ack in [false, true] {
+        let mut app = ready();
+        let (start, connect, cleanup) = timed_out(&mut app, first_stop_ack);
+        let deferred_stop = (!first_stop_ack).then(|| run(&mut app, ack(&start)));
+        let stop = deferred_stop.as_ref().unwrap_or(&cleanup);
+        assert!(matches!(
+            wire(stop).1,
+            wire::ClientRequest::ThreadRealtimeStop { .. }
+        ));
+        assert!(
+            run(&mut app, closed_because("thread-1", "transport_closed"))
+                .commands()
+                .is_empty()
+        );
+        let requested = closed_because("thread-1", "requested");
+        let stop_ack = ack(stop);
+        if first_stop_ack {
+            assert!(run(&mut app, stop_ack).commands().is_empty());
+            assert!(run(&mut app, requested).commands().is_empty());
+        } else {
+            assert!(run(&mut app, requested).commands().is_empty());
+            assert!(run(&mut app, stop_ack).commands().is_empty());
+        }
+        let retried = run(&mut app, media(&cleanup, AudioResult::PeerReleased));
+        assert_retry(&cleanup, &retried);
+        assert!(
+            run(&mut app, media(&connect, AudioResult::Connected(Ok(()))))
+                .commands()
+                .is_empty()
+        );
+        assert!(
+            run(
+                &mut app,
+                media(
+                    &cleanup,
+                    AudioResult::Prepared(Ok(Sdp::new("old-offer-ice".into())))
+                )
+            )
+            .commands()
+            .is_empty()
+        );
+        assert!(run(&mut app, ack(&start)).commands().is_empty());
+
+        let (start, session) = offered(&mut app, &retried);
+        run(&mut app, started("thread-1", &session));
+        let connect = run(&mut app, answer("thread-1"));
+        run(&mut app, ack(&start));
+        let failed = run(
+            &mut app,
+            media(
+                &connect,
+                AudioResult::Connected(Err(ConnectFailure::TimedOut(
+                    "second attempt timed out".into(),
+                ))),
+            ),
+        );
+        assert_eq!(host(&failed).0.action, AudioAction::Close);
+        assert_eq!(
+            app.active_thread().last_error(),
+            Some(&codex_tui_core::threads::Failure::Message(
+                "second attempt timed out".into()
+            ))
+        );
+        run(&mut app, ack(&failed));
+        let ended = run(&mut app, closed_because("thread-1", "requested"));
+        assert_eq!(host(&ended).0.action, AudioAction::Close);
+        assert!(display(&app).is_none());
+    }
+}
+
+#[test]
+fn voice_retry_cleanup_cancels_on_manual_stop_lock_rpc_refusal_or_connection_loss() {
+    use codex_tui_core::threads::Failure;
+    for cancel in ["stop", "lock", "refused", "lost"] {
+        let mut app = ready();
+        let (_, _, cleanup) = timed_out(&mut app, true);
+        match cancel {
+            "stop" => assert_eq!(
+                host(&intent(&mut app, ThreadIntent::Stop)).0.action,
+                AudioAction::Close
+            ),
+            "lock" => {
+                let lock = run(
+                    &mut app,
+                    media(&cleanup, AudioResult::LockStopped(LockStop::Locked)),
+                );
+                assert_eq!(host(&lock).0.action, AudioAction::Close);
+            }
+            "refused" => {
+                let (Command::Screen { ticket, .. }, _) = wire(&cleanup) else {
+                    panic!("owned stop request")
+                };
+                let refused = run(
+                    &mut app,
+                    AppEv::Reply(*ticket, Reply::failed("stop refused")),
+                );
+                assert_eq!(host(&refused).0.action, AudioAction::Close);
+                assert_eq!(
+                    app.active_thread().last_error(),
+                    Some(&Failure::Message("stop refused".into()))
+                );
+            }
+            "lost" => {
+                let address = host(&cleanup).0.owner.address;
+                let retired = app
+                    .ingest(Ingress::transport_replaced(
+                        address.backend,
+                        address.epoch,
+                        address.epoch.next(),
+                    ))
+                    .expect("retired transport");
+                assert_eq!(host(&retired).0.action, AudioAction::Close);
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            run(&mut app, media(&cleanup, AudioResult::PeerReleased))
+                .commands()
+                .is_empty()
+        );
+        let ack = run(&mut app, ack(&cleanup));
+        let closed = run(&mut app, closed_because("thread-1", "requested"));
+        assert!(
+            ack.commands()
+                .iter()
+                .chain(closed.commands())
+                .all(|command| !matches!(
+                    command.host_ask(),
+                    Some(Ask::Audio(AudioCommand {
+                        action: AudioAction::PrepareRetry { .. },
+                        ..
+                    }))
+                ))
+        );
+        assert!(display(&app).is_none());
+    }
+}
+
+#[test]
+fn voice_controls_from_another_backend_follow_the_live_owner_until_cleanup_finishes() {
+    use codex_tui_core::commands::{SessionIntent, SlashCommand, VoiceControl};
+    use codex_tui_core::screens::{ScreenIntent, chat};
+
+    for cancel_with_slash in [false, true] {
+        let mut app = ready();
+        let parked = preparing(&mut app);
+        let (start, session) = offered(&mut app, &parked);
+        run(&mut app, ack(&start));
+        run(&mut app, started("thread-1", &session));
+        let connect = run(&mut app, answer("thread-1"));
+
+        let secondary = BackendId(1);
+        app.attach_backend(secondary);
+        apply_app_from(&mut app, secondary, AppEv::Connected, &mut AppFx::default());
+        open_thread(&mut app, "thread-2", secondary, true);
+        let selected = ThreadId::new("thread-2");
+        let key = |control| {
+            AppEv::Intent(Intent::Screen(ScreenIntent::Chat(
+                chat::Intent::ControlVoice {
+                    thread: selected.clone(),
+                    control,
+                },
+            )))
+        };
+        assert!(app.screens().voice.has_control_owner());
+        let mute = run(&mut app, key(VoiceControl::Mute));
+        assert_eq!(host(&mute).0.action, AudioAction::SetMuted(true));
+        assert_eq!(host(&mute).0.owner, host(&parked).0.owner);
+        assert!(
+            intent_for(&mut app, selected.as_str(), ThreadIntent::Start)
+                .commands()
+                .is_empty()
+        );
+        let cleanup = run(
+            &mut app,
+            media(
+                &connect,
+                AudioResult::Connected(Err(ConnectFailure::TimedOut("timed out".into()))),
+            ),
+        );
+        let cancel = if cancel_with_slash {
+            AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
+                thread: Some(selected.clone()),
+                command: SlashCommand::Voice,
+                intent: SessionIntent::VoiceControl(VoiceControl::Stop),
+            })))
+        } else {
+            key(VoiceControl::Toggle)
+        };
+        let stopped = run(&mut app, cancel);
+        assert_eq!(host(&stopped).0.action, AudioAction::Close);
+        assert_eq!(host(&stopped).0.owner, host(&parked).0.owner);
+        assert_eq!(app.session().active.as_ref(), Some(&selected));
+        assert!(display(&app).is_none());
+        run(&mut app, ack(&cleanup));
+        run(&mut app, media(&cleanup, AudioResult::PeerReleased));
+        let released = run(&mut app, closed_because("thread-1", "requested"));
+        assert_eq!(host(&released).0.action, AudioAction::Close);
+        let new_call = run(&mut app, key(VoiceControl::Toggle));
+        assert_eq!(host(&new_call).0.owner.thread, selected);
+        assert_eq!(host(&new_call).0.owner.address.backend, secondary);
+        let stale = run(
+            &mut app,
+            media(&parked, AudioResult::LockStopped(LockStop::Locked)),
+        );
+        assert!(stale.commands().is_empty());
+        assert!(display(&app).is_some_and(|display| display.connecting));
+    }
+}
+
+#[test]
+fn voice_retry_continues_on_its_parked_thread_and_the_original_lock_still_cancels_it() {
+    use codex_tui_core::threads::Failure;
+    let mut app = ready();
+    let (_, _, cleanup) = timed_out(&mut app, true);
+    let other = BackendId(1);
+    open_thread(&mut app, "thread-2", other, true);
+    apply_app_from(
+        &mut app,
+        other,
+        closed_because("thread-1", "requested"),
+        &mut AppFx::default(),
+    );
+    run(&mut app, ack(&cleanup));
+    let released = run(&mut app, media(&cleanup, AudioResult::PeerReleased));
+    assert!(released.commands().is_empty());
+    let retried = run(&mut app, closed_because("thread-1", "requested"));
+    assert_retry(&cleanup, &retried);
+    let stopped = run(
+        &mut app,
+        media(&cleanup, AudioResult::LockStopped(LockStop::Locked)),
+    );
+    assert_eq!(host(&stopped).0.action, AudioAction::Close);
+    assert_eq!(host(&stopped).0.owner, host(&retried).0.owner);
+    assert!(display(&app).is_none());
+    assert_eq!(
+        app.thread(&ThreadId::new("thread-1"))
+            .expect("parked")
+            .last_error(),
+        Some(&Failure::VoiceLock(LockStop::Locked))
+    );
 }
 
 fn preparing_for(app: &mut CodexApp, thread: &str) -> AppFx {
@@ -304,6 +657,13 @@ fn voice_preference_changes_the_next_call_only_after_the_effective_write_receipt
         Some(Feedback::VoiceSaved(Voice::Maple))
     );
     let (start, _) = offered(&mut app, &pending_call);
+    assert!(
+        matches!(wire(&start).1, wire::ClientRequest::ThreadRealtimeStart { params, .. } if params.voice == Some(Voice::Juniper))
+    );
+    run(&mut app, ack(&start));
+    let cleanup = run(&mut app, closed_because("thread-1", "transport_closed"));
+    let retry = run(&mut app, media(&cleanup, AudioResult::PeerReleased));
+    let (start, _) = offered(&mut app, &retry);
     assert!(
         matches!(wire(&start).1, wire::ClientRequest::ThreadRealtimeStart { params, .. } if params.voice == Some(Voice::Juniper))
     );
@@ -900,7 +1260,7 @@ fn catalog_and_audio_reads_requested_in_another_thread_survive_a_pending_voice_w
             );
             let acknowledged = |thread: &ThreadId| {
                 app.thread(thread).expect("held thread").transcript().iter().any(|(_, item)| {
-                matches!(item, Item::Note(note) if note.key == NoteKey::VoiceSettings(expected.clone()))
+                matches!(item, Item::Note(note) if note.key == NoteKey::Voice(voice::Note::Settings(expected.clone())))
             })
             };
             assert!(acknowledged(&a));
