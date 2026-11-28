@@ -1,0 +1,7 @@
+# A chat whose bottom pane is the oracle's composer harness (`new_test_composer`): no status line,
+# so the context meter stands in the footer (`100% context left` while the window is unknown), and
+# no agents navigation (`? for shortcuts` alone), reduced motion (the voice strip drops its sample
+# history row: `animations: false` of the oracle's `VoiceStripState`).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"facts":{"agents_navigation":false}}}
+{"step":"screen","dir":"chat","ev":{"status":{"animations":false,"items":[]}}}

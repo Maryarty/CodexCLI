@@ -25,6 +25,15 @@ impl Screen {
         self
     }
 
+    /// The first-launch onboarding (`Open::first_login`) is done: the host answers the startup
+    /// facts, the sign-in and trust questions have nothing to ask, and the launch starts the
+    /// session (its `thread/start` is held by `held_start`).
+    pub fn finish_onboarding(&mut self) -> &mut Screen {
+        self.h.finish_startup_without_prompts();
+        self.h.advance(100);
+        self
+    }
+
     /// The server answers the held `thread/start` with its full JSON response.
     pub fn start_thread_with(&mut self, response: serde_json::Value) -> &mut Screen {
         self.answer_request(&self.thread_start_request(), response);

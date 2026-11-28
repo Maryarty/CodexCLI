@@ -117,6 +117,15 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             }),
         },
         DebugEntry {
+            name: "alone_mention",
+            description: "the composer with its key footer and the skill `skill` to mention (`$`)",
+            script: include_str!("fixtures/alone_mention.jsonl"),
+            open: EntryOpen::Route(|seeded: &Seeded| {
+                let ui = seeded.thread_ui.get(seeded.core.session().active.as_ref());
+                alone::Alone::new(ui).into()
+            }),
+        },
+        DebugEntry {
             name: "alone_agents",
             description: "the composer with its key footer, the agents page reachable (`← for agents`)",
             script: include_str!("fixtures/alone.jsonl"),

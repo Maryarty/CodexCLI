@@ -334,15 +334,18 @@ fn code_mode_tool_call_preserves_failure_details() {
 #[test]
 fn mcp_inventory_loading_snapshot() {
     let mut s = Screen::build(Owner::ChatLive).size(80, 6).live().open();
+    // the inventory ask stays out: the loading cell is what the transcript shows meanwhile
+    let _inventory = s.hold_request("mcpServerStatus/list");
     s.type_text("/mcp");
     s.keys("enter");
-    s.assert_snap_region("mcp_inventory_loading_snapshot", 0, 0);
+    s.assert_snap_region("mcp_inventory_loading_snapshot", first_cell_row(&s), 0);
 }
 
 // ORACLE history_cell/tests.rs:1609 mcp_inventory_loading_without_animations_is_stable kind=ui owner=chat-live
 #[test]
 fn mcp_inventory_loading_without_animations_is_stable() {
     let mut s = Screen::build(Owner::ChatLive).size(80, 6).live().open();
+    let _inventory = s.hold_request("mcpServerStatus/list");
     s.type_text("/mcp");
     s.keys("enter");
     s.assert_has_row("• Loading MCP inventory…");

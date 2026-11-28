@@ -81,7 +81,7 @@ impl StatelessWidget for Strip {
                 pane = pane.child(Text::rich_line(spans).overflow(TextOverflow::Clip));
             }
             BoxWidget::new()
-                .padding(EdgeInsets::only(0, 1, 0, 1))
+                .padding(EdgeInsets::only(1, 1, 1, 0))
                 .child(pane)
                 .into()
         })

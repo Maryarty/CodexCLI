@@ -17,13 +17,14 @@
 //! (history prepended, a tail absorbed, a result arriving). An `entry` screen
 //! plays its fixture in a model of its own: `feed` is for the live app.
 
-use codex_tui_core::app::{AppEv, BackendEv};
+use codex_tui_core::app::{AppEv, BackendEv, Now};
 use codex_tui_core::fixtures::script::{self, Step};
 use codex_tui_core::screens::onboarding::session::Start;
 use codex_tui_core::screens::popovers::ClipboardRead;
 use codex_tui_core::screens::seed_ev;
 use codex_tui_core::screens::startup::Action;
 use codex_tui_rtwk::app::UiApp;
+use codex_tui_rtwk::services::shell::FixedClock;
 
 use super::Screen;
 use super::env::Env;
@@ -52,6 +53,11 @@ pub struct Open {
     pub(super) quittable: bool,
     pub(super) first_frame: bool,
     pub(super) held_start: bool,
+    /// The host has not answered the startup facts: the first launch's onboarding is up
+    /// (`Open::first_login`).
+    first_login: bool,
+    /// The app's clock stands at this Unix time (`Open::clock`).
+    clock: Option<i64>,
     model_catalog: Option<serde_json::Value>,
     collaboration_catalog: Option<serde_json::Value>,
     /// The fake mints `fake-turn-{n}` for the turns the app starts (`Open::fake_turn_ids`).
@@ -92,6 +98,8 @@ impl Screen {
             quittable: false,
             first_frame: false,
             held_start: false,
+            first_login: false,
+            clock: None,
             model_catalog: None,
             collaboration_catalog: None,
             fake_turns: false,
@@ -233,6 +241,21 @@ impl Open {
         self
     }
 
+    /// The first launch of a fresh home: the host has not answered the startup facts, the
+    /// onboarding owns the screen and the chat's composer is hidden and deaf until it ends
+    /// (`Screen::finish_onboarding`; the oracle's `StartupDraftInitialScreen::Onboarding`).
+    pub fn first_login(mut self) -> Open {
+        self.first_login = true;
+        self
+    }
+
+    /// The app's clock stands at this Unix time in seconds (the oracle's fixtures date their
+    /// sessions against a fixed `now`).
+    pub fn clock(mut self, secs: i64) -> Open {
+        self.clock = Some(secs);
+        self
+    }
+
     /// The live chat inside a side conversation (`/side`, the fork answered): its footer says
     /// `to switch`, Ctrl+C and Ctrl+D over an empty composer return to the parent
     /// (`Screen::side_closed`). For `live()` and `script(..)`.
@@ -336,6 +359,8 @@ impl Open {
     fn driven(&self, debug: bool) -> Harness {
         let initial = self.initial.clone();
         let launch = self.launch.clone();
+        let first_login = self.first_login;
+        let clock = self.clock;
         let h = crate::common::start_driven_mode(
             debug,
             self.env.options(self.width, self.height),
@@ -343,6 +368,15 @@ impl Open {
             move |app| {
                 let app = match launch {
                     Some(start) => app.with_start_session(start),
+                    None => app,
+                };
+                let app = if first_login {
+                    app.with_awaited_facts(true)
+                } else {
+                    app
+                };
+                let app = match clock {
+                    Some(secs) => app.with_clock(FixedClock::at(Now::at_secs(secs))),
                     None => app,
                 };
                 match initial {
@@ -586,6 +620,14 @@ impl Screen {
             !self.entry,
             "feed works on a script() or live() screen: a debug entry's screen plays its own fixture, the app's events do not reach it"
         );
+        feed(&mut self.h, jsonl);
+        self
+    }
+
+    /// Applies steps of a JSONL script to a screen opened with `Open::dir`, as the host
+    /// would tell the live page (a `screen` event of its directory: the scope a picker is
+    /// opened under, the clock): the page asks the fake backend for the rest.
+    pub fn feed_dir(&mut self, jsonl: &str) -> &mut Screen {
         feed(&mut self.h, jsonl);
         self
     }

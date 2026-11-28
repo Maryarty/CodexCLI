@@ -1340,7 +1340,7 @@ fn terminal_app_ssh_fallback_renders_inline_startup() {
 fn startup_draft_clears_loading_status_when_starting_fresh() {
     kit::pending(
         Owner::ChatNavPane,
-        "feature startup draft (w2-composer, startup): not in the port's loading status and its fresh-session transitions (resume and fork lookups, picker cancellation) are not reachable black-box",
+        "pending(G-new-launch-lookup): the oracle's four transitions start a fresh session after `codex resume --last` / `codex fork --last` finds no session (the lookup fallback) and after the session picker of `codex resume` / `codex fork` is cancelled; the port's command line names a session by id only (`Start { action, id }`, no `--last`, no picker as a first screen), so neither state can be entered black-box. The frames they end in are the startup draft's `empty (48 columns)` frame, which `startup_draft_renders_full_empty_and_multiline_composer_frames` matches",
     );
     let s = Screen::build(Owner::ChatNavPane).size(48, 24).live().open();
     s.assert_snap_section(
@@ -1432,12 +1432,25 @@ fn startup_draft_applies_super_editor_keymap_without_inserting_pending_newline()
 // ORACLE startup_draft_tests.rs:770 startup_draft_waits_for_onboarding_before_accepting_input kind=snap owner=chat-nav-pane snap=startup_draft_onboarding_transition
 #[test]
 fn startup_draft_waits_for_onboarding_before_accepting_input() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "feature startup draft (w2-composer, startup): not in the port held behind onboarding (first login, search override, existing history) is not reachable black-box",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    // The first launch of a fresh home: the onboarding owns the screen, the composer is hidden
+    // and takes no keys or pastes until it is done, then the startup draft shows empty.
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .held_start()
+        .inline(&[])
+        .first_login()
+        .open();
     s.keys("x");
     s.paste("not a draft");
-    s.assert_snap("startup_draft_onboarding_transition");
+    s.assert_absent("not a draft");
+    s.assert_absent("Ask Codex to do anything");
+    s.finish_onboarding();
+    s.snap("startup_draft_onboarding_transition")
+        .labelled(&[
+            "before onboarding: hidden (0x0 viewport)",
+            "after onboarding",
+        ])
+        .frame("after onboarding")
+        .assert();
 }

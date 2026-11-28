@@ -65,7 +65,7 @@ pub const EN: Strings = Strings {
     quiet_marker: "◌",
     control_gap: "   ",
     connecting: " connecting",
-    listening: " listen",
+    listening: " listening",
     muted: " muted",
     mute: " mute",
     unmute: " unmute",

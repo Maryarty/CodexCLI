@@ -1,0 +1,7 @@
+# The composer with its footer, alone, on a blank draft of one thread (no turn), and the skill
+# `skill` to mention at `/original/skill/SKILL.md` (`rich_composer` of vim_register_tests.rs).
+# Oracle data: bottom_pane/chat_composer.rs `snapshot_composer_state_with_width` (a fresh
+# ChatComposer: no status line, so the context meter stands in the footer).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":[]}}}
+{"step":"screen","dir":"popovers","ev":{"mentions":[{"kind":"skill","name":"skill","description":"Example skill used in tests.","insert":"skill","path":"/original/skill/SKILL.md"}]}}

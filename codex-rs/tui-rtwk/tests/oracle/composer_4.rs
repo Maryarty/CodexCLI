@@ -677,15 +677,25 @@ fn shortcut_footer_displays_configured_chords() {
 // ORACLE bottom_pane/chat_composer/snapshot_tests.rs:94 draft_and_voice_composer_snapshots kind=snap owner=chat-live snap=codex_tui__bottom_pane__chat_composer__snapshot_tests__draft_composer snap=codex_tui__bottom_pane__chat_composer__snapshot_tests__voice_composer
 #[test]
 fn draft_and_voice_composer_snapshots() {
-    kit::pending(
-        Owner::ChatLive,
-        "the oracle's snapshots are the composer alone at 60 columns, and no voice strip on the chat composer (no seed for set_voice_strip)",
-    );
-    let mut s = chat(60, 4);
+    // the draft: the composer alone, its footer the context meter (no status line)
+    let mut s = alone(60, 4, false);
     s.type_text("Explore the night sky");
     s.assert_snap("draft_composer");
-    let s = chat(60, 6);
-    s.assert_snap("voice_composer");
+    // the voice strip over the empty composer: the call is up (`/voice`), the strip's mute
+    // control is the slash command (no key is bound to `chat.toggle_voice_mute`)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(60, 6)
+        .keymap(&[("chat.toggle_voice_mute", "")])
+        .script(include_str!("fixtures/composer_4/bare_chat.jsonl"))
+        .open();
+    s.voice_available()
+        .type_text("/voice")
+        .keys("enter")
+        .voice_connected();
+    // the footer row: the app's voice call puts the voice hint in the footer too (the oracle's
+    // `voice_footer_rendering_preserves_text_and_styles`), where the oracle's composer test sets
+    // the strip alone and keeps `? for shortcuts`
+    s.assert_snap_frame_except("voice_composer", "", &[5]);
 }
 
 // ---- oracle: bottom_pane/chat_composer/vim_history_tests.rs (22 screen-level tests here; 9 state tests left to chat-live)
@@ -979,23 +989,25 @@ fn vim_replace_delete_backward_restores_characters_hidden_by_prompt_prefixes() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:725 vim_editing_modes_use_the_same_large_and_image_paste_handling kind=ui owner=chat-live
 #[test]
 fn vim_editing_modes_use_the_same_large_and_image_paste_handling() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body; the image-path paste needs a file on disk (no kit call writes one)",
-    );
-    let big = "x".repeat(1001);
-    let mut insert = chat(100, 24);
-    insert.type_text("next");
-    insert.keys("esc");
-    insert.type_text("i");
-    insert.paste(&big);
-    let shown = insert.shot();
-    let mut replace = chat(100, 24);
-    replace.type_text("next");
-    replace.keys("esc");
-    replace.type_text("R");
-    replace.paste(&big);
-    replace.assert_same_rows(&shown);
+    // The oracle's `vim_composer("next")` (F9 turns Vim on, in Normal mode) enters Insert (`i`)
+    // or Replace (`R`) and pastes a large text or the path of an image file: both modes make
+    // the same draft (a paste label, an image label), so Replace overwrites nothing.
+    let image = kit::image_file("vim_modes.png");
+    for pasted in ["x".repeat(1001), image.to_string_lossy().into_owned()] {
+        let pasted_in = |mode: &str| {
+            let mut s = chat(100, 24);
+            s.type_text("next");
+            s.keys("f9");
+            s.type_text(mode);
+            s.local_image(&image);
+            s.paste(&pasted);
+            s
+        };
+        let insert = pasted_in("i");
+        let shown = insert.shot();
+        // the draft's rows; the footer's last row names the mode (`Vim: Insert`, `Vim: Replace`)
+        pasted_in("R").assert_same_rows_in(&shown, 0..23);
+    }
 }
 
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:746 vim_replace_paste_bursts_preserve_overwritten_text_and_repeat kind=ui owner=chat-live
@@ -1174,13 +1186,20 @@ fn insert_yank_repeat_keeps_original_text_after_word_deletion() {
 // ORACLE bottom_pane/chat_composer/vim_register_tests.rs:204 rich_paste_renders_unique_image_and_paste_labels kind=snap owner=chat-live snap=vim_rich_register
 #[test]
 fn rich_paste_renders_unique_image_and_paste_labels() {
-    kit::pending(
-        Owner::ChatLive,
-        "Vim is built (tests/pages/composer_vim.rs) but the kit seeds no Vim state for this body, no mention, image or paste payload on the chat composer (no kit seeds); the snapshot is the composer alone at 100 columns",
-    );
-    let mut s = chat(100, 9);
-    rich_draft(&mut s);
-    s.type_text("p");
+    // the oracle's `rich_composer()` (a `$skill` mention, an attached image, a 1001-character
+    // paste, Normal mode on the first cell), its line yanked and put back after the first cell:
+    // the object labels stay unique (`[Image #2]`, `[Pasted Content 1001 chars] #2`)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 9)
+        .keymap(&[("global.toggle_vim_mode", "f9")])
+        .entry("composer", "alone_mention")
+        .open();
+    s.keys("f9 i");
+    s.type_text("$skill").keys("tab");
+    s.attach_image("photo.png");
+    s.paste(&"z".repeat(1001));
+    s.keys("esc");
+    s.type_text("0y$p");
     s.assert_snap("vim_rich_register");
 }
 

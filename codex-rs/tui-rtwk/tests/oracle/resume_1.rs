@@ -6,24 +6,62 @@
 
 use crate::kit::{self, Owner, Screen};
 
+/// The server's `thread/list` answer: one session of `cwd` on `branch` (none: no git info),
+/// created and updated at the given Unix seconds.
+fn listing(
+    preview: &str,
+    cwd: &str,
+    branch: Option<&str>,
+    created: u64,
+    updated: u64,
+) -> serde_json::Value {
+    let id = "00000000-0000-0000-0000-000000000015";
+    let git =
+        branch.map(|name| serde_json::json!({"sha": null, "branch": name, "originUrl": null}));
+    serde_json::json!({"nextCursor": null, "data": [{
+        "id": id, "sessionId": id, "environments": null, "extra": null,
+        "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
+        "preview": preview, "ephemeral": false, "section": null, "sectionEnteredAt": null,
+        "projectId": null, "historyMode": "legacy", "modelProvider": "openai", "model": null,
+        "reasoningEffort": null, "createdAt": created, "updatedAt": updated,
+        "recencyAt": updated, "status": {"type": "idle"}, "path": "session.jsonl", "cwd": cwd,
+        "cliVersion": "0.0.0", "originator": null, "source": "cli", "canAcceptDirectInput": true,
+        "threadSource": null, "agentNickname": null, "agentRole": null, "gitInfo": git,
+        "name": null, "daybreakEnabled": null, "turns": []
+    }]})
+}
+
 // ---- oracle: resume_picker.rs (32 screen-level tests here; 15 state tests left to routes-lists)
 // ORACLE resume_picker.rs:4301 linked_worktree_sessions_follow_directory_scope kind=snap owner=routes-lists snap=resume_picker_linked_worktree
 #[test]
 fn linked_worktree_sessions_follow_directory_scope() {
-    kit::pending(
-        Owner::RoutesLists,
-        "the filter change (`tab right`) reloads the list from the server (oracle `change_filter_mode` -> `start_initial_load`) and an entry screen has no server to answer, so the list is `Loading sessions…`; the filter's effect on the rows is the state test `the_repository_filter_shows_the_rows_of_linked_checkouts` (core/tests/resume.rs)",
-    );
-    // The oracle hides the linked worktree's session until the filter moves to
-    // all checkouts (`change_filter_mode(Next)`: the filter control, then right).
+    // The oracle hides the linked worktree's session until the filter moves to all checkouts
+    // (`change_filter_mode(Next)`: the filter control, then right): the picker is the live one,
+    // scoped to the primary checkout of a repository that has a linked one, and the server
+    // lists the session of the linked checkout again when the filter changes.
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(102, 12)
-        .entry("resume", "linked_worktree")
+        .size(104, 12)
+        .dir("resume")
+        .clock(1_735_776_000)
         .open();
-    s.keys("tab right");
-    // The list is the screen less its two-cell inset on each side, at row 6 (the toolbar and
-    // search line above it); the oracle's snapshot is its two list rows.
-    s.assert_snap_region("resume_picker_linked_worktree", 6, 2);
+    s.feed_dir(
+        r#"{"step":"screen","dir":"resume","ev":{"scope":{"cwd":"/repo/primary","repo_cwds":["/repo/primary","/repo/linked"]}}}"#,
+    );
+    s.server_answers(
+        "thread/list",
+        listing(
+            "Linked session",
+            "/repo/linked",
+            None,
+            1_735_689_600,
+            1_735_689_600,
+        ),
+    );
+    // the filter control has the focus (the oracle's `change_filter_mode(Next)`): Cwd -> Repo
+    s.keys("right");
+    // The list stands at row 3 (the title, the toolbar and the search line above it), 100 cells
+    // wide between its two-cell insets (the oracle renders it at 100x12): its two list rows.
+    s.assert_snap_region("resume_picker_linked_worktree", 3, 2);
 }
 
 // ORACLE resume_picker.rs:4564 local_db_first_falls_back_when_initial_db_page_is_empty kind=snap owner=routes-lists snap=resume_picker_db_fallback_transition
@@ -73,7 +111,7 @@ fn expanded_session_details_include_metadata() {
 // ORACLE resume_picker.rs:4806 footer_prioritizes_active_sort_timestamp kind=ui owner=routes-lists
 #[test]
 fn footer_prioritizes_active_sort_timestamp() {
-    let mut s = Screen::build(Owner::RoutesLists)
+    let s = Screen::build(Owner::RoutesLists)
         .size(84, 12)
         .entry("resume", "footer_times")
         .open();
@@ -81,15 +119,29 @@ fn footer_prioritizes_active_sort_timestamp() {
     s.assert_contains("  3h ago");
     s.assert_absent("created 5h ago");
     s.assert_in_order(&["⌁ tmp/codex", " main"]);
-    kit::pending(
-        Owner::RoutesLists,
-        "the Created half needs the reload a sort change starts (oracle `start_initial_load`) and an entry screen has no server to answer it, so after `tab tab right` the list is `Loading sessions…`; the live page test `the_meta_line_leads_with_the_created_time_once_the_sort_is_created` (tests/pages/resume.rs) drives it with the fake backend",
+    // Created sort: the sort change reloads the list, which only a live picker has a server
+    // for: the fake backend lists the session (updated 3h, created 5h before the clock) and
+    // the footer leads with the created time.
+    let now: u64 = 1_777_723_200;
+    let mut s = Screen::build(Owner::RoutesLists)
+        .size(84, 12)
+        .dir("resume")
+        .clock(i64::try_from(now).unwrap_or_default())
+        .open();
+    s.server_answers(
+        "thread/list",
+        listing(
+            "Footer row",
+            "/tmp/codex",
+            Some("main"),
+            now - 5 * 3600,
+            now - 3 * 3600,
+        ),
     );
-    // Created sort: the footer leads with the created time.
     s.keys("tab tab right");
     s.assert_contains("  5h ago");
     s.assert_absent("updated 3h ago");
-    s.assert_in_order(&["⌁ tmp/codex", " main"]);
+    s.assert_in_order(&["⌁ /tmp/codex", " main"]);
 }
 
 // ORACLE resume_picker.rs:4837 footer_marks_missing_branch kind=ui owner=routes-lists
