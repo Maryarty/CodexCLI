@@ -69,13 +69,12 @@ struct Server<'a> {
     ids: &'a Ids,
 }
 
-async fn voices(
-    link: &Server<'_>,
-) -> Result<codex_protocol::protocol::RealtimeVoicesList, TypedRequestError> {
+async fn voices(link: &Server<'_>) -> Result<codex_protocol::protocol::RealtimeVoicesList, String> {
     link.handle
         .request_typed::<wire::ThreadRealtimeListVoicesResponse>(catalog_request(link.ids.next()))
         .await
         .map(|reply| reply.voices)
+        .map_err(|error| error.to_string())
 }
 
 async fn effective_voice(
@@ -111,9 +110,7 @@ async fn effective_voice(
 }
 
 async fn catalog(link: &Server<'_>, cwd: Option<String>) -> Result<Catalog, Problem> {
-    let voices = voices(link)
-        .await
-        .map_err(|error| Problem::Catalog(error.to_string()))?;
+    let voices = voices(link).await.map_err(Problem::Catalog)?;
     let current = effective_voice(link, cwd, voices.default_v1)
         .await
         .map_err(|error| Problem::ReadVoice(error.to_string()))?
@@ -141,9 +138,7 @@ async fn save_voice(
         .request_typed::<wire::ConfigWriteResponse>(request)
         .await
         .map_err(|error| Problem::WriteVoice(error.to_string()))?;
-    let voices = voices(link)
-        .await
-        .map_err(|error| Problem::ReadSavedVoice(error.to_string()))?;
+    let voices = voices(link).await.map_err(Problem::ReadSavedVoice)?;
     let current = match effective_voice(link, cwd, voices.default_v1).await {
         Ok(Some(current)) => current,
         Ok(None) if saved.status != wire::WriteStatus::OkOverridden => Some(voice),
