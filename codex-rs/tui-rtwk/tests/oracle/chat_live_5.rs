@@ -483,11 +483,11 @@ fn custom_prompt_enter_empty_does_not_send() {
 // ORACLE chatwidget/tests/review_mode.rs:1247 interrupt_exec_marks_failed_snapshot kind=snap owner=chat-live snap=interrupt_exec_marks_failed
 #[test]
 fn interrupt_exec_marks_failed_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "the oracle snapshots the cell as it is inserted into the scrollback (`display_lines`: `Ran`); the chat draws the compact cell, which titles a command that exited non-zero `Exited (status 1)` (exec_cell/compact.rs); the cell is finalized as failed and kept",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .inline(&[])
+        .live()
+        .open();
     s.feed(&turn_started("turn-1"));
     s.feed(&exec_begin("call-int", "sleep 1"));
     s.feed(&turn_ended("turn-1", "interrupted"));

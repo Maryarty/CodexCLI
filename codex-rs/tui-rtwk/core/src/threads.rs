@@ -4548,7 +4548,9 @@ fn add_startup_warnings(
 ) {
     for warning in warnings {
         // the count and the viewer retain it by server, in the oracle's words
-        fx.out.mcp_warnings.push(screens::dialogs::mcp_entry(&warning));
+        fx.out
+            .mcp_warnings
+            .push(screens::dialogs::mcp_entry(&warning));
         apply_appended(model, None, Item::StartupWarning(warning));
     }
     if !model.slots.chat.mcp.is_starting() && !model.busy() {

@@ -18,7 +18,6 @@ fn mcp_row(s: &Screen) -> usize {
 const URL_LIKE: &str =
     "example.test/api/v1/projects/alpha-team/releases/2026-02-17/builds/1234567890";
 
-
 // ---- oracle: history_cell/tests.rs (39 screen-level tests here; 3 state tests left to chat-live)
 // ORACLE history_cell/tests.rs:1162 mcp_tools_output_from_statuses_renders_status_only_servers kind=snap owner=chat-live snap=mcp_tools_output_from_statuses_renders_status_only_servers
 #[test]

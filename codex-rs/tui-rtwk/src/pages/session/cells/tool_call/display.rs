@@ -63,7 +63,7 @@ pub(super) fn plan(call: &McpCall, strings: &Strings, room: Room) -> Plan {
     let under = if beside {
         Vec::new()
     } else {
-        wrap_under(&invocation, room)
+        rows_under(&invocation, room)
     };
     Plan {
         verb,
@@ -76,15 +76,14 @@ pub(super) fn plan(call: &McpCall, strings: &Strings, room: Room) -> Plan {
 
 /// The rows of `text` as `adaptive_wrap_hyperlink_lines` cuts it under the verb: the first one
 /// after `└ `, the others after a hanging indent.
-fn wrap_under(text: &str, room: Room) -> Vec<Range<usize>> {
+fn rows_under(text: &str, room: Room) -> Vec<Range<usize>> {
     let mut rows = Vec::new();
     let mut from = 0;
     let mut width = room.width.saturating_sub(BRANCH_CELLS).max(1);
     while from < text.len() {
-        let Some((start, end)) =
-            break_lines(&room.segmenter, &text[from..], width, TextWrap::Word)
-                .into_iter()
-                .next()
+        let Some((start, end)) = break_lines(&room.segmenter, &text[from..], width, TextWrap::Word)
+            .into_iter()
+            .next()
         else {
             break;
         };
@@ -135,10 +134,7 @@ fn invocation_spans(call: &McpCall, tokens: &Tokens) -> Vec<Span> {
         Span::new(INVOCATION_DOT),
         Span::styled(call.tool.clone(), tokens.accent()),
         Span::new(INVOCATION_OPEN),
-        Span::styled(
-            call.arguments.to_string(),
-            tokens.dim().attrs(Attrs::DIM),
-        ),
+        Span::styled(call.arguments.to_string(), tokens.dim().attrs(Attrs::DIM)),
         Span::new(INVOCATION_CLOSE),
     ]
 }
@@ -158,7 +154,11 @@ pub(super) fn rows(call: &McpCall, plan: &Plan, tokens: &Tokens) -> Rows {
     } else {
         for (index, range) in plan.under.iter().enumerate() {
             let glyph = if index == 0 { BRANCH } else { HANGING };
-            body.push(glyph_row(glyph, single_row(slice(&spans, range)), dim.clone()));
+            body.push(glyph_row(
+                glyph,
+                single_row(slice(&spans, range)),
+                dim.clone(),
+            ));
         }
         Text::line(plan.verb).style(tokens.bold()).into()
     };

@@ -725,7 +725,11 @@ fn warning_count_deduplicates_messages_mcp_summaries_and_composites() {
     s.keys("k");
     s.assert_contains("Warnings · 2 of 3 · MCP · alpha");
     s.assert_contains("MCP alpha failed");
-    s.assert_in_order(&["MCP alpha failed", "MCP startup incomplete (failed:", "alpha)"]);
+    s.assert_in_order(&[
+        "MCP alpha failed",
+        "MCP startup incomplete (failed:",
+        "alpha)",
+    ]);
     // Missed: the oracle compares replayed cells and composites (returned values), and that the
     // raw transcript of each cell is empty.
 }

@@ -178,11 +178,21 @@ pub fn texts(update: &PlanUpdate, detailed: bool, expanded: bool, strings: &Stri
         }
     } else {
         parts.push(Part::text(
-            [strings.bullet, strings.updated_plan, &progress(update, strings)].concat(),
+            [
+                strings.bullet,
+                strings.updated_plan,
+                &progress(update, strings),
+            ]
+            .concat(),
         ));
         for (index, step) in previewed(update).into_iter().enumerate() {
             parts.push(Part::text(
-                [branch(index == 0, strings), mark(step), &one_line(&step.text)].concat(),
+                [
+                    branch(index == 0, strings),
+                    mark(step),
+                    &one_line(&step.text),
+                ]
+                .concat(),
             ));
         }
         if update.steps.is_empty() {

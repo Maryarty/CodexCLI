@@ -5087,7 +5087,11 @@ fn apply_thread_with_receipt(
         crate::features::revalidate_rate_offer(&mut app.features, model.view());
     }
     for (servers, message) in std::mem::take(&mut fx.mcp_warnings) {
-        screens::dialogs::retain_mcp(&mut Rc::make_mut(&mut app.screens).dialogs, &servers, &message);
+        screens::dialogs::retain_mcp(
+            &mut Rc::make_mut(&mut app.screens).dialogs,
+            &servers,
+            &message,
+        );
     }
     reset::settle_hint(app, thread, fx);
 }

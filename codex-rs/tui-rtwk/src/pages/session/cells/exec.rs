@@ -534,13 +534,35 @@ pub(super) fn texts_at(
     Some(parts)
 }
 
+/// The code of the exit line a finished call draws in the detailed transcript (oracle
+/// `CommandOutput::from_execution`: the server's for a completed call, 0 when it says none; the
+/// nonzero one of a call that did not complete, 1 when it says none), drawn when the call has
+/// a duration or did not exit 0. `None` while it runs.
+fn result_code(call: &ToolActivity) -> Option<i32> {
+    let ToolKind::Shell {
+        exit_code,
+        duration_ms,
+        ..
+    } = &call.kind
+    else {
+        return None;
+    };
+    let code = match call.status {
+        ToolStatus::Running => return None,
+        ToolStatus::Completed => exit_code.unwrap_or_default(),
+        ToolStatus::Failed | ToolStatus::Declined => {
+            exit_code.filter(|code| *code != 0).unwrap_or(1)
+        }
+    };
+    (duration_ms.is_some() || code != 0).then_some(code)
+}
+
 /// The parts of [`detailed_shells`].
 fn detailed_texts(calls: &[&ToolActivity], strings: &Strings) -> Vec<Part> {
     let mut parts = Vec::new();
     for call in calls {
         let ToolKind::Shell {
             command,
-            exit_code,
             duration_ms,
             ..
         } = &call.kind
@@ -563,7 +585,7 @@ fn detailed_texts(calls: &[&ToolActivity], strings: &Strings) -> Vec<Part> {
         if !output.is_empty() {
             parts.push(Part::text(output.as_ref()));
         }
-        if let Some(code) = *exit_code {
+        if let Some(code) = result_code(call) {
             let mut result = if code == 0 {
                 strings.exit_ok.to_owned()
             } else {
@@ -594,7 +616,6 @@ pub fn raw_lines(calls: &[&ToolActivity], strings: &Strings) -> Vec<String> {
     for call in calls {
         let ToolKind::Shell {
             command,
-            exit_code,
             duration_ms,
             ..
         } = &call.kind
@@ -614,7 +635,7 @@ pub fn raw_lines(calls: &[&ToolActivity], strings: &Strings) -> Vec<String> {
             });
         }
         lines.extend(super::raw::source_lines(&detailed_output(call, strings)));
-        if let Some(code) = *exit_code {
+        if let Some(code) = result_code(call) {
             let mut result = if code == 0 {
                 strings.exit_ok.to_owned()
             } else {
@@ -651,7 +672,6 @@ fn detailed_shells(
     for call in calls {
         let ToolKind::Shell {
             command,
-            exit_code,
             duration_ms,
             ..
         } = &call.kind
@@ -686,7 +706,7 @@ fn detailed_shells(
         if !output.is_empty() {
             detail = detail.child(Text::new(output.into_owned()));
         }
-        if let Some(code) = *exit_code {
+        if let Some(code) = result_code(call) {
             let mut result = if code == 0 {
                 vec![Span::styled(
                     strings.exit_ok,

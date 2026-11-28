@@ -445,7 +445,7 @@ impl StatelessWidget for StatusSlot {
             if !run.transcript_empty || recapping {
                 column = column.child(blank());
             }
-            column = column.child(crate::features::mcp_inventory::cell::LoadingCell);
+            column = column.child(crate::features::mcp_inventory_loading());
         }
         if let Some(status) = status {
             if !run.transcript_empty {

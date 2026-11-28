@@ -156,7 +156,10 @@ pub fn row_parts(transcript: &Transcript, row: &Row, reading: &Reading<'_>) -> O
             .collect();
         // raw mode draws the shell calls as their plain detailed rows, a `Text` per line
         if reading.raw {
-            if !matches!(calls.first().map(|tool| &tool.kind), Some(ToolKind::Shell { .. })) {
+            if !matches!(
+                calls.first().map(|tool| &tool.kind),
+                Some(ToolKind::Shell { .. })
+            ) {
                 return mounted_parts(item, reading);
             }
             return Some(

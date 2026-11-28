@@ -29,7 +29,8 @@ const STRICT_REVIEW_WARNING: &str =
 /// A guardian approval is not a warning (`GuardianWarning` in chatwidget/protocol.rs).
 const GUARDIAN_APPROVED_PREFIX: &str = "Automatic approval review approved (";
 const FALLBACK_MODEL_METADATA_PREFIX: &str = "Model metadata for `";
-const FALLBACK_MODEL_METADATA_SUFFIX: &str = "` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.";
+const FALLBACK_MODEL_METADATA_SUFFIX: &str =
+    "` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.";
 /// The source label of a warning the session raised after startup, and of one raised during it.
 const SOURCE_WARNING: &str = "Warning";
 const SOURCE_STARTUP: &str = "Startup";
@@ -64,7 +65,9 @@ pub fn incoming(notification: &ServerNotification) -> Option<Incoming> {
             },
             true,
         ),
-        ServerNotification::GuardianWarning(n) if !n.message.starts_with(GUARDIAN_APPROVED_PREFIX) => {
+        ServerNotification::GuardianWarning(n)
+            if !n.message.starts_with(GUARDIAN_APPROVED_PREFIX) =>
+        {
             warn(Some(n.thread_id.clone()), n.message.clone(), false)
         }
         ServerNotification::StrictReviewRequired(n) => warn(
@@ -73,7 +76,8 @@ pub fn incoming(notification: &ServerNotification) -> Option<Incoming> {
             false,
         ),
         ServerNotification::ModelVerification(n)
-            if n.verifications.contains(&ModelVerification::TrustedAccessForCyber) =>
+            if n.verifications
+                .contains(&ModelVerification::TrustedAccessForCyber) =>
         {
             warn(
                 Some(n.thread_id.clone()),
@@ -112,7 +116,8 @@ pub fn take_in(model: &mut Model, incoming: &Incoming) -> bool {
     let message = &incoming.message;
     if intake.startup_config.contains(message)
         || intake.dismissed.contains(message)
-        || fallback_model_slug(message).is_some_and(|slug| !intake.fallback_models.insert(slug.to_owned()))
+        || fallback_model_slug(message)
+            .is_some_and(|slug| !intake.fallback_models.insert(slug.to_owned()))
     {
         return false;
     }
@@ -137,15 +142,29 @@ pub fn take_in(model: &mut Model, incoming: &Incoming) -> bool {
 /// A retained list holds each text once (`warning_entries` joins duplicates by identity).
 fn apply_retained(model: &mut Model, entries: Vec<Warning>) {
     for entry in entries {
-        if !model.retained.iter().any(|held| held.details == entry.details) {
+        if !model
+            .retained
+            .iter()
+            .any(|held| held.details == entry.details)
+        {
             model.retained.push(entry);
         }
     }
 }
 
+/// The source label of a server's warnings (`WarningId::McpServer`) and the startup messages
+/// (`chatwidget/mcp_startup.rs`), each in the pieces the names go between.
+const MCP_SOURCE_PREFIX: &str = "MCP \u{b7} ";
+const MCP_FAILED_HEAD: &str = "MCP client for `";
+const MCP_FAILED_TAIL: &str = "` failed to start";
+const MCP_INTERRUPTED: &str =
+    "MCP startup interrupted. The following servers were not initialized: ";
+const MCP_INCOMPLETE_HEAD: &str = "MCP startup incomplete (failed: ";
+const MCP_INCOMPLETE_TAIL: &str = ")";
+
 /// The source label of a server's warnings (`WarningId::McpServer`).
 fn mcp_source(server: &str) -> String {
-    format!("MCP \u{b7} {server}")
+    [MCP_SOURCE_PREFIX, server].concat()
 }
 
 /// The servers an MCP startup warning names and its message, in the oracle's words
@@ -157,18 +176,20 @@ pub fn mcp_entry(warning: &crate::screens::chat::McpWarning) -> (Vec<String>, St
             vec![server.clone()],
             error
                 .clone()
-                .unwrap_or_else(|| format!("MCP client for `{server}` failed to start")),
+                .unwrap_or_else(|| [MCP_FAILED_HEAD, server, MCP_FAILED_TAIL].concat()),
         ),
         McpWarning::Interrupted { servers } => (
             servers.clone(),
-            format!(
-                "MCP startup interrupted. The following servers were not initialized: {}",
-                servers.join(", ")
-            ),
+            [MCP_INTERRUPTED, &servers.join(", ")].concat(),
         ),
         McpWarning::Incomplete { servers } => (
             servers.clone(),
-            format!("MCP startup incomplete (failed: {})", servers.join(", ")),
+            [
+                MCP_INCOMPLETE_HEAD,
+                &servers.join(", "),
+                MCP_INCOMPLETE_TAIL,
+            ]
+            .concat(),
         ),
     }
 }
