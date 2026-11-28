@@ -6,12 +6,12 @@
 use crate::app::AppEv;
 use crate::app::CodexApp;
 use crate::app::Ingress;
-use crate::data::history::Lookup;
 use crate::app::effects::Ask;
-use crate::screens::ScreenEv;
-use crate::screens::popovers;
+use crate::data::history::Lookup;
 use crate::fixtures::script::ScriptError;
 use crate::fixtures::script::build;
+use crate::screens::ScreenEv;
+use crate::screens::popovers;
 
 pub struct Sandbox {
     app: CodexApp,
@@ -32,23 +32,31 @@ impl Sandbox {
 
     /// Applies `ev` under the model's epoch; the effects are dropped, except that a read of the
     /// message history file fails (the file is not there to read: the search ends "unavailable").
+    /// The failures are answered once: an answer asks for nothing (a read starts from an intent
+    /// of the page, never from an answer), so its own effects are dropped like any other.
     pub fn send(&mut self, ev: AppEv) {
-        let mut queue = std::collections::VecDeque::from([ev]);
-        while let Some(ev) = queue.pop_front() {
-            let epoch = self.app.epoch();
-            let Some(fx) = self.app.ingest(Ingress::new(epoch, ev)) else {
-                continue;
-            };
-            for command in fx.commands() {
-                if let Some(Ask::Popovers {
-                    ask: popovers::Ask::Lookup(lookup),
-                    ..
-                }) = command.host_ask()
-                {
-                    queue.push_back(AppEv::Screen(ScreenEv::Popovers(failed(lookup))));
-                }
+        for answer in self.apply(ev) {
+            drop(self.apply(answer));
+        }
+    }
+
+    /// One ingest; the answers to the history reads it asked for.
+    fn apply(&mut self, ev: AppEv) -> Vec<AppEv> {
+        let epoch = self.app.epoch();
+        let Some(fx) = self.app.ingest(Ingress::new(epoch, ev)) else {
+            return Vec::new();
+        };
+        let mut answers = Vec::new();
+        for command in fx.commands() {
+            if let Some(Ask::Popovers {
+                ask: popovers::Ask::Lookup(lookup),
+                ..
+            }) = command.host_ask()
+            {
+                answers.push(AppEv::Screen(ScreenEv::Popovers(failed(lookup))));
             }
         }
+        answers
     }
 }
 
