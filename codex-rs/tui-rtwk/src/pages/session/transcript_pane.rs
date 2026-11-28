@@ -1369,8 +1369,7 @@ impl State for ViewportState {
                 super::cells::separator::viewer_date(states.agents.now, clock),
             )
         });
-        let metrics =
-            select::<ScreenStates, _, _>(cx, |states| states.cells.runtime_metrics.clone());
+        let metrics = select::<ThreadModel, _, _>(cx, |model| model.screen_slots().cells.clone());
         let facts = select::<ScreenStates, _, _>(cx, |states| states.chat.status.clone());
         let cwd = thread
             .screen_slots()
@@ -1924,7 +1923,7 @@ impl State for ViewportState {
             let timing_facts = |turn| super::cells::separator::Facts {
                 today,
                 clock,
-                metrics: metrics.get(turn),
+                metrics: metrics.metrics(turn),
             };
             let fold = match &row.kind {
                 Kind::Tools(group) if !group.is_lone_search(transcript) => {

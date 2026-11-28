@@ -110,6 +110,8 @@ pub enum Item {
         role: voice_transcript::Role,
         text: String,
     },
+    /// A timing sample the server reported during this turn.
+    WebSocketTiming(Rc<screens::cells::RuntimeMetrics>),
     /// An assistant message. `phase` is what the server said about it (oracle
     /// `AgentMarkdownCell::phase`): none for a streamed message or a legacy model, so
     /// callers treat none as "unknown".
@@ -1232,7 +1234,8 @@ impl ThreadEv {
     fn is_notification(&self) -> bool {
         match self {
             Self::Screen(ScreenThreadEv::Chat(screens::chat::ThreadEv::Retry { .. })) => false,
-            Self::Screen(ScreenThreadEv::Voice(screens::voice::ThreadEv::Transcript(_))) => false,
+            Self::Screen(ScreenThreadEv::Voice(screens::voice::ThreadEv::Transcript(_)))
+            | Self::Screen(ScreenThreadEv::Cells(_)) => false,
             // what the user says to the safety state is no news of the server
             Self::Screen(ScreenThreadEv::Chat(screens::chat::ThreadEv::Safety(
                 safety::SafetyEv::Verb(_),
@@ -3361,6 +3364,20 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 .map(|text| Queued::Message(UserMessage::text(text)))
                 .collect();
         }
+        ThreadEv::Screen(ScreenThreadEv::Cells(screens::cells::ThreadEv::WebSocketTiming {
+            turn,
+            sample,
+        })) => {
+            if matches!(&model.turn, TurnState::Running(running) if running.turn == turn) {
+                apply_appended(
+                    model,
+                    Some(turn.clone()),
+                    Item::WebSocketTiming(Rc::new(sample)),
+                );
+                let event = screens::cells::ThreadEv::WebSocketTiming { turn, sample };
+                screens::apply_thread_ev(&mut model.slots, ScreenThreadEv::Cells(event), fx);
+            }
+        }
         ThreadEv::Screen(ScreenThreadEv::Voice(screens::voice::ThreadEv::Transcript(event))) => {
             voice_transcript::apply(model, event, fx);
         }
@@ -3615,7 +3632,14 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 }
                 _ => {}
             }
-            let timing = live_timing(model, &turn, end, timing, fx.now());
+            let timing = live_timing(model, &turn, end, timing, fx.now()).or_else(|| {
+                (end == TurnEnd::Completed && model.slots.cells.metrics(&turn).is_some()).then_some(
+                    TurnTiming {
+                        duration_ms: None,
+                        completed_at: None,
+                    },
+                )
+            });
             model.transcript.remember_timings([(turn.clone(), timing)]);
             let error = safety::on_completed(model, &turn, end == TurnEnd::Failed, error, fx);
             if let Some(fault) = &error {

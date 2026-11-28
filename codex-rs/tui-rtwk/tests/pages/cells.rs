@@ -2961,6 +2961,7 @@ mod separator_facts {
             screen.contains("Worked for 2m 5s • Sep 6, 2000 at 2:32 PM")
         });
         h.inject([cells(Ev::RuntimeMetrics {
+            thread: codex_tui_core::ids::ThreadId::new("thread-1"),
             turn: TurnId::new("turn-1"),
             metrics: RuntimeMetrics {
                 tool_calls: Totals {
