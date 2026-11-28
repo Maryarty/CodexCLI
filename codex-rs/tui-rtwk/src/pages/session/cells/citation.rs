@@ -404,6 +404,7 @@ fn render_prepared(
         source: lifted,
         found: &found,
         cwd,
+        math: rendering.math,
     };
     let mut cold;
     let stream = if let Some(live) = live {
@@ -458,9 +459,10 @@ pub fn blocks_of(
 }
 
 /// The inline nodes of a follow-up's label: its own Markdown, the first
-/// paragraph's inlines; a label that parses to anything else is its text.
-fn label_inlines(label: &str) -> Vec<MdInline> {
-    let mut stream = parse(label, true);
+/// paragraph's inlines; a label that parses to anything else is its text. `math` is the
+/// `tui.rendering.math` preference, as for the message around the label.
+fn label_inlines(label: &str, math: bool) -> Vec<MdInline> {
+    let mut stream = parse(label, math);
     match stream.blocks() {
         [block] => match block.as_ref() {
             MdBlock::Paragraph(inlines) => inlines.clone(),
@@ -504,6 +506,8 @@ struct Directives<'a> {
     source: &'a str,
     found: &'a [Directive],
     cwd: Option<&'a str>,
+    /// The `tui.rendering.math` preference: a follow-up's label is read with it too.
+    math: bool,
 }
 
 impl Directives<'_> {
@@ -652,7 +656,9 @@ impl Directives<'_> {
                 }
                 // The label is Markdown of its own, parsed apart from the text around it (the
                 // oracle keeps an unmatched `[` as a sentinel so a label cannot open a block).
-                Directive::Followup(followup) => out.extend(label_inlines(&followup.label)),
+                Directive::Followup(followup) => {
+                    out.extend(label_inlines(&followup.label, self.math));
+                }
             }
             rest = &after[length..];
         }
@@ -717,7 +723,9 @@ impl Directives<'_> {
 #[cfg(test)]
 mod tests {
     use super::super::strings::EN;
-    use super::{LiveMarkdown, MarkdownView, Rendering, render, stream_preview, view_with};
+    use super::{
+        LiveMarkdown, MarkdownView, MdBlock, MdInline, Rendering, render, stream_preview, view_with,
+    };
     use std::sync::Arc;
 
     fn cached(
@@ -776,6 +784,28 @@ mod tests {
         rendering.lists = false;
         compare(&source, Some("/tmp"), rendering);
         compare("Replaced answer\n\n- [x] Check", None, rendering);
+    }
+
+    /// The oracle reads a follow-up's label with the renderer that reads the message: its math
+    /// setting applies to the label too (`markdown_render/preferences.rs`).
+    #[test]
+    fn a_followup_label_reads_math_as_the_preference_says() {
+        let source = ":codex-followup[Why $\\alpha$?]{prompt=\"p\"}\n";
+        let has_math = |math: bool| {
+            let rendering = Rendering {
+                math,
+                ..Rendering::default()
+            };
+            let blocks = view_with(source, false, None, &EN, rendering)
+                .blocks
+                .unwrap_or_default();
+            blocks.iter().any(|block| {
+                matches!(&**block, MdBlock::Paragraph(inlines)
+                    if inlines.iter().any(|inline| matches!(inline, MdInline::Math { .. })))
+            })
+        };
+        assert!(has_math(true));
+        assert!(!has_math(false));
     }
 
     #[test]
