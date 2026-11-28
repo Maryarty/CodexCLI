@@ -4,10 +4,16 @@
 
 use std::rc::Rc;
 
-use rtwk::AnyWidget;
+use rtwk::layout::{Column, CrossAxisAlignment, MainAxisSize};
+use rtwk::style::{Attrs, Span, Style};
+use rtwk::text::{TextWrap, segmenter_of};
+use rtwk::widgets::Text;
+use rtwk::{AnyWidget, LayoutBuilder};
 
-use super::{AQuestion, AsyncQuestions, Seed};
+use super::{AQuestion, AsyncQuestions, Seed, measure};
 use crate::app::debug::{DebugEntry, EntryOpen};
+use crate::app::theme;
+use crate::sheets::approvals::strings::sample;
 
 const FIXTURE: &str = include_str!("../fixtures/async_questions.jsonl");
 
@@ -61,8 +67,39 @@ const WRAPPED_FIRST: &str =
     "Another suggested answer that wraps over several rows before the selected option";
 const URL: &str = "https://github.com/openai/codex/pull/12345?diff=split";
 
+/// The two styled lines of the oracle's `halfwidth_sound_marks_are_truncated_and_rendered_at_a_
+/// grapheme_boundary` cut to five cells as the footer cuts its tips: `ｶﾞ` and `ﾊﾟ` stay whole, the
+/// ellipsis takes the style of the last span kept.
+fn halfwidth_sound_marks() -> AnyWidget {
+    LayoutBuilder::new(|cx, _| {
+        let seg = segmenter_of(cx);
+        let (cyan, magenta) = theme::sample_inks();
+        let line = |[base, kana, tail]: [&'static str; 3], ink: Style| {
+            vec![
+                Span::styled(base, Style::new().attrs(Attrs::BOLD)),
+                Span::styled(kana, ink),
+                Span::styled(tail, Style::new().attrs(Attrs::DIM)),
+            ]
+        };
+        let mut column = Column::new()
+            .main_axis_size(MainAxisSize::Min)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch);
+        for spans in [line(sample::FIRST, cyan), line(sample::SECOND, magenta)] {
+            column =
+                column.child(Text::rich(measure::truncate(seg, spans, 5)).wrap(TextWrap::None));
+        }
+        column.into()
+    })
+    .into()
+}
+
 pub fn debug_entries() -> Vec<DebugEntry> {
     vec![
+        entry!(
+            "halfwidth_sound_marks",
+            "two styled lines with halfwidth sound marks cut to five cells at a grapheme boundary",
+            halfwidth_sound_marks()
+        ),
         entry!(
             "user_input_two_questions",
             "async questions: a freeform question and one with a choice, on the second",

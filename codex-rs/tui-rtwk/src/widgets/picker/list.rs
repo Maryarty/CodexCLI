@@ -263,6 +263,10 @@ pub struct List {
     /// The most rows that show their ordinal: the model pickers number nine (a digit key
     /// reaches those), the rows after them keep the blank gutter of a disabled row.
     pub numbered_rows: Option<usize>,
+    /// The header of an actionable banner (`BannerContent`): the title bold and the paragraphs
+    /// plain, all in the terminal's own foreground as an explicit colour, so that a terminal's
+    /// separate bold colour cannot wash the title out; the default colour where it is unknown.
+    pub banner: bool,
 }
 
 impl Default for List {
@@ -294,6 +298,7 @@ impl Default for List {
             preview: false,
             panel: false,
             numbered_rows: None,
+            banner: false,
         }
     }
 }

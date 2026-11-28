@@ -4,7 +4,7 @@
 //! oracle cuts them (`truncate_line_word_boundary_with_ellipsis`).
 
 use rtwk::style::Span;
-use rtwk_core::unicode::TextSegmenter;
+use rtwk_core::unicode::{TextSegmenter, grapheme_boundaries};
 
 use crate::pages::session::transcript::markdown_text;
 use crate::widgets::markdown;
@@ -64,7 +64,8 @@ pub fn pack(
     lines
 }
 
-/// `spans` cut to `max` cells at a word boundary when there is one, with an ellipsis.
+/// `spans` cut to `max` cells at a word boundary when there is one, with an ellipsis. The cut
+/// falls between grapheme clusters, never inside one (`ｶﾞ` stays whole or goes whole).
 pub fn truncate(seg: TextSegmenter, spans: Vec<Span>, max: usize) -> Vec<Span> {
     if max == 0 {
         return Vec::new();
@@ -77,21 +78,23 @@ pub fn truncate(seg: TextSegmenter, spans: Vec<Span>, max: usize) -> Vec<Span> {
         return vec![Span::new(ellipsis)];
     }
     let limit = max - seg.width(ellipsis);
-    // The chars in order with the span each belongs to.
-    let chars: Vec<(usize, char)> = spans
+    // The grapheme clusters in order with the span each belongs to.
+    let clusters: Vec<(usize, &str)> = spans
         .iter()
         .enumerate()
-        .flat_map(|(at, span)| span.text.chars().map(move |c| (at, c)))
+        .flat_map(|(at, span)| {
+            grapheme_boundaries(&span.text).map(move |(start, end)| (at, &span.text[start..end]))
+        })
         .collect();
     let mut used = 0;
     let mut fit = 0;
     let mut word = None;
-    for (at, (_, c)) in chars.iter().enumerate() {
-        let w = seg.width(&c.to_string());
+    for (at, (_, cluster)) in clusters.iter().enumerate() {
+        let w = seg.width(cluster);
         if used + w > limit {
             break;
         }
-        if c.is_whitespace() && at > 0 {
+        if cluster.chars().all(char::is_whitespace) && at > 0 {
             word = Some(at);
         }
         used += w;
@@ -99,15 +102,18 @@ pub fn truncate(seg: TextSegmenter, spans: Vec<Span>, max: usize) -> Vec<Span> {
     }
     // A cut at a word boundary only when the text really goes on past it.
     let cut = word.unwrap_or(fit);
-    let mut kept = chars[..cut].to_vec();
-    while kept.last().is_some_and(|(_, c)| c.is_whitespace()) {
+    let mut kept = clusters[..cut].to_vec();
+    while kept
+        .last()
+        .is_some_and(|(_, cluster)| cluster.chars().all(char::is_whitespace))
+    {
         kept.pop();
     }
     let mut groups: Vec<(usize, String)> = Vec::new();
-    for (at, c) in &kept {
+    for (at, cluster) in &kept {
         match groups.last_mut() {
-            Some((last, text)) if last == at => text.push(*c),
-            _ => groups.push((*at, c.to_string())),
+            Some((last, text)) if last == at => text.push_str(cluster),
+            _ => groups.push((*at, (*cluster).to_owned())),
         }
     }
     let mark_style = groups

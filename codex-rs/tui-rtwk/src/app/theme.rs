@@ -391,6 +391,15 @@ pub(crate) fn blended(fg: Rgb, bg: Rgb, alpha: f64) -> Style {
     ))
 }
 
+/// The terminal's cyan and magenta as foregrounds: the colours the oracle's tests give the sample
+/// spans they draw (`.cyan()`, `.magenta()`).
+pub(crate) fn sample_inks() -> (Style, Style) {
+    (
+        Style::new().fg(Color::CYAN),
+        Style::new().fg(Color::MAGENTA),
+    )
+}
+
 /// The terminal's own foreground (`key_hint`'s key labels: bold in it).
 pub(crate) fn terminal_foreground(fg: Rgb) -> Style {
     Style::new().fg(Color::rgb(fg.0, fg.1, fg.2))
