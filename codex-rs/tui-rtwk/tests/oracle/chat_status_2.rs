@@ -434,10 +434,6 @@ fn terminal_title_thread_usage_fetches_and_renders_without_status_line() {
 // ORACLE chatwidget/tests/status_and_layout.rs:3905 status_line_estimated_thread_cost_footer_snapshot kind=snap owner=ui-pane snap=status_line_estimated_thread_cost_footer
 #[test]
 fn status_line_estimated_thread_cost_footer_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "the hint row differs in every footer snapshot of the shard: the oracle's chat widget has agents navigation off (the app calls `enable_agents_navigation`), ours always has the command center and reads `← for agents · ? for shortcuts` (needs a kit option or a StatusFacts flag for it)",
-    );
     // status_line = model-with-reasoning, thread-credits, estimated-thread-cost; usage 5.2 credits, ~$0.21
     let mut s = Screen::build(Owner::UiPane)
         .size(80, 6)
@@ -1431,13 +1427,48 @@ fn stopped_hook_hides_model_context_and_preserves_stop_reason_snapshot() {
 // ORACLE chatwidget/tests/status_and_layout.rs:6029 chatwidget_exec_and_status_layout_vt100_snapshot kind=snap owner=ui-pane snap=chatwidget_exec_and_status_layout_vt100_snapshot
 #[test]
 fn chatwidget_exec_and_status_layout_vt100_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "the exec and status layout of the chat is not built (the skeleton has no status row, footer or exec cell)",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: exec cells and the status layout (vt100 rendering of the chat)
-    s.assert_snap("chatwidget_exec_and_status_layout_vt100_snapshot");
+    // The oracle prints the history into a 40-row terminal (an inline viewport) and compares the
+    // screen; the port's chat is full-screen, so the same rows are compared as the chat shows
+    // them: the answer, the explored cell, the status row, the draft and the footer, in order (the
+    // status row's spinner and elapsed seconds run on the screen's clock, the answer wraps one
+    // column earlier than the oracle's history).
+    let mut s = chat();
+    s.feed(&assistant_message(
+        "msg-search",
+        "I’m going to search the repo for where “Change Approved” is rendered to update that view.",
+    ));
+    let command = |status: &str, output: bool| {
+        serde_json::json!({"step": "notify", "message": {"method": if output { "item/completed" } else { "item/started" },
+            "params": {"threadId": "thread-1", "turnId": "turn-1", "startedAtMs": 0, "completedAtMs": 0,
+                "item": {"type": "commandExecution", "id": "c1", "pluginId": null, "scriptPath": null,
+                    "command": "bash -lc 'rg \"Change Approved\"'", "cwd": "/tmp/project", "processId": null,
+                    "source": "agent", "status": status,
+                    "commandActions": [
+                        {"type": "search", "command": "rg \"Change Approved\"", "query": "Change Approved", "path": null},
+                        {"type": "read", "command": "cat diff_render.rs", "name": "diff_render.rs", "path": "/tmp/project/diff_render.rs"}],
+                    "aggregatedOutput": null, "exitCode": if output { serde_json::json!(0) } else { serde_json::Value::Null },
+                    "durationMs": if output { serde_json::json!(16000) } else { serde_json::Value::Null },
+                    "startedAtMs": null, "completedAtMs": null}}}})
+        .to_string()
+    };
+    s.feed(&command("inProgress", false));
+    s.feed(&command("completed", true));
+    s.feed(TURN);
+    s.feed(r#"{"step":"notify","message":{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","startedAtMs":0,"item":{"type":"reasoning","id":"reasoning-1","summary":[],"content":[]}}}}"#);
+    s.feed(r#"{"step":"notify","message":{"method":"item/reasoning/summaryTextDelta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"reasoning-1","summaryIndex":0,"delta":"**Investigating rendering code**"}}}"#);
+    s.type_text("Summarize recent commits");
+    s.assert_in_order(&[
+        "• I’m going to search the repo for where “Change Approved” is rendered to",
+        "that view.",
+        "• Explored",
+        "  └ Search Change Approved",
+        "    Read diff_render.rs",
+        "Investigating rendering code (",
+        "s • esc to interrupt)",
+        "› Summarize recent commits",
+        "  GPT-5.6-Sol default · /tmp/project",
+        "  tab to queue message",
+    ]);
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:6130 chatwidget_markdown_code_blocks_vt100_snapshot kind=snap owner=ui-pane snap=chatwidget_markdown_code_blocks_vt100_snapshot
@@ -1445,11 +1476,36 @@ fn chatwidget_exec_and_status_layout_vt100_snapshot() {
 fn chatwidget_markdown_code_blocks_vt100_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "the exec and status layout of the chat is not built (the skeleton has no status row, footer or exec cell)",
+        "G73: item 1, the oracle draws the indented code block with its four columns of indent (`      SELECT *`); rtwk's MarkdownView code block drops the indent and pads one cell (`   SELECT *`). The fenced blocks, the nested fence and the `Worked for` row equal the oracle's",
     );
-    let s = Screen::build(Owner::UiPane).size(80, 50).live().open();
-    // seed: markdown with code blocks, rendered as the chat
-    s.assert_snap("chatwidget_markdown_code_blocks_vt100_snapshot");
+    // The oracle streams the answer in two-character deltas into a 50-row terminal, history rows
+    // only; the chat shows the same rows in its transcript, and the turn's `Worked for` line
+    // (its duration and clock are placeholders there).
+    let source = "\n\n    -- Indented code block (4 spaces)\n    SELECT *\n    FROM \"users\"\n    WHERE \"email\" LIKE '%@example.com';\n\n````markdown\n```sh\nprintf 'fenced within fenced\\n'\n```\n````\n\n```jsonc\n{\n  // comment allowed in jsonc\n  \"path\": \"C:\\\\Program Files\\\\App\",\n  \"regex\": \"^foo.*(bar)?$\"\n}\n```\n";
+    let chars: Vec<char> = source.chars().collect();
+    let mut s = Screen::build(Owner::UiPane).size(80, 50).live().open();
+    s.feed(BASE);
+    s.feed(TURN);
+    for pair in chars.chunks(2) {
+        let delta: String = pair.iter().collect();
+        s.feed(&prose_delta("item/agentMessage/delta", "msg-md", &delta));
+    }
+    s.feed(&turn_ended("completed"));
+    s.assert_in_order(&[
+        "•     -- Indented code block (4 spaces)",
+        "      SELECT *",
+        "      FROM \"users\"",
+        "      WHERE \"email\" LIKE '%@example.com';",
+        "  ```sh",
+        "  printf 'fenced within fenced\\n'",
+        "  ```",
+        "  {",
+        "    // comment allowed in jsonc",
+        "    \"path\": \"C:\\\\Program Files\\\\App\",",
+        "    \"regex\": \"^foo.*(bar)?$\"",
+        "  }",
+        "Worked for",
+    ]);
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:6211 chatwidget_tall kind=snap owner=ui-pane snap=chatwidget_tall
@@ -1457,10 +1513,18 @@ fn chatwidget_markdown_code_blocks_vt100_snapshot() {
 fn chatwidget_tall() {
     kit::pending(
         Owner::UiPane,
-        "the exec and status layout of the chat is not built (the skeleton has no status row, footer or exec cell)",
+        "pending(inline viewport): the oracle draws the chat widget alone in a 24-row viewport (no history above): a pane taller than the viewport keeps a blank row on top (`bottom_pane_renderable` is inset by one row) and clips the preview to 15 queued rows; the port's full-screen chat has the transcript above the pane (the session header's last row at row 0) and the preview is not clipped to the room (16 rows). The queued rows, the status and the footer rows equal the oracle's",
     );
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    // seed: the chat at 80 columns, 24 rows, tall transcript
+    // a turn under way with thirty queued follow-ups: the status row, fifteen of the follow-ups
+    // and the composer fill the 24 rows
+    let mut s = chat();
+    let queued: Vec<String> = (0..30).map(|i| format!("Hello, world! {i}")).collect();
+    s.feed(TURN);
+    s.feed(
+        &serde_json::json!({"step":"screen","dir":"chat","ev":{"pending":{
+            "thread": "thread-1", "queued": queued}}})
+        .to_string(),
+    );
     s.assert_snap("chatwidget_tall");
 }
 
