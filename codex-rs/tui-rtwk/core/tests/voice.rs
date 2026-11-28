@@ -676,6 +676,103 @@ fn desktop_media_and_devices_use_primary_services_but_voice_catalog_uses_the_thr
 }
 
 #[test]
+fn catalog_and_audio_reads_requested_in_another_thread_survive_a_pending_voice_write() {
+    use codex_tui_core::screens::ScreenIntent;
+    use codex_tui_core::threads::{Item, NoteKey};
+    use voice::settings::{
+        Answer, Audio, Catalog, Change, Feedback, Intent as SettingsIntent, Operation,
+        RealtimeVoice as Voice, Report,
+    };
+
+    let event = |intent| AppEv::Intent(Intent::Screen(ScreenIntent::Voice(intent)));
+    let take = |fx: &AppFx| {
+        fx.commands().iter().find_map(|c| match c.host_ask() {
+            Some(Ask::VoiceSettings(request)) => Some(request.clone()),
+            _ => None,
+        })
+    };
+    let answer = |request, answer| AppEv::Effect {
+        request: 0,
+        done: Done::VoiceSettings(Report {
+            request,
+            result: Ok(answer),
+        }),
+    };
+    let catalog = |current| Catalog {
+        voices: vec![Voice::Cove, Voice::Sol],
+        current: Some(current),
+    };
+    for (operation, answer_for_b) in [
+        (Operation::ReadCatalog, Answer::Catalog(catalog(Voice::Sol))),
+        (Operation::ReadAudio, Answer::Audio(Audio::default())),
+    ] {
+        let mut app = ready();
+        let a = ThreadId::new("thread-1");
+        let b = ThreadId::new("thread-b");
+        let previous = run(
+            &mut app,
+            event(SettingsIntent::Read {
+                thread: a.clone(),
+                operation: Operation::ReadCatalog,
+            }),
+        );
+        let first = take(&previous).expect("A catalog");
+        run(
+            &mut app,
+            answer(first.clone(), Answer::Catalog(catalog(Voice::Cove))),
+        );
+        let save = run(
+            &mut app,
+            event(SettingsIntent::Persist {
+                origin: first.origin,
+                change: Change::Voice(Voice::Sol),
+            }),
+        );
+        let save = take(&save).expect("A write");
+
+        open_thread(&mut app, b.as_str(), BackendId::default(), true);
+        let waiting = run(
+            &mut app,
+            event(SettingsIntent::Read {
+                thread: b.clone(),
+                operation: operation.clone(),
+            }),
+        );
+        assert!(take(&waiting).is_none());
+        assert!(app.screens().voice.settings.pending(&b));
+        let settled = run(
+            &mut app,
+            answer(
+                save,
+                Answer::VoiceSaved {
+                    catalog: catalog(Voice::Sol),
+                    warning: None,
+                },
+            ),
+        );
+        let read = take(&settled).expect("B's queued request is released");
+        assert_eq!(read.origin.thread, b);
+        assert_eq!(read.operation, operation);
+        let acknowledged = |thread: &ThreadId| {
+            app.thread(thread).expect("held thread").transcript().iter().any(|(_, item)| {
+                matches!(item, Item::Note(note) if note.key == NoteKey::VoiceSettings(Feedback::VoiceSaved(Voice::Sol)))
+            })
+        };
+        assert!(acknowledged(&a));
+        assert!(!acknowledged(&b));
+        run(&mut app, answer(read, answer_for_b));
+        let model = &app.screens().voice.settings;
+        let settings = model.snapshot(&b).expect("B owns the visible settings");
+        assert!(!model.pending(&b));
+        assert_eq!(
+            settings.catalog.is_some(),
+            operation == Operation::ReadCatalog
+        );
+        assert_eq!(settings.audio.is_some(), operation == Operation::ReadAudio);
+    }
+}
+
+#[test]
 fn caption_uses_the_exact_thread_call_and_physical_address() {
     let mut app = ready();
     let session = active(&mut app);

@@ -245,7 +245,7 @@ impl PageState {
         let Some(thread) = &w.thread else { return };
         let seen = read::<ScreenStates, _>(cx);
         let model = &seen.voice.settings;
-        if model.pending(thread) {
+        if model.pending(thread) && matches!(&w.panel, Panel::Voices | Panel::Devices(_)) {
             return;
         }
         let seen = model.snapshot(thread);

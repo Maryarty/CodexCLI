@@ -1,5 +1,6 @@
 //! Ownership of the local packaged audio peer. All commands name one exact call.
 
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::sync::{Mutex, MutexGuard};
 
@@ -7,7 +8,7 @@ use codex_core::config::Config;
 use codex_realtime_webrtc::{
     AudioDeviceSelection, RealtimeWebrtcSession, RealtimeWebrtcSessionHandle,
 };
-use codex_tui_core::ids::Ticket;
+use codex_tui_core::ids::{BackendId, ConnEpoch, ThreadId, Ticket};
 use codex_tui_core::screens::voice::{
     AudioAction, AudioCommand, AudioReport, AudioResult, LockStop, Owner, Peaks, Sdp,
 };
@@ -20,12 +21,16 @@ mod session_lock;
 pub(crate) mod settings;
 
 #[derive(Default)]
-pub(crate) struct Audio(Mutex<Slot>);
+pub(crate) struct Audio {
+    slot: Mutex<Slot>,
+    local_settings: tokio::sync::Mutex<()>,
+}
 
 #[derive(Default)]
 struct Slot {
-    // A stop may execute before a queued prepare. It retires that exact ticket before it can open.
-    retired_through: Option<Ticket>,
+    // A stop may execute before a queued prepare. Each thread's physical connection keeps
+    // its own watermark, so a refused call elsewhere cannot cancel this call's preparation.
+    retired: BTreeMap<(BackendId, ConnEpoch, ThreadId), Ticket>,
     entry: Option<Entry>,
 }
 
@@ -50,11 +55,27 @@ impl Drop for Entry {
 }
 
 impl Slot {
+    fn scope(owner: &Owner) -> (BackendId, ConnEpoch, ThreadId) {
+        (
+            owner.address.backend,
+            owner.address.epoch,
+            owner.thread.clone(),
+        )
+    }
+
+    fn retired(&self, owner: &Owner) -> bool {
+        self.retired
+            .get(&Self::scope(owner))
+            .is_some_and(|retired| *retired >= owner.call)
+    }
+
+    fn retire(&mut self, owner: &Owner) {
+        let retired = self.retired.entry(Self::scope(owner)).or_insert(owner.call);
+        *retired = (*retired).max(owner.call);
+    }
+
     fn reserve(&mut self, owner: &Owner) -> Option<&mut Entry> {
-        if self
-            .retired_through
-            .is_some_and(|retired| retired >= owner.call)
-        {
+        if self.retired(owner) {
             return None;
         }
         let entry = self.entry.get_or_insert_with(|| {
@@ -79,7 +100,7 @@ impl Slot {
             .as_ref()
             .is_some_and(|entry| &entry.owner == owner)
         {
-            self.retired_through = self.retired_through.max(Some(owner.call));
+            self.retire(owner);
             self.entry = None;
             true
         } else {
@@ -101,9 +122,27 @@ impl Drop for Monitor<'_> {
 
 impl Audio {
     fn lock(&self) -> MutexGuard<'_, Slot> {
-        self.0
+        self.slot
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    pub(crate) async fn settings(
+        &self,
+        request: codex_tui_core::screens::voice::settings::Request,
+        config: Option<&Config>,
+    ) -> Option<codex_tui_core::screens::voice::settings::Report> {
+        use codex_tui_core::screens::voice::settings::Operation;
+        let _edit = if matches!(
+            request.operation,
+            Operation::ReadAudio | Operation::Persist(_)
+        ) && request.operation.local()
+        {
+            Some(self.local_settings.lock().await)
+        } else {
+            None
+        };
+        settings::run_local(request, config).await
     }
 
     pub(crate) async fn run(
@@ -193,10 +232,7 @@ impl Audio {
         }
         let (registration, mut ready) = {
             let mut slot = self.lock();
-            if slot
-                .retired_through
-                .is_some_and(|retired| retired >= owner.call)
-            {
+            if slot.retired(owner) {
                 return None;
             }
             let Some(entry) = slot.reserve(owner) else {
@@ -206,9 +242,15 @@ impl Audio {
             };
             (entry.prepare.take()?, entry.ready.subscribe())
         };
+        // Fix the input for this explicit call before waiting on the desktop snapshot. A settings
+        // write during negotiation only affects a subsequent call.
+        let configured = {
+            let _edit = self.local_settings.lock().await;
+            settings::read_local(config).await
+        };
         ready.wait_for(|ready| *ready).await.ok()?;
         let offer = async {
-            let configured = settings::read_local(config).await?;
+            let configured = configured?;
             let selection = AudioDeviceSelection {
                 microphone: configured.microphone,
                 speaker: configured.speaker,
@@ -259,8 +301,9 @@ impl Audio {
 
     fn close(&self, owner: &Owner) {
         let mut slot = self.lock();
-        slot.retired_through = slot.retired_through.max(Some(owner.call));
-        slot.stop(owner);
+        if !slot.stop(owner) {
+            slot.retire(owner);
+        }
     }
 }
 
@@ -270,10 +313,9 @@ mod tests {
     use codex_tui_core::app::effects::Ask;
     use codex_tui_core::app::{AppEv, AppFx, Intent, apply_app};
     use codex_tui_core::fixtures::script::build;
-    use codex_tui_core::ids::ThreadId;
     use codex_tui_core::screens::{ScreenThreadIntent, voice::ThreadIntent};
 
-    fn owners() -> [Owner; 2] {
+    fn owners<const N: usize>() -> [Owner; N] {
         let mut app = build(r#"{"step":"seed","seed":"session","thread":"thread"}"#)
             .expect("session")
             .app;
@@ -317,6 +359,29 @@ mod tests {
         assert!(!*ready.borrow_and_update());
         assert!(ready.has_changed().is_err());
         assert!(audio.lock().reserve(&first).is_none());
+    }
+
+    #[tokio::test]
+    async fn retirement_on_another_thread_cannot_cancel_preparation_or_the_replacement() {
+        let [first, mut other, next] = owners();
+        other.thread = ThreadId::new("another thread");
+        for already_reserved in [false, true] {
+            let audio = Audio::default();
+            if already_reserved {
+                assert!(audio.lock().reserve(&first).is_some());
+                assert!(audio.lock().reserve(&other).is_none());
+            }
+            audio.close(&other);
+            let activation: session_lock::Activation = Box::pin(async { Ok(()) });
+            assert_eq!(
+                audio.observe(&first, async { Ok(activation) }).await,
+                Some(LockStop::Locked)
+            );
+            assert!(audio.lock().reserve(&first).is_none());
+            assert!(audio.lock().reserve(&next).is_some());
+            audio.close(&other);
+            assert!(audio.lock().reserve(&next).is_some());
+        }
     }
 
     #[tokio::test]

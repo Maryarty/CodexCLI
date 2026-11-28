@@ -349,8 +349,11 @@ impl HostDoors for Own<'_> {
         &self,
         request: codex_tui_core::screens::voice::settings::Request,
     ) -> Option<Self::Out> {
-        let report =
-            crate::voice::settings::run_local(request, self.effects.config.as_deref()).await?;
+        let report = self
+            .effects
+            .audio
+            .settings(request, self.effects.config.as_deref())
+            .await?;
         Some(Outcome::Effect(Done::VoiceSettings(report), None))
     }
 

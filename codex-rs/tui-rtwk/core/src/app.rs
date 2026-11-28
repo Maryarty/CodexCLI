@@ -1546,10 +1546,13 @@ impl CodexApp {
         features::retire_rate_offer(self, backend);
         features::retire_workspace_effects(self, backend);
         git_summary::retire(self, backend);
-        Rc::make_mut(&mut self.screens)
+        if let Some(request) = Rc::make_mut(&mut self.screens)
             .voice
             .settings
-            .retire(backend);
+            .retire(backend)
+        {
+            fx.host(effects::Ask::VoiceSettings(request));
+        }
         detach_threads(self, backend, fx);
         self.fail_in_flight(backend);
         select::retire_permission_writes(self, backend, fx);
@@ -2741,21 +2744,25 @@ fn finish_voice_settings(
         Operation::Persist(Change::Device { kind, .. }) => Some(*kind),
         _ => None,
     };
-    let Some(feedback) = Rc::make_mut(&mut app.screens).voice.settings.finish(report) else {
-        return;
-    };
-    apply_thread(
-        app,
-        &thread,
-        ThreadEv::Appended {
-            turn: None,
-            item: threads::Item::Note(threads::Note::from(threads::NoteKey::VoiceSettings(
-                feedback,
-            ))),
-        },
-        fx,
-    );
-    if let (Some(kind), Some(current)) = (refresh, current)
+    let completed = Rc::make_mut(&mut app.screens).voice.settings.finish(report);
+    let answered = completed.feedback.is_some();
+    if let Some(feedback) = completed.feedback {
+        apply_thread(
+            app,
+            &thread,
+            ThreadEv::Appended {
+                turn: None,
+                item: threads::Item::Note(threads::Note::from(threads::NoteKey::VoiceSettings(
+                    feedback,
+                ))),
+            },
+            fx,
+        );
+    }
+    if let Some(request) = completed.next {
+        fx.host(effects::Ask::VoiceSettings(request));
+    } else if answered
+        && let (Some(kind), Some(current)) = (refresh, current)
         && app.session.active.as_ref() == Some(&thread)
         && let Some(request) = Rc::make_mut(&mut app.screens).voice.settings.begin(
             app.mint.next(),

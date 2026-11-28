@@ -18,7 +18,7 @@ use codex_utils_absolute_path::AbsolutePathBuf;
 
 use codex_tui_rtwk::services::backend::rpc::Ids;
 
-pub(crate) async fn run_local(request: Request, config: Option<&Config>) -> Option<Report> {
+pub(super) async fn run_local(request: Request, config: Option<&Config>) -> Option<Report> {
     let result = match &request.operation {
         Operation::ReadCatalog | Operation::Persist(Change::Voice(_)) => return None,
         Operation::ReadAudio => read_local(config)
@@ -286,7 +286,10 @@ async fn save_audio(config: Option<&Config>, change: &Change) -> Result<Answer, 
         Change::Device { kind, name } if name.as_deref() != audio.device(*kind) => {
             AudioOutcome::Overridden
         }
-        Change::InputChannels { channels, .. } if audio.channels != *channels => {
+        Change::InputChannels {
+            microphone,
+            channels,
+        } if audio.microphone != *microphone || audio.channels != *channels => {
             AudioOutcome::Overridden
         }
         _ => AudioOutcome::Applied,

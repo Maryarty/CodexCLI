@@ -228,10 +228,17 @@ pub struct Model {
     snapshot: Option<Rc<Snapshot>>,
     read: Option<Request>,
     write: Option<Request>,
+    queued_read: Option<Request>,
     confirmed: Rc<VoiceByWorkspace>,
 }
 
 type VoiceByWorkspace = BTreeMap<(BackendId, Option<String>), (Address, Option<RealtimeVoice>)>;
+
+#[derive(Default)]
+pub(crate) struct Completion {
+    pub feedback: Option<Feedback>,
+    pub next: Option<Request>,
+}
 
 impl Model {
     pub fn snapshot(&self, thread: &ThreadId) -> Option<&Rc<Snapshot>> {
@@ -241,11 +248,13 @@ impl Model {
     }
 
     pub fn pending(&self, thread: &ThreadId) -> bool {
-        [&self.read, &self.write].iter().any(|request| {
-            request
-                .as_ref()
-                .is_some_and(|request| request.origin.thread == *thread)
-        })
+        [&self.read, &self.write, &self.queued_read]
+            .iter()
+            .any(|request| {
+                request
+                    .as_ref()
+                    .is_some_and(|request| request.origin.thread == *thread)
+            })
     }
 
     pub(crate) fn voice(&self, address: Address, cwd: Option<&String>) -> Option<RealtimeVoice> {
@@ -269,7 +278,8 @@ impl Model {
             Intent::Persist {
                 origin: asked,
                 change,
-            } if asked == origin
+            } if self.write.is_none()
+                && asked == origin
                 && self.snapshot.as_ref().is_some_and(|snapshot| {
                     snapshot.origin == origin && snapshot.supports(&change)
                 }) =>
@@ -278,12 +288,10 @@ impl Model {
             }
             _ => return None,
         };
-        if self.write.is_some()
-            || self
-                .read
-                .as_ref()
+        if [&self.read, &self.queued_read].iter().any(|r| {
+            r.as_ref()
                 .is_some_and(|reader| reader.origin == origin && reader.operation == operation)
-        {
+        }) {
             return None;
         }
         let request = Request {
@@ -291,6 +299,16 @@ impl Model {
             origin,
             operation,
         };
+        if self.write.is_some() {
+            // The active sheet may have moved while the old thread's config write is pending.
+            // Read when its write is settled so the new sheet sees effective configuration.
+            self.queued_read = Some(request);
+            return None;
+        }
+        Some(self.issue(request))
+    }
+
+    fn issue(&mut self, request: Request) -> Request {
         if self
             .snapshot
             .as_ref()
@@ -313,22 +331,36 @@ impl Model {
         } else {
             self.read = Some(request.clone());
         }
-        Some(request)
+        request
     }
 
     pub(crate) fn issued(&self, request: &Request) -> bool {
         self.read.as_ref() == Some(request) || self.write.as_ref() == Some(request)
     }
 
-    pub(crate) fn finish(&mut self, report: Report) -> Option<Feedback> {
-        let Report { request, result } = report;
-        if self.read.as_ref() == Some(&request) {
+    pub(crate) fn finish(&mut self, report: Report) -> Completion {
+        let request = &report.request;
+        let was_write;
+        if self.read.as_ref() == Some(request) {
             self.read = None;
-        } else if self.write.as_ref() == Some(&request) {
+            was_write = false;
+        } else if self.write.as_ref() == Some(request) {
             self.write = None;
+            was_write = true;
         } else {
-            return None;
+            return Completion::default();
         }
+        let feedback = self.apply_report(report);
+        let next = if was_write { self.release_read() } else { None };
+        Completion { feedback, next }
+    }
+
+    fn release_read(&mut self) -> Option<Request> {
+        let request = self.queued_read.take()?;
+        Some(self.issue(request))
+    }
+
+    fn apply_report(&mut self, Report { request, result }: Report) -> Option<Feedback> {
         let snapshot = self
             .snapshot
             .as_mut()
@@ -383,7 +415,7 @@ impl Model {
         Some(feedback)
     }
 
-    pub(crate) fn retire(&mut self, backend: BackendId) {
+    pub(crate) fn retire(&mut self, backend: BackendId) -> Option<Request> {
         Rc::make_mut(&mut self.confirmed).retain(|(owner, _), _| *owner != backend);
         if self
             .read
@@ -393,10 +425,17 @@ impl Model {
             self.read = None;
         }
         if self
-            .write
+            .queued_read
             .as_ref()
             .is_some_and(|r| r.origin.address.backend == backend)
         {
+            self.queued_read = None;
+        }
+        let lost_write = self
+            .write
+            .as_ref()
+            .is_some_and(|r| r.origin.address.backend == backend);
+        if lost_write {
             self.write = None;
         }
         if let Some(view) = self
@@ -409,6 +448,11 @@ impl Model {
             view.audio = None;
             view.devices = [None, None];
             view.feedback = Some(Feedback::Failed(Problem::ConnectionLost));
+        }
+        if lost_write {
+            self.release_read()
+        } else {
+            None
         }
     }
 }
