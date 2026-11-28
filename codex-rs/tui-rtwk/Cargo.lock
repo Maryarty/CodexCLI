@@ -10756,6 +10756,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rtwk-math"
+version = "0.1.0"
+dependencies = [
+ "rtwk-unicode",
+]
+
+[[package]]
 name = "rtwk-overlay"
 version = "0.1.0"
 dependencies = [
@@ -10804,6 +10811,7 @@ dependencies = [
  "miniz_oxide 0.9.1",
  "rtwk",
  "rtwk-core",
+ "rtwk-math",
  "rtwk-render",
  "rtwk-unicode",
 ]
