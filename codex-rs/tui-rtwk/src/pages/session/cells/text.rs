@@ -27,7 +27,7 @@ use crate::pages::session::strings::Strings as Chat;
 use super::strings::Strings;
 use super::{
     collab, deprecation, error, exec, generated_image, hook, note, notice, patch, plan_update,
-    session_info, user, viewed_image, voice_transcript, warning, web,
+    session_info, user, viewed_image, voice_transcript, warning, web, websocket_timing,
 };
 
 /// What the texts are read with: the tables, and the two things of the
@@ -190,6 +190,10 @@ pub(crate) fn texts_at(item: &Item, env: &Env<'_>, cx: &ReadContext<'_>) -> Text
         Item::VoiceTranscript { role, text } => {
             voice_transcript::texts(*role, text, cells, env.chat)
         }
+        Item::WebSocketTiming(metrics) => websocket_timing::line(metrics, cells).map_or_else(
+            || Texts::Exact(Vec::new()),
+            |line| one(format!("{}{line}", cells.bullet)),
+        ),
         Item::Error { message } => one(error::line(message, cells)),
         Item::HighLoad => one(error::line(env.chat.high_load, cells)),
         Item::Warning { message } => Texts::Exact(warning::texts(message, cells)),

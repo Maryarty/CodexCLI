@@ -1636,7 +1636,9 @@ fn a_computer_failure_reads_as_its_first_line_of_words() {
 mod separator_facts {
     use codex_tui_core::fixtures::sandbox::Sandbox;
     use codex_tui_core::ids::TurnId;
-    use codex_tui_core::screens::cells::{ClockFormat, RuntimeMetrics, Totals, ViewerClock};
+    use codex_tui_core::screens::cells::{
+        ClockFormat, RuntimeMetrics, ThreadPart, Totals, ViewerClock,
+    };
     use pretty_assertions::assert_eq;
 
     const TWENTY_FOUR: &str = r#"{"step":"screen","dir":"cells","ev":{"kind":"clock","format":"twenty_four_hour","utc_offset":0}}"#;
@@ -1674,25 +1676,36 @@ mod separator_facts {
         );
     }
 
+    fn metrics_of_thread(script: &str) -> ThreadPart {
+        let seed = r#"{"step":"seed","seed":"session","thread":"thread-1"}"#;
+        Sandbox::play(&format!("{seed}\n{script}"))
+            .expect("plays")
+            .app()
+            .active_thread()
+            .screen_slots()
+            .cells
+            .clone()
+    }
+
     #[test]
     fn a_turns_metrics_are_kept_by_turn_and_the_latest_totals_replace_the_earlier() {
-        assert!(cells("").runtime_metrics.is_empty());
-        let one = cells(METRICS);
+        assert!(metrics_of_thread("").metrics(&turn()).is_none());
+        let one = metrics_of_thread(METRICS);
         assert_eq!(
-            one.runtime_metrics[&turn()],
-            RuntimeMetrics {
+            one.metrics(&turn()),
+            Some(&RuntimeMetrics {
                 tool_calls: Totals {
                     count: 3,
                     duration_ms: 2450
                 },
                 responses_api_engine_iapi_tbt_ms: 1.5,
                 ..RuntimeMetrics::default()
-            }
+            })
         );
-        let later = cells(&format!("{METRICS}\n{NEWER}"));
-        assert_eq!(later.runtime_metrics.len(), 1);
-        assert_eq!(later.runtime_metrics[&turn()].tool_calls, Totals::default());
-        assert_eq!(later.runtime_metrics[&turn()].api_calls.count, 1);
+        let later = metrics_of_thread(&format!("{METRICS}\n{NEWER}"));
+        let metrics = later.metrics(&turn()).expect("updated metrics");
+        assert_eq!(metrics.tool_calls, Totals::default());
+        assert_eq!(metrics.api_calls.count, 1);
     }
 }
 

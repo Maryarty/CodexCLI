@@ -740,15 +740,28 @@ fn goal_status_indicator_line_formats_goal_text() {
 // ORACLE chatwidget/tests/status_and_layout.rs:4913 runtime_metrics_websocket_timing_logs_and_final_separator_sums_totals kind=ui owner=ui-pane
 #[test]
 fn runtime_metrics_websocket_timing_logs_and_final_separator_sums_totals() {
-    kit::pending(
-        Owner::UiPane,
-        "the runtime metrics WebSocket timing lines and the final separator totals are not built in the chat",
-    );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: runtime metrics on; two WebSocket timing logs (TTFT 120ms then 80ms, TBT 50ms), then the turn completes
-    s.assert_contains("WebSocket timing:");
-    s.assert_contains("TTFT: 80ms (iapi)");
-    s.assert_contains("TBT: 50ms (service)");
+    let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
+    let first = r#"{"step":"notify","message":{"method":"turn/runtimeMetrics","params":{"threadId":"thread-1","turnId":"turn-1","iapiTtftMs":120,"serviceTbtMs":50}}}"#;
+    let second = r#"{"step":"notify","message":{"method":"turn/runtimeMetrics","params":{"threadId":"thread-1","turnId":"turn-1","iapiTtftMs":80}}}"#;
+    s.feed(&format!("{TURN}\n{first}\n{second}"));
+    s.assert_in_order(&[
+        "WebSocket timing: TTFT: 120ms (iapi) • TBT: 50ms (service)",
+        "WebSocket timing: TTFT: 80ms (iapi)",
+    ]);
+    s.assert_text_count("TTFT: 80ms (iapi)", 1);
+    s.feed(&turn_ended("completed"));
+    s.assert_text_count("WebSocket timing:", 2);
+    s.assert_in_order(&[
+        "WebSocket timing: TTFT: 120ms (iapi) • TBT: 50ms (service)",
+        "WebSocket timing: TTFT: 80ms (iapi)",
+        "TTFT: 80ms (iapi) • TBT: 50ms (service)",
+    ]);
+
+    let mut interrupted = Screen::build(Owner::UiPane).size(100, 24).live().open();
+    let ended = turn_ended("interrupted").replace(r#""durationMs":null"#, r#""durationMs":2000"#);
+    interrupted.feed(&format!("{TURN}\n{first}\n{ended}"));
+    interrupted.assert_text_count("TTFT: 120ms (iapi)", 1);
+    interrupted.assert_contains("WebSocket timing: TTFT: 120ms (iapi) • TBT: 50ms (service)");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4959 multiple_agent_messages_in_single_turn_emit_multiple_headers kind=ui owner=ui-pane

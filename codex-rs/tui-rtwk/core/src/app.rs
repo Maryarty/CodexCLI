@@ -2279,6 +2279,10 @@ fn apply_event(
                 match app.screens.agents.owners.get(thread) {
                     Some(owner) if *owner != origin => return,
                     Some(_) => {}
+                    // A timing sample is evidence about an already known turn.
+                    None if matches!(&*notification, ServerNotification::TurnRuntimeMetrics(_)) => {
+                        return;
+                    }
                     None => {
                         Rc::make_mut(&mut app.screens)
                             .agents
@@ -2639,6 +2643,19 @@ fn apply_event(
                 }
                 ScreenEv::Chat(chat::Ev::Status(facts)) if facts.account_usage => {
                     reset::startup(app, fx);
+                }
+                ScreenEv::Cells(screens::cells::Ev::RuntimeMetrics {
+                    thread,
+                    turn,
+                    metrics,
+                }) => {
+                    let ev = ThreadEv::Screen(ScreenThreadEv::Cells(
+                        screens::cells::ThreadEv::SeedMetrics {
+                            turn: turn.clone(),
+                            metrics: *metrics,
+                        },
+                    ));
+                    apply_thread(app, thread, ev, fx);
                 }
                 // The details under a thread's status row are the thread's.
                 ScreenEv::Chat(chat::Ev::Details { thread, details }) => {
