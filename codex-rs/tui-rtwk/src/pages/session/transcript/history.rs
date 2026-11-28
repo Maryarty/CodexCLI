@@ -9,7 +9,7 @@
 
 use rtwk::Cx;
 use rtwk::provider::read;
-use rtwk::style::{Span, Style};
+use rtwk::style::{Attrs, Span, Style};
 
 use codex_tui_core::threads::{HistoryState, ThreadModel};
 
@@ -31,6 +31,12 @@ pub fn to_beginning<S: 'static>(cx: &mut Cx<'_, S>, follow: &Follow) {
             cx.emit(&hs.load_history, thread.id().clone());
         }
     }
+}
+
+/// The oracle's dim words of a status row: the DIM modifier on the terminal's own colours
+/// (`Stylize::dim`), not the theme's grey.
+pub fn plain_dim() -> Style {
+    Style::new().attrs(Attrs::DIM)
 }
 
 /// The three styles of the row.

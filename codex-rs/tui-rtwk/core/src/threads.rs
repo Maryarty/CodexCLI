@@ -911,6 +911,9 @@ pub enum LocalWarning {
     ReviewSteerUnavailable,
     InvalidStatusLineItems(Vec<String>),
     InvalidTitleItems(Vec<String>),
+    /// An Ultra reasoning pick with many agent threads configured
+    /// (`ultra_reasoning_concurrency_warning`): the threads configured.
+    UltraConcurrency(usize),
 }
 
 /// How a turn ended.

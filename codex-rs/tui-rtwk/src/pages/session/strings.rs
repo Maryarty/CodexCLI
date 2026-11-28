@@ -732,6 +732,15 @@ impl Strings {
             LocalWarning::InvalidTitleItems(items) => {
                 self.invalid_items(self.invalid_title_items, items)
             }
+            LocalWarning::UltraConcurrency(threads) => {
+                let int = |n: usize| Arg::Int(u64::try_from(n).unwrap_or(u64::MAX));
+                Fmt::new(
+                    self.note_ultra,
+                    [int(*threads), int(threads.saturating_sub(1))],
+                    &self.num,
+                )
+                .to_string()
+            }
         }
     }
 

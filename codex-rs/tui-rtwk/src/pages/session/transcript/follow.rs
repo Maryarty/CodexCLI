@@ -344,7 +344,7 @@ pub fn footer<S>(
 ) -> AnyWidget {
     let table = strings::of(cx);
     let tokens = theme::Tokens::of(cx);
-    let (key_style, dim) = (tokens.bold(), tokens.dim());
+    let (key_style, dim) = (tokens.bold(), history::plain_dim());
     let look = history::Look {
         accent: tokens.accent(),
         dim: dim.clone(),
