@@ -250,7 +250,13 @@ impl Screen {
         });
         let tint = rows.map(|y| {
             (0..grid.width)
-                .map(|x| if grid.style(x, y).bg == "Reset" { '.' } else { '#' })
+                .map(|x| {
+                    if grid.style(x, y).bg == "Reset" {
+                        '.'
+                    } else {
+                        '#'
+                    }
+                })
                 .collect::<String>()
         });
         glyphs.chain(tint).collect::<Vec<_>>().join("│")

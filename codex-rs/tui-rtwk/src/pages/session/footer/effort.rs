@@ -1058,13 +1058,14 @@ fn entry_transition_frames() -> AnyWidget {
             let colors = Colors::of(cx);
             let mut column = rtwk::layout::Column::new()
                 .cross_axis_alignment(rtwk::layout::CrossAxisAlignment::Start);
+            let from = "high";
             for (tier, to) in [(Grade::Max, "max"), (Grade::Ultra, "ultra")] {
                 for millis in TRANSITION_TIMES {
                     column = column.child(frame_row(
                         own,
                         colors,
                         tier,
-                        sample_line(&format!("{} high", sample::MODEL)),
+                        sample_line(&format!("{} {from}", sample::MODEL)),
                         sample_line(&format!("{} {to}", sample::MODEL)),
                         Duration::from_millis(millis),
                     ));

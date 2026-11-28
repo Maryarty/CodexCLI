@@ -1513,7 +1513,7 @@ fn chatwidget_markdown_code_blocks_vt100_snapshot() {
 fn chatwidget_tall() {
     kit::pending(
         Owner::UiPane,
-        "pending(inline viewport): the oracle draws the chat widget alone in a 24-row viewport (no history above): a pane taller than the viewport keeps a blank row on top (`bottom_pane_renderable` is inset by one row) and clips the preview to 15 queued rows; the port's full-screen chat has the transcript above the pane (the session header's last row at row 0) and the preview is not clipped to the room (16 rows). The queued rows, the status and the footer rows equal the oracle's",
+        "pending(G-new-pane-inset): the oracle insets the bottom pane by one row at the top and cuts the preview at the room (a blank first row, 15 queued rows); the port's pane has no blank first row and draws 16 queued rows (the preview itself is cut at the room: `PendingInput` is `overflow_intended`)",
     );
     // a turn under way with thirty queued follow-ups: the status row, fifteen of the follow-ups
     // and the composer fill the 24 rows
