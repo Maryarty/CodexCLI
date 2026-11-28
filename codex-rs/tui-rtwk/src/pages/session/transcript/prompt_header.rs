@@ -79,7 +79,7 @@ pub(super) struct ReaderState {
 
 pub(super) enum Msg {
     ReadViewport,
-    Jump(Target),
+    Jump(Target, PointerEvent),
     Align(Target, u64),
 }
 
@@ -143,8 +143,9 @@ impl State for ReaderState {
                     done,
                 );
             }
-            Msg::Jump(target) => {
-                if !w.interactive
+            Msg::Jump(target, pointer) => {
+                if !pointer.modifiers.is_empty()
+                    || !w.interactive
                     || !w.enough_room()
                     || self.header.as_ref().map(|header| &header.target) != Some(&target)
                     || !target.current(&w.thread)
@@ -222,7 +223,7 @@ impl State for ReaderState {
                 let widget: AnyWidget = if w.interactive {
                     let target = target.clone();
                     GestureDetector::new()
-                        .on_tap(cx.map(move |_: PointerEvent| Msg::Jump(target.clone())))
+                        .on_tap_down(cx.map(move |event| Msg::Jump(target.clone(), event)))
                         .child(line)
                         .into()
                 } else {

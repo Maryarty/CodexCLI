@@ -53,6 +53,38 @@ fn a_prompt_above_the_owned_tail_stays_in_reach_and_clicks_to_its_turn() {
 }
 
 #[test]
+fn only_a_plain_primary_press_jumps_to_the_prompt() {
+    let mut s = reader(vec![turn("recent", QUESTION, "response", 35)]);
+    s.wait(300);
+    s.assert_text_at(2, 0, QUESTION);
+    s.shift_click(4, 0);
+    s.assert_text_at(2, 0, QUESTION);
+    s.assert_contains("response paragraph 34");
+    s.ctrl_click(4, 0);
+    s.assert_text_at(2, 0, QUESTION);
+    s.assert_contains("response paragraph 34");
+    s.click(4, 0);
+    s.wait(300);
+    s.assert_contains("response paragraph 00");
+    s.assert_no_turn();
+}
+
+#[test]
+fn a_held_range_and_copy_preserve_the_pinned_question() {
+    let mut s = reader(vec![turn("recent", QUESTION, "response", 35)]);
+    s.wait(300);
+    s.assert_text_at(2, 0, QUESTION);
+    s.selection_copy_policy(false, false);
+    s.double_click_text("34");
+    s.assert_text_style("34", "reversed");
+    s.wait(300);
+    s.assert_text_at(2, 0, QUESTION);
+    s.keys("ctrl+c");
+    s.assert_copies_asked(&["34"]);
+    s.assert_text_at(2, 0, QUESTION);
+}
+
+#[test]
 fn the_header_follows_the_visible_turn_across_scroll_and_resize() {
     let mut s = reader(vec![
         turn("recent", QUESTION, "response", 35),
