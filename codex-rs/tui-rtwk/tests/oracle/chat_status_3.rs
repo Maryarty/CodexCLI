@@ -60,10 +60,20 @@ const SUFFIX: &str = "Branch: feature/rollout.";
 /// A bottom popup of the live chat at 100 columns. The oracle renders the popup
 /// alone, so its rows are the last rows of our screen (the bottom pane).
 fn bottom_popup(script: &'static str, command: &str, snap: &str) -> Screen {
-    let mut s = Screen::build(Owner::UiPane)
-        .size(100, 24)
-        .script(script)
-        .open();
+    popup_of(script, command, snap, false)
+}
+
+/// The oracle's test chat has no thread id: the session's start stays unanswered.
+fn bottom_popup_no_thread(script: &'static str, command: &str, snap: &str) -> Screen {
+    popup_of(script, command, snap, true)
+}
+
+fn popup_of(script: &'static str, command: &str, snap: &str, no_thread: bool) -> Screen {
+    let mut open = Screen::build(Owner::UiPane).size(100, 24).script(script);
+    if no_thread {
+        open = open.held_start();
+    }
+    let mut s = open.open();
     s.type_text(command);
     s.keys("enter");
     let (_, rows) = kit::snap_size(snap);
@@ -123,13 +133,10 @@ fn status_line_setup_popup_live_only_snapshot() {
 // ORACLE chatwidget/tests/status_surface_previews.rs:183 status_surface_preview_lines_hardcoded_only_snapshot kind=snap owner=ui-pane snap=status_surface_previews_hardcoded_only
 #[test]
 fn status_surface_preview_lines_hardcoded_only_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "the oracle's test chat has no thread id, so `thread-title` previews its placeholder `thread title`; the harness's chat always holds `thread-1` (the footer and the preview show the id the oracle falls back to). The rest (config permissions, approval, profile, provider, column width) matches.",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(100, 24)
         .script(include_str!("fixtures/chat_status_3/hardcoded_line.jsonl"))
+        .held_start()
         .open();
     // The oracle's two preview lines are the preview rows of the /statusline and /title setup popups.
     s.type_text("/statusline");
@@ -146,11 +153,7 @@ fn status_surface_preview_lines_hardcoded_only_snapshot() {
 // ORACLE chatwidget/tests/status_surface_previews.rs:222 status_line_setup_popup_hardcoded_only_snapshot kind=snap owner=ui-pane snap=status_line_setup_popup_hardcoded_only
 #[test]
 fn status_line_setup_popup_hardcoded_only_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "the oracle's test chat has no thread id, so `thread-title` previews its placeholder `thread title`; the harness's chat always holds `thread-1` (the footer and the preview show the id the oracle falls back to). The rest (config permissions, approval, profile, provider, column width) matches.",
-    );
-    bottom_popup(
+    bottom_popup_no_thread(
         include_str!("fixtures/chat_status_3/hardcoded_status_popup.jsonl"),
         "/statusline",
         "status_line_setup_popup_hardcoded_only",
@@ -251,11 +254,7 @@ fn terminal_title_setup_popup_live_only_snapshot() {
 // ORACLE chatwidget/tests/status_surface_previews.rs:494 terminal_title_setup_popup_hardcoded_only_snapshot kind=snap owner=ui-pane snap=terminal_title_setup_popup_hardcoded_only
 #[test]
 fn terminal_title_setup_popup_hardcoded_only_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "the oracle's test chat has no thread id, so `thread-title` previews its placeholder `thread title`; the harness's chat always holds `thread-1` (the footer and the preview show the id the oracle falls back to). The rest (config permissions, approval, profile, provider, column width) matches.",
-    );
-    bottom_popup(
+    bottom_popup_no_thread(
         include_str!("fixtures/chat_status_3/hardcoded_title_popup.jsonl"),
         "/title",
         "terminal_title_setup_popup_hardcoded_only",
