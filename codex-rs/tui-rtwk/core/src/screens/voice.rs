@@ -140,6 +140,7 @@ pub enum ThreadEv {
     Error(String),
     Closed,
     Audio(AudioReport),
+    LocalHostLost,
     Sample,
     Retired,
 }
@@ -322,6 +323,10 @@ impl ThreadPart {
         self.call.is_some()
     }
 
+    pub(crate) fn owner(&self) -> Option<&Owner> {
+        self.call.as_ref().map(|call| &call.owner)
+    }
+
     pub(crate) fn sample_at(&self) -> Option<Now> {
         self.call.as_ref()?.next_sample
     }
@@ -392,6 +397,10 @@ fn stop(part: &mut ThreadPart, fx: &mut ThreadFx<'_>) {
     let Some(call) = part.call.as_mut() else {
         return;
     };
+    if call.owner.address != fx.address() {
+        part.retire(fx);
+        return;
+    }
     match call.phase {
         Phase::Preparing => part.retire(fx),
         Phase::Negotiating(_) | Phase::Active => {
@@ -478,6 +487,11 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
             answer_audio(part, report.result, fx)
         }
         ThreadEv::Audio(_) => {}
+        ThreadEv::LocalHostLost if !matches!(call.phase, Phase::Stopping { .. }) => {
+            fx.voice_failure(Failure::VoiceHostLost);
+            stop(part, fx);
+        }
+        ThreadEv::LocalHostLost => {}
         ThreadEv::Sample if call.phase == Phase::Active => {
             let now = fx.facts().now();
             if call.next_sample.is_some_and(|at| now.reached(at)) {

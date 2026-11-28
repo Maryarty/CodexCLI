@@ -108,6 +108,16 @@ pub struct Request {
     pub operation: Operation,
 }
 
+impl Request {
+    pub(crate) fn executor(&self) -> BackendId {
+        if self.operation.local() {
+            BackendId::default()
+        } else {
+            self.origin.address.backend
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Report {
     pub request: Request,
@@ -237,6 +247,11 @@ type VoiceByWorkspace = BTreeMap<(BackendId, Option<String>), (Address, Option<R
 #[derive(Default)]
 pub(crate) struct Completion {
     pub feedback: Option<Feedback>,
+    pub next: Option<Request>,
+}
+
+pub(crate) struct Retirement {
+    pub failed: Option<ThreadId>,
     pub next: Option<Request>,
 }
 
@@ -415,44 +430,35 @@ impl Model {
         Some(feedback)
     }
 
-    pub(crate) fn retire(&mut self, backend: BackendId) -> Option<Request> {
+    pub(crate) fn retire(&mut self, backend: BackendId) -> Retirement {
         Rc::make_mut(&mut self.confirmed).retain(|(owner, _), _| *owner != backend);
-        if self
-            .read
-            .as_ref()
-            .is_some_and(|r| r.origin.address.backend == backend)
-        {
-            self.read = None;
-        }
-        if self
-            .queued_read
-            .as_ref()
-            .is_some_and(|r| r.origin.address.backend == backend)
-        {
-            self.queued_read = None;
-        }
-        let lost_write = self
-            .write
-            .as_ref()
-            .is_some_and(|r| r.origin.address.backend == backend);
-        if lost_write {
-            self.write = None;
-        }
-        if let Some(view) = self
-            .snapshot
-            .as_mut()
-            .filter(|s| s.origin.address.backend == backend)
-        {
+        let affected = |request: &mut Request| {
+            request.origin.address.backend == backend || request.executor() == backend
+        };
+        let lost_read = self.read.take_if(affected);
+        let lost_write = self.write.take_if(affected);
+        let write_released = lost_write.is_some();
+        let failed = lost_write
+            .or(lost_read)
+            .map(|request| request.origin.thread);
+        if let Some(view) = self.snapshot.as_mut().filter(|seen| {
+            seen.origin.address.backend == backend || failed.as_ref() == Some(&seen.origin.thread)
+        }) {
             let view = Rc::make_mut(view);
-            view.catalog = None;
+            if view.origin.address.backend == backend {
+                view.catalog = None;
+            }
             view.audio = None;
             view.devices = [None, None];
             view.feedback = Some(Feedback::Failed(Problem::ConnectionLost));
         }
-        if lost_write {
-            self.release_read()
-        } else {
-            None
+        Retirement {
+            failed,
+            next: if write_released {
+                self.release_read()
+            } else {
+                None
+            },
         }
     }
 }

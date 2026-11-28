@@ -1288,6 +1288,8 @@ pub enum Failure {
     ReplyMismatch,
     /// Desktop lock stopped the local media peer.
     VoiceLock(screens::voice::LockStop),
+    /// The primary terminal's audio executor was interrupted.
+    VoiceHostLost,
 }
 
 impl From<RpcError> for Failure {
@@ -1980,6 +1982,10 @@ impl<'a> ThreadFx<'a> {
     pub(crate) fn addressed(mut self, address: Address) -> Self {
         self.address = address;
         self
+    }
+
+    pub(crate) fn address(&self) -> Address {
+        self.address
     }
 
     pub(crate) fn with_prompt_priority(
