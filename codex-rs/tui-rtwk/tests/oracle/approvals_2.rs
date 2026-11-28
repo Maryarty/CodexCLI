@@ -762,11 +762,12 @@ fn options_scroll_while_editing_notes() {
 // ORACLE bottom_pane/request_user_input/render_tests.rs:22 halfwidth_sound_marks_are_truncated_and_rendered_at_a_grapheme_boundary kind=snap owner=dialogs-pane snap=request_user_input_halfwidth_sound_marks_truncation
 #[test]
 fn halfwidth_sound_marks_are_truncated_and_rendered_at_a_grapheme_boundary() {
-    kit::pending(
-        Owner::DialogsPane,
-        "the oracle draws two styled Lines, truncated by the word-boundary helper to width 5, into a bare 5x2 Buffer; no screen seeds a styled line at that width and the port has no such truncation",
-    );
-    let s = Screen::build(Owner::DialogsPane).size(5, 2).live().open();
+    // The oracle counts a halfwidth sound mark as a cell of its own: the legacy text mode.
+    let s = Screen::build(Owner::DialogsPane)
+        .size(5, 2)
+        .legacy_text()
+        .entry("approvals", "halfwidth_sound_marks")
+        .open();
     s.assert_snap("request_user_input_halfwidth_sound_marks_truncation");
 }
 

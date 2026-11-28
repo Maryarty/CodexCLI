@@ -1652,10 +1652,6 @@ fn luna_reserve_status_tracks_the_active_model() {
 // ORACLE chatwidget/tests/luna_reserve_usage_tests.rs:141 luna_reserve_usage_survives_banner_dismissal_and_typing_during_a_turn kind=snap owner=chat-live snap=luna_reserve_usage_with_upsell snap=luna_reserve_usage_running
 #[test]
 fn luna_reserve_usage_survives_banner_dismissal_and_typing_during_a_turn() {
-    kit::pending(
-        Owner::ChatLive,
-        "G-new-footer-palette: the selector's frames and the dismissal equal the oracle's (`luna_reserve_usage_with_upsell`, `luna_reserve_usage_running`); its bold title is drawn in the terminal's default foreground (`Reset`), where the oracle sets the terminal's foreground as an RGB (`rgb_color(colors.fg)`) so that no bold default foreground is relied on: the theme's tokens do not carry the terminal's own foreground",
-    );
     let banner = serde_json::json!({
         "banner_type": "luna_reserve", "presentation": "dismissible",
         "title": "You\u{2019}re now using Luna, a faster model for simpler tasks.",

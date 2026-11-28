@@ -674,3 +674,11 @@ impl Strings {
         Fmt::new(self.unlocalized, [Arg::Text(error)], &self.num)
     }
 }
+
+/// The sample words of the debug entries (the oracle's tests draw them, they are no UI's).
+pub mod sample {
+    /// The bold start, the halfwidth kana with its sound mark and the dim tail of the oracle's
+    /// two styled lines (`ab` `ｶﾞ` ` tail`, `xy` `ﾊﾟ` ` tail`).
+    pub const FIRST: [&str; 3] = ["ab", "\u{ff76}\u{ff9e}", " tail"];
+    pub const SECOND: [&str; 3] = ["xy", "\u{ff8a}\u{ff9f}", " tail"];
+}

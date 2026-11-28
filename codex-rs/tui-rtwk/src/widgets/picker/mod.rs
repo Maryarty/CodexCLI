@@ -280,6 +280,7 @@ fn paragraphs(
     list: &List,
     tab: Option<&TabNote>,
     tokens: &theme::Tokens,
+    banner: Option<Style>,
 ) -> Vec<Vec<(String, Style)>> {
     // The tab's own header replaces the list's.
     let header = tab
@@ -300,7 +301,9 @@ fn paragraphs(
     list.subtitle
         .iter()
         .map(|text| {
-            let style = if list.subtitle_role == Role::Info {
+            let style = if let Some(plain) = &banner {
+                plain.clone()
+            } else if list.subtitle_role == Role::Info {
                 tokens.info()
             } else {
                 tokens.dim()
@@ -686,10 +689,19 @@ impl State for PickerState {
             .or_else(|| note.and_then(|note| note.hint.clone()))
             .or_else(|| list.footer_hint.clone())
             .or_else(|| list.standard_hint.then(|| standard_hint(&keys, s)));
+        // an actionable banner's header is drawn in the terminal's own foreground
+        let banner = list.banner.then(|| {
+            theme::terminal_colors(cx)
+                .map_or_else(Style::new, |(fg, _)| theme::terminal_foreground(fg))
+        });
+        let title_style = match &banner {
+            Some(ink) => tokens.bold().merge(ink),
+            None => tokens.bold(),
+        };
         let pane = Pane {
             surface: list.surface(),
-            title: list.title.clone().map(|title| (title, tokens.bold())),
-            paragraphs: paragraphs(&list, note, &tokens),
+            title: list.title.clone().map(|title| (title, title_style)),
+            paragraphs: paragraphs(&list, note, &tokens, banner.clone()),
             tabs,
             search,
             rows,
@@ -708,7 +720,7 @@ impl State for PickerState {
                     .notes
                     .iter()
                     .map(|note| {
-                        paragraphs(&list, Some(note), &tokens)
+                        paragraphs(&list, Some(note), &tokens, banner.clone())
                             .into_iter()
                             .map(|runs| runs.into_iter().map(|(text, _)| text).collect())
                             .collect()

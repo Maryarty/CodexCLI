@@ -626,6 +626,7 @@ impl State for ReserveSelectorState {
             columns: Columns::AutoAllRows,
             hide_description_below: Some(24),
             standard_hint: true,
+            banner: true,
             ..List::default()
         };
         if !pending {
