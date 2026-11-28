@@ -1,5 +1,6 @@
 # Working and a queued follow-up (bottom_pane/mod.rs status_and_queued_messages_snapshot).
 {"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "chat", "ev": {"facts": {"agents_navigation": false}}}
 {"step": "screen", "dir": "chat", "ev": {"status": {"items": []}}}
 {"step": "screen", "dir": "agents", "ev": {"clock": 1700000000}}
 {"step": "notify", "message": {"method": "turn/started", "params": {"threadId": "thread-1", "turn": {"id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "full", "status": "inProgress", "error": null, "startedAt": 1700000000, "completedAt": null, "durationMs": null}}}}
