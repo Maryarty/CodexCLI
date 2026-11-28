@@ -24,6 +24,24 @@ impl Default for Rendering {
     }
 }
 
+/// Resolved feature flags for restoring a saved Daybreak preference during session hydration.
+/// These are available before the account or model catalog has been read.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DaybreakConfig {
+    /// `features.cli_daybreak`.
+    pub enabled: bool,
+    /// `features.api_key_cyber_access_programs`.
+    pub api_key: bool,
+}
+
+impl DaybreakConfig {
+    /// A known API-key account needs its own flag too. Pending account discovery
+    /// allows the session to restore its saved preference.
+    pub fn allows(self, known_api_key: bool) -> bool {
+        self.enabled && (!known_api_key || self.api_key)
+    }
+}
+
 /// The `[tui]` settings that change what a view shows.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TuiSettings {
@@ -62,6 +80,8 @@ pub struct TuiSettings {
     pub workspace_enabled: bool,
     /// The preferred share of the fullscreen side pane.
     pub sidebar_width_percent: Option<u8>,
+    /// The config flags used by the opening transcript's Daybreak notice.
+    pub daybreak: DaybreakConfig,
 }
 
 impl Default for TuiSettings {
@@ -79,6 +99,7 @@ impl Default for TuiSettings {
             transcript_owned: false,
             workspace_enabled: false,
             sidebar_width_percent: None,
+            daybreak: DaybreakConfig::default(),
         }
     }
 }

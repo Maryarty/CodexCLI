@@ -427,9 +427,14 @@ impl Open {
         self
     }
 
-    /// The saved thread in the resume response has Daybreak on.
+    /// The feature is on and the resume response holds the saved preference.
     pub fn replay_daybreak(mut self) -> Open {
         self.env.replay_daybreak = true;
+        self.env
+            .tui
+            .get_or_insert_with(TuiSettings::default)
+            .daybreak
+            .enabled = true;
         self
     }
 

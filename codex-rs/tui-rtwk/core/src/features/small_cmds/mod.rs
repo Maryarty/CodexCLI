@@ -416,7 +416,12 @@ impl Feature for SmallCmds {
         if let Some(thread) = view.active_thread().filter(|thread| thread.id() == id)
             && !view.screens().chat.flags.side_conversation_active
         {
-            let enabled = daybreak_of(thread).unwrap_or_default();
+            let facts = view.facts();
+            let api_key = matches!(
+                facts.status().account,
+                Some(crate::screens::status::Account::ApiKey)
+            );
+            let enabled = facts.tui().daybreak.allows(api_key) && daybreak_of(thread) == Some(true);
             cx.thread(id, ThreadIntent::ResumeDaybreak(enabled));
         }
     }
