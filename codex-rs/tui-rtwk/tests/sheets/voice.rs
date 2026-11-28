@@ -44,7 +44,10 @@ fn request(h: &mut Harness, accepts: impl Fn(&Operation) -> bool) -> Request {
             })
     };
     h.wait_until("the voice settings request", |h| find(h).is_some());
-    find(h).expect("voice settings request")
+    let Some(request) = find(h) else {
+        panic!("the voice settings request was not recorded");
+    };
+    request
 }
 
 fn answer(h: &mut Harness, request: Request, result: Result<Answer, Problem>) {
