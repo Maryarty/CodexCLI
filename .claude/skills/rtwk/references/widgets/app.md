@@ -320,3 +320,42 @@ pub(crate) fn create(
 | option | values | starts at |
 | --- | --- | --- |
 | program | create, install, check | create |
+
+## Suspend, edit_text
+
+The terminal handed to another program: Ctrl+G sends the draft to the user's editor and takes the text back. A terminal editor has the terminal and the app writes nothing meanwhile, its timer going on; a windowed editor is waited for and the app keeps drawing.
+
+- `rtwk::app::AppCx` (struct) in `crates/rtwk/src/app.rs:962`: What a handler (or the first change, or a task's completion) may do besides changing the application — the effects an A+Msg `update` has.
+- `rtwk::binding::SuspendError` (enum) in `crates/rtwk-widgets/src/binding/suspend.rs:41`: Why a Suspension did not return what its program returned.
+- `rtwk::editor::EditText` (struct) in `crates/rtwk/src/platform/edit.rs:37`: How AppCx::edit_text opens a text in the user's editor: the extension of the temp file (what the editor highlights by), the line and column the cursor starts at, and where the file is made.
+
+### Code
+
+```rust
+use rtwk::app::AppCx;
+use rtwk::editing::TextEditingController;
+use rtwk::editor::{EditError, EditText};
+
+pub struct Composer {
+    pub draft: TextEditingController,
+    pub status: String,
+}
+
+// VISUAL=vim: the terminal is the editor's while it is open
+pub fn edit(app: &mut Composer, cx: &mut AppCx<Composer>) {
+    app.status = "editing in $EDITOR…".into();
+    let draft = app.draft.text().to_string();
+    cx.edit_text(draft, EditText::markdown(), |app, result, _| match result {
+        Ok(text) => app.draft.set_text(text.trim_end()),
+        Err(EditError::NoEditor) => app.status = "no editor: set VISUAL or EDITOR".into(),
+        Err(error) => app.status = format!("{error}: draft kept"),
+    });
+}
+
+```
+
+### Options
+
+| option | values | starts at |
+| --- | --- | --- |
+| editor | terminal (vim), window (code) | terminal (vim) |

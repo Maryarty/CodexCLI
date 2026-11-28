@@ -327,7 +327,9 @@ impl Walk {
                     });
                 }
             }
-            MdBlock::ThematicBreak => return None,
+            // a rule has no text, and a block of an extension the app does not turn on (alerts)
+            // is not modelled
+            _ => return None,
         }
         Some(())
     }
@@ -385,6 +387,8 @@ fn push(inlines: &[MdInline], stack: &mut Vec<Inline>, out: &mut Built) -> Optio
             MdInline::Image { children, .. } => push(children, stack, out)?,
             // resolved before the view draws them; not modelled unresolved
             MdInline::Reference { .. } => return None,
+            // footnote references and math belong to extensions the app does not turn on
+            _ => return None,
         }
     }
     Some(())

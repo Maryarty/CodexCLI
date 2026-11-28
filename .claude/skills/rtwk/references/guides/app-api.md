@@ -1,4 +1,4 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk c953f062; do not edit. -->
+<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 5001d2cd; do not edit. -->
 
 # App and component contexts
 
@@ -6,7 +6,7 @@ The application context types: what a view function, a handler and a `State` can
 
 ## AppView
 
-- `rtwk::app::AppView` (struct, `crates/rtwk/src/app.rs:151`) The root of an application: its state (taken by the element once, when it is mounted), its view and its first change.
+- `rtwk::app::AppView` (struct, `crates/rtwk/src/app.rs:157`) The root of an application: its state (taken by the element once, when it is mounted), its view and its first change.
 
 #### `AppView`: constructors and associated functions
 
@@ -29,7 +29,7 @@ The application context types: what a view function, a handler and a `State` can
 
 ## ViewCx
 
-- `rtwk::app::ViewCx` (struct, `crates/rtwk/src/app.rs:772`) What a view is given: where its handlers send (its application's root), and the tracked reads a build may make.
+- `rtwk::app::ViewCx` (struct, `crates/rtwk/src/app.rs:783`) What a view is given: where its handlers send (its application's root), and the tracked reads a build may make.
 
 #### `ViewCx`: methods
 
@@ -50,7 +50,7 @@ The application context types: what a view function, a handler and a `State` can
 
 ## AppCx
 
-- `rtwk::app::AppCx` (struct, `crates/rtwk/src/app.rs:951`) What a handler (or the first change, or a task's completion) may do besides changing the application — the effects an A+Msg `update` has.
+- `rtwk::app::AppCx` (struct, `crates/rtwk/src/app.rs:962`) What a handler (or the first change, or a task's completion) may do besides changing the application — the effects an A+Msg `update` has.
 
 #### `AppCx`: methods
 
@@ -81,6 +81,10 @@ The application context types: what a view function, a handler and a `State` can
 - `pub fn show_dialog<T: 'static>(&mut self, builder: impl Fn(&mut BuildCx<'_>) -> AnyWidget + 'static, options: DialogOptions, closed: impl FnOnce(&mut A, Option<T>, &mut AppCx<'_, '_, A>) + 'static) -> AppDialog<T>` - Shows what `builder` builds as a dialog, as `rtwk_overlay::show_dialog` does — over a barrier, the focus kept in it, Escape and a click on the barrier closing it with none when `options` say it is dismissible — and runs ...
 - `pub fn show_dialog_from<T: 'static>(&mut self, view_root: ViewRoot<A>, builder: impl Fn(&mut BuildCx<'_>) -> AnyWidget + 'static, options: DialogOptions, closed: impl FnOnce(&mut A, Option<T>, &mut AppCx<'_, '_, A>) + 'static) -> AppDialog<T>` - As `show_dialog`, from the origin of `view_root` (`ViewRoot::origin`) rather than this change's: twk's `showDialog(context: stored)` with a context kept from a build.
 - `pub fn root(&self) -> ViewRoot<A>` - The application's root as a `ViewRoot` (`ViewCx::root`): a `Copy` handle a dialog's builder captures to make handlers to the application, and kept subtrees of it.
+- `pub fn edit_text(&mut self, text: impl Into<String>, how: EditText, then: impl FnOnce(&mut A, Result<String, EditError>, &mut AppCx<'_, '_, A>) + 'static) -> TaskId` - Opens `text` in the user's editor (`TWK_EDITOR`, `VISUAL` or `EDITOR`, in that order) and hands what it was saved as to `then`, once the editor is closed: the "edit this in `$EDITOR`" of a composer, a commit message, a ...
+- `pub fn spawn_latest<R: 'static>(&mut self, slot: &mut TaskSlot, future: impl Future<Output = R> + 'static, then: impl FnOnce(&mut A, R, &mut AppCx<'_, '_, A>) + 'static)` - As `spawn`, for the request `slot` holds: the one in flight in it is retired first (its future dropped, its result never applied — also one already queued), so `then` runs only for the latest request, and only while the ...
+- `pub fn try_spawn_latest_noted<R: 'static, E: fmt::Display + 'static>(&mut self, slot: &mut TaskSlot, future: impl Future<Output = Result<R, E>> + 'static, then: impl FnOnce(&mut A, R, &mut AppCx<'_, '_, A>) + 'static, note: Arc<PanicNote>)` - As `try_spawn_latest`, for work that runs on another thread and hands the panics it catches over as an error: the host writes the text of a panic into `note` before the future ends with it.
+- `pub fn try_spawn_latest<R: 'static, E: fmt::Display + 'static>(&mut self, slot: &mut TaskSlot, future: impl Future<Output = Result<R, E>> + 'static, then: impl FnOnce(&mut A, R, &mut AppCx<'_, '_, A>) + 'static)` - As `spawn_latest`, for a future that may fail, as `try_spawn` is: the latest request's error is reported (a recoverable `ErrorKind::Task` `RuntimeError`) and the view does not run again for it; the error of a retired ...
 
 
 ## Cx

@@ -232,6 +232,62 @@ let app = FenceBuildersScope::new(builders, MarkdownView::new("..."));
 * `markdown_lines`, the lines of a document as data, builds no widgets and
   uses no builders.
 
+## Diagrams: a `mermaid` fence
+
+With the feature `mermaid` of `rtwk-rich` (off by default) a fence in the language `mermaid` is
+drawn: the diagram, in the width of the column and in the colours of the app's theme, where the
+block stands between its paragraphs. A diagram is a fence of a document, as on GitHub, and
+there is no widget to place for one; an app that wants a single diagram holds a `MarkdownView`
+with that one fence. Without the feature the fence is code, as before.
+
+```rust
+use rtwk_rich::markdown::MarkdownView;
+
+let view = MarkdownView::new(
+    "How a build runs:\n\n```mermaid\nflowchart TD\n    A([Start]) --> B{Ready?}\n    B -->|yes| C[Run]\n    B -->|no| D[Wait]\n    D --> B\n```\n",
+);
+```
+
+The kinds drawn so far are flowchart, mindmap, treeView, ishikawa, pie, packet, sankey, venn and
+info (the "Mermaid" group of the gallery has a page for each, with this very call in its Code
+tab); the others are not drawn yet. A diagram that cannot be drawn (broken, not drawn yet, over a
+limit, wider than the column) shows its diagnostic where the diagram would be: a first line
+`mermaid: line 2, column 5: unclosed label`, then the lines of the source around the spot with
+their numbers and a `^^^` caret under the construct. The cause tells broken syntax from a gap of
+rtwk (with the requirement that owns it), a limit (and its value) and a column too narrow (what the
+diagram needs, what it has); the app can ask the same without drawing (`rtwk_mermaid::diagnose`).
+
+```rust,ignore
+// needs the feature `mermaid` of rtwk-rich
+use rtwk_rich::markdown::{Fallback, GlyphMode, MarkdownView, MermaidOptions};
+
+let view = MarkdownView::new(reply).mermaid(
+    MermaidOptions::new()
+        .glyphs(GlyphMode::Ascii)       // `Auto` follows the theme and the terminal
+        .fallback(Fallback::Notice),    // a diagram that cannot be drawn: the reason alone
+                                        // (`Diagnostic`, the default: where and why, with the
+                                        // source around the spot; `Source`: the whole source)
+);
+```
+
+* **Colours** are the app theme's, quiet (the boxes in the border colour, arrow heads and
+  decisions in the accent, the lines muted) and never the only carrier of meaning: a decision
+  is `◇`, a data series has a mark of its own. A `MermaidThemeScope` above the view, with a
+  `MermaidTheme` of your own, colours the diagrams below it.
+* **Characters** are box drawing where the app's theme draws its lines so and the terminal
+  draws them one cell wide, ASCII where either is not so (`GlyphMode::Auto`).
+* **A diagram that cannot be drawn** (a source the reader refuses, a kind with no drawing yet,
+  a column too narrow for it) is a line that says why, then the source, so a person can copy
+  it elsewhere; the view never fails. A flowchart that is wider than the column runs across
+  when that is narrower; a diagram that is taller than the view scrolls with it.
+* **A fence still open is code** (streams, above): a half-written diagram is not drawn, and
+  costs no layout, until its closing line arrives.
+* **Copying** a selection that holds a diagram gives its labels in reading order, a line for
+  each row, as copying from a diagram on GitHub does. Copying the fenced source as a mode of
+  its own is not there yet.
+* A **builder of your own** for `mermaid` (above) comes first and may return `None` to leave
+  the fence to the built-in.
+
 ## Markdown alongside other widgets
 
 Put the neighbours and the view in one `Column` inside the scroll view, so

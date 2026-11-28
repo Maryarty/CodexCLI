@@ -19,7 +19,7 @@ the design and the references agents read.
 | `refs/` | generated references (ADR-008), written by `tools/rtwk-port/` |
 
 Worktrees: `codex-rs/tui-rtwk` builds against the rtwk pin, a checkout of the
-commit in [RTWK_REF](RTWK_REF) at `/Users/admin/.cache/codexcli/rtwk-pin-c953` (rtwk main; a new pin is a new
+commit in [RTWK_REF](RTWK_REF) at `/Users/admin/.cache/codexcli/rtwk-pin-5001` (rtwk main; a new pin is a new
 directory `rtwk-pin-<short sha>`, the old one is dropped when the last worktree has moved). Its
 `Cargo.toml` names the pin's crates by that absolute path: a relative path
 through a symlink makes cargo read the outer `codex-rs` workspace root and

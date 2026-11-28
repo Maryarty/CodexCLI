@@ -11,7 +11,7 @@ A Code is the body of the gallery's preview: it names widgets by the last segmen
 
 A Markdown document as widgets, a blank row between the blocks; its links the app's with on_link_tap, a MarkdownController scrolling to a heading.
 
-- `rtwk_rich::markdown::MarkdownView` (struct) in `crates/rtwk-rich/src/markdown/view.rs:441`: The Markdown document `data` as widgets, its blocks one under another with a blank row between them, in the styles of theme, by default `MarkdownTheme::from_theme` the app's theme (the lines are super::markdown_blocks_lines's: see there for how each block looks).
+- `rtwk_rich::markdown::MarkdownView` (struct) in `crates/rtwk-rich/src/markdown/view.rs:518`: The Markdown document `data` as widgets, its blocks one under another with a blank row between them, in the styles of theme, by default `MarkdownTheme::from_theme` the app's theme (the lines are super::markdown_blocks_lines's: see there for how each block looks).
 
 ### Code
 
@@ -207,7 +207,7 @@ Read the [guide](https://docs.rs/rtwk-rich) for more.
 
 Source code highlighted for its language, with line numbers, its long lines wrapped or cut off at the width; a CodeViewController scrolls it to a line, highlights lines and finds text.
 
-- `rtwk_rich::highlight::CodeView` (struct) in `crates/rtwk-rich/src/highlight/code_view.rs:1113`: `code` in `language`, each token in the style the SyntaxTheme at its place (SyntaxTheme::of) gives its kind: its lines one under another, and with line_numbers each line's number in a gutter before it.
+- `rtwk_rich::highlight::CodeView` (struct) in `crates/rtwk-rich/src/highlight/code_view.rs:1245`: `code` in `language`, each token in the style the SyntaxTheme at its place (SyntaxTheme::of) gives its kind: its lines one under another, and with line_numbers each line's number in a gutter before it.
 
 ### Code
 
@@ -484,7 +484,7 @@ fn main() {
 
 The styles of the code below it, a style for each kind of token, in place of those derived from the theme: a SyntaxTheme of its own, or the derived one with a few changed.
 
-- `rtwk_rich::highlight::SyntaxThemeScope` (struct) in `crates/rtwk-rich/src/highlight/syntax_theme.rs:179`: Sets the SyntaxTheme the widgets below it use (SyntaxTheme::of): a `CodeView`, a `JsonView`, a `DiffView` and the code blocks of a `MarkdownView` take it.
+- `rtwk_rich::highlight::SyntaxThemeScope` (struct) in `crates/rtwk-rich/src/highlight/syntax_theme.rs:185`: Sets the SyntaxTheme the widgets below it use (SyntaxTheme::of): a `CodeView`, a `JsonView`, a `DiffView` and the code blocks of a `MarkdownView` take it.
 
 ### Code
 
@@ -549,7 +549,7 @@ fn preview() -> AnyWidget {
 
 The changes between two texts, unified or side by side, the words that changed marked and both sides highlighted; its lines are selected and copied without their numbers.
 
-- `rtwk_rich::diff::DiffView` (struct) in `crates/rtwk-rich/src/diff/view.rs:98`: `diff` in a list of rows that scrolls, laid out as layout says.
+- `rtwk_rich::diff::DiffView` (struct) in `crates/rtwk-rich/src/diff/view.rs:103`: `diff` in a list of rows that scrolls, laid out as layout says.
 
 ### Code
 
@@ -1060,3 +1060,45 @@ fn preview() -> AnyWidget {
 | level | low, medium, quartile, high | medium |
 | quiet zone | 0 modules, 1 modules, 2 modules, 3 modules, 4 modules | 4 modules |
 | inverted | false, true | false |
+
+## Mermaid
+
+A diagram a MarkdownView draws from a mermaid fence, in the colours of the theme: choose the kind (flowchart, sequence, mindmap, pie, kanban and the rest) and one of its examples; narrower than a diagram needs, it falls back to what fits and last to a notice with the source.
+
+- `rtwk_rich::markdown::MarkdownView` (struct) in `crates/rtwk-rich/src/markdown/view.rs:518`: The Markdown document `data` as widgets, its blocks one under another with a blank row between them, in the styles of theme, by default `MarkdownTheme::from_theme` the app's theme (the lines are super::markdown_blocks_lines's: see there for how each block looks).
+
+### Code
+
+````rust
+use rtwk_rich::markdown::MarkdownView;
+
+pub fn view() -> MarkdownView {
+    MarkdownView::new(
+        r"```mermaid
+flowchart TD
+    A([Start]) --> B{Ready?}
+    B -->|yes| C[Run]
+    B -->|no| D[Wait]
+    D --> B
+    C --> E([Done])
+```",
+    )
+}
+
+````
+
+### Options
+
+| option | values | starts at |
+| --- | --- | --- |
+| kind | Flowchart, Sequence, Class, State, Entity relationship, Gantt, Git graph, Requirement, C4, Architecture, Block, Use case, Swimlane, Event modeling, Agent flow, Wardley map, Railroad, Info, Mindmap, TreeView, Ishikawa, Pie, Packet, Sankey, Venn, XY chart, Quadrant chart, Radar, Kanban, Timeline, User journey, Cynefin, Treemap | Flowchart |
+| example | 1, 2, 3, 4, 5, 6, 7 | 1 |
+| direction | as written, TD, LR, BT, RL | as written |
+| autonumber | false, true | false |
+| mirror actors | false, true | true |
+| show data | false, true | true |
+| width (cells) | stage, 48, 40, 30, 24 | stage |
+| own palette | false, true | false |
+| source colours | false, true | true |
+| fill nodes | false, true | false |
+| glyphs | auto, Unicode, ASCII | auto |

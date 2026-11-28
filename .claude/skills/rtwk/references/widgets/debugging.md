@@ -73,7 +73,7 @@ pub fn record(sample: &FrameSample, now_micros: u64) -> FrameOverlay {
 
 Each repaint boundary tinted a new colour when it paints, and relayouts marked, to see what a change redraws; Ctrl+G then r, and l.
 
-- `rtwk_render::RenderTree` (struct) in `crates/rtwk-render/src/tree.rs:420`: A retained tree of RenderObjects and the pipeline that lays it out and paints it from its root, a frame at a time: what was marked since the last frame, and nothing else (twk's `PipelineOwner` and the tree it owns).
+- `rtwk_render::RenderTree` (struct) in `crates/rtwk-render/src/tree.rs:436`: A retained tree of RenderObjects and the pipeline that lays it out and paints it from its root, a frame at a time: what was marked since the last frame, and nothing else (twk's `PipelineOwner` and the tree it owns).
 
 ### Code
 
