@@ -56,7 +56,7 @@ pub use decision::ReviewLine;
 pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
 pub use live_output::{OutputLine, RetainedOutput};
 pub use message::{LocalImage, TaskRef, ToolMention, UserMessage};
-pub use note::{CdRefusal, ModeNote, Note, NoteKey, RemoveNote, Stub, Toggle, Tone};
+pub use note::{CdRefusal, ModeNote, Note, NoteKey, RemoveNote, ServerNote, Stub, Toggle, Tone};
 pub use processes::{Listed, Terminal, WaitStreak};
 pub use queue::{DueCommand, Queued, Ran};
 use queue::{enqueue, send_next};
@@ -1286,6 +1286,10 @@ pub enum Failure {
     Stopped,
     /// A reply of another screen than its ticket's.
     ReplyMismatch,
+    /// Desktop lock stopped the local media peer.
+    VoiceLock(screens::voice::LockStop),
+    /// The primary terminal's audio executor was interrupted.
+    VoiceHostLost,
 }
 
 impl From<RpcError> for Failure {
@@ -1906,6 +1910,7 @@ pub struct ThreadFx<'a> {
     published_name: Option<String>,
     voice_failure: Option<Failure>,
     ordered_legacy_voice: bool,
+    realtime_voice: Option<screens::voice::settings::RealtimeVoice>,
     address: Address,
     /// The app's arbitration for the completed turn carried by this event.
     prompt_priority: screens::chat::plan_mode::PromptPriority,
@@ -1936,6 +1941,7 @@ impl<'a> ThreadFx<'a> {
             published_name: None,
             voice_failure: None,
             ordered_legacy_voice: false,
+            realtime_voice: None,
             address: Address::default(),
             prompt_priority: screens::chat::plan_mode::PromptPriority::Ordinary,
             daybreak: Daybreak::Apply,
@@ -1956,6 +1962,18 @@ impl<'a> ThreadFx<'a> {
         self.ordered_legacy_voice
     }
 
+    pub(crate) fn with_realtime_voice(
+        mut self,
+        voice: Option<screens::voice::settings::RealtimeVoice>,
+    ) -> Self {
+        self.realtime_voice = voice;
+        self
+    }
+
+    pub(crate) fn realtime_voice(&self) -> Option<screens::voice::settings::RealtimeVoice> {
+        self.realtime_voice
+    }
+
     pub(crate) fn with_cloud(mut self, cloud: bool) -> Self {
         self.cloud = cloud;
         self
@@ -1964,6 +1982,10 @@ impl<'a> ThreadFx<'a> {
     pub(crate) fn addressed(mut self, address: Address) -> Self {
         self.address = address;
         self
+    }
+
+    pub(crate) fn address(&self) -> Address {
+        self.address
     }
 
     pub(crate) fn with_prompt_priority(
@@ -2282,14 +2304,18 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
             ThreadId::new(&n.thread_id),
             ThreadEv::Appended {
                 turn: None,
-                item: Item::Note(Note::from(NoteKey::Server(n.message.clone()))),
+                item: Item::Note(Note::from(NoteKey::Server(ServerNote::Info(
+                    n.message.clone(),
+                )))),
             },
         )),
         ServerNotification::AuthRecoveryCompleted(n) => Some((
             ThreadId::new(&n.thread_id),
             ThreadEv::Appended {
                 turn: None,
-                item: Item::Note(Note::from(NoteKey::ServerDone(n.message.clone()))),
+                item: Item::Note(Note::from(NoteKey::Server(ServerNote::Done(
+                    n.message.clone(),
+                )))),
             },
         )),
         ServerNotification::ItemStarted(n) => item_upsert(&n.thread_id, &n.turn_id, &n.item, false)

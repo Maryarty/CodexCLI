@@ -8,7 +8,7 @@ use codex_tui_core::fixtures::builders::{
 };
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::{ScreenEv, ScreenIntent, agents, chat};
-use codex_tui_core::threads::NoteKey;
+use codex_tui_core::threads::{NoteKey, ServerNote};
 use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
 use rtwk::binding::ScreenMode;
 use rtwk_test::Options;
@@ -156,7 +156,7 @@ fn a_standalone_note_does_not_block_a_finalized_failed_turn() {
     h.inject([AppEv::Intent(Intent::Screen(ScreenIntent::Chat(
         chat::Intent::Note {
             thread: Some(ThreadId::new(FAKE_THREAD)),
-            note: NoteKey::ServerDone("standalone startup note".to_owned()).into(),
+            note: NoteKey::Server(ServerNote::Done("standalone startup note".to_owned())).into(),
         },
     )))]);
     h.inject([

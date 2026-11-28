@@ -151,6 +151,7 @@ fn voice_start_params(
     thread: &ThreadId,
     session: &str,
     offer: &Sdp,
+    voice: Option<crate::screens::voice::settings::RealtimeVoice>,
 ) -> wire::ThreadRealtimeStartParams {
     wire::ThreadRealtimeStartParams {
         thread_id: thread.to_string(),
@@ -175,7 +176,7 @@ fn voice_start_params(
             sdp: offer.clone().into_inner(),
         }),
         version: Some(RealtimeConversationVersion::V3),
-        voice: None,
+        voice,
     }
 }
 
@@ -184,9 +185,9 @@ crate::rpc_list! {
     pub enum ThreadRpc<M: Borrow<UserMessage>> => ThreadReply, request model_override: Option<&str>;
 
     /// Open the backend side of a call once local WebRTC has prepared an offer.
-    RealtimeStart { thread: ThreadId, session: String, offer: Sdp },
-        Self::RealtimeStart { thread, session, offer }
-        => ThreadRealtimeStart(voice_start_params(thread, session, offer))
+    RealtimeStart { thread: ThreadId, session: String, offer: Sdp, voice: Option<crate::screens::voice::settings::RealtimeVoice> },
+        Self::RealtimeStart { thread, session, offer, voice }
+        => ThreadRealtimeStart(voice_start_params(thread, session, offer, *voice))
         -> wire::ThreadRealtimeStartResponse, |_| ThreadReply::Done;
     /// Stop the backend side of a voice call after closing the local peer.
     RealtimeStop { thread: ThreadId }, Self::RealtimeStop { thread }

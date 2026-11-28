@@ -14,6 +14,9 @@ use crate::threads::{
     voice_transcript::{History, Legacy, Page, ThreadEvent},
 };
 
+pub mod settings;
+pub use settings::Intent;
+
 pub const NAME: &str = "voice";
 pub const ID: &str = "S25";
 pub const KIND: Kind = Kind::Sheet;
@@ -21,6 +24,7 @@ pub const KIND: Kind = Kind::Sheet;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
     ordered_legacy_publisher: Option<Address>,
+    pub settings: settings::Model,
 }
 
 impl Model {
@@ -34,18 +38,14 @@ pub enum Ev {
     OrderedLegacyPublisher(Address),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Intent {}
-
 pub fn apply(model: &mut Model, ev: Ev, _: &mut AppFx) {
     match ev {
         Ev::OrderedLegacyPublisher(address) => model.ordered_legacy_publisher = Some(address),
     }
 }
 
-pub fn apply_intent(_: &mut Model, intent: Intent, _: &mut AppFx) {
-    match intent {}
-}
+// The app captures the active thread's physical address before issuing a settings request.
+pub fn apply_intent(_: &mut Model, _: Intent, _: &mut AppFx) {}
 
 /// SDP can contain private ICE addresses and credentials.
 #[derive(Clone, PartialEq, Eq)]
@@ -82,6 +82,7 @@ pub struct AudioCommand {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AudioAction {
+    ObserveLock,
     Prepare,
     Connect(Sdp),
     SetMuted(bool),
@@ -97,6 +98,7 @@ pub struct AudioReport {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AudioResult {
+    LockStopped(LockStop),
     Prepared(Result<Sdp, String>),
     Connected(Result<(), String>),
     Muted {
@@ -105,6 +107,12 @@ pub enum AudioResult {
     },
     Sampled(Result<Peaks, String>),
     Closed,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LockStop {
+    Locked,
+    MonitorFailed,
 }
 
 /// Peak levels are consumed as meter glyphs; do not emit them in effect logs.
@@ -132,15 +140,22 @@ pub enum ThreadEv {
     Error(String),
     Closed,
     Audio(AudioReport),
+    LocalHostLost,
     Sample,
     Retired,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
-    Start { session: String, offer: Sdp },
+    Start {
+        session: String,
+        offer: Sdp,
+        voice: Option<settings::RealtimeVoice>,
+    },
     Stop,
-    ReadTimeline { cursor: Option<String> },
+    ReadTimeline {
+        cursor: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -187,6 +202,7 @@ enum Captions {
 struct Call {
     owner: Owner,
     session: String,
+    voice: Option<settings::RealtimeVoice>,
     phase: Phase,
     started: bool,
     captions: Captions,
@@ -307,6 +323,10 @@ impl ThreadPart {
         self.call.is_some()
     }
 
+    pub(crate) fn owner(&self) -> Option<&Owner> {
+        self.call.as_ref().map(|call| &call.owner)
+    }
+
     pub(crate) fn sample_at(&self) -> Option<Now> {
         self.call.as_ref()?.next_sample
     }
@@ -333,6 +353,7 @@ pub(crate) fn apply_intent_on_thread(
             let call = Call {
                 owner,
                 session,
+                voice: fx.realtime_voice(),
                 phase: Phase::Preparing,
                 started: false,
                 captions: if part.history == History::Legacy && fx.ordered_legacy_voice() {
@@ -346,6 +367,7 @@ pub(crate) fn apply_intent_on_thread(
                 speaker: [0; 6],
                 next_sample: None,
             };
+            audio(&call, AudioAction::ObserveLock, fx);
             audio(&call, AudioAction::Prepare, fx);
             part.call = Some(call);
         }
@@ -375,6 +397,10 @@ fn stop(part: &mut ThreadPart, fx: &mut ThreadFx<'_>) {
     let Some(call) = part.call.as_mut() else {
         return;
     };
+    if call.owner.address != fx.address() {
+        part.retire(fx);
+        return;
+    }
     match call.phase {
         Phase::Preparing => part.retire(fx),
         Phase::Negotiating(_) | Phase::Active => {
@@ -461,6 +487,11 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
             answer_audio(part, report.result, fx)
         }
         ThreadEv::Audio(_) => {}
+        ThreadEv::LocalHostLost if !matches!(call.phase, Phase::Stopping { .. }) => {
+            fx.voice_failure(Failure::VoiceHostLost);
+            stop(part, fx);
+        }
+        ThreadEv::LocalHostLost => {}
         ThreadEv::Sample if call.phase == Phase::Active => {
             let now = fx.facts().now();
             if call.next_sample.is_some_and(|at| now.reached(at)) {
@@ -480,6 +511,13 @@ fn answer_audio(part: &mut ThreadPart, result: AudioResult, fx: &mut ThreadFx<'_
         return;
     };
     match (call.phase, result) {
+        (
+            Phase::Preparing | Phase::Negotiating(_) | Phase::Active,
+            AudioResult::LockStopped(reason),
+        ) => {
+            fx.voice_failure(Failure::VoiceLock(reason));
+            stop(part, fx);
+        }
         (Phase::Preparing, AudioResult::Prepared(Ok(offer))) => {
             call.phase = Phase::Negotiating(Negotiating::default());
             fx.request(
@@ -487,6 +525,7 @@ fn answer_audio(part: &mut ThreadPart, result: AudioResult, fx: &mut ThreadFx<'_
                 Command::Start {
                     session: call.session.clone(),
                     offer,
+                    voice: call.voice,
                 },
             );
         }
@@ -634,10 +673,15 @@ pub fn apply_reply(
 fn ask(command: &Command, thread: &ThreadId) -> crate::threads::ThreadAsk {
     use crate::threads::ThreadAsk;
     match command {
-        Command::Start { session, offer } => ThreadAsk::RealtimeStart {
+        Command::Start {
+            session,
+            offer,
+            voice,
+        } => ThreadAsk::RealtimeStart {
             thread: thread.clone(),
             session: session.clone(),
             offer: offer.clone(),
+            voice: *voice,
         },
         Command::Stop => ThreadAsk::RealtimeStop {
             thread: thread.clone(),

@@ -1367,6 +1367,14 @@ fn local_workspace(environments: Option<&EnvironmentManager>) -> bool {
 impl HostDoors for ConnectionDoors {
     type Out = Outcome;
 
+    async fn voice_settings(
+        &self,
+        request: codex_tui_core::screens::voice::settings::Request,
+    ) -> Option<Outcome> {
+        let report = crate::voice::settings::run_server(request, &self.handle, &self.ids).await?;
+        Some(Outcome::Effect(Done::VoiceSettings(Box::new(report)), None))
+    }
+
     async fn image_snapshot(
         &self,
         _thread: ThreadId,

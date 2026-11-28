@@ -309,8 +309,8 @@ pub(crate) struct Link {
 }
 
 /// The executors that are this host's own: the git lists, the background server, the editor, the
-/// config file and the worktrees. Five capabilities listed before they were built (suspend,
-/// notifications, the screen mode, the terminal probe, the session lock) have no
+/// config file and the worktrees. Four capabilities listed before they were built (suspend,
+/// notifications, the screen mode, the terminal probe) have no
 /// executor yet: each is one method here, in the file of the package that builds it.
 struct Own<'a> {
     effects: &'a Effects,
@@ -340,9 +340,21 @@ impl HostDoors for Own<'_> {
     ) -> Option<Self::Out> {
         let config = self.effects.config.as_deref();
         Some(Outcome::Effect(
-            Done::Audio(self.effects.audio.run(command, config).await),
+            Done::Audio(self.effects.audio.run(command, config).await?),
             None,
         ))
+    }
+
+    async fn voice_settings(
+        &self,
+        request: codex_tui_core::screens::voice::settings::Request,
+    ) -> Option<Self::Out> {
+        let report = self
+            .effects
+            .audio
+            .settings(request, self.effects.config.as_deref())
+            .await?;
+        Some(Outcome::Effect(Done::VoiceSettings(Box::new(report)), None))
     }
 
     async fn pet(&self, ask: codex_tui_core::screens::pets::AssetAsk) -> Option<Self::Out> {

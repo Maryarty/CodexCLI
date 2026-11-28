@@ -16,7 +16,7 @@ use rtwk::l10n::msg;
 use codex_tui_core::commands::{Notice, SlashCommand, UsageKey};
 use codex_tui_core::screens::chat::{McpHeader, McpWarning, Retry, StatusHeader};
 use codex_tui_core::screens::composer;
-use codex_tui_core::threads::LocalWarning;
+use codex_tui_core::threads::{Failure, LocalWarning};
 
 use crate::l10n::Lang;
 use crate::l10n::Tables;
@@ -27,6 +27,19 @@ pub(super) const MORE: &str = " …";
 pub(super) const LINE_BREAK: &str = "\n";
 const LIST_SEPARATOR: &str = ", ";
 const ELLIPSIS: &str = "…";
+
+pub(super) fn failure_text(strings: &crate::l10n::strings::Shared, failure: &Failure) -> String {
+    match failure {
+        Failure::Message(message) => strings.error(message).to_string(),
+        Failure::Lagged(skipped) => strings.lagged(*skipped).to_string(),
+        Failure::Stopped => strings.chat.server_stopped.to_string(),
+        Failure::ReplyMismatch => strings.chat.reply_mismatch.to_string(),
+        Failure::VoiceLock(reason) => crate::sheets::voice::strings::EN
+            .lock_stop(*reason)
+            .to_string(),
+        Failure::VoiceHostLost => crate::sheets::voice::strings::EN.host_lost.to_owned(),
+    }
+}
 
 /// The strings of this screen.
 #[derive(Clone, Copy, Debug)]
@@ -771,11 +784,16 @@ impl Strings {
     /// The words of a note of the transcript (a command line's answer).
     pub fn note(&self, key: &codex_tui_core::threads::NoteKey) -> String {
         use codex_tui_core::screens::agents::Action;
-        use codex_tui_core::threads::{CdRefusal, NoteKey, RemoveNote, Stub, Toggle};
+        use codex_tui_core::threads::{CdRefusal, NoteKey, RemoveNote, ServerNote, Stub, Toggle};
         let text = |msg: Msg<1>, arg: &str| Fmt::new(msg, [Arg::Text(arg)], &self.num).to_string();
         match key {
             NoteKey::Command(notice) => self.notice(notice),
-            NoteKey::Server(message) | NoteKey::ServerDone(message) => message.clone(),
+            NoteKey::Server(ServerNote::Info(message) | ServerNote::Done(message)) => {
+                message.clone()
+            }
+            NoteKey::VoiceSettings(feedback) => {
+                crate::sheets::voice::strings::feedback(feedback).text
+            }
             NoteKey::WorkingDirectory(dir) => text(self.working_directory, dir),
             NoteKey::Rollout(Some(path)) => text(self.rollout, path),
             NoteKey::Rollout(None) => self.rollout_missing.to_string(),

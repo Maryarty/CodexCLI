@@ -1305,6 +1305,38 @@ impl CodexApp {
         }
         let address = match command {
             Command::Effect {
+                ask: effects::Ask::Audio(command),
+                ..
+            } => {
+                use screens::voice::AudioAction;
+                let local = command.action == AudioAction::Close
+                    || (self.voice_host_ready()
+                        && self
+                            .threads
+                            .get(&command.owner.thread)
+                            .is_some_and(|thread| {
+                                thread.screen_slots().voice.owns(&command.owner)
+                            }));
+                return local.then_some((BackendId::default(), None));
+            }
+            Command::Effect {
+                ask: effects::Ask::VoiceSettings(request),
+                ..
+            } => {
+                if !self.screens.voice.settings.issued(request)
+                    || self.voice_settings_origin(&request.origin.thread).as_ref()
+                        != Some(&request.origin)
+                {
+                    return None;
+                }
+                if request.operation.local() {
+                    return self
+                        .voice_host_ready()
+                        .then_some((BackendId::default(), None));
+                }
+                request.origin.address
+            }
+            Command::Effect {
                 request,
                 ask:
                     effects::Ask::GitSummary {
@@ -1346,6 +1378,26 @@ impl CodexApp {
         }
     }
 
+    fn voice_settings_origin(&self, thread: &ThreadId) -> Option<screens::voice::settings::Origin> {
+        let backend = self.screens.agents.owner_of(thread.as_str());
+        if self.session.connections.get(&backend) != Some(&ConnectionState::Connected) {
+            return None;
+        }
+        let cwd = self.threads.get(thread)?.screen_slots().chat.cwd.clone();
+        Some(screens::voice::settings::Origin {
+            thread: thread.clone(),
+            address: self.address(backend),
+            cwd,
+        })
+    }
+
+    fn voice_host_ready(&self) -> bool {
+        !matches!(
+            self.session.connections.get(&BackendId::default()),
+            Some(ConnectionState::Disconnected | ConnectionState::Reconnecting)
+        )
+    }
+
     fn local_side_storage(&self, backend: BackendId) -> Option<LocalSideStorage> {
         self.local_side_storage
             .filter(|(address, _)| *address == self.address(backend))
@@ -1380,6 +1432,10 @@ impl CodexApp {
                     | effects::Ask::GitSummary { address, .. },
                 ..
             } => address.backend,
+            Command::Effect {
+                ask: effects::Ask::Audio(_),
+                ..
+            } => BackendId::default(),
             Command::RejectRequest { key }
             | Command::ResolveRequest { key, .. }
             | Command::Effect {
@@ -1514,6 +1570,39 @@ impl CodexApp {
         features::retire_rate_offer(self, backend);
         features::retire_workspace_effects(self, backend);
         git_summary::retire(self, backend);
+        let retired = Rc::make_mut(&mut self.screens)
+            .voice
+            .settings
+            .retire(backend);
+        if let Some(thread) = retired.failed {
+            use screens::voice::settings::{Feedback, Problem};
+            voice_settings_note(self, &thread, Feedback::Failed(Problem::ConnectionLost), fx);
+        }
+        if let Some(request) = retired.next {
+            send_voice_settings(self, request, fx);
+        }
+        if backend == BackendId::default() {
+            let secondary_calls: Vec<_> = self
+                .threads
+                .iter()
+                .filter(|(_, model)| {
+                    model
+                        .screen_slots()
+                        .voice
+                        .owner()
+                        .is_some_and(|owner| owner.address.backend != backend)
+                })
+                .map(|(thread, _)| thread.clone())
+                .collect();
+            for thread in secondary_calls {
+                apply_thread(
+                    self,
+                    &thread,
+                    ThreadEv::Screen(screens::voice::ThreadEv::LocalHostLost.into()),
+                    fx,
+                );
+            }
+        }
         detach_threads(self, backend, fx);
         self.fail_in_flight(backend);
         select::retire_permission_writes(self, backend, fx);
@@ -2464,9 +2553,15 @@ fn apply_event(
             done: effects::Done::IdePrompt(reading),
         } => ide_submit::answered(app, request, reading),
         AppEv::Effect {
-            done: effects::Done::Audio(report),
+            done: effects::Done::VoiceSettings(report),
             ..
         } => {
+            finish_voice_settings(app, origin, transport, *report, fx);
+        }
+        AppEv::Effect {
+            done: effects::Done::Audio(report),
+            ..
+        } if origin == BackendId::default() => {
             let owner = &report.owner;
             let thread = owner.thread.clone();
             if app.address(owner.address.backend) == owner.address
@@ -2665,6 +2760,118 @@ fn apply_event(
                 }
             }
         }
+    }
+}
+
+fn finish_voice_settings(
+    app: &mut CodexApp,
+    backend: BackendId,
+    transport: Option<Address>,
+    mut report: screens::voice::settings::Report,
+    fx: &mut AppFx,
+) {
+    use screens::voice::settings::{Change, Intent, Operation, Problem};
+    let issued = &report.request.origin;
+    if backend != report.request.executor()
+        || (!report.request.operation.local()
+            && transport.is_some_and(|address| address != issued.address))
+    {
+        return;
+    }
+    let thread = issued.thread.clone();
+    let current = app
+        .voice_settings_origin(&thread)
+        .filter(|current| current == issued);
+    if current.is_none() {
+        report.result = Err(Problem::ConnectionLost);
+    }
+    let refresh = match (&report.request.operation, &report.result) {
+        (Operation::Persist(Change::Device { kind, .. }), result)
+            if !matches!(result, Err(Problem::ConnectionLost)) =>
+        {
+            Some(*kind)
+        }
+        _ => None,
+    };
+    let completed = Rc::make_mut(&mut app.screens).voice.settings.finish(report);
+    let answered = completed.feedback.is_some();
+    if let Some(feedback) = completed.feedback {
+        voice_settings_note(app, &thread, feedback, fx);
+    }
+    if let Some(request) = completed.next {
+        send_voice_settings(app, request, fx);
+    } else if answered
+        && let (Some(kind), Some(current)) = (refresh, current)
+        && app.session.active.as_ref() == Some(&thread)
+        && let Some(request) = Rc::make_mut(&mut app.screens).voice.settings.begin(
+            app.mint.next(),
+            current,
+            Intent::Read {
+                thread,
+                operation: Operation::ListDevices(kind),
+            },
+        )
+    {
+        send_voice_settings(app, request, fx);
+    }
+}
+
+fn voice_settings_note(
+    app: &mut CodexApp,
+    thread: &ThreadId,
+    feedback: screens::voice::settings::Feedback,
+    fx: &mut AppFx,
+) {
+    apply_thread(
+        app,
+        thread,
+        ThreadEv::Appended {
+            turn: None,
+            item: threads::Item::Note(threads::Note::from(threads::NoteKey::VoiceSettings(
+                feedback,
+            ))),
+        },
+        fx,
+    );
+}
+
+fn send_voice_settings(
+    app: &mut CodexApp,
+    request: screens::voice::settings::Request,
+    fx: &mut AppFx,
+) {
+    use screens::voice::settings::{Intent, Operation, Problem, Report};
+    let current = app.voice_settings_origin(&request.origin.thread);
+    let host_ready = !request.operation.local() || app.voice_host_ready();
+    if host_ready && current.as_ref() == Some(&request.origin) {
+        fx.host(effects::Ask::VoiceSettings(request));
+        return;
+    }
+    let retry = current
+        .filter(|current| {
+            host_ready
+                && *current != request.origin
+                && app.session.active.as_ref() == Some(&current.thread)
+                && !matches!(request.operation, Operation::Persist(_))
+        })
+        .map(|current| (current, request.operation.clone()));
+    let executor = request.executor();
+    let report = Report {
+        request,
+        result: Err(Problem::ConnectionLost),
+    };
+    if let Some((current, operation)) = retry {
+        let model = &mut Rc::make_mut(&mut app.screens).voice.settings;
+        model.finish(report);
+        let intent = Intent::Read {
+            thread: current.thread.clone(),
+            operation,
+        };
+        if let Some(request) = model.begin(app.mint.next(), current, intent) {
+            fx.host(effects::Ask::VoiceSettings(request));
+        }
+    } else {
+        finish_voice_settings(app, executor, None, report, fx);
     }
 }
 
@@ -3503,6 +3710,21 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             host_asks::step(app, fx, |screens, fx| {
                 screens::apply_intent(screens, intent, fx)
             });
+        }
+        Intent::Screen(ScreenIntent::Voice(intent)) => {
+            if let Some(origin) = app
+                .session
+                .active
+                .as_ref()
+                .and_then(|thread| app.voice_settings_origin(thread))
+                && let Some(request) = Rc::make_mut(&mut app.screens).voice.settings.begin(
+                    app.mint.next(),
+                    origin,
+                    intent,
+                )
+            {
+                send_voice_settings(app, request, fx);
+            }
         }
         Intent::Screen(intent) => screens::apply_intent(Rc::make_mut(&mut app.screens), intent, fx),
         Intent::Feature(intent) => features::intent(app, intent, fx),
@@ -4799,6 +5021,17 @@ fn apply_thread_with_receipt(
     fx: &mut AppFx,
     receipt: SubmitReceipt,
 ) {
+    let ev = if matches!(
+        &ev,
+        ThreadEv::ScreenIntent(ScreenThreadIntent::Voice(
+            screens::voice::ThreadIntent::Start
+        ))
+    ) && !app.voice_host_ready()
+    {
+        ThreadEv::Failure(Failure::VoiceHostLost)
+    } else {
+        ev
+    };
     safety_retry::observe(app, thread, &ev, fx);
     // A cyber refusal is worded by the setting of the moment (a delta carries none).
     let daybreak = if ev.may_fail_a_turn() {
@@ -4817,12 +5050,23 @@ fn apply_thread_with_receipt(
         .filter(|restricted| restricted.address == address)
         .map(|restricted| &restricted.models);
     if let Some(model) = app.threads.get_mut(thread) {
+        let realtime_voice = match &ev {
+            ThreadEv::ScreenIntent(ScreenThreadIntent::Voice(
+                screens::voice::ThreadIntent::Start,
+            )) => app
+                .screens
+                .voice
+                .settings
+                .voice(address, model.screen_slots().chat.cwd.as_ref()),
+            _ => None,
+        };
         threads::apply_with_receipt(
             model,
             ev,
             &mut ThreadFx::new(thread, fx, &mut app.mint)
                 .addressed(address)
                 .with_legacy_voice(app.screens.voice.legacy_captions_from(address))
+                .with_realtime_voice(realtime_voice)
                 .with_prompt_priority(priority)
                 .with_image_restrictions(image_restrictions)
                 .stamped(daybreak)

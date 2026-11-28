@@ -12,7 +12,9 @@ use codex_tui_core::ids::{BackendId, ConnEpoch, ThreadId};
 use codex_tui_core::protocol::{client_request, reply};
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::screens::{ScreenThreadIntent, voice};
-use voice::{AudioAction, AudioCommand, AudioReport, AudioResult, Peaks, Sdp, ThreadIntent};
+use voice::{
+    AudioAction, AudioCommand, AudioReport, AudioResult, LockStop, Peaks, Sdp, ThreadIntent,
+};
 
 fn ready() -> CodexApp {
     build(r#"{"step":"seed","seed":"session","thread":"thread-1"}"#)
@@ -51,6 +53,7 @@ fn host(fx: &AppFx) -> (&AudioCommand, u64) {
                 ask: Ask::Audio(audio),
                 ..
             } = cmd
+                && audio.action != AudioAction::ObserveLock
             {
                 Some((audio, *request))
             } else {
@@ -137,11 +140,67 @@ fn preparing_for(app: &mut CodexApp, thread: &str) -> AppFx {
     let (cmd, _) = host(&prepared);
     assert_eq!(cmd.action, AudioAction::Prepare);
     assert_eq!(cmd.owner.thread.as_str(), thread);
+    assert!(prepared.commands().iter().any(|command| {
+        matches!(command.host_ask(), Some(Ask::Audio(watch)) if watch.owner == cmd.owner && watch.action == AudioAction::ObserveLock)
+    }));
     assert!(
-        app.dispatch_route(prepared.commands().first().expect("command"), None)
-            .is_some()
+        prepared
+            .commands()
+            .iter()
+            .all(|command| app.dispatch_route(command, None).is_some())
     );
     prepared
+}
+
+#[test]
+fn initial_desktop_lock_stops_preparation_and_old_lock_after_restart_is_ignored() {
+    let mut app = ready();
+    let first = preparing(&mut app);
+    let lock = media(&first, AudioResult::LockStopped(LockStop::Locked));
+    let stopped = run(&mut app, lock.clone());
+    assert_eq!(host(&stopped).0.action, AudioAction::Close);
+    assert!(display(&app).is_none());
+    assert_eq!(
+        app.active_thread().last_error(),
+        Some(&codex_tui_core::threads::Failure::VoiceLock(
+            LockStop::Locked
+        ))
+    );
+    let next = preparing(&mut app);
+    assert_ne!(host(&first).0.owner, host(&next).0.owner);
+    assert!(run(&mut app, lock).commands().is_empty());
+    assert!(display(&app).is_some_and(|display| display.connecting));
+}
+
+#[test]
+fn desktop_lock_stops_a_parked_call_after_its_start_receipt() {
+    use codex_tui_core::screens::{ScreenEv, agents};
+    let mut app = ready();
+    let prepare = preparing(&mut app);
+    let (start, _) = offered(&mut app, &prepare);
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Agents(agents::Ev::Current(Some(ThreadId::new(
+            "thread-2",
+        ))))),
+    );
+    let locked = run(
+        &mut app,
+        media(&prepare, AudioResult::LockStopped(LockStop::Locked)),
+    );
+    assert_eq!(host(&locked).0.owner, host(&prepare).0.owner);
+    assert_eq!(host(&locked).0.action, AudioAction::Close);
+    assert!(
+        locked
+            .commands()
+            .iter()
+            .all(|cmd| client_request(cmd, wire::RequestId::Integer(1), None).is_none())
+    );
+    let stopped = run(&mut app, ack(&start));
+    assert!(
+        matches!(wire(&stopped).1, wire::ClientRequest::ThreadRealtimeStop { params, .. } if params.thread_id == "thread-1")
+    );
+    assert_eq!(app.active_thread().id().as_str(), "thread-2");
 }
 
 fn offered(app: &mut CodexApp, prepared: &AppFx) -> (AppFx, String) {
@@ -167,6 +226,118 @@ fn offered(app: &mut CodexApp, prepared: &AppFx) -> (AppFx, String) {
             .realtime_session_id
             .expect("client's session identity"),
     )
+}
+
+#[test]
+fn voice_preference_changes_the_next_call_only_after_the_effective_write_receipt() {
+    use codex_tui_core::screens::ScreenIntent;
+    use voice::settings::{
+        Answer, Catalog, Change, Feedback, Intent as SettingsIntent, Operation,
+        RealtimeVoice as Voice, Report,
+    };
+
+    let mut app = ready();
+    let thread = ThreadId::new("thread-1");
+    let intent_ev = |intent| AppEv::Intent(Intent::Screen(ScreenIntent::Voice(intent)));
+    let request = |fx: &AppFx| {
+        fx.commands()
+            .iter()
+            .find_map(|command| match command.host_ask() {
+                Some(Ask::VoiceSettings(request)) => Some(request.clone()),
+                _ => None,
+            })
+            .expect("issued settings request")
+    };
+    let receipt = |request, answer| AppEv::Effect {
+        request: 0,
+        done: Done::VoiceSettings(Box::new(Report {
+            request,
+            result: Ok(answer),
+        })),
+    };
+    let catalog = |current| Catalog {
+        voices: vec![Voice::Juniper, Voice::Maple],
+        current: Some(current),
+    };
+    let listed = run(
+        &mut app,
+        intent_ev(SettingsIntent::Read {
+            thread: thread.clone(),
+            operation: Operation::ReadCatalog,
+        }),
+    );
+    let queried = request(&listed);
+    assert_eq!(
+        app.dispatch_route(&listed.commands()[0], None),
+        Some((queried.origin.address.backend, Some(queried.origin.address)))
+    );
+    run(
+        &mut app,
+        receipt(queried.clone(), Answer::Catalog(catalog(Voice::Juniper))),
+    );
+    let saved = run(
+        &mut app,
+        intent_ev(SettingsIntent::Persist {
+            origin: queried.origin,
+            change: Change::Voice(Voice::Maple),
+        }),
+    );
+    let write = request(&saved);
+    let pending_call = preparing(&mut app);
+    run(
+        &mut app,
+        receipt(
+            write.clone(),
+            Answer::VoiceSaved {
+                catalog: catalog(Voice::Maple),
+                warning: None,
+            },
+        ),
+    );
+    assert_eq!(
+        app.screens()
+            .voice
+            .settings
+            .snapshot(&thread)
+            .expect("settings")
+            .feedback,
+        Some(Feedback::VoiceSaved(Voice::Maple))
+    );
+    let (start, _) = offered(&mut app, &pending_call);
+    assert!(
+        matches!(wire(&start).1, wire::ClientRequest::ThreadRealtimeStart { params, .. } if params.voice == Some(Voice::Juniper))
+    );
+    run(&mut app, ack(&start));
+    run(&mut app, closed("thread-1"));
+    let next = preparing(&mut app);
+    let (start, _) = offered(&mut app, &next);
+    assert!(
+        matches!(wire(&start).1, wire::ClientRequest::ThreadRealtimeStart { params, .. } if params.voice == Some(Voice::Maple))
+    );
+
+    let backend = write.origin.address.backend;
+    let epoch = write.origin.address.epoch;
+    app.ingest(Ingress::transport_replaced(backend, epoch, epoch.next()))
+        .expect("transport replaced");
+    run(
+        &mut app,
+        receipt(
+            write,
+            Answer::VoiceSaved {
+                catalog: catalog(Voice::Juniper),
+                warning: None,
+            },
+        ),
+    );
+    assert!(
+        app.screens()
+            .voice
+            .settings
+            .snapshot(&thread)
+            .expect("retired settings")
+            .catalog
+            .is_none()
+    );
 }
 
 fn display(app: &CodexApp) -> Option<voice::Display> {
@@ -450,6 +621,311 @@ fn open_thread(app: &mut CodexApp, id: &str, backend: BackendId, paginated: bool
     );
     assert_eq!(app.session().active, Some(ThreadId::new(id)));
     resumed
+}
+
+#[test]
+fn desktop_media_and_devices_use_primary_services_but_voice_catalog_uses_the_thread_owner() {
+    use codex_tui_core::screens::ScreenIntent;
+    use voice::settings::{Intent as SettingsIntent, Operation};
+
+    let mut app = ready();
+    let secondary = BackendId(1);
+    app.attach_backend(secondary);
+    apply_app_from(&mut app, secondary, AppEv::Connected, &mut AppFx::default());
+    open_thread(&mut app, "thread-2", secondary, true);
+    let prepare = preparing_for(&mut app, "thread-2");
+    assert_eq!(host(&prepare).0.owner.address.backend, secondary);
+    assert!(
+        prepare
+            .commands()
+            .iter()
+            .all(|command| app.dispatch_route(command, None) == Some((BackendId::default(), None)))
+    );
+    let settings = |app: &mut CodexApp, operation| {
+        run(
+            app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Voice(SettingsIntent::Read {
+                thread: ThreadId::new("thread-2"),
+                operation,
+            }))),
+        )
+    };
+    let local = settings(&mut app, Operation::ReadAudio);
+    assert_eq!(
+        app.dispatch_route(&local.commands()[0], None),
+        Some((BackendId::default(), None))
+    );
+    let server = settings(&mut app, Operation::ReadCatalog);
+    assert!(
+        matches!(app.dispatch_route(&server.commands()[0], None), Some((owner, Some(address))) if owner == secondary && address.backend == secondary)
+    );
+    let stopped = intent_for(&mut app, "thread-2", ThreadIntent::Stop);
+    let close = stopped
+        .commands()
+        .iter()
+        .find(|cmd| {
+            cmd.host_ask().is_some_and(
+                |ask| matches!(ask, Ask::Audio(audio) if audio.action == AudioAction::Close),
+            )
+        })
+        .expect("local close");
+    assert_eq!(
+        app.dispatch_route(close, None),
+        Some((BackendId::default(), None))
+    );
+}
+
+#[test]
+fn replacement_of_the_primary_audio_executor_stops_secondary_calls_and_settles_devices() {
+    use codex_tui_core::screens::{ScreenEv, ScreenIntent, agents};
+    use codex_tui_core::threads::Failure;
+    use voice::settings::{Feedback, Intent as SettingsIntent, Operation, Problem};
+
+    let primary = BackendId::default();
+    let secondary = BackendId(1);
+    let thread = ThreadId::new("secondary");
+    let reconnecting = || AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnecting));
+    let mut app = ready();
+    app.attach_backend(secondary);
+    apply_app_from(&mut app, secondary, AppEv::Connected, &mut AppFx::default());
+    open_thread(&mut app, thread.as_str(), secondary, true);
+
+    let prepared = preparing_for(&mut app, thread.as_str());
+    let devices = run(
+        &mut app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Voice(SettingsIntent::Read {
+            thread: thread.clone(),
+            operation: Operation::ReadAudio,
+        }))),
+    );
+    assert_eq!(
+        app.dispatch_route(&devices.commands()[0], None),
+        Some((primary, None))
+    );
+    let lost = run(&mut app, reconnecting());
+    assert_eq!(host(&lost).0.action, AudioAction::Close);
+    assert_eq!(host(&lost).0.owner, host(&prepared).0.owner);
+    assert!(display(&app).is_none());
+    assert!(!app.screens().voice.settings.pending(&thread));
+    assert_eq!(
+        app.screens()
+            .voice
+            .settings
+            .snapshot(&thread)
+            .expect("read failed")
+            .feedback,
+        Some(Feedback::Failed(Problem::ConnectionLost))
+    );
+    assert_eq!(
+        app.active_thread().last_error(),
+        Some(&Failure::VoiceHostLost)
+    );
+    assert!(
+        intent_for(&mut app, thread.as_str(), ThreadIntent::Start)
+            .commands()
+            .is_empty()
+    );
+
+    for accepted in [false, true] {
+        run(
+            &mut app,
+            AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnected)),
+        );
+        let prepare = preparing_for(&mut app, thread.as_str());
+        let (start, _) = offered(&mut app, &prepare);
+        if accepted {
+            run(&mut app, ack(&start));
+        }
+        let stopping = run(&mut app, reconnecting());
+        let stop = if accepted {
+            stopping
+        } else {
+            run(&mut app, ack(&start))
+        };
+        let (command, request) = wire(&stop);
+        assert!(
+            matches!(request, wire::ClientRequest::ThreadRealtimeStop { params, .. } if params.thread_id == thread.as_str())
+        );
+        assert!(
+            matches!(app.dispatch_route(command, None), Some((owner, _)) if owner == secondary)
+        );
+        run(&mut app, ack(&stop));
+        apply_app_from(
+            &mut app,
+            secondary,
+            closed(thread.as_str()),
+            &mut AppFx::default(),
+        );
+        assert!(display(&app).is_none());
+    }
+}
+
+#[test]
+fn catalog_and_audio_reads_requested_in_another_thread_survive_a_pending_voice_write() {
+    use codex_tui_core::screens::ScreenIntent;
+    use codex_tui_core::threads::{Item, NoteKey};
+    use voice::settings::{
+        Answer, Audio, Catalog, Change, Feedback, Intent as SettingsIntent, Operation, Problem,
+        RealtimeVoice as Voice, Report,
+    };
+
+    let event = |intent| AppEv::Intent(Intent::Screen(ScreenIntent::Voice(intent)));
+    let take = |fx: &AppFx| {
+        fx.commands().iter().find_map(|c| match c.host_ask() {
+            Some(Ask::VoiceSettings(request)) => Some(request.clone()),
+            _ => None,
+        })
+    };
+    let answer = |request, result| AppEv::Effect {
+        request: 0,
+        done: Done::VoiceSettings(Box::new(Report { request, result })),
+    };
+    let catalog = |current| Catalog {
+        voices: vec![Voice::Cove, Voice::Sol],
+        current: Some(current),
+    };
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Settlement {
+        Saved,
+        Refused,
+        Retired,
+        ReaderReplaced,
+    }
+    for (operation, answer_for_b) in [
+        (Operation::ReadCatalog, Answer::Catalog(catalog(Voice::Sol))),
+        (Operation::ReadAudio, Answer::Audio(Audio::default())),
+    ] {
+        for planned in [
+            Settlement::Saved,
+            Settlement::Refused,
+            Settlement::Retired,
+            Settlement::ReaderReplaced,
+        ] {
+            let mut app = ready();
+            let primary = BackendId::default();
+            let secondary = BackendId(1);
+            app.attach_backend(secondary);
+            apply_app_from(&mut app, secondary, AppEv::Connected, &mut AppFx::default());
+            let a = ThreadId::new("thread-1");
+            let b = ThreadId::new("thread-b");
+            let previous = run(
+                &mut app,
+                event(SettingsIntent::Read {
+                    thread: a.clone(),
+                    operation: Operation::ReadCatalog,
+                }),
+            );
+            let first = take(&previous).expect("A catalog");
+            run(
+                &mut app,
+                answer(first.clone(), Ok(Answer::Catalog(catalog(Voice::Cove)))),
+            );
+            let save = run(
+                &mut app,
+                event(SettingsIntent::Persist {
+                    origin: first.origin,
+                    change: Change::Voice(Voice::Sol),
+                }),
+            );
+            let save = take(&save).expect("A write");
+
+            open_thread(&mut app, b.as_str(), secondary, true);
+            let old_reader = app.epoch_of(secondary);
+            let waiting = run(
+                &mut app,
+                event(SettingsIntent::Read {
+                    thread: b.clone(),
+                    operation: operation.clone(),
+                }),
+            );
+            assert!(take(&waiting).is_none());
+            assert!(app.screens().voice.settings.pending(&b));
+            if planned == Settlement::ReaderReplaced {
+                app.ingest(Ingress::transport_replaced(
+                    secondary,
+                    old_reader,
+                    old_reader.next(),
+                ))
+                .expect("replace the reader's connection");
+            }
+            let (settled, expected) = match planned {
+                Settlement::Saved | Settlement::ReaderReplaced => (
+                    run(
+                        &mut app,
+                        answer(
+                            save,
+                            Ok(Answer::VoiceSaved {
+                                catalog: catalog(Voice::Sol),
+                                warning: None,
+                            }),
+                        ),
+                    ),
+                    Feedback::VoiceSaved(Voice::Sol),
+                ),
+                Settlement::Refused => {
+                    let problem = Problem::WriteVoice("refused".into());
+                    (
+                        run(&mut app, answer(save, Err(problem.clone()))),
+                        Feedback::Failed(problem),
+                    )
+                }
+                Settlement::Retired => {
+                    let lost = save.origin.address.epoch;
+                    let fx = app
+                        .ingest(Ingress::transport_replaced(primary, lost, lost.next()))
+                        .expect("the writer retired");
+                    assert!(
+                        run(
+                            &mut app,
+                            answer(
+                                save,
+                                Ok(Answer::VoiceSaved {
+                                    catalog: catalog(Voice::Sol),
+                                    warning: None
+                                })
+                            )
+                        )
+                        .commands()
+                        .is_empty()
+                    );
+                    (fx, Feedback::Failed(Problem::ConnectionLost))
+                }
+            };
+            let read = take(&settled).expect("B's queued request is released");
+            assert_eq!(read.origin.thread, b);
+            assert_eq!(read.operation, operation);
+            assert_eq!(
+                read.origin.address.epoch != old_reader,
+                planned == Settlement::ReaderReplaced
+            );
+            let acknowledged = |thread: &ThreadId| {
+                app.thread(thread).expect("held thread").transcript().iter().any(|(_, item)| {
+                matches!(item, Item::Note(note) if note.key == NoteKey::VoiceSettings(expected.clone()))
+            })
+            };
+            assert!(acknowledged(&a));
+            assert!(!acknowledged(&b));
+            let executor = if operation.local() {
+                primary
+            } else {
+                secondary
+            };
+            apply_app_from(
+                &mut app,
+                executor,
+                answer(read, Ok(answer_for_b.clone())),
+                &mut AppFx::default(),
+            );
+            let model = &app.screens().voice.settings;
+            let settings = model.snapshot(&b).expect("B owns the visible settings");
+            assert!(!model.pending(&b));
+            assert_eq!(
+                settings.catalog.is_some(),
+                operation == Operation::ReadCatalog
+            );
+            assert_eq!(settings.audio.is_some(), operation == Operation::ReadAudio);
+        }
+    }
 }
 
 #[test]
