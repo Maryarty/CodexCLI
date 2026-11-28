@@ -13,6 +13,7 @@ mod feature_sheet;
 mod fixtures;
 mod holes;
 mod layers;
+mod oracle_markers;
 mod pin;
 mod registration;
 mod rules;

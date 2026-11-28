@@ -242,7 +242,7 @@ fn apply_patch_prompt_without_changes_shows_unavailable_destination() {
 // ORACLE bottom_pane/approval_overlay.rs:2301 network_exec_prompt_title_includes_host kind=snap owner=dialogs-pane snap=network_exec_prompt
 #[test]
 fn network_exec_prompt_title_includes_host() {
-    kit::pending(
+    kit::delta(
         Owner::DialogsPane,
         "G54: the text and every style of the dialog match but the hint row: the dialog is drawn over the composer's footer and a Text with no colour keeps the fg (245) of the footer cell under it, where the oracle's overlay replaces the pane (fg Reset); rtwk has no explicit reset colour",
     );
@@ -492,7 +492,7 @@ fn long_prompt_keeps_the_active_input_visible() {
 // ORACLE bottom_pane/async_questions/state_tests.rs:144 wrapped_question_url_keeps_its_complete_destination kind=snap owner=dialogs-pane snap=question_wrapped_url
 #[test]
 fn wrapped_question_url_keeps_its_complete_destination() {
-    kit::pending(
+    kit::delta(
         Owner::DialogsPane,
         "G49: rtwk Text does not break after a slash; the editor is built (approvals/user_input_wrapped_url) and every row but the URL's break equals the oracle snapshot (`(https://github.com/openai/codex/` / `pull/12345?diff=split)?` there, `.../pul` / `l/12345?...` here)",
     );
@@ -511,7 +511,7 @@ fn wrapped_question_url_keeps_its_complete_destination() {
 // ORACLE bottom_pane/async_questions/state_tests.rs:184 markdown_question_preserves_formatting_and_link_destinations kind=snap owner=dialogs-pane snap=question_multiline
 #[test]
 fn markdown_question_preserves_formatting_and_link_destinations() {
-    kit::pending(
+    kit::delta(
         Owner::DialogsPane,
         "G73: a rtwk code block pads one cell (the fence row reads ` printf '診断'`, the oracle's has no padding); every other row of the snapshot equals it",
     );

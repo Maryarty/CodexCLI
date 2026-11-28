@@ -80,7 +80,7 @@ fn narrow_picker_keeps_selected_choice_and_escape_uses_session() {
     s.keys("up");
     s.assert_contains("› 4. Always use current directory");
     s.assert_contains("esc use session");
-    kit::pending(
+    kit::delta(
         Owner::StartupPrompts,
         "G49: rtwk's `TextWrap::Word` never breaks after `/`; the oracle's picker rows do (`› 4. Always use current directory (/` / `     Users/example/current)`), ours moves `(/Users/example/current)` whole to the next row. The window (rows 3 and 4 only, `↑` above) and the hanging indent are drawn as the oracle's",
     );
@@ -146,7 +146,7 @@ fn prompt_snapshot() {
         .size(60, 28)
         .entry("startup", "migration_opt_out")
         .open();
-    kit::pending(
+    kit::delta(
         Owner::StartupPrompts,
         "G48: rtwk's `TextWrap::Word` breaks after the hyphen of `gpt-5.1-codex-max.` (`Codex just got an upgrade. Introducing gpt-5.1-codex-` / `max.`); the oracle's `Paragraph` wraps at blanks only (the heading moves whole to the next row), and no `TextWrap` breaks at blanks only",
     );

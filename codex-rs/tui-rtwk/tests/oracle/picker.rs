@@ -400,7 +400,7 @@ fn snapshot_narrow_width_preserves_third_option() {
 // ORACLE bottom_pane/list_selection_view.rs:3237 snapshot_narrow_width_counts_halfwidth_sound_marks kind=snap owner=ui-pane snap=list_selection_halfwidth_sound_marks_narrow
 #[test]
 fn snapshot_narrow_width_counts_halfwidth_sound_marks() {
-    kit::pending(
+    kit::delta(
         Owner::UiPane,
         "G56 (G44 closed by TextMode::Legacy, `Open::legacy_text`): the oracle wraps a row's name and description as one line (`word_wrap_line`), so a description word too long for what is left beside the name (`handakuten`, 8 cells) starts on the next line and the name line stands alone; the Grid's description cell breaks the word at its width on the name line",
     );
@@ -417,7 +417,7 @@ fn snapshot_narrow_width_counts_halfwidth_sound_marks() {
 // ORACLE bottom_pane/list_selection_view.rs:3272 snapshot_auto_visible_col_width_mode_scroll_behavior kind=snap owner=ui-pane snap=list_selection_col_width_mode_auto_visible_scroll
 #[test]
 fn snapshot_auto_visible_col_width_mode_scroll_behavior() {
-    kit::pending(
+    kit::delta(
         Owner::UiPane,
         "G39b: AutoVisible measures the label column over the rows in the list's window and rtwk's ListView has no layout-time hook for it; the kit also cannot address the `before scroll:` and `after scroll:` frames; the probe is tests/sheets/select.rs probe_g39b_auto_visible_measures_the_column_over_every_row",
     );
@@ -598,7 +598,7 @@ fn short_picker_preserves_selected_row_when_overflow_spacers_yield() {
 // ORACLE bottom_pane/multi_select_picker.rs:1096 picker_appearance_renders_checkboxes_preview_and_overflow kind=snap owner=ui-pane snap=picker_appearance_renders_checkboxes_preview_and_overflow
 #[test]
 fn picker_appearance_renders_checkboxes_preview_and_overflow() {
-    kit::pending(
+    kit::delta(
         Owner::UiPane,
         "G39b (select-dialog.md): frame 2 (`Last page:`) has the details column measured over the rows in the window, ours over every row (the rule row's width keeps it at column 27); the three frames' other rows are equal (tests/sheets/select.rs the_multi_select_appearance_matches_the_oracle_in_three_frames); the dump's cells say `bg: Reset`, the debug host paints its own background under the sheet",
     );

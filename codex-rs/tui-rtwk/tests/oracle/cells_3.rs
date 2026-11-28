@@ -616,7 +616,7 @@ fn safety_access_block_event_snapshot() {
 // ORACLE history_cell/tests.rs:966 cyber_policy_error_event_narrow_snapshot kind=snap owner=chat-live snap=cyber_policy_error_event_narrow_snapshot
 #[test]
 fn cyber_policy_error_event_narrow_snapshot() {
-    kit::pending(
+    kit::delta(
         Owner::ChatLive,
         "G49 (TextWrap::Word does not break after `/`): the cell is drawn and its prose rows equal; the two links wrap at the width (`https://help.openai.com/en/artic` / `les/20001326`) where the oracle breaks after `https://`, `en/` and `enterprise-`",
     );
