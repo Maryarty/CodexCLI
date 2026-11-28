@@ -1,8 +1,8 @@
 // test root: pages
 //! A normal inline chat with a real terminal history sink and a deterministic app-server.
 
-use codex_tui_core::app::effects::Ask;
-use codex_tui_core::app::{AppEv, BackendEv, Intent};
+use codex_tui_core::app::effects::{Ask, Done, ImageRead, ImageSnapshot};
+use codex_tui_core::app::{AppEv, BackendEv, Command, Intent};
 use codex_tui_core::fixtures::builders::{
     agent_completed, agent_delta, turn_completed, turn_failed, turn_started,
 };
@@ -18,15 +18,19 @@ use crate::common::{Harness, start_driven_mode};
 use crate::kit::{self, Owner, Screen};
 
 fn inline_chat() -> Harness {
+    inline_chat_with(Options::new(), true)
+}
+
+fn inline_chat_with(options: Options, quittable: bool) -> Harness {
     let mut history = vec!["S27 shell sentinel".to_owned()];
     history.extend((0..24).map(|row| format!("shell history {row}")));
     let mut h = start_driven_mode(
         false,
-        Options::new()
+        options
             .mode(ScreenMode::Inline)
             .history(history.iter().map(String::as_str))
             .size(68, 16),
-        true,
+        quittable,
         |app| app,
     );
     h.connect();
@@ -281,35 +285,222 @@ fn finalized_voice_and_the_following_idle_note_do_not_block_the_next_turn() {
     }
 }
 
-#[test]
-fn an_artifact_with_an_outstanding_snapshot_stays_in_the_live_view() {
-    let mut h = inline_chat();
-    let Ok(viewed) = serde_json::from_value(json!({
+const ARTIFACT: &str = "/tmp/s27-sample.png";
+const SUFFIX: &str = "S27 first response after the image";
+
+fn completed_item(turn: &str, item: Value) -> AppEv {
+    let notification = serde_json::from_value(json!({
         "method": "item/completed", "params": {
-            "threadId": FAKE_THREAD, "turnId": "view", "completedAtMs": 0,
-            "item": {"type": "imageView", "id": "artifact", "path": "/tmp/s27-sample.png"},
+            "threadId": FAKE_THREAD, "turnId": turn, "completedAtMs": 0,
+            "item": item,
         },
-    })) else {
-        panic!("known artifact notification");
-    };
+    }))
+    .expect("known artifact notification");
+    AppEv::Backend(BackendEv::Notification(Box::new(notification)))
+}
+
+fn finish_artifact_and_suffix(h: &mut Harness, item: Value) {
     h.inject([
         AppEv::Backend(turn_started(FAKE_THREAD, "view")),
-        AppEv::Backend(BackendEv::Notification(Box::new(viewed))),
+        completed_item("view", item),
         AppEv::Backend(turn_completed(FAKE_THREAD, "view")),
         AppEv::Backend(turn_started(FAKE_THREAD, "later")),
         AppEv::Backend(agent_completed(
             FAKE_THREAD,
             "later",
             "answer",
-            "later text remains visible",
+            &long_answer(SUFFIX),
         )),
         AppEv::Backend(turn_completed(FAKE_THREAD, "later")),
     ]);
     h.advance(800);
-    assert!(h.t.screen().contains("s27-sample.png"));
-    assert!(h.t.screen().contains("later text remains visible"));
-    assert!(!h.t.scrollback().join("\n").contains("s27-sample.png"));
+}
+
+fn viewed_item() -> Value {
+    json!({"type": "imageView", "id": "artifact", "path": ARTIFACT})
+}
+
+fn image_requests(h: &Harness, path: &str) -> Vec<u64> {
+    h.fake
+        .commands()
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::Effect {
+                request,
+                ask: Ask::ImageSnapshot {
+                    path: candidate, ..
+                },
+                ..
+            } if candidate == path => Some(request),
+            _ => None,
+        })
+        .collect()
+}
+
+fn image_reply(h: &mut Harness, request: u64, read: ImageRead) {
+    h.inject([AppEv::Effect {
+        request,
+        done: Done::ImageSnapshot(read),
+    }]);
+    h.advance(800);
+}
+
+fn assert_artifact_prefix(h: &Harness, artifact: &str) {
+    let history = h.t.scrollback().join("\n");
+    let image = history
+        .find(artifact)
+        .unwrap_or_else(|| panic!("missing {artifact}: {history}"));
+    let suffix = history.find(SUFFIX).expect("suffix enters native history");
+    assert!(image < suffix, "{history}");
+    let rows = all_rows(h);
+    for text in [artifact, SUFFIX, "S27 shell sentinel"] {
+        assert_eq!(rows.matches(text).count(), 1, "{rows}");
+    }
+    assert_eq!(
+        h.t.frame_loop().inline_queued_rows(),
+        h.t.frame_loop().inline_presented_rows()
+    );
+}
+
+#[test]
+fn unavailable_offscreen_artifact_releases_the_held_suffix() {
+    let mut h = inline_chat();
+    h.fake.hold_image_snapshot(ARTIFACT.to_owned());
+    let before = h.t.frame_loop().inline_queued_rows();
+    finish_artifact_and_suffix(&mut h, viewed_item());
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("completed response paragraph 31"),
+        "{screen}"
+    );
+    assert!(!screen.contains("s27-sample.png"), "{screen}");
+    assert_eq!(h.t.frame_loop().inline_queued_rows(), before);
+
+    let wishes = image_requests(&h, ARTIFACT);
+    assert_eq!(wishes.len(), 1);
+    image_reply(&mut h, wishes[0], ImageRead::Unavailable);
+    assert_artifact_prefix(&h, "s27-sample.png");
+}
+
+#[test]
+fn ready_artifact_keeps_its_authorized_link_through_native_receipt() {
+    let mut h = inline_chat();
+    h.fake.hold_image_snapshot(ARTIFACT.to_owned());
+    finish_artifact_and_suffix(&mut h, viewed_item());
+    let wishes = image_requests(&h, ARTIFACT);
+    assert_eq!(wishes.len(), 1);
+
+    let url = "file:///tmp/s27-sample.png";
+    assert!(!h.t.written().contains(url));
+    image_reply(
+        &mut h,
+        wishes[0],
+        ImageRead::Snapshot(ImageSnapshot {
+            link: Some(url.to_owned()),
+            ..Default::default()
+        }),
+    );
+    assert_artifact_prefix(&h, "s27-sample.png");
+    assert!(h.t.written().contains(url));
+
+    h.press("ctrl+t");
+    h.press("ctrl+t");
+    h.advance(500);
+    assert_artifact_prefix(&h, "s27-sample.png");
+}
+
+#[test]
+fn generated_preview_is_presented_with_its_native_history_row() {
+    use rtwk_core::graphics::GraphicsProtocol;
+
+    let mut h = inline_chat_with(
+        Options::new()
+            .graphics(GraphicsProtocol::Kitty)
+            .cell_pixels(8, 16),
+        false,
+    );
+    let file = kit::image_file_sized("s27-native-commit.png", 96, 32);
+    let path = file.to_string_lossy().into_owned();
+    h.fake.allow_image_snapshot(path.clone());
+    finish_artifact_and_suffix(
+        &mut h,
+        json!({
+            "type": "imageGeneration", "id": "artifact", "status": "completed",
+            "result": "ok", "revisedPrompt": "S27 generated preview", "savedPath": path,
+        }),
+    );
+
+    assert_artifact_prefix(&h, "S27 generated preview");
     assert!(h.fake.commands().iter().any(|cmd| {
-        matches!(cmd.host_ask(), Some(Ask::ImageSnapshot { path, .. }) if path == "/tmp/s27-sample.png")
+        matches!(
+            cmd.host_ask(),
+            Some(Ask::ImageSnapshot {
+                preview: Some(_),
+                ..
+            })
+        )
     }));
+    assert!(
+        h.t.written().contains("\x1b_Ga=T"),
+        "native Kitty image was written"
+    );
+}
+
+#[test]
+fn a_read_from_before_a_thread_remount_cannot_release_the_new_prefix() {
+    let mut h = inline_chat();
+    h.fake.hold_image_snapshot(ARTIFACT.to_owned());
+    let replay = [
+        kit::replay_turn("view", json!([viewed_item()])),
+        kit::replay_turn(
+            "later",
+            json!([{
+                "type": "agentMessage", "id": "answer", "text": long_answer(SUFFIX),
+                "phase": "final_answer",
+            }]),
+        ),
+    ];
+    h.fake.respond(move |request| {
+        let id = request["params"]["threadId"].as_str()?;
+        (request["method"] == "thread/resume").then(|| {
+            let turns = if id == FAKE_THREAD { &replay[..] } else { &[] };
+            Ok(resume(id, turns))
+        })
+    });
+    let second_thread = serde_json::from_value(resume("second-thread", &[])["thread"].clone())
+        .expect("valid second thread");
+    h.inject([AppEv::Screen(ScreenEv::Agents(agents::Ev::Listed(
+        agents::Page {
+            threads: vec![second_thread],
+            unread: Vec::new(),
+            next_cursor: None,
+            append: false,
+            pins: None,
+        },
+    )))]);
+    finish_artifact_and_suffix(&mut h, viewed_item());
+    let asks = image_requests(&h, ARTIFACT);
+    assert_eq!(asks.len(), 1);
+
+    for thread in ["second-thread", FAKE_THREAD] {
+        h.inject([AppEv::Intent(Intent::OpenThread(ThreadId::new(thread)))]);
+        h.advance(600);
+    }
+    let renewed = image_requests(&h, ARTIFACT);
+    assert_eq!(renewed.len(), 2, "new mount acquires its own read");
+    assert_ne!(renewed[1], asks[0]);
+
+    let stale_link = "file:///tmp/stale-s27-artifact.png";
+    image_reply(
+        &mut h,
+        asks[0],
+        ImageRead::Snapshot(ImageSnapshot {
+            link: Some(stale_link.to_owned()),
+            ..Default::default()
+        }),
+    );
+    assert!(!h.t.scrollback().join("\n").contains(SUFFIX));
+    assert!(!h.t.written().contains(stale_link));
+    image_reply(&mut h, renewed[1], ImageRead::Unavailable);
+    assert_artifact_prefix(&h, "s27-sample.png");
 }

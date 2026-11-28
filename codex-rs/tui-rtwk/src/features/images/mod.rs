@@ -6,14 +6,15 @@ use rtwk::graphics::GraphicsScope;
 use rtwk::layout::{Align, Alignment, BoxConstraints, ConstrainedBox};
 use rtwk::provider::{Provider, select};
 use rtwk::{AnyWidget, Cx, LayoutBuilder};
-use rtwk_core::graphics::GraphicsProtocol;
+use rtwk_core::graphics::{GraphicsCaps, GraphicsProtocol};
 use rtwk_rich::image::Image;
 
 use codex_tui_core::app::effects::{ImagePreview, ImageSize, ImageSnapshot};
-use codex_tui_core::features::images::{Images, Interest as Snapshot, Source, SourceKind};
+pub(crate) use codex_tui_core::features::images::Interest as ArtifactInterest;
+use codex_tui_core::features::images::{Images, Readiness, Source, SourceKind};
 use codex_tui_core::features::{Feature, FeatureStates};
 use codex_tui_core::ids::ThreadId;
-use codex_tui_core::threads::ItemKey;
+use codex_tui_core::threads::{Item, ItemKey};
 
 use super::FeatureView;
 use crate::pages::session::strings::Strings;
@@ -25,20 +26,31 @@ impl FeatureView for Images {
     }
 }
 
-pub(crate) fn scope(thread: ThreadId, item: ItemKey, path: String, child: AnyWidget) -> AnyWidget {
-    Provider::value(Source {
-        thread,
-        kind: SourceKind::Transcript(item),
-        path,
+pub(crate) fn source(thread: &ThreadId, key: &ItemKey, item: &Item) -> Option<Source> {
+    let path = match item {
+        Item::ImageView { path, .. } => path.as_str(),
+        Item::Generated(image) if !image.failed => image.saved_path.as_deref()?,
+        _ => return None,
+    };
+    (!path.is_empty()).then(|| Source {
+        thread: thread.clone(),
+        kind: SourceKind::Transcript(key.clone()),
+        path: path.to_owned(),
     })
-    .update_should_notify(|old, new| old != new)
-    .child(child)
-    .into()
 }
 
-pub(crate) fn request<S>(cx: &mut Cx<'_, S>, preview: bool) -> Option<Snapshot> {
-    let source = Provider::<Source>::maybe_of(cx, true)?;
-    let graphics = GraphicsScope::of(cx);
+pub(crate) fn scope(source: Source, child: AnyWidget) -> AnyWidget {
+    Provider::value(source)
+        .update_should_notify(|old, new| old != new)
+        .child(child)
+        .into()
+}
+
+pub(crate) fn interest(
+    source: Source,
+    graphics: Option<GraphicsCaps>,
+    preview: bool,
+) -> ArtifactInterest {
     let preview = graphics
         .filter(|_| preview)
         .and_then(|caps| match caps.protocol {
@@ -54,23 +66,74 @@ pub(crate) fn request<S>(cx: &mut Cx<'_, S>, preview: bool) -> Option<Snapshot> 
             }
             _ => None,
         });
-    Some(Snapshot {
-        source: (*source).clone(),
-        preview,
-    })
+    ArtifactInterest { source, preview }
 }
 
-pub(crate) fn snapshot<S>(cx: &mut Cx<'_, S>, read: &Snapshot) -> Option<ImageSnapshot> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Receipt {
+    Ready(ImageSnapshot),
+    Unavailable,
+}
+
+pub(crate) fn receipt(features: &FeatureStates, interest: &ArtifactInterest) -> Option<Receipt> {
+    match features.images.readiness(interest) {
+        Readiness::Pending => None,
+        Readiness::Ready(snapshot) => Some(Receipt::Ready(snapshot.clone())),
+        Readiness::Unavailable => Some(Receipt::Unavailable),
+    }
+}
+
+pub(crate) fn watch_readiness<S>(cx: &mut Cx<'_, S>, interest: ArtifactInterest) {
+    select::<FeatureStates, _, _>(cx, move |features| {
+        !matches!(features.images.readiness(&interest), Readiness::Pending)
+    });
+}
+
+/// A native row keeps its completed read through the terminal receipt even after the
+/// live row and the history watcher release their interest.
+pub(crate) fn freeze(receipt: Receipt, child: AnyWidget) -> AnyWidget {
+    Provider::value(receipt)
+        .update_should_notify(|old, new| old != new)
+        .child(child)
+        .into()
+}
+
+pub(crate) enum Read {
+    Live(ArtifactInterest),
+    Frozen(Receipt),
+}
+
+pub(crate) fn request<S>(cx: &mut Cx<'_, S>, preview: bool) -> Option<Read> {
+    if let Some(receipt) = Provider::<Receipt>::maybe_of(cx, true) {
+        return Some(Read::Frozen((*receipt).clone()));
+    }
+    let source = Provider::<Source>::maybe_of(cx, true)?;
+    Some(Read::Live(interest(
+        (*source).clone(),
+        GraphicsScope::of(cx),
+        preview,
+    )))
+}
+
+pub(crate) fn snapshot<S>(cx: &mut Cx<'_, S>, read: &Read) -> Option<ImageSnapshot> {
+    match read {
+        Read::Live(read) => live_snapshot(cx, read),
+        Read::Frozen(Receipt::Ready(snapshot)) => Some(snapshot.clone()),
+        Read::Frozen(Receipt::Unavailable) => None,
+    }
+}
+
+fn live_snapshot<S>(cx: &mut Cx<'_, S>, read: &ArtifactInterest) -> Option<ImageSnapshot> {
     let read = read.clone();
     select::<FeatureStates, Option<ImageSnapshot>, _>(cx, move |features| {
         features.images.snapshot(&read).cloned()
     })
 }
 
-pub(crate) fn watch(read: Option<Snapshot>, child: AnyWidget) -> AnyWidget {
+pub(crate) fn watch(read: Option<Read>, child: AnyWidget) -> AnyWidget {
     match read {
-        Some(read) => Interest::new(read, child).into(),
-        None => child,
+        Some(Read::Live(read)) => Interest::new(read, child).into(),
+        _ => child,
     }
 }
 
@@ -83,7 +146,7 @@ pub(crate) fn attachment<S>(
     size: ImageSize,
     child: impl FnOnce(Option<ImagePreview>) -> AnyWidget,
 ) -> AnyWidget {
-    let read = Snapshot {
+    let read = ArtifactInterest {
         source: Source {
             thread,
             kind: SourceKind::Attachment(sequence),
@@ -91,7 +154,7 @@ pub(crate) fn attachment<S>(
         },
         preview: Some(size),
     };
-    let preview = snapshot(cx, &read).and_then(|snapshot| snapshot.preview);
+    let preview = live_snapshot(cx, &read).and_then(|snapshot| snapshot.preview);
     Interest::new(read, child(preview)).into()
 }
 
@@ -106,7 +169,7 @@ pub(crate) fn preview(snapshot: ImagePreview) -> AnyWidget {
             BoxConstraints::new(0, columns, 0, 6),
             Image::memory(snapshot.png.clone()),
         );
-        ExcludeSelection::new(Align::new(Alignment::CENTER, image)).into()
+        ExcludeSelection::new(Align::new(Alignment::CENTER, image).height_factor(1)).into()
     })
     .into()
 }

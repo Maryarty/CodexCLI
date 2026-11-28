@@ -10,7 +10,8 @@ use rtwk::app::ViewportCx;
 use rtwk::binding::{AppBinding, ScreenMode};
 use rtwk::foundation::{Listenable, VoidCallback};
 use rtwk::gestures::SelectionTarget;
-use rtwk::layout::{Align, Alignment, Column, CrossAxisAlignment, MainAxisSize};
+use rtwk::graphics::GraphicsScope;
+use rtwk::layout::{Align, Alignment, Column, CrossAxisAlignment, MainAxisSize, Positioned, Stack};
 use rtwk::navigation::Route;
 use rtwk::provider::{read, select, watch};
 use rtwk::scroll::{
@@ -24,6 +25,7 @@ use rtwk::{
     State, StatefulWidget, StatelessWidget, impl_widget,
 };
 use rtwk_render::objects::list::{ListParentData, RenderList};
+use rtwk_render::objects::stack::StackFit;
 
 use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::features::FeatureStates;
@@ -1557,7 +1559,15 @@ impl State for ViewportState {
             scrollback_history
                 .zip(binding.as_ref().and_then(AppBinding::commit))
                 .map(|(history, sink)| {
-                    let settled = history.settled(&thread, &rows, header.is_some());
+                    let features = read::<FeatureStates, _>(cx);
+                    let settled = history.settled(
+                        &thread,
+                        &rows,
+                        header.is_some(),
+                        &features,
+                        GraphicsScope::of(cx),
+                        raw,
+                    );
                     let current = Route::maybe_of(cx).is_none_or(|route| route.is_current());
                     (sink, history, settled, current)
                 })
@@ -1565,7 +1575,7 @@ impl State for ViewportState {
             None
         };
         let has_header = header.is_some();
-        let (rows, header, commits) =
+        let (rows, header, commits, waiting) =
             if let Some((sink, history, settled, current)) = terminal_history {
                 let first = if current { settled.upto } else { settled.from };
                 let commits = current.then(|| {
@@ -1575,6 +1585,7 @@ impl State for ViewportState {
                         rows.clone(),
                         settled.from..settled.upto,
                         header.clone().filter(|_| settled.commit_header),
+                        settled.artifacts,
                     )
                 });
                 let rows = if first != 0 {
@@ -1584,10 +1595,13 @@ impl State for ViewportState {
                 };
                 let header = header
                     .filter(|_| !(settled.hide_header && (current || !settled.commit_header)));
-                (rows, header, commits)
+                (rows, header, commits, settled.waiting.filter(|_| current))
             } else {
-                (rows, header, None)
+                (rows, header, None, None)
             };
+        if let Some(waiting) = waiting.clone() {
+            crate::features::watch_artifact_readiness(cx, waiting);
+        }
         let lead = usize::from(header.is_some());
         let count = rows.len() + lead;
         if let Some(binding) = binding.filter(|_| inline_region && (count != 0 || inline_history)) {
@@ -1834,7 +1848,7 @@ impl State for ViewportState {
             }));
         }
         let finder = { move |key: &Key| Some(list_rows.list_index(list_rows.logical_index(key)?)) };
-        let build_row = move |thread: &ThreadModel, row: &Row, listed, committed_width| {
+        let build_row = move |thread: &ThreadModel, row: &Row, listed, committed_width, receipt| {
             let range = &row.range;
             let index = range.start;
             let transcript = thread.transcript();
@@ -1855,11 +1869,6 @@ impl State for ViewportState {
                         item.group() == Some(codex_tui_core::threads::ItemGroup::Computer)
                     });
             let separator = (previous.is_some() || has_header) && !joins_computer;
-            let image_path = match item {
-                Item::ImageView { path, .. } => Some(path.as_str()),
-                Item::Generated(image) if !image.failed => image.saved_path.as_deref(),
-                _ => None,
-            };
             let place = Place {
                 inline_room: inline.then_some(room),
                 separator,
@@ -1940,25 +1949,22 @@ impl State for ViewportState {
                         },
                         &place,
                     );
-                    let drawn = if let Some(path) = image_path {
-                        crate::features::artifact_scope(
-                            thread.id().clone(),
-                            key.clone(),
-                            path.to_owned(),
-                            drawn,
-                        )
+                    if let Some(receipt) = receipt {
+                        crate::features::freeze_artifact(receipt, drawn)
                     } else {
-                        drawn
-                    };
-                    // a cell with a control is the thread's controller's: a tap, a key and Find
-                    // open and shut it the same way
-                    if matches!(
-                        item,
-                        Item::Tool(_) | Item::Patch(_) | Item::ImageView { .. }
-                    ) {
-                        tile(&activity, key.clone(), drawn)
-                    } else {
-                        drawn
+                        let drawn = match crate::features::artifact_source(thread.id(), key, item) {
+                            Some(source) => crate::features::artifact_scope(source, drawn),
+                            None => drawn,
+                        };
+                        // In the live reader a cell's control, Find and F4 share its disclosure.
+                        if matches!(
+                            item,
+                            Item::Tool(_) | Item::Patch(_) | Item::ImageView { .. }
+                        ) {
+                            tile(&activity, key.clone(), drawn)
+                        } else {
+                            drawn
+                        }
                     }
                 }
             };
@@ -2001,19 +2007,28 @@ impl State for ViewportState {
             }
             column.into()
         };
-        if let Some((sink, history, rows, range, header)) = commits {
+        if let Some((sink, history, rows, range, header, mut artifacts)) = commits {
             history.commit(
                 cx,
                 sink,
                 &thread,
                 &rows[range.clone()],
                 header,
-                range.map(|index| build_row(&thread, &rows[index], index, self.width)),
+                range.map(|index| {
+                    let row = &rows[index];
+                    build_row(
+                        &thread,
+                        row,
+                        index,
+                        self.width,
+                        artifacts.remove(&row.range.start),
+                    )
+                }),
             );
         }
         let draw_rows = rows.clone();
         let draw: DrawRow = Rc::new(move |thread, listed| {
-            build_row(thread, &draw_rows[listed - lead], listed, None)
+            build_row(thread, &draw_rows[listed - lead], listed, None, None)
         });
         let snapshot = uses_snapshot.then_some(thread);
         let listed_thread = thread_id.clone();
@@ -2131,13 +2146,33 @@ impl State for ViewportState {
         .into();
         let width = self.width;
         let changed = cx.local_sender();
-        LayoutBuilder::new(move |_, bounds| {
+        let pane = LayoutBuilder::new(move |_, bounds| {
             if Some(bounds.max_width) != width {
                 changed(Msg::Room(bounds.max_width));
             }
             tail_news.clone()
-        })
-        .into()
+        });
+        if !inline_history {
+            return pane.into();
+        }
+        // The earliest asset can be outside the lazy viewport. The commit queue
+        // keeps its read alive independently of whichever transcript rows are visible.
+        let stack = Stack::new().fit(StackFit::Passthrough).child(pane);
+        match waiting {
+            Some(waiting) => stack
+                .child(
+                    Positioned::new(crate::widgets::interest::Interest::new(
+                        waiting,
+                        AnyWidget::default(),
+                    ))
+                    .top(0)
+                    .left(0)
+                    .width(0)
+                    .height(0),
+                )
+                .into(),
+            None => stack.into(),
+        }
     }
 }
 

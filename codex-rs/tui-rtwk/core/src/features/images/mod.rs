@@ -54,9 +54,25 @@ pub enum Ctx {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Readiness {
+    Pending,
+    Ready(ImageSnapshot),
+    Unavailable,
+}
+
+impl Readiness {
+    fn snapshot(&self) -> Option<&ImageSnapshot> {
+        match self {
+            Self::Ready(snapshot) => Some(snapshot),
+            Self::Pending | Self::Unavailable => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct Entry {
     generation: u64,
-    snapshot: Option<ImageSnapshot>,
+    readiness: Readiness,
     refresh: Option<Now>,
 }
 
@@ -68,7 +84,13 @@ pub struct State {
 
 impl State {
     pub fn snapshot(&self, interest: &Interest) -> Option<&ImageSnapshot> {
-        self.entries.get(interest)?.snapshot.as_ref()
+        self.readiness(interest).snapshot()
+    }
+
+    pub fn readiness(&self, interest: &Interest) -> &Readiness {
+        self.entries
+            .get(interest)
+            .map_or(&Readiness::Pending, |entry| &entry.readiness)
     }
 }
 
@@ -79,8 +101,8 @@ fn read(interest: &Interest, entry: &Entry, cx: &mut AppCx<'_>) {
             path: interest.source.path.clone(),
             preview: interest.preview,
             previous: entry
-                .snapshot
-                .as_ref()
+                .readiness
+                .snapshot()
                 .and_then(|snapshot| snapshot.revision),
         },
         Ctx::Read {
@@ -122,7 +144,7 @@ feature! {
                     return;
                 }
                 state.generation = state.generation.wrapping_add(1);
-                let entry = Entry { generation: state.generation, snapshot: None, refresh: None };
+                let entry = Entry { generation: state.generation, readiness: Readiness::Pending, refresh: None };
                 read(interest, &entry, cx);
                 state.entries.insert(interest.clone(), entry);
             }
@@ -135,14 +157,14 @@ feature! {
                 {
                     let attachment = matches!(interest.source.kind, SourceKind::Attachment(_));
                     if matches!(result, ImageRead::Unavailable) {
-                        entry.snapshot = None;
+                        entry.readiness = Readiness::Unavailable;
                         return;
                     }
                     if let ImageRead::Snapshot(mut snapshot) = result {
                         if attachment {
                             snapshot.link = None;
                         }
-                        entry.snapshot = Some(snapshot);
+                        entry.readiness = Readiness::Ready(snapshot);
                     }
                     if attachment {
                         entry.refresh = Some(cx.view().now().plus_millis(ATTACHMENT_REFRESH_MS));
@@ -156,7 +178,7 @@ feature! {
                         let held = state.entries.iter().any(|(interest, entry)| {
                             matches!(interest.source.kind, SourceKind::Transcript(_))
                                 && interest.source.thread == open.thread
-                                && entry.snapshot.as_ref().and_then(|snapshot| snapshot.link.as_ref()) == Some(&open.url)
+                                && entry.readiness.snapshot().and_then(|snapshot| snapshot.link.as_ref()) == Some(&open.url)
                         });
                         if held && cx.view().thread(&open.thread).is_some() {
                             cx.effect(Ask::open_url(open.url), Ctx::Open);

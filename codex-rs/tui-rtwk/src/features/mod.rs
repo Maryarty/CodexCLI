@@ -327,8 +327,11 @@ pub fn verb_by<S: 'static>(cx: &mut Cx<'_, S>, hs: &Hs, intent: impl Into<Featur
 
 pub use copy::supersede_status_copy;
 pub(crate) use images::{
-    attachment as attachment_thumbnail, preview as artifact_preview, request as artifact_request,
-    scope as artifact_scope, snapshot as artifact_snapshot, watch as watch_artifact,
+    ArtifactInterest, Receipt as ArtifactReceipt, attachment as attachment_thumbnail,
+    freeze as freeze_artifact, interest as artifact_interest, preview as artifact_preview,
+    receipt as artifact_receipt, request as artifact_request, scope as artifact_scope,
+    snapshot as artifact_snapshot, source as artifact_source, watch as watch_artifact,
+    watch_readiness as watch_artifact_readiness,
 };
 pub(crate) use pets::{PetIntent, PetPhase, PetVisit, is_pet_disable};
 

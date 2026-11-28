@@ -1,13 +1,15 @@
 //! The terminal takes the settled prefix; reading modes keep the canonical transcript.
 
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::rc::Rc;
 
 use codex_tui_core::app::facts::TuiSettings;
+use codex_tui_core::features::FeatureStates;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::threads::{Item, ItemKey, ThreadModel};
 use rtwk::binding::Commit;
+use rtwk::graphics::GraphicsScope;
 use rtwk::layout::{
     Align, Alignment, BoxConstraints, Column, CrossAxisAlignment, MainAxisSize, SizedBox, UNBOUNDED,
 };
@@ -15,11 +17,15 @@ use rtwk::provider::{Provider, read};
 use rtwk::style::Theme;
 use rtwk::text::segmenter_of;
 use rtwk::{AnyWidget, Children, Cx, RenderObjectWidget, State, WidgetTree, impl_widget};
+use rtwk_core::graphics::GraphicsCaps;
 use rtwk_render::{
     Change, ChildModel, IntrinsicCx, LayoutCx, PaintCx, RenderError, RenderObject, RenderTree, Size,
 };
 
 use super::super::transcript::turn_details::Row;
+use crate::features::{
+    ArtifactInterest, ArtifactReceipt, artifact_interest, artifact_receipt, artifact_source,
+};
 
 /// One thread's record of which immutable rows have already entered this terminal's
 /// scrollback. Kept with the thread's `Finder` across A → B → A and view remounts.
@@ -31,7 +37,14 @@ struct Presented {
     keys: HashSet<ItemKey>,
     header: bool,
     /// The first item whose settlement can change the prefix without changing its layout.
-    blocker: Option<(usize, ItemKey)>,
+    blocker: Option<Blocker>,
+}
+
+struct Blocker {
+    index: usize,
+    key: ItemKey,
+    revision: Option<u64>,
+    awaiting_image: bool,
 }
 
 pub(super) struct Settled {
@@ -41,52 +54,96 @@ pub(super) struct Settled {
     pub from: usize,
     pub hide_header: bool,
     pub commit_header: bool,
+    pub waiting: Option<ArtifactInterest>,
+    pub artifacts: BTreeMap<usize, ArtifactReceipt>,
 }
 
 impl History {
     pub fn blocker_settled(&self, thread: &ThreadModel) -> Option<bool> {
         let state = self.0.borrow();
-        let (index, key) = state.blocker.as_ref()?;
-        Some(
-            thread
-                .transcript()
-                .get(*index)
-                .is_none_or(|(current, item)| current != key || settled(thread, key, item)),
-        )
+        let blocker = state.blocker.as_ref()?;
+        let transcript = thread.transcript();
+        Some(transcript.get(blocker.index).is_none_or(|(key, item)| {
+            key != &blocker.key
+                || if blocker.awaiting_image {
+                    // The same key may now point to a different path.
+                    transcript.item_revision(key) != blocker.revision
+                } else {
+                    settled(thread, key, item)
+                }
+        }))
     }
 
-    pub fn settled(&self, thread: &ThreadModel, rows: &[Row], has_header: bool) -> Settled {
+    pub fn settled(
+        &self,
+        thread: &ThreadModel,
+        rows: &[Row],
+        has_header: bool,
+        features: &FeatureStates,
+        graphics: Option<GraphicsCaps>,
+        raw: bool,
+    ) -> Settled {
         let transcript = thread.transcript();
-        let (upto, blocker) = rows
-            .iter()
-            .enumerate()
-            .find_map(|(position, row)| {
-                row.range
-                    .clone()
-                    .filter_map(|index| transcript.get(index).map(|(key, item)| (index, key, item)))
-                    .find(|(_, key, item)| !settled(thread, key, item))
-                    .map(|(index, key, _)| (position, Some((index, key.clone()))))
-            })
-            .unwrap_or((rows.len(), None));
         let mut presented = self.0.borrow_mut();
-        presented.blocker = blocker;
         // A history page prepended before an already presented row belongs in the reader.
         // A terminal has no insertion point for it before what it has already scrolled out.
-        let from = rows[..upto]
-            .iter()
-            .rposition(|row| {
-                row.range.clone().any(|index| {
-                    transcript
-                        .get(index)
-                        .is_some_and(|(key, _)| presented.keys.contains(key))
+        let from = if presented.keys.is_empty() {
+            0
+        } else {
+            rows.iter()
+                .rposition(|row| {
+                    row.range.clone().any(|index| {
+                        transcript
+                            .get(index)
+                            .is_some_and(|(key, _)| presented.keys.contains(key))
+                    })
                 })
+                .map_or(0, |last| last + 1)
+        };
+        let mut artifacts = BTreeMap::new();
+        let mut waiting = None;
+        let mut blocker = None;
+        let upto = rows
+            .iter()
+            .enumerate()
+            .skip(from)
+            .find_map(|(position, row)| {
+                for index in row.range.clone() {
+                    let Some((key, item)) = transcript.get(index) else {
+                        continue;
+                    };
+                    let block = |awaiting_image| Blocker {
+                        index,
+                        key: key.clone(),
+                        revision: transcript.item_revision(key),
+                        awaiting_image,
+                    };
+                    if !settled(thread, key, item) {
+                        blocker = Some(block(false));
+                        return Some(position);
+                    }
+                    if let Some(source) = artifact_source(thread.id(), key, item) {
+                        let preview = matches!(item, Item::Generated(_)) && !raw;
+                        let interest = artifact_interest(source, graphics, preview);
+                        let Some(receipt) = artifact_receipt(features, &interest) else {
+                            blocker = Some(block(true));
+                            waiting = Some(interest);
+                            return Some(position);
+                        };
+                        artifacts.insert(index, receipt);
+                    }
+                }
+                None
             })
-            .map_or(0, |last| last + 1);
+            .unwrap_or(rows.len());
+        presented.blocker = blocker;
         Settled {
             upto,
             from,
             hide_header: presented.header || upto != 0,
             commit_header: has_header && !presented.header && upto != 0,
+            waiting,
+            artifacts,
         }
     }
 
@@ -120,8 +177,10 @@ impl History {
             if matches!(
                 thread.transcript().get(row.range.start),
                 Some((_, Item::Plan { .. }))
+                    | Some((_, Item::ImageView { .. }))
+                    | Some((_, Item::Generated(_)))
             ) {
-                MeasurePlan::wrap(cx, widget)
+                MeasureHistoryRow::for_inline(cx, widget)
             } else {
                 widget
             }
@@ -137,18 +196,18 @@ impl History {
     }
 }
 
-/// A committed Plan can contain width-dependent Markdown. The terminal asks
-/// the mounted branch for its height before the table's LayoutBuilder has
-/// run. Lay out the same native cell in a data tree at the requested width.
+/// A committed table or image can contain a LayoutBuilder. The terminal
+/// asks the mounted branch for its height before that builder has run.
+/// Lay out the same native cell in a data tree at the requested width.
 #[derive(Debug)]
-struct MeasurePlan {
+struct MeasureHistoryRow {
     child: AnyWidget,
     measure: AnyWidget,
     segmenter: crate::widgets::measure::Measure,
 }
 
-impl MeasurePlan {
-    fn wrap<S: State>(cx: &mut Cx<'_, S>, child: AnyWidget) -> AnyWidget {
+impl MeasureHistoryRow {
+    fn for_inline<S: State>(cx: &mut Cx<'_, S>, child: AnyWidget) -> AnyWidget {
         let mut screens = ScreenStates::default();
         screens.cells.link_display = crate::app::theme::Tokens::link_display(cx);
         let measure = Theme::new(
@@ -156,20 +215,25 @@ impl MeasurePlan {
             Provider::value(*read::<TuiSettings, _>(cx))
                 .child(Provider::value(screens).child(child.clone())),
         );
+        let measure = crate::app::run::localized(measure, crate::l10n::lang(cx));
+        let measure = match GraphicsScope::of(cx) {
+            Some(caps) => GraphicsScope::new(caps, measure).into(),
+            None => measure.into(),
+        };
         Self {
             child,
-            measure: measure.into(),
+            measure,
             segmenter: segmenter_of(cx),
         }
         .into()
     }
 }
 
-impl RenderObjectWidget for MeasurePlan {
-    type Object = RenderMeasurePlan;
+impl RenderObjectWidget for MeasureHistoryRow {
+    type Object = RenderMeasureHistoryRow;
 
     fn create_render_object(&self, _: &mut Cx<'_>) -> Self::Object {
-        RenderMeasurePlan {
+        RenderMeasureHistoryRow {
             measure: self.measure.clone(),
             segmenter: self.segmenter,
             measured: None,
@@ -186,16 +250,16 @@ impl RenderObjectWidget for MeasurePlan {
     }
 }
 
-impl_widget!(render MeasurePlan);
+impl_widget!(render MeasureHistoryRow);
 
 #[derive(Debug)]
-struct RenderMeasurePlan {
+struct RenderMeasureHistoryRow {
     measure: AnyWidget,
     segmenter: crate::widgets::measure::Measure,
     measured: Option<(i32, i32)>,
 }
 
-impl RenderObject for RenderMeasurePlan {
+impl RenderObject for RenderMeasureHistoryRow {
     fn child_model(&self) -> ChildModel {
         ChildModel::Single
     }
@@ -247,15 +311,7 @@ impl RenderObject for RenderMeasurePlan {
 }
 
 fn settled(thread: &ThreadModel, key: &ItemKey, item: &Item) -> bool {
-    // A file-backed row can still gain its validated link or preview from a host
-    // effect after the turn ends. Leave its suffix in the live reader in order.
-    let artifact = match item {
-        Item::ImageView { path, .. } => !path.is_empty(),
-        Item::Generated(image) => !image.failed && image.saved_path.is_some(),
-        _ => false,
-    };
-    if artifact
-        || thread.transcript().is_agent_streaming(key)
+    if thread.transcript().is_agent_streaming(key)
         || matches!(
             item,
             Item::Status {

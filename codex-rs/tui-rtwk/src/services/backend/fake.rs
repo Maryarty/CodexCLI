@@ -89,6 +89,7 @@ pub(crate) struct Shared {
     usage: UsageHost,
     /// Files the test made available to the local image executor.
     image_paths: BTreeSet<String>,
+    held_image_paths: BTreeSet<String>,
 }
 
 /// The account lookups and reports the usage page asks of its host, answered from what a test
@@ -323,6 +324,13 @@ impl FakeHandle {
     pub fn allow_image_snapshot(&self, path: String) {
         if let Ok(mut shared) = self.shared.lock() {
             shared.image_paths.insert(path);
+        }
+    }
+
+    /// Leave this path's read in flight until the test injects its host reply.
+    pub fn hold_image_snapshot(&self, path: String) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.held_image_paths.insert(path);
         }
     }
 
@@ -736,7 +744,13 @@ impl HostDoors for FakeDoors<'_> {
         preview: Option<ImageSize>,
         previous: Option<ImageRevision>,
     ) -> Option<FakeWork> {
-        let allowed = self.shared.lock().ok()?.image_paths.contains(&path);
+        let allowed = {
+            let shared = self.shared.lock().ok()?;
+            if shared.held_image_paths.contains(&path) {
+                return None;
+            }
+            shared.image_paths.contains(&path)
+        };
         let snapshot = if allowed {
             crate::services::images::local_snapshot(std::path::Path::new(&path), preview, previous)
         } else {
