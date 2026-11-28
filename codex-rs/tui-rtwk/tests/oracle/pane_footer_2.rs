@@ -18,14 +18,33 @@ fn assert_rows_of(s: &Screen, snap: &str) {
 }
 
 fn usage_banner(presentation: &str, description: &str, actions: serde_json::Value) -> Screen {
-    let mut s = Screen::build(Owner::UiPane).size(70, 16).live().open();
+    usage_banner_in(
+        (70, 16),
+        "Usage limit reached",
+        presentation,
+        description,
+        actions,
+    )
+}
+
+fn usage_banner_in(
+    size: (u16, u16),
+    title: &str,
+    presentation: &str,
+    description: &str,
+    actions: serde_json::Value,
+) -> Screen {
+    let mut s = Screen::build(Owner::UiPane)
+        .size(size.0, size.1)
+        .live()
+        .open();
     s.server_answers(
         "account/rateLimits/read",
         serde_json::json!({
             "rateLimits": {},
             "rateLimitUpsell": {
                 "banner_type": "credits",
-                "title": "Usage limit reached",
+                "title": title,
                 "description": description,
                 "ctas": actions,
                 "presentation": presentation,
@@ -36,7 +55,7 @@ fn usage_banner(presentation: &str, description: &str, actions: serde_json::Valu
         r#"{"step":"screen","dir":"status","ev":{"kind":"account","account":{"chat_gpt":{"email":"user@example.com","plan":"plus"}}}}
 {"step":"screen","dir":"chat","ev":{"status":{"account_usage":true}}}"#,
     );
-    s.assert_contains("Usage limit reached");
+    s.assert_contains(title);
     s
 }
 
@@ -329,12 +348,18 @@ fn flush_buffered_typing_in_background_and_covering_editors() {
 fn inline_banner_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "no inline banner in the chat: no entry chat/inline_banner_wrapped (44 columns, `Choose how to continue working`, the description repeated eight times, two actions `Open usage settings` and `Notify owner`)",
+        "the oracle draws the bottom pane alone at its desired height (19 rows at 44): no gap row between the banner and the composer, `agents_navigation` off and a fresh `100% context left`. The live chat keeps the composer gap (`composer_gap`) so its banner has a row less (the hint's second row `· type to continue` is lost), its footer is `← for agents · ? for shortcuts` and a resumed thread has no meter. The banner's rows up to the hint's first row equal the snapshot (the hint now wraps at the width less its left indent)",
     );
-    let s = Screen::build(Owner::UiPane)
-        .size(44, 19)
-        .entry("chat", "inline_banner_wrapped")
-        .open();
+    let s = usage_banner_in(
+        (44, 19),
+        "Choose how to continue working",
+        "dismissible",
+        &"A long description wraps to fit the available terminal width.\n".repeat(8),
+        serde_json::json!([
+            {"action":"view_usage","label":"Open usage settings"},
+            {"action":"notify_owner","label":"Notify owner"},
+        ]),
+    );
     s.assert_snap("inline_banner_wrapped_and_truncated");
 }
 
@@ -752,16 +777,10 @@ fn release_events_are_ignored_for_active_view() {
 // ORACLE bottom_pane/mod.rs:4306 paste_completion_clears_stacked_views_and_restores_composer_input kind=ui owner=ui-pane
 #[test]
 fn paste_completion_clears_stacked_views_and_restores_composer_input() {
-    kit::pending(
+    kit::na(
         Owner::UiPane,
         "the oracle uses two dummy BottomPaneView instances. The upper one's handle_paste unconditionally completes and the test inspects how the lower one is retired. The native production dialogs edit or route paste; there is no equivalent dialog whose paste completes it",
     );
-    let mut s = Screen::build(Owner::UiPane)
-        .size(40, 2)
-        .entry("chat", "paste_under_views")
-        .open();
-    s.paste("hello");
-    s.keys("down");
 }
 
 // ---- oracle: bottom_pane/pending_input_preview.rs (13 screen-level tests here; 0 state tests left to ui-pane)
@@ -973,7 +992,7 @@ fn render_multiline_pending_steer_uses_single_prefix_and_truncates() {
 fn light_status_line_corrects_pale_custom_theme_colors() {
     kit::pending(
         Owner::UiPane,
-        "screen feature (status line): no entry chat/light_status_line_pale_theme (42x1: `gpt-5`, `~/code`, `Custom permissions` on a pale custom theme); the kit seeds the terminal colours (`terminal_colors(0x1e1e1e, 0xffffff)`)",
+        "G-new-footer-palette: the separators are the terminal fg/bg blend (Rgb(118,118,118) on a light terminal) and the items' colours the theme's accents made readable on it; the port's tokens are fixed indexed colours, and no entry chat/light_status_line_pale_theme (42x1: `gpt-5`, `~/code`, `Custom permissions` on a pale custom theme) can equal the cells",
     );
     let s = Screen::build(Owner::UiPane)
         .size(42, 1)
@@ -987,7 +1006,7 @@ fn light_status_line_corrects_pale_custom_theme_colors() {
 fn status_line_theme_colors_at_limited_color_depths() {
     kit::pending(
         Owner::UiPane,
-        "screen feature (status line): no status line entry to draw at colour depths 0 and 1; the kit seeds the depth (`color_depth(ColorDepth::None)`, `Ansi16`) as the oracle child process does with FORCE_COLOR",
+        "G-new-footer-palette: the status line's theme colours (the syntax theme's accents, the dim separators) at the colour depths 0 and 1 (`color_depth(ColorDepth::None)`, `Ansi16`) come from the terminal-derived palette the port lacks",
     );
 }
 
@@ -995,30 +1014,10 @@ fn status_line_theme_colors_at_limited_color_depths() {
 // ORACLE bottom_pane/tests/actionable_banner_tests.rs:6 promoted_banner_uses_picker_hints_and_preserves_the_draft kind=snap owner=ui-pane
 #[test]
 fn promoted_banner_uses_picker_hints_and_preserves_the_draft() {
-    kit::pending(
+    kit::na(
         Owner::UiPane,
         "the oracle builds a synthetic promoted View usage row. In live code rate_limits.rs promotes the owner-nudge confirmation. The native workspace route, remapped picker and retained draft are tested by chat_status_1::promoted_owner_confirmation_uses_remapped_picker_keys_and_keeps_the_draft",
     );
-    let mut s = Screen::build(Owner::UiPane)
-        .size(40, 6)
-        .keymap(&[("list.accept", "f3"), ("list.cancel", "f2")])
-        .entry("chat", "promoted_action_banner")
-        .open();
-    s.assert_contains("View usage");
-    s.assert_contains("f3 select · f2 back");
-    s.assert_contains("draft in progress");
-    s.assert_snap("promoted_action_banner_40");
-    s.keys("f3");
-    s.assert_absent("View usage");
-    s.assert_contains("draft in progress");
-    let mut s = Screen::build(Owner::UiPane)
-        .size(40, 6)
-        .keymap(&[("list.accept", "f3"), ("list.cancel", "f2")])
-        .entry("chat", "promoted_action_banner")
-        .open();
-    s.keys("f2");
-    s.assert_absent("View usage");
-    s.assert_contains("draft in progress");
 }
 
 // ORACLE bottom_pane/tests/actionable_banner_tests.rs:66 hidden_banner_preserves_input_before_render_and_after_resize kind=snap owner=ui-pane
@@ -1201,28 +1200,10 @@ fn render_many_sessions() {
 // ORACLE bottom_pane/view_stack_tests.rs:45 centered_dialog_retains_backdrop_and_routes_cursor kind=snap owner=ui-pane snap=centered_dialog_retains_backdrop_and_routes_cursor
 #[test]
 fn centered_dialog_retains_backdrop_and_routes_cursor() {
-    kit::pending(
+    kit::na(
         Owner::UiPane,
         "the oracle pairs two dummy renderers and returns invented terminal-cursor coordinates from the centered one. The real centered archive picker owns selection and keeps the backdrop; exact synthetic caret frames remain unverified",
     );
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 9)
-        .entry("chat", "centered_dialog")
-        .open();
-    s.assert_cursor(4, 3);
-    s.assert_snap_section("centered_dialog_retains_backdrop_and_routes_cursor", "80x9");
-    let s = Screen::build(Owner::UiPane)
-        .size(24, 7)
-        .entry("chat", "centered_dialog")
-        .open();
-    s.assert_cursor(2, 2);
-    s.assert_snap_section("centered_dialog_retains_backdrop_and_routes_cursor", "24x7");
-    let s = Screen::build(Owner::UiPane)
-        .size(12, 2)
-        .entry("chat", "centered_dialog")
-        .open();
-    s.assert_cursor(2, 0);
-    s.assert_snap_section("centered_dialog_retains_backdrop_and_routes_cursor", "12x2");
 }
 
 #[test]

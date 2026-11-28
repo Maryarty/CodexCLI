@@ -52,16 +52,14 @@ impl Panel {
         {
             return self;
         }
-        let (modes, voice) = rtwk::provider::select::<codex_tui_core::screens::ScreenStates, _, _>(
-            cx,
-            |states| {
+        let (modes, voice) =
+            rtwk::provider::select::<codex_tui_core::screens::ScreenStates, _, _>(cx, |states| {
                 let flags = &states.chat.flags;
                 (
                     flags.collaboration_modes_enabled,
                     flags.voice_command_enabled && !flags.side_conversation_active,
                 )
-            },
-        );
+            });
         Panel {
             modes,
             voice,

@@ -113,19 +113,37 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             name: "footer_shortcuts_shift_and_esc",
             description: "the shortcut overlay with the backtrack primed and Shift+Enter for the new line",
             script: OVERLAY,
-            open: EntryOpen::Route(|_| Overlay { esc_primed: true, enhanced: true }.into()),
+            open: EntryOpen::Route(|_| {
+                Overlay {
+                    esc_primed: true,
+                    enhanced: true,
+                }
+                .into()
+            }),
         },
         DebugEntry {
             name: "footer_shortcuts_collaboration_modes_enabled",
             description: "the shortcut overlay with the collaboration modes on (Change mode)",
             script: OVERLAY_MODES,
-            open: EntryOpen::Route(|_| Overlay { esc_primed: false, enhanced: false }.into()),
+            open: EntryOpen::Route(|_| {
+                Overlay {
+                    esc_primed: false,
+                    enhanced: false,
+                }
+                .into()
+            }),
         },
         DebugEntry {
             name: "footer_shortcuts_running",
             description: "the shortcut overlay while a turn runs (Queue message, Interrupt)",
             script: OVERLAY_RUNNING,
-            open: EntryOpen::Route(|_| Overlay { esc_primed: false, enhanced: false }.into()),
+            open: EntryOpen::Route(|_| {
+                Overlay {
+                    esc_primed: false,
+                    enhanced: false,
+                }
+                .into()
+            }),
         },
     ];
     entries.extend(super::effort::debug_entries());
