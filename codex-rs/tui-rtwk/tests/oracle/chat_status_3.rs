@@ -600,10 +600,6 @@ fn renders_remapped_interrupt_hint() {
 // ORACLE status_indicator_widget.rs:483 hook_status_reflows_without_displacing_controls_or_details kind=snap owner=ui-pane snap=hook_status_reflows_with_background_activity snap=hook_status_reflows_without_background_activity
 #[test]
 fn hook_status_reflows_without_displacing_controls_or_details() {
-    kit::pending(
-        Owner::UiPane,
-        "G44: rtwk's text engine clusters a halfwidth katakana and its sound mark (`ｶﾞ`) into one cell, the oracle counts the mark as its own cell: the hook text `checking 日本語 ｶﾞﾊﾟ policy` is one cell narrower per mark, so the fit width (61 / 124) and the rows at 24 columns differ; the rest of the row (the reflow under the label, the details, the ellipsis) is the oracle's",
-    );
     // The oracle draws the row alone at four widths: the fit width (2 rows), one column less
     // (3 rows), 24 columns (3 rows) and the fit width again.
     for (entry, snap, widths) in [
@@ -621,6 +617,8 @@ fn hook_status_reflows_without_displacing_controls_or_details() {
         let mut s = Screen::build(Owner::UiPane)
             // wider than every frame: a resize to the opening size would blank the screen
             .size(130, 24)
+            // the oracle counts a halfwidth katakana's sound mark as a cell of its own
+            .legacy_text()
             .entry("chat", entry)
             .first_frame()
             .open();

@@ -328,7 +328,22 @@ fn footer_status_line_truncates_to_keep_mode_indicator() {
 }
 
 fn footer_pr_link(project: &str) -> Screen {
-    let mut s = Screen::build(Owner::UiPane).size(13, 4).live().open();
+    footer_pr_link_at(project, 13, false, false)
+}
+
+/// The status line `project · PR #42` at `width` columns (the footer indents it two cells).
+/// `legacy` counts a halfwidth katakana and its sound mark as two cells, as the oracle does;
+/// `bidi` has the terminal reorder right-to-left text, so the cells keep the logical order of
+/// the oracle's buffer.
+fn footer_pr_link_at(project: &str, width: u16, legacy: bool, bidi: bool) -> Screen {
+    let mut open = Screen::build(Owner::UiPane).size(width, 4);
+    if legacy {
+        open = open.legacy_text();
+    }
+    if bidi {
+        open = open.bidi_terminal();
+    }
+    let mut s = open.live().open();
     s.feed(
         &serde_json::json!({
             "step": "screen", "dir": "chat", "ev": {
@@ -347,21 +362,39 @@ fn footer_pr_link(project: &str) -> Screen {
 // ORACLE bottom_pane/footer/footer_content_tests.rs:11 clipped_links_keep_their_cells_after_a_halfwidth_katakana_grapheme kind=ui owner=ui-pane
 #[test]
 fn clipped_links_keep_their_cells_after_a_halfwidth_katakana_grapheme() {
-    assert_footer_pr_link("ｶﾞ", "ｶﾞ");
+    // The oracle's line is `ｶﾞ` (a link of its own to the project), ` · `, `PR #42` (the pull
+    // request's link) in 10 cells: the status line indents two more. The app has no link on
+    // the project name (the oracle's app never makes one, only this widget test), so that link
+    // is not drawn here; the rest is the oracle's.
+    let s = footer_pr_link_at("ｶﾞ", 12, true, false);
+    s.assert_row_of("ｶﾞ", &["ｶﾞ · PR #…"], &[]);
+    s.assert_no_link(" · ");
+    s.assert_link("PR #", "https://example.com/pr/42");
     kit::pending(
         Owner::UiPane,
-        "the oracle attaches its own URL to the Katakana project, keeps PR # on the clipped row, and leaves the ellipsis unlinked. The live status line only has a PR destination; the toolkit can give its ellipsis the clipped span's link. The surviving PR cells are verified above",
+        "G74: the ellipsis cell takes the link of the text it cuts (`PR #…` links `…` to the pull request); the oracle's `…` carries no link",
     );
+    s.assert_no_link("…");
 }
 
 // ORACLE bottom_pane/footer/footer_content_tests.rs:35 arabic_prefix_keeps_link_on_the_painted_cells_at_exact_fit_and_overflow kind=ui owner=ui-pane
 #[test]
 fn arabic_prefix_keeps_link_on_the_painted_cells_at_exact_fit_and_overflow() {
-    assert_footer_pr_link("لا", "ال");
+    // `لا · PR #42` is 11 cells (13 with the indent: exact fit) and one cell narrower clips the
+    // link's last characters to `PR #…`. The terminal reorders the Arabic prefix, the cells are
+    // in logical order.
+    let mut s = footer_pr_link_at("لا", 13, false, true);
+    s.assert_row_of("لا", &["لا · PR #42"], &[]);
+    s.assert_no_link("لا · ");
+    s.assert_link("PR #42", "https://example.com/pr/42");
+    s.resize(12, 4);
+    s.assert_row_of("لا", &["لا · PR #…"], &[]);
+    s.assert_link("PR #", "https://example.com/pr/42");
     kit::pending(
         Owner::UiPane,
-        "the live bidi path paints PR #42 on the left of the Arabic prefix. The original snapshot asserts specific PR and ellipsis cell columns in logical order. The surviving PR cells are verified above",
+        "G74: the ellipsis cell takes the link of the text it cuts (`PR #…` links `…` to the pull request); the oracle's `…` carries no link",
     );
+    s.assert_no_link("…");
 }
 
 fn assert_footer_pr_link(project: &str, painted: &str) {
@@ -382,17 +415,10 @@ fn footer_pr_links_follow_native_painted_cells_through_resize() {
 // ORACLE bottom_pane/footer/footer_content_tests.rs:60 prepared_tree_uses_its_natural_width_and_paints_only_the_footer_viewport kind=snap owner=ui-pane snap=prepared_tree_uses_its_natural_width_and_paints_only_the_footer_viewport
 #[test]
 fn prepared_tree_uses_its_natural_width_and_paints_only_the_footer_viewport() {
-    kit::pending(
+    kit::na(
         Owner::UiPane,
-        "no footer link tree: no entry chat/prepared_tree_link (a link with `ok`, `large build` and `a`..`d` lines, painted in the 6x4 viewport at (1,1) of an 8x7 `.` backdrop)",
+        "a state the port cannot have: the oracle's `FooterContent::from(UiTree)` draws an extension's `ui_tree` link node, which no live producer builds (the oracle's app never makes a ui_tree status row, only its tests); the native status line's links and clipping are the tests above and `native_status_wraps_links_within_the_host_budget`",
     );
-    let s = Screen::build(Owner::UiPane)
-        .size(8, 7)
-        .entry("chat", "prepared_tree_link")
-        .open();
-    s.assert_snap("prepared_tree_uses_its_natural_width_and_paints_only_the_footer_viewport");
-    s.assert_text_at(1, 4, "a");
-    s.assert_text_at(2, 4, "…");
 }
 
 // ---- oracle: bottom_pane/mod.rs (32 screen-level tests here; 8 state tests left to ui-pane)
