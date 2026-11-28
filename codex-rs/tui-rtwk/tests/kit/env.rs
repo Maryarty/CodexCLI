@@ -205,6 +205,12 @@ impl Env {
         })
     }
 
+    /// The colours the app is told its terminal shows (`UiApp::with_color_mode`, which the host
+    /// does from the probe): the `color_depth` of the test, none where it set none.
+    pub(super) fn color_mode(&self) -> Option<ColorMode> {
+        self.depth.map(ColorDepth::mode)
+    }
+
     /// An app event is to be delivered (the app has to be connected first).
     pub(super) fn needs_app(&self) -> bool {
         self.syntax_theme.is_some()

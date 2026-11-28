@@ -299,7 +299,8 @@ host_capability_list! {
     /// Which of the relative `paths` a spoken answer names are regular, safe source files inside
     /// the local workspace `cwd` (oracle `TrustedWorkspaceFile::validate`: no hidden parts, no
     /// escape through a link, a source extension). Answered by the files that are, each with its
-    /// `file:` URL; a remote workspace answers none.
+    /// `file:` URL; a remote workspace answers none (a session run over ssh is no remote workspace:
+    /// the oracle checks the disk whatever the terminal is).
     workspace_files => WorkspaceFiles { cwd: String, paths: Vec<String> }
         -> new WorkspaceFiles(Vec<WorkspaceFile>);
     /// Opens `thread` in the Desktop app (`codex://threads/{id}`, `/app`). Answered by nothing,

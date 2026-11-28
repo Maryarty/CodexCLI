@@ -133,11 +133,6 @@ fn assert_frame(grid: &Grid, want: &Want<'_>, mut frame: Frame, at: Option<(usiz
             *row = row.replace("<VERSION>", version);
         }
     }
-    // The oracle's tests replace the cwd of the test thread with `/home/user/project`; the kit's
-    // threads run in `/work`.
-    for row in &mut frame.rows {
-        *row = row.replace("/home/user/project", "/work");
-    }
     let label = if want.frame.is_empty() {
         want.name.to_string()
     } else {

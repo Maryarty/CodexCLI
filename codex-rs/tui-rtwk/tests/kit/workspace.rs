@@ -2,44 +2,42 @@
 //! the disk (`Ask::WorkspaceFiles`), so a test that wants a link makes the file first. The
 //! directory is the session's working directory (`Open::workspace`).
 
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use tempfile::TempDir;
 
 use super::Screen;
 use super::seed::Open;
 
-/// A directory of this test process that holds the files the test wrote.
+/// A directory that holds the files the test wrote, removed when the test drops it: bind it
+/// before the screen that works in it, so the screen goes first.
 pub struct Workspace {
-    dir: PathBuf,
+    dir: TempDir,
 }
 
 /// A workspace with `files` (a path under the directory, its text).
 pub fn workspace(files: &[(&str, &str)]) -> Workspace {
-    static NEXT: AtomicUsize = AtomicUsize::new(0);
-    let dir = std::env::temp_dir().join(format!(
-        "codex-kit-workspaces-{}/{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ));
+    let dir = tempfile::Builder::new()
+        .prefix("codex-kit-workspace-")
+        .tempdir()
+        .expect("workspace directory");
     for (path, text) in files {
-        let file = dir.join(path);
+        let file = dir.path().join(path);
         std::fs::create_dir_all(file.parent().expect("a file has a directory")).expect("directory");
         std::fs::write(file, text).expect("write the file");
     }
-    std::fs::create_dir_all(&dir).expect("workspace directory");
     Workspace { dir }
 }
 
 impl Workspace {
     /// The directory.
     pub fn path(&self) -> String {
-        self.dir.to_string_lossy().into_owned()
+        self.dir.path().to_string_lossy().into_owned()
     }
 
     /// The `file:` URL of `file` as the host links it: of the canonical path.
     pub fn url(&self, file: &str) -> String {
         let canonical = self
             .dir
+            .path()
             .join(file)
             .canonicalize()
             .expect("a file of the workspace");

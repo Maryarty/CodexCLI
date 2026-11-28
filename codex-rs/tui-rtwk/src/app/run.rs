@@ -54,6 +54,7 @@ pub fn run_on(app: UiApp, alternate_screen: bool) -> Result<(), AppError> {
         ..TerminalOptions::default()
     })?;
     let caps = terminal.info().caps.graphics;
+    let app = app.with_color_mode(terminal.info().color_mode);
     let mut frame_loop = App::with_options(
         terminal,
         AppOptions {

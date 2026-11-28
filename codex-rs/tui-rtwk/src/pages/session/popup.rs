@@ -3,7 +3,9 @@
 //! (`commands`); this turns rows into the suggestions the field shows. The
 //! `$` and `@` popups are `popovers::mention`'s: they sit above the composer.
 
+use rtwk::Cx;
 use rtwk::editing::Suggestion;
+use rtwk::provider::{read, select};
 
 use codex_tui_core::app::facts::TuiSettings;
 use codex_tui_core::commands::{
@@ -49,6 +51,16 @@ impl Thread {
             tui: *tui,
         }
     }
+}
+
+/// What the `/daybreak` entry offers `thread`, derived from the screens as the popup derives it:
+/// the entry the composer's sparkle needs to tell `/daybreak` from a message while it is typed.
+pub fn daybreak_row<S: 'static>(cx: &mut Cx<'_, S>, thread: &ThreadModel) -> Option<Row> {
+    let thread = Thread::of(thread, &read::<TuiSettings, _>(cx));
+    select::<ScreenStates, Option<Row>, _>(cx, move |states| {
+        DaybreakSetting::new(thread.saved, thread.provider.clone(), states, &thread.tui)
+            .row(&states.chat.access)
+    })
 }
 
 /// The slice of `states` the popup draws for a thread whose model is `model`.
