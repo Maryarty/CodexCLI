@@ -204,7 +204,7 @@ fn config_path(config: &Config) -> AbsolutePathBuf {
 
 async fn read_user(path: &Path) -> anyhow::Result<toml::Value> {
     match tokio::fs::read(path).await {
-        Ok(bytes) => Ok(std::str::from_utf8(&bytes)?.parse()?),
+        Ok(bytes) => Ok(toml::from_str::<toml::Table>(std::str::from_utf8(&bytes)?)?.into()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(toml::Table::new().into()),
         Err(error) => Err(error.into()),
     }
