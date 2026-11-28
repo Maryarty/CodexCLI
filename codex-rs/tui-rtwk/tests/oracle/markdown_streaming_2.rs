@@ -6,9 +6,6 @@
 
 use crate::kit::{self, Owner, Renderers, Screen};
 
-/// The live chat draws an agent message as its plain text: no markdown renderer yet.
-/// The chat draws math as its source text: no unicode math renderer yet.
-const MATH: &str = "G61: rtwk-rich MarkdownView has no math renderer; the chat draws math sources as their text: no unicode math renderer (inline, display, named delimiters) is built in the chat's markdown yet";
 /// `text` as the body of a JSON string.
 fn json_string(text: &str) -> String {
     let mut out = String::new();
@@ -80,7 +77,10 @@ fn hyperlink_chat(width: u16, height: u16, markdown: &str) -> Screen {
 // ORACLE markdown_render/math_tests.rs:16 unicode_math_inline_snapshot kind=snap owner=chat-live snap=unicode_math_inline_snapshot
 #[test]
 fn unicode_math_inline_snapshot() {
-    kit::pending(Owner::ChatLive, MATH);
+    kit::pending(
+        Owner::ChatLive,
+        "G-math-subset: rtwk-math draws `a/\\frac{b}{c}` as `a/b/c` and `\\frac{360}{365}` as `360/365` where the oracle's fractions keep their parentheses (`a/((b)/(c))`, `((360)/(365))`), and `\\frac{a}{b}^2` as `a/b\u{b2}` where the oracle keeps its source; the other rows are the spacing delta (`\u{221a}(x\u{b2} + y\u{b2})`)",
+    );
     let s = chat(
         80,
         24,
@@ -98,7 +98,10 @@ Code: `$\alpha$`; money: $5 and $10; shell: $HOME.",
 // ORACLE markdown_render/math_tests.rs:29 unicode_math_inline_narrow_snapshot kind=snap owner=chat-live snap=unicode_math_inline_narrow_snapshot
 #[test]
 fn unicode_math_inline_narrow_snapshot() {
-    kit::pending(Owner::ChatLive, MATH);
+    kit::delta(
+        Owner::ChatLive,
+        "the root of one letter is drawn `\u{221a}x` by rtwk-math, the oracle's `\u{221a}(x)`; the letters are the oracle's",
+    );
     let s = chat(
         16,
         24,
@@ -110,7 +113,10 @@ fn unicode_math_inline_narrow_snapshot() {
 // ORACLE markdown_render/math_tests.rs:37 unicode_math_accents_and_symbols_snapshot kind=snap owner=chat-live snap=unicode_math_accents_and_symbols_snapshot
 #[test]
 fn unicode_math_accents_and_symbols_snapshot() {
-    kit::pending(Owner::ChatLive, MATH);
+    kit::delta(
+        Owner::ChatLive,
+        "rtwk-math spaces a relation or operator (`a \u{221d} b`, `\u{211c}z + \u{2111}z`) and keeps no space after the bounding symbols, where the oracle's rows are `a\u{221d} b` and `\u{211c} z+\u{2111} z`; a bar accent is U+0305 where the oracle's is U+0304; the letters and digits are the oracle's",
+    );
     let s = chat(
         80,
         24,
@@ -134,7 +140,10 @@ Punctuation: $x\prime$, $a\circ b\bullet c$, $\vdots\ddots$.",
 // ORACLE markdown_render/math_tests.rs:57 unicode_math_named_delimiters_snapshot kind=snap owner=chat-live snap=unicode_math_named_delimiters_snapshot
 #[test]
 fn unicode_math_named_delimiters_snapshot() {
-    kit::pending(Owner::ChatLive, MATH);
+    kit::delta(
+        Owner::ChatLive,
+        "rtwk-math draws a delimiter pair tight to its content (`\u{230a}x\u{230b}`, `\u{2016}v\u{2016}`, `{x}`), the oracle keeps a space inside the left one (`\u{230a} x\u{230b}`); the letters are the oracle's",
+    );
     let s = chat(
         80,
         24,
@@ -150,7 +159,10 @@ Angles: $\left<x\right>$.",
 // ORACLE markdown_render/math_tests.rs:69 unicode_math_accents_reject_ambiguous_arguments kind=ui owner=chat-live
 #[test]
 fn unicode_math_accents_reject_ambiguous_arguments() {
-    kit::pending(Owner::ChatLive, MATH);
+    kit::pending(
+        Owner::ChatLive,
+        "G-math-subset: the oracle rejects an accent over a group (`\\hat{xy}`, `\\bar{x+y}`, `\\tilde{x^2}`, `\\vec{\\frac{x}{y}}`, an empty or a bare accent) and keeps `\\(..\\)` as text; rtwk-math draws a group accent (`(xy)^`, `(x + y)_`), and shows a formula it rejects as `$..$` with its own delimiters",
+    );
     // The oracle's sources, each one paragraph of the answer. The renderer's `None`
     // for both math modes is not drawn; the source shown as its own text is.
     let sources = [
@@ -177,7 +189,10 @@ fn unicode_math_accents_reject_ambiguous_arguments() {
 // ORACLE markdown_render/math_tests.rs:121 unicode_math_bounds_and_unsupported_input kind=ui owner=chat-live
 #[test]
 fn unicode_math_bounds_and_unsupported_input() {
-    kit::pending(Owner::ChatLive, MATH);
+    kit::pending(
+        Owner::ChatLive,
+        "G-math-subset: the oracle keeps its sixteen unsupported sources as `\\(..\\)` text; rtwk-math draws some (`x^2^3` as `x\u{b2}\u{b3}`, `\\frac{a}{b}^2` as `a/b\u{b2}`, `\\sqrt[3]{x}` as `\u{221b}x`, `\\begin{matrix}a&b\\end{matrix}` as `[a, b]`) and shows a rejected one as `$..$` whatever its delimiters were",
+    );
     // The oracle's unsupported sources, each one paragraph; the `None` results and
     // the 40-brace / 300-letter / 100-`\sqrt` inputs are not drawn, the raw text is.
     let sources = [
