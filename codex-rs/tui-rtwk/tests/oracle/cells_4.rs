@@ -610,9 +610,9 @@ fn explored_row(screen: &Screen) -> usize {
 // ORACLE history_cell/tests.rs:2107 multiline_command_wraps_with_extra_indent_on_subsequent_lines kind=snap owner=chat-live snap=multiline_command_wraps_with_extra_indent_on_subsequent_lines
 #[test]
 fn multiline_command_wraps_with_extra_indent_on_subsequent_lines() {
-    kit::pending(Owner::ChatLive, DISPLAY_EXEC);
     let s = Screen::build(Owner::ChatLive)
         .size(28, 20)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_4/multiline_command_wraps_with_extra_indent_on_subsequent_lines.jsonl"
         ))
@@ -643,9 +643,9 @@ fn single_line_command_compact_when_fits() {
 // ORACLE history_cell/tests.rs:2158 single_line_command_wraps_with_four_space_continuation kind=snap owner=chat-live snap=single_line_command_wraps_with_four_space_continuation
 #[test]
 fn single_line_command_wraps_with_four_space_continuation() {
-    kit::pending(Owner::ChatLive, DISPLAY_EXEC);
     let s = Screen::build(Owner::ChatLive)
         .size(24, 20)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_4/single_line_command_wraps_with_four_space_continuation.jsonl"
         ))
@@ -660,9 +660,9 @@ fn single_line_command_wraps_with_four_space_continuation() {
 // ORACLE history_cell/tests.rs:2181 single_line_command_over_highlight_limit_uses_plain_text_fallback kind=snap owner=chat-live snap=single_line_command_over_highlight_limit_uses_plain_text_fallback
 #[test]
 fn single_line_command_over_highlight_limit_uses_plain_text_fallback() {
-    kit::pending(Owner::ChatLive, DISPLAY_EXEC);
     let s = Screen::build(Owner::ChatLive)
         .size(24, 22)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_4/single_line_command_over_highlight_limit_uses_plain_text_fallback.jsonl"
         ))

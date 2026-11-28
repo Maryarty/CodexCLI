@@ -396,12 +396,9 @@ fn update_diff_preserves_multiline_highlight_state_within_hunk() {
 // ORACLE exec_cell/live_output_tests.rs:70 truncated_ansi_sequence_does_not_hide_the_retained_tail kind=ui owner=chat-live
 #[test]
 fn truncated_ansi_sequence_does_not_hide_the_retained_tail() {
-    kit::pending(
-        Owner::ChatLive,
-        "the oracle checks the inline `display_lines` preview (head and tail with `… +N lines (⌃t to view transcript)`); the chat shows the owned transcript's compact preview (last three rows, `+ N lines (⌃t to expand)`), equal to the oracle's rows in the pty scenario exec-command",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 12)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_1/truncated_ansi_sequence_does_not_hide_the_retained_tail.jsonl"
         ))
@@ -414,12 +411,9 @@ fn truncated_ansi_sequence_does_not_hide_the_retained_tail() {
 // ORACLE exec_cell/render.rs:904 user_shell_output_is_limited_by_screen_lines kind=ui owner=chat-live
 #[test]
 fn user_shell_output_is_limited_by_screen_lines() {
-    kit::pending(
-        Owner::ChatLive,
-        "S27 (inline mode): the oracle asserts the exec cell's display_lines limit (100 rows of user-shell output); the owned transcript draws a collapsed call as its last three rows with `+ N lines` and an expanded one with the whole output (core projects commandExecution items into ToolKind::Shell)",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(20, 24)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_1/user_shell_output_is_limited_by_screen_lines.jsonl"
         ))
@@ -430,12 +424,9 @@ fn user_shell_output_is_limited_by_screen_lines() {
 // ORACLE exec_cell/render.rs:1005 truncate_lines_middle_keeps_omitted_count_in_line_units kind=ui owner=chat-live
 #[test]
 fn truncate_lines_middle_keeps_omitted_count_in_line_units() {
-    kit::pending(
-        Owner::ChatLive,
-        "the oracle checks the inline `display_lines` preview (head and tail with `… +N lines (⌃t to view transcript)`); the chat shows the owned transcript's compact preview (last three rows, `+ N lines (⌃t to expand)`), equal to the oracle's rows in the pty scenario exec-command",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(40, 12)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_1/truncate_lines_middle_keeps_omitted_count_in_line_units.jsonl"
         ))
@@ -446,12 +437,9 @@ fn truncate_lines_middle_keeps_omitted_count_in_line_units() {
 // ORACLE exec_cell/render.rs:1037 output_lines_ellipsis_includes_transcript_hint kind=ui owner=chat-live
 #[test]
 fn output_lines_ellipsis_includes_transcript_hint() {
-    kit::pending(
-        Owner::ChatLive,
-        "the oracle checks the inline `display_lines` preview (head and tail with `… +N lines (⌃t to view transcript)`); the chat shows the owned transcript's compact preview (last three rows, `+ N lines (⌃t to expand)`), equal to the oracle's rows in the pty scenario exec-command",
-    );
-    let s = Screen::build(Owner::ChatLive)
+        let s = Screen::build(Owner::ChatLive)
         .size(60, 24)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_1/output_lines_ellipsis_includes_transcript_hint.jsonl"
         ))
@@ -462,11 +450,8 @@ fn output_lines_ellipsis_includes_transcript_hint() {
 // ORACLE exec_cell/render.rs:1064 output_lines_handles_newline_dense_output_without_materializing_every_line kind=ui owner=chat-live
 #[test]
 fn output_lines_handles_newline_dense_output_without_materializing_every_line() {
-    kit::pending(
-        Owner::ChatLive,
-        "the oracle checks the inline `display_lines` preview (head and tail with `… +N lines (⌃t to view transcript)`); the chat shows the owned transcript's compact preview (last three rows, `+ N lines (⌃t to expand)`), equal to the oracle's rows in the pty scenario exec-command",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive).size(80, 24)
+        .inline(&[]).live().open();
     let item = format!(
         r#"{{"step":"notify","message":{{"method":"item/completed","params":{{"item":{{"type":"commandExecution","id":"call-id","command":"bash -lc printf","cwd":"/workspace","processId":null,"source":"agent","status":"completed","commandActions":[],"aggregatedOutput":"{}","exitCode":0,"durationMs":null}},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}}}}"#,
         "\\n".repeat(100_000)
@@ -478,12 +463,9 @@ fn output_lines_handles_newline_dense_output_without_materializing_every_line() 
 // ORACLE exec_cell/render.rs:1082 streamed_output_renders_head_tail_previews kind=ui owner=chat-live
 #[test]
 fn streamed_output_renders_head_tail_previews() {
-    kit::pending(
-        Owner::ChatLive,
-        "the oracle checks the inline `display_lines` preview (head and tail with `… +N lines (⌃t to view transcript)`); the chat shows the owned transcript's compact preview (last three rows, `+ N lines (⌃t to expand)`), equal to the oracle's rows in the pty scenario exec-command",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_1/streamed_output_renders_head_tail_previews.jsonl"
         ))
@@ -496,11 +478,8 @@ fn streamed_output_renders_head_tail_previews() {
 // ORACLE exec_cell/render.rs:1129 truncated_live_output_preview_and_transcript_snapshot kind=snap owner=chat-live snap=truncated_live_output_preview_and_transcript
 #[test]
 fn truncated_live_output_preview_and_transcript_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "the oracle checks the inline `display_lines` preview (head and tail with `… +N lines (⌃t to view transcript)`); the chat shows the owned transcript's compact preview (last three rows, `+ N lines (⌃t to expand)`), equal to the oracle's rows in the pty scenario exec-command",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(60, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive).size(60, 24)
+        .inline(&[]).live().open();
     let hidden = "\\u001b[2m".repeat(300_000);
     let item = r#"{"step":"notify","message":{"method":"item/started","params":{"item":{"type":"commandExecution","id":"call-id","command":"bash -lc 'echo output'","cwd":"/workspace","processId":null,"source":"agent","status":"inProgress","commandActions":[],"aggregatedOutput":null,"exitCode":null,"durationMs":null},"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}"#;
     let out = format!(
@@ -527,12 +506,9 @@ fn powershell_skill_read_snapshot() {
 // ORACLE exec_cell/render.rs:1185 command_truncation_ellipsis_does_not_include_transcript_hint kind=ui owner=chat-live
 #[test]
 fn command_truncation_ellipsis_does_not_include_transcript_hint() {
-    kit::pending(
-        Owner::ChatLive,
-        "the oracle checks the inline `display_lines` preview (head and tail with `… +N lines (⌃t to view transcript)`); the chat shows the owned transcript's compact preview (last three rows, `+ N lines (⌃t to expand)`), equal to the oracle's rows in the pty scenario exec-command",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(60, 24)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_1/command_truncation_ellipsis_does_not_include_transcript_hint.jsonl"
         ))

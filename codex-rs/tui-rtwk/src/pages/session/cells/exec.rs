@@ -19,6 +19,8 @@ use crate::app::theme::Tokens;
 use crate::pages::session::strings::{INLINE_GAP, LINE_BREAK, MORE};
 use crate::widgets::dots::dots_spans_kept;
 
+mod display;
+
 use super::exploration;
 use super::strings::Strings;
 use super::text::{self, Part, Room};
@@ -51,6 +53,13 @@ pub fn parts(
     };
     let (status, exploring, failed) = (head.status, head.exploring, head.failed);
     let tool = calls[0];
+    if !expanded && display::applies(&head, tool, env.inline) {
+        let plan = display::plan(tool, &head, strings, room);
+        let disclosure = (!env.inline && plan.hidden).then(|| strings.show_details.to_owned());
+        return Parts::Rows(display::rows(
+            &plan, &head, tool, tokens, syntax, disclosure,
+        ));
+    }
     let mut header = vec![Span::styled(head.title.to_string(), tokens.bold())];
     if exploring {
         if let Some(exits) = &head.exits {
@@ -299,7 +308,14 @@ pub(in crate::pages::session) fn has_control(
     tool: &ToolActivity,
     strings: &Strings,
     room: Room,
+    inline: bool,
 ) -> bool {
+    if let Some(head) = Headline::of(&[tool], strings)
+        && display::applies(&head, tool, inline)
+    {
+        // the scrollback spelling names its hidden lines and has no control of its own
+        return !inline && display::plan(tool, &head, strings, room).hidden;
+    }
     has_command_control(tool) || has_output_control(tool, None, strings, room)
 }
 
@@ -442,18 +458,24 @@ impl<'a> Headline<'a> {
 /// (`text_contract` holds them to the mounted cell): the detailed transcript's form, or the
 /// expanded one (what Find reads of a cell it opens), or the compact shell output tail.
 pub fn texts(calls: &[&ToolActivity], env: &text::Env<'_>) -> Option<Vec<Part>> {
-    texts_at(calls, env, Room::default())
+    texts_at(calls, env, Room::default(), false)
 }
 
 pub(super) fn texts_at(
     calls: &[&ToolActivity],
     env: &text::Env<'_>,
     room: Room,
+    inline: bool,
 ) -> Option<Vec<Part>> {
     let strings = env.cells;
     let head = Headline::of(calls, strings)?;
     if env.detailed {
         return Some(detailed_texts(calls, strings));
+    }
+    if !env.expanded && display::applies(&head, calls[0], inline) {
+        let plan = display::plan(calls[0], &head, strings, room);
+        let disclosure = (!inline && plan.hidden).then(|| strings.show_details.to_owned());
+        return Some(display::texts(&plan, room, disclosure));
     }
     // the `…` of the header's cut is a node whether the room cuts it or not (`dots_spans_kept`)
     let mut parts = vec![

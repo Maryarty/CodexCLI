@@ -26,9 +26,9 @@ fn first_cell_row(screen: &Screen) -> usize {
 // ORACLE history_cell/tests.rs:2205 multiline_command_without_wrap_uses_branch_then_eight_spaces kind=snap owner=chat-live snap=multiline_command_without_wrap_uses_branch_then_eight_spaces
 #[test]
 fn multiline_command_without_wrap_uses_branch_then_eight_spaces() {
-    kit::pending(Owner::ChatLive, DISPLAY_EXEC);
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_5/multiline_command_without_wrap_uses_branch_then_eight_spaces.jsonl"
         ))
@@ -43,9 +43,9 @@ fn multiline_command_without_wrap_uses_branch_then_eight_spaces() {
 // ORACLE history_cell/tests.rs:2228 multiline_command_both_lines_wrap_with_correct_prefixes kind=snap owner=chat-live snap=multiline_command_both_lines_wrap_with_correct_prefixes
 #[test]
 fn multiline_command_both_lines_wrap_with_correct_prefixes() {
-    kit::pending(Owner::ChatLive, DISPLAY_EXEC);
     let s = Screen::build(Owner::ChatLive)
         .size(28, 24)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_5/multiline_command_both_lines_wrap_with_correct_prefixes.jsonl"
         ))
@@ -60,9 +60,9 @@ fn multiline_command_both_lines_wrap_with_correct_prefixes() {
 // ORACLE history_cell/tests.rs:2252 stderr_tail_more_than_five_lines_snapshot kind=snap owner=chat-live snap=stderr_tail_more_than_five_lines_snapshot
 #[test]
 fn stderr_tail_more_than_five_lines_snapshot() {
-    kit::pending(Owner::ChatLive, DISPLAY_EXEC);
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_5/stderr_tail_more_than_five_lines_snapshot.jsonl"
         ))
@@ -77,9 +77,9 @@ fn stderr_tail_more_than_five_lines_snapshot() {
 // ORACLE history_cell/tests.rs:2294 ran_cell_multiline_with_stderr_snapshot kind=snap owner=chat-live snap=ran_cell_multiline_with_stderr_snapshot
 #[test]
 fn ran_cell_multiline_with_stderr_snapshot() {
-    kit::pending(Owner::ChatLive, DISPLAY_EXEC);
     let s = Screen::build(Owner::ChatLive)
         .size(28, 24)
+        .inline(&[])
         .script(include_str!(
             "fixtures/cells_5/ran_cell_multiline_with_stderr_snapshot.jsonl"
         ))

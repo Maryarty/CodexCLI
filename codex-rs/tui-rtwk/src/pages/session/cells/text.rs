@@ -274,7 +274,7 @@ pub(crate) fn tool_texts(
 ) -> Option<Vec<Part>> {
     let first = *calls.first()?;
     match &first.kind {
-        ToolKind::Shell { .. } => exec::texts_at(calls, env, room),
+        ToolKind::Shell { .. } => exec::texts_at(calls, env, room, inline),
         ToolKind::Mcp(_) if first.is_computer_activity() => {
             let group: Vec<_> = calls
                 .iter()
