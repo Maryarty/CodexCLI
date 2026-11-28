@@ -5,6 +5,11 @@
 //! - headings keep their source markers: `## Title` is drawn with its two hashes in the
 //!   heading's own style (markdown_render.rs `start_heading`; G73 in rtwk-gaps.md);
 //! - line breaks, local file links and references to them: `inlines.rs`;
+//! - TeX math (`$..$`, `$$..$$`, `\(..\)`, `\[..\]`) parses as a formula and the view draws it as
+//!   Unicode (rtwk-math), unless the user's `tui.rendering.math` is off: every parse here takes
+//!   the preference (`math`), and a widget that parses where it is built reads it
+//!   (`math_preference`); `math.rs` is the text of a formula for the readers that do not mount
+//!   the view;
 //! - a web link's destination follows the host's terminal fact (`Markdown`); only a web
 //!   address is a hyperlink (`http`, `https`: the oracle's `web_destination`).
 //!
@@ -13,6 +18,7 @@
 //! node as it does any text.
 
 mod inlines;
+pub(crate) mod math;
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -24,6 +30,7 @@ use rtwk_rich::markdown::{
     MarkdownView, MdBlock, MdExtensions, MdInline, MdList, MdListItem,
 };
 
+use codex_tui_core::app::facts::{Rendering, TuiSettings};
 use codex_tui_core::data::links::LinkDisplay;
 
 /// The Markdown extensions the oracle reads beyond rtwk's default: with `math` (the
@@ -55,14 +62,27 @@ pub fn stream(text: &str, math: bool) -> MarkdownStream {
 #[derive(Clone, PartialEq)]
 pub(crate) struct LinkTaps(pub Handler<MarkdownLinkTap>);
 
-/// A `MarkdownView` of `source` as the oracle draws it, local file links shown as written.
-pub fn view(source: &str) -> MarkdownView {
-    view_in(source, None)
+/// Whether the user's `tui.rendering.math` draws formulas as Unicode, read where `cx` is built so
+/// that a change of the setting redraws the widget. A tree with no app above it (a widget on its
+/// own) has the config's default.
+///
+/// Flutter: `context.select<TuiSettings, bool>((s) => s.rendering.math)`.
+pub fn math_preference<S>(cx: &mut Cx<'_, S>) -> bool {
+    Provider::<TuiSettings>::maybe_of(cx, true).map_or_else(
+        || Rendering::default().math,
+        |settings| settings.rendering.math,
+    )
+}
+
+/// A `MarkdownView` of `source` as the oracle draws it, local file links shown as written;
+/// formulas are drawn as the preference `math` says.
+pub fn view(source: &str, math: bool) -> MarkdownView {
+    view_in(source, None, math)
 }
 
 /// `view` with local file links shown relative to the session directory `cwd`.
-pub fn view_in(source: &str, cwd: Option<&str>) -> MarkdownView {
-    let mut stream = stream(source, true);
+pub fn view_in(source: &str, cwd: Option<&str>, math: bool) -> MarkdownView {
+    let mut stream = stream(source, math);
     let blocks = stream.blocks().to_vec();
     let definitions = stream.definitions().clone();
     MarkdownView::blocks(prepared(&blocks, &definitions, cwd), definitions)
@@ -79,14 +99,34 @@ pub fn prepared(blocks: &[Block], definitions: &Definitions, cwd: Option<&str>) 
 /// and not at all for one that does: the label alone is then the hyperlink
 /// (`LinkDestinations::Auto`). The host says which (`cells::Model::link_display`).
 pub fn themed(view: MarkdownView, theme: MarkdownTheme) -> Markdown {
-    Markdown { view, theme }
+    Markdown {
+        content: Content::View(view),
+        theme,
+    }
+}
+
+/// `themed` over the Markdown `text`, parsed where the widget is built: the user's
+/// `tui.rendering.math` is read there (`math_preference`), so a caller with no `Cx` of its own
+/// (a cell, a prompt, a question) draws formulas as the preference says.
+pub fn source(text: impl Into<String>, theme: MarkdownTheme) -> Markdown {
+    Markdown {
+        content: Content::Source(text.into()),
+        theme,
+    }
 }
 
 /// A [`MarkdownView`] in a theme, its link display from the app's terminal fact.
 #[derive(Clone)]
 pub struct Markdown {
-    view: MarkdownView,
+    content: Content,
     theme: MarkdownTheme,
+}
+
+/// What a [`Markdown`] draws: a view parsed by the caller, or the text to parse at build.
+#[derive(Clone)]
+enum Content {
+    View(MarkdownView),
+    Source(String),
 }
 
 #[doc(hidden)]
@@ -117,9 +157,11 @@ impl State for MarkdownState {
         // Only a web address is a hyperlink, as the oracle's `web_destination` has it: a
         // `mailto:` link shows its destination and is no hyperlink.
         let schemes = BTreeSet::from(["http".to_string(), "https".to_string()]);
-        let markdown = widget
-            .view
-            .clone()
+        let parsed = match &widget.content {
+            Content::View(parsed) => parsed.clone(),
+            Content::Source(text) => view(text, math_preference(cx)),
+        };
+        let markdown = parsed
             .theme(widget.theme.clone())
             .hyperlink_schemes(schemes)
             .link_destinations(destinations);
@@ -175,16 +217,51 @@ fn marked(block: &Block) -> Block {
 
 #[cfg(test)]
 mod tests {
-    use super::view;
+    use codex_tui_core::app::facts::{Rendering, TuiSettings};
+    use rtwk::provider::Provider;
+    use rtwk_rich::markdown::MarkdownTheme;
 
-    fn rows(source: &str) -> Vec<String> {
+    use super::{source, view};
+
+    fn rows_of(widget: impl Into<rtwk::AnyWidget>) -> Vec<String> {
         let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(30, 12));
-        t.pump_widget(view(source));
+        t.pump_widget(widget);
         t.screen()
             .lines()
             .map(|line| line.trim_end().to_string())
             .filter(|line| !line.is_empty())
             .collect()
+    }
+
+    fn rows(text: &str) -> Vec<String> {
+        rows_of(view(text, true))
+    }
+
+    /// `text` as a `source` widget draws it under the user's `tui.rendering.math`.
+    fn rows_with_math(text: &str, math: bool) -> Vec<String> {
+        let settings = TuiSettings {
+            rendering: Rendering {
+                math,
+                ..Rendering::default()
+            },
+            ..TuiSettings::default()
+        };
+        rows_of(Provider::value(settings).child(source(text, MarkdownTheme::default())))
+    }
+
+    /// The preference decides where the widget is built: a formula is Unicode with it on (or no
+    /// app above) and stays its source with it off, in the parse the view takes and in the
+    /// widget that parses at build.
+    #[test]
+    fn the_math_preference_decides_what_a_formula_draws_as() {
+        assert_eq!(rows_with_math("see $\\alpha$", true), ["see α"]);
+        assert_eq!(rows_with_math("see $\\alpha$", false), ["see $\\alpha$"]);
+        assert_eq!(
+            rows_of(source("see $\\alpha$", MarkdownTheme::default())),
+            ["see α"]
+        );
+        assert_eq!(rows_of(view("see $\\alpha$", true)), ["see α"]);
+        assert_eq!(rows_of(view("see $\\alpha$", false)), ["see $\\alpha$"]);
     }
 
     #[test]

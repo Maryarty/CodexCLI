@@ -249,7 +249,10 @@ fn markdown_pieces(item: &Item, reading: &Reading<'_>) -> Option<Vec<Piece>> {
         // and the body as the Markdown view draws it (`cells::user::texts` leaves it a gap)
         Item::User(prompt) => {
             let shown = prompt.shown();
-            let body = drawn(crate::widgets::markdown::view(shown.text.trim_end()))?;
+            let body = drawn(crate::widgets::markdown::view(
+                shown.text.trim_end(),
+                reading.rendering.math,
+            ))?;
             let mut parts: Vec<Part> = prompt
                 .images
                 .iter()
@@ -302,7 +305,10 @@ fn markdown_pieces(item: &Item, reading: &Reading<'_>) -> Option<Vec<Piece>> {
             if summary.trim().is_empty() {
                 return None;
             }
-            let body = drawn(crate::widgets::markdown::view(summary))?;
+            let body = drawn(crate::widgets::markdown::view(
+                summary,
+                reading.rendering.math,
+            ))?;
             Some(
                 std::iter::once(Piece::line(Part::gutter(strings.bullet)))
                     .chain(Piece::body(body))
@@ -311,7 +317,10 @@ fn markdown_pieces(item: &Item, reading: &Reading<'_>) -> Option<Vec<Piece>> {
         }
         Item::Delegated(message) => {
             let attribution = strings.label(strings.delegated_attribution, &message.source);
-            let body = drawn(crate::widgets::markdown::view(&message.markdown))?;
+            let body = drawn(crate::widgets::markdown::view(
+                &message.markdown,
+                reading.rendering.math,
+            ))?;
             Some(
                 [
                     Piece::line(Part::gutter(strings.bullet)),
@@ -341,8 +350,11 @@ fn markdown_pieces(item: &Item, reading: &Reading<'_>) -> Option<Vec<Piece>> {
             let tip = info.tip.as_deref()?;
             let tip = strings.fill(strings.tip_label, &[tip]);
             // the first node starts the card: no line break before it
-            let mut pieces: Vec<Piece> =
-                Piece::body(drawn(crate::widgets::markdown::view(&tip))?).collect();
+            let mut pieces: Vec<Piece> = Piece::body(drawn(crate::widgets::markdown::view(
+                &tip,
+                reading.rendering.math,
+            ))?)
+            .collect();
             let changed = session_info::texts(info, strings);
             if !changed.is_empty() {
                 // the card's parts are a blank row apart
@@ -365,6 +377,7 @@ pub fn body_nodes(item: &Item, reading: &Reading<'_>) -> Option<Vec<markdown_tex
     match item {
         Item::User(prompt) => drawn(crate::widgets::markdown::view(
             prompt.shown().text.trim_end(),
+            reading.rendering.math,
         )),
         Item::Agent { .. } | Item::Plan { .. } => {
             markdown_text::nodes(&drawn_blocks(item, reading))
@@ -372,13 +385,21 @@ pub fn body_nodes(item: &Item, reading: &Reading<'_>) -> Option<Vec<markdown_tex
         Item::Reasoning { .. } => {
             let summary = item.reasoning_text(reading.raw_reasoning);
             (!summary.trim().is_empty())
-                .then(|| drawn(crate::widgets::markdown::view(summary)))
+                .then(|| {
+                    drawn(crate::widgets::markdown::view(
+                        summary,
+                        reading.rendering.math,
+                    ))
+                })
                 .flatten()
         }
-        Item::Delegated(message) => drawn(crate::widgets::markdown::view(&message.markdown)),
+        Item::Delegated(message) => drawn(crate::widgets::markdown::view(
+            &message.markdown,
+            reading.rendering.math,
+        )),
         Item::Notice(Notice::SessionInfo(info)) if session_info::has_markdown(info) => {
             let tip = strings.fill(strings.tip_label, &[info.tip.as_deref()?]);
-            drawn(crate::widgets::markdown::view(&tip))
+            drawn(crate::widgets::markdown::view(&tip, reading.rendering.math))
         }
         _ => None,
     }

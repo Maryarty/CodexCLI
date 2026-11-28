@@ -73,7 +73,7 @@ fn hyperlink_chat(width: u16, height: u16, markdown: &str) -> Screen {
     s
 }
 
-// ---- oracle: markdown_render/math_tests.rs (6 screen-level tests here; 2 state tests left to chat-live)
+// ---- oracle: markdown_render/math_tests.rs (7 screen-level tests here; 1 state test left to chat-live)
 // ORACLE markdown_render/math_tests.rs:16 unicode_math_inline_snapshot kind=snap owner=chat-live snap=unicode_math_inline_snapshot
 #[test]
 fn unicode_math_inline_snapshot() {
@@ -224,6 +224,68 @@ fn unicode_math_bounds_and_unsupported_input() {
     }
 }
 
+// The oracle's `unicode_math_preserves_markdown_contexts` (math_tests.rs:91) is a test of its
+// renderer, not in the manifest above: its ten sources (the dollars that are no formula, the
+// formulas inside strong text, a link, angle brackets) drawn by the chat as the oracle's rows.
+// ORACLE markdown_render/math_tests.rs:91 unicode_math_preserves_markdown_contexts kind=ui owner=chat-live
+#[test]
+fn unicode_math_preserves_markdown_contexts() {
+    kit::pending(
+        Owner::ChatLive,
+        "G81 and G-math-subset: of its ten rows two differ: `$USD$+\u{3b1}` (the oracle keeps an all-caps formula as text with its dollars, rtwk-math's `$` rules draw `USD+\u{3b1}`: G81) and `$\\left. x \\right|$` (drawn `x|`, the oracle's ` x |`: G-math-subset)",
+    );
+    for (source, expected) in [
+        (
+            r"**$\alpha_1$** &amp; \$5.00 and $\beta^2$",
+            "\u{3b1}\u{2081} & $5.00 and \u{3b2}\u{b2}",
+        ),
+        (
+            r"`$\alpha$` $HOME ${HOME} $(echo x) $5 and $10",
+            r"$\alpha$ $HOME ${HOME} $(echo x) $5 and $10",
+        ),
+        (
+            r"[x](https://example.com/$HOME) and $\alpha$",
+            "x (https://example.com/$HOME) and \u{3b1}",
+        ),
+        (r"$\left. x \right|$ $\text{x_y^z}$", " x | x_y^z"),
+        (r"\(\alpha^2\)", "\u{3b1}\u{b2}"),
+        (
+            r"Value: <$x$> and <\(\alpha\)>.",
+            "Value: <x> and <\u{3b1}>.",
+        ),
+        (r"$USD$+$\alpha$", "$USD$+\u{3b1}"),
+        (
+            r"Costs $5; $\alpha$ and $x^2$.",
+            "Costs $5; \u{3b1} and x\u{b2}.",
+        ),
+        (r"$HOME then $\alpha$", "$HOME then \u{3b1}"),
+        (
+            r"Run echo $$ to print PID. Then $\alpha$",
+            "Run echo $$ to print PID. Then \u{3b1}",
+        ),
+    ] {
+        chat(80, 24, source).assert_has_row(expected);
+    }
+}
+
+// A test of the port's own (not in the oracle's manifest): the oracle's closer rule for `$..$`
+// (math.rs:212-214, a closing `$` before a letter or digit is no closer, and it goes on after the
+// closer it rejected) keeps shell text as it was written.
+#[test]
+fn a_closing_dollar_before_a_letter_or_digit_is_text() {
+    kit::pending(
+        Owner::ChatLive,
+        "G81: rtwk-math's `$` rules close `$PATH:$` before `HOME` and draw `PATH=PATH :HOME/bin` (and `a$b`, `a+b$c` the same way), the oracle keeps the source",
+    );
+    for source in [
+        "PATH=$PATH:$HOME/bin",
+        "Price $a$b stays",
+        "Code $a+b$c stays",
+    ] {
+        chat(80, 24, source).assert_has_row(source);
+    }
+}
+
 // ---- oracle: markdown_render/mermaid_tests.rs (1 screen-level tests here; 0 state tests left to chat-live)
 // ORACLE markdown_render/mermaid_tests.rs:20 mermaid_fences_use_native_renderer_for_every_family kind=snap owner=chat-live
 #[test]
@@ -267,9 +329,7 @@ fn disabled_renderers_preserve_source_independently() {
         "```mermaid\nflowchart LR\nA[Request] --> B[Reply]\n```\n",
     );
     s.assert_in_order(&["flowchart LR", "A[Request] --> B[Reply]"]);
-    // math off: the `$..$` span stays as written (the chat has no math renderer, G61, and the
-    // parser still reads the `\(..\)` and `\[..\]` delimiters as escapes: the rows of those
-    // are the gap of the math renderer, not of the switch)
+    // math off: the `$..$` span stays as written, and so do the `\(..\)` and `\[..\]` forms
     let s = chat_without("math", 80, 24, "Inline $\\alpha_1$ and $x^{2}$.\n");
     s.assert_in_order(&["Inline $\\alpha_1$ and $x^{2}$."]);
     // tables off: the table is its source, markup and escapes included

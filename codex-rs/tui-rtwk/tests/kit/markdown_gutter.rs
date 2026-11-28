@@ -96,8 +96,12 @@ impl Screen {
     /// The rows of the snapshot equal ours from the row where its first text row is, up to the
     /// end of the answer (the turn's `Worked for` row, the `Working` row or the composer): an
     /// answer shorter or longer than the snapshot (fewer blank rows between blocks, a wrap)
-    /// is compared whole, and not with what the chat draws below it. Where our first row says other things than the
-    /// oracle's (a formula drawn another way), the answer starts at the first row with text.
+    /// is compared whole, and not with what the chat draws below it. The chat's own rows are read
+    /// from the bottom of the screen (the composer is the last `›` row, the status the rows above
+    /// the blank rows over it), so an answer row that starts with `Working`, `Worked for` or `›`
+    /// is the answer's and compared.
+    /// Where our first row says other things than the oracle's (a formula drawn another way),
+    /// the answer starts at the first row with text.
     pub fn assert_markdown_snap(&self, name: &str) {
         let rows = super::snap_rows(name, "");
         let Some((lead, first)) = rows
@@ -115,14 +119,29 @@ impl Screen {
                 .find(|&y| !text_row(y).trim().is_empty())
                 .unwrap_or_else(|| panic!("no answer on the screen:\n{}", self.text())),
         };
-        let end = (start + 1..grid.height)
-            .find(|&y| {
-                let row = text_row(y);
-                ["Worked for", "Working", "›"]
-                    .iter()
-                    .any(|mark| row.trim_start().starts_with(mark))
-            })
-            .unwrap_or(grid.height);
+        // the chat's own rows are read from the bottom of the whole screen (the gutter is part
+        // of it): the composer is the last row that starts with `›`; the status (`Working`,
+        // `Worked for`, which may wrap) is the block of rows right above the blank rows over the
+        // composer. Neither is an answer row, one that looks like them is.
+        let screen = self.h.t.with_screen(Grid::of);
+        let composer = (start + 1..screen.height)
+            .rev()
+            .find(|&y| screen.row(y, 0, screen.width, false).starts_with('›'));
+        let status = composer.and_then(|composer| {
+            let last = (start + 1..composer)
+                .rev()
+                .find(|&y| !text_row(y).trim().is_empty())?;
+            let top = (start + 1..=last)
+                .rev()
+                .take_while(|&y| !text_row(y).trim().is_empty())
+                .last()?;
+            let row = text_row(top);
+            ["Worked for", "Working"]
+                .iter()
+                .any(|mark| row.trim_start().starts_with(mark))
+                .then_some(top)
+        });
+        let end = status.or(composer).unwrap_or(grid.height);
         let want = Want {
             name,
             frame: "",

@@ -103,10 +103,7 @@ pub fn cell(
             column,
             Padding::new(
                 EdgeInsets::only(TIP_INDENT, 0, 0, 0),
-                crate::widgets::markdown::themed(
-                    crate::widgets::markdown::view(&strings.fill(strings.tip_label, &[tip])),
-                    markdown,
-                ),
+                crate::widgets::markdown::source(strings.fill(strings.tip_label, &[tip]), markdown),
             )
             .into(),
         );

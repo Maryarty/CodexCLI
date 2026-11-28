@@ -58,8 +58,8 @@ impl StatelessWidget for DelegatedCell {
                     .main_axis_size(MainAxisSize::Min)
                     .cross_axis_alignment(CrossAxisAlignment::Stretch)
                     .child(Text::new(attribution))
-                    .child(crate::widgets::markdown::themed(
-                        crate::widgets::markdown::view(&self.message.markdown),
+                    .child(crate::widgets::markdown::source(
+                        &self.message.markdown,
                         theme,
                     )),
             ))

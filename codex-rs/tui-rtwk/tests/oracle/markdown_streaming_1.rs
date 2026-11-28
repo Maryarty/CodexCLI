@@ -952,16 +952,25 @@ fn unicode_math_aligned_preserves_fraction_geometry() {
 // ORACLE markdown_render/math_display_tests.rs:260 unicode_math_structured_bounds_and_invalid_input kind=ui owner=chat-live
 #[test]
 fn unicode_math_structured_bounds_and_invalid_input() {
+    kit::delta(
+        Owner::ChatLive,
+        "rtwk-math spaces the `=` of `x&=1` on both sides (`x = 1`) and the block is centred; the oracle draws `x =1` at the left: sixteen rows that say the same",
+    );
     // The oracle's `render` results (the 252-character width, the None cases) are internal; the
-    // visible half is the sixteen-row aligned block, drawn as sixteen `x = 1` rows.
+    // visible half is the sixteen-row aligned block, drawn as sixteen `x =1` rows.
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 40)
         .script(include_str!(
             "fixtures/markdown_streaming_1/unicode_math_structured_bounds_and_invalid_input.jsonl"
         ))
         .open();
-    // rtwk-math spaces the `=` of `x&=1` on both sides (`x = 1`); the oracle draws `x =1`.
-    s.assert_in_order(&["x = 1"; 16]);
+    let rows: Vec<String> = s
+        .rows()
+        .iter()
+        .filter(|row| row.contains('='))
+        .map(|row| row.trim().to_owned())
+        .collect();
+    kit::assert_rows_are(&rows, &["x =1"; 16]);
 }
 
 // ORACLE markdown_render/math_display_tests.rs:313 unicode_math_narrow_layout_stays_meaningful kind=snap owner=chat-live snap=codex_tui__markdown_render__math__display_tests__unicode_math_narrow_layout_stays_meaningful

@@ -102,11 +102,7 @@ pub fn panel(prompt: &UserPrompt, look: &Look<'_>, joins_previous: bool) -> BoxW
     }
     if !text.is_empty() {
         let body: AnyWidget = if prompt.elements.is_empty() && has_markup(text) {
-            crate::widgets::markdown::themed(
-                crate::widgets::markdown::view(text),
-                (*markdown).clone(),
-            )
-            .into()
+            crate::widgets::markdown::source(text, (*markdown).clone()).into()
         } else if shown.elements.is_empty() {
             Text::new(text.to_owned()).into()
         } else {

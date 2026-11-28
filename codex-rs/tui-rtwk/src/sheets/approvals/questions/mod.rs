@@ -815,6 +815,7 @@ impl State for AsyncState {
             s,
             keymap: Rc::clone(&keymap),
             markdown: tokens.transcript_markdown(cx),
+            math: markdown::math_preference(cx),
             on_submit: cx.map(Msg::Submitted),
             on_edit: cx.map(|_: Rc<str>| Msg::Edited),
             take: {
@@ -879,6 +880,8 @@ struct View {
     s: &'static Strings,
     keymap: Rc<Keymap>,
     markdown: rtwk_rich::markdown::MarkdownTheme,
+    /// `tui.rendering.math`: a formula in a question or a choice is measured as it is drawn.
+    math: bool,
     on_submit: Handler<Rc<str>>,
     on_edit: Handler<Rc<str>>,
     take: Rc<dyn Fn(&KeyPress) -> bool>,
@@ -985,7 +988,7 @@ impl View {
             .map(|(at, label)| {
                 let indent = seg.width(&self.row_prefix(at));
                 if width > indent {
-                    measure::markdown_rows(seg, label, width - indent).max(1)
+                    measure::markdown_rows(seg, label, width - indent, self.math).max(1)
                 } else {
                     measure::rows(seg, &format!("{}{label}", self.row_prefix(at)), width)
                 }
@@ -1052,6 +1055,7 @@ impl View {
             seg,
             &self.markdown_source(),
             usize::from(width.max(1)),
+            self.math,
         ))
     }
 
@@ -1186,10 +1190,7 @@ impl View {
         if sections.question > 0 {
             let md = DefaultTextStyle::new(
                 self.tokens.accent(),
-                markdown::themed(
-                    markdown::view(&self.markdown_source()),
-                    self.markdown.clone(),
-                ),
+                markdown::source(self.markdown_source(), self.markdown.clone()),
             );
             column = column.child(boxed(width, sections.question, facts.question_rows, md));
         }
@@ -1430,7 +1431,7 @@ impl View {
         let prefix = Text::new(self.row_prefix(at))
             .style(self.row_style(at))
             .wrap(TextWrap::None);
-        let label = markdown::themed(markdown::view(&self.options[at]), self.markdown.clone());
+        let label = markdown::source(self.options[at].clone(), self.markdown.clone());
         let row = Row::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
             .child(prefix)

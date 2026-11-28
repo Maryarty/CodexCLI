@@ -405,8 +405,8 @@ impl Parts {
                     // that never scrolls and takes no focus lays the Markdown
                     // out whole under a bounded column.
                     top.push(inset(
-                        SingleChildScrollView::new(crate::widgets::markdown::themed(
-                            crate::widgets::markdown::view(&markdown),
+                        SingleChildScrollView::new(crate::widgets::markdown::source(
+                            markdown,
                             ink.markdown.clone(),
                         ))
                         .physics(Rc::new(NeverScrollableScrollPhysics))
