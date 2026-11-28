@@ -7129,6 +7129,20 @@ class TurnPlanStepStatus(Enum):
     completed = "completed"
 
 
+class TurnRuntimeMetricsNotification(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    iapi_tbt_ms: Annotated[float | None, Field(alias="iapiTbtMs")] = None
+    iapi_ttft_ms: Annotated[float | None, Field(alias="iapiTtftMs")] = None
+    inference_time_ms: Annotated[float | None, Field(alias="inferenceTimeMs")] = None
+    overhead_ms: Annotated[float | None, Field(alias="overheadMs")] = None
+    service_tbt_ms: Annotated[float | None, Field(alias="serviceTbtMs")] = None
+    service_ttft_ms: Annotated[float | None, Field(alias="serviceTtftMs")] = None
+    thread_id: Annotated[str, Field(alias="threadId")]
+    turn_id: Annotated[str, Field(alias="turnId")]
+
+
 class TurnStatus(Enum):
     completed = "completed"
     interrupted = "interrupted"
@@ -10417,6 +10431,23 @@ class ThreadProjectUpdatedServerNotification(BaseModel):
         Literal["thread/project/updated"], Field(title="Thread/project/updatedNotificationMethod")
     ]
     params: ThreadProjectUpdatedNotification
+
+
+class TurnRuntimeMetricsServerNotification(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    emitted_at_ms: Annotated[
+        int | None,
+        Field(
+            alias="emittedAtMs",
+            description="Unix timestamp (in milliseconds) when app-server emitted this notification.",
+        ),
+    ] = None
+    method: Annotated[
+        Literal["turn/runtimeMetrics"], Field(title="Turn/runtimeMetricsNotificationMethod")
+    ]
+    params: TurnRuntimeMetricsNotification
 
 
 class HookStartedServerNotification(BaseModel):
@@ -14437,6 +14468,7 @@ class ServerNotification(
         | ThreadSettingsUpdatedServerNotification
         | ThreadTokenUsageUpdatedServerNotification
         | TurnStartedServerNotification
+        | TurnRuntimeMetricsServerNotification
         | HookStartedServerNotification
         | TurnCompletedServerNotification
         | HookCompletedServerNotification
@@ -14526,6 +14558,7 @@ class ServerNotification(
         | ThreadSettingsUpdatedServerNotification
         | ThreadTokenUsageUpdatedServerNotification
         | TurnStartedServerNotification
+        | TurnRuntimeMetricsServerNotification
         | HookStartedServerNotification
         | TurnCompletedServerNotification
         | HookCompletedServerNotification

@@ -5231,6 +5231,26 @@
           "properties": {
             "method": {
               "enum": [
+                "turn/runtimeMetrics"
+              ],
+              "title": "Turn/runtimeMetricsNotificationMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/v2/TurnRuntimeMetricsNotification"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "title": "Turn/runtimeMetricsNotification",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "enum": [
                 "hook/started"
               ],
               "title": "Hook/startedNotificationMethod",
@@ -27863,6 +27883,66 @@
           "turnId"
         ],
         "title": "TurnPlanUpdatedNotification",
+        "type": "object"
+      },
+      "TurnRuntimeMetricsNotification": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "description": "A partial Responses WebSocket sample for a live turn. All values are milliseconds.",
+        "properties": {
+          "iapiTbtMs": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "iapiTtftMs": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "inferenceTimeMs": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "overheadMs": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "serviceTbtMs": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "serviceTtftMs": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "threadId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "threadId",
+          "turnId"
+        ],
+        "title": "TurnRuntimeMetricsNotification",
         "type": "object"
       },
       "TurnStartParams": {

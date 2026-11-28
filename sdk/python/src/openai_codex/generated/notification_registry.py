@@ -87,6 +87,7 @@ from .v2_all import TurnCompletedNotification
 from .v2_all import TurnDiffUpdatedNotification
 from .v2_all import TurnModerationMetadataNotification
 from .v2_all import TurnPlanUpdatedNotification
+from .v2_all import TurnRuntimeMetricsNotification
 from .v2_all import TurnStartedNotification
 from .v2_all import WarningNotification
 from .v2_all import WindowsSandboxSetupCompletedNotification
@@ -173,6 +174,7 @@ KnownNotificationPayload: TypeAlias = (
     | TurnDiffUpdatedNotification
     | TurnModerationMetadataNotification
     | TurnPlanUpdatedNotification
+    | TurnRuntimeMetricsNotification
     | TurnStartedNotification
     | WarningNotification
     | WindowsSandboxSetupCompletedNotification
@@ -262,6 +264,7 @@ NOTIFICATION_MODELS: dict[str, type[KnownNotificationPayload]] = {
     "turn/diff/updated": TurnDiffUpdatedNotification,
     "turn/moderationMetadata": TurnModerationMetadataNotification,
     "turn/plan/updated": TurnPlanUpdatedNotification,
+    "turn/runtimeMetrics": TurnRuntimeMetricsNotification,
     "turn/started": TurnStartedNotification,
     "warning": WarningNotification,
     "windows/worldWritableWarning": WindowsWorldWritableWarningNotification,
@@ -297,6 +300,7 @@ DIRECT_TURN_ID_NOTIFICATION_TYPES: tuple[type[BaseModel], ...] = (
     TurnDiffUpdatedNotification,
     TurnModerationMetadataNotification,
     TurnPlanUpdatedNotification,
+    TurnRuntimeMetricsNotification,
 )
 
 NESTED_TURN_NOTIFICATION_TYPES: tuple[type[BaseModel], ...] = (
