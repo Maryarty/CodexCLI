@@ -18,7 +18,7 @@ use rtwk::focus::{KeyCombo, KeyPress};
 use rtwk::foundation::{Listenable, ListenableBuilder};
 use rtwk::gestures::{Listener, MouseTracker, PointerEvent, RenderExcludeSelection, SelectionArea};
 use rtwk::navigation::Route;
-use rtwk::provider::{Provider, read, watch};
+use rtwk::provider::{Provider, read, select, watch};
 use rtwk::scroll::{ScrollMetrics, ScrollNotification, ScrollUpdateNotification};
 use rtwk::style::{Attrs, Style};
 use rtwk::{
@@ -28,9 +28,9 @@ use rtwk_core::input::{InputEvent, Mods};
 use rtwk_render::HitTestResult;
 use rtwk_rich::markdown::MarkdownLinkTap;
 
-use codex_tui_core::app::RequestQueue;
 use codex_tui_core::app::effects::{CopyDestination, CopyStatus, PrimaryOwner};
 use codex_tui_core::app::facts::TuiSettings;
+use codex_tui_core::app::{RequestQueue, SessionSlice};
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::threads::ThreadModel;
 
@@ -285,6 +285,14 @@ impl State for HostState {
     fn did_change_dependencies(&mut self, w: &SelectionHost, cx: &mut Cx<'_, Self>) {
         w.selection
             .set_copy_surface(cx.id(), Route::is_current_of(cx));
+        let thread = w.thread.clone();
+        let active = select::<SessionSlice, _, _>(cx, move |session| {
+            session.active.as_ref() == Some(&thread)
+        });
+        if !active {
+            self.point_press = None;
+            w.selection.clear_pointer_point();
+        }
         if !read::<TuiSettings, _>(cx).primary_selection || !w.pointer_route_current(cx, true) {
             self.primary_press = false;
             self.primary_scope = None;
@@ -356,7 +364,10 @@ impl State for HostState {
                     } else {
                         PressOrigin::capture(&w.follow, press)
                     };
-                    self.point_press = if self.empty_press.is_some() && press.modifiers.is_empty() {
+                    self.point_press = if self.empty_press.is_some()
+                        && press.modifiers.is_empty()
+                        && w.point_enabled(cx)
+                    {
                         MouseTracker::of(cx).map(|mouse| mouse.presses())
                     } else {
                         None
@@ -393,7 +404,7 @@ impl State for HostState {
                     } else if at_origin
                         && release.modifiers.is_empty()
                         && let Some(press) = press
-                        && w.links_enabled(cx)
+                        && w.point_enabled(cx)
                     {
                         hold_clicked_point(w, cx, release, press);
                     }
@@ -577,6 +588,10 @@ impl SelectionHost {
             && !select.active()
             && !select.extending()
             && !copy::mode_of(&self.find).active()
+    }
+
+    fn point_enabled(&self, cx: &mut Cx<'_, HostState>) -> bool {
+        read::<SessionSlice, _>(cx).active.as_ref() == Some(&self.thread) && self.links_enabled(cx)
     }
 
     fn pointer_route_current(&self, cx: &mut Cx<'_, HostState>, listen: bool) -> bool {

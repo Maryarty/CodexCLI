@@ -75,6 +75,9 @@ fn launch_resume_shows_daybreak_only_when_the_replied_thread_has_it_on() {
         h.connect();
         h.finish_startup_without_prompts();
         h.advance(800);
+        assert!(h.t.screen().contains("Use session directory"));
+        h.press("enter");
+        h.advance(800);
         assert_notice(&h.t.screen(), enabled);
     }
 }
