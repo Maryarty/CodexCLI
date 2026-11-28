@@ -25,13 +25,7 @@ pub const KIND: Kind = Kind::Sheet;
 pub struct Model {
     ordered_legacy_publisher: Option<Address>,
     pub settings: settings::Model,
-    controls: Option<Controls>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct Controls {
-    owner: Owner,
-    can_mute: bool,
+    control_owner: Option<Owner>,
 }
 
 impl Model {
@@ -40,28 +34,15 @@ impl Model {
     }
 
     pub(crate) fn control_owner(&self) -> Option<&Owner> {
-        self.controls.as_ref().map(|controls| &controls.owner)
+        self.control_owner.as_ref()
     }
 
-    pub fn can_mute(&self) -> bool {
-        self.controls
-            .as_ref()
-            .is_some_and(|controls| controls.can_mute)
+    pub fn has_control_owner(&self) -> bool {
+        self.control_owner.is_some()
     }
 
-    pub(crate) fn controls_changed(&self, thread: &ThreadId, voice: &ThreadPart) -> bool {
-        self.controls
-            .as_ref()
-            .filter(|controls| &controls.owner.thread == thread)
-            .map(|controls| (&controls.owner, controls.can_mute))
-            != voice.owner().map(|owner| (owner, voice.can_mute()))
-    }
-
-    pub(crate) fn update_controls(&mut self, voice: &ThreadPart) {
-        self.controls = voice.owner().map(|owner| Controls {
-            owner: owner.clone(),
-            can_mute: voice.can_mute(),
-        });
+    pub(crate) fn set_control_owner(&mut self, owner: Option<Owner>) {
+        self.control_owner = owner;
     }
 }
 
@@ -214,6 +195,7 @@ pub enum ThreadIntent {
     SetMuted(bool),
     Stop,
     AcknowledgeStopping,
+    ReportMuteUnavailable,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -263,12 +245,18 @@ struct Negotiating {
     answering: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum Phase {
-    Preparing,
+    Preparing(Preparation),
     Negotiating(Negotiating),
     Active,
     Stopping(Cleanup),
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Preparation {
+    offer: Option<Sdp>,
+    muted: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -318,17 +306,13 @@ enum AfterCleanup {
 }
 
 impl Phase {
-    fn audio_controls_available(self) -> bool {
-        matches!(self, Self::Negotiating(_) | Self::Active)
-    }
-
-    fn backend_closed(self) -> bool {
+    fn backend_closed(&self) -> bool {
         matches!(self, Self::Stopping(cleanup) if cleanup.backend.closed())
     }
 
-    fn accepts_close(self, reason: CloseReason) -> bool {
+    fn accepts_close(&self, reason: CloseReason) -> bool {
         match self {
-            Self::Preparing => false,
+            Self::Preparing(_) => false,
             Self::Stopping(cleanup) if cleanup.terminal == Terminal::Requested => {
                 reason == CloseReason::Requested
             }
@@ -336,7 +320,7 @@ impl Phase {
         }
     }
 
-    fn waiting_to_retry(self) -> bool {
+    fn waiting_to_retry(&self) -> bool {
         matches!(
             self,
             Self::Stopping(Cleanup {
@@ -394,7 +378,7 @@ impl ThreadPart {
     pub fn display(&self) -> Option<Display> {
         let call = self.call.as_ref()?;
         match call.phase {
-            Phase::Preparing | Phase::Negotiating(_) | Phase::Active => Some(Display {
+            Phase::Preparing(_) | Phase::Negotiating(_) | Phase::Active => Some(Display {
                 connecting: call.phase != Phase::Active,
                 muted: call.muted,
                 microphone: call.microphone,
@@ -402,12 +386,6 @@ impl ThreadPart {
             }),
             Phase::Stopping(_) => None,
         }
-    }
-
-    pub fn can_mute(&self) -> bool {
-        self.call
-            .as_ref()
-            .is_some_and(|call| call.phase.audio_controls_available())
     }
 
     pub fn control(&self, control: VoiceControl) -> Option<ThreadIntent> {
@@ -424,9 +402,13 @@ impl ThreadPart {
             VoiceControl::Toggle | VoiceControl::Stop if self.call.is_some() => {
                 Some(ThreadIntent::Stop)
             }
-            VoiceControl::Mute => self.call.as_ref().and_then(|call| {
-                (call.phase.audio_controls_available() && call.pending_mute.is_none())
-                    .then_some(ThreadIntent::SetMuted(!call.muted))
+            VoiceControl::Mute => self.call.as_ref().and_then(|call| match &call.phase {
+                Phase::Preparing(setup) => Some(ThreadIntent::SetMuted(!setup.muted)),
+                Phase::Stopping(_) => Some(ThreadIntent::ReportMuteUnavailable),
+                Phase::Negotiating(_) | Phase::Active => call
+                    .pending_mute
+                    .is_none()
+                    .then_some(ThreadIntent::SetMuted(!call.muted)),
             }),
             VoiceControl::Toggle | VoiceControl::Stop => None,
         }
@@ -447,16 +429,16 @@ impl ThreadPart {
     }
 
     pub(crate) fn captions_open(&self) -> bool {
-        self.call
-            .as_ref()
-            .is_some_and(|call| call.phase != Phase::Preparing && !call.phase.backend_closed())
+        self.call.as_ref().is_some_and(|call| {
+            !matches!(call.phase, Phase::Preparing(_)) && !call.phase.backend_closed()
+        })
     }
 
     pub(crate) fn caption_session(&self, address: Address) -> Option<&str> {
         let call = self.call.as_ref()?;
         (call.owner.address == address
             && matches!(call.captions, Captions::Canonical)
-            && call.phase != Phase::Preparing
+            && !matches!(call.phase, Phase::Preparing(_))
             && !call.phase.backend_closed())
         .then_some(call.session.as_str())
     }
@@ -465,7 +447,7 @@ impl ThreadPart {
         let call = self.call.as_mut()?;
         if call.owner.address != address
             || !call.started
-            || call.phase == Phase::Preparing
+            || matches!(call.phase, Phase::Preparing(_))
             || call.phase.backend_closed()
         {
             return None;
@@ -533,7 +515,7 @@ pub(crate) fn apply_intent_on_thread(
                 owner,
                 session,
                 voice: fx.realtime_voice(),
-                phase: Phase::Preparing,
+                phase: Phase::Preparing(Preparation::default()),
                 started: false,
                 captions: if part.history == History::Legacy && fx.ordered_legacy_voice() {
                     Captions::Legacy(Legacy::new())
@@ -561,17 +543,61 @@ pub(crate) fn apply_intent_on_thread(
                 advance_cleanup(part, fx);
             }
         }
+        ThreadIntent::ReportMuteUnavailable => {
+            if part.call.as_ref().is_some_and(|call| {
+                call.owner.address == fx.address() && matches!(call.phase, Phase::Stopping(_))
+            }) {
+                fx.voice_failure(Failure::VoiceMuteUnavailable);
+            }
+        }
         ThreadIntent::SetMuted(muted) => {
             if let Some(call) = part.call.as_mut()
-                && call.phase.audio_controls_available()
-                && call.pending_mute.is_none()
-                && call.muted != muted
+                && call.owner.address == fx.address()
             {
-                call.pending_mute = Some(muted);
-                audio(call, AudioAction::SetMuted(muted), fx);
+                match &mut call.phase {
+                    Phase::Preparing(setup) => {
+                        setup.muted = muted;
+                        start_when_prepared(call, fx);
+                    }
+                    Phase::Negotiating(_) | Phase::Active
+                        if call.pending_mute.is_none() && call.muted != muted =>
+                    {
+                        request_mute(call, muted, fx);
+                    }
+                    _ => {}
+                }
             }
         }
         ThreadIntent::Start => {}
+    }
+}
+
+fn request_mute(call: &mut Call, muted: bool, fx: &mut ThreadFx<'_>) {
+    call.pending_mute = Some(muted);
+    audio(call, AudioAction::SetMuted(muted), fx);
+}
+
+fn start_when_prepared(call: &mut Call, fx: &mut ThreadFx<'_>) {
+    let Phase::Preparing(setup) = &mut call.phase else {
+        return;
+    };
+    if call.pending_mute.is_some() || setup.offer.is_none() {
+        return;
+    }
+    if setup.muted != call.muted {
+        // The backend cannot answer, and the peer cannot start capture, before mute is applied.
+        let muted = setup.muted;
+        request_mute(call, muted, fx);
+    } else if let Some(offer) = setup.offer.take() {
+        call.phase = Phase::Negotiating(Negotiating::default());
+        fx.request(
+            Ctx::Start(call.owner.clone()),
+            Command::Start {
+                session: call.session.clone(),
+                offer,
+                voice: call.voice,
+            },
+        );
     }
 }
 
@@ -591,7 +617,7 @@ fn stop(part: &mut ThreadPart, fx: &mut ThreadFx<'_>) {
         return;
     }
     match call.phase {
-        Phase::Preparing => part.retire(fx),
+        Phase::Preparing(_) => part.retire(fx),
         Phase::Negotiating(_) | Phase::Active => begin_cleanup(call, None, fx),
         Phase::Stopping(_) => {
             cancel_startup_retry(call, fx);
@@ -680,7 +706,10 @@ fn advance_cleanup(part: &mut ThreadPart, fx: &mut ThreadFx<'_>) {
         } if call.owner.address == fx.address() => {
             call.owner.attempt = Attempt::Retry;
             call.session.push_str(":retry");
-            call.phase = Phase::Preparing;
+            call.phase = Phase::Preparing(Preparation {
+                offer: None,
+                muted: call.muted,
+            });
             call.started = false;
             if let Captions::Legacy(legacy) = &mut call.captions
                 && legacy.ordered()
@@ -733,7 +762,7 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
                 part.retire(fx);
             }
             Phase::Stopping(cleanup) => cleanup.backend = cleanup.backend.backend_closed(),
-            Phase::Preparing => {}
+            Phase::Preparing(_) => {}
         },
         ThreadEv::Closed(_) => {}
         ThreadEv::Error(error)
@@ -774,35 +803,26 @@ fn answer_audio(part: &mut ThreadPart, result: AudioResult, fx: &mut ThreadFx<'_
     let Some(call) = part.call.as_mut() else {
         return;
     };
-    match (call.phase, result) {
+    match (&mut call.phase, result) {
         (phase, AudioResult::LockStopped(reason))
             if !matches!(phase, Phase::Stopping(_)) || phase.waiting_to_retry() =>
         {
             fx.voice_failure(Failure::VoiceLock(reason));
             stop(part, fx);
         }
-        (Phase::Stopping(mut cleanup), AudioResult::PeerReleased)
+        (Phase::Stopping(cleanup), AudioResult::PeerReleased)
             if matches!(cleanup.next, AfterCleanup::Retry { .. }) =>
         {
             cleanup.next = AfterCleanup::Retry {
                 peer_released: true,
             };
-            call.phase = Phase::Stopping(cleanup);
         }
-        (Phase::Preparing, AudioResult::Prepared(Ok(offer))) => {
-            call.phase = Phase::Negotiating(Negotiating::default());
-            fx.request(
-                Ctx::Start(call.owner.clone()),
-                Command::Start {
-                    session: call.session.clone(),
-                    offer,
-                    voice: call.voice,
-                },
-            );
+        (Phase::Preparing(setup), AudioResult::Prepared(Ok(offer))) if setup.offer.is_none() => {
+            setup.offer = Some(offer);
+            start_when_prepared(call, fx);
         }
-        (Phase::Negotiating(mut setup), AudioResult::Connected(Ok(()))) if setup.answering => {
+        (Phase::Negotiating(setup), AudioResult::Connected(Ok(()))) if setup.answering => {
             setup.connected = true;
-            call.phase = Phase::Negotiating(setup);
         }
         (
             phase,
@@ -810,12 +830,13 @@ fn answer_audio(part: &mut ThreadPart, result: AudioResult, fx: &mut ThreadFx<'_
                 muted,
                 result: Ok(()),
             },
-        ) if phase.audio_controls_available() && call.pending_mute == Some(muted) => {
+        ) if !matches!(phase, Phase::Stopping(_)) && call.pending_mute == Some(muted) => {
             call.pending_mute = None;
             call.muted = muted;
             if muted {
                 call.microphone = [0; 6];
             }
+            start_when_prepared(call, fx);
         }
         (Phase::Active, AudioResult::Sampled(Ok(Peaks([microphone, speaker]))))
             if call.next_sample.is_none() =>
@@ -826,7 +847,7 @@ fn answer_audio(part: &mut ThreadPart, result: AudioResult, fx: &mut ThreadFx<'_
             call.speaker[5] = intensity(speaker);
             call.next_sample = Some(fx.facts().now().plus_millis(1000));
         }
-        (Phase::Preparing, AudioResult::Prepared(Err(error))) => {
+        (Phase::Preparing(_), AudioResult::Prepared(Err(error))) => {
             fx.voice_failure(Failure::Message(error));
             part.retire(fx);
         }
@@ -845,7 +866,7 @@ fn answer_audio(part: &mut ThreadPart, result: AudioResult, fx: &mut ThreadFx<'_
                 muted,
                 result: Err(error),
             },
-        ) if phase.audio_controls_available() && call.pending_mute == Some(muted) => {
+        ) if !matches!(phase, Phase::Stopping(_)) && call.pending_mute == Some(muted) => {
             fx.voice_failure(Failure::Message(error));
             stop(part, fx);
         }

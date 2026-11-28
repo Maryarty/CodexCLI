@@ -538,7 +538,7 @@ pub(super) fn focus(
     }
     let voice_controls =
         rtwk::provider::select::<codex_tui_core::screens::ScreenStates, bool, _>(cx, |screens| {
-            screens.voice.can_mute()
+            screens.voice.has_control_owner()
         });
     voice_keys(state).set(voice_controls);
     for (action, key) in keys::presses(keymap) {

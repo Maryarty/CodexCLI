@@ -38,6 +38,7 @@ pub(super) fn failure_text(strings: &crate::l10n::strings::Shared, failure: &Fai
             .lock_stop(*reason)
             .to_string(),
         Failure::VoiceHostLost => crate::sheets::voice::strings::EN.host_lost.to_owned(),
+        Failure::VoiceMuteUnavailable => crate::sheets::voice::strings::EN.mute_unavailable.into(),
     }
 }
 

@@ -254,10 +254,6 @@ pub enum Intent {
         thread: ThreadId,
         intent: ScreenThreadIntent,
     },
-    ControlVoice {
-        thread: ThreadId,
-        control: crate::commands::VoiceControl,
-    },
     /// Move the empty conversation to the next connected backend (oracle:
     /// `CycleNewConversationBackend`).
     CycleBackend,
@@ -3674,9 +3670,6 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
         }
         Intent::Effect { request, ask } => fx.commands.push(effects::command(request, ask)),
         Intent::CancelRequests => cancel_requests(app, fx),
-        Intent::ControlVoice { thread, control } => {
-            session::voice_control(app, Some(thread), control, fx);
-        }
         Intent::Screen(ScreenIntent::Resume(intent)) => resume_picker(app, intent, fx),
         // The page the command line opened instead of a thread was left.
         Intent::Screen(ScreenIntent::Onboarding(
@@ -3689,6 +3682,9 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             command,
             intent,
         })) => session_intent(app, thread, command, intent, fx),
+        Intent::Screen(ScreenIntent::Chat(chat::Intent::ControlVoice { thread, control })) => {
+            session::voice_control(app, Some(thread), control, fx);
+        }
         Intent::Screen(ScreenIntent::Chat(chat::Intent::Note { thread, note })) => {
             session_note(app, thread, note, fx)
         }
@@ -5101,9 +5097,12 @@ fn apply_thread_with_receipt(
                 )),
             receipt,
         );
-        let voice = &model.screen_slots().voice;
-        if app.screens.voice.controls_changed(thread, voice) {
-            Rc::make_mut(&mut app.screens).voice.update_controls(voice);
+        let owner = model.screen_slots().voice.owner();
+        let previous = app.screens.voice.control_owner();
+        if owner != previous.filter(|previous| &previous.thread == thread) {
+            Rc::make_mut(&mut app.screens)
+                .voice
+                .set_control_owner(owner.cloned());
         }
         crate::features::revalidate_rate_offer(&mut app.features, model.view());
     }

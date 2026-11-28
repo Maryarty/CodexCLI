@@ -2,10 +2,10 @@
 
 use rtwk::Cx;
 
-use codex_tui_core::app::Intent;
 use codex_tui_core::commands::VoiceControl;
 use codex_tui_core::keymap::ActionId;
 use codex_tui_core::keymap::actions::CHAT_TOGGLE_VOICE;
+use codex_tui_core::screens::{ScreenIntent, chat};
 use codex_tui_core::threads::ThreadModel;
 
 use super::{KeyAction, Keyed};
@@ -24,10 +24,10 @@ impl KeyAction for Voice {
 pub(super) fn control(cx: &mut Cx<'_, ChatState>, keyed: &Keyed<'_>, action: VoiceControl) {
     let thread = rtwk::provider::read::<ThreadModel, _>(cx);
     cx.emit(
-        &keyed.hs.intent,
-        Intent::ControlVoice {
+        &keyed.hs.screen,
+        ScreenIntent::Chat(chat::Intent::ControlVoice {
             thread: thread.id().clone(),
             control: action,
-        },
+        }),
     );
 }

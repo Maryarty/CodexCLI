@@ -402,12 +402,14 @@ fn voice_controls_from_another_backend_follow_the_live_owner_until_cleanup_finis
         open_thread(&mut app, "thread-2", secondary, true);
         let selected = ThreadId::new("thread-2");
         let key = |control| {
-            AppEv::Intent(Intent::ControlVoice {
-                thread: selected.clone(),
-                control,
-            })
+            AppEv::Intent(Intent::Screen(ScreenIntent::Chat(
+                chat::Intent::ControlVoice {
+                    thread: selected.clone(),
+                    control,
+                },
+            )))
         };
-        assert!(app.screens().voice.can_mute());
+        assert!(app.screens().voice.has_control_owner());
         let mute = run(&mut app, key(VoiceControl::Mute));
         assert_eq!(host(&mute).0.action, AudioAction::SetMuted(true));
         assert_eq!(host(&mute).0.owner, host(&parked).0.owner);

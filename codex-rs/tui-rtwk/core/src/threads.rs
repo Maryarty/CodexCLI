@@ -1290,6 +1290,8 @@ pub enum Failure {
     VoiceLock(screens::voice::LockStop),
     /// The primary terminal's audio executor was interrupted.
     VoiceHostLost,
+    /// The stopped media peer cannot change its microphone state.
+    VoiceMuteUnavailable,
 }
 
 impl From<RpcError> for Failure {

@@ -52,6 +52,7 @@ pub struct Strings {
     pub channel_hint: &'static str,
     pub pending: &'static str,
     pub host_lost: &'static str,
+    pub mute_unavailable: &'static str,
 }
 
 /// English: the oracle's text (the slice names the oracle file per group).
@@ -90,6 +91,7 @@ pub const EN: Strings = Strings {
     channel_hint: "space toggle · enter save · esc cancel",
     pending: "Checking voice settings…",
     host_lost: "Voice stopped because the local audio service was interrupted.",
+    mute_unavailable: "Start voice mode before muting the microphone.",
 };
 
 pub(super) fn device_label(kind: DeviceKind) -> &'static str {

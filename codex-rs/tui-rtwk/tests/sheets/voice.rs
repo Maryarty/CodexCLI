@@ -247,6 +247,14 @@ fn answer_voice_offer(
         prepared,
         AudioResult::Prepared(Ok(Sdp::new("offer".into()))),
     )]);
+    connect_voice(h, prepared, prior_session)
+}
+
+fn connect_voice(
+    h: &mut Harness,
+    prepared: &Command,
+    prior_session: Option<&str>,
+) -> (String, Command) {
     let start = voice_command(h, |command| {
         matches!(command,
         Command::Screen { command: ScreenCommand::Voice(voice::Command::Start { session, .. }), .. }
@@ -272,6 +280,63 @@ fn answer_voice_offer(
         Some(Ask::Audio(audio)) if audio.owner == prepared.owner && matches!(audio.action, AudioAction::Connect(_)))
     });
     (session.clone(), connect)
+}
+
+#[test]
+fn voice_f9_applies_early_mute_before_capture_and_declines_during_cleanup() {
+    let mut h = start();
+    crate::chat::chat_with_history(&mut h);
+    h.press("f8");
+    let prepared = voice_audio(&mut h, |action| *action == AudioAction::Prepare);
+    h.press("f9");
+    h.inject([audio_receipt(
+        &prepared,
+        AudioResult::Prepared(Ok(Sdp::new("offer".into()))),
+    )]);
+    let mute = voice_audio(&mut h, |action| *action == AudioAction::SetMuted(true));
+    assert!(!h.fake.commands().iter().any(|command| {
+        matches!(
+            command,
+            Command::Screen {
+                command: ScreenCommand::Voice(voice::Command::Start { .. }),
+                ..
+            }
+        )
+    }));
+    h.inject([audio_receipt(
+        &mute,
+        AudioResult::Muted {
+            muted: true,
+            result: Ok(()),
+        },
+    )]);
+    let (session, connect) = connect_voice(&mut h, &prepared, None);
+    h.inject([audio_receipt(
+        &connect,
+        AudioResult::Connected(Err(ConnectFailure::TimedOut("timeout".into()))),
+    )]);
+    let release = voice_audio(&mut h, |action| *action == AudioAction::ReleasePeer);
+    let stop = voice_command(&mut h, is_stop);
+    h.press("f9");
+    h.wait_for("the original refusal while stopping", |screen| {
+        screen.contains("Start voice mode before muting the microphone.")
+    });
+    h.inject([
+        voice_ack(&stop),
+        voice_notice(
+            "thread/realtime/closed",
+            serde_json::json!({"threadId": FAKE_THREAD, "reason": "requested"}),
+        ),
+        audio_receipt(&release, AudioResult::PeerReleased),
+    ]);
+    let retry = voice_command(&mut h, is_retry);
+    assert!(matches!(
+        retry.host_ask(),
+        Some(Ask::Audio(audio)) if audio.action == AudioAction::PrepareRetry { muted: true }
+    ));
+    let (_, connect) = answer_voice_offer(&mut h, &retry, Some(&session));
+    h.inject([audio_receipt(&connect, AudioResult::Connected(Ok(())))]);
+    h.wait_for("the muted retry", |screen| screen.contains("voice ◌ muted"));
 }
 
 #[test]
