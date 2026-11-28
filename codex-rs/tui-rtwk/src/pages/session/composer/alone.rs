@@ -403,6 +403,8 @@ impl State for AloneState {
             queue: w.queue,
             esc_primed: self.esc_hint,
             enhanced: w.enhanced,
+            // the oracle's composer harness has neither the modes nor `/voice` on
+            ..Panel::default()
         };
         let shortcuts = (self.mode == Mode::Overlay).then(|| shortcut_panel_fixed(cx, panel));
         let surface = tokens.prompt_surface(cx, false);

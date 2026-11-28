@@ -1,0 +1,5 @@
+# The shortcut overlay's model with the collaboration modes on.
+# Ported from codex-tui footer_shortcuts_collaboration_modes_enabled.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"items":[]}}}
+{"step":"screen","dir":"chat","ev":{"flags":{"collaboration_modes_enabled":true,"voice_command_enabled":true}}}

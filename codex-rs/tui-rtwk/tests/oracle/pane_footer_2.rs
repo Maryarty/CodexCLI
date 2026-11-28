@@ -188,128 +188,51 @@ fn voice_footer_rendering_preserves_text_and_styles() {
 // ORACLE bottom_pane/footer.rs:1260 footer_snapshots kind=snap owner=ui-pane snap=footer_active_agent_label snap=footer_composer_has_draft_queue_hint_enabled snap=footer_context_tokens_used snap=footer_ctrl_c_quit_idle snap=footer_esc_hint_idle snap=footer_esc_hint_primed snap=footer_mode_indicator_narrow_overlap_hides snap=footer_mode_indicator_running_hides_hint snap=footer_mode_indicator_wide snap=footer_shortcuts_collaboration_modes_enabled snap=footer_shortcuts_context_running snap=footer_shortcuts_default snap=footer_shortcuts_running snap=footer_shortcuts_shift_and_esc snap=footer_status_line_disabled_context_right snap=footer_status_line_enabled_mode_and_ide_context_right snap=footer_status_line_enabled_mode_right snap=footer_status_line_enabled_no_mode_right snap=footer_status_line_overrides_draft_idle snap=footer_status_line_overrides_shortcuts snap=footer_status_line_truncated_with_gap snap=footer_status_line_with_active_agent_label snap=footer_status_line_yields_to_queue_hint
 #[test]
 fn footer_snapshots() {
-    kit::pending(
-        Owner::UiPane,
-        "the oracle builds 23 independent FooterProps combinations. Seven exact native entries are covered by pages::chat_status::the_footer_entries_equal_the_oracle_snapshots; live compact mode, queueing, warnings and IDE receipts have separate tests. The other exact composite rows still need equivalent fixtures",
-    );
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_active_agent_label")
-        .open();
-    s.assert_snap("footer_active_agent_label");
+    // Each oracle snapshot is one `FooterProps` of the oracle's standalone footer; here one entry
+    // draws the real `Footer` (or the overlay's panel) over the model its fixture script makes.
+    let at = |name: &'static str, width: u16, height: u16| {
+        let s = Screen::build(Owner::UiPane)
+            .size(width, height)
+            .entry("chat", name)
+            .open();
+        s.assert_snap(name);
+    };
+    for name in [
+        "footer_shortcuts_default",
+        "footer_shortcuts_context_running",
+        "footer_context_tokens_used",
+        "footer_composer_has_draft_queue_hint_enabled",
+        "footer_ctrl_c_quit_idle",
+        "footer_esc_hint_idle",
+        "footer_esc_hint_primed",
+    ] {
+        at(name, 80, 1);
+    }
+    // the overlay's height is its panel's: the Change mode row makes one more
+    for (name, height) in [
+        ("footer_shortcuts_shift_and_esc", 20),
+        ("footer_shortcuts_collaboration_modes_enabled", 21),
+        ("footer_shortcuts_running", 20),
+    ] {
+        at(name, 80, height);
+    }
+    // `footer_status_line_yields_to_queue_hint`: the composer draws its hint row from
+    // `hint_footer_props`, which takes the status line off the props (the line is the status
+    // surface's rows above), so the row is the queue hint and the meter of any draft kept while a
+    // turn runs.
     let s = Screen::build(Owner::UiPane)
         .size(80, 1)
         .entry("chat", "footer_composer_has_draft_queue_hint_enabled")
         .open();
-    s.assert_snap("footer_composer_has_draft_queue_hint_enabled");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_context_tokens_used")
-        .open();
-    s.assert_snap("footer_context_tokens_used");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_ctrl_c_quit_idle")
-        .open();
-    s.assert_snap("footer_ctrl_c_quit_idle");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_esc_hint_idle")
-        .open();
-    s.assert_snap("footer_esc_hint_idle");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_esc_hint_primed")
-        .open();
-    s.assert_snap("footer_esc_hint_primed");
-    let s = Screen::build(Owner::UiPane)
-        .size(40, 1)
-        .entry("chat", "footer_mode_indicator_narrow_overlap_hides")
-        .open();
-    s.assert_snap("footer_mode_indicator_narrow_overlap_hides");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_mode_indicator_running_hides_hint")
-        .open();
-    s.assert_snap("footer_mode_indicator_running_hides_hint");
-    let s = Screen::build(Owner::UiPane)
-        .size(120, 1)
-        .entry("chat", "footer_mode_indicator_wide")
-        .open();
-    s.assert_snap("footer_mode_indicator_wide");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_shortcuts_collaboration_modes_enabled")
-        .open();
-    s.assert_snap("footer_shortcuts_collaboration_modes_enabled");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_shortcuts_context_running")
-        .open();
-    s.assert_snap("footer_shortcuts_context_running");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_shortcuts_default")
-        .open();
-    s.assert_snap("footer_shortcuts_default");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_shortcuts_running")
-        .open();
-    s.assert_snap("footer_shortcuts_running");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_shortcuts_shift_and_esc")
-        .open();
-    s.assert_snap("footer_shortcuts_shift_and_esc");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_status_line_disabled_context_right")
-        .open();
-    s.assert_snap("footer_status_line_disabled_context_right");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry(
-            "chat",
-            "footer_status_line_enabled_mode_and_ide_context_right",
-        )
-        .open();
-    s.assert_snap("footer_status_line_enabled_mode_and_ide_context_right");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_status_line_enabled_mode_right")
-        .open();
-    s.assert_snap("footer_status_line_enabled_mode_right");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_status_line_enabled_no_mode_right")
-        .open();
-    s.assert_snap("footer_status_line_enabled_no_mode_right");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_status_line_overrides_draft_idle")
-        .open();
-    s.assert_snap("footer_status_line_overrides_draft_idle");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_status_line_overrides_shortcuts")
-        .open();
-    s.assert_snap("footer_status_line_overrides_shortcuts");
-    let s = Screen::build(Owner::UiPane)
-        .size(40, 1)
-        .entry("chat", "footer_status_line_truncated_with_gap")
-        .open();
-    s.assert_snap("footer_status_line_truncated_with_gap");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_status_line_with_active_agent_label")
-        .open();
-    s.assert_snap("footer_status_line_with_active_agent_label");
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 1)
-        .entry("chat", "footer_status_line_yields_to_queue_hint")
-        .open();
     s.assert_snap("footer_status_line_yields_to_queue_hint");
+    // n/a states of the standalone footer, which the composer never draws: `status_line_value`
+    // of the props replaces the hints in the footer's own row (`footer_status_line_overrides_*`,
+    // `_truncated_with_gap`, `_with_active_agent_label`), and of `active_agent_label`,
+    // `mode_indicator` (right of the hints in the composer's `passive_hints`, left of them in the
+    // standalone footer's `_mode_indicator_*`, `_status_line_*_mode_right`, `_disabled_context_right`,
+    // `_active_agent_label`). The composer strips them (`hint_footer_props`) and draws the status line
+    // as its own rows over the hints (`status_surface.rs`), as the port's page does (chat_status_*,
+    // pane_footer_1).
 }
 
 // ORACLE bottom_pane/footer.rs:1672 footer_status_line_truncates_to_keep_mode_indicator kind=ui owner=ui-pane

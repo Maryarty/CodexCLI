@@ -72,7 +72,10 @@ pub(super) fn body(
         // the terminal's keyboard protocol is not a fact a widget can read yet: Shift+Enter is
         // never named here
         enhanced: false,
-    };
+        modes: false,
+        voice: false,
+    }
+    .with_flags(cx);
     let (panel, _) = shortcut_panel(cx, overlay);
     let chat_strings = frame.chat_strings;
     let Slot {

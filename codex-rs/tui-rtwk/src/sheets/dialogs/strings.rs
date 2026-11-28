@@ -15,13 +15,13 @@ use rtwk::l10n::msg;
 
 use codex_tui_core::keymap::ActionId;
 use codex_tui_core::keymap::actions::{
-    CHAT_DECREASE_REASONING_EFFORT, CHAT_INCREASE_REASONING_EFFORT,
+    CHAT_DECREASE_REASONING_EFFORT, CHAT_INCREASE_REASONING_EFFORT, CHAT_TOGGLE_VOICE,
     COMPOSER_HISTORY_SEARCH_PREVIOUS, COMPOSER_QUEUE, EDITOR_INSERT_NEWLINE,
     GLOBAL_FIND_TRANSCRIPT, GLOBAL_FOCUS_ACTIVITY, GLOBAL_OPEN_AGENTS, GLOBAL_OPEN_EXTERNAL_EDITOR,
     GLOBAL_OPEN_TRANSCRIPT,
 };
 use codex_tui_core::keymap::fixed::{
-    INTERRUPT_OR_QUIT, PASTE_IMAGE, SELECTION_START, SUBAGENT_NEXT, SUBAGENT_PREVIOUS,
+    CYCLE_COLLABORATION_MODE, INTERRUPT_OR_QUIT, PASTE_IMAGE, SELECTION_START, SUBAGENT_NEXT, SUBAGENT_PREVIOUS,
     TRANSCRIPT_LATEST, TRANSCRIPT_LATEST_ALT, TRANSCRIPT_PAGE_DOWN, TRANSCRIPT_PAGE_UP,
     TRANSCRIPT_TOP, TRANSCRIPT_TOP_ALT,
 };
@@ -250,6 +250,11 @@ pub const EN: Strings = Strings {
                     running: Some("Queue message"),
                 },
                 Entry {
+                    keys: Keys::Fixed(CYCLE_COLLABORATION_MODE),
+                    label: "Change mode",
+                    running: None,
+                },
+                Entry {
                     keys: Keys::Bound(CHAT_DECREASE_REASONING_EFFORT),
                     label: "Less reasoning",
                     running: None,
@@ -257,6 +262,11 @@ pub const EN: Strings = Strings {
                 Entry {
                     keys: Keys::Bound(CHAT_INCREASE_REASONING_EFFORT),
                     label: "More reasoning",
+                    running: None,
+                },
+                Entry {
+                    keys: Keys::Bound(CHAT_TOGGLE_VOICE),
+                    label: "Voice",
                     running: None,
                 },
                 Entry {

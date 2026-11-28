@@ -29,7 +29,8 @@ pub mod strings;
 /// it when the thread's facts allow it (`hints.agents`); `esc_primed` is `esc_backtrack_hint`: the
 /// first Esc has primed the backtrack, so the edit-last-message row asks for one `esc`;
 /// `enhanced` is `enhanced_keys_supported`: the terminal tells Shift+Enter from Enter, so the
-/// new-line row names it (`⇧enter`).
+/// new-line row names it (`⇧enter`); `modes` is `collaboration_modes_enabled`: the `Change mode`
+/// row; `voice` is the `/voice` command being on in this conversation: the `Voice` row.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Panel {
     pub running: bool,
@@ -37,6 +38,36 @@ pub struct Panel {
     pub queue: bool,
     pub esc_primed: bool,
     pub enhanced: bool,
+    pub modes: bool,
+    pub voice: bool,
+}
+
+impl Panel {
+    /// The two rows the conversation's flags decide (`collaboration_modes_enabled`,
+    /// `voice_command_enabled` less the side conversation): set from the screens' model where
+    /// the app provides it.
+    pub fn with_flags<S: 'static>(self, cx: &mut Cx<'_, S>) -> Panel {
+        if rtwk::provider::Provider::<codex_tui_core::screens::ScreenStates>::maybe_of(cx, false)
+            .is_none()
+        {
+            return self;
+        }
+        let (modes, voice) = rtwk::provider::select::<codex_tui_core::screens::ScreenStates, _, _>(
+            cx,
+            |states| {
+                let flags = &states.chat.flags;
+                (
+                    flags.collaboration_modes_enabled,
+                    flags.voice_command_enabled && !flags.side_conversation_active,
+                )
+            },
+        );
+        Panel {
+            modes,
+            voice,
+            ..self
+        }
+    }
 }
 
 /// The shortcut overlay's body for a bottom pane, and its close hint (the
