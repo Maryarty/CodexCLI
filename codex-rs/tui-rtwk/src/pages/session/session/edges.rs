@@ -170,10 +170,15 @@ impl ChatState {
             Edge::Ready => self.startup_ready(w, cx),
             Edge::Plan => {
                 let send = cx.local_sender();
+                let selection = w.ui.selection.clone();
                 plan_mode::ask(cx, move || {
+                    if !selection.held() {
+                        return false;
+                    }
                     send(super::ChatMsg::Selection(
                         super::super::transcript::selection::Key::Copy,
                     ));
+                    true
                 });
                 Rebuild::No
             }

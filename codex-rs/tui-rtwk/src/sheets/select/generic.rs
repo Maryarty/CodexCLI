@@ -9,7 +9,7 @@
 
 use std::rc::Rc;
 
-use rtwk::focus::{Focus, FocusOnKeyEventCallback};
+use rtwk::focus::{Focus, FocusOnKeyEventCallback, KeyCombo, KeyEventResult};
 use rtwk::gestures::Listener;
 use rtwk::layout::{Align, Alignment};
 use rtwk::navigation::{Navigator, Route, RouteBehavior, RouteSettings};
@@ -19,7 +19,7 @@ use rtwk::provider::read;
 use rtwk::semantics::BlockSemantics;
 use rtwk::{AnyWidget, BuildCx, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::app::{AutoReview, Intent as AppIntent, SessionSlice};
+use codex_tui_core::app::{AutoReview, Intent as AppIntent};
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::chat::plan_mode::Answer;
@@ -55,14 +55,28 @@ struct PlanRoute {
 }
 
 impl RouteBehavior for PlanRoute {
-    fn build(&self, _: &mut BuildCx<'_>) -> AnyWidget {
+    fn build(&self, cx: &mut BuildCx<'_>) -> AnyWidget {
         let key = self.key.clone();
+        let route = Route::maybe_of(cx).filter(is_plan_route);
+        let cancel = KeyCombo::parse("ctrl+c").ok();
         let picker = Focus::new(ListSheet {
             list: self.list.clone(),
             purpose: Purpose::PlanImplementation,
         })
         .can_request_focus(false)
-        .on_key_event(move |node, press| key(node, press));
+        .on_key_event(move |node, press| {
+            let cancel = cancel.as_ref().is_some_and(|key| key.accepts_press(&press));
+            let result = key(node, press);
+            if cancel
+                && result == KeyEventResult::Ignored
+                && let Some(route) = route.as_ref().filter(|route| route.is_current())
+                && let Some(nav) = route.navigator()
+            {
+                nav.remove_route(route);
+                return KeyEventResult::Handled;
+            }
+            result
+        });
         BlockSemantics::new(Align::new(
             Alignment::BOTTOM_CENTER,
             Listener::new()
@@ -140,13 +154,13 @@ fn answer(cx: &mut Cx<'_, ListSheetState>, purpose: &Purpose, id: &str) {
     let hs = read::<Hs, _>(cx);
     match purpose {
         Purpose::PlanImplementation => {
-            if let Some(owner) = Route::maybe_of(cx).as_ref().and_then(plan_thread).cloned()
-                && read::<SessionSlice, _>(cx).active.as_ref() != Some(&owner)
+            if let Some(thread) = Route::maybe_of(cx).as_ref().and_then(plan_thread).cloned()
+                && let Some(answer) = Answer::of_row(id)
             {
-                return;
-            }
-            if let Some(answer) = Answer::of_row(id) {
-                cx.emit(&hs.screen, ScreenIntent::Select(Intent::PlanAnswer(answer)));
+                cx.emit(
+                    &hs.screen,
+                    ScreenIntent::Select(Intent::PlanAnswer { thread, answer }),
+                );
             }
         }
         Purpose::ApproveDenial(thread) => cx.emit(

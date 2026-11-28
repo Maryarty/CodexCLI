@@ -52,7 +52,7 @@ pub fn menu(s: &Strings, used: Option<Used>) -> List {
 /// The page's answer to a new prompt (`directives::Edge::Plan`, each number once, in the thread
 /// that raised it): opens the sheet, unless another sheet is open (`no_modal_or_popup_active`:
 /// the question is skipped, not kept waiting).
-pub fn ask<S>(cx: &mut Cx<'_, S>, copy_selection: impl Fn() + 'static) {
+pub fn ask<S>(cx: &mut Cx<'_, S>, copy_selection: impl Fn() -> bool + 'static) {
     // another sheet over the page (the route is not on top) is the oracle's other popup
     if !Route::is_current_of(cx) {
         return;
@@ -66,8 +66,7 @@ pub fn ask<S>(cx: &mut Cx<'_, S>, copy_selection: impl Fn() + 'static) {
         thread.id().clone(),
         list,
         Rc::new(move |_, key| {
-            if selection::key(&key) == Some(selection::Key::Copy) {
-                copy_selection();
+            if selection::key(&key) == Some(selection::Key::Copy) && copy_selection() {
                 KeyEventResult::Handled
             } else {
                 KeyEventResult::Ignored

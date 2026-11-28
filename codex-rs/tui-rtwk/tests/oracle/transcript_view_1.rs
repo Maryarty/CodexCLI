@@ -246,7 +246,7 @@ fn default_page_up_still_scrolls_the_transcript() {
 #[test]
 fn plan_menu_allows_transcript_wheel_scrolling_and_keeps_keyboard_ownership() {
     let title = "Implement this plan?";
-    for close in ["esc", "enter"] {
+    for close in ["esc", "ctrl+c", "enter"] {
         let mut s = Screen::build(Owner::ChatLive)
             .size(80, 24)
             .owned_transcript()
@@ -310,6 +310,9 @@ fn plan_menu_allows_transcript_selection_and_copy_but_respects_popup_bounds() {
     s.assert_copies_asked(&[]);
     s.keys("ctrl+insert");
     s.assert_copies_asked(&["Plan"]);
+    s.assert_contains(title);
+    s.keys("ctrl+c");
+    s.assert_copies_asked(&["Plan", "Plan"]);
     s.assert_contains(title);
     s.assert_no_turn();
     s.keys("esc");
