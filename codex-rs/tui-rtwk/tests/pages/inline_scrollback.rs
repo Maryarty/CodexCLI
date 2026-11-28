@@ -295,7 +295,7 @@ fn completed_item(turn: &str, item: Value) -> AppEv {
             "item": item,
         },
     }))
-    .expect("known artifact notification");
+    .unwrap_or_else(|error| panic!("known artifact notification: {error}"));
     AppEv::Backend(BackendEv::Notification(Box::new(notification)))
 }
 
@@ -350,7 +350,9 @@ fn assert_artifact_prefix(h: &Harness, artifact: &str) {
     let image = history
         .find(artifact)
         .unwrap_or_else(|| panic!("missing {artifact}: {history}"));
-    let suffix = history.find(SUFFIX).expect("suffix enters native history");
+    let suffix = history
+        .find(SUFFIX)
+        .unwrap_or_else(|| panic!("suffix enters native history: {history}"));
     assert!(image < suffix, "{history}");
     let rows = all_rows(h);
     for text in [artifact, SUFFIX, "S27 shell sentinel"] {
