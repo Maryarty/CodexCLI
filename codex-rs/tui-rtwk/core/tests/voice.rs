@@ -12,7 +12,9 @@ use codex_tui_core::ids::{BackendId, ConnEpoch, ThreadId};
 use codex_tui_core::protocol::{client_request, reply};
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::screens::{ScreenThreadIntent, voice};
-use voice::{AudioAction, AudioCommand, AudioReport, AudioResult, Peaks, Sdp, ThreadIntent};
+use voice::{
+    AudioAction, AudioCommand, AudioReport, AudioResult, LockStop, Peaks, Sdp, ThreadIntent,
+};
 
 fn ready() -> CodexApp {
     build(r#"{"step":"seed","seed":"session","thread":"thread-1"}"#)
@@ -51,6 +53,7 @@ fn host(fx: &AppFx) -> (&AudioCommand, u64) {
                 ask: Ask::Audio(audio),
                 ..
             } = cmd
+                && audio.action != AudioAction::ObserveLock
             {
                 Some((audio, *request))
             } else {
@@ -137,11 +140,67 @@ fn preparing_for(app: &mut CodexApp, thread: &str) -> AppFx {
     let (cmd, _) = host(&prepared);
     assert_eq!(cmd.action, AudioAction::Prepare);
     assert_eq!(cmd.owner.thread.as_str(), thread);
+    assert!(prepared.commands().iter().any(|command| {
+        matches!(command.host_ask(), Some(Ask::Audio(watch)) if watch.owner == cmd.owner && watch.action == AudioAction::ObserveLock)
+    }));
     assert!(
-        app.dispatch_route(prepared.commands().first().expect("command"), None)
-            .is_some()
+        prepared
+            .commands()
+            .iter()
+            .all(|command| app.dispatch_route(command, None).is_some())
     );
     prepared
+}
+
+#[test]
+fn initial_desktop_lock_stops_preparation_and_old_lock_after_restart_is_ignored() {
+    let mut app = ready();
+    let first = preparing(&mut app);
+    let lock = media(&first, AudioResult::LockStopped(LockStop::Locked));
+    let stopped = run(&mut app, lock.clone());
+    assert_eq!(host(&stopped).0.action, AudioAction::Close);
+    assert!(display(&app).is_none());
+    assert_eq!(
+        app.active_thread().last_error(),
+        Some(&codex_tui_core::threads::Failure::VoiceLock(
+            LockStop::Locked
+        ))
+    );
+    let next = preparing(&mut app);
+    assert_ne!(host(&first).0.owner, host(&next).0.owner);
+    assert!(run(&mut app, lock).commands().is_empty());
+    assert!(display(&app).is_some_and(|display| display.connecting));
+}
+
+#[test]
+fn desktop_lock_stops_a_parked_call_after_its_start_receipt() {
+    use codex_tui_core::screens::{ScreenEv, agents};
+    let mut app = ready();
+    let prepare = preparing(&mut app);
+    let (start, _) = offered(&mut app, &prepare);
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Agents(agents::Ev::Current(Some(ThreadId::new(
+            "thread-2",
+        ))))),
+    );
+    let locked = run(
+        &mut app,
+        media(&prepare, AudioResult::LockStopped(LockStop::Locked)),
+    );
+    assert_eq!(host(&locked).0.owner, host(&prepare).0.owner);
+    assert_eq!(host(&locked).0.action, AudioAction::Close);
+    assert!(
+        locked
+            .commands()
+            .iter()
+            .all(|cmd| client_request(cmd, wire::RequestId::Integer(1), None).is_none())
+    );
+    let stopped = run(&mut app, ack(&start));
+    assert!(
+        matches!(wire(&stopped).1, wire::ClientRequest::ThreadRealtimeStop { params, .. } if params.thread_id == "thread-1")
+    );
+    assert_eq!(app.active_thread().id().as_str(), "thread-2");
 }
 
 fn offered(app: &mut CodexApp, prepared: &AppFx) -> (AppFx, String) {

@@ -53,6 +53,18 @@ pub const EN: Strings = Strings {
     speaker: "  codex ",
 };
 
+impl Strings {
+    pub fn lock_stop(&self, reason: codex_tui_core::screens::voice::LockStop) -> &'static str {
+        use codex_tui_core::screens::voice::LockStop;
+        match reason {
+            LockStop::Locked => "Voice stopped because your session locked.",
+            LockStop::MonitorFailed => {
+                "Voice conversation stopped because session lock monitoring failed."
+            }
+        }
+    }
+}
+
 static TABLES: Tables<Strings> = Tables::english(&EN);
 
 /// The table of the locale below `cx`.

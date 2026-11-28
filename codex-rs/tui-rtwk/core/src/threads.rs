@@ -1286,6 +1286,8 @@ pub enum Failure {
     Stopped,
     /// A reply of another screen than its ticket's.
     ReplyMismatch,
+    /// Desktop lock stopped the local media peer.
+    VoiceLock(screens::voice::LockStop),
 }
 
 impl From<RpcError> for Failure {

@@ -1,5 +1,6 @@
 //! Ownership of the local packaged audio peer. All commands name one exact call.
 
+use std::future::Future;
 use std::sync::{Mutex, MutexGuard};
 
 use codex_core::config::Config;
@@ -8,10 +9,14 @@ use codex_realtime_webrtc::{
 };
 use codex_tui_core::ids::Ticket;
 use codex_tui_core::screens::voice::{
-    AudioAction, AudioCommand, AudioReport, AudioResult, Owner, Peaks, Sdp,
+    AudioAction, AudioCommand, AudioReport, AudioResult, LockStop, Owner, Peaks, Sdp,
 };
 use codex_tui_rtwk::services::agents::workspace::blocking;
-use futures::future::AbortHandle;
+use futures::FutureExt;
+use futures::future::{AbortHandle, AbortRegistration, Abortable};
+use tokio::sync::watch;
+
+mod session_lock;
 
 #[derive(Default)]
 pub(crate) struct Audio(Mutex<Slot>);
@@ -26,15 +31,70 @@ struct Slot {
 struct Entry {
     owner: Owner,
     abort: AbortHandle,
+    prepare: Option<AbortRegistration>,
+    abort_monitor: AbortHandle,
+    monitor: Option<AbortRegistration>,
+    ready: watch::Sender<bool>,
     handle: Option<RealtimeWebrtcSessionHandle>,
 }
 
 impl Drop for Entry {
     fn drop(&mut self) {
+        self.abort_monitor.abort();
         self.abort.abort();
         if let Some(handle) = &self.handle {
             handle.close();
         }
+    }
+}
+
+impl Slot {
+    fn reserve(&mut self, owner: &Owner) -> Option<&mut Entry> {
+        if self
+            .retired_through
+            .is_some_and(|retired| retired >= owner.call)
+        {
+            return None;
+        }
+        let entry = self.entry.get_or_insert_with(|| {
+            let (abort, prepare) = AbortHandle::new_pair();
+            let (abort_monitor, monitor) = AbortHandle::new_pair();
+            Entry {
+                owner: owner.clone(),
+                abort,
+                prepare: Some(prepare),
+                abort_monitor,
+                monitor: Some(monitor),
+                ready: watch::channel(false).0,
+                handle: None,
+            }
+        });
+        (&entry.owner == owner).then_some(entry)
+    }
+
+    fn stop(&mut self, owner: &Owner) -> bool {
+        if self
+            .entry
+            .as_ref()
+            .is_some_and(|entry| &entry.owner == owner)
+        {
+            self.retired_through = self.retired_through.max(Some(owner.call));
+            self.entry = None;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+struct Monitor<'a> {
+    audio: &'a Audio,
+    owner: &'a Owner,
+}
+
+impl Drop for Monitor<'_> {
+    fn drop(&mut self) {
+        self.audio.lock().stop(self.owner);
     }
 }
 
@@ -45,61 +105,107 @@ impl Audio {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    pub(crate) async fn run(&self, command: AudioCommand, config: Option<&Config>) -> AudioReport {
+    pub(crate) async fn run(
+        &self,
+        command: AudioCommand,
+        config: Option<&Config>,
+    ) -> Option<AudioReport> {
         let AudioCommand { owner, action } = command;
         let result = match action {
-            AudioAction::Prepare => AudioResult::Prepared(self.prepare(&owner, config).await),
+            AudioAction::ObserveLock => {
+                if !RealtimeWebrtcSession::is_supported() {
+                    return None;
+                }
+                AudioResult::LockStopped(self.observe(&owner, session_lock::observe()).await?)
+            }
+            AudioAction::Prepare => AudioResult::Prepared(self.prepare(&owner, config).await?),
             AudioAction::Connect(answer) => {
-                AudioResult::Connected(self.connect(&owner, answer).await)
+                AudioResult::Connected(self.connect(&owner, answer).await?)
             }
             AudioAction::SetMuted(muted) => AudioResult::Muted {
                 muted,
-                result: self.handle(&owner).and_then(|handle| {
-                    handle
-                        .set_microphone_muted(muted)
-                        .map_err(|error| error.to_string())
-                }),
+                result: self
+                    .handle(&owner)?
+                    .set_microphone_muted(muted)
+                    .map_err(|error| error.to_string()),
             },
-            AudioAction::Sample => AudioResult::Sampled(self.handle(&owner).and_then(|handle| {
-                if let Some((_, message)) = handle.take_error() {
-                    Err(message)
-                } else {
-                    Ok(Peaks([
-                        handle.take_microphone_peak(),
-                        handle.take_speaker_peak(),
-                    ]))
-                }
-            })),
+            AudioAction::Sample => {
+                let handle = self.handle(&owner)?;
+                AudioResult::Sampled({
+                    if let Some((_, message)) = handle.take_error() {
+                        Err(message)
+                    } else {
+                        Ok(Peaks([
+                            handle.take_microphone_peak(),
+                            handle.take_speaker_peak(),
+                        ]))
+                    }
+                })
+            }
             AudioAction::Close => {
                 self.close(&owner);
                 AudioResult::Closed
             }
         };
-        AudioReport { owner, result }
+        Some(AudioReport { owner, result })
     }
 
-    async fn prepare(&self, owner: &Owner, config: Option<&Config>) -> Result<Sdp, String> {
+    async fn observe(
+        &self,
+        owner: &Owner,
+        setup: impl Future<Output = anyhow::Result<session_lock::Activation>>,
+    ) -> Option<LockStop> {
+        let (registration, ready) = {
+            let mut slot = self.lock();
+            let entry = slot.reserve(owner)?;
+            (entry.monitor.take()?, entry.ready.clone())
+        };
+        let _monitor = Monitor { audio: self, owner };
+        let result = Abortable::new(
+            async move {
+                let mut activation = setup.await?;
+                if let Some(locked) = activation.as_mut().now_or_never() {
+                    return locked;
+                }
+                ready.send_replace(true);
+                activation.await
+            },
+            registration,
+        )
+        .await
+        .ok()?;
+        let reason = match result {
+            Ok(()) => LockStop::Locked,
+            Err(error) => {
+                tracing::debug!(%error, "session lock observer failed");
+                LockStop::MonitorFailed
+            }
+        };
+        self.lock().stop(owner).then_some(reason)
+    }
+
+    async fn prepare(&self, owner: &Owner, config: Option<&Config>) -> Option<Result<Sdp, String>> {
         if !RealtimeWebrtcSession::is_supported() {
-            return Err("Voice requires a Codex package with a compatible audio helper.".into());
+            return Some(Err(
+                "Voice requires a Codex package with a compatible audio helper.".into(),
+            ));
         }
-        let (abort, registration) = AbortHandle::new_pair();
-        {
+        let (registration, mut ready) = {
             let mut slot = self.lock();
             if slot
                 .retired_through
                 .is_some_and(|retired| retired >= owner.call)
             {
-                return Err("The voice call was cancelled.".into());
+                return None;
             }
-            if slot.entry.is_some() {
-                return Err("A local voice call already owns the audio devices.".into());
-            }
-            slot.entry = Some(Entry {
-                owner: owner.clone(),
-                abort,
-                handle: None,
-            });
-        }
+            let Some(entry) = slot.reserve(owner) else {
+                return Some(Err(
+                    "A local voice call already owns the audio devices.".into()
+                ));
+            };
+            (entry.prepare.take()?, entry.ready.subscribe())
+        };
+        ready.wait_for(|ready| *ready).await.ok()?;
         let selection = config
             .map(|config| AudioDeviceSelection {
                 microphone: config.realtime_audio.microphone.clone(),
@@ -115,50 +221,130 @@ impl Audio {
             .await
             .ok_or_else(|| "The audio helper failed to prepare.".to_owned())
             .and_then(|result| result.map_err(|error| error.to_string()));
-        match offer {
+        let mut slot = self.lock();
+        let Some(entry) = slot.entry.as_mut().filter(|entry| &entry.owner == owner) else {
+            if let Ok(offer) = offer {
+                offer.handle.close();
+            }
+            return None;
+        };
+        Some(match offer {
             Ok(offer) => {
-                let mut slot = self.lock();
-                if let Some(entry) = slot.entry.as_mut().filter(|entry| &entry.owner == owner) {
-                    entry.handle = Some(offer.handle);
-                    Ok(Sdp::new(offer.offer_sdp))
-                } else {
-                    offer.handle.close();
-                    Err("The voice call was cancelled.".into())
-                }
+                entry.handle = Some(offer.handle);
+                Ok(Sdp::new(offer.offer_sdp))
             }
             Err(error) => {
-                self.close(owner);
+                slot.stop(owner);
                 Err(error)
             }
-        }
+        })
     }
 
-    async fn connect(&self, owner: &Owner, answer: Sdp) -> Result<(), String> {
+    async fn connect(&self, owner: &Owner, answer: Sdp) -> Option<Result<(), String>> {
         let handle = self.handle(owner)?;
-        blocking(move || handle.apply_answer_sdp(answer.into_inner()))
+        let connected = blocking(move || handle.apply_answer_sdp(answer.into_inner()))
             .await
-            .ok_or_else(|| "The audio helper failed to connect.".to_owned())?
-            .map_err(|error| error.to_string())
+            .ok_or_else(|| "The audio helper failed to connect.".to_owned())
+            .and_then(|result| result.map_err(|error| error.to_string()));
+        self.handle(owner)?;
+        Some(connected)
     }
 
-    fn handle(&self, owner: &Owner) -> Result<RealtimeWebrtcSessionHandle, String> {
+    fn handle(&self, owner: &Owner) -> Option<RealtimeWebrtcSessionHandle> {
         self.lock()
             .entry
             .as_ref()
             .filter(|entry| &entry.owner == owner)
             .and_then(|entry| entry.handle.clone())
-            .ok_or_else(|| "The local audio connection is no longer available.".into())
     }
 
     fn close(&self, owner: &Owner) {
         let mut slot = self.lock();
         slot.retired_through = slot.retired_through.max(Some(owner.call));
-        if slot
-            .entry
-            .as_ref()
-            .is_some_and(|entry| &entry.owner == owner)
-        {
-            slot.entry = None;
-        }
+        slot.stop(owner);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use codex_tui_core::app::effects::Ask;
+    use codex_tui_core::app::{AppEv, AppFx, Intent, apply_app};
+    use codex_tui_core::fixtures::script::build;
+    use codex_tui_core::ids::ThreadId;
+    use codex_tui_core::screens::{ScreenThreadIntent, voice::ThreadIntent};
+
+    fn owners() -> [Owner; 2] {
+        let mut app = build(r#"{"step":"seed","seed":"session","thread":"thread"}"#)
+            .expect("session")
+            .app;
+        let event = |intent| {
+            AppEv::Intent(Intent::ThreadScreen {
+                thread: ThreadId::new("thread"),
+                intent: ScreenThreadIntent::Voice(intent),
+            })
+        };
+        std::array::from_fn(|_| {
+            let mut fx = AppFx::default();
+            apply_app(&mut app, event(ThreadIntent::Start), &mut fx);
+            apply_app(&mut app, event(ThreadIntent::Stop), &mut AppFx::default());
+            fx.commands()
+                .iter()
+                .find_map(|command| match command.host_ask() {
+                    Some(Ask::Audio(call)) if call.action == AudioAction::ObserveLock => {
+                        Some(call.owner.clone())
+                    }
+                    _ => None,
+                })
+                .expect("voice owner")
+        })
+    }
+
+    #[tokio::test]
+    async fn lock_snapshot_prevents_media_and_retires_the_ticket() {
+        let audio = Audio::default();
+        let [first, _] = owners();
+        let mut ready = audio
+            .lock()
+            .reserve(&first)
+            .expect("reserved")
+            .ready
+            .subscribe();
+        let activation: session_lock::Activation = Box::pin(async { Ok(()) });
+        assert_eq!(
+            audio.observe(&first, async { Ok(activation) }).await,
+            Some(LockStop::Locked)
+        );
+        assert!(!*ready.borrow_and_update());
+        assert!(ready.has_changed().is_err());
+        assert!(audio.lock().reserve(&first).is_none());
+    }
+
+    #[tokio::test]
+    async fn stale_observer_cannot_stop_the_replacement_and_drop_stops_current() {
+        let audio = Audio::default();
+        let [first, next] = owners();
+        let (lock, event) = tokio::sync::oneshot::channel();
+        let activation: session_lock::Activation = Box::pin(async move { Ok(event.await?) });
+        let mut old = Box::pin(audio.observe(&first, async { Ok(activation) }));
+        assert!(old.as_mut().now_or_never().is_none());
+        assert!(
+            *audio
+                .lock()
+                .reserve(&first)
+                .expect("first call")
+                .ready
+                .borrow()
+        );
+
+        audio.close(&first);
+        let activation: session_lock::Activation = Box::pin(std::future::pending());
+        let mut current = Box::pin(audio.observe(&next, async { Ok(activation) }));
+        assert!(current.as_mut().now_or_never().is_none());
+        lock.send(()).expect("late lock signal");
+        assert_eq!(old.await, None);
+        assert!(audio.lock().reserve(&next).is_some());
+        drop(current);
+        assert!(audio.lock().reserve(&next).is_none());
     }
 }

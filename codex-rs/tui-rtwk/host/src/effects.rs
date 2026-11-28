@@ -340,7 +340,7 @@ impl HostDoors for Own<'_> {
     ) -> Option<Self::Out> {
         let config = self.effects.config.as_deref();
         Some(Outcome::Effect(
-            Done::Audio(self.effects.audio.run(command, config).await),
+            Done::Audio(self.effects.audio.run(command, config).await?),
             None,
         ))
     }

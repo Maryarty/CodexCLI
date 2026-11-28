@@ -33,6 +33,9 @@ pub(super) fn failure_text(strings: &crate::l10n::strings::Shared, failure: &Fai
         Failure::Lagged(skipped) => strings.lagged(*skipped).to_string(),
         Failure::Stopped => strings.chat.server_stopped.to_string(),
         Failure::ReplyMismatch => strings.chat.reply_mismatch.to_string(),
+        Failure::VoiceLock(reason) => crate::sheets::voice::strings::EN
+            .lock_stop(*reason)
+            .to_string(),
     }
 }
 

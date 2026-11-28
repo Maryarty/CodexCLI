@@ -82,6 +82,7 @@ pub struct AudioCommand {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AudioAction {
+    ObserveLock,
     Prepare,
     Connect(Sdp),
     SetMuted(bool),
@@ -97,6 +98,7 @@ pub struct AudioReport {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AudioResult {
+    LockStopped(LockStop),
     Prepared(Result<Sdp, String>),
     Connected(Result<(), String>),
     Muted {
@@ -105,6 +107,12 @@ pub enum AudioResult {
     },
     Sampled(Result<Peaks, String>),
     Closed,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LockStop {
+    Locked,
+    MonitorFailed,
 }
 
 /// Peak levels are consumed as meter glyphs; do not emit them in effect logs.
@@ -346,6 +354,7 @@ pub(crate) fn apply_intent_on_thread(
                 speaker: [0; 6],
                 next_sample: None,
             };
+            audio(&call, AudioAction::ObserveLock, fx);
             audio(&call, AudioAction::Prepare, fx);
             part.call = Some(call);
         }
@@ -480,6 +489,13 @@ fn answer_audio(part: &mut ThreadPart, result: AudioResult, fx: &mut ThreadFx<'_
         return;
     };
     match (call.phase, result) {
+        (
+            Phase::Preparing | Phase::Negotiating(_) | Phase::Active,
+            AudioResult::LockStopped(reason),
+        ) => {
+            fx.voice_failure(Failure::VoiceLock(reason));
+            stop(part, fx);
+        }
         (Phase::Preparing, AudioResult::Prepared(Ok(offer))) => {
             call.phase = Phase::Negotiating(Negotiating::default());
             fx.request(

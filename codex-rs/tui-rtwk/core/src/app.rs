@@ -1380,6 +1380,10 @@ impl CodexApp {
                     | effects::Ask::GitSummary { address, .. },
                 ..
             } => address.backend,
+            Command::Effect {
+                ask: effects::Ask::Audio(command),
+                ..
+            } => command.owner.address.backend,
             Command::RejectRequest { key }
             | Command::ResolveRequest { key, .. }
             | Command::Effect {
